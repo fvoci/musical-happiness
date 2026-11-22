@@ -15,7 +15,7 @@
  * sight, and the update comes in with an origin of the page's, not through the
  * room's provider.
  *
- *   ?shape=paragraphs   25,000 paragraphs of a text each (the default)
+ *   ?shape=paragraphs   24,999 paragraphs of a text each (the default)
  *   ?shape=marks        paragraphs of 200 letters, every other with four marks
  *   ?check=1            the editor checks the content of every transaction from the
  *                       shared document, as `BodyEditor` makes it (`enableContentCheck`)
@@ -38,7 +38,7 @@ const query = new URLSearchParams(location.search);
 const check = query.get('check') === '1';
 const shape = query.get('shape') ?? 'paragraphs';
 
-/** What marks an update as the server's, as the product's provider marks it. */
+/** What marks an update as the server's: an origin that is not the binding's, as the provider's is not. */
 const SERVER = Symbol('server');
 
 const text = (value: string, marks?: DocNode['marks']): DocNode =>
@@ -95,6 +95,9 @@ function timedRuns(runs: number, run: () => unknown): Runs {
   }
   return runsOf(times);
 }
+
+/** How long the editor has to draw the body: less than the test waits. */
+const OPENING = 240_000;
 
 /** The second frame from now: the one after the browser drew what changed. */
 const drawn = (): Promise<void> =>
@@ -184,7 +187,11 @@ async function measure(runs: number, warm: number): Promise<Measured> {
 
 async function open(): Promise<Opened> {
   // The binding draws the shared document into the editor as the view is made.
-  while (editor.state.doc.childCount !== stored.content?.length) await drawn();
+  const until = performance.now() + OPENING;
+  while (editor.state.doc.childCount !== stored.content?.length) {
+    if (performance.now() > until) throw new Error(`the editor drew no body in ${OPENING} ms`);
+    await drawn();
+  }
   await drawn();
   let nodes = 1;
   editor.state.doc.descendants(() => {

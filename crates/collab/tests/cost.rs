@@ -153,12 +153,13 @@ fn applied(state: yrs::Update) -> Doc {
 /// one pass at a time, and the passes the worker makes after it
 /// (`collab_worker/serve.rs`); with the state and the body of the document it leaves.
 ///
-/// What is left out takes the update's time, not the state's: the walk of the update
-/// and its clients counted against the document's (`update::read`, again inside the
-/// charge here), its deletions held to their order, its roots looked at, and the
-/// clients' ends compared after the count. The charge reads the lists of the state
-/// only where its cheap count of the update's changes against all of the document's
-/// is past [`PLACING_STEPS`]; the row says which.
+/// What is left out takes the update's time, not the state's: its deletions held to
+/// their order, its roots looked at, and the clients' ends compared after the count.
+/// The update is read (`update::read`, the walk of it and its clients counted against
+/// the document's) inside the charge. The charge reads the clocks of the state only
+/// where its cheap count of the update's changes against all of the document's is past
+/// [`PLACING_STEPS`], and its lists only where the count of the clocks is past it too;
+/// the row says whether it went past the cheap count.
 fn take_by_passes(doc: &Doc, update: &[u8]) -> (Passes, Vec<u8>, Option<Body>) {
     use yrs::updates::decoder::Decode as _;
     let mut passes = Passes::default();
@@ -168,16 +169,20 @@ fn take_by_passes(doc: &Doc, update: &[u8]) -> (Passes, Vec<u8>, Option<Body>) {
     let changes = passes.time("2. scan of its state", take, || changes_of(&state));
     let read = passes.time("3. decode", take, || decode(&state));
     let copy = passes.time("4. apply to a copy", take, || applied(read));
-    passes.time("4a. the update charged (placing::charge)", take, || {
-        charged(&copy, &state, changes, update, PLACING_STEPS).expect("charged")
-    });
+    passes.time(
+        "4a. the update read and charged (update::read, placing::charge)",
+        take,
+        || charged(&copy, &state, changes, update, PLACING_STEPS).expect("charged"),
+    );
     // Past no limit the charge is its cheap count, which it gives where that is within
-    // the limit, and reads the state's lists for otherwise.
+    // the limit, and reads the state's clocks, and maybe its lists, for otherwise.
     let cheap =
         charged(&copy, &state, changes, update, u64::MAX).expect("charged") <= PLACING_STEPS;
+    // Decoded already in the take, by `update::read`.
+    let sent = decode(update);
     passes.time("4b. the update applied to the copy", take, || {
         copy.transact_mut()
-            .apply_update(decode(update))
+            .apply_update(sent)
             .expect("the update applies");
     });
     let state = passes.time("5. state_of the copy", take, || state_of(&copy));
@@ -230,9 +235,9 @@ fn take_by_passes(doc: &Doc, update: &[u8]) -> (Passes, Vec<u8>, Option<Body>) {
     );
     passes.0.push((
         if cheap {
-            "(the charge: the cheap count, no list read)"
+            "(the charge: the cheap count, the state's clocks and lists not read)"
         } else {
-            "(the charge: past the cheap count, the state's lists read)"
+            "(the charge: past the cheap count, the state's clocks read and maybe its lists)"
         },
         Paid::Told,
         Duration::ZERO,
@@ -387,8 +392,13 @@ fn crowds(clients: usize, (changes, client_changes): (u64, u64), steps_ahead: u6
         || three_quarters(steps_ahead, READING_STEPS)
 }
 
+/// The fewest of `limit` that are three quarters of it, as [`crowds`] tells.
+fn mark(limit: u64) -> u64 {
+    limit.saturating_mul(3).div_ceil(4)
+}
+
 /// How many of [`UPDATES`] paragraphs typed one after the other into the document of
-/// each body of [`honest::bodies`] have the server make it again from its body
+/// each body of [`honest::bodies_within`] the size measured ([`shapes::nodes`], [`shapes::bytes`]) have the server make it again from its body
 /// ([`crowds`]), and whether one is refused: a body whose own document is past the mark
 /// is made again at every update, as `keep_up` asks of a crowded document not whether
 /// it grew since (it asks so only of one near the limit of its state, which a
@@ -410,7 +420,7 @@ fn remade() {
     };
     println!(
         "changes a client may have: {client_changes}, made again from {}",
-        client_changes * 3 / 4
+        mark(client_changes)
     );
     println!(
         "| document | changes of its writer | of the mark | updates taken | made again | refused |"
@@ -445,7 +455,7 @@ fn remade() {
             }
         }
         let share = |count: u64| f64::from(u32::try_from(count).expect("a count of changes fits"));
-        let of_the_mark = share(changes) / share(client_changes.saturating_mul(3) / 4);
+        let of_the_mark = share(changes) / share(mark(client_changes));
         println!("| {name} | {changes} | {of_the_mark:.2} | {taken} | {remade} | {refused} |");
     }
 }

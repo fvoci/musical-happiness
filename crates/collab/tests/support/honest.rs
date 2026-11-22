@@ -65,7 +65,7 @@ pub(crate) fn bodies_within(max_nodes: usize, max_bytes: usize) -> Vec<(&'static
     let (room_nodes, room_bytes) = paste_room();
     assert!(
         max_nodes > 2 * room_nodes && max_bytes > 2 * room_bytes,
-        "{max_nodes} nodes and {max_bytes} bytes leave room for the largest paste"
+        "{max_nodes} nodes and {max_bytes} bytes are no more than twice the room of the largest paste"
     );
     let nodes = (max_nodes - room_nodes) / 2;
     let long = "가나다라마바사아자차".repeat(100);
