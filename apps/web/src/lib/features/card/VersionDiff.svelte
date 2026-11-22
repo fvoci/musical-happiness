@@ -2,12 +2,13 @@
   What changed from one body to another, as one body to read (body-diff.ts):
   how much was added and removed, the way from change to change (the two
   buttons, or Alt+↓ and Alt+↑ anywhere in it), and the merged body, where
-  what is the same in both for more than a few blocks is folded away and
-  shown on asking. A comparison with no change says so, the body folded.
+  what is the same in both for more than a few blocks is folded away,
+  shown on asking and folded again. A comparison with no change says so, the body folded.
   Made anew for each comparison (`{#key}` in VersionCompare.svelte): what was
   opened, and the change last come to, are of one comparison.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
 
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
@@ -16,7 +17,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import DiffBlocks from '$lib/editor/DiffBlocks.svelte';
   import type { ReferenceDrawing } from '$lib/editor/reference-chip.ts';
-  import { DIFF_STOP } from '$lib/editor/render-diff.ts';
+  import { DIFF_STOP, diffCounts } from '$lib/editor/render-diff.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BodyDiff } from '$lib/logic/body-diff.ts';
   import { foldSame } from '$lib/logic/diff-fold.ts';
@@ -30,18 +31,18 @@
 
   let { diff, resolveUser, references }: Props = $props();
 
-  const segments = $derived(foldSame(diff.blocks));
+  /** The stretches, each with the place of its first block among the merged ones: what names it. */
+  const segments = $derived.by(() => {
+    let start = 0;
+    return foldSame(diff.blocks).map((segment) => {
+      const at = start;
+      start += segment.blocks.length;
+      return { ...segment, start: at };
+    });
+  });
   /** The folded stretches that were opened, by their place: a new comparison makes a new view. */
   const opened = new SvelteSet<number>();
-  const counts = $derived(
-    [
-      m.body_diff_counts({ added: String(diff.added), removed: String(diff.removed) }),
-      diff.formatted > 0 ? m.body_diff_formatted({ count: String(diff.formatted) }) : undefined,
-      diff.reshaped > 0 ? m.body_diff_reshaped({ count: String(diff.reshaped) }) : undefined,
-    ]
-      .filter(Boolean)
-      .join(' · '),
-  );
+  const counts = $derived(diffCounts(diff));
 
   let region = $state<HTMLElement>();
   /** The change the way through them came to last: where it goes on from, when the focus is elsewhere. */
@@ -60,6 +61,17 @@
     const stop = stops[next];
     stop?.focus({ preventScroll: true });
     stop?.scrollIntoView({ block: 'center' });
+  }
+
+  /**
+   * Opens a folded stretch, or folds it again; the focus goes to the button
+   * that takes the place of the one pressed.
+   */
+  async function unfold(start: number, open: boolean): Promise<void> {
+    if (open) opened.add(start);
+    else opened.delete(start);
+    await tick();
+    region?.querySelector<HTMLElement>(`[data-fold="${String(start)}"]`)?.focus();
   }
 
   function keyed(event: KeyboardEvent): void {
@@ -108,20 +120,32 @@
     </p>
   {/if}
   <div class="grid gap-3" bind:this={region}>
-    {#each segments as segment, index (index)}
-      {#if segment.folded && !opened.has(index)}
+    {#each segments as segment (segment.start)}
+      {@const count = String(segment.blocks.length)}
+      {#if segment.folded && !opened.has(segment.start)}
         <Button
           variant="outline"
           size="sm"
           class="justify-self-stretch border-dashed text-muted-foreground roomy:min-h-touch"
           data-testid="body-diff-fold"
-          onclick={() => {
-            opened.add(index);
-          }}
+          data-fold={segment.start}
+          onclick={() => void unfold(segment.start, true)}
         >
-          {m.body_diff_unfold({ count: String(segment.blocks.length) })}
+          {m.body_diff_unfold({ count })}
         </Button>
       {:else}
+        {#if segment.folded}
+          <Button
+            variant="ghost"
+            size="sm"
+            class="justify-self-start text-muted-foreground roomy:min-h-touch"
+            data-testid="body-diff-refold"
+            data-fold={segment.start}
+            onclick={() => void unfold(segment.start, false)}
+          >
+            {m.body_diff_refold({ count })}
+          </Button>
+        {/if}
         <DiffBlocks blocks={segment.blocks} {resolveUser} {references} class="text-base" />
       {/if}
     {/each}

@@ -106,10 +106,20 @@ function keep(
   kept.versions.splice(0, Math.max(0, kept.versions.length - VERSIONS_KEPT));
 }
 
-/** A change of `userId` is taken into a card's room: the body before those who write now began is kept first. */
-export function typedBy(world: World, card: StoredCard, userId: string): void {
+/**
+ * A change of `userId` is taken into a card's room: the body before those who
+ * write now began is kept first, and, as the server does, the body before the
+ * first change after the period, when the card holds all its room took
+ * (`holdsAll`); otherwise it is kept as the room next writes it (`roomWrote`).
+ */
+export function typedBy(
+  world: World,
+  card: StoredCard,
+  userId: string,
+  holdsAll: () => boolean,
+): void {
   const kept = keptOf(world, card.id);
-  if (kept.due === undefined) {
+  if (kept.due === undefined || (Date.now() >= kept.due && holdsAll())) {
     keep(world, card);
     kept.due = Date.now() + VERSION_EVERY;
   }
@@ -264,7 +274,6 @@ export class MemoryBodyVersions implements BodyVersions {
     if (newest ? same(newest.body, card.body ?? null) : (card.body ?? null) === null) {
       // Kept already: nobody wrote since it, and the interval waits for the next change.
       kept.unkept.clear();
-      kept.due = undefined;
       return { outcome: 'unchanged', version: this.#listed(card, newest?.version) };
     }
     const byHand = kept.versions.findLast((one) => one.cause === 'manual');

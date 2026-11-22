@@ -42,6 +42,7 @@ export const KEPT_SAID: Record<KeepOutcome, () => string> = {
   recent: m.card_version_recent,
   failed: m.card_version_keep_failed,
   notNow: m.card_version_keep_not_now,
+  opening: m.card_version_keep_opening,
 };
 
 export const CARD_WORDS: BodyWords = {
@@ -79,6 +80,24 @@ export const PAGE_WORDS: BodyWords = {
   lostImage: m.wiki_body_lost_image,
   lostFile: m.wiki_body_lost_file,
   lostFormula: m.wiki_body_lost_formula,
+};
+
+export const ENTRY_WORDS: BodyWords = {
+  label: m.diary_entry_body,
+  placeholder: m.diary_entry_placeholder,
+  empty: m.diary_entry_empty,
+  invalid: m.diary_body_invalid,
+  joining: m.diary_body_joining,
+  receiving: m.diary_body_receiving,
+  offline: m.diary_body_offline,
+  readOnly: m.diary_body_read_only,
+  gone: m.diary_body_gone,
+  unavailable: m.diary_body_unavailable,
+  notOpened: m.diary_body_not_opened,
+  lostReset: m.diary_body_lost_reset,
+  lostImage: m.diary_body_lost_image,
+  lostFile: m.diary_body_lost_file,
+  lostFormula: m.diary_body_lost_formula,
 };
 
 /** How long joining or receiving lasts before it is said, in milliseconds. */

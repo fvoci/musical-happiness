@@ -98,7 +98,11 @@ pub struct LeavingOrganization {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(nullable = false)]
     pub wikis: Option<i64>,
-    /// How many files its boards and wikis in use hold.
+    /// How many diaries it has in use: only the account's own space has any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    pub diaries: Option<i64>,
+    /// How many files its boards, wikis and diaries in use hold.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(nullable = false)]
     pub files: Option<i64>,
@@ -114,6 +118,7 @@ impl LeavingOrganization {
             name: organization.name,
             boards: None,
             wikis: None,
+            diaries: None,
             files: None,
         }
     }

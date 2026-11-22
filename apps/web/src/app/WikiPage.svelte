@@ -41,6 +41,7 @@
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { holdSaveKey } from '$lib/editor/save-key.ts';
   import { firstPage, withDescendants } from '$lib/logic/page-tree.ts';
   import {
     pageTrash,
@@ -176,6 +177,13 @@
     if (shown?.status === 'ready') untrack(() => shown.showPage(id));
   });
 </script>
+
+<!-- A page shown, the keys that keep a version of its body save no page anywhere on it. -->
+<svelte:window
+  onkeydown={(event: KeyboardEvent) => {
+    if (wiki?.openPage) holdSaveKey(event);
+  }}
+/>
 
 {#if !wiki || wiki.status === 'idle' || wiki.status === 'loading'}
   <div class="grid h-full place-items-center p-6">

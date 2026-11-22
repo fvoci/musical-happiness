@@ -2,6 +2,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { cardOfBlock } from '$lib/api/convert.ts';
+import { summaryOfBody } from '$lib/state/body-summary.ts';
+import { isCardBlock, type CardSummary } from '$lib/state/backend.ts';
 import { CardPreviews } from '$lib/state/index.ts';
 
 import { openFirstBoard, serverBackend, settle, text } from './support.ts';
@@ -70,7 +72,7 @@ describe('the previews of a gallery', () => {
 });
 
 describe('the server backend', () => {
-  it('asks the card list with previews, and makes one of a card block’s body', async () => {
+  it('asks the card list with previews, and takes a change message’s from its summary', async () => {
     const sent: string[] = [];
     vi.stubGlobal('fetch', (url: string) => {
       sent.push(url);
@@ -93,27 +95,92 @@ describe('the server backend', () => {
       ['c2', { imageFileId: '', text: '' }],
     ]);
 
-    const block = cardOfBlock({
-      id: 'c4',
-      containerId: 'b',
-      parentId: '',
-      createdBy: 'u',
-      modifiedBy: 'u',
-      schema: 1,
-      type: 'card',
-      title: 'With a picture',
-      fields: { properties: {} },
-      createAt: 1,
-      updateAt: 1,
-      deleteAt: 0,
-      body: {
-        type: 'doc',
-        content: [
-          { type: 'image', attrs: { fileId: 'f9' } },
-          { type: 'paragraph', content: [{ type: 'text', text: 'Below it' }] },
-        ],
+    const body = {
+      type: 'doc',
+      content: [
+        { type: 'image', attrs: { fileId: 'f9' } },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Below it' }] },
+      ],
+    };
+    // The server's message: the block without its body, the summary beside it.
+    const summary = {
+      hasBody: true,
+      tasksTotal: 0,
+      tasksDone: 0,
+      preview: { imageFileId: 'f9', text: 'Below it' },
+    };
+    expect(summaryOfBody(body)).toEqual(summary);
+    const block = cardOfBlock(
+      {
+        id: 'c4',
+        containerId: 'b',
+        parentId: '',
+        createdBy: 'u',
+        modifiedBy: 'u',
+        schema: 1,
+        type: 'card',
+        title: 'With a picture',
+        fields: { properties: {} },
+        createAt: 1,
+        updateAt: 1,
+        deleteAt: 0,
+        body: null,
       },
+      summary,
+    );
+    expect(block).toMatchObject({ id: 'c4', hasBody: true, preview: summary.preview });
+  });
+});
+
+describe('a card’s change message', () => {
+  it('has the shape of the server’s from the memory backend: a summary in place of the body', async () => {
+    const { board, backend, other } = await openFirstBoard();
+    const alpha = board.realCards.find((card) => card.title === 'Alpha');
+    if (!alpha) throw new Error('no card');
+    const told: CardSummary[] = [];
+    const stop = backend.watchContainer(board.boardId, (change) => {
+      if (change.kind === 'blocks') told.push(...change.blocks.filter(isCardBlock));
     });
-    expect(block.preview).toEqual({ imageFileId: 'f9', text: 'Below it' });
+    const task = (checked: boolean, words: string) => ({
+      type: 'taskItem',
+      attrs: { checked },
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: words }] }],
+    });
+    const body = {
+      type: 'doc',
+      content: [
+        { type: 'taskList', content: [task(true, 'one'), task(false, 'two')] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'notes' }] },
+      ],
+    };
+    const now = await other.card(board.boardId, alpha.id);
+    await other.writeCardBody(board.boardId, alpha.id, { body, readAt: now.updateAt });
+    await settle();
+    stop();
+
+    const card = told.at(-1);
+    expect(card).toMatchObject({ id: alpha.id, hasBody: true, tasksTotal: 2, tasksDone: 1 });
+    expect(card?.preview).toEqual(summaryOfBody(body).preview);
+    expect(card).not.toHaveProperty('body');
+    // The server's message of the same card, as the web reads it.
+    const fromServer = cardOfBlock(
+      {
+        id: alpha.id,
+        containerId: board.boardId,
+        parentId: '',
+        createdBy: 'u',
+        modifiedBy: 'u',
+        schema: 1,
+        type: 'card',
+        title: 'Alpha',
+        fields: { properties: {} },
+        createAt: 1,
+        updateAt: 2,
+        deleteAt: 0,
+        body: null,
+      },
+      summaryOfBody(body),
+    );
+    expect(Object.keys(card ?? {}).sort()).toEqual(Object.keys(fromServer).sort());
   });
 });

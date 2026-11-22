@@ -201,15 +201,20 @@ export function textOf(node: BodyNode): string {
   return (node.content ?? []).map(textOf).join(node.type === 'paragraph' ? '' : ' ');
 }
 
+/** Whether a node that is not text counts as one word: a line break, which is neither, counts nothing. */
+export const countsOne = (type: string): boolean => ATOMS.has(type);
+
 /**
  * How much a node and all in it counts, for the counts of what was added and
  * removed: its words, and one for each thing that is not text (an image, a
- * formula, a mention).
+ * formula, a mention, a diagram: a code block of `diagram`, its source no words).
  */
-export function weightOf(node: BodyNode): number {
+export function weightOf(node: BodyNode, diagram?: string): number {
   if (node.type === 'text') return wordCount(node.text ?? '');
   if (ATOMS.has(node.type)) return 1;
+  if (diagram !== undefined && node.type === 'codeBlock' && node.attrs?.language === diagram)
+    return 1;
   let weight = 0;
-  for (const child of node.content ?? []) weight += weightOf(child);
+  for (const child of node.content ?? []) weight += weightOf(child, diagram);
   return weight;
 }

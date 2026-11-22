@@ -6,10 +6,10 @@ use serde::Deserialize;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::contract::{
-    params::{ContainerId, PeopleWorkspaceId, TeamId},
+    params::{PeopleContainerId, PeopleWorkspaceId, TeamId},
     tag,
 };
-use super::workspace::InContainer;
+use super::workspace::InBoardOrWiki;
 use super::{ApiResult, decode_object, json_response, no_content, require_container_permission};
 use crate::{app::App, permissions::ContainerPermission};
 
@@ -39,9 +39,9 @@ struct TeamPlace {
 /// identifier.
 /// Direct memberships remain separate.
 #[utoipa::path(get, path = "/w/{workspaceId}/containers/{containerId}/teams", operation_id = "getContainerTeams", tag = tag::MEMBERS,
-    params(PeopleWorkspaceId, ContainerId),
+    params(PeopleWorkspaceId, PeopleContainerId),
     responses((status = 200, description = "Assigned teams.", body = Vec<ContainerTeam>)))]
-async fn list(InContainer(ws): InContainer, Path(place): Path<ContainerPlace>) -> ApiResult {
+async fn list(InBoardOrWiki(ws): InBoardOrWiki, Path(place): Path<ContainerPlace>) -> ApiResult {
     let ws = ws.require_people()?;
     require_container_permission(
         &ws.app,
@@ -64,10 +64,10 @@ async fn list(InContainer(ws): InContainer, Path(place): Path<ContainerPlace>) -
 /// commenter, or editor; admin is rejected. The board and team must belong to this
 /// workspace and are checked before decoding the body. Managed access is audited.
 #[utoipa::path(put, path = "/w/{workspaceId}/containers/{containerId}/teams/{teamId}", operation_id = "setContainerTeam", tag = tag::MEMBERS,
-    params(PeopleWorkspaceId, ContainerId, TeamId), request_body = ContainerTeamRole,
+    params(PeopleWorkspaceId, PeopleContainerId, TeamId), request_body = ContainerTeamRole,
     responses((status = 204, description = "The team has this role.")))]
 async fn assign(
-    InContainer(ws): InContainer,
+    InBoardOrWiki(ws): InBoardOrWiki,
     Path(place): Path<TeamPlace>,
     body: Bytes,
 ) -> ApiResult {
@@ -99,8 +99,8 @@ async fn assign(
 /// For board administrators and workspace administrators. Direct roles and the
 /// roles inherited from other teams remain. Idempotent for an existing team.
 #[utoipa::path(delete, path = "/w/{workspaceId}/containers/{containerId}/teams/{teamId}", operation_id = "removeContainerTeam", tag = tag::MEMBERS,
-    params(PeopleWorkspaceId, ContainerId, TeamId), responses((status = 204, description = "The team has no role on this board.")))]
-async fn remove(InContainer(ws): InContainer, Path(place): Path<TeamPlace>) -> ApiResult {
+    params(PeopleWorkspaceId, PeopleContainerId, TeamId), responses((status = 204, description = "The team has no role on this board.")))]
+async fn remove(InBoardOrWiki(ws): InBoardOrWiki, Path(place): Path<TeamPlace>) -> ApiResult {
     let ws = ws.require_people()?;
     require_container_permission(
         &ws.app,

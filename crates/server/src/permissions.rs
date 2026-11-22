@@ -158,6 +158,9 @@ impl ContainerScope {
             (false, false, ContainerType::Open) => match container.kind {
                 ContainerKind::Board => Self::Open,
                 ContainerKind::Wiki => Self::OpenWiki,
+                // No diary is stored as open (`Container::check_storable`); one that
+                // were would be nobody's but its members' all the same.
+                ContainerKind::Diary => Self::InvitedOnly,
             },
             (false, false, ContainerType::Private) => Self::InvitedOnly,
             (false, true, ContainerType::Open) => Self::OpenTemplate,

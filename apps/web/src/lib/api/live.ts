@@ -30,6 +30,7 @@
  * hears when it comes and goes. Their binary frames come on it too.
  */
 import { isBackendError, type Change, type ChangeListener } from '../state/backend.ts';
+import type { BodySummary } from '../state/body-summary.ts';
 
 import {
   attachmentOf,
@@ -43,6 +44,7 @@ import { Heartbeat, Patience, PING, PONG } from './live-heartbeat.ts';
 import { LivePresence } from './live-presence.ts';
 import { LiveRooms } from './live-rooms.ts';
 import { pageOfBlock } from './wikis.ts';
+import { entryOfBlock } from './diaries.ts';
 
 type Members = Extract<Change, { kind: 'members' }>['members'];
 type ChangedBlock = Extract<Change, { kind: 'blocks' }>['blocks'][number];
@@ -74,7 +76,7 @@ const GATHER = 200;
 
 type Message = { workspaceId?: string } & (
   | { action: 'UPDATE_CONTAINER'; container: Schemas['Container'] }
-  | { action: 'UPDATE_BLOCK'; block: Schemas['Block'] }
+  | { action: 'UPDATE_BLOCK'; block: Schemas['Block']; summary?: BodySummary }
   | { action: 'UPDATE_MEMBER' | 'DELETE_MEMBER'; member: Schemas['ContainerMember'] }
   | { action: 'UPDATE_USER'; userId: string }
   | { action: string }
@@ -372,7 +374,7 @@ export class LiveChanges {
           : { kind: 'containerDeleted', containerId: container.id };
       this.#tellContainer(container.id, change, true);
     } else if ('block' in message) {
-      const { block } = message;
+      const { block, summary } = message;
       if (block.deleteAt !== 0) {
         // Only the block deleted is told, not what went with it.
         this.#tellContainer(
@@ -391,7 +393,16 @@ export class LiveChanges {
         );
         return;
       }
-      const changed = changedBlock(block);
+      if (block.type === 'entry') {
+        const entries = [entryOfBlock(block)];
+        this.#tellContainer(
+          block.containerId,
+          { kind: 'entries', containerId: block.containerId, entries },
+          false,
+        );
+        return;
+      }
+      const changed = changedBlock(block, summary);
       if (changed) {
         this.#tellContainer(
           block.containerId,
@@ -440,13 +451,19 @@ export class LiveChanges {
   }
 }
 
-/** A block of a message as the screens' changed block; other kinds are not shown. */
-function changedBlock(block: Schemas['Block']): ChangedBlock | undefined {
+/**
+ * A block of a message as the screens' changed block; other kinds are not
+ * shown. A card's message carries the summary of its body in place of it.
+ */
+function changedBlock(
+  block: Schemas['Block'],
+  summary: BodySummary | undefined,
+): ChangedBlock | undefined {
   switch (block.type) {
     case 'view':
       return viewOf(block);
     case 'card':
-      return cardOfBlock(block);
+      return summary && cardOfBlock(block, summary);
     case 'comment':
       return commentOf(block);
     case 'attachment':

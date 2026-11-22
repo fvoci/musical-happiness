@@ -1,9 +1,11 @@
-//! What the model refuses of a block, a relation or a card a client sent, as the
+//! What the model refuses of a block, a board, a relation or a card a client sent, as the
 //! problems the API answers with.
 
-use fvoci_model::{BlockError, CardError, RELATION_LIMIT, RelationError, RelationProblem};
+use fvoci_model::{
+    BlockError, CardError, ContainerError, RELATION_LIMIT, RelationError, RelationProblem,
+};
 
-use super::{AppError, Reason};
+use super::{AppError, Reason, Subject};
 
 impl From<BlockError> for AppError {
     fn from(error: BlockError) -> Self {
@@ -15,9 +17,14 @@ impl From<BlockError> for AppError {
             | BlockError::BodyFileNotOfContainer
             | BlockError::FileBlockInComment => Self::bad_request(error).with_field("body"),
             BlockError::NulInTitle => Self::bad_request(error).with_field("title"),
-            BlockError::InvalidCardField { .. } | BlockError::InvalidPageField { .. } => {
-                Self::bad_request(error).with_field("fields")
-            }
+            BlockError::InvalidCardField { .. }
+            | BlockError::InvalidPageField { .. }
+            | BlockError::InvalidEntryField { .. }
+            | BlockError::EntryDateChanges => Self::bad_request(error).with_field("fields"),
+            BlockError::DayTaken { .. } => Self::conflict(error).with_reason(Reason::DayTaken),
+            BlockError::TooManyEntries { limit } => Self::bad_request(error)
+                .with_reason(Reason::TooManyEntries)
+                .with_limit(u64::from(limit)),
             BlockError::AfterNotSibling => Self::bad_request(error).with_field("after"),
             BlockError::PageTooDeep { limit } => Self::bad_request(error)
                 .with_reason(Reason::PageTooDeep)
@@ -31,12 +38,16 @@ impl From<BlockError> for AppError {
             | BlockError::TypeStrandsComments
             | BlockError::PageByBlocks
             | BlockError::PageOffWiki
-            | BlockError::NotPageOnWiki => Self::bad_request(error).with_field("type"),
+            | BlockError::NotPageOnWiki
+            | BlockError::EntryByBlocks
+            | BlockError::EntryOffDiary
+            | BlockError::NotEntryOnDiary => Self::bad_request(error).with_field("type"),
             BlockError::ParentNotOnContainer
             | BlockError::ParentBelowBlock
             | BlockError::CommentNotOnCardOrPage
             | BlockError::ParentIsComment
-            | BlockError::PageNotBelowPage => Self::bad_request(error).with_field("parentId"),
+            | BlockError::PageNotBelowPage
+            | BlockError::EntryBelowBlock => Self::bad_request(error).with_field("parentId"),
             BlockError::EmptyContainerId => Self::from(anyhow::Error::from(error)),
         }
     }
@@ -75,5 +86,30 @@ impl From<CardError> for AppError {
                 Self::from(anyhow::Error::from(error))
             }
         }
+    }
+}
+
+impl AppError {
+    /// A bad request for what a board of its kind is not, at the member of the board
+    /// that says otherwise: a template or card properties of a wiki or a diary, a diary
+    /// that is not private, and any other at its kind. One diary more than a space has
+    /// is refused with its reason and the limit, at no member.
+    pub(super) fn not_of_its_kind(refused: ContainerError) -> Self {
+        if let ContainerError::TooManyDiaries { limit } = refused {
+            return Self::bad_request(refused)
+                .with_reason(Reason::TooManyDiaries)
+                .with_limit(u64::from(limit));
+        }
+        let member = match refused {
+            ContainerError::WikiIsTemplate | ContainerError::DiaryIsTemplate => "isTemplate",
+            ContainerError::WikiHasCardProperties | ContainerError::DiaryHasCardProperties => {
+                "cardProperties"
+            }
+            ContainerError::DiaryNotPrivate => "type",
+            _ => "kind",
+        };
+        let mut error = Self::bad_request(refused).with_field(member);
+        error.subject = Some(Subject::Board);
+        error
     }
 }

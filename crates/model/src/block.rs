@@ -1,5 +1,5 @@
-//! Blocks: the basic unit of board content (cards, views, comments and attachments) and
-//! of a wiki's (pages).
+//! Blocks: the basic unit of board content (cards, views, comments and attachments),
+//! of a wiki's (pages) and of a diary's (entries).
 
 use std::collections::HashSet;
 use std::fmt;
@@ -12,6 +12,10 @@ use thiserror::Error;
 use crate::JsonMap;
 use crate::body::{Body, BodyChange};
 use crate::card_property::{CardPropertyError, PersonProperties, validate_block_properties};
+use crate::diary::{
+    ENTRY_DATE_FIELD, ENTRY_MOOD_FIELD, ENTRY_PLACE_FIELD, ENTRY_WEATHER_FIELD, is_date_value,
+    is_mood_value, is_note_value,
+};
 use crate::page::{PAGE_ICON_FIELD, PAGE_ORDER_FIELD, is_order_value};
 use crate::relation::RelationError;
 
@@ -31,8 +35,8 @@ pub const CARD_FIELDS_MAX_CHARS: usize = 64_000;
 
 /// The type of a block.
 ///
-/// A new block of a board has one of four types ([`BlockType::is_current`]), and a wiki
-/// has pages ([`crate::Page`]). Blocks stored before a
+/// A new block of a board has one of four types ([`BlockType::is_current`]), a wiki
+/// has pages ([`crate::Page`]) and a diary entries ([`crate::DiaryEntry`]). Blocks stored before a
 /// card's content became its body have others, among them type strings the server knows
 /// nothing about (the original's web app had `h1` and `list-item`); those are read and
 /// returned verbatim, kept in [`BlockType::Other`].
@@ -49,6 +53,8 @@ pub enum BlockType {
     Attachment,
     /// A page of a wiki ([`crate::Page`]).
     Page,
+    /// The entry of a day of a diary ([`crate::DiaryEntry`]).
+    Entry,
     /// Any other type string, kept as sent, such as a content block type of the original
     /// (`text`, `image`, ...): no block is written with one any more, and the data steps
     /// of migrations 8 and 42 delete those stored before. The empty string means "no
@@ -57,15 +63,15 @@ pub enum BlockType {
 }
 
 impl BlockType {
-    /// The types whose body is edited together, in a room of the block's own: a card
-    /// and a page. A comment's body is written whole by its author.
-    pub const WITH_ROOM: [Self; 2] = [Self::Card, Self::Page];
+    /// The types whose body is edited together, in a room of the block's own: a card,
+    /// a page and an entry. A comment's body is written whole by its author.
+    pub const WITH_ROOM: [Self; 3] = [Self::Card, Self::Page, Self::Entry];
 
     /// Returns `true` for the types that may have a body: a card and a comment
-    /// (`docs/s6-design.md` 5.7), and a page.
+    /// (`docs/s6-design.md` 5.7), a page and an entry.
     #[must_use]
     pub fn has_body(&self) -> bool {
-        matches!(self, Self::Card | Self::Comment | Self::Page)
+        matches!(self, Self::Card | Self::Comment | Self::Page | Self::Entry)
     }
 
     /// Checks that a block of this type may have `body`: only a type that has a body
@@ -89,7 +95,7 @@ impl BlockType {
     }
 
     /// Returns `true` for the types a comment may be on: a card of a board and a page of
-    /// a wiki.
+    /// a wiki. An entry of a diary takes none.
     #[must_use]
     pub fn takes_comments(&self) -> bool {
         matches!(self, Self::Card | Self::Page)
@@ -105,7 +111,8 @@ impl BlockType {
     /// a view, a comment and an attachment (`docs/s6-design.md` 5.7). The content
     /// blocks that were stored before a card's content became its body were deleted by
     /// a data step of migration 8. A page is no such type: the operations of pages make
-    /// and change it, which keep it in its place in the tree of its wiki.
+    /// and change it, which keep it in its place in the tree of its wiki. Nor is an
+    /// entry: the operations of diaries make it, which keep a day to one.
     #[must_use]
     pub fn is_current(&self) -> bool {
         matches!(
@@ -119,7 +126,9 @@ impl BlockType {
     #[must_use]
     pub fn fields_max_chars(&self) -> usize {
         match self {
-            Self::Card | Self::Comment | Self::Attachment | Self::Page => CARD_FIELDS_MAX_CHARS,
+            Self::Card | Self::Comment | Self::Attachment | Self::Page | Self::Entry => {
+                CARD_FIELDS_MAX_CHARS
+            }
             Self::View | Self::Other(_) => BLOCK_FIELDS_MAX_CHARS,
         }
     }
@@ -132,6 +141,7 @@ impl BlockType {
             Self::Comment => "comment",
             Self::Attachment => "attachment",
             Self::Page => "page",
+            Self::Entry => "entry",
             Self::Other(other) => other,
         }
     }
@@ -149,6 +159,7 @@ impl BlockType {
             "comment" => Self::Comment,
             "attachment" => Self::Attachment,
             "page" => Self::Page,
+            "entry" => Self::Entry,
             _ => return None,
         })
     }
@@ -252,8 +263,8 @@ pub enum BlockError {
     /// ([`crate::check_relation_value`]), or a block that is no card of the board.
     #[error(transparent)]
     InvalidRelation(#[from] RelationError),
-    /// A block that is no card, comment or page has a body.
-    #[error("only a card, a comment or a page has a body")]
+    /// A block that is no card, comment, page or entry has a body.
+    #[error("only a card, a comment, a page or an entry has a body")]
     BodyNotAllowed,
     /// An image or a file block of the body that the write makes the block show newly
     /// names no file that the block's board or wiki has when the write is stored.
@@ -314,7 +325,64 @@ pub enum BlockError {
         /// The most pages the wiki may have.
         limit: u32,
     },
+    /// A field of an entry is missing or has a value it may not have: `date` a day
+    /// ([`crate::DiaryDate`]), `mood` a mood ([`crate::Mood`]), `weather` and `place`
+    /// short texts, and the title the day as `date` has it.
+    #[error("the field {field} of an entry must be {expected}")]
+    InvalidEntryField {
+        /// The field.
+        field: &'static str,
+        /// What its value must be.
+        expected: &'static str,
+    },
+    /// A write of blocks gives the type of an entry, as the type of a new block or of a
+    /// patch: see [`BlockError::type_not_current`].
+    #[error("an entry is made and changed by the operations of diaries")]
+    EntryByBlocks,
+    /// An entry is stored on a board or a wiki: an entry is a block of a diary.
+    #[error("an entry is a block of a diary")]
+    EntryOffDiary,
+    /// A block that is no entry is stored on a diary: a diary has its entries only.
+    #[error("the blocks of a diary are its entries")]
+    NotEntryOnDiary,
+    /// An entry is stored below a block: an entry is directly on its diary.
+    #[error("an entry is below no block")]
+    EntryBelowBlock,
+    /// An entry is stored with another day than it was made with.
+    #[error("the day of an entry does not change")]
+    EntryDateChanges,
+    /// An entry is stored, or comes back from the trash, on a day of its diary that has
+    /// an entry: a diary has one entry a day.
+    #[error("the diary has an entry of {date} already: a day has one entry")]
+    DayTaken {
+        /// The day, as an entry has it.
+        date: String,
+    },
+    /// The diary would have more entries than it may, those in the trash not counted.
+    #[error("the diary would have more than {limit} entries")]
+    TooManyEntries {
+        /// The most entries the diary may have.
+        limit: u32,
+    },
 }
+
+/// The fields of an entry whose value has one kind, as [`CARD_FIELD_KINDS`] has a
+/// card's. Its `date` is there besides, which [`Block::validate`] asks for by itself: an
+/// entry is not without it.
+const ENTRY_FIELD_KINDS: [FieldKind; 4] = [
+    (ENTRY_DATE_FIELD, "a day, as `2026-11-21`", is_date_value),
+    (ENTRY_MOOD_FIELD, "a mood", is_mood_value),
+    (
+        ENTRY_WEATHER_FIELD,
+        "a text of at most 100 characters",
+        is_note_value,
+    ),
+    (
+        ENTRY_PLACE_FIELD,
+        "a text of at most 100 characters",
+        is_note_value,
+    ),
+];
 
 /// The fields of a page whose value has one kind, as [`CARD_FIELD_KINDS`] has a card's.
 const PAGE_FIELD_KINDS: [FieldKind; 2] = [
@@ -347,10 +415,10 @@ impl BlockError {
     /// The refusal of `block_type` as the type of a new block or of a patch.
     #[must_use]
     pub fn type_not_current(block_type: &BlockType) -> Self {
-        if *block_type == BlockType::Page {
-            Self::PageByBlocks
-        } else {
-            Self::TypeNotCurrent
+        match block_type {
+            BlockType::Page => Self::PageByBlocks,
+            BlockType::Entry => Self::EntryByBlocks,
+            _ => Self::TypeNotCurrent,
         }
     }
 }
@@ -369,10 +437,11 @@ pub struct Block {
     pub modified_by: String,
     /// The schema version of the block.
     pub schema: i64,
-    /// The block type: `card`, `view`, `comment` or `attachment` on a board, and `page`
-    /// and `comment` (on a page) on a wiki. No request of blocks makes a block of
-    /// another type or patches one into it (400 naming `type`), nor a page:
-    /// `createPage` makes those, and `createPageComment` the comments of a wiki.
+    /// The block type: `card`, `view`, `comment` or `attachment` on a board, `page`
+    /// and `comment` (on a page) on a wiki, and `entry` on a diary. No request of blocks
+    /// makes a block of another type or patches one into it (400 naming `type`), nor a
+    /// page or an entry: `createPage` makes pages, `createPageComment` the comments of
+    /// a wiki, and `createDiaryEntry` entries.
     #[serde(rename = "type")]
     #[schema(value_type = String)]
     pub block_type: BlockType,
@@ -382,14 +451,16 @@ pub struct Block {
     /// comment, an attachment or a page and 800,000 for a view or a block of another
     /// type. The `icon` of a card is a string and its `isTemplate` a boolean, or either
     /// `null` (400 naming `fields` otherwise). A page has its `icon` and its `order`
-    /// here, as `Page` gives them.
+    /// here, as `Page` gives them, and an entry its `date`, `mood`, `weather` and
+    /// `place`, as `DiaryEntry` gives them.
     #[schema(value_type = Object)]
     pub fields: JsonMap,
-    /// The body of a card, a comment or a page; `null` for a block without one. Only
+    /// The body of a card, a comment, a page or an entry; `null` for a block without one. Only
     /// those have one: a body on another block is refused (400 naming `body`). Every image of
     /// it shows a file of the block's board. Whoever reads it by the board's link gets
     /// every mention with an empty `userId`: a shape that is only sent, which a write
-    /// would have refused.
+    /// would have refused. A change message (`UPDATE_BLOCK`) of a card, a page or an entry
+    /// has it `null`, with a summary of it beside the block.
     pub body: Option<Body>,
     /// Creation time in milliseconds since the Unix epoch.
     pub create_at: i64,
@@ -425,7 +496,9 @@ impl Block {
     /// serialized fields exceed their size limits (the latter by type), the title holds
     /// U+0000, the fields hold `properties` that are not well-formed card property
     /// values, or the block is a card whose `icon` or `isTemplate` is of another kind
-    /// (a string and a boolean, or `null`), a block of a type without a body has one
+    /// (a string and a boolean, or `null`), or an entry without a `date` that is a day
+    /// and its title, or with a `mood`, `weather` or `place` it may not have
+    /// ([`BlockError::InvalidEntryField`]), a block of a type without a body has one
     /// ([`BlockError::BodyNotAllowed`]), or a comment's body has a file block
     /// ([`BlockError::FileBlockInComment`]). `properties` among a block's fields always
     /// means card property values, whatever the block's type.
@@ -456,8 +529,27 @@ impl Block {
                     return Err(BlockError::InvalidPageField { field, expected });
                 }
             }
+            BlockType::Entry => {
+                if let Some((field, expected, _)) = of_another_kind(&ENTRY_FIELD_KINDS) {
+                    return Err(BlockError::InvalidEntryField { field, expected });
+                }
+                // An entry is of a day, and is called by it.
+                let date = self.fields.get(ENTRY_DATE_FIELD).and_then(Value::as_str);
+                let (field, expected) = match date {
+                    None => (ENTRY_DATE_FIELD, "a day, as `2026-11-21`"),
+                    Some(date) if date != self.title => ("title", "the day of the entry"),
+                    Some(_) => return self.validate_fields(),
+                };
+                return Err(BlockError::InvalidEntryField { field, expected });
+            }
             _ => {}
         }
+        self.validate_fields()
+    }
+
+    /// The checks of [`Self::validate`] that are the same for a block of any type: the
+    /// size of its fields, its property values and whether it may have its body.
+    fn validate_fields(&self) -> Result<(), BlockError> {
         // Serializing a map with string keys cannot fail; if it ever did, the fields would
         // not be storable either.
         match serde_json::to_string(&self.fields) {

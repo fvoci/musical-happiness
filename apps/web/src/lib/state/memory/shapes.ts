@@ -3,7 +3,6 @@
  * refusal as the server makes it, the shapes its stored blocks are answered
  * in, and an order of lists nobody should lean on.
  */
-import { cardPreviewOf } from '../../editor/card-preview.ts';
 import { countTasks, MAX_BODY_BYTES, type DocNode } from '../../editor/schema.ts';
 import {
   createBoardView,
@@ -20,8 +19,11 @@ import {
   type Comment,
   type WikiPage,
 } from '../backend.ts';
+import { summaryOfBody } from '../body-summary.ts';
 
 import { withPropertyOrder } from '../../logic/property-order.ts';
+import type { CalendarDate } from '../../logic/dates.ts';
+import type { DiaryEntry, Mood } from '../diary-types.ts';
 import { fail } from './refuse.ts';
 import type { StoredBlock, StoredCard } from './world.ts';
 
@@ -97,6 +99,26 @@ export function orderOf(block: StoredBlock): string {
   return typeof order === 'string' ? order : '';
 }
 
+/** An entry of a diary as a change tells it: its day, mood, weather and place are among its `fields`. */
+export function entryOf(block: StoredBlock): DiaryEntry {
+  const fields = block.fields as {
+    date?: CalendarDate;
+    mood?: Mood | null;
+    weather?: string;
+    place?: string;
+  };
+  return {
+    id: block.id,
+    diaryId: block.containerId,
+    date: fields.date ?? (block.title as CalendarDate),
+    mood: fields.mood ?? null,
+    weather: fields.weather ?? '',
+    place: fields.place ?? '',
+    createAt: block.createAt,
+    updateAt: block.updateAt,
+  };
+}
+
 /** A page as its tree lists it. */
 export function pageOf(block: StoredBlock): WikiPage {
   const icon = (block.fields as { icon?: unknown }).icon;
@@ -115,6 +137,7 @@ export function pageOf(block: StoredBlock): WikiPage {
 /** What the listeners of a board or a wiki are told of a block made or changed: a page, or another block. */
 export function changeOf(containerId: string, block: StoredBlock): Change {
   if (block.type === 'page') return { kind: 'pages', containerId, pages: [pageOf(block)] };
+  if (block.type === 'entry') return { kind: 'entries', containerId, entries: [entryOf(block)] };
   return { kind: 'blocks', containerId, blocks: [wireOf(block)] };
 }
 
@@ -122,9 +145,11 @@ export function wireOf(block: StoredBlock): BoardView | CardSummary | Comment | 
   switch (block.type) {
     case 'view':
       return viewOf(block);
-    case 'card':
-      // A change message carries the body, which the preview is made from (as on the server).
-      return { ...summaryOf(block as StoredCard), preview: cardPreviewOf(block.body) };
+    case 'card': {
+      // A change message carries the summary of the body in place of it, as on the server.
+      const { body, file: _file, ...rest } = block;
+      return copy({ ...createCard(rest), ...summaryOfBody(body) });
+    }
     case 'comment':
       return commentOf(block);
     default:

@@ -82,6 +82,10 @@ const TEXT_PAIRS: [string, string][] = [
   // What a comparison of two bodies marks (editor/diff.css): text and code on it.
   ['foreground', 'diff-added'],
   ['foreground', 'diff-removed'],
+  // A link on it (diff.css); a mention has its own surface.
+  ['diff-link', 'diff-added'],
+  ['diff-link', 'diff-removed'],
+  ['diff-link', 'background'],
   ...TOKEN_KINDS.flatMap((kind): [string, string][] => [
     [`code-${kind}`, 'diff-added'],
     [`code-${kind}`, 'diff-removed'],

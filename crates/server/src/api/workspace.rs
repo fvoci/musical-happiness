@@ -260,9 +260,43 @@ impl FromRequestParts<App> for InWiki {
     }
 }
 
-/// A workspace as an operation enters it that is the same for a board and a wiki (the
-/// container itself, who is on it, its sharing, its files, its place in the sidebar and
-/// in the trash): [`InWorkspace`] that reaches both kinds.
+/// A workspace as an operation on a diary and its entries enters it: [`InWorkspace`]
+/// that reaches diaries and nothing else, and only the workspace of the user's own
+/// space, which alone has diaries. Any other workspace is not there to it.
+#[derive(Debug)]
+pub(crate) struct InDiary(pub(crate) InWorkspace);
+
+impl FromRequestParts<App> for InDiary {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        let ws = InWorkspace::from_request_parts(parts, app).await?;
+        if ws.kind != OrgKind::Personal {
+            return Err(workspace_not_found());
+        }
+        Ok(Self(ws.reaching(ContainerKinds::Diaries)))
+    }
+}
+
+/// A workspace as an operation enters it that is about the people of a board or a wiki
+/// (who is on it, alone or in a group, its invitations, its link) or copies one:
+/// [`InWorkspace`] that reaches boards and wikis. A diary, which is its owner's alone,
+/// is not there to it.
+#[derive(Debug)]
+pub(crate) struct InBoardOrWiki(pub(crate) InWorkspace);
+
+impl FromRequestParts<App> for InBoardOrWiki {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        let ws = InWorkspace::from_request_parts(parts, app).await?;
+        Ok(Self(ws.reaching(ContainerKinds::BoardsAndWikis)))
+    }
+}
+
+/// A workspace as an operation enters it that is the same for a board, a wiki and a
+/// diary (the container itself, its files, its place in the sidebar and in the trash,
+/// what is searched and exported): [`InWorkspace`] that reaches every kind.
 #[derive(Debug)]
 pub(crate) struct InContainer(pub(crate) InWorkspace);
 

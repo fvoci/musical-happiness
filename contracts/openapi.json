@@ -403,7 +403,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The body of a card, a comment or a page; `null` for a block without one. Only\nthose have one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board. Whoever reads it by the board's link gets\nevery mention with an empty `userId`: a shape that is only sent, which a write\nwould have refused."
+                "description": "The body of a card, a comment, a page or an entry; `null` for a block without one. Only\nthose have one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board. Whoever reads it by the board's link gets\nevery mention with an empty `userId`: a shape that is only sent, which a write\nwould have refused. A change message (`UPDATE_BLOCK`) of a card, a page or an entry\nhas it `null`, with a summary of it beside the block."
               },
               {
                 "type": "null"
@@ -435,7 +435,7 @@
           },
           "fields": {
             "additionalProperties": true,
-            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card, a\ncomment, an attachment or a page and 800,000 for a view or a block of another\ntype. The `icon` of a card is a string and its `isTemplate` a boolean, or either\n`null` (400 naming `fields` otherwise). A page has its `icon` and its `order`\nhere, as `Page` gives them.",
+            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card, a\ncomment, an attachment or a page and 800,000 for a view or a block of another\ntype. The `icon` of a card is a string and its `isTemplate` a boolean, or either\n`null` (400 naming `fields` otherwise). A page has its `icon` and its `order`\nhere, as `Page` gives them, and an entry its `date`, `mood`, `weather` and\n`place`, as `DiaryEntry` gives them.",
             "type": "object"
           },
           "id": {
@@ -460,7 +460,7 @@
             "type": "string"
           },
           "type": {
-            "description": "The block type: `card`, `view`, `comment` or `attachment` on a board, and `page`\nand `comment` (on a page) on a wiki. No request of blocks makes a block of\nanother type or patches one into it (400 naming `type`), nor a page:\n`createPage` makes those, and `createPageComment` the comments of a wiki.",
+            "description": "The block type: `card`, `view`, `comment` or `attachment` on a board, `page`\nand `comment` (on a page) on a wiki, and `entry` on a diary. No request of blocks\nmakes a block of another type or patches one into it (400 naming `type`), nor a\npage or an entry: `createPage` makes pages, `createPageComment` the comments of\na wiki, and `createDiaryEntry` entries.",
             "type": "string"
           },
           "updateAt": {
@@ -1204,7 +1204,7 @@
           },
           "kind": {
             "$ref": "#/components/schemas/ContainerKind",
-            "description": "What the board is for: `board` for cards, `wiki` for pages. It is what the board\nwas made as and never changes; a board decoded without it is a `board`. A wiki\nis no template and has no card properties, and the operations that are about\ncards answer for a wiki as for a board that is not there."
+            "description": "What the board is for: `board` for cards, `wiki` for pages, `diary` for the\nentries of its days. It is what the board was made as and never changes; a\nboard decoded without it is a `board`. A wiki and a diary are no template and\nhave no card properties, and the operations that are about cards answer for\nthem as for a board that is not there. A diary is private (`type` `P`) besides,\nand is only in the workspace of a user's own space (\"Diaries\")."
           },
           "minimumRole": {
             "$ref": "#/components/schemas/MinimumRole",
@@ -1270,10 +1270,11 @@
         "type": "object"
       },
       "ContainerKind": {
-        "description": "What a container of a workspace is for: a board holds cards and their views, a wiki\nholds pages. A container is of one kind from when it is made and never of another.",
+        "description": "What a container of a workspace is for: a board holds cards and their views, a wiki\nholds pages, a diary holds the entries of its days. A container is of one kind from\nwhen it is made and never of another.",
         "enum": [
           "board",
-          "wiki"
+          "wiki",
+          "diary"
         ],
         "type": "string"
       },
@@ -1542,6 +1543,46 @@
         ],
         "type": "object"
       },
+      "DeletedDiaryEntry": {
+        "description": "An entry in the trash, as the trash of a diary lists it: `undeleteDiaryEntry` brings\nit back to its day.",
+        "properties": {
+          "date": {
+            "description": "The day the entry is of, `2026-11-21`.",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "When the entry was deleted, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "deletedBy": {
+            "description": "The identifier of the user who deleted it; empty if that user is gone.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The entry's identifier.",
+            "type": "string"
+          },
+          "mood": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Mood",
+                "description": "How the day was; left out for none."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "date",
+          "deletedAt",
+          "deletedBy",
+          "id"
+        ],
+        "type": "object"
+      },
       "DeletedItem": {
         "description": "A card or a board in the trash, with as much as it takes to decide whether to bring\nit back (`undeleteBlock`, `undeleteContainer`).",
         "properties": {
@@ -1644,6 +1685,190 @@
           "comfortable"
         ],
         "type": "string"
+      },
+      "DiaryDay": {
+        "description": "A day of a diary that has an entry, as the calendar of the diary marks it: without\nthe entry's text.",
+        "properties": {
+          "date": {
+            "description": "The day, `2026-11-21`.",
+            "type": "string"
+          },
+          "entryId": {
+            "description": "The identifier of the entry of the day.",
+            "type": "string"
+          },
+          "mood": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Mood",
+                "description": "How the day was; left out for none."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "date",
+          "entryId"
+        ],
+        "type": "object"
+      },
+      "DiaryEntry": {
+        "description": "The entry of a day of a diary.",
+        "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The entry's body; `null` for an entry without one."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "createdBy": {
+            "description": "The identifier of the user who made the entry.",
+            "type": "string"
+          },
+          "date": {
+            "description": "The day the entry is of, `2026-11-21`: the day it was where its writer was. It\nis what the entry was made with and never changes; a diary has one entry a day.",
+            "type": "string"
+          },
+          "diaryId": {
+            "description": "The identifier of the diary the entry is of.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The entry's identifier: what its room is joined by (`JOIN_DOC`).",
+            "type": "string"
+          },
+          "modifiedBy": {
+            "description": "The identifier of the user who last changed the entry.",
+            "type": "string"
+          },
+          "mood": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Mood",
+                "description": "How the day was; `null` for none."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "place": {
+            "description": "Where the day was spent as its writer put it; empty for none.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch: what `readAt` of a\nchange of the entry names.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "weather": {
+            "description": "The weather of the day as its writer put it; empty for none.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body",
+          "createAt",
+          "createdBy",
+          "date",
+          "diaryId",
+          "id",
+          "modifiedBy",
+          "mood",
+          "place",
+          "updateAt",
+          "weather"
+        ],
+        "type": "object"
+      },
+      "DiaryEntryPatch": {
+        "additionalProperties": false,
+        "description": "A change of an entry. Absent members leave the entry as it is. Its day does not\nchange.",
+        "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The new body; `null` takes the body away. Sent only with `readAt`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mood": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Mood",
+                "description": "The new mood; `null` for none."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "place": {
+            "description": "The new place, at most 100 characters; empty for none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "readAt": {
+            "description": "The `updateAt` of the entry as the client read it: if the entry has changed\nsince, the patch is refused with 409 and changes nothing. Needed with `body`,\nand checked whenever it is sent.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "weather": {
+            "description": "The new weather, at most 100 characters; empty for none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "DiaryRun": {
+        "description": "Days of a diary one after the other, each with an entry, with a day without one (or\nthe edge of the calendar) before the first and after the last: what a count of the\ndays written in a row is made of. Which run reaches today, and so how long the\nwriter's streak is now, the client says: the server never says what today is.",
+        "properties": {
+          "days": {
+            "description": "How many days the run has, both of its ends counted.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "from": {
+            "description": "The first day of the run, `2026-11-01`.",
+            "type": "string"
+          },
+          "to": {
+            "description": "The last day of the run, `2026-11-21`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "days",
+          "from",
+          "to"
+        ],
+        "type": "object"
       },
       "EmailVerified": {
         "description": "Where a confirmed registration's account was let in.",
@@ -2142,8 +2367,13 @@
             "format": "int64",
             "type": "integer"
           },
+          "diaries": {
+            "description": "How many diaries it has in use: only the account's own space has any.",
+            "format": "int64",
+            "type": "integer"
+          },
           "files": {
-            "description": "How many files its boards and wikis in use hold.",
+            "description": "How many files its boards, wikis and diaries in use hold.",
             "format": "int64",
             "type": "integer"
           },
@@ -2166,6 +2396,7 @@
           }
         },
         "required": [
+          "diaries",
           "id",
           "kind",
           "name"
@@ -2397,6 +2628,17 @@
           "viewer",
           "commenter",
           "editor"
+        ],
+        "type": "string"
+      },
+      "Mood": {
+        "description": "How the day of an entry was, as its writer marks it: one of five, or none.",
+        "enum": [
+          "great",
+          "good",
+          "okay",
+          "bad",
+          "awful"
         ],
         "type": "string"
       },
@@ -2643,6 +2885,62 @@
         "required": [
           "containers",
           "blocks"
+        ],
+        "type": "object"
+      },
+      "NewDiary": {
+        "additionalProperties": false,
+        "description": "A diary to make.",
+        "properties": {
+          "description": {
+            "description": "The diary's description. Left out, empty.",
+            "type": "string"
+          },
+          "icon": {
+            "description": "The diary's icon, usually one emoji. Left out, none.",
+            "type": "string"
+          },
+          "ifNone": {
+            "description": "Whether the diary is made only if the space has none: with `true`, a space that\nhas a diary is answered with its oldest (200) and nothing is made. For what\nopens \"the diary\" of a space that may have none yet, without asking for a name:\ntwo such requests at once make one diary. Left out, `false`: one more diary.",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "The diary's title. Left out, empty: a client shows its own word for a diary.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "NewDiaryEntry": {
+        "additionalProperties": false,
+        "description": "An entry to make.",
+        "properties": {
+          "date": {
+            "description": "The day the entry is of, `2026-11-21`: the day it is where the writer is, as\ntheir device says, or an earlier day written up afterwards. A day of the\ncalendar from the year 1 to the year 9999, and at most two days past the\nserver's own day (UTC).",
+            "type": "string"
+          },
+          "mood": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Mood",
+                "description": "How the day was. Left out or `null`, none."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "place": {
+            "description": "Where the day was spent, at most 100 characters. Left out, none.",
+            "type": "string"
+          },
+          "weather": {
+            "description": "The weather of the day, at most 100 characters. Left out, none.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date"
         ],
         "type": "object"
       },
@@ -4119,6 +4417,21 @@
             "type": "/problems/too-many-pages"
           },
           {
+            "reason": "day_taken",
+            "title": "The day has an entry",
+            "type": "/problems/day-taken"
+          },
+          {
+            "reason": "too_many_entries",
+            "title": "Too many entries in the diary",
+            "type": "/problems/too-many-entries"
+          },
+          {
+            "reason": "too_many_diaries",
+            "title": "Too many diaries",
+            "type": "/problems/too-many-diaries"
+          },
+          {
             "reason": "too_many_organizations",
             "title": "Too many organizations made",
             "type": "/problems/too-many-organizations"
@@ -4281,15 +4594,15 @@
         "description": "One thing a search found: the user reads it now.",
         "properties": {
           "containerId": {
-            "description": "The identifier of the board the card is on, or of the wiki the page is in.",
+            "description": "The identifier of the board the card is on, of the wiki the page is in, or of\nthe diary the entry is in.",
             "type": "string"
           },
           "containerKind": {
             "$ref": "#/components/schemas/ContainerKind",
-            "description": "What its container is: a board, or a wiki."
+            "description": "What its container is: a board, a wiki, or a diary."
           },
           "id": {
-            "description": "The identifier of the card or the page.",
+            "description": "The identifier of the card, the page or the entry.",
             "type": "string"
           },
           "kind": {
@@ -4304,7 +4617,7 @@
             "type": "array"
           },
           "title": {
-            "description": "Its title as it is now.",
+            "description": "Its title as it is now; of an entry, its day (`2026-11-21`).",
             "type": "string"
           }
         },
@@ -4322,7 +4635,8 @@
         "description": "The kind of thing a search finds.",
         "enum": [
           "card",
-          "page"
+          "page",
+          "entry"
         ],
         "type": "string"
       },
@@ -7367,7 +7681,7 @@
         "operationId": "getSharedContainer",
         "parameters": [
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -7422,7 +7736,7 @@
         "operationId": "getSharedBlocks",
         "parameters": [
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -7516,7 +7830,7 @@
         "operationId": "getSharedCards",
         "parameters": [
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -7606,7 +7920,7 @@
         "operationId": "getSharedFile",
         "parameters": [
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -7684,7 +7998,7 @@
         "operationId": "getSharedFileInfo",
         "parameters": [
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -7748,7 +8062,7 @@
         "operationId": "getSharedPageTree",
         "parameters": [
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -7806,7 +8120,7 @@
         "operationId": "getSharedPage",
         "parameters": [
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -10829,7 +11143,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -10883,7 +11197,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -10937,7 +11251,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11041,7 +11355,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11084,7 +11398,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11134,7 +11448,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11196,7 +11510,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11266,7 +11580,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11345,7 +11659,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11407,7 +11721,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11505,7 +11819,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11566,7 +11880,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11625,7 +11939,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11706,7 +12020,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11769,7 +12083,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11831,7 +12145,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11912,7 +12226,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12020,7 +12334,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12111,7 +12425,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12163,7 +12477,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12208,7 +12522,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12261,7 +12575,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12323,7 +12637,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12375,7 +12689,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12446,7 +12760,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12496,7 +12810,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12558,7 +12872,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12613,7 +12927,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12665,7 +12979,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12729,7 +13043,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12781,7 +13095,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki.",
+            "description": "The identifier of the board, the wiki or the diary.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12825,6 +13139,904 @@
         "summary": "Open an upload",
         "tags": [
           "files"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/diaries": {
+      "get": {
+        "description": "Every diary of the workspace, oldest first: each is a board of the `kind` `diary`,\nprivate (`type` `P`), with the user as its only member. Those in the trash are not\nlisted (`getDeletedContainers`).",
+        "operationId": "getDiaries",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Container"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The diaries."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The diaries of the user's own space",
+        "tags": [
+          "diaries"
+        ]
+      },
+      "post": {
+        "description": "The user becomes the diary's admin, and the diary is filed under the user's default\ncategory, as a board is. A space has at most 20 diaries, those in the trash not\ncounted: one more is 400 with the reason `too_many_diaries` and the `limit`. With\n`ifNone`, a space that has a diary is answered with its oldest, and nothing is made.\nA member the request does not know is 400.",
+        "operationId": "createDiary",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewDiary"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Container"
+                }
+              }
+            },
+            "description": "The oldest diary of the space, which had one: `ifNone` was sent, and nothing was made."
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Container"
+                }
+              }
+            },
+            "description": "The diary that was made."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Make a diary",
+        "tags": [
+          "diaries"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/diaries/{diaryId}/days": {
+      "get": {
+        "description": "Each day of the diary that has an entry, from `from` to `to` (each included), the\nearliest first: its `date`, its entry (`entryId`) and the entry's `mood`, and nothing\nelse of the entry. For a calendar: a month, or as much as a year (366 days) at once.\n400 at the parameter for a range that is wider or has no `from` or `to`; one that\nends before it begins lists nothing. Entries in the trash have no day.",
+        "operationId": "getDiaryDays",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The first day to list, as `2026-11-01`. 400 for what is no day, and where it is left out.",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The last day to list, as `2026-11-30`, at most 365 days after the first. 400 for what is no day, and where it is left out.",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DiaryDay"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The days that are written."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The days of a diary that are written",
+        "tags": [
+          "diaries"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/diaries/{diaryId}/days/{monthDay}": {
+      "get": {
+        "description": "The entries of the diary whose day is `monthDay` in any year, each with its body,\nthe latest year first: what a diary shows on one page, today's entry above those of\nthe same day in the years before. `02-29` lists the entries of leap years alone. A\nday nothing was written on lists nothing.",
+        "operationId": "getDiaryEntriesOn",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A month and a day without a year, as `11-21`: two digits each. `02-29` is a day of its own, which only leap years have. 400 for anything else.",
+            "in": "path",
+            "name": "monthDay",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DiaryEntry"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The entries of the day in every year."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The entries of a month and day in every year",
+        "tags": [
+          "diaries"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/diaries/{diaryId}/entries": {
+      "post": {
+        "description": "A diary has one entry a day. The entry of `date` is made (201) with its mood, weather\nand place; where the day has an entry, that entry is answered as it is (200) and\nnothing of the request is stored, so of two requests that make the entry of one day\nat once, one makes it and the other is answered with it. The server chooses the\nidentifier, the creator and the times. The body of the entry is written by\n`patchDiaryEntry`, or together in its room (`JOIN_DOC`).\n\n`date` is the day as the writer's own calendar has it, which the server does not\nknow: it must be a day of the calendar (`2026-02-30` is 400 at `/date`), and no more\nthan two days after the server's own day in UTC (400 at `/date`), which every time\nzone's today is within. A day in the past is written as any other. The day of an\nentry never changes afterwards.\n\nA diary has at most 40,000 entries, those in the trash not counted: one more is 400\nwith the reason `too_many_entries` and the `limit`. An entry in the trash holds no\nday: its day takes a new entry.\n\nThe user's other sessions are told with `UPDATE_BLOCK`, whose block of the `type`\n`entry` has the day as its `title` and the day, mood, weather and place among its\n`fields`.",
+        "operationId": "createDiaryEntry",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewDiaryEntry"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiaryEntry"
+                }
+              }
+            },
+            "description": "The entry the day had: nothing was made or changed."
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiaryEntry"
+                }
+              }
+            },
+            "description": "The entry that was made."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Make the entry of a day",
+        "tags": [
+          "diaries"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}": {
+      "delete": {
+        "description": "The entry goes to the trash of its diary, where it holds no day: the day takes a new\nentry. It is restored by `undeleteDiaryEntry`, and gone for good when the trash is\nemptied of it, as a card is.",
+        "operationId": "deleteDiaryEntry",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.",
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The entry is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete an entry",
+        "tags": [
+          "diaries"
+        ]
+      },
+      "get": {
+        "description": "The entry with its body.",
+        "operationId": "getDiaryEntry",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.",
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiaryEntry"
+                }
+              }
+            },
+            "description": "The entry."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "An entry",
+        "tags": [
+          "diaries"
+        ]
+      },
+      "patch": {
+        "description": "Its mood, its weather, its place, or its whole body. A new body is sent with\n`readAt`, the `updateAt` of the entry as it was read: 409 if the entry has changed\nsince, and nothing is changed. Where the body is being edited together (the same\nuser in two windows), what was typed is written to the entry first, so a writer who\nread it before is refused and reads it again. The day of the entry does not change:\nthe patch has no member for it.",
+        "operationId": "patchDiaryEntry",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.",
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiaryEntryPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiaryEntry"
+                }
+              }
+            },
+            "description": "The entry as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Change an entry",
+        "tags": [
+          "diaries"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}/body-versions": {
+      "get": {
+        "description": "The bodies the entry had before it was written anew, the newest first, as\n`getCardBodyVersions` lists a card's: the server keeps the newest of them.",
+        "operationId": "getDiaryEntryBodyVersions",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.",
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BodyVersion"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The versions, the newest first."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The versions of an entry's body",
+        "tags": [
+          "diaries"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}/body-versions/{version}": {
+      "get": {
+        "description": "The body as it was in the version, as `getCardBodyVersion` answers a card's. 404 for\na version the entry does not have.",
+        "operationId": "getDiaryEntryBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.",
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the version of the entry's body, as `getDiaryEntryBodyVersions` lists it.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BodyVersionContent"
+                }
+              }
+            },
+            "description": "The version."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "A version of an entry's body",
+        "tags": [
+          "diaries"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}/body-versions/{version}/restore": {
+      "post": {
+        "description": "The body of the entry becomes what it was in the version, as\n`restoreCardBodyVersion` does for a card: what it was until now is kept as a version\ntoo, and whoever is editing the body is told of the new one.",
+        "operationId": "restoreDiaryEntryBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.",
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the version of the entry's body, as `getDiaryEntryBodyVersions` lists it.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiaryEntry"
+                }
+              }
+            },
+            "description": "The entry as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Go back to a version of an entry's body",
+        "tags": [
+          "diaries"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}/undelete": {
+      "post": {
+        "description": "The entry comes back to its day with its body and the versions of it. Where the day\nhas an entry since, it does not: 409 with the reason `day_taken`, and nothing is\nchanged (deleting the entry of the day makes room). Where the diary has as many\nentries as one may, 400 with the reason `too_many_entries` and the `limit`. 404 if\nthe trash of the diary has no such entry.",
+        "operationId": "undeleteDiaryEntry",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.",
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiaryEntry"
+                }
+              }
+            },
+            "description": "The entry as it is again."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Restore a deleted entry",
+        "tags": [
+          "diaries"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/diaries/{diaryId}/runs": {
+      "get": {
+        "description": "Every run of days of the diary written one after the other, the earliest first: its\nfirst day (`from`), its last (`to`) and how many days it has (`days`), and nothing\nof the entries. What a client counts the days written in a row by, the longest and\nthe one that reaches its today, which the server does not say. A diary without\nentries has no runs; entries in the trash have no day. There are no more runs than\nthe diary has entries.",
+        "operationId": "getDiaryRuns",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DiaryRun"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The runs of written days."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The runs of a diary's written days",
+        "tags": [
+          "diaries"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/diaries/{diaryId}/trash/entries": {
+      "get": {
+        "description": "The entries of the diary that are in the trash, the last deleted first: each with its\nday and its mood, when it was deleted and by whom. One page of the list, as\n`getDeletedCards` pages its own.",
+        "operationId": "getDeletedDiaryEntries",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeletedDiaryEntry"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The deleted entries of the diary."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The deleted entries of a diary",
+        "tags": [
+          "diaries"
         ]
       }
     },
@@ -13463,7 +14675,7 @@
     },
     "/api/v1/w/{workspaceId}/search": {
       "get": {
-        "description": "The cards of the boards and the pages of the wikis of the workspace that the user\nhas a role on, their own or a team's, and the pages of its wikis open to who works\nthere (an open board they have not joined is not searched), whose title and body\ntogether hold every word of `q`. Comments, property values and attached files are\nnot searched, and neither are templates. How words match depends on the server:\nwith a search server, Korean is matched by its words, whatever particles and\nendings they carry, and a compound by its parts too (\"환불 규정\" finds \"환불규정을\");\nwithout one, each word (what is between white space) is in the title or the body as\nit is written there, ASCII letters in either case (\"환불\" finds \"환불규정을\",\n\"배포하다\" does not find \"배포합니다\"). Each hit is the card or the page as it is now:\nits `kind`, its `title`, the board or the wiki it is in (`containerId`, and\n`containerKind`, by which a client tells a card's address from a page's), and\n`snippet`, a piece of its body in stretches of plain text, those that matched\nmarked; the snippet is empty for a body that changed a moment ago, or has nothing\nto show. The best match first (without a search server: those whose title holds\nevery word, then the most recently changed). Nothing says how many match in all:\nfewer than `limit` means that no more of what the user reads matches (for a user with\na role on more boards and wikis than a search names, 1,000 with a search server and\n10,000 without: among the 10,000 best matches of the workspace).\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). While the search\nserver does not answer, where it cannot hold its index, or where a search takes more\nthan three seconds, the answer is 503 with the reason `search_unavailable`: nothing\nelse of the server waits for it, and the database does not stand in for a search\nserver.",
+        "description": "The cards of the boards and the pages of the wikis of the workspace that the user\nhas a role on, their own or a team's, the pages of its wikis open to who works\nthere (an open board they have not joined is not searched), and, in the workspace\nof the user's own space, the entries of its diaries, whose title and body\ntogether hold every word of `q`. The title of an entry is its day (`2026-11-21`). Comments, property values and attached files are\nnot searched, and neither are templates. How words match depends on the server:\nwith a search server, Korean is matched by its words, whatever particles and\nendings they carry, and a compound by its parts too (\"환불 규정\" finds \"환불규정을\");\nwithout one, each word (what is between white space) is in the title or the body as\nit is written there, ASCII letters in either case (\"환불\" finds \"환불규정을\",\n\"배포하다\" does not find \"배포합니다\"). Each hit is the card, the page or the entry as\nit is now: its `kind`, its `title`, the board, the wiki or the diary it is in\n(`containerId`, and `containerKind`, by which a client tells their addresses apart), and\n`snippet`, a piece of its body in stretches of plain text, those that matched\nmarked; the snippet is empty for a body that changed a moment ago, or has nothing\nto show. The best match first (without a search server: those whose title holds\nevery word, then the most recently changed). Nothing says how many match in all:\nfewer than `limit` means that no more of what the user reads matches (for a user with\na role on more boards and wikis than a search names, 1,000 with a search server and\n10,000 without: among the 10,000 best matches of the workspace).\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). While the search\nserver does not answer, where it cannot hold its index, or where a search takes more\nthan three seconds, the answer is 503 with the reason `search_unavailable`: nothing\nelse of the server waits for it, and the database does not stand in for a search\nserver.",
         "operationId": "searchWorkspaceContent",
         "parameters": [
           {
@@ -13485,7 +14697,7 @@
             }
           },
           {
-            "description": "The kind of thing to find: `card` or `page`. Left out, both. Anything else is 400.",
+            "description": "The kind of thing to find: `card`, `page` or `entry`. Left out, every kind. Anything else is 400.",
             "in": "query",
             "name": "kind",
             "required": false,
@@ -13529,7 +14741,7 @@
             "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
           }
         },
-        "summary": "Search what the cards and pages of a workspace say",
+        "summary": "Search what the cards, pages and entries of a workspace say",
         "tags": [
           "workspaces"
         ]
@@ -15959,6 +17171,10 @@
     {
       "description": "Wikis and their pages. A wiki is a board of the kind `wiki`: who is on it, its sharing, its files, its place in the sidebar and in the trash are asked as a board's are, under `/containers/{containerId}` with the wiki's identifier.",
       "name": "wikis"
+    },
+    {
+      "description": "Diaries and their entries, in the workspace of a user's own space and nowhere else. A diary is a board of the kind `diary` that holds one entry a day and nothing else; its owner alone reads it. What it shares with a board is asked under `/containers/{containerId}` with the diary's identifier: the diary itself (`getContainer`), its title, description and icon (`patchContainer`), the trash (`deleteContainer`, `undeleteContainer`, `getDeletedContainers`), its files and their versions and leases, its place in the sidebar, and its archive (`exportContainer`; the archive of the workspace holds its diaries, and an archive that is imported makes each diary anew, in the user's own space only). Its entries are found by `searchWorkspaceContent`, by their writer. What is about the people of a board answers 404 for a diary, as for an identifier of nothing: its members, joining and leaving it, its teams, its link (`/sharing`, `/shared/{containerId}`), invitations to it, and `duplicateContainer`. So do the operations under `/boards/{boardId}` and `/wikis/{wikiId}`: a diary has no blocks but its entries, no cards, no views, no pages, no comments and no templates; and no reference names an entry.",
+      "name": "diaries"
     },
     {
       "description": "Who is on a board, and with which role.",

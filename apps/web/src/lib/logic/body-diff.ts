@@ -186,12 +186,12 @@ class Comparing {
 
   /** A block removed whole: what is marked counts, if only one (an empty paragraph). */
   #gone(node: BodyNode): DiffNode {
-    this.removed += Math.max(1, weightOf(node));
+    this.removed += Math.max(1, weightOf(node, this.diagram));
     return { ...node, diff: 'removed' };
   }
 
   #come(node: BodyNode): DiffNode {
-    this.added += Math.max(1, weightOf(node));
+    this.added += Math.max(1, weightOf(node, this.diagram));
     return { ...node, diff: 'added' };
   }
 
