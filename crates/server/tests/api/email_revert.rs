@@ -382,6 +382,56 @@ async fn the_notice_with_a_link_is_not_left_out_for_the_notices_of_the_hour() {
     smtp.stop().await;
 }
 
+/// While the recovery queue has no place for the notice that carries the link back, a
+/// change is not made: 503, and the link changes the address once there is one.
+#[tokio::test]
+async fn no_change_is_made_while_its_notice_has_no_place() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .configure(|config| config.smtp.mail_reset_queue = 1)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    th.client
+        .post(ASK, &json!({"email": NEW, "password": PASSWORD}))
+        .await
+        .check_no_content();
+    let link = last_link(&th, &smtp, NEW, "/confirm-email#").await;
+    // A reset link held on its way keeps the queue's one place.
+    smtp.hold("@sample.com");
+    let attempts = smtp.attempts();
+    th.anonymous()
+        .post(
+            "/password-reset/request",
+            &json!({"email": "user2@sample.com"}),
+        )
+        .await
+        .check_no_content();
+    smtp.attempted(attempts + 1).await;
+
+    let confirm = async || {
+        th.anonymous()
+            .post("/email-change/confirm", &json!({"token": link}))
+            .await
+    };
+    confirm()
+        .await
+        .check_status(StatusCode::SERVICE_UNAVAILABLE);
+    let me: Value = th.client.get("/users/me").await.ok_json();
+    assert_eq!(me["email"], OLD, "not changed: {me}");
+    assert_eq!(me["pendingEmail"], NEW, "it still waits: {me}");
+
+    smtp.release();
+    assert!(th.app.finish_background(Duration::from_secs(10)).await);
+    confirm().await.check_no_content();
+    let back = last_link(&th, &smtp, OLD, "/revert-email#").await;
+    assert_eq!(restored(&revert(&th, &back).await), OLD);
+    th.teardown().await;
+    smtp.stop().await;
+}
+
 /// An account made through a provider sets a password, moves its address under it, and
 /// has it given back: the provider still signs it in, and to that session the password
 /// confirms nothing and changes nothing, as a wrong one would not.

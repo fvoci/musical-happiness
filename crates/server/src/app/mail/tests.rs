@@ -695,3 +695,36 @@ async fn a_message_that_no_longer_stands_is_withdrawn_before_its_next_attempt() 
     assert_eq!(delivering.await, Ok(Delivered::Withdrawn));
     assert_eq!(fake.attempts().len(), 1, "nothing more was sent");
 }
+
+/// The notice that carries the link back has its place only where the recovery queue
+/// has one, and no hour is counted for it: an account told more than the hour's
+/// number of notices still has each one queued.
+#[test]
+fn the_notice_with_a_link_back_takes_a_place_and_counts_no_hour() {
+    let fake = Fake::new(&[Outcome::Sent]);
+    let mailer = mailer_with(
+        &fake,
+        Metrics::none(),
+        SmtpSettings {
+            mail_reset_queue: 1,
+            mail_reset_per_account_hour: 1,
+            ..SmtpSettings::default()
+        },
+    );
+    let held = reset(&mailer, "account");
+    assert_eq!(
+        mailer.queue_email_changed().err(),
+        Some(ResetMailDrop::QueueFull),
+        "no place while the queue is full"
+    );
+    drop(held);
+    for told in 0..3 {
+        let place = mailer.queue_email_changed();
+        assert!(place.is_ok(), "notice {told} of the hour has a place");
+    }
+    assert_eq!(
+        mailer.queue_email_notice("account").err(),
+        None,
+        "the notices with a link counted nothing"
+    );
+}
