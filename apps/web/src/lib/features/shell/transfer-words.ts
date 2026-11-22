@@ -22,6 +22,7 @@ export function uploadsLabel(running: number, failed: number, all: number): stri
 /** What a transfer is doing, or did: its line in the stack. */
 export function transferLabel(transfer: Transfer): string {
   const name = nameOf(transfer);
+  if (transfer.failure === 'kept') return m.shell_transfer_kept_upload({ name });
   if (transfer.failure) return m.shell_transfer_failed_upload({ name });
   if (transfer.finished) {
     if (transfer.kind === 'upload') return m.shell_transfer_done_upload({ name });
@@ -42,6 +43,7 @@ const FAILURE: Record<Exclude<UploadFailure, 'too-large'>, () => string> = {
   busy: m.shell_upload_failure_busy,
   room: m.shell_upload_failure_room,
   left: m.shell_upload_failure_left,
+  kept: m.shell_upload_failure_kept,
   failed: m.shell_upload_failure_failed,
 };
 

@@ -67,15 +67,17 @@ function versions() {
     apart: [] as VersionUpload[],
     /** The file's newest version. */
     head: 4,
-    uploading: true,
+    /** What the upload comes to: up, failed (told elsewhere), or given up there. */
+    uploading: true as boolean | 'stopped',
     refusing: false,
   };
   const source: VersionsSource = {
     canWrite: true,
     list: () => Promise.resolve([]),
     bytes: () => Promise.resolve(new Blob()),
-    upload: (file): Promise<VersionUpload | undefined> => {
+    upload: (file): Promise<VersionUpload | 'stopped' | undefined> => {
       made.uploads.push(file);
+      if (made.uploading === 'stopped') return Promise.resolve('stopped');
       if (!made.uploading) return Promise.resolve(undefined);
       const fileId = `upload-${String(made.uploads.length)}`;
       return Promise.resolve({ fileId, name: file.name, size: file.size, contentType: file.type });
@@ -422,6 +424,16 @@ describe('saving what was edited', () => {
     await up.settled();
     expect(up.session.saving).toEqual({ name: 'failed', reason: 'upload' });
     expect(up.made.added).toEqual([]);
+
+    // Given up in the stack of uploads, which then says nothing of it: said here.
+    const stopped = editing();
+    await stopped.opened();
+    stopped.made.uploading = 'stopped';
+    stopped.session.save();
+    stopped.exports(HWPX);
+    await stopped.settled();
+    expect(stopped.session.saving).toEqual({ name: 'failed', reason: 'stopped' });
+    expect(stopped.made.added).toEqual([]);
 
     const refused = editing();
     await refused.opened();

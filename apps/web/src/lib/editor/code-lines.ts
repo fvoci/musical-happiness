@@ -49,7 +49,7 @@ export function lineCount(text: string): number {
 
 /**
  * How many digits the number of the last line has: how wide the room for
- * the numbers is, given to a block as `data-line-digits` (code-block.css)
+ * the numbers is, given to a block as `data-line-digits` (editor.css)
  * from its first drawing, so that it does not grow when they come.
  */
 export const lineDigits = (lines: number): number => String(Math.max(lines, 1)).length;

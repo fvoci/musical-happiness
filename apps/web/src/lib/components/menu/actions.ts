@@ -24,6 +24,25 @@ export interface MenuAction {
    */
   href?: string;
   run: () => void;
+  /** Commands about the line's thing, at its end, that leave the menu open: moving it, say. */
+  tools?: readonly MenuTool[];
+}
+
+/**
+ * A command at the end of a line, shown as its icon and named by `label`,
+ * that leaves the menu open. Its keys run it from its line, where the focus
+ * stays, wherever the line goes; the button is for a pointer, and in a sheet
+ * also for Tab, the focus then staying with the line's tools.
+ */
+export interface MenuTool {
+  /** Names the tool among its line's; also `data-action` in the markup, for tests. */
+  id: string;
+  label: string;
+  icon: Component<{ class?: string }>;
+  /** The keys that run it from its line, as `aria-keyshortcuts` writes them: `Alt+ArrowUp`. */
+  keys: string;
+  disabled?: boolean;
+  run: () => void;
 }
 
 /** A click on a link that the page answers itself: the main button, and no key held. */
