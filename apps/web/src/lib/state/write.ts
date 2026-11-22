@@ -101,3 +101,75 @@ export function reread<T extends Versioned>(
   }
   return next;
 }
+
+/**
+ * Runs writes of one block in turn so two quick ones do not pass each other,
+ * and advances `readAt` along queued view writes from each succeeded write's
+ * returned `updateAt` so a write does not get 409 from the client's own
+ * earlier write in the queue.
+ */
+export class BlockTurns {
+  readonly #writes = new Map<string, Promise<void>>();
+  readonly #advanced = new Map<string, Map<number, number>>();
+
+  /** Runs `write` once earlier writes of `blockId` have ended, however they ended. */
+  run<T>(blockId: string, write: () => Promise<T>): Promise<T> {
+    const before = this.#writes.get(blockId) ?? Promise.resolve();
+    const running = before.then(write);
+    const settled = running.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.#writes.set(blockId, settled);
+    void settled.then(() => {
+      if (this.#writes.get(blockId) === settled) {
+        this.#writes.delete(blockId);
+        this.#advanced.delete(blockId);
+      }
+    });
+    return running;
+  }
+
+  /**
+   * Runs a view patch in turn for `viewId`, forwarding `patch.readAt` along
+   * this queue's succeeded writes when it matches an earlier write's base
+   * `updateAt`. A failed write, or one whose returned `order` differs from
+   * what was written, does not advance the chain.
+   */
+  patchView<
+    T extends { updateAt: number; fields: { order?: string } },
+    P extends { readAt?: number; updatedFields?: Record<string, unknown> },
+  >(
+    viewId: string,
+    patch: P,
+    send: (sent: P) => Promise<{ before: number; after: T }>,
+  ): Promise<T> {
+    return this.run(viewId, async () => {
+      const readAt = patch.readAt === undefined ? undefined : this.#resolve(viewId, patch.readAt);
+      const sent = readAt === patch.readAt ? patch : { ...patch, readAt };
+      const { before, after } = await send(sent);
+      const from = sent.readAt ?? before;
+      const orderKept =
+        !sent.updatedFields ||
+        !('order' in sent.updatedFields) ||
+        after.fields.order === sent.updatedFields.order;
+      if (orderKept && after.updateAt > from) {
+        let map = this.#advanced.get(viewId);
+        if (!map) {
+          map = new Map();
+          this.#advanced.set(viewId, map);
+        }
+        map.set(from, after.updateAt);
+      }
+      return after;
+    });
+  }
+
+  #resolve(viewId: string, readAt: number): number {
+    const map = this.#advanced.get(viewId);
+    if (!map) return readAt;
+    let current = readAt;
+    while (map.has(current)) current = map.get(current) ?? current;
+    return current;
+  }
+}

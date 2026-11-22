@@ -10,11 +10,11 @@
  */
 import { cardsOfView } from '../logic/card-list.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
-import type { PlaceWrite } from '../logic/list-places.ts';
 import { propertyBehavior } from '../logic/properties.ts';
 import {
   viewGrouping,
   viewQuery,
+  type BlockPatch,
   type Container,
   type ContainerMember,
   type BoardView,
@@ -596,22 +596,21 @@ export class BoardStore {
     );
   }
 
-  /**
-   * Writes places that keep views where they show (`Placing.keep`): no step of
-   * undo. A refusal is given back, for the gesture they go with to say once.
-   */
-  async keepViewPlaces(keep: readonly PlaceWrite[]): Promise<unknown> {
-    const writes = keep.flatMap(({ id, place }) => {
-      const current = this.view(id);
-      if (!current) return [];
-      const placed = { ...current, fields: { ...current.fields, order: place } };
-      const [forward, backward] = viewPatches(placed, current);
-      return isEmptyBlockPatch(forward) ? [] : [this.#viewWrites.write(id, forward, backward)];
-    });
-    const refused = (await Promise.allSettled(writes)).find(
-      (each): each is PromiseRejectedResult => each.status === 'rejected',
-    );
-    return refused?.reason;
+  /** Writes a view patch through this board's view writes (`view-moves.ts`). */
+  writeView(viewId: string, forward: BlockPatch, backward: BlockPatch): Promise<void> {
+    return this.#viewWrites.write(viewId, forward, backward);
+  }
+
+  /** Keeps an inverse of a view write (`view-moves.ts`). */
+  keepViewInverse(viewId: string, backward: BlockPatch): () => Promise<void> | undefined {
+    return this.#viewWrites.keep(viewId, backward);
+  }
+
+  /** Reads the board's views again, keeping any writes under way. */
+  async rereadViews(): Promise<void> {
+    const before = this.views.map((view) => view.id);
+    const views = await this.#backend.views(this.boardId);
+    this.views = reread(this.views, views, before, (view) => this.#viewWrites.receive(view));
   }
 
   async createView(draft: ViewDraft): Promise<BoardView | undefined> {

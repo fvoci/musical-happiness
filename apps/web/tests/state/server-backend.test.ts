@@ -661,6 +661,85 @@ describe('changing a view on the server', () => {
     expect(order).toHaveLength(6);
     expect(order[3]).toMatch(/^GET/);
   });
+
+  it('sends readAt on patchView when given, forwards it along queued writes, and stops on failure', async () => {
+    let updateAt = 10;
+    const patches: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
+      if (init.method === 'PATCH') {
+        const body = JSON.parse(typeof init.body === 'string' ? init.body : '{}') as Record<
+          string,
+          unknown
+        >;
+        patches.push(body);
+        if (body.readAt !== undefined && body.readAt !== updateAt) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                type: '/problems/conflict',
+                title: 'Conflict',
+                status: 409,
+                detail: 'the block has changed since it was read',
+              }),
+              { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+            ),
+          );
+        }
+        updateAt += 1;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([
+            {
+              ...VIEW,
+              updateAt,
+              fields: {
+                ...VIEW.fields,
+                order: patches.at(-1)?.updatedFields
+                  ? (patches.at(-1)?.updatedFields as { order?: string }).order
+                  : undefined,
+              },
+            },
+          ]),
+          { status: 200 },
+        ),
+      );
+    });
+    const backend = serverBackend('');
+    // Two queued conditional writes with the same initial readAt: the second advances to 11.
+    await Promise.all([
+      backend.patchView('b', 'v', { updatedFields: { order: 'V' }, readAt: 10 }),
+      backend.patchView('b', 'v', { updatedFields: { order: 'W' }, readAt: 10 }),
+    ]);
+    expect(patches).toEqual([
+      { updatedFields: { order: 'V' }, readAt: 10 },
+      { updatedFields: { order: 'W' }, readAt: 11 },
+    ]);
+
+    // When the first fails with 409, the second keeps its stale readAt and also gets 409.
+    patches.length = 0;
+    updateAt = 20;
+    const results = await Promise.allSettled([
+      backend.patchView('b', 'v', { updatedFields: { order: 'X' }, readAt: 12 }),
+      backend.patchView('b', 'v', { updatedFields: { order: 'Y' }, readAt: 12 }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+    expect(patches).toEqual([
+      { updatedFields: { order: 'X' }, readAt: 12 },
+      { updatedFields: { order: 'Y' }, readAt: 12 },
+    ]);
+
+    // Unconditional write over a view somebody else already bumped does not advance a stale queued readAt.
+    patches.length = 0;
+    updateAt = 30;
+    const mixed = await Promise.allSettled([
+      backend.patchView('b', 'v', { title: 'Renamed' }),
+      backend.patchView('b', 'v', { updatedFields: { order: 'Z' }, readAt: 20 }),
+    ]);
+    expect(mixed.map((r) => r.status)).toEqual(['fulfilled', 'rejected']);
+    expect(patches).toEqual([{ title: 'Renamed' }, { updatedFields: { order: 'Z' }, readAt: 20 }]);
+  });
 });
 
 describe('the trash on the server', () => {

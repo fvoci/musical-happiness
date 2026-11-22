@@ -417,6 +417,66 @@ describe('views', () => {
     expect(workspace.problems).toHaveLength(1);
   });
 
+  it('does not treat a rapid second move of the same view as a refusal of the first', async () => {
+    const first = TWO_VIEWS.views[0];
+    if (!first) throw new Error('missing view');
+    const three: SeedTemplate = {
+      ...TWO_VIEWS,
+      views: [...TWO_VIEWS.views, { ...first, id: 'third', title: 'Third' }],
+    };
+    const { board, workspace, backend } = await mount('List', three);
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const send = backend.patchView.bind(backend);
+    let holdFirst = true;
+    vi.spyOn(backend, 'patchView').mockImplementation(async (boardId, viewId, patch) => {
+      if (holdFirst) {
+        holdFirst = false;
+        await gate;
+      }
+      return send(boardId, viewId, patch);
+    });
+    await openMenu(toolButton('views'));
+    const boardId = board.views.find((view) => view.title === 'Board')?.id ?? '';
+    await fireEvent.click(lineTool(boardId, 'move-down'));
+    await tick();
+    expect(screen.getByText('Board is now 2 of 3')).toBeInTheDocument();
+    await fireEvent.click(lineTool(boardId, 'move-down'));
+    await tick();
+    expect(screen.getByText('Board is now 3 of 3')).toBeInTheDocument();
+    release();
+    await settled();
+    expect(lineTexts().slice(0, 3)).toEqual(['List', 'Third', 'Board']);
+    expect(screen.getByText('Board is now 3 of 3')).toBeInTheDocument();
+    expect(workspace.problems).toEqual([]);
+  });
+
+  it('says a move once when the first attempt gets 409 and the retry succeeds', async () => {
+    const { board, workspace, backend } = await mount('List');
+    const boardId = board.views.find((view) => view.title === 'Board')?.id ?? '';
+    const send = backend.patchView.bind(backend);
+    let bumped = false;
+    vi.spyOn(backend, 'patchView').mockImplementation((bId, vId, patch) => {
+      if (vId === boardId && !bumped) {
+        bumped = true;
+        // Another client changes Board synchronously before this write reaches the backend.
+        const stored = backend.world.blocks.get(boardId);
+        if (stored) stored.updateAt = backend.world.now();
+      }
+      return send(bId, vId, patch);
+    });
+    await openMenu(toolButton('views'));
+    await fireEvent.click(lineTool(boardId, 'move-down'));
+    await tick();
+    expect(screen.getByText('Board is now 2 of 2')).toBeInTheDocument();
+    await settled();
+    expect(lineTexts().slice(0, 2)).toEqual(['List', 'Board']);
+    expect(screen.getByText('Board is now 2 of 2')).toBeInTheDocument();
+    expect(workspace.problems).toEqual([]);
+  });
+
   it('has buttons at the end of each line for a pointer, closed at the ends, which keep the list open', async () => {
     const { board } = await mount('List');
     await openMenu(toolButton('views'));

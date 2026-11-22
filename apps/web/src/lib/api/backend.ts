@@ -14,6 +14,7 @@ import type {
 import { openRoomLater } from '../state/doc-opener.ts';
 import { allPages } from '../state/page-reads.ts';
 import { applyViewPatch } from '../state/patches.ts';
+import { BlockTurns } from '../state/write.ts';
 import {
   BackendError,
   refusedMember,
@@ -82,8 +83,8 @@ const UPLOADS_AT_ONCE = 3;
 
 export class ServerBackend extends ServerRequests implements Backend, Account {
   readonly #http: Http;
-  /** The last change of each card or view on its way, settled either way (`#inTurn`). */
-  readonly #writes = new Map<string, Promise<void>>();
+  /** Queues writes of one card, view or comment so two quick ones do not pass each other. */
+  readonly #turns = new BlockTurns();
 
   readonly #live: LiveChanges;
   readonly presence: Backend['presence'];
@@ -349,7 +350,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * begun before the last one ended would send what that one changed back.
    */
   #sidebarTurn<T>(workspaceId: string, write: () => Promise<T>): Promise<T> {
-    return this.#inTurn(`sidebar ${workspaceId}`, write);
+    return this.#turns.run(`sidebar ${workspaceId}`, write);
   }
 
   /** A new category of the reader, first among theirs (the server puts it there). */
@@ -524,13 +525,18 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * block that is not a view is not changed), the patch sent, and the view
    * read again, since the server answers 204 alone. `updatedFields`
    * replaces a field whole, as the screens' patch means. The changes of one
-   * view go one after another (`#inTurn`).
+   * view go one after another (`BlockTurns.patchView`), forwarding `readAt`
+   * along queued writes from each succeeded write's returned `updateAt`.
    */
   patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
-    return this.#inTurn(viewId, () => this.#patchView(boardId, viewId, patch));
+    return this.#turns.patchView(viewId, patch, (sent) => this.#patchView(boardId, viewId, sent));
   }
 
-  async #patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
+  async #patchView(
+    boardId: string,
+    viewId: string,
+    patch: BlockPatch,
+  ): Promise<{ before: number; after: BoardView }> {
     const before = await this.#view(boardId, viewId);
     const { deleteAt: _deleteAt, ...request } = patch;
     await this.inWorkspace(
@@ -539,10 +545,10 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       { method: 'PATCH', json: request },
     );
     try {
-      return await this.#view(boardId, viewId);
+      return { before: before.updateAt, after: await this.#view(boardId, viewId) };
     } catch {
       // Saved; only reading it back failed. What was sent is what it is.
-      return applyViewPatch(before, patch);
+      return { before: before.updateAt, after: applyViewPatch(before, patch) };
     }
   }
 
@@ -613,26 +619,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * arrive in the order they were made.
    */
   patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
-    return this.#inTurn(cardId, () => this.#patchCard(boardId, cardId, patch));
-  }
-
-  /**
-   * Runs `write` once the writes before it to the same block have ended,
-   * however they ended. The server keeps whichever write of a block arrives
-   * last; two quick ones must not pass each other on the way.
-   */
-  #inTurn<T>(blockId: string, write: () => Promise<T>): Promise<T> {
-    const before = this.#writes.get(blockId) ?? Promise.resolve();
-    const running = before.then(write);
-    const settled = running.then(
-      () => undefined,
-      () => undefined,
-    );
-    this.#writes.set(blockId, settled);
-    void settled.then(() => {
-      if (this.#writes.get(blockId) === settled) this.#writes.delete(blockId);
-    });
-    return running;
+    return this.#turns.run(cardId, () => this.#patchCard(boardId, cardId, patch));
   }
 
   async #patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
@@ -697,7 +684,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
         }),
       );
     }
-    return this.#inTurn(commentId, async () => {
+    return this.#turns.run(commentId, async () => {
       const before = await this.#comment(boardId, commentId);
       const patch: Schemas['BlockPatch'] = {
         body: write.body ? wireBody(write.body) : null,

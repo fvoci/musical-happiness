@@ -116,6 +116,7 @@ export interface BlockPatch {
   updatedFields?: Record<string, unknown>;
   deletedFields?: string[];
   deleteAt?: number;
+  readAt?: number;
 }
 
 /**

@@ -59,6 +59,7 @@ import {
   type ViewDraft,
 } from '../backend.ts';
 import { applyContainerPatch, applyCardPatch, applyViewPatch } from '../patches.ts';
+import { BlockTurns } from '../write.ts';
 
 import {
   noteChange,
@@ -134,6 +135,7 @@ export class MemoryBackend implements Backend {
   /** Milliseconds every call waits before it answers. */
   latency = 0;
   readonly #failures = new Map<MethodName, BackendError>();
+  readonly #viewTurns = new BlockTurns();
 
   constructor(world: World, userId: string) {
     this.world = world;
@@ -721,14 +723,19 @@ export class MemoryBackend implements Backend {
     return viewOf(block);
   }
 
-  async patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
-    await this.#enter('patchView');
-    const stored = this.#block(boardId, viewId, 'view') as StoredView;
-    const view: StoredView = { ...stored, ...applyViewPatch(stored, patch) };
-    this.world.blocks.set(viewId, view);
-    this.#touch(view);
-    this.#tellBlocks(boardId, [view]);
-    return viewOf(view);
+  patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
+    return this.#viewTurns.patchView(viewId, patch, async (sent) => {
+      await this.#enter('patchView');
+      const stored = this.#block(boardId, viewId, 'view') as StoredView;
+      if (sent.readAt !== undefined && stored.updateAt !== sent.readAt) {
+        fail(409, 'the block has changed since it was read');
+      }
+      const view: StoredView = { ...stored, ...applyViewPatch(stored, sent) };
+      this.world.blocks.set(viewId, view);
+      this.#touch(view);
+      this.#tellBlocks(boardId, [view]);
+      return { before: stored.updateAt, after: viewOf(view) };
+    });
   }
 
   // -------------------------------------------------------------- cards
