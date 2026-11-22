@@ -46,6 +46,12 @@
     testId,
   }: Props = $props();
 
+  /** What a wiki or a diary in the trash is called without a title, and the word for its kind. */
+  const KINDS = {
+    wiki: { untitled: m.wiki_untitled, named: m.shell_wiki_kind },
+    diary: { untitled: m.diary_untitled, named: m.shell_diary_kind },
+  };
+
   // The back button closes it, as the other dialogs: the page under it stays.
   closeOnBack(
     () => open,
@@ -95,8 +101,9 @@
         {#if trash.items.length > 0}
           <ul class="grid gap-1" data-testid="trash-items" bind:this={list}>
             {#each trash.items as item (item.id)}
-              {@const wiki = item.kind === 'wiki'}
-              {@const name = item.title || (wiki ? m.wiki_untitled() : untitled)}
+              {@const kind =
+                item.kind === 'wiki' || item.kind === 'diary' ? KINDS[item.kind] : undefined}
+              {@const name = item.title || (kind?.untitled() ?? untitled)}
               <li
                 class="flex min-h-8 items-center gap-2 roomy:min-h-touch"
                 data-trash-item={name}
@@ -105,10 +112,10 @@
                 <span class="grid min-w-0 flex-1 gap-0.5">
                   <span class="flex min-w-0 items-center gap-1.5">
                     <span class="truncate font-medium">{name}</span>
-                    {#if wiki}
+                    {#if kind}
                       <span
                         class="shrink-0 rounded-sm border px-1 text-xs text-muted-foreground"
-                        data-testid="trash-kind">{m.shell_wiki_kind()}</span
+                        data-testid="trash-kind">{kind.named()}</span
                       >
                     {/if}
                   </span>

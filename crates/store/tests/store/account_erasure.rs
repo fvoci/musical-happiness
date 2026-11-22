@@ -1444,6 +1444,16 @@ async fn fill_the_space_of(test: &TestStore, owner: &str) -> String {
     work_on(&space, &board, &card, owner).await;
     let saved = space.save_file_info(&file_of(&board)).await;
     saved.expect("a file of the space");
+    // A diary of the space: the entry of a day, one in the trash, and a file.
+    let diary = crate::diaries::new_diary(&workspace);
+    let made = space.create_diary(diary, owner, fvoci_model::DiaryMaking::Another);
+    let diary = made.await.expect("a diary of the space").diary.id;
+    crate::diaries::written(&space, &diary, "2024-02-29", owner).await;
+    let gone = crate::diaries::written(&space, &diary, "2024-03-01", owner).await;
+    let deleted = space.delete_block(&gone.id, owner).await;
+    deleted.expect("an entry in the trash");
+    let saved = space.save_file_info(&file_of(&diary)).await;
+    saved.expect("a file of the diary");
     org
 }
 
@@ -1561,7 +1571,8 @@ async fn an_organization_that_has_nobody_else_goes_with_the_account() {
         .iter()
         .flat_map(|from| &from.removed.as_ref().expect("removed").files)
         .collect();
-    assert_eq!(files.len(), 2, "the file of each is doomed: {files:?}");
+    // The file of the organization's board, of the space's board and of its diary.
+    assert_eq!(files.len(), 3, "the files of each are doomed: {files:?}");
     check_nothing_names(&system, &space).await;
     assert_eq!(
         holding(&system, &alone).await,

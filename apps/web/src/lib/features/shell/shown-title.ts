@@ -1,8 +1,26 @@
-/** The title a board or a wiki is shown under: its own, or the words for one without. */
+/** The title a board, a wiki or a diary is shown under: its own, or the words for one without. */
 import { m } from '$lib/i18n/paraglide/messages.js';
-import type { Container } from '$lib/logic/wire.ts';
+import type { Container, ContainerKind } from '$lib/logic/wire.ts';
 
 export function shownTitle(container: Pick<Container, 'title' | 'kind'>): string {
   if (container.title) return container.title;
+  if (container.kind === 'diary') return m.diary_untitled();
   return container.kind === 'wiki' ? m.wiki_untitled() : m['Sidebar.untitled-board']();
+}
+
+/**
+ * What a screen reader says of the link to a wiki or a diary: its title and
+ * what it is. A board's link says its title alone (none here).
+ */
+export function namedAs(kind: ContainerKind | undefined, title: string): string | undefined {
+  if (kind === 'wiki') return m.shell_wiki_named({ title });
+  if (kind === 'diary') return m.shell_diary_named({ title });
+  return undefined;
+}
+
+/** The name of the menu of a board, a wiki or a diary of the sidebar. */
+export function menuNamed(kind: ContainerKind | undefined, name: string): string {
+  if (kind === 'wiki') return m.shell_wiki_menu({ name });
+  if (kind === 'diary') return m.shell_diary_menu({ name });
+  return m.shell_board_menu({ name });
 }

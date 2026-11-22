@@ -7,6 +7,7 @@
  * read what was stored through the development handle (`window.fvociDev`),
  * so they do not depend on how the sidebar or the header of a view is drawn.
  */
+import { seenResized } from './kanban.support.ts';
 import { scrollTo } from './scroll.support.ts';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { clipboardPermissions, primaryKey, primaryName, tabKey } from './keyboard.support.ts';
@@ -1253,17 +1254,24 @@ test.describe('when the window changes size', () => {
     await scrollTo(table(page), place.x, place.y);
     await expect.poll(() => scrollPlace(page)).toEqual(place);
 
+    // A window changes size in a frame of its own, in which the page's observers are told of
+    // it. A size the test sets and reads at once is laid out between two frames: the place is
+    // cut where no observer sees it, and a window narrowed again before the next frame was
+    // never wide to them.
+    const resize = (width: number, height: number): Promise<void> =>
+      seenResized(table(page), () => page.setViewportSize({ width, height }));
+
     // In a window this large the whole table fits: there is nothing to scroll.
-    await page.setViewportSize({ width: 2400, height: 2000 });
+    await resize(2400, 2000);
     await expect.poll(() => scrollPlace(page)).toEqual({ x: 0, y: 0 });
-    await page.setViewportSize({ width: 900, height: 500 });
+    await resize(900, 500);
     await expect.poll(() => scrollPlace(page)).toEqual(place);
 
     // What the reader scrolls to in the large window is theirs: it is not undone later.
-    await page.setViewportSize({ width: 1400, height: 500 });
+    await resize(1400, 500);
     await scrollTo(table(page), 0, 40);
     await expect.poll(() => scrollPlace(page)).toEqual({ x: 0, y: 40 });
-    await page.setViewportSize({ width: 900, height: 500 });
+    await resize(900, 500);
     await expect.poll(() => scrollPlace(page)).toEqual({ x: 0, y: 40 });
   });
 

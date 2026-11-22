@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 53] = [
+const STEPS: [Step; 54] = [
     Step {
         version: 1,
         description: "baseline",
@@ -353,6 +353,12 @@ const STEPS: [Step; 53] = [
         postgres: include_str!("../schema/postgres/0054_body_version_causes.sql"),
     },
     Step {
+        version: 55,
+        description: "diaries",
+        sqlite: include_str!("../schema/sqlite/0055_diaries.sql"),
+        postgres: include_str!("../schema/postgres/0055_diaries.sql"),
+    },
+    Step {
         version: 59,
         description: "the link that gives an account its address back, and a locked password",
         sqlite: include_str!("../schema/sqlite/0059_email_reverts.sql"),
@@ -379,6 +385,10 @@ pub(crate) const ORG_MANAGEMENT_VERSION: i64 = 23;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const CONTAINERS_VERSION: i64 = 41;
 
+/// The migration before the one of the diaries, which widens the kinds of a container.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_DIARIES_VERSION: i64 = 54;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -402,7 +412,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 12] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 36] = [
+pub(crate) const ORG_TABLES: [&str; 37] = [
     "audit_log",
     "blocks",
     "body_docs",
@@ -418,6 +428,7 @@ pub(crate) const ORG_TABLES: [&str; 36] = [
     "containers",
     "deleted_blocks",
     "deleted_containers",
+    "diary_days",
     "file_info",
     "file_refs",
     "file_versions",

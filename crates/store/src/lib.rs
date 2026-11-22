@@ -33,6 +33,7 @@ mod containers;
 mod containers_and_blocks;
 mod data_steps;
 mod db;
+mod diaries;
 mod directory;
 mod email_change;
 mod email_revert;
@@ -106,6 +107,7 @@ pub use connect::DbType;
 pub use container_membership::Standing;
 pub use containers::{Joined, MemberChange, PublicContainers};
 pub use db::Dialect;
+pub use diaries::{DiaryMade, EntryMade};
 pub use directory::{
     Looking, Making, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SessionTaken, SharedContainer,
     Sight, WorkspaceAccess,

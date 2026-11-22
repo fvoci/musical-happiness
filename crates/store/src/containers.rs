@@ -652,11 +652,13 @@ pub(crate) async fn insert_container(
 }
 
 /// Inserts a board row with every column as `container` has it. For a new board, and for
-/// one that comes back from the trash.
+/// one that comes back from the trash. A diary is put down only where one may be
+/// ([`crate::diaries::check_place`]).
 pub(crate) async fn insert_container_row(
     scope: &mut Scope<'_>,
     container: &Container,
 ) -> Result<(), StoreError> {
+    crate::diaries::check_place(scope, container).await?;
     let mut sql = scope.sql(&format!(
         "INSERT INTO containers ({CONTAINER_COLUMNS}) VALUES ("
     ));
