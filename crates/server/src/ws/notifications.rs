@@ -21,6 +21,17 @@ struct UpdateNotificationsMessage {
     action: &'static str,
 }
 
+/// Whether the sessions made one way hear of what some organizations told their user.
+#[derive(Debug, Clone, Copy)]
+enum Opens {
+    /// One of the organizations lets them hear.
+    Yes,
+    /// None does.
+    No,
+    /// None of those that could be read does, and one could not be read now.
+    Unknown,
+}
+
 impl Outgoing for UpdateNotificationsMessage {
     fn action(&self) -> &'static str {
         self.action
@@ -61,23 +72,21 @@ impl Hub {
         let Some(text) = text_of(&message) else {
             return;
         };
-        let mut opens: HashMap<SessionMade, bool> = HashMap::new();
+        let mut asked: HashMap<SessionMade, Opens> = HashMap::new();
         let mut told = Vec::with_capacity(connections.len());
         let mut unread = Vec::new();
         for (id, made) in connections {
-            let opened = if let Some(opened) = opens.get(&made) {
-                Some(*opened)
+            let opens = if let Some(known) = asked.get(&made) {
+                *known
             } else {
-                let opened = self.opens_any(user_id, &made, org_ids).await;
-                if let Some(opened) = opened {
-                    opens.insert(made, opened);
-                }
-                opened
+                let opens = self.opens_any(user_id, &made, org_ids).await;
+                asked.insert(made, opens);
+                opens
             };
-            match opened {
-                Some(true) => told.push(id),
-                Some(false) => {}
-                None => unread.push(id),
+            match opens {
+                Opens::Yes => told.push(id),
+                Opens::No => {}
+                Opens::Unknown => unread.push(id),
             }
         }
         self.queue_text(&told, &text, message.action());
@@ -85,22 +94,24 @@ impl Hub {
     }
 
     /// Whether one of `org_ids` lets a session made as `made` hear of what it told
-    /// `user_id`; `None` where that cannot be read now.
-    async fn opens_any(&self, user_id: &str, made: &SessionMade, org_ids: &[&str]) -> Option<bool> {
+    /// `user_id`. Those that cannot be read now are passed over: one of the others may
+    /// open it.
+    async fn opens_any(&self, user_id: &str, made: &SessionMade, org_ids: &[&str]) -> Opens {
+        let mut opens = Opens::No;
         for org_id in org_ids {
             match self
                 .audience
                 .notifications_kept_from(user_id, made.making(), org_id)
                 .await
             {
-                Ok(false) => return Some(true),
+                Ok(false) => return Opens::Yes,
                 Ok(true) => {}
                 Err(error) => {
                     tracing::warn!(%error, "websocket: whether a session is told of a notification could not be read");
-                    return None;
+                    opens = Opens::Unknown;
                 }
             }
         }
-        Some(false)
+        opens
     }
 }

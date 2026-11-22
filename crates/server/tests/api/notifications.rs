@@ -133,7 +133,12 @@ async fn card_mentions(th: &TestServer, card_id: &str, users: &[&str]) {
     reason = "the end of the slice as one story: told, told no more, and seen no more"
 )]
 async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once() {
-    let th = Setup::native().start().await.init_basic().await;
+    let th = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
     let (a, b) = (th.client.me().await, th.client2.me().await);
     let board = board_with_owner(&th, ContainerType::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
@@ -210,6 +215,7 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
     assert_eq!(unread(&th.client).await, 0);
 
     // Taken out and put back: in the document, in the comment, and in the property.
+    let before = crate::metrics::scrape(&th).await;
     let update = one.editor().delete_last();
     one.send_update(&update).await;
     one.text("DOC_ACK").await;
@@ -254,6 +260,19 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
     // Each taken out and put back by whoever put it there was counted already.
     let again = told(&th, &th.client2).await;
     assert_eq!(again, theirs, "nothing more, and nothing changed");
+    let after = crate::metrics::scrape(&th).await;
+    let settled = |outcome: &str| {
+        let of = |body: &str| {
+            crate::metrics::sample(body, "fvoci_notifications_total", &[("outcome", outcome)])
+                .unwrap_or_default()
+        };
+        of(&after) - of(&before)
+    };
+    assert_eq!(
+        (settled("counted"), settled("made"), settled("joined")),
+        (3.0, 0.0, 0.0),
+        "each put back was noted, and found counted already: {after}"
+    );
     assert_eq!(
         th.app
             .housekeeping()

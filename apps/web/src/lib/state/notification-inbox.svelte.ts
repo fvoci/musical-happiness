@@ -5,7 +5,9 @@
  * (`notifications`: something was told, or read, in this tab or another) and
  * when changes may have been missed (`resync`); the list only while it is
  * open. Of two readings, the later one counts, and a reading begun before
- * the reader read one, or all, does not count: it may not know of that.
+ * the reader read one, or all, does not count: it may not know of that; nor
+ * does one that answers while a read is being written, which is read again
+ * once it is.
  *
  * Who did each is named as the workspace of its card or page names them
  * (`usersById`), asked once a visit; whom it leaves out stays unnamed.
@@ -36,6 +38,8 @@ export class NotificationInbox {
   #open = false;
   #countReading = 0;
   #listReading = 0;
+  /** How many reads are being written: what is read meanwhile may not know of them. */
+  #writing = 0;
   /** Who was asked for already, as `workspace/user`. */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- nothing that is drawn reads it
   readonly #asked = new Set<string>();
@@ -79,18 +83,15 @@ export class NotificationInbox {
   /** Marks one as read, on the screen at once. */
   async read(notification: Notification): Promise<void> {
     if (notification.readAt !== 0) return;
-    this.#forgetReadings();
+    const asked = this.#forgetReadings();
     const now = Date.now();
     this.items = this.items.map((one) =>
       one.id === notification.id ? { ...one, readAt: now } : one,
     );
     this.unread = Math.max(0, this.unread - 1);
-    try {
-      await this.#notifications.read(notification.id);
-    } catch (error) {
-      this.#refused(error);
-      await this.refresh();
-    }
+    const written = await this.#write(() => this.#notifications.read(notification.id));
+    // Refused, it is put back; asked meanwhile, the answer did not count.
+    if (!written || this.#askedSince(asked)) await this.refresh();
   }
 
   /**
@@ -105,18 +106,37 @@ export class NotificationInbox {
     this.#forgetReadings();
     const now = Date.now();
     this.items = this.items.map((one) => (one.readAt === 0 ? { ...one, readAt: now } : one));
-    try {
-      await this.#notifications.readAll(through);
-    } catch (error) {
-      this.#refused(error);
-    }
+    await this.#write(() => this.#notifications.readAll(through));
     await this.refresh();
   }
 
-  /** The answers of the readings under way do not count: they may not know of a read. */
-  #forgetReadings(): void {
+  /** Writes a read; whether it was written. What is read meanwhile does not count. */
+  async #write(write: () => Promise<void>): Promise<boolean> {
+    this.#writing += 1;
+    try {
+      await write();
+      return true;
+    } catch (error) {
+      this.#refused(error);
+      return false;
+    } finally {
+      this.#writing -= 1;
+    }
+  }
+
+  /**
+   * The answers of the readings under way do not count: they may not know of a
+   * read. Where the readings stand now, for {@link #askedSince}.
+   */
+  #forgetReadings(): number {
     this.#countReading += 1;
     this.#listReading += 1;
+    return this.#countReading + this.#listReading;
+  }
+
+  /** Whether something was read since the readings stood at `asked`. */
+  #askedSince(asked: number): boolean {
+    return this.#countReading + this.#listReading !== asked;
   }
 
   async #readCount(): Promise<void> {
@@ -124,7 +144,7 @@ export class NotificationInbox {
     const reading = this.#countReading;
     try {
       const unread = await this.#notifications.unread();
-      if (reading === this.#countReading) this.unread = unread;
+      if (reading === this.#countReading && this.#writing === 0) this.unread = unread;
     } catch (error) {
       if (reading === this.#countReading) this.#refused(error);
     }
@@ -135,7 +155,7 @@ export class NotificationInbox {
     const reading = this.#listReading;
     try {
       const items = await this.#notifications.list({ page: 0, perPage: LISTED });
-      if (reading !== this.#listReading || !this.#open) return;
+      if (reading !== this.#listReading || !this.#open || this.#writing > 0) return;
       this.items = items;
       this.listed = true;
       void this.#name(items);

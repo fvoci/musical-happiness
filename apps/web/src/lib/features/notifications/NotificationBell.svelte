@@ -97,7 +97,7 @@
       <Button
         variant="ghost"
         size="sm"
-        disabled={!inbox.items.some((one) => one.readAt === 0)}
+        disabled={!inbox.listed || !inbox.items.some((one) => one.readAt === 0)}
         data-testid="read-all-notifications"
         onclick={() => void inbox.readAll()}>{m.notifications_read_all()}</Button
       >

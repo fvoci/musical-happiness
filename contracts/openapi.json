@@ -13869,7 +13869,7 @@
     },
     "/api/v1/w/{workspaceId}/subscriptions": {
       "post": {
-        "description": "Subscribes the user of the session to a block of a board they are a member of. A\n`subscriberId` that is not the user of the session is 403, and a `subscriberType`\nother than `user` is 400. The `blockType` is stored as it is sent, and not compared\nwith the block. Subscribing again is no error: the subscription stays as it was\nmade, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.",
+        "description": "Subscribes the user of the session to a block of a board, or a page of a wiki, they\nmay read: whoever writes a card or a page watches it, and may stop and start again. A\n`subscriberId` that is not the user of the session is 403, and a `subscriberType`\nother than `user` is 400. The `blockType` is stored as it is sent, and not compared\nwith the block. Subscribing again is no error: the subscription stays as it was\nmade, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.",
         "operationId": "createSubscription",
         "parameters": [
           {

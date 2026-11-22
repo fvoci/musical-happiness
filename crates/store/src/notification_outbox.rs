@@ -164,7 +164,8 @@ impl Store {
                 .push(" ORDER BY create_at DESC LIMIT 1");
             if let Some(row) = scope.fetch_optional(sql).await? {
                 let (org_id, id) = (row.id(0)?, row.id(1)?);
-                let Some(counted) = with_counted(&row.text(3)?, event) else {
+                let Some(counted) = with_counted(&row.text(3)?, &event.source_id, &event.actor_id)
+                else {
                     return Ok(Told::Counted(id));
                 };
                 let doers = with_doer(&row.text(2)?, &event.actor_id);
@@ -202,7 +203,7 @@ impl Store {
                 .push_bind(", ", now)
                 .push_bind(", ", now)
                 .push_bind(", 1, ", with_doer("[]", &event.actor_id))
-                .push_bind(", ", with_counted("[]", event).unwrap_or_default())
+                .push_bind(", ", first_counted(&event.source_id, &event.actor_id))
                 .push(", 0)");
             scope.execute(sql).await?;
             keep_newest(scope, &event.recipient_id, limits.most_of_a_person).await?;
@@ -300,18 +301,32 @@ fn with_doer(doers: &str, doer: &str) -> String {
 }
 
 /// What a line counted (`counted`, a JSON list of [source, doer] pairs) with the
-/// doing of `event` after it, or `None` where it is among them already. Past
-/// [`MOST_DOERS`] pairs, a doing is counted without being kept.
-fn with_counted(counted: &str, event: &NotificationEvent) -> Option<String> {
+/// doing of `doer` in `source` after it, or `None` where it is among them already: the
+/// same person doing the same in the same place again. A doing of nobody known is
+/// counted without being kept, and so is any past [`MOST_DOERS`] pairs. A list that
+/// does not read is taken for none.
+fn with_counted(counted: &str, source: &str, doer: &str) -> Option<String> {
     let mut counted: Vec<(String, String)> = serde_json::from_str(counted).unwrap_or_default();
-    let doing = (event.source_id.clone(), event.actor_id.clone());
-    if counted.contains(&doing) {
+    if counted
+        .iter()
+        .any(|(was_in, by)| was_in == source && by == doer)
+    {
         return None;
     }
-    if counted.len() < MOST_DOERS {
-        counted.push(doing);
+    if !doer.is_empty() && counted.len() < MOST_DOERS {
+        counted.push((source.to_owned(), doer.to_owned()));
     }
     Some(serde_json::to_string(&counted).unwrap_or_else(|_| "[]".to_owned()))
+}
+
+/// What a new line counted: the doing of `doer` in `source`, where somebody known did it.
+fn first_counted(source: &str, doer: &str) -> String {
+    let counted: &[(&str, &str)] = if doer.is_empty() {
+        &[]
+    } else {
+        &[(source, doer)]
+    };
+    serde_json::to_string(counted).unwrap_or_else(|_| "[]".to_owned())
 }
 
 /// Takes the row of `event` off the list, if it is as it was read.
@@ -386,5 +401,41 @@ mod tests {
         let full: Vec<String> = (0..MOST_DOERS).map(|n| n.to_string()).collect();
         let full = serde_json::to_string(&full).expect("JSON");
         assert_eq!(with_doer(&full, "x"), full);
+    }
+
+    #[test]
+    fn a_line_counts_a_doing_once_and_keeps_a_hundred_at_most() {
+        let one = first_counted("s", "a");
+        assert_eq!(one, r#"[["s","a"]]"#);
+        assert_eq!(first_counted("s", ""), "[]", "nobody known");
+        assert_eq!(with_counted(&one, "s", "a"), None, "the same again");
+        assert_eq!(
+            with_counted(&one, "s", "b").as_deref(),
+            Some(r#"[["s","a"],["s","b"]]"#),
+            "somebody else"
+        );
+        assert_eq!(
+            with_counted(&one, "t", "a").as_deref(),
+            Some(r#"[["s","a"],["t","a"]]"#),
+            "somewhere else"
+        );
+        assert_eq!(
+            with_counted(&one, "s", "").as_deref(),
+            Some(one.as_str()),
+            "nobody known is counted each time"
+        );
+        assert_eq!(
+            with_counted("not a list", "s", "a").as_deref(),
+            Some(r#"[["s","a"]]"#)
+        );
+        let full: Vec<(String, String)> = (0..MOST_DOERS)
+            .map(|n| (n.to_string(), "a".to_owned()))
+            .collect();
+        let full = serde_json::to_string(&full).expect("JSON");
+        assert_eq!(
+            with_counted(&full, "x", "a").as_deref(),
+            Some(full.as_str()),
+            "counted, not kept"
+        );
     }
 }

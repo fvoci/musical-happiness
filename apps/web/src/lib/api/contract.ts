@@ -3664,7 +3664,8 @@ export interface paths {
         put?: never;
         /**
          * Subscribe to a block
-         * @description Subscribes the user of the session to a block of a board they are a member of. A
+         * @description Subscribes the user of the session to a block of a board, or a page of a wiki, they
+         *     may read: whoever writes a card or a page watches it, and may stop and start again. A
          *     `subscriberId` that is not the user of the session is 403, and a `subscriberType`
          *     other than `user` is 400. The `blockType` is stored as it is sent, and not compared
          *     with the block. Subscribing again is no error: the subscription stays as it was

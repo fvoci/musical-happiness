@@ -152,7 +152,8 @@ async fn whoever_writes_comments_on_or_is_given_a_card_is_told_of_its_comments_u
     th.teardown().await;
 }
 
-/// Who writes a page watches it and is told of its comments, as of a card's.
+/// Who writes a page watches it and is told of its comments, as of a card's; stopped,
+/// they are told nothing, and they may watch it again.
 #[tokio::test]
 async fn the_writer_of_a_page_is_told_of_its_comments() {
     let th = Setup::native().start().await.init_basic().await;
@@ -186,6 +187,45 @@ async fn the_writer_of_a_page_is_told_of_its_comments() {
             subject.comment_id.as_str()
         ),
         (page.id.as_str(), SearchKind::Page, comment_id.as_str())
+    );
+
+    let comment_again = async || {
+        th.client2
+            .post(
+                &format!("{TEST_WS}/wikis/{wiki}/pages/{}/comments", page.id),
+                &json!({"body": plain("again")}),
+            )
+            .await
+            .check_created();
+    };
+    stop_watching(&th.client, &page.id).await;
+    comment_again().await;
+    let stopped = told(&th, &th.client).await;
+    assert_eq!(
+        (
+            stopped.len(),
+            stopped[0].subject.as_ref().map(|line| line.times)
+        ),
+        (1, Some(1)),
+        "nothing more: {stopped:?}"
+    );
+    let a_id = th.client.me().await.id;
+    th.client
+        .post(
+            &format!("{TEST_WS}/subscriptions"),
+            &json!({"blockType": "page", "blockId": page.id, "subscriberType": "user", "subscriberId": a_id}),
+        )
+        .await
+        .check_created();
+    comment_again().await;
+    let again = told(&th, &th.client).await;
+    assert_eq!(
+        (
+            again.len(),
+            again[0].subject.as_ref().map(|line| line.times)
+        ),
+        (1, Some(2)),
+        "watched again, and told: {again:?}"
     );
     th.teardown().await;
 }

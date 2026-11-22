@@ -467,9 +467,12 @@ mod tests {
 
     #[tokio::test]
     async fn what_a_write_notes_for_later_moves_no_revision() {
+        // A handle of one organization: one of no organization moves nothing on what
+        // only reads the tables of access anyway.
         let visibility = Visibility::default();
-        let old = visibility.version(Tenant::Unset).await;
-        let writing = visibility.writing(Tenant::Unset);
+        let of_first = org(1);
+        let old = visibility.version(of_first).await;
+        let writing = visibility.writing(of_first);
         for text in [
             "INSERT INTO subscriptions (block_id) SELECT b.id FROM blocks AS b \
              JOIN containers AS bo ON bo.id = b.container_id",
@@ -482,21 +485,20 @@ mod tests {
         }
         writing.settled();
         drop(writing);
-        assert_eq!(
-            visibility.version(Tenant::Unset).await,
-            old,
-            "no access changed"
-        );
+        assert_eq!(visibility.version(of_first).await, old, "no access changed");
 
-        let writing = visibility.writing(Tenant::Unset);
-        writing.statement("INSERT INTO container_members (container_id) SELECT id FROM containers");
-        writing.settled();
-        drop(writing);
-        assert_ne!(
-            visibility.version(Tenant::Unset).await,
-            old,
-            "a member is access"
-        );
+        for text in [
+            "INSERT INTO container_members (container_id) SELECT id FROM containers",
+            "UPDATE subscriptions SET notified_at = 1 WHERE block_id IN \
+             (SELECT id FROM blocks WHERE container_id IN (SELECT id FROM containers))",
+        ] {
+            let before = visibility.version(of_first).await;
+            let writing = visibility.writing(of_first);
+            writing.statement(text);
+            writing.settled();
+            drop(writing);
+            assert_ne!(visibility.version(of_first).await, before, "{text}");
+        }
     }
 
     fn org(n: u128) -> Tenant {

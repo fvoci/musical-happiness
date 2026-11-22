@@ -83,12 +83,16 @@ const ONE: Notification = { id: 'n1', createAt: 1, updateAt: 2, readAt: 0, subje
 function standIn() {
   const counts: ((count: number) => void)[] = [];
   const lists: ((items: Notification[]) => void)[] = [];
+  const writes: (() => void)[] = [];
   let refuse = false;
+  let hold = false;
+  const write = () =>
+    hold ? new Promise<void>((resolve) => writes.push(resolve)) : Promise.resolve();
   const notifications: Notifications = {
     list: () => new Promise((resolve) => lists.push(resolve)),
     unread: () => new Promise((resolve) => counts.push(resolve)),
-    read: () => (refuse ? Promise.reject(new Error('refused')) : Promise.resolve()),
-    readAll: () => Promise.resolve(),
+    read: () => (refuse ? Promise.reject(new Error('refused')) : write()),
+    readAll: write,
   };
   const backend = { watchSelf: () => () => undefined, usersById: () => Promise.resolve([]) };
   const refused: unknown[] = [];
@@ -101,6 +105,13 @@ function standIn() {
     refuseReads: () => {
       refuse = true;
     },
+    /** Reads are written only when told to, one by one. */
+    holdWrites: () => {
+      hold = true;
+    },
+    written: () => writes.shift()?.(),
+    /** How many counts are asked and not answered yet. */
+    countsAsked: () => counts.length,
   };
 }
 
@@ -142,6 +153,56 @@ describe('the inbox, against what it is answered', () => {
     await reading;
     expect(made.refused).toHaveLength(1);
     expect([made.inbox.unread, made.inbox.items[0]?.readAt]).toEqual([1, 0]);
+  });
+
+  it('lets nothing answered while a read is written undo it, and reads again', async () => {
+    const made = standIn();
+    made.inbox.start();
+    made.count(1);
+    const opened = made.inbox.open();
+    made.list([ONE]);
+    await opened;
+    await settle();
+
+    // Asked after the click, answered before the read is stored: it says one still.
+    made.holdWrites();
+    const reading = made.inbox.read(ONE);
+    const refreshed = made.inbox.refresh();
+    made.count(1);
+    made.list([ONE]);
+    await refreshed;
+    expect(made.inbox.unread).toBe(0);
+    expect(made.inbox.items[0]?.readAt).toBeGreaterThan(0);
+
+    made.written();
+    await settle();
+    expect(made.countsAsked()).toBe(1);
+    made.count(0);
+    made.list([{ ...ONE, readAt: 5 }]);
+    await reading;
+    expect([made.inbox.unread, made.inbox.items[0]?.readAt]).toEqual([0, 5]);
+  });
+
+  it('lets no list asked before all are read undo it', async () => {
+    const made = standIn();
+    const opened = made.inbox.open();
+    made.list([ONE]);
+    await opened;
+
+    const refreshed = made.inbox.refresh();
+    made.holdWrites();
+    const reading = made.inbox.readAll();
+    made.count(1);
+    made.list([ONE]);
+    await refreshed;
+    expect(made.inbox.items[0]?.readAt).toBeGreaterThan(0);
+
+    made.written();
+    await settle();
+    made.count(0);
+    made.list([{ ...ONE, readAt: 5 }]);
+    await reading;
+    expect([made.inbox.unread, made.inbox.items[0]?.readAt]).toEqual([0, 5]);
   });
 
   it('shows a list opened again only once it is read again', async () => {
