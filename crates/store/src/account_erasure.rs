@@ -417,10 +417,11 @@ impl Store {
 /// when their account is erased, whichever organization a row is of. An upload that
 /// was open is not among them: nobody sends its parts any more, and its clean-up needs
 /// the row to throw away what was sent (`uploads.rs`).
-const PERSONAL: [(&str, &str); 9] = [
+const PERSONAL: [(&str, &str); 10] = [
     ("notifications", "recipient_id"),
     ("notification_outbox", "recipient_id"),
     ("user_identities", "user_id"),
+    ("email_changes", "user_id"),
     ("sessions", "user_id"),
     ("preferences", "user_id"),
     ("password_resets", "user_id"),
@@ -454,7 +455,7 @@ async fn mark(
         return Ok(false);
     }
     sessions::delete_sessions_of_user(scope, user_id).await?;
-    password_reset::delete_password_resets_of_user(scope, user_id).await?;
+    password_reset::end_links_of_user(scope, user_id).await?;
     Ok(true)
 }
 

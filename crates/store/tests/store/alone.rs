@@ -32,7 +32,7 @@ async fn rows(store: &Store, table: &str) -> usize {
 /// The workspaces the account is listed, as the organization, its kind and the role.
 async fn listed(store: &Store, user_id: &str) -> Vec<(String, OrgKind, WorkspaceRole)> {
     store
-        .workspaces_of_user(user_id, None)
+        .workspaces_of_user(user_id, fvoci_store::Making::with_password())
         .await
         .expect("listed")
         .into_iter()
@@ -160,7 +160,7 @@ async fn check_started(
 ) {
     let store = &test.store;
     let spaces = store
-        .workspaces_of_user(user_id, None)
+        .workspaces_of_user(user_id, fvoci_store::Making::with_password())
         .await
         .expect("listed");
     let [theirs, own_listed] = &spaces[..] else {

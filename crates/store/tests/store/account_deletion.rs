@@ -24,7 +24,7 @@ fn session_of(user_id: &str) -> Session {
         last_used_at: T0,
         expires_at: T0 + 2 * WAIT,
         user_agent: "a browser".to_owned(),
-        login: None,
+        ..Session::default()
     }
 }
 

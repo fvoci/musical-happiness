@@ -777,7 +777,7 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
         "the row lets nobody into their workspace"
     );
     let listed = test
-        .workspaces_of_user(&user_id, None)
+        .workspaces_of_user(&user_id, fvoci_store::Making::with_password())
         .await
         .expect("the workspaces are listed");
     assert!(

@@ -20,3 +20,6 @@ src/lib/api/contract.ts
 
 # A cargo-about template: its lines are the notices' lines, which Prettier would fold.
 tools/licenses/rhwp-wasm.hbs
+
+# Written by pnpm for the Wrangler that deploys Storybook (tools/storybook/wrangler.ts).
+tools/storybook/wrangler/pnpm-lock.yaml

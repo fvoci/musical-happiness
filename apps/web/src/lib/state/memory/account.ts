@@ -9,8 +9,12 @@ import {
   type NameChange,
   type PersonName,
 } from '../../logic/person-names.ts';
+import { DEFAULT_ACCOUNT_SETTINGS } from '../../logic/account-settings.ts';
+import { readDisplaySettings } from '../../logic/display.ts';
+import { readLanguageSettings } from '../../logic/language.ts';
+import { isTimeZone, readRegionalSettings } from '../../logic/regional.ts';
 import { readDisplayName } from '../../logic/users.ts';
-import type { User } from '../backend.ts';
+import type { AccountSettings, AccountSettingsPatch, User } from '../backend.ts';
 
 import { fail } from './refuse.ts';
 import type { World } from './world.ts';
@@ -91,4 +95,43 @@ export function changeName(world: World, userId: string, patch: NameChange): Use
   // sees whom answers (the server tells only who sees them).
   world.tellUsers([...world.users.keys()], { kind: 'user', userId });
   return user;
+}
+
+/** The user's settings: the defaults until they change one. */
+export function settingsOf(world: World, userId: string): AccountSettings {
+  return world.settings.get(userId) ?? { ...DEFAULT_ACCOUNT_SETTINGS };
+}
+
+/**
+ * The user's settings with what the patch names changed, as the server reads
+ * it (`patchSettings`): `null` for the default, a name or a value it does not
+ * know refused at its member. Not kept: the caller keeps and tells them.
+ */
+export function changedSettings(
+  world: World,
+  userId: string,
+  patch: AccountSettingsPatch,
+): AccountSettings {
+  const defaults = DEFAULT_ACCOUNT_SETTINGS;
+  const merged: Record<string, unknown> = { ...settingsOf(world, userId) };
+  for (const [name, value] of Object.entries(patch)) {
+    if (!(name in defaults)) fail(400, `unknown setting ${name}`, { field: name });
+    merged[name] = value ?? defaults[name as keyof AccountSettings];
+  }
+  const zone = merged.timeZone;
+  if (typeof zone !== 'string' || (zone !== 'auto' && !isTimeZone(zone))) {
+    fail(400, 'unknown time zone', { field: 'timeZone' });
+  }
+  const next: AccountSettings = {
+    ...readRegionalSettings(merged),
+    ...readDisplaySettings(merged),
+    ...readLanguageSettings(merged),
+  };
+  // A value the reader functions fell back on was not one of the allowed ones.
+  for (const name of Object.keys(patch) as (keyof AccountSettings)[]) {
+    if (patch[name] !== null && patch[name] !== undefined && next[name] !== patch[name]) {
+      fail(400, `invalid value for ${name}`, { field: name });
+    }
+  }
+  return next;
 }

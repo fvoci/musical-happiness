@@ -69,7 +69,8 @@ impl Store {
         .await?;
         self.system()
             .transaction(async |scope| {
-                if !password_reset::insert_password_reset(scope, user_id, digest, now).await? {
+                if !password_reset::insert_password_reset(scope, user_id, None, digest, now).await?
+                {
                     return Ok(false);
                 }
                 record_in_organizations_of(scope, user_id, AuditAction::PasswordResetLinkMade)

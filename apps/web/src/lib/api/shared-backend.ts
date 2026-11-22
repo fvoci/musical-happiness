@@ -84,6 +84,7 @@ export class SharedBackend implements Backend {
     list: nothing,
     read: refused,
     restore: refused,
+    keep: refused,
   };
   /** No search through a public link: the board is all there is to read. */
   readonly search: Backend['search'] = {
@@ -306,6 +307,7 @@ export class SharedBackend implements Backend {
 
   // Every change is refused before it is sent.
   patchMe: Backend['patchMe'] = refused;
+  confirmPassword: Backend['confirmPassword'] = refused;
   patchSettings: Backend['patchSettings'] = refused;
   createBoard: Backend['createBoard'] = refused;
   patchContainer: Backend['patchContainer'] = refused;

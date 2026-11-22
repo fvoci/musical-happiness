@@ -307,7 +307,7 @@ fn subject(told: &StoredNotification, place: NotificationPlace) -> NotificationS
 fn reader(asker: Asker<'_>) -> NotificationReader<'_> {
     NotificationReader {
         user_id: asker.user_id,
-        login_provider: asker.made_through,
+        making: asker.making,
     }
 }
 

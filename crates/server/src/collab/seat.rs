@@ -14,7 +14,7 @@ use super::messages::{self, reason_of};
 use super::queue::Outgoing;
 use super::rooms::{Connection, Entering, Holding};
 use super::{Collab, caret, refusals};
-use crate::app::{App, Asker};
+use crate::app::{App, SessionKept};
 use crate::error::AppError;
 
 /// The longest identifier a command of the rooms may name: longer names nothing, and
@@ -133,12 +133,12 @@ impl Outbox {
 }
 
 impl Collab {
-    /// The place among the rooms of a websocket connection of `asker` (a user that is
-    /// empty for a connection without a session, which is let into no room), whose
-    /// handshake reached `app`.
+    /// The place among the rooms of a websocket connection of the user `user_id`
+    /// (empty for a connection without a session, which is let into no room), whose
+    /// handshake reached `app`, of the session `making` keeps.
     #[must_use]
-    pub fn seat(&self, app: &App, asker: Asker<'_>) -> (Seat, Outbox) {
-        let connection = self.connection(asker);
+    pub fn seat(&self, app: &App, user_id: &str, making: SessionKept) -> (Seat, Outbox) {
+        let connection = self.connection(user_id, making);
         let seat = Seat {
             collab: self.clone(),
             home: app.clone(),

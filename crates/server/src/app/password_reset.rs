@@ -28,7 +28,7 @@ impl App {
         self.reset_link_for(&user.id, Asked::ByOperator).await
     }
 
-    async fn reset_link_for(&self, user_id: &str, asked: Asked) -> Result<String, AppError> {
+    async fn reset_link_for(&self, user_id: &str, asked: Asked<'_>) -> Result<String, AppError> {
         let token = new_secret();
         let (digest, now) = (token_digest(&token), now_millis());
         let store = self.store();
@@ -38,7 +38,11 @@ impl App {
                     .create_password_reset_by_operator(user_id, &digest, now)
                     .await?
             }
-            Asked::ByMail => store.create_password_reset(user_id, &digest, now).await?,
+            Asked::ByMail { to } => {
+                store
+                    .create_password_reset(user_id, to, &digest, now)
+                    .await?
+            }
         };
         if !stored {
             return Err(AppError::not_found("account with a password"));
@@ -133,7 +137,11 @@ impl App {
             .deliver(
                 &self.inner.mail,
                 || async {
-                    let link = self.reset_link_for(&user.id, Asked::ByMail).await?;
+                    // Made only while the address the message goes to is still the
+                    // account's: a change of it confirmed while the message waited
+                    // ends the message here.
+                    let asked = Asked::ByMail { to: &user.email };
+                    let link = self.reset_link_for(&user.id, asked).await?;
                     Ok::<_, AppError>(Letter {
                         to: user.email.clone(),
                         content: Content::reset(&link, language),
@@ -142,8 +150,16 @@ impl App {
                 // The link was made for this message, and holds until it is used or ends.
                 || async { Ok(true) },
             )
-            .await?;
-        Ok(())
+            .await
+            .map(|_| ())
+            .or_else(|error| {
+                // The account went, or its address changed, while the message waited.
+                if error.is_not_found() {
+                    Ok(())
+                } else {
+                    Err(error)
+                }
+            })
     }
 
     /// Sets the password proved by a reset token and closes every session and live
@@ -187,7 +203,10 @@ impl App {
 /// Who asked for a reset link: the server's operator, whose act each organization of
 /// the user records, or the person by mail, which is no one's act on them.
 #[derive(Debug, Clone, Copy)]
-enum Asked {
+enum Asked<'a> {
     ByOperator,
-    ByMail,
+    /// To the address `to`, which was the account's when the mail was asked for.
+    ByMail {
+        to: &'a str,
+    },
 }

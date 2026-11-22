@@ -24,7 +24,11 @@
 
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import BodyVersions from '$lib/features/card/BodyVersions.svelte';
-  import { pageVersions, VersionsReading } from '$lib/features/card/body-versions.svelte.ts';
+  import {
+    keepVersion,
+    pageVersions,
+    VersionsReading,
+  } from '$lib/features/card/body-versions.svelte.ts';
   import ShareDialog from '$lib/features/shell/ShareDialog.svelte';
   import { bodyReferences } from '$lib/features/card/body-references.ts';
   import CardBacklinks from '$lib/features/card/CardBacklinks.svelte';
@@ -243,6 +247,7 @@
               of="page"
               testId="page-body"
               references={bodyReferences(wiki, page.pageId)}
+              keep={() => keepVersion(pageVersions(page))}
             />
           </div>
           <!-- WikiScreen draws each page anew: the list is read for the page it is drawn for. -->

@@ -26,6 +26,7 @@ use crate::blocks::Paging;
 use crate::body_docs;
 use crate::containers;
 use crate::db::{Id, OptId, Row, Scope, Sql};
+use crate::directory::{Making, SessionTaken};
 use crate::error::StoreError;
 use crate::search_docs::select_documents;
 
@@ -68,21 +69,44 @@ pub struct NotificationEvent {
 pub struct NotificationReader<'a> {
     /// The user of the session.
     pub user_id: &'a str,
-    /// The provider the session was made through; `None` for a password.
-    pub login_provider: Option<&'a str>,
+    /// How the session was made, and what it confirmed since.
+    pub making: Making<&'a str>,
 }
 
 impl NotificationReader<'_> {
-    /// Binds the reader as the recipient and leaves out the organizations their
-    /// session does not open: for a statement on `notifications`, with no other name
-    /// for the table, whose text ends at `recipient_id = `.
-    fn push_theirs(self, sql: &mut Sql) {
-        sql.bind(Id(self.user_id));
-        crate::memberships_everywhere::push_organization_opened_by(
-            sql,
-            "notifications.org_id",
-            self.login_provider,
+    /// The organizations the reader was told something in that their session does not
+    /// open, by the one rule of it ([`SessionTaken::opened_by`]). A notification is of
+    /// an organization that people work in, and of no one's own space (`Noted::note`):
+    /// what such an organization takes is what its provider takes, if it takes only
+    /// that provider's sessions.
+    async fn closed_organizations(self, scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
+        let mut sql = scope.sql(
+            "SELECT DISTINCT n.org_id, p.id FROM notifications AS n \
+             JOIN oidc_providers AS p ON p.org_id = n.org_id AND p.sso_required = ",
         );
+        sql.bind(true)
+            .push_bind(" WHERE n.recipient_id = ", Id(self.user_id));
+        let mut closed = Vec::new();
+        for row in scope.fetch_all(sql).await? {
+            let takes = SessionTaken::of_organization(Some(row.id(1)?));
+            if !takes.opened_by(self.making) {
+                closed.push(row.id(0)?);
+            }
+        }
+        Ok(closed)
+    }
+
+    /// Binds the reader as the recipient and leaves out the organizations of `closed`
+    /// ([`NotificationReader::closed_organizations`]): for a statement on
+    /// `notifications`, with no other name for the table, whose text ends at
+    /// `recipient_id = `.
+    fn push_theirs(self, closed: &[String], sql: &mut Sql) {
+        sql.bind(Id(self.user_id));
+        if !closed.is_empty() {
+            sql.push(" AND org_id NOT IN (")
+                .bind_list(closed.iter().map(|org_id| Id(org_id)))
+                .push(")");
+        }
     }
 }
 
@@ -350,10 +374,11 @@ impl Store {
     ) -> Result<Vec<StoredNotification>, StoreError> {
         self.system()
             .with_conn(async |scope| {
+                let closed = reader.closed_organizations(scope).await?;
                 let mut sql = scope.sql(&format!(
                     "SELECT {NOTIFICATION_COLUMNS} FROM notifications WHERE recipient_id = "
                 ));
-                reader.push_theirs(&mut sql);
+                reader.push_theirs(&closed, &mut sql);
                 sql.push_bind(
                     " ORDER BY create_at DESC, id DESC LIMIT ",
                     i64::from(paging.per_page),
@@ -381,10 +406,11 @@ impl Store {
     ) -> Result<i64, StoreError> {
         self.system()
             .with_conn(async |scope| {
+                let closed = reader.closed_organizations(scope).await?;
                 let mut sql = scope.sql(
                     "SELECT COUNT(*) FROM notifications WHERE read_at = 0 AND recipient_id = ",
                 );
-                reader.push_theirs(&mut sql);
+                reader.push_theirs(&closed, &mut sql);
                 match scope.fetch_optional(sql).await? {
                     Some(row) => row.int(0),
                     None => Ok(0),
@@ -409,8 +435,9 @@ impl Store {
     ) -> Result<bool, StoreError> {
         self.system()
             .transaction(async |scope| {
+                let closed = reader.closed_organizations(scope).await?;
                 let mut sql = scope.sql("SELECT read_at FROM notifications WHERE recipient_id = ");
-                reader.push_theirs(&mut sql);
+                reader.push_theirs(&closed, &mut sql);
                 sql.push_bind(" AND id = ", Id(notification_id));
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(false);
@@ -442,10 +469,11 @@ impl Store {
         now: i64,
     ) -> Result<u64, StoreError> {
         self.system()
-            .with_conn(async |scope| {
+            .transaction(async |scope| {
+                let closed = reader.closed_organizations(scope).await?;
                 let mut sql = scope.sql("UPDATE notifications SET read_at = ");
                 sql.bind(now).push(" WHERE read_at = 0 AND recipient_id = ");
-                reader.push_theirs(&mut sql);
+                reader.push_theirs(&closed, &mut sql);
                 sql.push_bind(" AND create_at <= ", made_by);
                 scope.execute(sql).await
             })

@@ -454,7 +454,7 @@ async fn place_of(
         .await
         .expect("asked");
     let workspaces = store
-        .workspaces_of_user(user_id, None)
+        .workspaces_of_user(user_id, fvoci_store::Making::with_password())
         .await
         .expect("listed")
         .into_iter()

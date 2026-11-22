@@ -5,7 +5,7 @@
 use std::path::Path;
 
 /// The Rust files below a directory.
-fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
+pub(crate) fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
     for entry in std::fs::read_dir(directory).expect("a source directory") {
         let path = entry.expect("an entry").path();
         if path.is_dir() {
@@ -120,7 +120,7 @@ fn the_wall_of_a_transaction_is_moved_in_one_place() {
 /// workspace, the templates (as the system organization), the start (the one
 /// organization of the routes that name no workspace), the housekeeping, the
 /// application's own `scoped`, the erasing of an account (each organization the store
-/// says it has something in), the asking to delete one (the account's own space), and the documents of bodies edited together, which the
+/// says it has something in), the asking to delete one and the first password of one (the account's own space), and the documents of bodies edited together, which the
 /// server writes to their cards as the organization of each when it starts and stops;
 /// and the notifications, which ask as the organization a stored row is of whether its
 /// person reads what it is about (the row is the server's own, read by its person or
@@ -137,6 +137,8 @@ fn the_server_names_an_organization_for_a_handle_in_few_places() {
         "app/mod.rs",
         "app/notifications.rs",
         "app/templates.rs",
+        // And the space of the account that set its first password, named by its
+        // owner: what the session followed of it ends there (`App::shut_own_space_to`).
         "app/workspaces.rs",
         "collab/mod.rs",
     ];

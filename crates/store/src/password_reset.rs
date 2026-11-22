@@ -2,7 +2,7 @@
 
 use crate::db::{Dialect, Id, Scope};
 use crate::{Store, StoreError};
-use crate::{sessions, users};
+use crate::{email_change, sessions, users};
 
 /// A reset link is valid for one hour from its creation, in milliseconds.
 pub const PASSWORD_RESET_LIFETIME_MILLIS: i64 = 60 * 60 * 1_000;
@@ -21,13 +21,17 @@ impl Store {
     /// Stores a reset credential for an account that has a password and that somebody can
     /// sign in to: in use, or waiting to be deleted (`users::WAITS`), whose person may
     /// have forgotten the password they would take the deletion back with. Expired
-    /// credentials are removed before the new one is stored.
+    /// credentials are removed before the new one is stored. `email` is the address the
+    /// credential is mailed to: none is stored once that is no more the account's, in
+    /// any letter case, so that no link made after a change of address goes to the
+    /// address before it.
     ///
     /// # Errors
     /// Returns the database error if the credential cannot be stored.
     pub async fn create_password_reset(
         &self,
         user_id: &str,
+        email: &str,
         digest: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
@@ -35,8 +39,10 @@ impl Store {
         // A consumer holds that user before removing its token.
         self.with_conn(async |scope| delete_expired_password_resets(scope, now).await)
             .await?;
-        self.with_conn(async |scope| insert_password_reset(scope, user_id, digest, now).await)
-            .await
+        self.with_conn(async |scope| {
+            insert_password_reset(scope, user_id, Some(email), digest, now).await
+        })
+        .await
     }
 
     /// Consumes a live credential, changes its user's password and ends all sessions atomically.
@@ -82,7 +88,7 @@ impl Store {
             if scope.execute(take).await? == 0 {
                 return Ok(None);
             }
-            delete_password_resets_of_user(scope, &user_id).await?;
+            end_links_of_user(scope, &user_id).await?;
             let mut change = scope.sql("UPDATE users SET password_hash = ");
             change
                 .bind(password_hash)
@@ -96,15 +102,18 @@ impl Store {
     }
 }
 
-/// Removes every reset credential of a user, whose password was just set: a link
-/// issued before then must not set it again.
-pub(crate) async fn delete_password_resets_of_user(
+/// Ends the links mailed for a user whose password was just set, whose address just
+/// changed, or whose account is put out of use: every reset credential, which must
+/// not set the password again, and the change of address that waited
+/// ([`email_change`]), which was asked for under what the account was before.
+pub(crate) async fn end_links_of_user(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("DELETE FROM password_resets WHERE user_id = ");
     sql.bind(Id(user_id));
     scope.execute(sql).await?;
+    email_change::discard_of_user(scope, user_id).await?;
     Ok(())
 }
 
@@ -122,10 +131,12 @@ pub(crate) async fn delete_expired_password_resets(
 /// Stores a reset credential under `digest` for the user, if the account is one whose
 /// password may be reset ([`resettable`]); says whether it did. On PostgreSQL the row of
 /// the user is held, so that an account whose erasing began meanwhile is seen as it is
-/// now, and gets none.
+/// now, and gets none. Where `email` names an address, the account's is still that
+/// one, in any letter case.
 pub(crate) async fn insert_password_reset(
     scope: &mut Scope<'_>,
     user_id: &str,
+    email: Option<&str>,
     digest: &str,
     now: i64,
 ) -> Result<bool, StoreError> {
@@ -137,6 +148,9 @@ pub(crate) async fn insert_password_reset(
         .push_bind(" FROM users WHERE id = ", Id(user_id))
         .push(" AND ")
         .push(&resettable());
+    if let Some(email) = email {
+        sql.push_bind(" AND lower(email) = lower(", email).push(")");
+    }
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");
     }

@@ -18,6 +18,7 @@ mod container_teams;
 mod containers;
 mod content_search;
 pub mod contract;
+mod email_change;
 mod email_verification;
 mod file_leases;
 mod file_versions;
@@ -164,6 +165,7 @@ fn routes() -> Routes {
         .merge(auth::unauthenticated_routes())
         .merge(password_reset::routes())
         .merge(email_verification::routes())
+        .merge(email_change::routes())
         .merge(invitations::unauthenticated_routes())
         .merge(oidc::unauthenticated_routes())
         .merge(system::routes());

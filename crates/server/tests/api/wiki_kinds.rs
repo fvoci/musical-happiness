@@ -93,6 +93,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getCardBodyVersions", Reaches::Boards),
     ("getCardBodyVersion", Reaches::Boards),
     ("restoreCardBodyVersion", Reaches::Boards),
+    ("keepCardBodyVersion", Reaches::Boards),
     ("getDeletedCards", Reaches::Boards),
     ("deleteSubscription", Reaches::Boards),
     // What a wiki holds.
@@ -110,6 +111,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getPageBodyVersions", Reaches::Wikis),
     ("getPageBodyVersion", Reaches::Wikis),
     ("restorePageBodyVersion", Reaches::Wikis),
+    ("keepPageBodyVersion", Reaches::Wikis),
     ("movePage", Reaches::Wikis),
     ("duplicatePage", Reaches::Wikis),
     ("getDeletedPages", Reaches::Wikis),

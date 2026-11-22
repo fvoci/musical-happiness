@@ -118,6 +118,13 @@ pub(super) async fn exercise(
         "instance authority stays as assigned"
     );
     case.record("setUserAdmin", &response);
+    address(case, server, smtp).await;
+    // A session made with the password gives it once more, and goes on under a new
+    // cookie as the session it was.
+    let confirmed = case
+        .run("confirmPassword", &[], json!({"password": PASSWORD}))
+        .await;
+    case.client.token = confirmed.session_cookie().expect("rotated session cookie");
     let changed = case
         .run(
             "changePassword",
@@ -415,6 +422,38 @@ async fn recovery(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) {
         )
         .await;
     assert_eq!(again.status.as_u16(), 204, "the new password signs in");
+}
+
+/// The founder moves the account to another address: asks under the password, has the
+/// link mailed again and takes the asking back; asks for another, and confirms it by
+/// the link mailed there, in a browser that is not signed in.
+async fn address(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) {
+    let ask = |email: String| json!({"email": email, "password": PASSWORD});
+    case.run(
+        "requestEmailChange",
+        &[],
+        ask(format!("{}-first@example.test", case.label)),
+    )
+    .await;
+    case.run("resendEmailChange", &[], json!({})).await;
+    case.run("cancelEmailChange", &[], json!({})).await;
+    let moved = format!("{}-moved@example.test", case.label);
+    case.run("requestEmailChange", &[], ask(moved.clone()))
+        .await;
+    let letter = mail_to(case, smtp, &moved, "/confirm-email#").await;
+    let link = letter
+        .lines()
+        .find(|line| line.starts_with("http") && line.contains("/confirm-email#"))
+        .expect("the mail has its link");
+    let token = link.split_once('#').expect("a fragment").1.trim();
+    let confirmed = server
+        .anonymous()
+        .post("/email-change/confirm", &json!({"token": token}))
+        .await;
+    confirmed.check_no_content();
+    case.record("confirmEmailChange", &confirmed);
+    let me = case.run("getMe", &[], json!({})).await.value();
+    assert_eq!(me["email"], moved, "the address is the confirmed one: {me}");
 }
 
 /// The decoded mail to `recipient` that holds `containing`, which must name nothing of

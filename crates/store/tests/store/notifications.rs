@@ -4,7 +4,8 @@
 
 use fvoci_model::{Block, BlockType, Body, Container, ContainerType, NotificationKind, new_id};
 use fvoci_store::{
-    NotificationEvent, NotificationLimits, NotificationReader, Paging, Store, StoredNotification,
+    Making, NotificationEvent, NotificationLimits, NotificationReader, Paging, Store,
+    StoredNotification,
 };
 use serde_json::json;
 
@@ -57,7 +58,7 @@ async fn events(store: &Store) -> Vec<NotificationEvent> {
 fn reader(user_id: &str) -> NotificationReader<'_> {
     NotificationReader {
         user_id,
-        login_provider: None,
+        making: Making::with_password(),
     }
 }
 

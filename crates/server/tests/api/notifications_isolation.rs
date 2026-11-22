@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use fvoci_model::{Block, BlockPatch, BodyChange, Container, ContainerType, Notification};
 use fvoci_server::app::tend_notifications;
 use fvoci_store::testing::db_type_of_the_tests;
-use fvoci_store::{DbType, NotificationReader, Paging, Store};
+use fvoci_store::{DbType, Making, NotificationReader, Paging, Store};
 use serde_json::{Value, json};
 
 use crate::blocks::{delete, undelete_path};
@@ -37,7 +37,7 @@ async fn held_by(th: &TestServer, user_id: &str) -> usize {
     };
     let reader = NotificationReader {
         user_id,
-        login_provider: None,
+        making: Making::with_password(),
     };
     th.app
         .store()

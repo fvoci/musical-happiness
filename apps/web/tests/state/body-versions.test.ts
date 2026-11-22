@@ -96,7 +96,7 @@ describe('the versions of a body, in memory', () => {
     // card's body no more, though the card is not written yet: what was typed is. Reading
     // the versions writes nothing.
     expect(await versions.list(BOARD, cardId)).toEqual([
-      { version: 1, keptAt: before, editors: [], isCurrent: false },
+      { version: 1, keptAt: before, editors: [], isCurrent: false, cause: 'auto' },
     ]);
     expect((await versions.read(BOARD, cardId, 1)).isCurrent).toBe(false);
     expect(stored.blocks.get(cardId)?.updateAt).toBe(before);
@@ -271,9 +271,9 @@ describe('the versions of a body, in memory', () => {
       }
     });
     expect(await versions.list(BOARD, cardId)).toMatchObject([
-      { version: 3, editors: [them], isCurrent: true },
-      { version: 2, editors: [me], isCurrent: false },
-      { version: 1, editors: [], isCurrent: false },
+      { version: 3, editors: [them], isCurrent: true, cause: 'restored' },
+      { version: 2, editors: [me], isCurrent: false, cause: 'auto' },
+      { version: 1, editors: [], isCurrent: false, cause: 'auto' },
     ]);
     expect(lines((await versions.read(BOARD, cardId, 2)).body)).toEqual(['first body', 'typed']);
 
@@ -357,7 +357,7 @@ describe('the versions of a body, from the server', () => {
   }
 
   it('reads the list and a version, and restores one, under the workspace of the card', async () => {
-    const version = { version: 2, keptAt: 5, editors: ['u1'], isCurrent: true };
+    const version = { version: 2, keptAt: 5, editors: ['u1'], isCurrent: true, cause: 'manual' };
     const versions = serverBackend('').bodyVersions;
     let sent = serve([version]);
     expect(await versions.list('b', 'c')).toEqual([version]);

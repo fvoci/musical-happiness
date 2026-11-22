@@ -28,7 +28,7 @@ pub(crate) async fn lines(client: &Client, card_id: &str, version: &Value) -> Ve
         ))
         .await
         .ok_json();
-    for field in ["version", "keptAt", "editors", "isCurrent"] {
+    for field in ["version", "keptAt", "editors", "isCurrent", "cause"] {
         assert_eq!(read[field], version[field], "{field} as the list has it");
     }
     lines_of(read.get("body").filter(|body| !body.is_null()))
@@ -78,7 +78,7 @@ async fn a_body_is_kept_as_a_version_when_its_editors_leave() {
     assert_eq!(kept.len(), 2, "{kept:?}");
     assert_eq!(
         kept[1],
-        json!({"version": 1, "keptAt": made.update_at, "editors": [], "isCurrent": false}),
+        json!({"version": 1, "keptAt": made.update_at, "editors": [], "isCurrent": false, "cause": "auto"}),
         "the body before the editors came, as of the card's last change"
     );
     assert_eq!(lines(&th.client, &e.card_id, &kept[1]).await, ["first"]);

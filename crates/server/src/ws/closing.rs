@@ -24,6 +24,42 @@ impl Hub {
         });
     }
 
+    /// Has the connections of the session look it up under `token`, which it goes on
+    /// under: they stay open, so that none comes back under a cookie that is the
+    /// session's no more, before the answer that carries the new one has arrived. For
+    /// after the store put the session under the token, as the account's password was
+    /// set or changed through it. A handshake that read the session before that and
+    /// becomes a connection after this is ended by its own look at the session
+    /// (`Hub::serve`), and comes back.
+    pub fn session_goes_on_under(&self, session_id: &str, token: &str) {
+        self.each_of_session(session_id, |listener| {
+            if let Some(held) = &listener.token {
+                held.replace(token);
+            }
+        });
+    }
+
+    /// As [`Self::session_goes_on_under`], for a session that gave the account's
+    /// password: its connections are marked as ones whose session did, and are asked
+    /// from here on as the session is now. For after the store recorded it.
+    pub fn session_gave_password(&self, session_id: &str, token: &str) {
+        self.each_of_session(session_id, |listener| {
+            listener.making.gave_password();
+            if let Some(held) = &listener.token {
+                held.replace(token);
+            }
+        });
+    }
+
+    fn each_of_session(&self, session_id: &str, mut each: impl FnMut(&Listener)) {
+        let listeners = self.listeners();
+        for listener in listeners.by_id.values() {
+            if listener.session_id == session_id {
+                each(listener);
+            }
+        }
+    }
+
     /// Closes the connections of the sessions made through a provider of the
     /// organization under `issuer`, and with them their seats in the rooms. For when
     /// the store ended those sessions: the provider was removed or took another issuer.
@@ -53,8 +89,9 @@ impl Hub {
     }
 
     /// Closes the connections of the user that authenticated with another session than
-    /// the given one. For when a user changes their password: the session it was
-    /// changed through stays, and so do its connections.
+    /// the given one. For when a user changes their password or sets the first: the
+    /// session it was done through stays, and so do its connections
+    /// ([`Self::session_goes_on_under`]).
     pub fn close_other_sessions_of_user(&self, user_id: &str, kept_session_id: &str) {
         self.close_where(Disconnect::SessionEnded, |listener| {
             listener.user_id == user_id && listener.session_id != kept_session_id

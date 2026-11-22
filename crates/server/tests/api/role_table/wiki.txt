@@ -49,3 +49,4 @@ pages: comment delete            204         403         403         403        
 pages: comment undelete          200         403         403         403         404         403         403         404         404        404=        404=
 pages: version                   200         200         200         200         404         200         200         404         404        404=        404=
 pages: version restore           200         200         403         403         404         403         200         404         404        404=        404=
+pages: keep version              200         200         403         403         404         403         200         404         404        404=        404=
