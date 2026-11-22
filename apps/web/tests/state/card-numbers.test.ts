@@ -72,6 +72,24 @@ describe('the numbers of cards, in memory', () => {
     expect(await numbersOf(backend, boardId)).toMatchObject({ Alpha: 1, Beta: 2, Gamma: 3 });
   });
 
+  it('number a copy and an archive in the order the server lists the cards, a card back from the trash in its place', async () => {
+    const { backend, world, boardId } = small();
+    const alpha = (await backend.cards(boardId)).find((card) => card.title === 'Alpha');
+    if (!alpha) throw new Error('no Alpha');
+    // Back from the trash, Alpha is the last the world stored; it was made first.
+    await backend.deleteBlock(boardId, alpha.id);
+    await backend.restoreBlock(boardId, alpha.id);
+    const copy = await backend.duplicateContainer(boardId, false, world.workspace.id);
+    expect(await numbersOf(backend, copy.id)).toEqual({ Alpha: 1, Beta: 2, Gamma: 3 });
+    const archive = await backend.exportContainer(boardId);
+    await backend.importArchive(world.workspace.id, new File([archive.bytes], archive.name));
+    const imported = (await backend.boards(world.workspace.id)).find(
+      (board) => board.id !== boardId && board.id !== copy.id && board.title === 'Small',
+    );
+    if (!imported) throw new Error('nothing was imported');
+    expect(await numbersOf(backend, imported.id)).toEqual({ Alpha: 1, Beta: 2, Gamma: 3 });
+  });
+
   it('give the cards of an archive new numbers from 1', async () => {
     const { backend, world, boardId } = small();
     await backend.deleteBlock(boardId, (await backend.createCard(boardId, { title: 'Gone' })).id);

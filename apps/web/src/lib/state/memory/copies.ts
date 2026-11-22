@@ -12,12 +12,19 @@ import { numberBlock } from './card-numbers.ts';
 import { fileAsNew } from './categories.ts';
 import { renameCopied } from './references.ts';
 import { copy, memberOf, namesFile } from './shapes.ts';
-import type { StoredBlock, World } from './world.ts';
+import { oldestFirst, type StoredBlock, type World } from './world.ts';
 
-/** The blocks a copy of the board or wiki takes: all but its comments. */
+/**
+ * The blocks a copy of the board or wiki takes: all but its comments, in the
+ * order the server copies them (`oldestFirst`), which is the order the cards
+ * of the copy take their numbers in.
+ */
 export function copiedBlocks(world: World, container: { id: string }): StoredBlock[] {
   flushContainers(world, [container]);
-  return world.blocksOf(container.id).filter((block) => block.type !== 'comment');
+  return world
+    .blocksOf(container.id)
+    .filter((block) => block.type !== 'comment')
+    .sort(oldestFirst);
 }
 
 /** The language of a tag among the two the server writes its own words in. */

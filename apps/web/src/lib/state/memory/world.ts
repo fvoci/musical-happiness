@@ -32,6 +32,16 @@ export interface StoredBlock extends Block {
   file?: { fileId: string; name: string; size: number; contentType: string };
 }
 
+/**
+ * The order the server lists the blocks of a board in (`ORDER BY create_at,
+ * id`), and so copies and exports them: the one made first first, those made
+ * at once by their identifiers. The world's own order is the order it stored
+ * them in, which a block back from the trash leaves at the end.
+ */
+export function oldestFirst(a: StoredBlock, b: StoredBlock): number {
+  return a.createAt - b.createAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
 export type StoredView = StoredBlock & BoardView;
 export type StoredCard = StoredBlock & Card;
 

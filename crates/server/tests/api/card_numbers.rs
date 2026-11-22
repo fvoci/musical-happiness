@@ -192,12 +192,24 @@ async fn an_imported_board_numbers_its_cards_from_one() {
         panic!("one board is imported: {imported:?}");
     };
     let root = format!("/w/{ROOT_WORKSPACE_ID}");
-    let listed = listed_numbers(&ts.client, &root, imported).await;
-    let mut numbers: Vec<Value> = listed.iter().map(|(_, number)| number.clone()).collect();
-    numbers.sort_by_key(Value::to_string);
-    assert_eq!(numbers, [json!(1), json!(2), json!(null)], "{listed:?}");
-    assert!(
-        listed.contains(&("template".to_owned(), json!(null))),
+    // In the order the board lists its cards, which is the archive's: the numbers rise
+    // with it, and the template has none.
+    let cards: Vec<Value> = ts
+        .client
+        .get(&format!("{root}/boards/{imported}/cards"))
+        .await
+        .ok_json();
+    let listed: Vec<(&str, &Value)> = cards
+        .iter()
+        .map(|card| (card["title"].as_str().expect("a title"), &card["number"]))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            ("second", &json!(1)),
+            ("third", &json!(2)),
+            ("template", &json!(null))
+        ],
         "{listed:?}"
     );
     ts.teardown().await;

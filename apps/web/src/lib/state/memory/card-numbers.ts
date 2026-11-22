@@ -6,7 +6,7 @@
  * the card of an archive are new cards with new numbers; a card that comes
  * back from the trash has its own, which it took there.
  */
-import type { StoredBlock, World } from './world.ts';
+import { oldestFirst, type StoredBlock, type World } from './world.ts';
 
 /** Whether the block has a number: a card that is no template. */
 function takesNumber(block: StoredBlock): boolean {
@@ -28,9 +28,7 @@ export function numberBlock(world: World, block: StoredBlock): void {
  * made at once by their identifiers.
  */
 export function numberedWorld(world: World): World {
-  const cards = [...world.blocks.values()]
-    .filter(takesNumber)
-    .sort((a, b) => a.createAt - b.createAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const cards = [...world.blocks.values()].filter(takesNumber).sort(oldestFirst);
   for (const card of cards) numberBlock(world, card);
   return world;
 }
