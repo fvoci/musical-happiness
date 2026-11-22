@@ -6,7 +6,7 @@ use std::time::Duration;
 use fvoci_collab::{
     MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, UpdateLimits, take_update,
 };
-use fvoci_model::BODY_MAX_BYTES;
+use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_NODES};
 use serde_json::{Value, json};
 use yrs::{Doc, Text, XmlElementPrelim, XmlFragment, XmlOut, XmlTextPrelim};
 
@@ -52,8 +52,21 @@ fn paragraph(text: &str) -> Value {
 /// The bodies of the documents edited, by name: as many nodes as a body may have, as
 /// many bytes, and as many changes, but for the room the largest paste takes.
 pub(crate) fn bodies() -> Vec<(&'static str, Value)> {
+    bodies_within(BODY_MAX_NODES, BODY_MAX_BYTES)
+}
+
+/// [`bodies`] of `max_nodes` and `max_bytes`, for measurements of smaller bodies. The
+/// names are those of the bodies at the limits.
+///
+/// # Panics
+///
+/// Panics if they leave no room for the largest paste.
+pub(crate) fn bodies_within(max_nodes: usize, max_bytes: usize) -> Vec<(&'static str, Value)> {
     let (room_nodes, room_bytes) = paste_room();
-    let (max_nodes, max_bytes) = (super::shapes::nodes(), super::shapes::bytes());
+    assert!(
+        max_nodes > 2 * room_nodes && max_bytes > 2 * room_bytes,
+        "{max_nodes} nodes and {max_bytes} bytes leave room for the largest paste"
+    );
     let nodes = (max_nodes - room_nodes) / 2;
     let long = "가나다라마바사아자차".repeat(100);
     let long_bytes = serde_json::to_vec(&paragraph(&long)).expect("JSON").len() + 1;
@@ -136,7 +149,9 @@ fn marked_by(between: Between, length: Option<usize>, nodes: usize, bytes: usize
     let (bytes, nodes) = (bytes - 64, nodes - 1);
     let length = length.unwrap_or_else(|| {
         let pair = size(&every) + size(&other);
-        (nodes - 1).min(bytes / pair * 2)
+        // What a paragraph is without its content, which the letters do not have.
+        let wrapper = size(&json!({"type": "paragraph", "content": []}));
+        (nodes - 1).min((bytes - wrapper) / pair * 2)
     });
     let content: Vec<Value> = [every, other].into_iter().cycle().take(length).collect();
     let paragraph = json!({"type": "paragraph", "content": content});

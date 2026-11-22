@@ -25,7 +25,9 @@ use std::hint::black_box;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use fvoci_collab::testing::{changes_of, placing_steps, to_body, with_update};
+use fvoci_collab::testing::{
+    changes_of, charged, placing_steps, projected, same_state, size_of, to_body, with_update,
+};
 use fvoci_collab::{
     BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, UpdateLimits,
     from_body, from_state, new_doc, reading_steps, state_of, take_update,
@@ -97,8 +99,8 @@ enum Paid {
     InTheTake,
     /// The worker, after the take or later.
     ByTheWorker,
-    /// Nobody on its own: a part of the pass before it, told apart.
-    PartOfTheOneBefore,
+    /// No pass of its own: a sum, a whole, or what is told of a pass.
+    Told,
 }
 
 impl Paid {
@@ -106,7 +108,7 @@ impl Paid {
         match self {
             Self::InTheTake => "take",
             Self::ByTheWorker => "worker",
-            Self::PartOfTheOneBefore => "part",
+            Self::Told => "",
         }
     }
 }
@@ -147,63 +149,45 @@ fn applied(state: yrs::Update) -> Doc {
     doc
 }
 
-/// What `update::same_state` tells: the same bytes, or the same changes and deletions.
-fn same_state(one: &[u8], other: &[u8]) -> bool {
-    use yrs::updates::decoder::Decode as _;
-    one == other
-        || matches!(
-            (yrs::Update::decode_v1(one), yrs::Update::decode_v1(other)),
-            (Ok(one), Ok(other)) if one == other
-        )
-}
-
-/// What `take::size_of` tells: the size of a body as JSON, written to a counter.
-fn size_of(body: &Body) -> usize {
-    /// Counts what is written to it.
-    struct Count(usize);
-
-    impl std::io::Write for Count {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0 = self.0.saturating_add(bytes.len());
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    let mut count = Count(0);
-    serde_json::to_writer(&mut count, body.document()).expect("a `Value` is JSON");
-    count.0
-}
-
 /// Takes `update` into `doc` as [`take_update`] does an update that needs no repair,
-/// one pass over the whole state at a time, and the passes the worker makes after it
+/// one pass at a time, and the passes the worker makes after it
 /// (`collab_worker/serve.rs`); with the state and the body of the document it leaves.
-/// What the take does besides is not a pass over the state, and is left out: the update
-/// read and charged its steps (`update::charged`, which reads the state's lists only for
-/// an update that may walk past the limit), and the clients' ends compared after the
-/// count.
+///
+/// What is left out takes the update's time, not the state's: the walk of the update
+/// and its clients counted against the document's (`update::read`, again inside the
+/// charge here), its deletions held to their order, its roots looked at, and the
+/// clients' ends compared after the count. The charge reads the lists of the state
+/// only where its cheap count of the update's changes against all of the document's
+/// is past [`PLACING_STEPS`]; the row says which.
 fn take_by_passes(doc: &Doc, update: &[u8]) -> (Passes, Vec<u8>, Option<Body>) {
     use yrs::updates::decoder::Decode as _;
     let mut passes = Passes::default();
     let take = Paid::InTheTake;
     let decode = |state: &[u8]| yrs::Update::decode_v1(state).expect("an update");
     let state = passes.time("1. state_of the document", take, || state_of(doc));
-    passes.time("2. scan of its state", take, || changes_of(&state));
+    let changes = passes.time("2. scan of its state", take, || changes_of(&state));
     let read = passes.time("3. decode", take, || decode(&state));
     let copy = passes.time("4. apply to a copy", take, || applied(read));
-    {
-        let sent = decode(update);
-        let mut txn = copy.transact_mut();
-        txn.apply_update(sent).expect("the update applies");
-    }
+    passes.time("4a. the update charged (placing::charge)", take, || {
+        charged(&copy, &state, changes, update, PLACING_STEPS).expect("charged")
+    });
+    // Past no limit the charge is its cheap count, which it gives where that is within
+    // the limit, and reads the state's lists for otherwise.
+    let cheap =
+        charged(&copy, &state, changes, update, u64::MAX).expect("charged") <= PLACING_STEPS;
+    passes.time("4b. the update applied to the copy", take, || {
+        copy.transact_mut()
+            .apply_update(decode(update))
+            .expect("the update applies");
+    });
     let state = passes.time("5. state_of the copy", take, || state_of(&copy));
-    let steps = passes.time("6. reading::count", take, || {
+    let read_steps = passes.time("6. reading::count", take, || {
         reading_steps(&state, READING_STEPS).expect("a state")
     });
-    assert!(steps <= READING_STEPS, "read within its steps: {steps}");
+    assert!(
+        read_steps <= READING_STEPS,
+        "read within its steps: {read_steps}"
+    );
     let read = passes.time("7. decode", take, || decode(&state));
     let mut again = passes.time("8. apply", take, || applied(read));
     let mut state_again = passes.time("9. state_of again", take, || state_of(&again));
@@ -219,16 +203,20 @@ fn take_by_passes(doc: &Doc, update: &[u8]) -> (Passes, Vec<u8>, Option<Body>) {
         });
     }
     passes.time("the copy dropped", take, || drop(copy));
-    let body = passes.time("11–12. to_body: projection and Body::parse", take, || {
-        to_body(&again).expect("a body")
+    let json = passes.time("11. projection", take, || {
+        projected(&again).expect("a body")
     });
-    let json = body.as_ref().map(|body| body.document().clone());
-    passes.time("12. Body::parse alone", Paid::PartOfTheOneBefore, || {
-        json.map(|json| Body::parse(json).expect("a body"))
+    let body = passes.time("12. Body::parse", take, || {
+        json.map(|json| Body::parse(json).expect("a body").expect("not empty"))
     });
     passes.time("13. size_of", take, || body.as_ref().map(size_of));
     passes.time("14. file_ids", Paid::ByTheWorker, || {
-        body.as_ref().map(|body| body.file_ids().len())
+        body.as_ref().map(|body| {
+            body.file_ids()
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
     });
     passes.time("Request::Body: to_body and JSON", Paid::ByTheWorker, || {
         to_body(&again)
@@ -236,19 +224,26 @@ fn take_by_passes(doc: &Doc, update: &[u8]) -> (Passes, Vec<u8>, Option<Body>) {
             .map(|body| serde_json::to_vec(body.document()).expect("JSON"))
     });
     passes.time(
-        "the document it replaces dropped",
+        "a document as large dropped (the worker drops the one it replaces)",
         Paid::ByTheWorker,
-        || {
-            drop(again);
-        },
+        || drop(again),
     );
+    passes.0.push((
+        if cheap {
+            "(the charge: the cheap count, no list read)"
+        } else {
+            "(the charge: past the cheap count, the state's lists read)"
+        },
+        Paid::Told,
+        Duration::ZERO,
+    ));
     (passes, state_again, body)
 }
 
-/// How long each pass of an ordinary take over the whole state takes, for the shapes
-/// of [`PASSED`]: a paragraph typed at the end, taken pass by pass
-/// ([`take_by_passes`]), beside the whole take and what it leaves out. The passes are
-/// held to leave what [`take_update`] leaves.
+/// How long each pass of an ordinary take takes, for the shapes of [`PASSED`]: a
+/// paragraph typed at the end, taken pass by pass ([`take_by_passes`]), beside the
+/// whole take and what is left of it. The passes are held to leave what
+/// [`take_update`] leaves; the two are taken in turn, one first and then the other.
 #[test]
 #[ignore = "a measurement, run by name in a release build"]
 fn passes() {
@@ -256,15 +251,30 @@ fn passes() {
     println!("| --- | --- | --- | --- |");
     for (name, document) in shapes::measured(&PASSED) {
         let doc = from_body(&body_of(&document));
-        drop(document);
+        let state = state_of(&doc);
+        println!(
+            "| {name} | the document: {} nodes, a state of {:.2} MB, {} changes of its writer | | |",
+            nodes_of(&document),
+            mega(state.len()),
+            changes_of(&state),
+        );
+        drop((document, state));
         let update = typed(&doc);
         let mut rounds = Vec::new();
         let mut wholes = Vec::new();
-        for _ in 0..RUNS {
-            let (passes, state, body) = take_by_passes(&doc, &update);
-            let start = Instant::now();
-            let taken = take_update(&doc, &update, &LIMITS).expect("taken");
-            let take = start.elapsed();
+        for round in 0..RUNS {
+            let whole = || {
+                let start = Instant::now();
+                let taken = take_update(&doc, &update, &LIMITS).expect("taken");
+                (start.elapsed(), taken)
+            };
+            let ((took, taken), (passes, state, body)) = if round % 2 == 0 {
+                let by_passes = take_by_passes(&doc, &update);
+                (whole(), by_passes)
+            } else {
+                let whole = whole();
+                (whole, take_by_passes(&doc, &update))
+            };
             let start = Instant::now();
             let with = with_update(&doc, &update, &LIMITS).expect("taken");
             let with_update = start.elapsed();
@@ -275,25 +285,32 @@ fn passes() {
             );
             assert_eq!(body, taken.repair.body, "{name}: the passes leave its body");
             drop((taken, with));
-            wholes.push((take, with_update, passes.in_the_take()));
+            wholes.push((took, with_update, passes.in_the_take()));
             rounds.push(passes);
         }
         let row = |pass: &str, paid: Paid, runs: Runs| {
             println!("| {name} | {pass} | {} | {runs} |", paid.by());
         };
         for (at, (pass, paid, _)) in rounds[0].0.iter().enumerate() {
-            let times: Vec<Duration> = rounds.iter().map(|passes| passes.0[at].2).collect();
             assert!(
                 rounds.iter().all(|passes| passes.0[at].0 == *pass),
                 "{name}: every round makes the same passes"
             );
+            if *paid == Paid::Told {
+                println!("| {name} | {pass} | | |");
+                continue;
+            }
+            let times: Vec<Duration> = rounds.iter().map(|passes| passes.0[at].2).collect();
             row(pass, *paid, Runs::of(&times));
         }
         let of = |each: fn(&(Duration, Duration, Duration)) -> Duration| {
             Runs::of(&wholes.iter().map(each).collect::<Vec<_>>())
         };
-        let part = Paid::PartOfTheOneBefore;
-        row("the passes the take pays for", part, of(|whole| whole.2));
+        row(
+            "the passes the take pays for",
+            Paid::Told,
+            of(|whole| whole.2),
+        );
         row("take_update", Paid::InTheTake, of(|whole| whole.0));
         // Less than nothing where the passes, each timed alone, took longer.
         let mut rest: Vec<f64> = wholes
@@ -302,16 +319,12 @@ fn passes() {
             .collect();
         rest.sort_by(f64::total_cmp);
         println!(
-            "| {name} | take_update less its passes | part | {:.1} ({:.1}–{:.1}) |",
+            "| {name} | take_update less its passes | | {:.1} ({:.1}–{:.1}) |",
             rest[RUNS / 2],
             rest[0],
             rest[RUNS - 1]
         );
-        row(
-            "with_update (1–10, and the update charged)",
-            part,
-            of(|whole| whole.1),
-        );
+        row("with_update (1–10)", Paid::Told, of(|whole| whole.1));
     }
 }
 
@@ -325,7 +338,7 @@ fn honest() {
     println!("| document | edit | bytes | ms |");
     println!("| --- | --- | --- | --- |");
     let mut slow = Vec::new();
-    for (name, document) in honest::bodies() {
+    for (name, document) in honest::bodies_within(shapes::nodes(), shapes::bytes()) {
         let body = body_of(&document);
         let (made, (state, changes)) = timed(|| {
             let made = BodyDoc::from_body(Some(&body));
@@ -359,8 +372,9 @@ fn honest() {
 /// The paragraphs [`remade`] types one after the other.
 const UPDATES: usize = 5;
 
-/// Whether the worker makes a document again from its body at once after an update
-/// (`OpenDoc::crowded` in the server, whose marks this reads the same way: three
+/// Whether the server makes a document again from its body at once after an update
+/// (`OpenDoc::crowded`, which `keep_up` asks after every update; its marks are read
+/// here the same way: three
 /// quarters of the clients a document may name, of the changes a client may have, or
 /// of the steps a reading may take once one more client wrote), with the changes a
 /// client may have at `client_changes`.
@@ -374,31 +388,35 @@ fn crowds(clients: usize, (changes, client_changes): (u64, u64), steps_ahead: u6
 }
 
 /// How many of [`UPDATES`] paragraphs typed one after the other into the document of
-/// each body of [`honest::bodies`] have the worker make it again from its body
+/// each body of [`honest::bodies`] have the server make it again from its body
 /// ([`crowds`]), and whether one is refused: a body whose own document is past the mark
-/// is made again at every update, as the worker does not ask whether it grew since.
+/// is made again at every update, as `keep_up` asks of a crowded document not whether
+/// it grew since (it asks so only of one near the limit of its state, which a
+/// document made again a few paragraphs before is not).
 /// `FVOCI_COST_CLIENT_CHANGES` gives the changes a client may have in place of
 /// [`MAX_CLIENT_CHANGES`].
 #[test]
 #[ignore = "a measurement, run by name in a release build"]
 fn remade() {
-    let client_changes = std::env::var("FVOCI_COST_CLIENT_CHANGES")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(MAX_CLIENT_CHANGES);
+    let client_changes =
+        std::env::var("FVOCI_COST_CLIENT_CHANGES").map_or(MAX_CLIENT_CHANGES, |value| {
+            value
+                .parse()
+                .unwrap_or_else(|error| panic!("FVOCI_COST_CLIENT_CHANGES={value:?}: {error}"))
+        });
     let limits = UpdateLimits {
         client_changes: Some(client_changes),
         ..LIMITS
     };
     println!(
         "changes a client may have: {client_changes}, made again from {}",
-        client_changes / 4 * 3
+        client_changes * 3 / 4
     );
     println!(
         "| document | changes of its writer | of the mark | updates taken | made again | refused |"
     );
     println!("| --- | --- | --- | --- | --- | --- |");
-    for (name, document) in honest::bodies() {
+    for (name, document) in honest::bodies_within(shapes::nodes(), shapes::bytes()) {
         let body = body_of(&document);
         drop(document);
         let mut doc = from_body(&body);
@@ -431,6 +449,7 @@ fn remade() {
         println!("| {name} | {changes} | {of_the_mark:.2} | {taken} | {remade} | {refused} |");
     }
 }
+
 /// A document of `children` empty paragraphs typed one after the other by one client:
 /// each names the one before it to its left, so that the library goes past each by
 /// what it passed already, which takes longer than past children made from a body.

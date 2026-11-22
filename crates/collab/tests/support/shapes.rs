@@ -36,33 +36,56 @@ pub(crate) const SHAPES: [&str; 10] = [
 /// The nodes the bodies measured have: as many as a body may, or `FVOCI_COST_NODES`
 /// where that is less.
 pub(crate) fn nodes() -> usize {
-    within("FVOCI_COST_NODES", BODY_MAX_NODES)
+    within("FVOCI_COST_NODES", 10_000, BODY_MAX_NODES)
 }
 
 /// The bytes the bodies measured have: as many as a body may, or `FVOCI_COST_BYTES`
 /// where that is less.
 pub(crate) fn bytes() -> usize {
-    within("FVOCI_COST_BYTES", BODY_MAX_BYTES)
+    within("FVOCI_COST_BYTES", 1024 * 1024, BODY_MAX_BYTES)
 }
 
-/// The number the variable `name` holds, at most `limit`; `limit` where it holds none.
-fn within(name: &str, limit: usize) -> usize {
-    std::env::var(name)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .map_or(limit, |value: usize| value.min(limit))
+/// The number the variable `name` holds, at most `limit`; `limit` where it is not set.
+///
+/// # Panics
+///
+/// Panics if it holds no number, or one below `least`, which the shapes have no room
+/// in.
+fn within(name: &str, least: usize, limit: usize) -> usize {
+    let Ok(value) = std::env::var(name) else {
+        return limit;
+    };
+    let value: usize = value
+        .parse()
+        .unwrap_or_else(|error| panic!("{name}={value:?} is no number: {error}"));
+    assert!(value >= least, "{name}={value} is below {least}");
+    value.min(limit)
 }
 
 /// The shapes measured, each made as it is reached: those `FVOCI_COST_SHAPES` names
-/// of `among`, or all of them.
+/// of `among`, between commas, or all of them.
+///
+/// # Panics
+///
+/// Panics if it names a shape that is none of `among`.
 pub(crate) fn measured(among: &[&'static str]) -> impl Iterator<Item = (&'static str, Value)> {
-    let only = std::env::var("FVOCI_COST_SHAPES").ok();
+    let only: Option<Vec<String>> = std::env::var("FVOCI_COST_SHAPES")
+        .ok()
+        .map(|only| only.split(',').map(|one| one.trim().to_owned()).collect());
+    if let Some(only) = &only {
+        for one in only {
+            assert!(
+                among.contains(&one.as_str()),
+                "FVOCI_COST_SHAPES names {one:?}, none of {among:?}"
+            );
+        }
+    }
     let chosen: Vec<&'static str> = among
         .iter()
         .copied()
         .filter(|name| {
             only.as_ref()
-                .is_none_or(|only| only.split(',').any(|one| one.trim() == *name))
+                .is_none_or(|only| only.iter().any(|one| one == name))
         })
         .collect();
     chosen.into_iter().map(|name| (name, shape(name)))

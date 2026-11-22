@@ -1,11 +1,19 @@
 /**
  * What one letter another client typed costs the editor that receives it, on a body
- * at the limit of nodes: the editor is bound as `BodyEditor` binds it to a shared
- * document (the collaboration extension with the body's field, `MovesKept`, the
- * body's extensions without history), and a second document, the server's, writes a
- * letter at the end that reaches the editor's document as an update. Opening the
- * editor is not measured; each letter is, from the update to the end of the
- * transaction it makes in the editor, and to the frame that draws it.
+ * at the limit of nodes. The editor is bound to a shared document with what
+ * `BodyEditor` binds it with: the collaboration extension on the body's field,
+ * `MovesKept`, and the body's extensions without history. A second document, the
+ * server's, writes a letter at the end, which reaches the editor's document as an
+ * update. Opening the editor is not measured; each letter is, from the update to the
+ * end of the transaction it makes in the editor, and to the frame that draws it.
+ *
+ * Left out of what a card's body has: the others' carets (`caretsOf`, whose plugin
+ * draws its decorations again at every change), `readsFirst` (the page read before
+ * each update the room applies), the upload and slash-menu extensions, `setMayWrite`,
+ * the listener that sees the content fit again, and `BodyEditor`'s own
+ * `onTransaction`. The editor has no focus, the letter lands at the end, out of
+ * sight, and the update comes in with an origin of the page's, not through the
+ * room's provider.
  *
  *   ?shape=paragraphs   25,000 paragraphs of a text each (the default)
  *   ?shape=marks        paragraphs of 200 letters, every other with four marks
