@@ -158,7 +158,8 @@ test('the address is changed by the link mailed to the new one, opened where nob
 /**
  * Opens the link back to `email` where nobody is signed in: nothing changes
  * until the button is pressed, and then `page`, where the account is open,
- * is signed out.
+ * is signed out. The page then leads to a reset link for `email`, which it
+ * asks for.
  */
 async function takenBack(browser: Browser, page: Page, link: string, email: string): Promise<void> {
   const elsewhere = await browser.newContext({ locale: 'en-US' });
@@ -179,6 +180,10 @@ async function takenBack(browser: Browser, page: Page, link: string, email: stri
   await picture(rescuer, 'revert-after');
   expect(new URL(rescuer.url()).hash).toBe('');
   await expect(page.getByTestId('sign-in-form')).toBeVisible({ timeout: 15_000 });
+  await rescuer.getByTestId('revert-email-reset').click();
+  await expect(rescuer.getByLabel('Email address')).toHaveValue(email);
+  await rescuer.getByRole('button', { name: 'Send reset link' }).click();
+  await expect(rescuer.getByRole('status')).toContainText('If this email belongs to an account');
   // Used once.
   await rescuer.goto(link);
   await button.click();
@@ -187,15 +192,11 @@ async function takenBack(browser: Browser, page: Page, link: string, email: stri
   await elsewhere.close();
 }
 
-/** Asks for a reset link from the page the link back led to, and sets a new password by it. */
+/** Sets a new password by the reset link mailed to `email`. */
 async function recovered(browser: Browser, base: string, email: string): Promise<void> {
   const elsewhere = await browser.newContext({ locale: 'en-US' });
   const rescuer = await elsewhere.newPage();
   const errors = watchErrors(rescuer);
-  await rescuer.goto(`${base}/forgot-password#${new URLSearchParams({ email }).toString()}`);
-  await expect(rescuer.getByLabel('Email address')).toHaveValue(email);
-  await rescuer.getByRole('button', { name: 'Send reset link' }).click();
-  await expect(rescuer.getByRole('status')).toContainText('If this email belongs to an account');
   const resetLink = async (): Promise<string | undefined> =>
     (await inbox(base))
       .filter((mail) => mail.recipient === email)

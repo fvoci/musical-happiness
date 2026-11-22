@@ -490,20 +490,19 @@ impl App {
         {
             return Err(username_taken());
         }
-        // Asked whatever the two found, so that an address an account had and may have
-        // back ([`fvoci_store::Store::email_is_held_for_revert`]) is refused as one
-        // that an account has, after the same work.
+        // All three asked whatever each found, so that an address an account had and
+        // may have back ([`fvoci_store::Store::email_is_held_for_revert`]) is refused
+        // as one that an account or a registration has, after the same work.
         let kept = self
             .store()
             .email_is_held_for_revert(&account.email, now_millis())
             .await?;
-        if self
+        let had = self
             .find_user_for_login(Lookup::Email(&account.email))
             .await?
-            .is_some()
-            || held_by_another(self.find_signup("", &account.email).await?)
-            || kept
-        {
+            .is_some();
+        let registered = held_by_another(self.find_signup("", &account.email).await?);
+        if had || registered || kept {
             return Err(email_taken());
         }
         Ok(User {

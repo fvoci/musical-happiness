@@ -20,7 +20,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const OLD = 'ada+work@company.example';
+const OLD = 'ada+work@example.com';
 
 function shown(revert: (token: string) => Promise<string | undefined>, token = 'secret') {
   const resetHref = (email: string | undefined) => forgotPasswordHref('/base/', email);
@@ -47,10 +47,7 @@ describe('the page of the link that gives the address back', () => {
     expect(done).toHaveTextContent(`Your account has ${OLD} again, and is signed out everywhere.`);
     expect(done).toHaveTextContent('Its password works no more');
     const reset = screen.getByTestId('revert-email-reset');
-    expect(reset).toHaveAttribute(
-      'href',
-      '/base/forgot-password#email=ada%2Bwork%40company.example',
-    );
+    expect(reset).toHaveAttribute('href', '/base/forgot-password#email=ada%2Bwork%40example.com');
     expect(emailOfForgotPassword(new URL(reset.getAttribute('href') ?? '', 'http://x').hash)).toBe(
       OLD,
     );

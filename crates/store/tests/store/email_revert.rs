@@ -294,7 +294,19 @@ async fn while_a_link_stands_nobody_else_takes_its_address() {
         .expect("milliseconds");
     moved(store, &ada.id, "ada@new.example.test", "back", t0).await;
     let held = ada.email.to_uppercase();
-    assert!(store.email_is_held(&held, t0 + 1).await.expect("asked"));
+    assert!(
+        store
+            .email_is_held(&held, &bob.id, t0 + 1)
+            .await
+            .expect("asked")
+    );
+    assert!(
+        !store
+            .email_is_held(&held, &ada.id, t0 + 1)
+            .await
+            .expect("asked"),
+        "the account's own link holds it for the account"
+    );
     assert!(
         store
             .email_is_held_for_revert(&held, t0 + 1)

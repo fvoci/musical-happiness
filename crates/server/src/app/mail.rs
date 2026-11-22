@@ -293,8 +293,26 @@ impl Mailer {
             .map_err(|refusal| dropped(&refusal))
     }
 
+    /// Takes the place of the notice that carries the link giving an account the
+    /// address it had back, in the recovery queue, before the change it tells of is
+    /// made. No hour is counted: the changes are, by the links mailed for them
+    /// ([`Self::count_email_change`]).
+    ///
+    /// # Errors
+    /// Returns [`ResetMailDrop::QueueFull`] while the queue is.
+    pub(super) fn queue_email_changed(&self) -> Result<Queued, ResetMailDrop> {
+        Arc::clone(&self.reset_queue)
+            .try_acquire_owned()
+            .map(|place| Queued {
+                kind: MailKind::EmailChange,
+                place,
+                org: None,
+            })
+            .map_err(|_| ResetMailDrop::QueueFull)
+    }
+
     /// Takes the place of one notice to the account `user_id` that its address was
-    /// changed, in the recovery queue; the account's hour of notices is counted.
+    /// given back, in the recovery queue; the account's hour of notices is counted.
     ///
     /// # Errors
     /// Returns why the message is dropped, as [`Mailer::queue_reset`] does.

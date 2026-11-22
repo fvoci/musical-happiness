@@ -82,7 +82,7 @@ async fn a_change_is_made_by_its_link_once_and_takes_the_reset_credentials() {
     assert_eq!(email_of(store, &ada.id).await, ada.email, "not changed yet");
     assert!(
         !store
-            .email_is_held("new@example.test", T0)
+            .email_is_held("new@example.test", &new_id(), T0)
             .await
             .expect("asked"),
         "an address that waits is nobody's"
@@ -243,7 +243,19 @@ async fn an_address_that_is_somebodys_is_not_taken_by_a_link() {
 
     // Another account's, in any letter case.
     let bobs = bob.email.to_uppercase();
-    assert!(store.email_is_held(&bobs, T0).await.expect("asked"));
+    assert!(
+        store
+            .email_is_held(&bobs, &ada.id, T0)
+            .await
+            .expect("asked")
+    );
+    assert!(
+        !store
+            .email_is_held(&bobs, &bob.id, T0)
+            .await
+            .expect("asked"),
+        "an account's own address is not held from it"
+    );
     waiting(store, &ada, &bobs, "to bob's", T0).await;
     assert_eq!(
         store
@@ -274,7 +286,7 @@ async fn an_address_that_is_somebodys_is_not_taken_by_a_link() {
         .expect("a registration");
     assert!(
         store
-            .email_is_held("cy@example.test", T0 + 1)
+            .email_is_held("cy@example.test", &ada.id, T0 + 1)
             .await
             .expect("asked")
     );

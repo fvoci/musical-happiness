@@ -209,7 +209,9 @@ impl std::fmt::Debug for ConfirmEmailChange {
 /// longer in use or whose password was set anew since, and one whose address somebody
 /// else took meanwhile are all answered 400 naming `token` in `errors`, and change
 /// nothing: which of them it was is not said. Requests are counted by where they come
-/// from, as registrations are, and too many are 429.
+/// from, as registrations are, and too many are 429. While the server's queue of
+/// recovery mail has no place for the notice, the change is not made and the answer
+/// is 503: the link stays as it was.
 #[utoipa::path(
     post,
     path = "/email-change/confirm",
@@ -225,6 +227,12 @@ impl std::fmt::Debug for ConfirmEmailChange {
             body = Problem,
             content_type = "application/problem+json",
             headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
+        ),
+        (
+            status = 503,
+            description = "The notice to the address before has no place yet: nothing was changed.",
+            body = Problem,
+            content_type = "application/problem+json",
         ),
     ),
 )]

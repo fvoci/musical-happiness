@@ -235,7 +235,7 @@ async fn the_link_gives_the_address_back_and_ends_every_session() {
 #[tokio::test]
 async fn a_later_link_does_not_end_an_earlier_one() {
     let smtp = FakeSmtp::start_on(0).await;
-    // Four notices to one account in an hour, and six askings.
+    // Six askings of one account in an hour.
     let mut settings = smtp.settings();
     settings.mail_reset_per_account_hour = 6;
     let th = Setup::native()
@@ -293,7 +293,8 @@ async fn a_later_link_does_not_end_an_earlier_one() {
 
 /// While its link stands, the address the account had is nobody else's: another
 /// account's change to it is answered as any and mails nothing, and a registration or a
-/// link for members is refused as for an address an account has.
+/// link for members is refused as for an address an account has. The account's own
+/// change back to it is mailed and made.
 #[tokio::test]
 async fn while_a_link_stands_nobody_else_takes_the_address() {
     let smtp = FakeSmtp::start_on(0).await;
@@ -333,6 +334,50 @@ async fn while_a_link_stands_nobody_else_takes_the_address() {
     held.check_status(StatusCode::CONFLICT);
     assert_eq!(held.error_reason(), "email_taken");
     assert_eq!(held.problem(), taken.problem(), "as an account's");
+
+    // The account itself may have it again by a change, mailed as any.
+    let back = moved(&th, &smtp, &th.client, "User1@Sample.com").await;
+    let me: Value = th.client.get("/users/me").await.ok_json();
+    assert_eq!(me["email"], "User1@Sample.com", "{me}");
+    assert_eq!(restored(&revert(&th, &back).await), NEW);
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+/// The notice that carries a link is not one of the account's hour of notices: told
+/// three times in the hour, of two changes and of an address given back, the account
+/// moved again still has the link mailed to the address it had.
+#[tokio::test]
+async fn the_notice_with_a_link_is_not_left_out_for_the_notices_of_the_hour() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = mailing(&smtp).await;
+    moved(&th, &smtp, &th.client, "b@example.test").await;
+    let to_b = moved(&th, &smtp, &th.client, "c@example.test").await;
+    assert_eq!(restored(&revert(&th, &to_b).await), "b@example.test");
+    th.anonymous()
+        .post(
+            "/password-reset/request",
+            &json!({"email": "b@example.test"}),
+        )
+        .await
+        .check_no_content();
+    let reset = last_link(&th, &smtp, "b@example.test", "/reset-password#").await;
+    let password = "Recovered-password-1";
+    th.anonymous()
+        .post(
+            "/password-reset/complete",
+            &json!({"token": reset, "password": password}),
+        )
+        .await
+        .check_no_content();
+    let client = th.login(USER1_USERNAME, password).await;
+    let before = mailed_to(&th, &smtp, "b@example.test").await.len();
+
+    confirmed(&th, &smtp, &client, "d@example.test", password).await;
+    let mailed = mailed_to(&th, &smtp, "b@example.test").await;
+    assert_eq!(mailed.len(), before + 1, "the notice is mailed");
+    let notice = &mailed.last().expect("the notice").decoded;
+    assert!(notice.contains("/revert-email#"), "with its link: {notice}");
     th.teardown().await;
     smtp.stop().await;
 }
@@ -368,7 +413,14 @@ async fn a_locked_password_is_refused_as_a_wrong_one_and_the_provider_still_sign
     // and a link back to it from the next.
     let first = confirmed(&th, &smtp, &client, "ada@example.org", "Ada-password-1").await;
     assert_eq!(first, "", "no address of its own");
-    let back = moved_with(&th, &smtp, &client, "ada@example.net", "Ada-password-1").await;
+    let back = moved_with(
+        &th,
+        &smtp,
+        &client,
+        "ada.moved@example.org",
+        "Ada-password-1",
+    )
+    .await;
     assert_eq!(restored(&revert(&th, &back).await), "ada@example.org");
     client.get("/users/me").await.check_unauthorized();
 

@@ -5641,7 +5641,7 @@
     },
     "/api/v1/email-change/confirm": {
       "post": {
-        "description": "Consumes the token of the link mailed by `requestEmailChange`, within a day of\nthe mail and seven days of the request: the address the link was mailed to becomes\nthe account's. No session is needed and none is made: the link shows that its\nholder reads the new address, and the password was given when the change was\nasked for. From then on reset links go to the new address and `login` finds the\naccount by it; the reset links mailed to the address before end, and that address\nis mailed a notice that it is the account's no more, which names the account and\nnothing of the new address, with a link that gives the account that address back\n(`revertEmailChange`). The account's sessions go on.\n\nA link is used once. A token that is missing, used, ended, replaced by a newer\nmail or request, or taken back (`cancelEmailChange`), one of an account that is no\nlonger in use or whose password was set anew since, and one whose address somebody\nelse took meanwhile are all answered 400 naming `token` in `errors`, and change\nnothing: which of them it was is not said. Requests are counted by where they come\nfrom, as registrations are, and too many are 429.",
+        "description": "Consumes the token of the link mailed by `requestEmailChange`, within a day of\nthe mail and seven days of the request: the address the link was mailed to becomes\nthe account's. No session is needed and none is made: the link shows that its\nholder reads the new address, and the password was given when the change was\nasked for. From then on reset links go to the new address and `login` finds the\naccount by it; the reset links mailed to the address before end, and that address\nis mailed a notice that it is the account's no more, which names the account and\nnothing of the new address, with a link that gives the account that address back\n(`revertEmailChange`). The account's sessions go on.\n\nA link is used once. A token that is missing, used, ended, replaced by a newer\nmail or request, or taken back (`cancelEmailChange`), one of an account that is no\nlonger in use or whose password was set anew since, and one whose address somebody\nelse took meanwhile are all answered 400 naming `token` in `errors`, and change\nnothing: which of them it was is not said. Requests are counted by where they come\nfrom, as registrations are, and too many are 429. While the server's queue of\nrecovery mail has no place for the notice, the change is not made and the answer\nis 503: the link stays as it was.",
         "operationId": "confirmEmailChange",
         "requestBody": {
           "content": {
@@ -5676,6 +5676,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The notice to the address before has no place yet: nothing was changed."
           },
           "default": {
             "content": {

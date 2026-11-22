@@ -102,16 +102,22 @@ impl Store {
             .await
     }
 
-    /// Whether an account, deleted or not, a registration that has not ended at `now`
-    /// or a link that gives an account its address back ([`email_revert`]) has the
-    /// address, in any letter case: a change to it would not be confirmed, so no link
-    /// is mailed for it.
+    /// Whether an account other than `asking`, deleted or not, a registration that has
+    /// not ended at `now` or a link that gives another account its address back
+    /// ([`email_revert`]) has the address, in any letter case: a change of `asking` to
+    /// it would not be confirmed, so no link is mailed for it. A link of `asking`'s own
+    /// holds the address for it, which may have it back by a change too.
     ///
     /// # Errors
     ///
     /// Returns the database error.
-    pub async fn email_is_held(&self, email: &str, now: i64) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| is_held(scope, email, None, now).await)
+    pub async fn email_is_held(
+        &self,
+        email: &str,
+        asking: &str,
+        now: i64,
+    ) -> Result<bool, StoreError> {
+        self.with_conn(async |scope| is_held(scope, email, Some(asking), now).await)
             .await
     }
 

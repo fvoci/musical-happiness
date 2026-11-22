@@ -14,7 +14,7 @@ use fvoci_store::EmailReverted;
 use super::App;
 use super::auth::{WrongPassword, account_error};
 use super::language::Language;
-use super::mail::{Content, Letter};
+use super::mail::{Content, Letter, Queued};
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
@@ -204,6 +204,16 @@ impl App {
         let invalid = || {
             AppError::bad_request("the confirmation link is invalid or expired").with_field("token")
         };
+        // The notice that carries the link back is on its way before the change is made,
+        // or the change is not made: the link has no other way to its address.
+        let notice = if self.config().mail_enabled() {
+            Some(self.inner.mail.queue_email_changed().map_err(|_| {
+                tracing::warn!("a change of address waits: the queue of its notice is full");
+                AppError::service_unavailable("the server cannot change an address now; try again")
+            })?)
+        } else {
+            None
+        };
         let revert = new_secret();
         let changed = match self
             .store()
@@ -216,9 +226,9 @@ impl App {
             Err(error) => return Err(error.into()),
         };
         self.broadcast_person_change_in_background(changed.user_id.clone());
-        if !self.config().mail_enabled() || changed.old_email.is_empty() {
+        let Some(notice) = notice.filter(|_| !changed.old_email.is_empty()) else {
             return Ok(());
-        }
+        };
         // Fragments never reach HTTP request targets, proxy logs or Referer headers.
         let link = format!(
             "{}/revert-email#{revert}",
@@ -228,7 +238,7 @@ impl App {
         self.spawn_background(async move {
             let language = app.mail_language(&changed.user_id, None).await;
             let content = Content::email_changed(&link, &changed.username, language);
-            app.mail_notice(&changed.user_id, &changed.old_email, content)
+            app.deliver_notice(notice, &changed.old_email, content)
                 .await;
         });
         Ok(())
@@ -318,7 +328,7 @@ impl App {
         };
         match self
             .store()
-            .email_is_held(&waiting.email, now_millis())
+            .email_is_held(&waiting.email, &waiting.user_id, now_millis())
             .await
         {
             Ok(false) => {}
@@ -402,6 +412,11 @@ impl App {
                 return;
             }
         };
+        self.deliver_notice(queued, to, content).await;
+    }
+
+    /// Mails `content`, a notice about an account, to `to` in the place `queued`.
+    async fn deliver_notice(&self, queued: Queued, to: &str, content: Content) {
         let delivered = queued
             .deliver(
                 &self.inner.mail,
