@@ -23,6 +23,18 @@ export const Cards: Story = {};
 export const Empty: Story = { args: { count: 0 } };
 export const ThreeHundredCards: Story = { args: { count: 300 } };
 export const ReadOnly: Story = { args: { readOnly: true } };
+/** A column of 400 cards on a phone's width: the cards out of sight are not laid out or painted. */
+export const LongColumn: Story = {
+  args: { count: 600, narrow: true },
+  play: async (context) => {
+    await meta.play(context);
+    const column = await storyElement(context.canvasElement, '[data-column-cards="todo"]');
+    await expect(column.querySelectorAll('[data-card]')).toHaveLength(400);
+    const last = column.lastElementChild;
+    if (!last) throw new Error('the column has no cards');
+    await expect(getComputedStyle(last).contentVisibility).toBe('auto');
+  },
+};
 
 export const OpenCard: Story = {
   play: async ({ canvasElement }) => {
