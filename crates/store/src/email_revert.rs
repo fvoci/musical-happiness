@@ -29,7 +29,7 @@ impl Store {
     /// Uses the link under `digest`, all of it or none: the address it was mailed to is
     /// the account's again, unless another account or a registration that has not
     /// ended at `now` has it, and in any case the account's sessions end, its password
-    /// is locked ([`users::lock_password`]), and what was asked or mailed under the
+    /// is locked (`users::lock_password`), and what was asked or mailed under the
     /// account as it was goes: the change of address that waited, the reset links, and
     /// the links of this kind made after this one. Those made before it stand. Works
     /// for an account that waits to be deleted, as a reset link does. Returns none for

@@ -104,7 +104,7 @@ impl Store {
 
     /// Whether an account other than `asking`, deleted or not, a registration that has
     /// not ended at `now` or a link that gives another account its address back
-    /// ([`email_revert`]) has the address, in any letter case: a change of `asking` to
+    /// (`email_revert`) has the address, in any letter case: a change of `asking` to
     /// it would not be confirmed, so no link is mailed for it. A link of `asking`'s own
     /// holds the address for it, which may have it back by a change too.
     ///

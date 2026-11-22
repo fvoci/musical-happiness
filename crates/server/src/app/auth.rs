@@ -121,31 +121,12 @@ impl App {
         // password was checked against is still the user's: if the password was set anew
         // in that time, a session opened with the old one must not appear after the
         // reset that ended the others.
-        let mut seen_hash = user.password_hash.clone();
-        let mut stored = self.create_session(&session, &token, &seen_hash).await?;
-        if !stored {
-            // The hash changed. That is also what a login does that renews an outdated
-            // hash, at the same moment, for the same password: checked against the hash
-            // there is now, the password may still be right.
-            let current = self
-                .store()
-                .account_by_id(&user.id)
-                .await
-                .map_err(|error| {
-                    // Deactivated meanwhile: the login is refused as any other.
-                    if error.is_not_found() {
-                        incorrect_login()
-                    } else {
-                        AppError::from(error).context("reading the user after login")
-                    }
-                })?;
-            if self.verify(&current.password_hash, password).await? != Verdict::Mismatch
-                && !current.password_is_locked()
-            {
-                seen_hash = current.password_hash;
-                stored = self.create_session(&session, &token, &seen_hash).await?;
-            }
-        }
+        let stored = self
+            .create_session(&session, &token, &user.password_hash)
+            .await?
+            || self
+                .create_session_anew(&user.id, password, &session, &token)
+                .await?;
         if !stored {
             return Err(incorrect_login());
         }
@@ -174,6 +155,35 @@ impl App {
             Ok(_) => email_unverified(),
             Err(error) => error,
         }
+    }
+
+    /// Stores `session` under `token` for a login whose password was checked against a
+    /// hash the account has no more. That is also what a login does that renews an
+    /// outdated hash, at the same moment, for the same password: checked against the
+    /// hash there is now, the password may still be right, and the session is stored
+    /// under that one. Says whether it was; never for a password locked meanwhile.
+    async fn create_session_anew(
+        &self,
+        user_id: &str,
+        password: &str,
+        session: &Session,
+        token: &str,
+    ) -> Result<bool, AppError> {
+        let current = self.store().account_by_id(user_id).await.map_err(|error| {
+            // Deactivated meanwhile: the login is refused as any other.
+            if error.is_not_found() {
+                incorrect_login()
+            } else {
+                AppError::from(error).context("reading the user after login")
+            }
+        })?;
+        if self.verify(&current.password_hash, password).await? == Verdict::Mismatch
+            || current.password_is_locked()
+        {
+            return Ok(false);
+        }
+        self.create_session(session, token, &current.password_hash)
+            .await
     }
 
     /// Stores a session under its token if the user's password hash is still

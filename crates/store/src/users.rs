@@ -336,7 +336,7 @@ impl Store {
     /// it could do has changed, so its old token is no longer accepted.
     ///
     /// The hash is replaced only while it is still `seen_password_hash`, the hash the
-    /// old password was checked against, and is not locked ([`lock_password`]). Returns
+    /// old password was checked against, and is not locked (`lock_password`). Returns
     /// whether it was: `false` if the password was set anew or locked in the meantime,
     /// and nothing is changed then.
     ///
