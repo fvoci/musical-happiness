@@ -243,6 +243,14 @@ describe('changes from the server', () => {
     expect(board).toEqual([]);
   });
 
+  it("tells the reader's own listeners that their notifications changed, whatever workspace is followed", async () => {
+    const { socket, self, board } = await connected();
+    socket.message({ action: 'UPDATE_NOTIFICATIONS' });
+    await settle();
+    expect(self).toEqual([{ kind: 'notifications' }]);
+    expect(board).toEqual([]);
+  });
+
   it('reads the sidebar again on a message of the categories', async () => {
     const { socket, self, board } = await connected();
     socket.message({ action: 'UPDATE_CATEGORY', workspaceId: 't', category: {} });

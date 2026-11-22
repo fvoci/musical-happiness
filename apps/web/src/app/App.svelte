@@ -73,6 +73,7 @@
   import PasswordNoticeHost from './PasswordNoticeHost.svelte';
   import { Administered } from './administered.svelte.ts';
   import WorkspacePane from './WorkspacePane.svelte';
+  import NotificationsHost from './NotificationsHost.svelte';
   import WorkspaceSearch from './WorkspaceSearch.svelte';
 
   let { router }: { router: Router } = $props();
@@ -472,6 +473,7 @@
   >
     {#snippet search(shown: Workspace)}
       <WorkspaceSearch workspace={shown} {router} />
+      <NotificationsHost workspace={shown} {router} />
     {/snippet}
     {#snippet children({ workspace: shown, addBoard }: PaneTools)}
       <WorkspacePane

@@ -57,7 +57,7 @@ import {
   commentVersionOf,
   memberOf,
   newBoardAndViewOf,
-  newCardOf,
+  newCardRequest,
   containerPatchOf,
   previewsOf,
   settingsChangeOf,
@@ -599,7 +599,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     const card = await this.inWorkspace<Schemas['Card']>(
       '/boards/{boardId}/cards',
       { boardId },
-      { method: 'POST', json: newCardOf(draft) },
+      newCardRequest(draft),
     );
     return cardOf(card);
   }

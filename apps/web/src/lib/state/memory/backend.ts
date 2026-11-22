@@ -80,11 +80,12 @@ import { memberRole, memberFileUrl } from './container-access.ts';
 import { MemoryFileVersions } from './file-versions.ts';
 import { readableBlob, readableFile, storeUpload } from './files.ts';
 import { userFound, usersAmong, usersNamed } from './users.ts';
-import { changedSettings, changeName, settingsOf } from './account.ts';
+import { changeName, keepSettings, settingsOf } from './account.ts';
 import { archiveLines, archiveOf, blockOfLine } from './archive.ts';
 import { checkedBody, checkedComment, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, MemoryReferences, renameCopied } from './references.ts';
 import { MemoryContentSearch } from './content-search.ts';
+import { MemoryNotifications, noteComment } from './notifications.ts';
 import { searchBoardsOf } from './search.ts';
 import { fail } from './refuse.ts';
 import { nextScreenState } from './screen-state.ts';
@@ -125,6 +126,7 @@ export class MemoryBackend implements Backend {
   readonly search: MemoryContentSearch;
   readonly references = new MemoryReferences(this, () => this.#enter('references'));
   readonly fileVersions = new MemoryFileVersions(this, () => this.#enter('fileVersions'));
+  readonly notifications = new MemoryNotifications(this, () => this.#enter('notifications'));
   readonly #categories = new MemoryCategories(this, (method, workspaceId) =>
     this.#enterWorkspace(method, workspaceId),
   );
@@ -283,10 +285,7 @@ export class MemoryBackend implements Backend {
 
   async patchSettings(patch: AccountSettingsPatch): Promise<AccountSettings> {
     await this.#enter('patchSettings');
-    const next = changedSettings(this.world, this.userId, patch);
-    this.world.settings.set(this.userId, next);
-    this.world.tellUsers([this.userId], { kind: 'settings', settings: copy(next) });
-    return copy(next);
+    return copy(keepSettings(this.world, this.userId, patch));
   }
 
   async screenState(): Promise<Record<string, string>> {
@@ -812,6 +811,7 @@ export class MemoryBackend implements Backend {
     block.body = checked;
     this.world.blocks.set(block.id, block);
     this.#tellBlocks(boardId, [block]);
+    noteComment(this.world, block);
     return commentOf(block);
   }
 

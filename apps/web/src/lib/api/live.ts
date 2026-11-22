@@ -25,6 +25,10 @@
  * (`UNSUBSCRIBED_WORKSPACE`): it is asked again, which takes the new role or
  * is refused, and the listeners read again.
  *
+ * What the reader was told changed (`UPDATE_NOTIFICATIONS`, whatever
+ * workspace is followed) is told to the reader's own listeners, who read it
+ * again.
+ *
  * The rooms of the bodies edited together use the same connection
  * (`live-rooms.ts`): an open room keeps it open as a listener does, and
  * hears when it comes and goes. Their binary frames come on it too.
@@ -361,7 +365,9 @@ export class LiveChanges {
       this.#tellAll({ kind: 'resync' });
       return;
     }
-    if (message.action === 'UPDATE_USER' && 'userId' in message) {
+    if (message.action === 'UPDATE_NOTIFICATIONS') {
+      this.#tellSelf({ kind: 'notifications' });
+    } else if (message.action === 'UPDATE_USER' && 'userId' in message) {
       this.#tellSelf({ kind: 'user', userId: message.userId });
     } else if ('container' in message) {
       const { container } = message;

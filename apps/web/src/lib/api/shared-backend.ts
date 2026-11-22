@@ -86,6 +86,8 @@ export class SharedBackend implements Backend {
     restore: refused,
     keep: refused,
   };
+  /** Nobody is told anything through a public link. */
+  readonly notifications = undefined;
   /** No search through a public link: the board is all there is to read. */
   readonly search: Backend['search'] = {
     enabled: () => Promise.resolve(false),

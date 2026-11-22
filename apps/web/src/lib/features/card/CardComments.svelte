@@ -183,7 +183,10 @@
     {#each card.comments as comment (comment.id)}
       {@const author = workspace.userName(comment.createdBy) ?? m['centerPanel.unknown-user']()}
       {@const text = commentText(comment.body)}
-      <li class="flex gap-3" data-comment={comment.id}>
+      <li
+        class="flex gap-3 rounded-md transition-colors data-revealed:bg-accent"
+        data-comment={comment.id}
+      >
         <Avatar
           name={author}
           colorKey={comment.createdBy}

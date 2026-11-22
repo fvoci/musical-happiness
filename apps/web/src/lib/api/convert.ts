@@ -10,6 +10,7 @@ import { cardPreviewOf, type CardPreview } from '../editor/card-preview.ts';
 import { countTasks, type DocNode } from '../editor/schema.ts';
 import { readDisplaySettings } from '../logic/display.ts';
 import { readLanguageSettings } from '../logic/language.ts';
+import { readNotifySettings } from '../logic/notify-settings.ts';
 import type { PersonName } from '../logic/person-names.ts';
 import { readRegionalSettings } from '../logic/regional.ts';
 import {
@@ -213,14 +214,23 @@ export function wireBody(doc: DocNode): Schemas['Body'] {
 }
 
 /** A card to make. */
-export function newCardOf(draft: CardDraft): Schemas['NewCard'] {
-  return {
+/**
+ * The request that makes a card of a draft (`createCard`): a quiet one
+ * (`quiet`, a copy) tells nobody whom it names or is given to (`disableNotify`).
+ */
+export function newCardRequest(draft: CardDraft): {
+  method: 'POST';
+  json: Schemas['NewCard'];
+  query: { disableNotify: 'true' | undefined };
+} {
+  const json: Schemas['NewCard'] = {
     title: draft.title ?? '',
     icon: draft.icon ?? '',
     isTemplate: draft.isTemplate ?? false,
     properties: draft.properties ?? {},
     ...(draft.body ? { body: wireBody(draft.body) } : {}),
   };
+  return { method: 'POST', json, query: { disableNotify: draft.quiet ? 'true' : undefined } };
 }
 
 /**
@@ -301,6 +311,7 @@ export function settingsOf(settings: Schemas['UserSettings']): AccountSettings {
     ...readRegionalSettings(settings),
     ...readDisplaySettings(settings),
     ...readLanguageSettings(settings),
+    ...readNotifySettings(settings),
   };
 }
 

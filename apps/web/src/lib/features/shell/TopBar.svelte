@@ -64,7 +64,7 @@
     /** Show the button that opens the drawer. */
     menuButton: boolean;
     onOpenSidebar: (event: MouseEvent) => void;
-    /** The button of the search of the workspace, where it has one. */
+    /** The buttons of the search and of the notifications, where there are any. */
     search?: Snippet<[Workspace]>;
     /** Kept away: a drawer of the screen below is out. */
     inert?: boolean;

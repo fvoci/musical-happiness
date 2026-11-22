@@ -7739,7 +7739,7 @@ export interface operations {
     readNotifications: {
         parameters: {
             query?: {
-                /** @description The time, in milliseconds, up to which the notifications are read: those made later stay unread. Left out, now. */
+                /** @description The time, in milliseconds, up to which the notifications are read: those whose latest happened later (`updateAt`) stay unread. Left out, now. */
                 through?: number;
             };
             header?: never;

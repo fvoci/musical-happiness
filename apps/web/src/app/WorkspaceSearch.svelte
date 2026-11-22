@@ -10,8 +10,8 @@
   503, which the dialog says.
 
   A card opens over the view of its board that is shown, or else over the
-  board's first view; a page at its wiki's address. The name of the board or
-  wiki of a hit is the one the sidebar knows, none where it does not.
+  board's first view; a page at its wiki's address (`places.ts`). The name of
+  the board or wiki of a hit is the one the sidebar knows, none where it does not.
 -->
 <script lang="ts">
   import { tick } from 'svelte';
@@ -32,16 +32,10 @@
   import type { Workspace } from '$lib/state/index.ts';
   import type { SearchHit } from '$lib/state/content-search.ts';
 
-  import type { Route, Router } from './router.svelte.ts';
+  import { goToPlace, routeOfPlace, type Place } from './places.ts';
+  import type { Router } from './router.svelte.ts';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
-
-  /**
-   * The view segment of the address of a card on a board not shown: it names
-   * no view, so the board page puts its first view in its place and keeps
-   * the card (`BoardPage.svelte`).
-   */
-  const ANY_VIEW = '-';
 
   let open = $state(false);
   let session = $state.raw<SearchSession | undefined>(undefined);
@@ -112,50 +106,26 @@
     if (!event.repeat && openSearch()) event.preventDefault();
   }
 
-  /** The route of a card: over the view shown where its board is shown, else over any. */
-  function cardRoute(hit: SearchHit): Partial<Route> {
-    const { boardId, viewId } = router.route;
-    const here = boardId === hit.containerId && viewId !== undefined && viewId !== ANY_VIEW;
-    return {
-      workspaceId: workspace.info?.id,
-      boardId: hit.containerId,
-      viewId: here ? viewId : ANY_VIEW,
-      cardId: hit.id,
-    };
-  }
-
-  /** The route of a page: its wiki's address. */
-  function pageRoute(hit: SearchHit): Partial<Route> {
-    return { workspaceId: workspace.info?.id, wikiId: hit.containerId, pageId: hit.id };
+  /** A hit, in the workspace shown. */
+  function placeOf(hit: SearchHit): Place {
+    return { ...hit, workspaceId: workspace.info?.id };
   }
 
   function hrefOf(hit: SearchHit): string {
-    return router.href(hit.kind === 'card' ? cardRoute(hit) : pageRoute(hit));
+    return router.href(routeOfPlace(router, placeOf(hit)));
   }
 
   /**
-   * Closes the search, then goes to a hit, once the dialog has given its
-   * entry of the history back: the history is then as if the hit was opened
-   * from the page. A card of the board shown opens over its view, in place of
-   * a card open there; a card of another board opens over that board, as a
-   * board chosen in the sidebar. A page of the wiki shown is opened as one of
-   * its tree; a page of another wiki over that wiki, as a wiki chosen in the
-   * sidebar.
+   * Closes the search, then goes to a hit (`goToPlace`), once the dialog has
+   * given its entry of the history back: the history is then as if the hit
+   * was opened from the page.
    */
   async function go(hit: SearchHit): Promise<void> {
-    const route = hit.kind === 'card' ? cardRoute(hit) : pageRoute(hit);
+    const place = placeOf(hit);
     session?.close();
     open = false;
     await tick();
-    if (hit.kind === 'page' && router.route.wikiId === hit.containerId) {
-      router.openPage(hit.id);
-    } else if (hit.kind === 'card' && route.viewId !== ANY_VIEW) {
-      router.openCard(hit.id);
-    } else {
-      const kind = hit.kind === 'page' ? 'wiki' : 'board';
-      router.openContainer({ id: hit.containerId, workspaceId: workspace.info?.id ?? '', kind });
-      router.go(route, { replace: true });
-    }
+    goToPlace(router, place);
     await tick();
     settleFocus();
   }

@@ -19,9 +19,7 @@
 import type { CardPreview } from '../editor/card-preview.ts';
 import type { FileDetails } from '../editor/files.ts';
 import type { DocNode } from '../editor/schema.ts';
-import type { DisplaySettings } from '../logic/display.ts';
-import type { LanguageSettings } from '../logic/language.ts';
-import type { RegionalSettings } from '../logic/regional.ts';
+import type { AccountSettings, AccountSettingsPatch } from '../logic/account-settings.ts';
 import type { NameChange, PersonName } from '../logic/person-names.ts';
 import type { UserNames } from '../logic/users.ts';
 import type {
@@ -41,6 +39,7 @@ import type { OfBodies } from './references.ts';
 import type { TrashReads } from './trash-reads.ts';
 import type { ChangeListener } from './changes.ts';
 import type { ContentSearchOfBackend } from './content-search.ts';
+import type { NotificationsOfBackend } from './notification-types.ts';
 import type { WikisOfBackend } from './wiki-types.ts';
 import type { WorkspaceInfo } from './workspace-types.ts';
 
@@ -59,6 +58,7 @@ export type {
 } from './account-types.ts';
 export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
 export * from './content-search.ts';
+export type * from './notification-types.ts';
 export type { BodyDoc, BodyDocHears, BodyDocState, BodyDocStatus, DocRooms } from './body-doc.ts';
 export { isCardBlock, isViewBlock, type Change, type ChangeListener } from './changes.ts';
 export type * from './wiki-types.ts';
@@ -109,13 +109,10 @@ export interface User extends UserNames {
 
 /**
  * The reader's account settings: the three of the server design (5.8), the
- * four display settings the plan adds to them, and the language of the
- * interface. The answer always holds every member.
+ * four display settings the plan adds to them, the language of the
+ * interface, and what the reader is told of. The answer always holds every member.
  */
-export type AccountSettings = RegionalSettings & DisplaySettings & LanguageSettings;
-
-/** A member set to `null` goes back to its default. */
-export type AccountSettingsPatch = { [K in keyof AccountSettings]?: AccountSettings[K] | null };
+export type { AccountSettings, AccountSettingsPatch };
 
 /** A category of the reader's sidebar, with the boards filed under it. */
 export interface Category {
@@ -213,6 +210,8 @@ export interface CardDraft {
   properties?: Card['fields']['properties'];
   isTemplate?: boolean;
   body?: DocNode | null;
+  /** A copy: it tells nobody whom it names, gives a card to, or makes a watcher. */
+  quiet?: boolean;
 }
 
 export interface CardPatch {
@@ -284,6 +283,7 @@ export interface Backend
     OfBodies,
     WikisOfBackend,
     ContentSearchOfBackend,
+    NotificationsOfBackend,
     VersionsOfFiles {
   // The reader and the people around them.
   me(): Promise<User>;

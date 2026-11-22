@@ -12,6 +12,7 @@ import {
 import { DEFAULT_ACCOUNT_SETTINGS } from '../../logic/account-settings.ts';
 import { readDisplaySettings } from '../../logic/display.ts';
 import { readLanguageSettings } from '../../logic/language.ts';
+import { readNotifySettings } from '../../logic/notify-settings.ts';
 import { isTimeZone, readRegionalSettings } from '../../logic/regional.ts';
 import { readDisplayName } from '../../logic/users.ts';
 import type { AccountSettings, AccountSettingsPatch, User } from '../backend.ts';
@@ -105,7 +106,7 @@ export function settingsOf(world: World, userId: string): AccountSettings {
 /**
  * The user's settings with what the patch names changed, as the server reads
  * it (`patchSettings`): `null` for the default, a name or a value it does not
- * know refused at its member. Not kept: the caller keeps and tells them.
+ * know refused at its member. Not kept: `keepSettings` keeps and tells them.
  */
 export function changedSettings(
   world: World,
@@ -126,6 +127,7 @@ export function changedSettings(
     ...readRegionalSettings(merged),
     ...readDisplaySettings(merged),
     ...readLanguageSettings(merged),
+    ...readNotifySettings(merged),
   };
   // A value the reader functions fell back on was not one of the allowed ones.
   for (const name of Object.keys(patch) as (keyof AccountSettings)[]) {
@@ -133,5 +135,20 @@ export function changedSettings(
       fail(400, `invalid value for ${name}`, { field: name });
     }
   }
+  return next;
+}
+
+/**
+ * Changes the user's settings as `changedSettings` reads the patch, keeps
+ * them, and tells the user's pages: the settings as they are now.
+ */
+export function keepSettings(
+  world: World,
+  userId: string,
+  patch: AccountSettingsPatch,
+): AccountSettings {
+  const next = changedSettings(world, userId, patch);
+  world.settings.set(userId, next);
+  world.tellUsers([userId], { kind: 'settings', settings: { ...next } });
   return next;
 }
