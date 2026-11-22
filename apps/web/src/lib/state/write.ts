@@ -24,10 +24,21 @@ function newer<T extends Versioned>(first: T | undefined, second: T | undefined)
 export class PendingWrites<T extends Versioned> {
   readonly #under = new Map<string, number>();
   readonly #held = new Map<string, T>();
+  readonly #waiters = new Map<string, (() => void)[]>();
 
   /** A write of `id` is being sent. */
   begin(id: string): void {
     this.#under.set(id, (this.#under.get(id) ?? 0) + 1);
+  }
+
+  /** Resolves once no write of `id` is under way. */
+  settled(id: string): Promise<void> {
+    if (!this.#under.has(id)) return Promise.resolve();
+    return new Promise((resolve) => {
+      const list = this.#waiters.get(id) ?? [];
+      list.push(resolve);
+      this.#waiters.set(id, list);
+    });
   }
 
   /**
@@ -45,6 +56,11 @@ export class PendingWrites<T extends Versioned> {
     }
     this.#under.delete(id);
     this.#held.delete(id);
+    const waiters = this.#waiters.get(id);
+    if (waiters) {
+      this.#waiters.delete(id);
+      for (const wake of waiters) wake();
+    }
     return latest;
   }
 
@@ -134,26 +150,29 @@ export class BlockTurns {
    * Runs a view patch in turn for `viewId`, forwarding `patch.readAt` along
    * this queue's succeeded writes when it matches an earlier write's base
    * `updateAt`. A failed write, or one whose returned `order` differs from
-   * what was written, does not advance the chain.
+   * what this write expects (an external order change intervened), does not
+   * advance the chain.
    */
   patchView<
     T extends { updateAt: number; fields: { order?: string } },
-    P extends { readAt?: number; updatedFields?: Record<string, unknown> },
-  >(
-    viewId: string,
-    patch: P,
-    send: (sent: P) => Promise<{ before: number; after: T }>,
-  ): Promise<T> {
+    P extends {
+      readAt?: number;
+      updatedFields?: Record<string, unknown>;
+      deletedFields?: string[];
+    },
+  >(viewId: string, patch: P, send: (sent: P) => Promise<{ before: T; after: T }>): Promise<T> {
     return this.run(viewId, async () => {
       const readAt = patch.readAt === undefined ? undefined : this.#resolve(viewId, patch.readAt);
       const sent = readAt === patch.readAt ? patch : { ...patch, readAt };
       const { before, after } = await send(sent);
-      const from = sent.readAt ?? before;
-      const orderKept =
-        !sent.updatedFields ||
-        !('order' in sent.updatedFields) ||
-        after.fields.order === sent.updatedFields.order;
-      if (orderKept && after.updateAt > from) {
+      const from = sent.readAt ?? before.updateAt;
+      const expectedOrder =
+        sent.updatedFields && 'order' in sent.updatedFields
+          ? sent.updatedFields.order
+          : sent.deletedFields?.includes('order')
+            ? undefined
+            : before.fields.order;
+      if (after.fields.order === expectedOrder && after.updateAt > from) {
         let map = this.#advanced.get(viewId);
         if (!map) {
           map = new Map();

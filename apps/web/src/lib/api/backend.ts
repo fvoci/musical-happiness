@@ -536,7 +536,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     boardId: string,
     viewId: string,
     patch: BlockPatch,
-  ): Promise<{ before: number; after: BoardView }> {
+  ): Promise<{ before: BoardView; after: BoardView }> {
     const before = await this.#view(boardId, viewId);
     const { deleteAt: _deleteAt, ...request } = patch;
     await this.inWorkspace(
@@ -545,10 +545,10 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       { method: 'PATCH', json: request },
     );
     try {
-      return { before: before.updateAt, after: await this.#view(boardId, viewId) };
+      return { before, after: await this.#view(boardId, viewId) };
     } catch {
       // Saved; only reading it back failed. What was sent is what it is.
-      return { before: before.updateAt, after: applyViewPatch(before, patch) };
+      return { before, after: applyViewPatch(before, patch) };
     }
   }
 

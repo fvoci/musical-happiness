@@ -439,18 +439,30 @@ describe('views', () => {
       return send(boardId, viewId, patch);
     });
     await openMenu(toolButton('views'));
-    const boardId = board.views.find((view) => view.title === 'Board')?.id ?? '';
-    await fireEvent.click(lineTool(boardId, 'move-down'));
-    await tick();
-    expect(screen.getByText('Board is now 2 of 3')).toBeInTheDocument();
-    await fireEvent.click(lineTool(boardId, 'move-down'));
-    await tick();
-    expect(screen.getByText('Board is now 3 of 3')).toBeInTheDocument();
-    release();
-    await settled();
-    expect(lineTexts().slice(0, 3)).toEqual(['List', 'Third', 'Board']);
-    expect(screen.getByText('Board is now 3 of 3')).toBeInTheDocument();
-    expect(workspace.problems).toEqual([]);
+    const announcements: string[] = [];
+    const statusRegion = document.querySelector('span[aria-live="polite"]');
+    if (!statusRegion) throw new Error('missing menu status region');
+    const observer = new MutationObserver(() => {
+      const text = statusRegion.textContent.trim();
+      if (text) announcements.push(text);
+    });
+    observer.observe(statusRegion, { childList: true, characterData: true, subtree: true });
+    try {
+      const boardId = board.views.find((view) => view.title === 'Board')?.id ?? '';
+      await fireEvent.click(lineTool(boardId, 'move-down'));
+      await tick();
+      expect(screen.getByText('Board is now 2 of 3')).toBeInTheDocument();
+      await fireEvent.click(lineTool(boardId, 'move-down'));
+      await tick();
+      expect(screen.getByText('Board is now 3 of 3')).toBeInTheDocument();
+      release();
+      await settled();
+      expect(lineTexts().slice(0, 3)).toEqual(['List', 'Third', 'Board']);
+      expect(announcements).toEqual(['Board is now 2 of 3', 'Board is now 3 of 3']);
+      expect(workspace.problems).toEqual([]);
+    } finally {
+      observer.disconnect();
+    }
   });
 
   it('says a move once when the first attempt gets 409 and the retry succeeds', async () => {
@@ -468,13 +480,24 @@ describe('views', () => {
       return send(bId, vId, patch);
     });
     await openMenu(toolButton('views'));
-    await fireEvent.click(lineTool(boardId, 'move-down'));
-    await tick();
-    expect(screen.getByText('Board is now 2 of 2')).toBeInTheDocument();
-    await settled();
-    expect(lineTexts().slice(0, 2)).toEqual(['List', 'Board']);
-    expect(screen.getByText('Board is now 2 of 2')).toBeInTheDocument();
-    expect(workspace.problems).toEqual([]);
+    const announcements: string[] = [];
+    const statusRegion = document.querySelector('span[aria-live="polite"]');
+    if (!statusRegion) throw new Error('missing menu status region');
+    const observer = new MutationObserver(() => {
+      const text = statusRegion.textContent.trim();
+      if (text) announcements.push(text);
+    });
+    observer.observe(statusRegion, { childList: true, characterData: true, subtree: true });
+    try {
+      await fireEvent.click(lineTool(boardId, 'move-down'));
+      await tick();
+      await settled();
+      expect(lineTexts().slice(0, 2)).toEqual(['List', 'Board']);
+      expect(announcements).toEqual(['Board is now 2 of 2']);
+      expect(workspace.problems).toEqual([]);
+    } finally {
+      observer.disconnect();
+    }
   });
 
   it('has buttons at the end of each line for a pointer, closed at the ends, which keep the list open', async () => {

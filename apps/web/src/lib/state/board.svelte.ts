@@ -606,8 +606,9 @@ export class BoardStore {
     return this.#viewWrites.keep(viewId, backward);
   }
 
-  /** Reads the board's views again, keeping any writes under way. */
-  async rereadViews(): Promise<void> {
+  /** Reads the board's views again, waiting for writes of `waitForId` to settle first when given. */
+  async rereadViews(waitForId?: string): Promise<void> {
+    if (waitForId !== undefined) await this.#viewWrites.settled(waitForId);
     const before = this.views.map((view) => view.id);
     const views = await this.#backend.views(this.boardId);
     this.views = reread(this.views, views, before, (view) => this.#viewWrites.receive(view));

@@ -739,6 +739,50 @@ describe('changing a view on the server', () => {
     ]);
     expect(mixed.map((r) => r.status)).toEqual(['fulfilled', 'rejected']);
     expect(patches).toEqual([{ title: 'Renamed' }, { updatedFields: { order: 'Z' }, readAt: 20 }]);
+
+    // An external order change between GET and read-back GET of an unconditional write
+    // must not be masked for a queued conditional place write behind it.
+    let getCount = 0;
+    const maskedPatches: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
+      if (init.method === 'PATCH') {
+        const body = JSON.parse(typeof init.body === 'string' ? init.body : '{}') as Record<
+          string,
+          unknown
+        >;
+        maskedPatches.push(body);
+        if (body.readAt !== undefined && body.readAt !== 12) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                type: '/problems/conflict',
+                title: 'Conflict',
+                status: 409,
+                detail: 'the block has changed since it was read',
+              }),
+              { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+            ),
+          );
+        }
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      getCount += 1;
+      // First GET sees order 'V' at 10; before read-back GET another editor moved it to 'Z' at 12.
+      const view =
+        getCount === 1
+          ? { ...VIEW, updateAt: 10, fields: { ...VIEW.fields, order: 'V' } }
+          : { ...VIEW, updateAt: 12, fields: { ...VIEW.fields, order: 'Z' } };
+      return Promise.resolve(new Response(JSON.stringify([view]), { status: 200 }));
+    });
+    const concurrent = await Promise.allSettled([
+      backend.patchView('b', 'v', { title: 'Renamed' }),
+      backend.patchView('b', 'v', { updatedFields: { order: 'X' }, readAt: 10 }),
+    ]);
+    expect(concurrent.map((r) => r.status)).toEqual(['fulfilled', 'rejected']);
+    expect(maskedPatches).toEqual([
+      { title: 'Renamed' },
+      { updatedFields: { order: 'X' }, readAt: 10 },
+    ]);
   });
 });
 

@@ -29,6 +29,23 @@ interface KeptOutcome {
   refused: unknown;
 }
 
+/** Serializes 409 retries on one board so rapid double moves retry in order. */
+const retryTurns = new WeakMap<BoardStore, Promise<void>>();
+
+function inRetryTurn<T>(board: BoardStore, run: () => Promise<T>): Promise<T> {
+  const previous = retryTurns.get(board) ?? Promise.resolve();
+  const current = previous.then(run);
+  const settled = current.then(
+    () => undefined,
+    () => undefined,
+  );
+  retryTurns.set(board, settled);
+  void settled.then(() => {
+    if (retryTurns.get(board) === settled) retryTurns.delete(board);
+  });
+  return current;
+}
+
 /** Says once the refusal of the places kept for a gesture (`keepViewPlaces`). */
 function sayKept(board: BoardStore, refused: unknown): void {
   if (refused !== undefined) board.workspace.report('save', refused);
@@ -190,8 +207,18 @@ async function moveOnce(
   ]);
   if (!moved.ok) {
     if (isConflict(moved.error)) {
-      await board.rereadViews().catch(() => undefined);
-      if (mayRetry) return moveOnce(board, viewId, step, false, unplaced ? was : undefined);
+      if (mayRetry) {
+        return inRetryTurn(board, async () => {
+          const refreshed = await board
+            .rereadViews(viewId)
+            .then(() => true)
+            .catch(() => false);
+          if (refreshed) return moveOnce(board, viewId, step, false, unplaced ? was : undefined);
+          board.workspace.report('save', moved.error);
+          return false;
+        });
+      }
+      await board.rereadViews(viewId).catch(() => undefined);
     }
     if (moved.error !== undefined) board.workspace.report('save', moved.error);
     return false;

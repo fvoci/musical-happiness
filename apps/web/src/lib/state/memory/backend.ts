@@ -734,7 +734,7 @@ export class MemoryBackend implements Backend {
       this.world.blocks.set(viewId, view);
       this.#touch(view);
       this.#tellBlocks(boardId, [view]);
-      return { before: stored.updateAt, after: viewOf(view) };
+      return { before: viewOf(stored), after: viewOf(view) };
     });
   }
 

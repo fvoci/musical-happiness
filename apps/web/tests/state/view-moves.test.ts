@@ -387,6 +387,62 @@ describe('a move', () => {
     expect(workspace.problems).toHaveLength(1);
   });
 
+  it('does not retry with stale readAt when rereading views after a 409 fails', async () => {
+    const { board, backend, world, workspace } = await twoReaders();
+    await moveView(board, idOf(board, 'Gamma'), -1);
+    await settle();
+    const alpha = idOf(board, 'Alpha');
+    // Bump stored updateAt without delivering a WS event so board's view is stale.
+    const stored = world.blocks.get(alpha);
+    if (!stored) throw new Error('missing view');
+    stored.updateAt = world.now();
+    const viewsSpy = vi
+      .spyOn(backend, 'views')
+      .mockRejectedValueOnce(new BackendError(503, { detail: 'unavailable' }));
+    const patchSpy = vi.spyOn(backend, 'patchView');
+    expect(await moveView(board, alpha, 1)).toBe(false);
+    expect(viewsSpy).toHaveBeenCalledTimes(1);
+    expect(patchSpy).toHaveBeenCalledTimes(1);
+    expect(workspace.problems).toHaveLength(1);
+  });
+
+  it('recovers rapid double moves and an overlapping rename on a stale view after 409', async () => {
+    const { board, backend, world, workspace } = await twoReaders();
+    await moveView(board, idOf(board, 'Gamma'), -1);
+    await settle();
+    const alpha = idOf(board, 'Alpha');
+    // Bump stored view without WS delivery so both rapid moves hit 409 first.
+    const stored = world.blocks.get(alpha);
+    if (!stored) throw new Error('missing view');
+    stored.title = 'Alpha remote';
+    stored.updateAt = world.now();
+    const patchSpy = vi.spyOn(backend, 'patchView');
+    const first = moveView(board, alpha, 1);
+    const second = moveView(board, alpha, 1);
+    expect(await Promise.all([first, second])).toEqual([true, true]);
+    await settle();
+    // Both initial stale writes failed (2) and both retries succeeded (2) = 4 calls total.
+    expect(patchSpy).toHaveBeenCalledTimes(4);
+    expect(titles(board)).toEqual(['Beta', 'Board', 'Alpha remote', 'Gamma', 'Delta']);
+    expect(workspace.problems).toEqual([]);
+
+    // A stale move followed immediately by an unconditional rename: both survive.
+    patchSpy.mockClear();
+    const latest = world.blocks.get(alpha);
+    if (!latest) throw new Error('missing view');
+    latest.title = 'Alpha remote 2';
+    latest.updateAt = world.now();
+    const moving = moveView(board, alpha, -1);
+    const renaming = board.changeView(alpha, (view) => ({ ...view, title: 'Alpha mine' }));
+    const [held] = await Promise.all([moving, renaming]);
+    expect(held).toBe(true);
+    await settle();
+    // Stale move (409) + rename (200) + retried move (200) = 3 calls total.
+    expect(patchSpy).toHaveBeenCalledTimes(3);
+    expect(titles(board)).toEqual(['Beta', 'Alpha mine', 'Board', 'Gamma', 'Delta']);
+    expect(workspace.problems).toEqual([]);
+  });
+
   it('retries a stale tie-raise keep once when the raised view was only renamed', async () => {
     const { board, backend, other, workspace } = await twoReaders();
     const setOrder = async (title: string, order: string): Promise<void> => {
