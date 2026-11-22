@@ -194,6 +194,11 @@ apps/web/src/lib/features/shell/ShareDialog.svelte | team
 apps/web/src/lib/features/shell/share-words.ts | team
 apps/web/src/lib/state/member-writes.ts | containerteams
 
+# Leaving an organization takes the account out of the teams of its workspaces; the
+# test of it puts the account in one first.
+crates/server/src/api/organizations.rs | its teams
+crates/store/tests/store/org_leaving.rs | team
+
 # Team membership is reusable across workspace modules; board effects live on the board side.
 crates/model/src/container_teams.rs
 crates/store/src/container_team_membership.rs

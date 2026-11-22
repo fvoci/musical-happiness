@@ -60,6 +60,7 @@ mod oidc_identities;
 mod oidc_pending;
 mod operator_records;
 mod org_admin;
+mod org_leaving;
 mod page_copies;
 mod page_places;
 mod page_trash;
@@ -95,7 +96,7 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 pub use account_deletion::{DeletionAsking, DeletionStanding};
-pub use account_erasure::{ErasedFrom, Erasing, ErasureEnd, ErasureStart, HandedOver};
+pub use account_erasure::{Erasing, ErasureEnd, ErasureStart, HandedOver, LeftFrom};
 pub use accounts::{Founding, OwnSpace, StartedOrganization};
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{
@@ -140,6 +141,7 @@ pub use oidc_held::{CarriedOver, CarryOver, CarryOverRefusal, HeldSignIn};
 pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, TiedIdentity, Unlinked};
 pub use oidc_pending::{Applied, Binding, PendingProvider, PendingSettings, Trial, Tried};
 pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
+pub use org_leaving::{Departure, DepartureRefused};
 pub use page_copies::PageCopies;
 pub use page_trash::PageRestore;
 pub use pages::PageWrite;

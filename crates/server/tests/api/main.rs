@@ -101,6 +101,7 @@ mod oidc_settings;
 mod onboarding;
 mod org_admin;
 mod org_admin_review;
+mod org_leaving;
 mod organizations;
 mod own_space;
 mod page_comments;

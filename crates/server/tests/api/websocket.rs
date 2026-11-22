@@ -1309,6 +1309,9 @@ async fn messages_match_the_websocket_contract() {
     contract_check
         .hear(&mut socket, "UPDATE_NOTIFICATIONS")
         .await;
+    ws.broadcast_person_change(ROOT_WORKSPACE_ID, &user1.id)
+        .await;
+    contract_check.hear(&mut socket, "UPDATE_USER").await;
     // The board deletion goes to the former members, with the board's identifiers only.
     ws.broadcast_container_delete(ROOT_WORKSPACE_ID, &board.id, of_the_invited(&members))
         .await;

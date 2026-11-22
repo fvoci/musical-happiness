@@ -257,6 +257,9 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::TeamNameTaken
         | Reason::DefaultWorkspace
         | Reason::LastOrgAdmin
+        | Reason::SoleOrgAdmin
+        | Reason::AloneInOrganization
+        | Reason::LastInstanceAdmin
         | Reason::PasswordSignInRequired
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
         // The rest are the reasons of uploads and archives, of the search of bodies, of
@@ -504,6 +507,24 @@ fn describe_organization(reason: Reason) -> Option<&'static str> {
              the first by identifier if there are several (`getAccountDeletion` lists \
              them all). Another organization that has nobody else does not stand in the \
              way: it goes with the account."
+        }
+        Reason::SoleOrgAdmin => {
+            "Status 409, leaving an organization (`leaveOrganization`): the account is its \
+             only administrator, and other people are in it. Make another member its \
+             administrator first (`putOrgRole`); where the others are guests of its \
+             workspaces only, invite a member first. Nothing changed."
+        }
+        Reason::AloneInOrganization => {
+            "Status 409, leaving an organization (`leaveOrganization`): nobody else is in \
+             it, and it would be left empty. Invite somebody to stay with it first. An \
+             organization of one goes with its account when that is deleted \
+             (`requestAccountDeletion`), but the server's own first one. Nothing changed."
+        }
+        Reason::LastInstanceAdmin => {
+            "Status 409, leaving the server's own first organization (`leaveOrganization`): \
+             the account is the server's only administrator, which it is as an \
+             administrator of that organization. Make somebody else an administrator of \
+             the organization first. Nothing changed."
         }
         Reason::PublicLinksOff => {
             "Status 403. The organization has turned its public links off: no board of it is \

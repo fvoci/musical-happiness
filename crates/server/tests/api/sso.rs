@@ -499,6 +499,9 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "getSharedPageTree",
     "getUserSettings",
     "hello",
+    // Leaving an organization is the account's own, as deleting the account takes it
+    // out of one: the session that leaves need not open it.
+    "leaveOrganization",
     "login",
     "logout",
     "patchClientState",

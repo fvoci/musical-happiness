@@ -104,6 +104,7 @@
 | `reorderCategoryContainers` | `REORDER_CATEGORY_CONTAINERS` |
 | `setSharing`(끄기, 새 토큰) | 옛 토큰으로 따라가던 연결에 `UNSUBSCRIBED_BLOCKS` |
 | `patchMe` | 이름이 바뀌면 그 사람이 구성원인(손님 포함) 워크스페이스마다 `UPDATE_USER`. 바꾸는 것이 없는 요청은 아무것도 내지 않는다 |
+| `leaveOrganization` | 나간 사람의 연결 가운데 그 조직의 워크스페이스를 구독한 것에 워크스페이스마다 `UNSUBSCRIBED_WORKSPACE`(`workspace access ended`). 그 워크스페이스들의 방이 나간 사람을 다시 묻는다(`DOC_LEFT`). 나간 사람이 혼자 관리하던 보드가 워크스페이스의 다른 관리자에게 넘어가면 그 보드의 `UPDATE_MEMBER`(새 관리자). 워크스페이스에서 사람을 뺄 때처럼 다른 사람에게 그 사람이 빠졌다는 메시지는 없다 |
 | `patchUserSettings`, `patchClientState` | 메시지 없음 |
 | `readNotification`, `readNotifications`, 알림 작업이 알림을 만들거나 늘릴 때 | 그 사용자의 연결에 `UPDATE_NOTIFICATIONS`(위의 규칙) |
 

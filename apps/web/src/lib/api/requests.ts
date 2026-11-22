@@ -381,6 +381,10 @@ export class ServerRequests implements TrashReads {
     await this.#http.request('/api/v1/users/me/deletion', {}, { method: 'DELETE' });
   }
 
+  async leaveOrganization(orgId: string): Promise<void> {
+    await this.#http.request('/api/v1/org/{orgId}/leave', { orgId }, { method: 'POST' });
+  }
+
   async unlinkIdentity(identity: LinkedIdentity, password: string): Promise<void> {
     const request: Schemas['UnlinkRequest'] = {
       issuer: identity.issuer,

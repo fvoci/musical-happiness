@@ -80,6 +80,7 @@ parameter!(SubscriberId: Path "subscriberId", String, True, "The identifier of t
 parameter!(UploadId: Path "uploadId", String, True, "The identifier of the upload, as opening it answered. Only the user who opened it may use it.");
 parameter!(PartNumber: Path "partNumber", i64, True, "The number of the part, from 1 to the `partCount` of the upload.");
 parameter!(OrgId: Path "orgId", String, True, "The identifier of the organization. 404 unless the user of the session administers it; and 404 for the user's own space, which nobody administers.");
+parameter!(MemberOrgId: Path "orgId", String, True, "The identifier of an organization that people work in together. 404 unless the user of the session is a member of it (a guest of its workspaces is none); and 404 for the user's own space, which nobody is a member of.");
 parameter!(OrgWorkspaceId: Path "workspaceId", String, True, "The identifier of a workspace of the organization. 404 for one of no other organization.");
 
 // -- in the headers --------------------------------------------------------------------

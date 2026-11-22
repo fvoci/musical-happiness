@@ -134,7 +134,30 @@ pub(super) async fn exercise(
         .await;
     case.client.token = changed.session_cookie().expect("rotated session cookie");
     deletion(case, server).await;
+    leaving(case, server).await;
+    // The session of an account that left an organization stays.
     case.run("logout", &[], json!({})).await;
+}
+
+/// The founder leaves the organization once somebody else administers it, and the
+/// instance: a founder is the only administrator of theirs, who does not leave.
+async fn leaving(case: &mut Case, server: &TestServer) {
+    let store = server
+        .app
+        .store()
+        .for_org(&case.org)
+        .expect("organization scope");
+    let peer = case.peer.clone();
+    for statement in [
+        format!("UPDATE organization_members SET role = 'admin' WHERE user_id = '{peer}'"),
+        format!("UPDATE users SET is_admin = true WHERE id = '{peer}'"),
+    ] {
+        store
+            .execute_unchecked(&statement)
+            .await
+            .expect("the peer stands in");
+    }
+    case.run("leaveOrganization", &[], json!({})).await;
 }
 
 /// The founder asks to delete the account, signs in to it while it waits, and takes
