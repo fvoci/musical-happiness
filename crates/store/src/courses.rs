@@ -15,10 +15,10 @@ use fvoci_model::{
 
 use crate::blocks::Paging;
 use crate::db::{Id, Scope, now_millis};
-use crate::page_trash::{self, block_type_in_json, place_taken};
+use crate::page_trash::{self, place_taken, push_block_types_in_json};
 use crate::pages::{self, write_place};
 use crate::trash::{block_from_json, block_not_in_trash, push_paging, take_blocks_out_of_trash};
-use crate::{Store, StoreError, blocks, comment_places, containers, page_places};
+use crate::{Store, StoreError, blocks, containers, page_places};
 
 /// The block types that make up a course's outline.
 const COURSE_TYPES: [BlockType; 2] = [BlockType::Unit, BlockType::Chapter];
@@ -71,13 +71,13 @@ impl CourseOutline {
         limits: CourseLimits,
     ) -> Result<(), BlockError> {
         let max_chapters = usize::try_from(limits.chapters).unwrap_or(usize::MAX);
-        if add_chapters > 0 && self.chapter_count() + add_chapters > max_chapters {
+        if add_chapters > 0 && self.chapter_count().saturating_add(add_chapters) > max_chapters {
             return Err(BlockError::TooManyChapters {
                 limit: limits.chapters,
             });
         }
         let max_units = usize::try_from(limits.units).unwrap_or(usize::MAX);
-        if add_units > 0 && self.unit_count() + add_units > max_units {
+        if add_units > 0 && self.unit_count().saturating_add(add_units) > max_units {
             return Err(BlockError::TooManyUnits {
                 limit: limits.units,
             });
@@ -190,17 +190,6 @@ impl Store {
             if kind != ContainerKind::Course {
                 page_places::check(&unit, kind, None)?;
             }
-            if new.kind == UnitKind::Chapter && !unit.parent_id.is_empty() {
-                return Err(invalid(BlockError::ChapterBelowBlock));
-            }
-            let parent_type = if unit.parent_id.is_empty() {
-                None
-            } else {
-                let found =
-                    comment_places::type_on_container(scope, &unit.parent_id, course_id).await?;
-                Some(found.ok_or_else(|| invalid(BlockError::ParentNotOnContainer))?)
-            };
-            page_places::check(&unit, kind, parent_type.as_ref())?;
             let outline = course_outline(scope, course_id).await?;
             outline
                 .check_parent(new.kind, &unit.parent_id, None)
@@ -245,14 +234,14 @@ impl Store {
             {
                 return Err(not_found());
             }
-            let mut unit = blocks::find_block(scope, unit_id)
-                .await?
-                .filter(|block| {
-                    block.container_id == course_id
-                        && UnitKind::of_block(&block.block_type).is_some()
+            let Some((mut unit, kind)) =
+                blocks::find_block(scope, unit_id).await?.and_then(|block| {
+                    let kind = UnitKind::of_block(&block.block_type)?;
+                    (block.container_id == course_id).then_some((block, kind))
                 })
-                .ok_or_else(not_found)?;
-            let kind = UnitKind::of_block(&unit.block_type).ok_or_else(not_found)?;
+            else {
+                return Err(not_found());
+            };
             let invalid = |source| StoreError::InvalidBlock {
                 id: unit_id.to_owned(),
                 source,
@@ -298,19 +287,22 @@ impl Store {
         paging: Option<Paging>,
     ) -> Result<Vec<DeletedUnit>, StoreError> {
         self.with_conn(async |scope| {
-            let is_top = block_type_in_json(scope.dialect(), "top", &COURSE_TYPES);
-            let is_went = block_type_in_json(scope.dialect(), "went", &COURSE_TYPES);
-            let mut sql = scope.sql(&format!(
+            let dialect = scope.dialect();
+            let mut sql = scope.sql(
                 "SELECT top.block, top.deleted_by, top.deleted_at, \
                  (SELECT COUNT(*) FROM deleted_blocks went \
-                 WHERE went.deletion_id = top.deletion_id AND {is_went}) \
-                 FROM deleted_blocks top WHERE top.container_id = "
-            ));
-            sql.bind(Id(course_id)).push(&format!(
-                " AND {is_top} AND NOT EXISTS (SELECT 1 FROM deleted_blocks above \
+                 WHERE went.deletion_id = top.deletion_id AND ",
+            );
+            push_block_types_in_json(&mut sql, dialect, "went", &COURSE_TYPES);
+            sql.push(") FROM deleted_blocks top WHERE top.container_id = ")
+                .bind(Id(course_id))
+                .push(" AND ");
+            push_block_types_in_json(&mut sql, dialect, "top", &COURSE_TYPES);
+            sql.push(
+                " AND NOT EXISTS (SELECT 1 FROM deleted_blocks above \
                  WHERE above.deletion_id = top.deletion_id AND above.id = top.parent_id) \
-                 ORDER BY top.deleted_at DESC, top.id"
-            ));
+                 ORDER BY top.deleted_at DESC, top.id",
+            );
             push_paging(&mut sql, paging);
             let mut deleted = Vec::new();
             for row in &scope.fetch_all(sql).await? {

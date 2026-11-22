@@ -170,10 +170,10 @@
       router.openPage(hit.id);
     } else if (hit.kind === 'card' && route.viewId !== ANY_VIEW) {
       router.openCard(hit.id);
+    } else if (hit.kind === 'unit') {
+      router.go(route);
     } else {
-      const kind = ({ card: 'board', page: 'wiki', entry: 'diary', unit: 'course' } as const)[
-        hit.kind
-      ];
+      const kind = ({ card: 'board', page: 'wiki', entry: 'diary' } as const)[hit.kind];
       router.openContainer({ id: hit.containerId, workspaceId: workspace.info?.id ?? '', kind });
       router.go(route, { replace: true });
     }

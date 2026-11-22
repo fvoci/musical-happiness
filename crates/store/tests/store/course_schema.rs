@@ -288,6 +288,14 @@ async fn migration_0061_preserves_rows_keys_and_triggers_and_allows_courses() {
     pre.database.remove().await;
 }
 
+fn assert_err_contains(result: Result<u64, fvoci_store::StoreError>, needle: &str, context: &str) {
+    let err = result.expect_err(context).to_string();
+    assert!(
+        err.contains(needle),
+        "{context}: expected `{needle}`, got `{err}`"
+    );
+}
+
 async fn assert_triggers_and_checks_hold(store: &Store, pre: &PreMigration) {
     let system = store.system();
     let bad_kind = system
@@ -296,50 +304,81 @@ async fn assert_triggers_and_checks_hold(store: &Store, pre: &PreMigration) {
             pre.board_id
         ))
         .await;
-    assert!(bad_kind.is_err(), "unknown container kind must be refused");
+    let check_needle = match db_type() {
+        DbType::Sqlite => "CHECK constraint failed",
+        DbType::Postgres => "containers_kind_check",
+    };
+    assert_err_contains(bad_kind, check_needle, "unknown container kind CHECK");
 
-    // All four diary/sharing triggers still hold after SQLite rebuilt the column.
-    let diary_off_space_insert = system
-        .execute_unchecked(&format!(
-            "INSERT INTO containers (id, org_id, workspace_id, type, kind, title) \
-             VALUES ('{}', '{}', '{}', 'P', 'diary', 'forbidden')",
+    // 1) diaries_of_a_space (BEFORE INSERT on containers)
+    let insert_diary_sql = match db_type() {
+        DbType::Sqlite => format!(
+            "INSERT INTO containers (id, workspace_id, type, kind, title, description, icon, \
+             show_description, is_template, properties, card_properties, create_at, update_at) \
+             VALUES ('{}', '{}', 'P', 'diary', 'forbidden', '', '', 0, 0, '{{}}', '[]', 0, 0)",
+            new_id(),
+            pre.people_ws
+        ),
+        DbType::Postgres => format!(
+            "INSERT INTO containers (id, org_id, workspace_id, type, kind, title, description, icon, \
+             show_description, is_template, properties, card_properties, create_at, update_at) \
+             VALUES ('{}', '{}', '{}', 'P', 'diary', 'forbidden', '', '', false, false, '{{}}', '[]', 0, 0)",
             new_id(),
             pre.people_org,
             pre.people_ws
-        ))
-        .await;
-    assert!(
-        diary_off_space_insert.is_err(),
-        "diaries_of_a_space trigger must refuse diary insert in people workspace"
+        ),
+    };
+    assert_err_contains(
+        system.execute_unchecked(&insert_diary_sql).await,
+        "a diary is of the space of an account",
+        "diaries_of_a_space trigger",
     );
-    let diary_off_space_update = system
-        .execute_unchecked(&format!(
-            "UPDATE containers SET kind = 'diary' WHERE id = '{}'",
-            pre.board_id
-        ))
-        .await;
-    assert!(
-        diary_off_space_update.is_err(),
-        "diaries_stay_of_a_space trigger must refuse updating container to diary off own space"
+
+    // 2) diaries_stay_of_a_space (BEFORE UPDATE on containers)
+    assert_err_contains(
+        system
+            .execute_unchecked(&format!(
+                "UPDATE containers SET kind = 'diary' WHERE id = '{}'",
+                pre.board_id
+            ))
+            .await,
+        "a diary is of the space of an account",
+        "diaries_stay_of_a_space trigger",
     );
-    let share_diary_insert = system
-        .execute_unchecked(&format!(
-            "INSERT INTO sharing (id, org_id, enabled, token) VALUES ('{}', '{}', TRUE, 'tok')",
+
+    // 3) sharing_of_no_diary (BEFORE INSERT on sharing)
+    let insert_share_sql = match db_type() {
+        DbType::Sqlite => format!(
+            "INSERT INTO sharing (container_id, enabled, token, update_at) \
+             VALUES ('{}', 1, 'tok-diary', 0)",
+            pre.diary_id
+        ),
+        DbType::Postgres => format!(
+            "INSERT INTO sharing (container_id, org_id, enabled, token, update_at) \
+             VALUES ('{}', '{}', TRUE, 'tok-diary', 0)",
             pre.diary_id, pre.own_org
-        ))
-        .await;
-    assert!(
-        share_diary_insert.is_err(),
-        "sharing_of_no_diary trigger must refuse sharing a diary"
+        ),
+    };
+    assert_err_contains(
+        system.execute_unchecked(&insert_share_sql).await,
+        "a diary has no link",
+        "sharing_of_no_diary trigger",
     );
-    let share_diary_update = system
-        .execute_unchecked(&format!(
-            "UPDATE sharing SET id = '{}', org_id = '{}' WHERE id = '{}'",
+
+    // 4) sharing_stays_of_no_diary (BEFORE UPDATE OF container_id on sharing)
+    let update_share_sql = match db_type() {
+        DbType::Sqlite => format!(
+            "UPDATE sharing SET container_id = '{}' WHERE container_id = '{}'",
+            pre.diary_id, pre.board_id
+        ),
+        DbType::Postgres => format!(
+            "UPDATE sharing SET container_id = '{}', org_id = '{}' WHERE container_id = '{}'",
             pre.diary_id, pre.own_org, pre.board_id
-        ))
-        .await;
-    assert!(
-        share_diary_update.is_err(),
-        "sharing_stays_of_no_diary trigger must refuse retargeting sharing to a diary"
+        ),
+    };
+    assert_err_contains(
+        system.execute_unchecked(&update_share_sql).await,
+        "a diary has no link",
+        "sharing_stays_of_no_diary trigger",
     );
 }

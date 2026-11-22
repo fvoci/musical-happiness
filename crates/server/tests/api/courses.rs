@@ -7,6 +7,7 @@ use fvoci_model::{CHAPTERS_PER_COURSE, ContainerKind, UNITS_PER_COURSE, Unit, Un
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
+use crate::board_broadcasts::WorkspaceSocket;
 use crate::boards::another_workspace;
 use crate::common::{Client, PASSWORD, Setup, TEST_WORKSPACE_ID, TEST_WS, USER1_USERNAME};
 use crate::export::import;
@@ -100,13 +101,19 @@ async fn course_outline_crud_move_trash_and_problem_pages() {
         .await;
     assert_eq!(stale.status, StatusCode::CONFLICT, "{}", stale.text());
 
-    let ch_body = client
-        .patch(
-            &format!("{TEST_WS}/courses/{course}/units/{}", ch1.id),
-            &json!({"body": paragraphs(&["nope"])}),
-        )
-        .await;
-    ch_body.check_bad_request();
+    for bad_body in [
+        json!({"body": paragraphs(&["nope"])}),
+        json!({"body": null, "readAt": ch1.update_at}),
+    ] {
+        let ch_body = client
+            .patch(
+                &format!("{TEST_WS}/courses/{course}/units/{}", ch1.id),
+                &bad_body,
+            )
+            .await;
+        ch_body.check_bad_request();
+        assert_eq!(ch_body.refused_at(), "/body", "{}", ch_body.text());
+    }
 
     // Move u2 into ch2 and check the outline.
     client
@@ -654,4 +661,78 @@ async fn invalid_course_archives_are_refused_and_store_nothing() {
     );
 
     ts.teardown().await;
+}
+
+/// Deleting a chapter flushes unwritten edits of its child units into trash and evicts
+/// their rooms; privatizing an open course evicts unjoined workers from open unit rooms
+/// and hides it from search, while open-course block changes broadcast to unjoined workers.
+#[tokio::test]
+async fn deleting_chapter_and_privatizing_open_course_evict_unit_rooms() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user2 = th.client2.me().await.id;
+
+    // 1) Deleting a chapter while a writer edits a child unit flushes edits and sends DOC_LEFT.
+    let course = create_course(&th.client, TEST_WS, "P", "Flush Course").await;
+    let ch = create_item(&th.client, TEST_WS, &course, "chapter", "", "Ch 1").await;
+    let u = create_item(&th.client, TEST_WS, &course, "unit", &ch.id, "U 1").await;
+    let u_path = format!("{TEST_WS}/courses/{course}/units/{}", u.id);
+    write_unit_body(&th.client, &u_path, u.update_at, &paragraphs(&["seed"])).await;
+    let mut writer = Peer::connect(&th.client, 701).await;
+    writer.joined(TEST_WORKSPACE_ID, &u.id).await;
+    writer.write_acked("unflushed edit").await;
+    let wanted = writer.body();
+    th.client
+        .delete(&format!("{TEST_WS}/courses/{course}/units/{}", ch.id))
+        .await
+        .check_no_content();
+    let left = writer.text("DOC_LEFT").await;
+    assert_eq!(left["reason"], json!("not_found"), "{left}");
+    let trashed = th
+        .app
+        .store()
+        .get_deleted_block(&u.id)
+        .await
+        .expect("unit in trash");
+    assert_eq!(
+        trashed.block.body.map(|b| b.document().clone()),
+        wanted,
+        "unwritten room edits flushed before chapter deletion"
+    );
+
+    // 2) Open course broadcasts UPDATE_BLOCK to unjoined worker, and privatizing evicts room.
+    let open = create_course(&th.client, TEST_WS, "O", "Open Room Course").await;
+    let open_u = create_item(&th.client, TEST_WS, &open, "unit", "", "OpenUnitToken").await;
+    let mut listener =
+        WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &user2).await;
+    let mut reader = Peer::connect(&th.client2, 702).await;
+    let joined = reader.joined(TEST_WORKSPACE_ID, &open_u.id).await;
+    assert_eq!(joined["mode"], json!("read"), "{joined}");
+    th.client
+        .patch(
+            &format!("{TEST_WS}/courses/{open}/units/{}", open_u.id),
+            &json!({"title": "OpenUnitToken updated"}),
+        )
+        .await
+        .check_ok();
+    let told = listener
+        .expect("UPDATE_BLOCK", "/block/id", &open_u.id)
+        .await;
+    assert_eq!(told["block"]["type"], json!("unit"), "{told}");
+    th.client
+        .patch(
+            &format!("{TEST_WS}/containers/{open}"),
+            &json!({"type": "P"}),
+        )
+        .await
+        .check_ok();
+    let evicted = reader.text("DOC_LEFT").await;
+    assert_eq!(evicted["reason"], json!("not_found"), "{evicted}");
+    let hidden: Value = th
+        .client2
+        .get(&format!("{TEST_WS}/search?q=OpenUnitToken"))
+        .await
+        .ok_json();
+    assert_eq!(hidden, json!([]), "privatized course hidden from search");
+
+    th.teardown().await;
 }

@@ -784,6 +784,9 @@ impl Store {
                     return Ok(None);
                 }
                 let kind = container_kinds::kind_from_text(&row.text(2)?)?;
+                if !ContainerKinds::LINKED.holds(kind) {
+                    return Ok(None);
+                }
                 Ok(Some(SharedContainer {
                     org_id: row.id(0)?,
                     kind,

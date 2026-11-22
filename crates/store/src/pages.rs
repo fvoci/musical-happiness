@@ -199,20 +199,9 @@ pub(crate) async fn page_tree(
     scope: &mut Scope<'_>,
     wiki_id: &str,
 ) -> Result<PageTree, StoreError> {
-    tree_of(scope, wiki_id, &[BlockType::Page]).await
-}
-
-/// The tree of blocks of `types` on `container_id`, read under the container's lock.
-pub(crate) async fn tree_of(
-    scope: &mut Scope<'_>,
-    container_id: &str,
-    types: &[BlockType],
-) -> Result<PageTree, StoreError> {
     let mut sql = scope.sql("SELECT id, parent_id, fields FROM blocks WHERE container_id = ");
-    sql.bind(Id(container_id))
-        .push(" AND type IN (")
-        .bind_list(types.iter().map(BlockType::as_str))
-        .push(")");
+    sql.bind(Id(wiki_id))
+        .push_bind(" AND type = ", BlockType::Page.as_str());
     let mut nodes = Vec::new();
     for row in &scope.fetch_all(sql).await? {
         nodes.push(PageNode::from(Block {

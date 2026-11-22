@@ -44,22 +44,22 @@ impl Store {
         self.with_conn(async |scope| {
             // The type is in the stored block. The comments on the pages went with them
             // and come back with them, and are no pages below.
-            let is_page = |row: &str| match scope.dialect() {
-                Dialect::Sqlite => format!("json_extract({row}.block, '$.type') = 'page'"),
-                Dialect::Postgres => format!("{row}.block->>'type' = 'page'"),
-            };
-            let (is_page, went_page) = (is_page("top"), is_page("went"));
-            let mut sql = scope.sql(&format!(
+            let dialect = scope.dialect();
+            let mut sql = scope.sql(
                 "SELECT top.block, top.deleted_by, top.deleted_at, \
                  (SELECT COUNT(*) FROM deleted_blocks went \
-                 WHERE went.deletion_id = top.deletion_id AND {went_page}) \
-                 FROM deleted_blocks top WHERE top.container_id = "
-            ));
-            sql.bind(Id(wiki_id)).push(&format!(
-                " AND {is_page} AND NOT EXISTS (SELECT 1 FROM deleted_blocks above \
+                 WHERE went.deletion_id = top.deletion_id AND ",
+            );
+            push_block_types_in_json(&mut sql, dialect, "went", &[BlockType::Page]);
+            sql.push(") FROM deleted_blocks top WHERE top.container_id = ")
+                .bind(Id(wiki_id))
+                .push(" AND ");
+            push_block_types_in_json(&mut sql, dialect, "top", &[BlockType::Page]);
+            sql.push(
+                " AND NOT EXISTS (SELECT 1 FROM deleted_blocks above \
                  WHERE above.deletion_id = top.deletion_id AND above.id = top.parent_id) \
-                 ORDER BY top.deleted_at DESC, top.id"
-            ));
+                 ORDER BY top.deleted_at DESC, top.id",
+            );
             push_paging(&mut sql, paging);
             let mut pages = Vec::new();
             for row in &scope.fetch_all(sql).await? {
@@ -111,17 +111,23 @@ impl Store {
     }
 }
 
-/// A SQL predicate checking that the JSON `block` column of alias `row` has one of `types`.
-pub(crate) fn block_type_in_json(dialect: Dialect, row: &str, types: &[BlockType]) -> String {
-    let expr = match dialect {
-        Dialect::Sqlite => format!("json_extract({row}.block, '$.type')"),
-        Dialect::Postgres => format!("{row}.block->>'type'"),
+/// Appends a parameterized SQL predicate checking that the JSON `block` column of alias
+/// `row` has one of `types`.
+pub(crate) fn push_block_types_in_json(
+    sql: &mut crate::db::Sql,
+    dialect: Dialect,
+    row: &str,
+    types: &[BlockType],
+) {
+    if types.is_empty() {
+        sql.push("1 = 0");
+        return;
+    }
+    match dialect {
+        Dialect::Sqlite => sql.push(&format!("json_extract({row}.block, '$.type') IN (")),
+        Dialect::Postgres => sql.push(&format!("{row}.block->>'type' IN (")),
     };
-    let list: Vec<String> = types
-        .iter()
-        .map(|block_type| format!("'{}'", block_type.as_str()))
-        .collect();
-    format!("{expr} IN ({})", list.join(", "))
+    sql.bind_list(types.iter().map(BlockType::as_str)).push(")");
 }
 
 /// The deletion of the container the block went with, if the block is in the container's
