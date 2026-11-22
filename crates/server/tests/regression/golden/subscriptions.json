@@ -51,11 +51,21 @@
     ]
   },
   {
-    "name": "list: none",
+    "name": "list: the card its writer wrote",
     "request": "GET /api/v1/w/<id:1>/subscriptions/<id:2> as subs-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": []
+    "body": [
+      {
+        "blockId": "<id:4>",
+        "blockType": "card",
+        "createAt": "<ts>",
+        "deleteAt": 0,
+        "notifiedAt": "<ts>",
+        "subscriberId": "<id:2>",
+        "subscriberType": "user"
+      }
+    ]
   },
   {
     "name": "create",

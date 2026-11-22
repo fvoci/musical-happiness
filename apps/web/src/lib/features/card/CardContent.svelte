@@ -8,8 +8,9 @@
 
   The title, icon and properties come from the board's list of cards and are
   there at once; the body, attachments and comments are read when the card is
-  opened. A card that is not there (the address is wrong, or somebody deleted
-  it, also while it was open) says so and can be closed.
+  opened, while the body's room and the editor are asked for. A card that is
+  not there (the address is wrong, or somebody deleted it, also while it was
+  open) says so and can be closed.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -36,6 +37,7 @@
   import CardProperties from './CardProperties.svelte';
   import CardTitle from './CardTitle.svelte';
   import CommentComposer from './CommentComposer.svelte';
+  import { editorChunk } from './editor-chunk.svelte.ts';
   import { saveStateOf } from './save-state.ts';
   import { keepScroll } from './scroll-keeper.ts';
 
@@ -53,6 +55,12 @@
   let { board, view, card, frame, cardHref, onClose, onOpenCard }: Props = $props();
 
   const references = $derived(bodyReferences(board, card.cardId));
+
+  // The body's room is asked for with the card's reading (`CardStore.load`): the
+  // editor that shows its document is asked for with them, not once the card is read.
+  $effect(() => {
+    if (card.room) editorChunk.load();
+  });
 
   const summary = $derived(card.summary);
   const ready = $derived(card.status === 'ready');

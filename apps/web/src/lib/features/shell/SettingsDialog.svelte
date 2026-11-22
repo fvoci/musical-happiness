@@ -12,6 +12,7 @@
   - Language: an account setting, `Automatic` following the browser; the page
     loads again in the chosen one. The list and the function that changes it
     come from the app (a feature cannot import them).
+  - What the reader is told of: a switch for each kind (`NotificationSettings.svelte`).
   - The layout readout: for whoever works on the layout (dev.svelte.ts).
   - Archives: every board and wiki of the workspace exported, an archive imported; the
     progress shows at the foot of the page (`Transfers.svelte`). An import that
@@ -63,6 +64,7 @@
 
   import { devReadout } from './dev.svelte.ts';
   import NameFields from './NameFields.svelte';
+  import NotificationSettings from './NotificationSettings.svelte';
   import PasswordChange from './PasswordChange.svelte';
   import SettingChoice from './SettingChoice.svelte';
   import SettingPicker from './SettingPicker.svelte';
@@ -324,6 +326,8 @@
           onPick={chooseLanguage}
         />
       {/if}
+
+      <NotificationSettings {workspace} />
 
       <label
         class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch"

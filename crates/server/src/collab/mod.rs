@@ -7,7 +7,7 @@
 //! - [`Collab::open`]: the whole document, opened from what is stored, or made from the
 //!   card's body the first time (by the server, never by a client).
 //! - [`Collab::take`]: takes an editor's update, logs it, and only then gives it back,
-//!   with what a repair deleted, to be sent to the other editors.
+//!   with what a repair changed, to be sent to the other editors.
 //! - [`Collab::state_vector`], [`Collab::diff`]: what an editor that comes back is
 //!   missing.
 //! - [`Collab::write_body`], [`Collab::close`]: writes the document's body to the
@@ -21,7 +21,8 @@
 //! everything else reads) two seconds after the last update, ten seconds after the
 //! first one that is not written at the latest, and when the document is closed or the
 //! server stops. Versions of the body are kept as `versions` says. The log is folded
-//! into the stored state every [`FOLD_AFTER`] updates and when the document closes; a
+//! into the stored state every [`FOLD_AFTER`] updates, once the body is written to its
+//! card (the log says who typed what), and when the document closes; a
 //! document whose state comes near its limit is made again from its body. A server that
 //! ended before it wrote a body or folded a log does so when it starts again
 //! ([`Collab::recover`]).
@@ -181,7 +182,7 @@ pub struct Loaded {
 pub struct Taken {
     /// Its number in the document's log.
     pub seq: i64,
-    /// What a repair deleted so that the document stays a body, as an update for every
+    /// What a repair changed so that the document stays a body, as an update for every
     /// editor, the one that sent the update too; logged after it.
     pub repair: Option<Vec<u8>>,
     /// Whether the document was made again from its body after it (its state came near
@@ -467,7 +468,7 @@ impl Collab {
 
     /// A room that was deleted cannot write later, even if its card was restored. The
     /// updates of a user whose update ended a worker are refused for a while
-    /// ([`senders`]) before anything else, and again as they are sent to the worker.
+    /// ([`senders`]) before anything else, and again in their turn before they are sent.
     async fn take_while(
         &self,
         app: &App,

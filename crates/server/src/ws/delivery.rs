@@ -1,6 +1,6 @@
 //! Authorization at dispatch, backed by the store's committed visibility revision.
 
-use fvoci_model::{Block, ContainerMember, WorkspaceRole};
+use fvoci_model::{ContainerMember, WorkspaceRole};
 
 use super::ending::{Ended, Of};
 use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, ReadPermit, UpdateBlockMessage, text_of};
@@ -106,17 +106,15 @@ impl Hub {
     pub(super) async fn send_public_block(
         &self,
         ids: &[ListenerId],
-        workspace_id: &str,
-        block: &Block,
+        message: &UpdateBlockMessage<'_>,
     ) {
         if ids.is_empty() {
             return;
         }
-        let Some(whole) = text_of(&UpdateBlockMessage {
-            action: "UPDATE_BLOCK",
-            workspace_id,
-            block,
-        }) else {
+        let workspace_id = message.workspace_id();
+        // A card's, a page's or an entry's without its body: what that body names is not looked up.
+        let block = message.block();
+        let Some(whole) = text_of(message) else {
             return;
         };
         let mut authorized = Vec::new();
@@ -138,14 +136,12 @@ impl Hub {
             } else {
                 match self.audience.unsaid_by_link(block).await {
                     Ok(unsaid) => {
-                        let mut public = block.clone();
-                        public.hide_people(&unsaid.people);
-                        public.clear_references_but(&unsaid.shown);
-                        text_of(&UpdateBlockMessage {
-                            action: "UPDATE_BLOCK",
-                            workspace_id,
-                            block: &public,
-                        })
+                        // A card's, a page's or an entry's carries no body to copy here.
+                        let mut public = message.clone();
+                        let shown = public.block_mut();
+                        shown.hide_people(&unsaid.people);
+                        shown.clear_references_but(&unsaid.shown);
+                        text_of(&public)
                     }
                     Err(error) => {
                         tracing::error!(

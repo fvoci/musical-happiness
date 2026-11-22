@@ -363,9 +363,10 @@ async fn an_account_starts_organizations_and_no_more_than_three() {
 
 /// An organization is counted to who made it after they have left it: an account that
 /// made three hands one to somebody else, who is let in, made its administrator, takes
-/// the maker's role and removes them from its workspace. The maker is listed the two
-/// that are left, finds the third no more, and is still refused a fourth with the
-/// answer of the limit. Who took it over did not make it: it is not counted to them.
+/// the maker's role and removes them from its workspace, and the maker leaves it
+/// (`leaveOrganization`). The maker is listed the two that are left, finds the third
+/// no more, and is still refused a fourth with the answer of the limit. Who took it
+/// over did not make it: it is not counted to them.
 #[tokio::test]
 async fn an_organization_is_counted_to_who_made_it_after_they_left_it() {
     if db_type_of_the_tests() != DbType::Postgres {
@@ -412,6 +413,10 @@ async fn an_organization_is_counted_to_who_made_it_after_they_left_it() {
         .check_no_content();
     alice
         .delete(&format!("{workspace}/members/{carol_id}"))
+        .await
+        .check_no_content();
+    carol
+        .post(&format!("{organization}/leave"), &json!({}))
         .await
         .check_no_content();
 

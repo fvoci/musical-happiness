@@ -45,6 +45,7 @@
   import type { ContainerPlace } from '$lib/logic/urls.ts';
   import type { Container } from '$lib/logic/wire.ts';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
+  import { focusRevealed } from '$lib/layout/focus.ts';
   import { sidebarShape } from '$lib/layout/presentation.ts';
   import { paneCovered } from '$lib/layout/over-pane.svelte.ts';
   import { page, pane } from '$lib/layout/room.svelte.ts';
@@ -98,7 +99,7 @@
     onCreateOrganization?: (name: string) => Promise<void>;
     /** Reads the workspace's records. Without it (no server) they are not offered. */
     readRecords?: (workspaceId: string) => Promise<AuditRecord[]>;
-    /** The button of the search of the workspace, in the top bar; none where there is no search. */
+    /** The buttons of the search and of the notifications, in the top bar; none without them. */
     search?: Snippet<[Workspace]>;
     /** The page: what is shown beside the sidebar, given the way to the picker of what to make. */
     children: Snippet<[PaneTools]>;
@@ -159,13 +160,13 @@
   let opener: Element | null = null;
   $effect(() => {
     if (!drawerOut) return;
-    panel?.focus({ preventScroll: true });
+    focusRevealed(panel, { preventScroll: true });
     return () => {
       const from = opener;
       opener = null;
       const lost = document.activeElement;
       if (!(from instanceof HTMLElement) || !from.isConnected) return;
-      if (lost === null || lost === document.body || panel?.contains(lost)) from.focus();
+      if (lost === null || lost === document.body || panel?.contains(lost)) focusRevealed(from);
     };
   });
 
@@ -180,7 +181,7 @@
 
   async function focusOn(testId: string): Promise<void> {
     await tick();
-    shell?.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus();
+    focusRevealed(shell?.querySelector<HTMLElement>(`[data-testid="${testId}"]`));
   }
 
   /** The strip's first button: the whole list, as a drawer or, on an expanded page, back in its column. */

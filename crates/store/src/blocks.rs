@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use fvoci_model::{
     BODY_VERSION, Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body, BodySummary,
-    TaskCount, generate_block_ids,
+    TaskCount,
 };
 use serde_json::Value;
 
@@ -24,6 +24,7 @@ use crate::containers;
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
+use crate::notification_noting::{self, Telling};
 use crate::page_places;
 
 /// The name of every block column, in the order rows are read and written.
@@ -78,7 +79,7 @@ const LISTED_BODY_TEXT: usize = 17;
 const LISTED_BODY: usize = 18;
 
 /// The order of every list of blocks.
-const OLDEST_FIRST: &str = " ORDER BY create_at, id";
+pub(crate) const OLDEST_FIRST: &str = " ORDER BY create_at, id";
 
 /// Which blocks [`Store::get_blocks`] returns. Unset members do not filter.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -367,7 +368,8 @@ impl Store {
         user_id: &str,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
-            insert_blocks(scope, blocks, user_id, NewBodyFiles::Recorded).await
+            let telling = Telling::of(scope);
+            insert_blocks(scope, blocks, user_id, NewBodyFiles::Recorded, telling).await
         })
         .await
     }
@@ -385,7 +387,8 @@ impl Store {
         user_id: &str,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
-            patch_block(scope, block_id, patch, user_id, BodyWrite::Whole).await
+            let telling = Telling::of(scope);
+            patch_block(scope, block_id, patch, user_id, BodyWrite::Whole, telling).await
         })
         .await
     }
@@ -457,7 +460,8 @@ impl Store {
                     .block_patches
                     .get(index)
                     .ok_or(fvoci_model::ContainersAndBlocksError::BlockIdsAndPatchesMismatch)?;
-                patch_block(scope, block_id, patch, user_id, BodyWrite::Whole).await?;
+                let telling = Telling::of(scope);
+                patch_block(scope, block_id, patch, user_id, BodyWrite::Whole, telling).await?;
             }
             Ok(())
         })
@@ -478,64 +482,6 @@ impl Store {
                 .iter()
                 .map(|row| Ok((row.text(0)?, row.int(1)?)))
                 .collect()
-        })
-        .await
-    }
-
-    /// Copies a block of a board and its direct children, except comments, under new
-    /// identifiers. Returns the copies, the copy of the block itself first.
-    ///
-    /// The copy of the block gets its `isTemplate` field set according to `duplicate_as`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::NotFound`] if the board has no such block.
-    pub async fn duplicate_block(
-        &self,
-        container_id: &str,
-        block_id: &str,
-        user_id: &str,
-        duplicate_as: DuplicateAs,
-    ) -> Result<Vec<Block>, StoreError> {
-        self.transaction(async |scope| {
-            let mut sql = select_blocks(scope);
-            sql.push_bind(" WHERE (id = ", Id(block_id))
-                .push_bind(" OR parent_id = ", Id(block_id))
-                .push_bind(") AND container_id = ", Id(container_id))
-                .push(OLDEST_FIRST);
-            let family = fetch_blocks(scope, sql).await?;
-            let not_found = || {
-                StoreError::not_found(format_args!(
-                    "block subtree BoardID={container_id} BlockID={block_id}"
-                ))
-            };
-
-            let (roots, children): (Vec<Block>, Vec<Block>) = family
-                .into_iter()
-                .filter(|block| block.block_type != BlockType::Comment)
-                .partition(|block| block.id == block_id);
-            let mut root = roots.into_iter().next().ok_or_else(not_found)?;
-            root.fields.insert(
-                "isTemplate".to_owned(),
-                Value::Bool(duplicate_as == DuplicateAs::Template),
-            );
-
-            let mut copies = Vec::with_capacity(children.len() + 1);
-            copies.push(root);
-            copies.extend(children);
-            // What the source holds is settled before the copies are named, so that a
-            // value that named its own card names no card; a copy on the same board then
-            // names the cards its source named.
-            let definitions = containers::find_container(scope, container_id)
-                .await?
-                .map(|container| container.card_properties)
-                .unwrap_or_default();
-            card_values::clear_copied_values(&mut copies, &definitions);
-            generate_block_ids(&mut copies);
-            card_values::keep_cards_of_board(scope, &mut copies, container_id, &definitions)
-                .await?;
-            insert_blocks(scope, &mut copies, user_id, NewBodyFiles::Unchecked).await?;
-            Ok(copies)
         })
         .await
     }
@@ -685,8 +631,12 @@ pub(crate) async fn insert_block(
     block: &mut Block,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let whole = BodyWrite::Whole;
-    let named = insert_block_at(scope, block, user_id, None, NewBodyFiles::Recorded, whole).await?;
+    let how = Written {
+        new_files: NewBodyFiles::Recorded,
+        body_write: BodyWrite::Whole,
+        telling: Telling::of(scope),
+    };
+    let named = insert_block_at(scope, block, user_id, None, how).await?;
     card_values::check_named_cards(scope, &named).await
 }
 
@@ -711,9 +661,20 @@ async fn type_of_parent(
     found.await?.ok_or_else(not_on_container).map(Some)
 }
 
+/// How a block is written, beyond what it is and by whom.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Written {
+    /// How the files its body names newly are asked for.
+    pub(crate) new_files: NewBodyFiles,
+    /// What the write is for the versions kept of a card's body.
+    pub(crate) body_write: BodyWrite,
+    /// Who is told of whom it newly names.
+    pub(crate) telling: Telling,
+}
+
 /// Stores a block as created or changed at `at`, or now, once its board is held, if
-/// that is `None`. The files its body names newly are asked as `new_files` says, and
-/// the versions of a card's body are kept as `body_write` says. Returns the cards its
+/// that is `None`. The files its body names newly are asked, the versions of a card's
+/// body kept, and the people it newly names told as `how` says. Returns the cards its
 /// relation values newly name, which the caller asks for once the write is stored
 /// ([`card_values::check_named_cards`]).
 async fn insert_block_at(
@@ -721,9 +682,13 @@ async fn insert_block_at(
     block: &mut Block,
     user_id: &str,
     at: Option<i64>,
-    new_files: NewBodyFiles,
-    body_write: BodyWrite,
+    how: Written,
 ) -> Result<Vec<NamedCards>, StoreError> {
+    let Written {
+        new_files,
+        body_write,
+        telling,
+    } = how;
     let invalid = |block: &Block, source| StoreError::InvalidBlock {
         id: block.id.clone(),
         source,
@@ -796,11 +761,13 @@ async fn insert_block_at(
             body_versions::record_change(scope, &existing, block, user_id, cause).await?;
         }
         block_derived::refresh(scope, block, Before::Stored(&existing), new_files).await?;
+        notification_noting::note_named(scope, block, Some(&existing), user_id, telling).await?;
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
         block.edited_at = 0;
         insert_block_row(scope, block, new_files).await?;
+        notification_noting::note_named(scope, block, None, user_id, telling).await?;
     }
     Ok(named)
 }
@@ -867,6 +834,7 @@ pub(crate) async fn insert_blocks(
     blocks: &mut [Block],
     user_id: &str,
     new_files: NewBodyFiles,
+    telling: Telling,
 ) -> Result<(), StoreError> {
     for block in blocks.iter() {
         block
@@ -898,8 +866,11 @@ pub(crate) async fn insert_blocks(
                 block,
                 user_id,
                 Some(now),
-                new_files,
-                BodyWrite::Whole,
+                Written {
+                    new_files,
+                    body_write: BodyWrite::Whole,
+                    telling,
+                },
             )
             .await?,
         );
@@ -943,13 +914,14 @@ pub(crate) fn parents_first(blocks: &[Block]) -> Vec<usize> {
 }
 
 /// Applies a patch to a block; the versions of a card's body are kept as `body_write`
-/// says.
+/// says, and the people the patched block newly names told as `telling` says.
 pub(crate) async fn patch_block(
     scope: &mut Scope<'_>,
     block_id: &str,
     patch: &BlockPatch,
     user_id: &str,
     body_write: BodyWrite,
+    telling: Telling,
 ) -> Result<(), StoreError> {
     // The block says which board to hold; what is patched is read under the lock, so
     // that of two patches at once the second is applied to what the first left.
@@ -984,15 +956,12 @@ pub(crate) async fn patch_block(
             update_at: stored_update_at,
         });
     }
-    let named = insert_block_at(
-        scope,
-        &mut block,
-        user_id,
-        None,
-        NewBodyFiles::Recorded,
+    let how = Written {
+        new_files: NewBodyFiles::Recorded,
         body_write,
-    )
-    .await?;
+        telling,
+    };
+    let named = insert_block_at(scope, &mut block, user_id, None, how).await?;
     card_values::check_named_cards(scope, &named).await
 }
 

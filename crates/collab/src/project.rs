@@ -14,10 +14,10 @@ use crate::read::{self, Child, Content, Pushed};
 /// `None` is no body: an empty document, or one empty paragraph.
 ///
 /// The JSON is the stored form: an attribute an editor fills in is there (but for the
-/// start of an ordered list at 1, which a body may leave out), one no editor reads is
-/// not, an empty `attrs` is left out, the marks of a text are in the editor's order,
-/// and neighbouring texts with the same marks are one. So the body of a document made
-/// from a body ([`crate::from_body`]) is no larger than that body.
+/// start of an ordered list at 1 and a cell's span of 1, which a body leaves out), one
+/// no editor reads is not, an empty `attrs` is left out, the marks of a text are in the
+/// editor's order, and neighbouring texts with the same marks are one. So the body of a
+/// document made from a body ([`crate::from_body`]) is no larger than that body.
 ///
 /// # Errors
 ///
@@ -37,6 +37,15 @@ pub(crate) fn project<T: ReadTxn>(
     txn: &T,
     root: &XmlFragmentRef,
 ) -> Result<Option<Body>, BodyError> {
+    projected(txn, root)?.map_or(Ok(None), Body::parse)
+}
+
+/// The JSON of the fragment at the root, before it is checked as a body: the walk of
+/// [`project`] alone. `None` for no body.
+pub(crate) fn projected<T: ReadTxn>(
+    txn: &T,
+    root: &XmlFragmentRef,
+) -> Result<Option<Value>, BodyError> {
     // A text at the root, even one without letters, makes an editor's binding throw.
     if let Some(index) = read::children(txn, root)
         .unwrap_or_default()
@@ -57,7 +66,7 @@ pub(crate) fn project<T: ReadTxn>(
     if content.is_empty() {
         return Ok(None);
     }
-    Body::parse(json!({"type": "doc", "content": content}))
+    Ok(Some(json!({"type": "doc", "content": content})))
 }
 
 /// A walk over shared content: how many nodes it has seen, and where it is.

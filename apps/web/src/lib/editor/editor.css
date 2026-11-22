@@ -216,6 +216,55 @@ img.ProseMirror-separator {
   --code-digits: 7;
 }
 
+/*
+ * A table (table.ts, render.ts): when it is wider than the body, only it
+ * moves sideways, never the page. Its columns share its width and are each
+ * at least as wide as the column group says (`TABLE_CELL_MIN_WIDTH`, which
+ * the table's least width adds up); laid out by that, not by what the cells
+ * hold, so that writing in one cell lays out no other.
+ *
+ * The frame it moves in has the colour of what the body is on (`--doc-surface`,
+ * the page's unless the body's host says another): opaque, Chromium scrolls it
+ * as a layer of its own. Clear, it paints and layers every cell of the table
+ * again for each letter typed anywhere in the body (with 200 rows of 20 cells,
+ * a quarter of a second each time). A table a comparison marks added or
+ * removed (diff.css) is on the colour of its mark instead.
+ */
+.doc-body .tableWrapper {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.doc-body .tableWrapper:not([data-diff]) {
+  background: var(--doc-surface, var(--background));
+}
+.doc-body table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.doc-body :is(td, th) {
+  position: relative;
+  border: 1px solid var(--border);
+  padding: 0.35em 0.6em;
+  vertical-align: top;
+  text-align: start;
+}
+.doc-body th {
+  background: var(--muted);
+  font-weight: 600;
+}
+.doc-body :is(td, th) > * + * {
+  margin-top: 0.5em;
+}
+/* Cells chosen together (dragged across, or Shift with an arrow) are shaded. */
+.ProseMirror .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in oklab, var(--ring) 18%, transparent);
+  pointer-events: none;
+}
+
 .doc-body hr {
   border: none;
   border-top: 1px solid var(--border);

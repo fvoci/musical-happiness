@@ -7,7 +7,7 @@ use fvoci_model::{
     NameShown, OrgRole, PersonName, Session, Title, User, WorkspaceRole, new_id,
 };
 use fvoci_store::{
-    AuditPlace, DbType, DeletionAsking, ErasedFrom, Erasing, ErasureEnd, ErasureStart, Identity,
+    AuditPlace, DbType, DeletionAsking, Erasing, ErasureEnd, ErasureStart, Identity, LeftFrom,
     Looking, NewLink, Paging, Reach, Sight, Store, StoreError, Tenant,
 };
 
@@ -189,7 +189,10 @@ async fn board_of(store: &Store, workspace_id: &str, user_id: &str) -> (String, 
         title: "a card".to_owned(),
         ..Block::default()
     };
+    // Quietly, so that its writer does not watch it: the tests that want the card
+    // followed say so (`work_on`).
     store
+        .telling_nobody()
         .insert_block(&mut card, user_id)
         .await
         .expect("the card is stored");
@@ -225,7 +228,7 @@ async fn made_by(test: &TestStore, org_id: &str, user_id: &str) {
 
 /// Erases the account through every step, on the operator's word, and returns what
 /// became of it in each organization.
-async fn erase(test: &TestStore, user_id: &str, erasing: Erasing, now: i64) -> Vec<ErasedFrom> {
+async fn erase(test: &TestStore, user_id: &str, erasing: Erasing, now: i64) -> Vec<LeftFrom> {
     let begun = test
         .begin_account_erasure(user_id, now, erasing)
         .await
@@ -246,7 +249,7 @@ async fn erase_from_organizations(
     test: &TestStore,
     user_id: &str,
     erasing: Erasing,
-) -> Vec<ErasedFrom> {
+) -> Vec<LeftFrom> {
     let mut erased = Vec::new();
     for org_id in test
         .organizations_of_account(user_id)
@@ -383,6 +386,7 @@ async fn work_on(store: &Store, board: &str, card: &str, user_id: &str) {
         ..Block::default()
     };
     store
+        .telling_nobody()
         .insert_block(&mut comment, user_id)
         .await
         .expect("the comment is stored");
@@ -1174,7 +1178,7 @@ async fn an_erasing_that_was_cut_off_is_taken_up_and_ends() {
     erase_from_organizations(&test, &leaver, Erasing::AfterTheWait).await;
     assert_eq!(
         erase_from_organizations(&test, &leaver, Erasing::AfterTheWait).await,
-        Vec::<ErasedFrom>::new(),
+        Vec::<LeftFrom>::new(),
         "no organization is left to go from"
     );
     assert_eq!(
@@ -1556,7 +1560,7 @@ async fn an_organization_that_has_nobody_else_goes_with_the_account() {
     begin_alone(&test, &leaver, &alone, T0 + WAIT).await;
     let erased = erase(&test, &leaver, Erasing::AfterTheWait, T0 + WAIT).await;
 
-    let removed: Vec<&ErasedFrom> = erased
+    let removed: Vec<&LeftFrom> = erased
         .iter()
         .filter(|from| from.removed.is_some())
         .collect();
@@ -1700,7 +1704,7 @@ async fn an_organization_somebody_came_into_past_the_mark_is_in_use_again() {
 
     let erased = erase_from_organizations(&test, &leaver, Erasing::AfterTheWait).await;
 
-    let kept: Vec<&ErasedFrom> = erased
+    let kept: Vec<&LeftFrom> = erased
         .iter()
         .filter(|from| from.kept_for_newcomer)
         .collect();

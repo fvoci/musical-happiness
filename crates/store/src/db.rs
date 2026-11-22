@@ -298,6 +298,19 @@ pub(crate) struct Scope<'c> {
     /// Whether the store notes changes for the search server
     /// ([`crate::Store::keep_search_outbox`]); `None` for a scope that notes none.
     search_outbox: Option<&'c AtomicBool>,
+    /// Whether the writes of blocks of this scope note whom to tell
+    /// ([`crate::Store::telling_nobody`]).
+    noting: Noting,
+}
+
+/// Whom the writes of blocks of a handle, and of its scopes, note to be told.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Noting {
+    /// Whom a write newly names: those its body mentions, those a card is given to.
+    #[default]
+    Named,
+    /// Nobody: what is written is no person's own words.
+    Nobody,
 }
 
 /// How many versions the store keeps, as it is set when a scope begins. Two counts in
@@ -351,7 +364,18 @@ impl<'c> Scope<'c> {
             visibility: None,
             versions_kept,
             search_outbox: None,
+            noting: Noting::Named,
         }
+    }
+
+    /// The same scope, whose writes of blocks note whom to tell as `noting` says.
+    pub(crate) fn noting(self, noting: Noting) -> Self {
+        Self { noting, ..self }
+    }
+
+    /// Whether the writes of blocks of this scope note nothing to tell anybody.
+    pub(crate) fn tells_nobody(&self) -> bool {
+        self.noting == Noting::Nobody
     }
 
     /// The same scope, which notes changes for the search server while `kept` says so.

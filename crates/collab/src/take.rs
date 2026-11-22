@@ -16,10 +16,10 @@ use crate::update::{
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct Taken {
-    /// The document with the update, and with what a repair deleted. It shares nothing
+    /// The document with the update, and with what a repair changed. It shares nothing
     /// with the document the update was given for, which is as it was.
     pub doc: Doc,
-    /// The body of `doc`, and what a repair deleted to make it one: the deletions, as
+    /// The body of `doc`, and what a repair changed to make it one: the changes, as
     /// an update, are for the editors that hold the document, which did not make them.
     pub repair: Repair,
     /// The size of the state of `doc` ([`crate::state_of`]), in bytes.
@@ -176,7 +176,7 @@ fn to_taken(with: Settled, limits: &UpdateLimits) -> Result<Taken, TakeError> {
 }
 
 /// The size of a body as JSON without whitespace, as its limit is measured.
-fn size_of(body: &Body) -> usize {
+pub(crate) fn size_of(body: &Body) -> usize {
     /// Counts what is written to it.
     struct Count(usize);
 

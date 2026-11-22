@@ -78,8 +78,11 @@ export interface Organizations {
   endOidcFormer(orgId: string, createAt: number): Promise<void>;
   /** Starts a sign-in through the pending settings: the address to send the browser to. */
   startOidcTrial(orgId: string): Promise<string>;
-  /** The organization the reader administers; undefined when they administer none. */
-  administered(): Promise<string | undefined>;
+  /**
+   * The organization the reader administers, of those of `workspaces` (the
+   * reader's, as the shell read them); undefined when they administer none.
+   */
+  administered(workspaces: readonly WorkspaceInfo[]): Promise<string | undefined>;
   /**
    * Starts an organization of people with its first workspace, both under
    * `name`, which the reader administers; that workspace as their list has it

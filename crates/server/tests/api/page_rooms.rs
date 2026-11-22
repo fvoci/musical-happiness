@@ -158,11 +158,18 @@ async fn two_users_edit_a_page_together_and_converge() {
         page.modified_by
     );
     assert_eq!(page.title, "Edited together", "the body only is written");
-    // The wiki's members are told of the page as it is written, as of any block.
+    // The wiki's members are told of the page as it is written, as of a card: the
+    // summary of its body, which is read over HTTP (above).
+    let words = |told: &Value| {
+        told["summary"]["preview"]["text"]
+            .as_str()
+            .map(str::to_owned)
+    };
+    let all = lines_of(Some(&merged)).join("\n");
     let mut told = listener
         .expect("UPDATE_BLOCK", "/block/id", &d.page_id)
         .await;
-    while told["block"]["body"] != merged {
+    while words(&told).as_deref() != Some(all.trim_end()) {
         told = listener
             .expect("UPDATE_BLOCK", "/block/id", &d.page_id)
             .await;
@@ -172,6 +179,7 @@ async fn two_users_edit_a_page_together_and_converge() {
         (&json!("page"), &json!(d.wiki_id)),
         "{told}"
     );
+    assert_eq!(told["block"]["body"], Value::Null, "{told}");
 
     // Who comes later is sent all of it.
     let mut three = Peer::connect(&th.client2, 103).await;

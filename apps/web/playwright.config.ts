@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { playwrightWorkers } from './tools/test-cpus.ts';
+
 /**
  * End-to-end tests.
  *
@@ -9,7 +11,8 @@ import { defineConfig, devices } from '@playwright/test';
  * tests of the static shell, and only for those.
  *
  * `FVOCI_E2E_PORT` moves the preview to another port, so that two checkouts
- * can run their tests at once.
+ * can run their tests at once. `FVOCI_TEST_CPUS` sets the workers
+ * (tools/test-cpus.ts).
  */
 const external = process.env.FVOCI_E2E_URL;
 const PREVIEW_PORT = Number(process.env.FVOCI_E2E_PORT ?? 18310);
@@ -21,6 +24,7 @@ export default defineConfig({
   outputDir: 'test-results/app',
   forbidOnly: Boolean(process.env.CI),
   reporter: [['list']],
+  workers: playwrightWorkers(),
   use: {
     baseURL: external ?? `http://127.0.0.1:${PREVIEW_PORT}`,
     trace: 'retain-on-failure',

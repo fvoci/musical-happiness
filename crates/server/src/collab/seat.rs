@@ -2,11 +2,10 @@
 //! text commands and binary frames to, and takes what is to be sent from.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use serde::Deserialize;
-use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::frame::{self, Carried, Received, Sync};
@@ -45,6 +44,47 @@ const WHOLE_DOCUMENT: u64 = 5;
 /// the server was at its steps.
 const MOST_SAVED_SECONDS: u64 = 60;
 
+/// The clock [`FrameRate`] reads: real monotonic time normally, or a paused instant
+/// advanced by tests under `test-util`.
+#[derive(Debug, Default)]
+pub(super) struct RateClock {
+    #[cfg(feature = "test-util")]
+    held: std::sync::Mutex<Option<Instant>>,
+}
+
+impl RateClock {
+    /// The current instant of the frame-rate clock.
+    #[cfg_attr(
+        not(feature = "test-util"),
+        expect(
+            clippy::unused_self,
+            reason = "reads `self.held` when `test-util` is enabled"
+        )
+    )]
+    pub(super) fn now(&self) -> Instant {
+        #[cfg(feature = "test-util")]
+        if let Some(now) = *self.held.lock().expect("rate clock lock poisoned") {
+            return now;
+        }
+        Instant::now()
+    }
+
+    /// Holds the clock at its current instant until advanced by [`Self::advance`].
+    #[cfg(feature = "test-util")]
+    pub(super) fn pause(&self) {
+        let mut held = self.held.lock().expect("rate clock lock poisoned");
+        held.get_or_insert_with(Instant::now);
+    }
+
+    /// Moves the held clock forward by `by`, pausing it first if it was not held.
+    #[cfg(feature = "test-util")]
+    pub(super) fn advance(&self, by: Duration) {
+        let mut held = self.held.lock().expect("rate clock lock poisoned");
+        let now = held.get_or_insert_with(Instant::now);
+        *now += by;
+    }
+}
+
 /// How much a connection may send of the rooms: `per_second` frames a second, and
 /// as many at once after a pause.
 ///
@@ -64,23 +104,24 @@ struct FrameRate {
 }
 
 impl FrameRate {
-    fn new(per_second: u32) -> Self {
+    fn new(per_second: u32, now: Instant) -> Self {
         Self {
             per_second,
             left: u64::from(per_second) * 1000,
-            counted_to: Instant::now(),
+            counted_to: now,
             at_steps: Duration::ZERO,
         }
     }
 
-    /// Counts `frames` more; whether they are within what the connection may send.
-    fn admits(&mut self, frames: u64) -> bool {
+    /// Counts `frames` more at `now`; whether they are within what the connection may
+    /// send.
+    fn admits(&mut self, frames: u64, now: Instant) -> bool {
         let rate = u64::from(self.per_second);
         let (full, most) = (rate * 1000, rate * 1000 * MOST_SAVED_SECONDS);
         // In whole milliseconds, each worth `rate` thousandths; the rest is counted
         // the next time.
         let millis = |time: Duration| u64::try_from(time.as_millis()).unwrap_or(u64::MAX);
-        let passed = millis(Instant::now().duration_since(self.counted_to));
+        let passed = millis(now.saturating_duration_since(self.counted_to));
         let at_steps = millis(self.at_steps).min(passed);
         self.counted_to += Duration::from_millis(passed);
         self.at_steps = self
@@ -144,9 +185,30 @@ impl Collab {
             home: app.clone(),
             connection: Arc::clone(&connection),
             next_doc: 1,
-            rate: FrameRate::new(self.frames_per_second()),
+            rate: FrameRate::new(self.frames_per_second(), self.rate_now()),
         };
         (seat, Outbox { connection })
+    }
+
+    fn rate_now(&self) -> Instant {
+        self.inner.rooms.rate_clock.now()
+    }
+
+    /// Holds the clock that counts each connection's frame rate at its current instant
+    /// until [`Collab::advance_frame_rate_clock`] moves it forward: for tests that
+    /// exercise frame-rate limits without waiting on the wall clock.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub fn pause_frame_rate_clock(&self) {
+        self.inner.rooms.rate_clock.pause();
+    }
+
+    /// Moves the frame-rate clock forward by `by`, holding it first if it was not
+    /// already paused ([`Collab::pause_frame_rate_clock`]).
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub fn advance_frame_rate_clock(&self, by: Duration) {
+        self.inner.rooms.rate_clock.advance(by);
     }
 
     /// The most bytes of a binary frame a client sends that is not refused for its
@@ -181,9 +243,9 @@ impl Seat {
         T: Send + 'static,
         F: Future<Output = T> + Send + 'static,
     {
-        let began = Instant::now();
+        let began = self.collab.rate_now();
         let done = self.home.spawn_tracked(work).await;
-        self.rate.at_steps += began.elapsed();
+        self.rate.at_steps += self.collab.rate_now().saturating_duration_since(began);
         match done {
             Ok(done) => Some(done),
             Err(error) => {
@@ -215,7 +277,8 @@ impl Seat {
             state_vector,
             ..
         } = command;
-        let admitted = self.rate.admits(WHOLE_DOCUMENT);
+        let now = self.collab.rate_now();
+        let admitted = self.rate.admits(WHOLE_DOCUMENT, now);
         if workspace_id.len() > LONGEST_ID || card_id.len() > LONGEST_ID {
             tracing::debug!("websocket: a JOIN_DOC names what is no identifier");
             return;
@@ -257,7 +320,8 @@ impl Seat {
 
     async fn leave(&mut self, doc: u32) {
         // Counted, and carried out whatever the count says: it makes room.
-        let _ = self.rate.admits(1);
+        let now = self.collab.rate_now();
+        let _ = self.rate.admits(1, now);
         let Some(room) = self.connection.forget(doc) else {
             return;
         };
@@ -286,7 +350,8 @@ impl Seat {
             Some((_, Some(received))) if asks_whole(received) => WHOLE_DOCUMENT,
             _ => 1,
         };
-        let admitted = self.rate.admits(cost);
+        let now = self.collab.rate_now();
+        let admitted = self.rate.admits(cost, now);
         let Some((doc, received)) = read else {
             return;
         };
@@ -384,48 +449,82 @@ mod tests {
     /// A connection sends as many frames at once as it may in a second, and then
     /// one more with every part of a second that passes; a command or frame that is
     /// answered with a whole document counts as five.
-    #[tokio::test(start_paused = true)]
-    async fn frames_are_admitted_at_their_rate() {
-        let mut rate = FrameRate::new(10);
-        assert!((0..10).all(|_| rate.admits(1)), "ten at once");
-        assert!(!rate.admits(1), "and no eleventh");
-        tokio::time::advance(Duration::from_millis(99)).await;
-        assert!(!rate.admits(1), "not yet a tenth of a second");
-        tokio::time::advance(Duration::from_millis(1)).await;
-        assert!(rate.admits(1), "one more");
-        assert!(!rate.admits(1), "and only one");
+    #[test]
+    fn frames_are_admitted_at_their_rate() {
+        let mut now = Instant::now();
+        let mut rate = FrameRate::new(10, now);
+        assert!((0..10).all(|_| rate.admits(1, now)), "ten at once");
+        assert!(!rate.admits(1, now), "and no eleventh");
+        now += Duration::from_millis(99);
+        assert!(!rate.admits(1, now), "not yet a tenth of a second");
+        now += Duration::from_millis(1);
+        assert!(rate.admits(1, now), "one more");
+        assert!(!rate.admits(1, now), "and only one");
         // Parts of a millisecond are not lost between two counts.
         for _ in 0..200 {
-            tokio::time::advance(Duration::from_micros(500)).await;
-            let _ = rate.admits(1);
+            now += Duration::from_micros(500);
+            let _ = rate.admits(1, now);
         }
-        tokio::time::advance(Duration::from_millis(500)).await;
-        assert!(rate.admits(WHOLE_DOCUMENT), "five after half a second");
-        assert!(!rate.admits(1), "which were all");
+        now += Duration::from_millis(500);
+        assert!(rate.admits(WHOLE_DOCUMENT, now), "five after half a second");
+        assert!(!rate.admits(1, now), "which were all");
         // A pause saves a second's worth and no more.
-        tokio::time::advance(Duration::from_secs(30)).await;
+        now += Duration::from_secs(30);
         assert!(
-            rate.admits(WHOLE_DOCUMENT) && rate.admits(WHOLE_DOCUMENT),
+            rate.admits(WHOLE_DOCUMENT, now) && rate.admits(WHOLE_DOCUMENT, now),
             "ten again"
         );
-        assert!(!rate.admits(1), "and no more for the wait");
+        assert!(!rate.admits(1, now), "and no more for the wait");
+        // A timestamp earlier than `counted_to` does not panic or add budget.
+        let earlier = now.checked_sub(Duration::from_secs(1)).unwrap_or(now);
+        assert!(!rate.admits(1, earlier), "earlier timestamp adds no budget");
     }
 
     /// What a client sent within its rate while the server was at the connection's
     /// steps is admitted when the server comes to it, all at once.
-    #[tokio::test(start_paused = true)]
-    async fn the_time_of_the_servers_steps_is_not_the_clients() {
-        let mut rate = FrameRate::new(10);
-        assert!((0..10).all(|_| rate.admits(1)), "ten at once");
+    #[test]
+    fn the_time_of_the_servers_steps_is_not_the_clients() {
+        let mut now = Instant::now();
+        let mut rate = FrameRate::new(10, now);
+        assert!((0..10).all(|_| rate.admits(1, now)), "ten at once");
         // A step of six seconds, during which sixty frames came in.
-        tokio::time::advance(Duration::from_secs(6)).await;
+        now += Duration::from_secs(6);
         rate.at_steps += Duration::from_secs(6);
-        assert!((0..60).all(|_| rate.admits(1)), "sixty that waited");
-        assert!(!rate.admits(1), "and no more");
+        assert!((0..60).all(|_| rate.admits(1, now)), "sixty that waited");
+        assert!(!rate.admits(1, now), "and no more");
         // However long the server took, no more than a minute's worth is saved.
-        tokio::time::advance(Duration::from_secs(600)).await;
+        now += Duration::from_secs(600);
         rate.at_steps += Duration::from_secs(600);
-        assert!((0..600).all(|_| rate.admits(1)), "a minute's worth");
-        assert!(!rate.admits(1), "and no more");
+        assert!((0..600).all(|_| rate.admits(1, now)), "a minute's worth");
+        assert!(!rate.admits(1, now), "and no more");
+    }
+
+    /// A paused rate clock holds its instant across reads and moves only when advanced.
+    #[cfg(feature = "test-util")]
+    #[test]
+    fn paused_rate_clock_moves_only_when_advanced() {
+        let clock = RateClock::default();
+        clock.pause();
+        let start = clock.now();
+        assert_eq!(clock.now(), start, "held at the paused instant");
+        clock.pause();
+        assert_eq!(clock.now(), start, "pausing again keeps the same instant");
+        clock.advance(Duration::from_millis(250));
+        assert_eq!(
+            clock.now().duration_since(start),
+            Duration::from_millis(250),
+            "advanced by the requested duration"
+        );
+
+        // Advancing an unpaused clock pauses it first and holds the advanced instant.
+        let unpaused = RateClock::default();
+        let before = unpaused.now();
+        unpaused.advance(Duration::from_millis(100));
+        let advanced = unpaused.now();
+        assert!(
+            advanced.saturating_duration_since(before) >= Duration::from_millis(100),
+            "advanced at least the requested duration"
+        );
+        assert_eq!(unpaused.now(), advanced, "stays held after auto-pausing");
     }
 }

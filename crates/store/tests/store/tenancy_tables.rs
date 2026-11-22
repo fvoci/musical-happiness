@@ -287,11 +287,52 @@ async fn administer(store: &Store, workspace_id: &str, user_id: &str) {
     }
 }
 
+/// Two cards of the board that name the user, written on behalf of nobody: the user
+/// is told of one, and still to be told of the other.
+async fn told_and_to_be_told(store: &Store, board_id: &str, user_id: &str) {
+    let body = fvoci_model::Body::parse(serde_json::json!({"type": "doc", "content": [
+        {"type": "paragraph", "content": [{"type": "mention", "attrs": {"userId": user_id}}]},
+    ]}))
+    .expect("a document");
+    for _ in 0..2 {
+        let mut card = fvoci_model::Block {
+            id: new_id(),
+            container_id: board_id.to_owned(),
+            block_type: BlockType::Card,
+            body: body.clone(),
+            ..fvoci_model::Block::default()
+        };
+        store
+            .insert_block(&mut card, "")
+            .await
+            .expect("a card that names the user is stored");
+    }
+    let noted = store
+        .due_notification_events(i64::MAX, 10)
+        .await
+        .expect("the list is read");
+    let limits = fvoci_store::NotificationLimits {
+        same_within_millis: 0,
+        most_made_by_one: 10,
+        made_within_millis: 0,
+        most_of_a_person: 10,
+    };
+    let of_the_user = noted
+        .iter()
+        .find(|event| event.recipient_id == user_id)
+        .expect("a row of the user");
+    let told = store.tell_of(of_the_user, 1, limits).await.expect("asked");
+    assert!(
+        matches!(told, fvoci_store::Told::Made(_)),
+        "the user is told: {told:?}"
+    );
+}
+
 /// Stores, through `store`, something in every table of an organization: a workspace, a
 /// board with a member and the record of a change of its roles, a card and a comment
 /// whose text was changed, files, sharing, a subscription, a category with the board in
-/// it, an upload with a part, an object being written, and a board and a card in the
-/// trash. The user is made through `store`
+/// it, an upload with a part, an object being written, a notification and one still to
+/// be made, and a board and a card in the trash. The user is made through `store`
 /// too, and so joins its organization. Returns the identifiers of the card that went to
 /// the trash and of the user.
 async fn something_in_every_table(store: &Store, username: &str) -> (String, String) {
@@ -369,6 +410,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
     in_the_files(store, &user_id, &board_id, username).await;
     a_body_edited_together(store, &board_id, &user_id).await;
     a_team_on_board(store, &board, &user_id).await;
+    told_and_to_be_told(store, &board_id, &user_id).await;
     // The trash: a card of the live board, and a whole board.
     let mut card = fvoci_model::Block {
         id: new_id(),

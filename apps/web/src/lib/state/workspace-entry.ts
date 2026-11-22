@@ -78,6 +78,40 @@ export async function startOrganization(
 }
 
 /**
+ * Takes the reader out of the organization `orgId` by `leave`
+ * (`Account.leaveOrganization`), and reads their workspaces again, which have
+ * none of it any more. Where the list cannot be read, the organization's are
+ * taken out of those the page has. A refusal changes nothing, and rejects; so
+ * does a 404, for a reader who is out of it already (left in another tab),
+ * whose workspaces are read again as well.
+ */
+export async function leaveOrganization(
+  workspace: { workspaces: WorkspaceInfo[]; readonly backend: Backend },
+  leave: (orgId: string) => Promise<void>,
+  orgId: string,
+): Promise<void> {
+  try {
+    await leave(orgId);
+  } catch (error) {
+    if (isBackendError(error) && error.status === 404) await rereadWithout(workspace, orgId);
+    throw error;
+  }
+  await rereadWithout(workspace, orgId);
+}
+
+/** Reads the reader's workspaces again, or takes out the organization's where they cannot be. */
+async function rereadWithout(
+  workspace: { workspaces: WorkspaceInfo[]; readonly backend: Backend },
+  orgId: string,
+): Promise<void> {
+  try {
+    workspace.workspaces = await workspace.backend.workspaces();
+  } catch {
+    workspace.workspaces = workspace.workspaces.filter((one) => one.orgId !== orgId);
+  }
+}
+
+/**
  * The boards, the wikis and the diaries of a workspace the reader can see,
  * the lists of the sidebar together (each is a board of its `kind`). Only the
  * reader's own space has diaries: they are not asked for of another, which

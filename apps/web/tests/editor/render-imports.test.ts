@@ -141,8 +141,10 @@ describe('what the read-only view is made of', () => {
         'src/lib/editor/code-lines.ts',
         'src/lib/editor/drawing.ts',
         'src/lib/editor/files.ts',
+        'src/lib/editor/render-table.ts',
         'src/lib/editor/render.ts',
         'src/lib/editor/schema.ts',
+        'src/lib/editor/table-grid.ts',
       ],
       packages: [],
     });
@@ -174,9 +176,11 @@ describe('what the read-only view is made of', () => {
         'src/lib/editor/katex.css',
         'src/lib/editor/math.ts',
         'src/lib/editor/reference-chip.ts',
+        'src/lib/editor/render-table.ts',
         'src/lib/editor/render.ts',
         'src/lib/editor/safe-svg.ts',
         'src/lib/editor/schema.ts',
+        'src/lib/editor/table-grid.ts',
         // What a finger's press on a file's name does in a body being written; nothing it imports.
         'src/lib/editor/touch-press.ts',
         'src/lib/keys.ts',

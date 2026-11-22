@@ -94,6 +94,8 @@ pub(super) struct Rooms {
     per_user: usize,
     /// How many commands and frames a connection may send in a second.
     frames_per_second: u32,
+    /// The clock that counts each connection's frame rate.
+    pub(super) rate_clock: super::seat::RateClock,
     /// How many messages may wait for a connection, of all its rooms.
     queue_messages: usize,
     /// The number of the next connection.
@@ -119,6 +121,7 @@ impl Rooms {
             per_room: as_count(settings.collab_connections_per_document),
             per_user: as_count(settings.collab_connections_per_user),
             frames_per_second: settings.collab_frames_per_second,
+            rate_clock: super::seat::RateClock::default(),
             queue_messages: as_count(settings.collab_queue_messages),
             next_connection: AtomicU64::new(0),
             walls: walls::Walls::new(Duration::from_secs(settings.collab_recheck_seconds)),
@@ -554,24 +557,42 @@ impl Collab {
 
     /// Asks again, every `collab_recheck_seconds`, whether each member of a room may
     /// be in it, for as long as the room is there. A task of its own: the room's
-    /// other task hears of its document meanwhile.
-    async fn ask_again(self, room: Arc<Room>) {
-        let mut due = tokio::time::interval(self.inner.rooms.recheck);
-        due.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        // The first tick is at once; who is in the room was asked as they came in.
-        due.tick().await;
-        let stopping = self.inner.rooms.stopping.clone();
-        loop {
-            tokio::select! {
-                () = room.gone.cancelled() => return,
-                () = stopping.cancelled() => return,
-                _ = due.tick() => {}
-            }
-            // Given up when the server stops: nothing is asked of a store that is
-            // about to close.
-            tokio::select! {
-                () = stopping.cancelled() => return,
-                () = self.recheck(&room) => {}
+    /// other task hears of its document meanwhile. Built with `test-util`, it also
+    /// asks whenever a test has every room ask now after the room was made: it
+    /// listens from before its task first runs.
+    #[cfg_attr(
+        not(feature = "test-util"),
+        expect(
+            clippy::manual_async_fn,
+            reason = "built with `test-util`, it listens before its future is first polled"
+        )
+    )]
+    fn ask_again(self, room: Arc<Room>) -> impl Future<Output = ()> {
+        #[cfg(feature = "test-util")]
+        let mut asked_now = self.asked_now();
+        async move {
+            let mut due = tokio::time::interval(self.inner.rooms.recheck);
+            due.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            // The first tick is at once; who is in the room was asked as they came in.
+            due.tick().await;
+            let stopping = self.inner.rooms.stopping.clone();
+            loop {
+                #[cfg(feature = "test-util")]
+                let now = asked_now.changed();
+                #[cfg(not(feature = "test-util"))]
+                let now = std::future::pending::<Result<(), ()>>();
+                tokio::select! {
+                    () = room.gone.cancelled() => return,
+                    () = stopping.cancelled() => return,
+                    _ = due.tick() => {}
+                    Ok(()) = now => {}
+                }
+                // Given up when the server stops: nothing is asked of a store that is
+                // about to close.
+                tokio::select! {
+                    () = stopping.cancelled() => return,
+                    () = self.recheck(&room) => {}
+                }
             }
         }
     }

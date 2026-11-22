@@ -11,10 +11,15 @@ import type { Doc } from 'yjs';
 import { BODY_FIELD } from './body-editor.ts';
 import { isEmptyDoc, toStoredDoc, validateDoc, type DocNode } from './schema.ts';
 
-/** The body a document holds, as it would be stored; undefined when it is not one. */
+/**
+ * The body a document holds, as it would be stored; undefined when it is not
+ * one. A document with nothing in it (a merge can leave one: two people each
+ * deleting a column of the only table) has no body, as the server reads it.
+ */
 export function bodyOfDoc(doc: Doc): DocNode | null | undefined {
   try {
     const fragment = doc.getXmlFragment(BODY_FIELD);
+    if (fragment.length === 0) return null;
     const stored = toStoredDoc(yXmlFragmentToProsemirrorJSON(fragment) as DocNode);
     if (validateDoc(stored).length > 0) return undefined;
     return isEmptyDoc(stored) ? null : stored;

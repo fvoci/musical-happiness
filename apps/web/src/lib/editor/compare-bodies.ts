@@ -11,11 +11,15 @@
  */
 import type { BodyDiff, BodyDiffOptions } from '$lib/logic/body-diff.ts';
 
-import { DIAGRAM_LANGUAGE, type DocNode } from './schema.ts';
+import { DIAGRAM_LANGUAGE, validateDoc, type DocNode } from './schema.ts';
 
 const OPTIONS: BodyDiffOptions = { diagramLanguage: DIAGRAM_LANGUAGE };
 
+/** How many workers that failed are started anew, at the most. */
+const STARTS = 3;
+
 let worker: Promise<Worker | undefined> | undefined;
+let failed = 0;
 const waiting = new Map<number, (diff: BodyDiff | undefined) => void>();
 let last = 0;
 
@@ -36,7 +40,8 @@ function start(): Promise<Worker | undefined> {
       // A worker that fails takes what it was asked with it: that is compared here instead.
       started.addEventListener('error', () => {
         started.terminate();
-        worker = Promise.resolve(undefined);
+        failed += 1;
+        worker = failed < STARTS ? undefined : Promise.resolve(undefined);
         for (const answer of waiting.values()) answer(undefined);
         waiting.clear();
       });
@@ -46,6 +51,10 @@ function start(): Promise<Worker | undefined> {
   );
   return worker;
 }
+
+/** Whether a body may be compared: no body, or one the validator accepts to be shown. */
+export const comparable = (body: DocNode | null): boolean =>
+  body === null || validateDoc(body, { shown: true }).length === 0;
 
 /** What changed from `before` to `after`, two bodies the validator accepts (`null` for none). */
 export async function compareBodies(

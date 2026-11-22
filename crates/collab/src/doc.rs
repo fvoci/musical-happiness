@@ -25,7 +25,7 @@ pub struct BodyDoc {
 pub struct Changed {
     /// The new document.
     pub doc: BodyDoc,
-    /// Its body, and what a repair deleted to make it one ([`Repair`]).
+    /// Its body, and what a repair changed to make it one ([`Repair`]).
     pub repair: Repair,
     /// The size of its state ([`BodyDoc::state`]), in bytes.
     pub state_bytes: usize,

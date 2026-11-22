@@ -23,6 +23,7 @@ import {
   mayRemoveComments,
   noteChange,
 } from './comments.ts';
+import { noteComment } from './notifications.ts';
 import { fail } from './refuse.ts';
 import { commentOf, scramble } from './shapes.ts';
 import { deletion } from './trash.ts';
@@ -107,6 +108,7 @@ export function createComment(on: OnPage, body: DocNode): Comment {
   };
   on.world.blocks.set(comment.id, comment);
   tell(on, comment);
+  noteComment(on.world, comment);
   return commentOf(comment);
 }
 

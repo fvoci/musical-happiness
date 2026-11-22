@@ -139,6 +139,13 @@ impl CardPreview {
             text: text[..end].trim_end().to_owned(),
         }
     }
+
+    /// The preview of `body`, as a list asked for previews gives it of the stored body.
+    #[must_use]
+    pub fn of(body: &Body) -> Self {
+        let image_file_id = body.first_image_file_id().unwrap_or_default().to_owned();
+        Self::new(image_file_id, &body.text())
+    }
 }
 
 impl Card {

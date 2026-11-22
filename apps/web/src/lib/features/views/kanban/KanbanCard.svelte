@@ -30,6 +30,13 @@
     card: Card;
     face: FaceContext;
     href: string;
+    /** Its place among the cards of the column not on their way, as the drag counts; -1 on its way. */
+    at: number;
+    /** Its place in the column and how many cards the column has: for a screen reader, which may not be told of all. */
+    position: number;
+    count: number;
+    /** Is told of the card's box while it is drawn, to know how high it is (a long column, KanbanColumn). */
+    measure: ((element: HTMLElement, cardId: string) => () => void) | undefined;
     /** On its way with a drag: hidden where it was. */
     dragged: boolean;
     selected: boolean;
@@ -50,6 +57,10 @@
     card,
     face,
     href,
+    at,
+    position,
+    count,
+    measure,
     dragged,
     selected,
     targetIds,
@@ -85,10 +96,17 @@
   }
 </script>
 
-<div role="listitem" class={['group/card relative shrink-0', dragged && 'hidden']}>
+<div
+  role="listitem"
+  aria-posinset={position + 1}
+  aria-setsize={count}
+  class={['group/card relative shrink-0', dragged && 'hidden']}
+  {@attach (element: HTMLElement) => measure?.(element, card.id)}
+>
   <div
     role="link"
     data-drag-item={card.id}
+    data-drag-at={at >= 0 ? at : undefined}
     data-card={card.id}
     data-selected={selected ? '' : undefined}
     tabindex="0"

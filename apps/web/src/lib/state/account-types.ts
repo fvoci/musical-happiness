@@ -230,6 +230,14 @@ export interface Account {
    * `last_org_admin` for the only administrator.
    */
   requestDeletion(username: string, password: string): Promise<number>;
+  /**
+   * Takes the account out of the organization `orgId` that people work in
+   * together: out of its workspaces, boards and wikis; what it wrote stays,
+   * and so do its sessions. 404 for one it is no member of (a guest of its
+   * workspaces is none); 409 with `last_instance_admin`, `sole_org_admin` or
+   * `alone_in_organization` for what stands in the way, and nothing changes.
+   */
+  leaveOrganization(orgId: string): Promise<void>;
   /** Takes the deletion back; the session is an ordinary one again. */
   cancelDeletion(): Promise<void>;
   /** Changing the account's address, which `Backend.me` then reads anew. */

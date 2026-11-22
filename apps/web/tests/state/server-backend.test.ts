@@ -216,8 +216,42 @@ describe('the server backend', () => {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }],
     };
-    await backend.createCard('b', { title: 'Copy', body });
+    await backend.createCard('b', { title: 'Copy', body, quiet: true });
     expect(sent[1]?.body).toMatchObject({ title: 'Copy', body });
+    // A copy tells nobody whom it names or is given to; a card made anew does.
+    expect(sent[1]?.url).toBe('/api/v1/w/w1/boards/b/cards?disableNotify=true');
+  });
+
+  it('reads and marks what the reader was told, of no workspace', async () => {
+    const subject = {
+      kind: 'comment',
+      actorId: 'u2',
+      times: 2,
+      people: 1,
+      workspaceId: 'w2',
+      containerId: 'b',
+      containerKind: 'board',
+      blockId: 'c',
+      blockKind: 'card',
+      title: 'Plan',
+      commentId: 'm',
+    };
+    const listed = [{ id: 'n1', createAt: 1, updateAt: 5, readAt: 0, subject }];
+    const sent = serve(listed);
+    const notifications = serverBackend('').notifications;
+    expect(await notifications.list({ page: 1, perPage: 20 })).toEqual(listed);
+    expect(sent[0]?.url).toBe('/api/v1/notifications?page=1&perPage=20');
+    const marked = serve(null, 204);
+    await notifications.read('n1');
+    await notifications.readAll(5);
+    await notifications.readAll();
+    expect(marked.map(({ method, url }) => `${method} ${url}`)).toEqual([
+      'POST /api/v1/notifications/n1/read',
+      'POST /api/v1/notifications/read?through=5',
+      'POST /api/v1/notifications/read',
+    ]);
+    serve({ count: 3 });
+    expect(await notifications.unread()).toBe(3);
   });
 
   it('makes a comment as a block under the card, its text the body', async () => {
@@ -443,7 +477,7 @@ describe('changing a card on the server', () => {
     expect(card().properties).toEqual({ a: '2' });
   });
 
-  it('reads the badges of a card from the server, and works them out from a block’s body', async () => {
+  it('reads the badges of a card from the server, and takes a change message’s from its summary', async () => {
     serve({
       ...CARD,
       properties: {},
@@ -455,25 +489,18 @@ describe('changing a card on the server', () => {
     const answer = await serverBackend('').patchCard('b', 'c1', { title: 'x' });
     expect(answer).toMatchObject({ hasBody: true, tasksTotal: 3, tasksDone: 1, lastCommentAt: 44 });
     expect(answer).not.toHaveProperty('body');
-    const block = cardOfBlock({
-      ...BLOCK,
-      id: 'c2',
-      type: 'card',
-      title: 'With tasks',
-      fields: { properties: {} },
-      body: {
-        type: 'doc',
-        content: [
-          {
-            type: 'taskList',
-            content: [
-              { type: 'taskItem', attrs: { checked: true }, content: [{ type: 'paragraph' }] },
-              { type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph' }] },
-            ],
-          },
-        ],
+    // The block of a change message has no body; its summary says how its tasks stand.
+    const block = cardOfBlock(
+      {
+        ...BLOCK,
+        id: 'c2',
+        type: 'card',
+        title: 'With tasks',
+        fields: { properties: {} },
+        body: null,
       },
-    });
+      { hasBody: true, tasksTotal: 2, tasksDone: 1, preview: { imageFileId: '', text: '' } },
+    );
     expect(block).toMatchObject({ hasBody: true, tasksTotal: 2, tasksDone: 1 });
     expect(block).not.toHaveProperty('body');
     // A change message does not say when the last comment was posted.

@@ -20,6 +20,7 @@ import type {
 
 import { reads } from './container-access.ts';
 import type { KeptOfCard } from './body-versions.ts';
+import type { StoredNotification } from './notifications.ts';
 import type { ContainerPlace } from './trash.ts';
 
 /** A view, card, comment or attachment as the world stores it. */
@@ -135,6 +136,8 @@ export class World {
   readonly bodyVersions = new Map<string, KeptOfCard>();
   /** Who has a file open in the editor, by board and file (`file-versions.ts`). */
   readonly fileLeases = new Map<string, FileLeaseHeld>();
+  /** What each user was told, by user (`notifications.ts`). */
+  readonly notifications = new Map<string, StoredNotification[]>();
 
   /**
    * The name of the channel the rooms of the bodies share with the worlds of

@@ -28,6 +28,7 @@ use crate::body_digest::body_digest;
 use crate::db::{Id, Param, Row, Scope, VersionsKept, now_millis, to_json_text};
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
+use crate::notification_noting::Telling;
 use crate::{blocks, containers};
 
 /// How many versions of a card's body the store keeps unless told otherwise.
@@ -163,7 +164,9 @@ impl Store {
 
     /// Writes the body of a version to a card again, as [`Store::patch_block`] writes
     /// a body by `user_id`: the body written is kept as the card's newest version
-    /// ([`BodyVersionCause::Restored`]) after the body it is written over.
+    /// ([`BodyVersionCause::Restored`]) after the body it is written over. Whom it
+    /// names is told nothing: the words of a version are whose wrote them then, and
+    /// not of who brings them back.
     ///
     /// # Errors
     ///
@@ -175,7 +178,15 @@ impl Store {
         user_id: &str,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
-            blocks::patch_block(scope, card_id, patch, user_id, BodyWrite::Restored).await
+            blocks::patch_block(
+                scope,
+                card_id,
+                patch,
+                user_id,
+                BodyWrite::Restored,
+                Telling::Nobody,
+            )
+            .await
         })
         .await
     }

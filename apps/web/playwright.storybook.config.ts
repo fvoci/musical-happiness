@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+import { playwrightWorkers } from './tools/test-cpus.ts';
+
 const port = Number(process.env.FVOCI_STORYBOOK_PORT ?? 18369);
 
 export default defineConfig({
@@ -7,7 +9,7 @@ export default defineConfig({
   outputDir: 'test-results/storybook',
   forbidOnly: true,
   fullyParallel: true,
-  workers: 4,
+  workers: playwrightWorkers(4),
   reporter: [['list']],
   use: {
     baseURL: `http://127.0.0.1:${port}/storybook/`,

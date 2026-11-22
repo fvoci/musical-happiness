@@ -1,4 +1,6 @@
 /** A small world and the stores over it, for the tests of the state. */
+import { afterEach } from 'vitest';
+
 import { loadTemplates, seedWorld, type SeedTemplate } from '$lib/state/memory/seed.ts';
 import { ServerBackend } from '$lib/api/backend.ts';
 import { MemoryBackend } from '$lib/state/memory/backend.ts';
@@ -86,12 +88,20 @@ export interface Setup {
   workspace: Workspace;
 }
 
+/** Workspaces made by `setup` in the test running now, closed when it ends so no room or timer outlives it. */
+const opened: Workspace[] = [];
+
+afterEach(() => {
+  for (const workspace of opened.splice(0)) workspace.close();
+});
+
 export function setup(templates: readonly SeedTemplate[] = [SMALL]): Setup {
   const { world, readerId } = seedWorld(templates);
   const backend = new MemoryBackend(world, readerId);
   const otherId = [...world.users.keys()].find((id) => id !== readerId);
   if (!otherId) throw new Error('the seed has one person only');
   const workspace = new Workspace({ backend, locale: () => 'en' });
+  opened.push(workspace);
   return { world, backend, other: backend.as(otherId), workspace };
 }
 

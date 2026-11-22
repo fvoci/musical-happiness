@@ -41,11 +41,12 @@ pub(crate) mod tag {
     pub(crate) const FILES: &str = "files";
     pub(crate) const ARCHIVES: &str = "archives";
     pub(crate) const SUBSCRIPTIONS: &str = "subscriptions";
+    pub(crate) const NOTIFICATIONS: &str = "notifications";
     pub(crate) const ORGANIZATION: &str = "organization";
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 17] = [
+const TAGS: [(&str, &str); 18] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -108,6 +109,10 @@ const TAGS: [(&str, &str); 17] = [
     (tag::FILES, "The files of a board."),
     (tag::ARCHIVES, "Exporting boards and importing them."),
     (tag::SUBSCRIPTIONS, "Subscriptions to blocks."),
+    (
+        tag::NOTIFICATIONS,
+        "What the user was told inside the application: mentions and cards given to them.",
+    ),
     (
         tag::ORGANIZATION,
         "What an organization's administrators manage: the organization, its members' \
@@ -373,6 +378,9 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("OidcFormerProvider", Members::All),
     ("OidcFormerProviderEnd", Members::All),
     ("OidcPendingProvider", Members::All),
+    ("Notification", Members::All),
+    ("NotificationKind", Members::AsWritten),
+    ("NotificationSubject", Members::All),
     (
         "Problem",
         Members::Only(&["type", "title", "status", "detail"]),
@@ -405,6 +413,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Me", Members::AllBut(&["pendingEmail"])),
     ("PersonName", Members::All),
     ("UserSettings", Members::AsWritten),
+    ("UnreadNotifications", Members::All),
     ("UserWorkspace", Members::All),
     ("WorkspaceMember", Members::All),
     ("WorkspaceRole", Members::AsWritten),

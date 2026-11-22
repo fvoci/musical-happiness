@@ -48,61 +48,51 @@ const organizations = (): ServerOrganizations => new ServerOrganizations(new Htt
 
 describe('the organization on the server', () => {
   it('finds the organization the reader administers, and none where every one is not there', async () => {
-    serve({
-      'GET /api/v1/users/me/workspaces': {
-        body: [
-          { id: 'w1', orgId: 'o1', name: '', role: 'member' },
-          { id: 'w2', orgId: 'o2', name: '', role: 'admin' },
-        ],
-      },
+    const sent = serve({
       'GET /api/v1/org/o2': {
         body: { id: 'o2', name: '', publicLinks: true, defaultWorkspaceId: 'w2' },
       },
     });
-    expect(await organizations().administered()).toBe('o2');
+    const listed = [
+      { id: 'w1', title: '', orgId: 'o1', role: 'member' },
+      { id: 'w2', title: '', orgId: 'o2', role: 'admin' },
+    ] as const;
+    expect(await organizations().administered(listed)).toBe('o2');
+    // The reader's workspaces are the shell's: they are not read again.
+    expect(sent.map((one) => one.url)).toEqual(['/api/v1/org/o1', '/api/v1/org/o2']);
 
-    serve({ 'GET /api/v1/users/me/workspaces': { body: [{ id: 'w1', orgId: 'o1' }] } });
-    expect(await organizations().administered()).toBeUndefined();
+    serve({});
+    expect(await organizations().administered(listed.slice(0, 1))).toBeUndefined();
   });
 
   it('does not ask for the reader’s own space, which nobody administers', async () => {
-    const sent = serve({
-      'GET /api/v1/users/me/workspaces': {
-        body: [
-          { id: 'w1', orgId: 'o1', kind: 'team', name: '', role: 'member' },
-          { id: 'own', orgId: 'mine', kind: 'personal', name: '', role: 'admin' },
-        ],
-      },
-    });
-    expect(await organizations().administered()).toBeUndefined();
-    expect(sent.map((one) => one.url)).toEqual(['/api/v1/users/me/workspaces', '/api/v1/org/o1']);
+    const sent = serve({});
+    const listed = [
+      { id: 'w1', title: '', orgId: 'o1', kind: 'team', role: 'member' },
+      { id: 'own', title: '', orgId: 'mine', kind: 'personal', role: 'admin' },
+    ] as const;
+    expect(await organizations().administered(listed)).toBeUndefined();
+    expect(sent.map((one) => one.url)).toEqual(['/api/v1/org/o1']);
   });
 
   it('passes over an organization the session does not open, for the next it administers', async () => {
     const closed = { status: 401, body: { status: 401, reason: 'sso_required', orgId: 'o1' } };
     const mine = [
-      { id: 'w1', orgId: 'o1', name: '', role: 'admin', ssoRequired: true },
-      { id: 'w2', orgId: 'o2', name: '', role: 'admin' },
-    ];
+      { id: 'w1', title: '', orgId: 'o1', role: 'admin', ssoRequired: true },
+      { id: 'w2', title: '', orgId: 'o2', role: 'admin' },
+    ] as const;
     serve({
-      'GET /api/v1/users/me/workspaces': { body: mine },
       'GET /api/v1/org/o1': closed,
       'GET /api/v1/org/o2': { body: { id: 'o2', name: '', publicLinks: true } },
     });
-    expect(await organizations().administered()).toBe('o2');
+    expect(await organizations().administered(mine)).toBe('o2');
 
-    serve({
-      'GET /api/v1/users/me/workspaces': { body: mine.slice(0, 1) },
-      'GET /api/v1/org/o1': closed,
-    });
-    expect(await organizations().administered()).toBeUndefined();
+    serve({ 'GET /api/v1/org/o1': closed });
+    expect(await organizations().administered(mine.slice(0, 1))).toBeUndefined();
 
     // A session that is over is no organization passed over: it is told.
-    serve({
-      'GET /api/v1/users/me/workspaces': { body: mine },
-      'GET /api/v1/org/o1': { status: 401, body: { status: 401 } },
-    });
-    await expect(organizations().administered()).rejects.toMatchObject({ status: 401 });
+    serve({ 'GET /api/v1/org/o1': { status: 401, body: { status: 401 } } });
+    await expect(organizations().administered(mine)).rejects.toMatchObject({ status: 401 });
   });
 
   it('sends each change to its route', async () => {

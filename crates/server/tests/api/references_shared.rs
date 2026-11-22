@@ -165,8 +165,9 @@ async fn a_reader_by_a_link_is_told_of_the_cards_of_the_board_and_of_nothing_els
     th.teardown().await;
 }
 
-/// A connection that follows the card by the link is told of a change of the card,
-/// and of a comment on it, without what is not of the board: one without a session,
+/// A connection that follows the card by the link is told of a change of the card (its
+/// summary: the body is read over HTTP, above), and of a comment on it with its body,
+/// without what is not of the board: one without a session,
 /// and one of a user who is signed in and not on the board.
 #[tokio::test]
 async fn a_connection_by_a_link_is_told_of_changes_without_what_is_not_of_the_board() {
@@ -181,7 +182,8 @@ async fn a_connection_by_a_link_is_told_of_changes_without_what_is_not_of_the_bo
             }))
             .await;
         let told = told_of_the_card(&mut socket, &th.client, &shared).await;
-        assert_eq!(references_in(&told["block"]["body"]), shared.kept, "{told}");
+        assert_eq!(told["block"]["body"], Value::Null, "{told}");
+        assert_eq!(told["summary"]["hasBody"], json!(true), "{told}");
         // A comment on the card is told to who follows the card.
         let elsewhere = shared.outside[0].as_str();
         comment_naming(

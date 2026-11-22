@@ -283,8 +283,14 @@ export class ViewerSession {
         this.status = { name: 'shown', format: status.format };
         // The keys that scroll a page (arrows, Page Down, Space) then scroll the document.
         // After the update: until then the frame is hidden, and takes no focus.
+        // `getBoundingClientRect()` flushes WebKit's style even while a stylesheet (such as a lazy
+        // font sheet) is pending, so `focus()` does not see the stale `visibility: hidden` and
+        // drop focus to `body`.
         void tick().then(() => {
-          this.#frame?.focus();
+          const frame = this.#frame;
+          if (!frame?.isConnected) return;
+          frame.getBoundingClientRect();
+          frame.focus();
         });
         break;
       case 'page':

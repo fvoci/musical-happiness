@@ -14,6 +14,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
   caretIn,
   currentItem,
+  headingBelowTop,
   longBody,
   outlineBeside,
   outlineItem,
@@ -94,9 +95,13 @@ test.describe('where the reader has not asked for less motion', () => {
         column.scrollTop = 0;
       });
       await outlineItem(page, 'Section 20').focus();
-      await page.keyboard.press('Enter');
-      await page.keyboard.press('End');
+      // End goes with Enter, not a round trip after it: on a busy machine the scroll to
+      // the heading could be over by then, with nothing left to cut short.
+      await Promise.all([page.keyboard.press('Enter'), page.keyboard.press('End')]);
       await expect.poll(() => scrollAtRest(page)).toBe(true);
+      // Cut short: brought all the way up, the heading would rest near the top, well within 100 px.
+      const restsAt = await headingBelowTop(page, 'Section 20');
+      expect(restsAt, 'End cut the scroll short').toBeGreaterThan(100);
       await expect(currentItem(page)).toHaveText('Section 20');
       // Short of it, the reader moves on towards it, and is reading what is under the line.
       if (then === 'the wheel') {
@@ -104,7 +109,18 @@ test.describe('where the reader has not asked for less motion', () => {
         await page.mouse.move((column?.x ?? 0) + 200, (column?.y ?? 0) + 300);
         await page.mouse.wheel(0, 200);
       } else {
-        await page.keyboard.press('ArrowDown');
+        // Depending on where End stopped the smooth scroll, Section 20 can rest a few lines
+        // above the bottom edge of the column; step down until the caret actually scrolls it.
+        const before = await pageColumn(page).evaluate((column) => column.scrollTop);
+        let scrolled = false;
+        for (let step = 0; step < 30 && !scrolled; step += 1) {
+          await page.keyboard.press('ArrowDown');
+          scrolled = await pageColumn(page).evaluate(
+            (column, from) => column.scrollTop > from,
+            before,
+          );
+        }
+        expect(scrolled).toBe(true);
       }
       await expect.poll(() => scrollAtRest(page)).toBe(true);
       await expect(currentItem(page)).not.toHaveText('Section 20');

@@ -10,6 +10,7 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { plainText } from '$lib/editor/body-text.ts';
 import {
   BODY_VERSION,
   isEmptyDoc,
@@ -23,6 +24,8 @@ interface Build {
   depth?: number;
   nodes?: number;
   bytes?: number;
+  rows?: number;
+  columns?: number;
 }
 
 interface Case {
@@ -31,6 +34,7 @@ interface Case {
   build?: Build;
   expect: 'accept' | 'empty' | 'reject';
   reason?: string;
+  text?: string;
 }
 
 const vectors = JSON.parse(
@@ -42,6 +46,12 @@ const vectors = JSON.parse(
 
 /** A document as a case's `build` describes it (the vectors' own description says how). */
 function build(spec: Build): DocNode {
+  if (spec.rows !== undefined && spec.columns !== undefined) {
+    const cell = { type: 'tableCell', content: [{ type: 'paragraph' }] };
+    const row = { type: 'tableRow', content: Array.from({ length: spec.columns }, () => cell) };
+    const rows = Array.from({ length: spec.rows }, () => row);
+    return { type: 'doc', content: [{ type: 'table', content: rows }] };
+  }
   if (spec.depth !== undefined) {
     let node: DocNode = { type: 'paragraph' };
     for (let level = 0; level < spec.depth - 2; level += 1) {
@@ -64,6 +74,9 @@ function build(spec: Build): DocNode {
   throw new Error(`a build of nothing: ${JSON.stringify(spec)}`);
 }
 
+const mentions = (node: DocNode): boolean =>
+  node.type === 'mention' || (node.content ?? []).some(mentions);
+
 /** What the web app does with a body before it writes one. */
 function verdict(body: unknown): 'accept' | 'empty' | 'reject' {
   if (body === null) return 'empty';
@@ -83,5 +96,9 @@ describe('the shared test vectors of a body', () => {
     const body = one.build ? build(one.build) : one.body;
     if (one.build?.bytes !== undefined) expect(storedSize(body as DocNode)).toBe(one.build.bytes);
     expect(verdict(body)).toBe(one.expect);
+    // The words the server stores for searching are the web app's own, but for
+    // a mention: the web app gives the name, the server nothing.
+    if (one.text !== undefined && !mentions(body as DocNode))
+      expect(plainText(body as DocNode)).toBe(one.text);
   });
 });

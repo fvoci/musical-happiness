@@ -721,6 +721,46 @@ pub(crate) async fn revoke_joinings(
     user_id: &str,
     actor: &AuditActor,
 ) -> Result<(), StoreError> {
+    end_joinings(scope, user_id, |workspace_id| {
+        AuditEntry::by(
+            actor,
+            workspace_id,
+            AuditAction::OrgAdminRevoked,
+            workspace_id,
+        )
+        .with_subject(user_id)
+    })
+    .await?;
+    Ok(())
+}
+
+/// Ends every joining of a workspace of the handle's organization the user made as its
+/// administrator, at their own asking, as they leave the organization: each recorded in
+/// its workspace as leaving it (`leave_workspace_as_org_admin`) is. Returns the
+/// workspaces, by identifier: one they were no member of before is not theirs any more.
+pub(crate) async fn leave_joinings(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<Vec<String>, StoreError> {
+    end_joinings(scope, user_id, |workspace_id| {
+        AuditEntry::new(
+            workspace_id,
+            user_id,
+            AuditAction::OrgAdminLeft,
+            workspace_id,
+        )
+    })
+    .await
+}
+
+/// Ends every joining of the user's of a workspace of the handle's organization, in
+/// use or in the trash, and records each in its workspace as `record` has it. Returns
+/// the workspaces of the joinings, by identifier.
+async fn end_joinings(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    record: impl Fn(&str) -> AuditEntry,
+) -> Result<Vec<String>, StoreError> {
     let mut sql = scope.sql(
         "SELECT wm.workspace_id, wm.prior_role, wm.prior_container_roles \
          FROM workspace_members AS wm \
@@ -731,6 +771,7 @@ pub(crate) async fn revoke_joinings(
         .push_bind(" AND w.org_id = ", scope.org()?)
         .push(" ORDER BY wm.workspace_id");
     let rows = scope.fetch_all(sql).await?;
+    let mut ended = Vec::with_capacity(rows.len());
     for row in &rows {
         let workspace_id = row.id(0)?;
         let prior = row.text(1)?;
@@ -743,16 +784,10 @@ pub(crate) async fn revoke_joinings(
             held: row.text(2)?,
         };
         end_joining(scope, &workspace_id, user_id, joined).await?;
-        let entry = AuditEntry::by(
-            actor,
-            &workspace_id,
-            AuditAction::OrgAdminRevoked,
-            &workspace_id,
-        )
-        .with_subject(user_id);
-        audit::record_entry(scope, &entry).await?;
+        audit::record_entry(scope, &record(&workspace_id)).await?;
+        ended.push(workspace_id);
     }
-    Ok(())
+    Ok(ended)
 }
 
 /// Ends a joining of a workspace as the organization's administrator: the user is
