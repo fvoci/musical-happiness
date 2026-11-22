@@ -6,7 +6,7 @@
 
 서버와 웹앱은 따로 갈라진 브랜치에서 만들어졌고, 2026-11-11에 `master`에서 합쳐졌다. 서버는 저장소 루트에(`crates/`, `xtask/`, `contracts/`, `docs/`), 웹앱은 `apps/web/`에 있다. 이 문서는 서버의 인수인계이고, 웹앱의 것은 `apps/web/docs/handoff.md`다.
 
-- **브랜치와 푸시.** 일마다 `master`에서 워크트리를 새로 갈라 일하고, 끝나면 `master`에 합친다. 일한 세션이 자기 브랜치를 이름으로 올린다(`git push origin <브랜치>`). 강제 푸시와 올라간 커밋 고쳐 쓰기(`amend`·`rebase`·`reset`)는 하지 않는다: 스택의 브랜치를 `gh stack`이 rebase해 `--force-with-lease`로 올리는 것만 예외다(`AGENTS.md`의 "CI와 스택").
+- **브랜치와 푸시.** 일마다 `master`에서 워크트리를 새로 갈라 일하고, 끝나면 `master`에 합친다. 일한 세션이 자기 브랜치를 이름으로 올린다(`git push origin <브랜치>`). 강제 푸시와 올라간 커밋 고쳐 쓰기(`amend`·`rebase`·`reset`)는 하지 않고, 고칠 것은 새 커밋으로 얹는다: 스택의 브랜치를 `gh stack`(또는 GitHub의 Rebase stack)이 rebase해 `--force-with-lease`로 올리는 것만 예외다(`AGENTS.md`의 "CI와 스택").
 - **검증 명령.** 양쪽 모두 저장소 루트에서 돌린다.
 
   | 쪽 | 명령 | 명령의 설명과 기대 결과 |

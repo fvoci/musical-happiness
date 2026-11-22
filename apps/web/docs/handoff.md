@@ -59,7 +59,7 @@
 | `e2e`      | 532 통과, 179 건너뜀(`FVOCI_SCREENS`의 그림과 프로젝트마다 맞지 않는 것), 실패 0 |
 | `e2e:live` | 27 통과, 실패 0(지난 묶음의 11개가 그대로 있다. 서버는 테스트가 띄우고 끈다)     |
 
-`stories/`·`.storybook/`·공용 컴포넌트를 바꾼 묶음은 합치기 전과 배포 전에 `pnpm --filter web run test:storybook`을 별도로 돌린다(`check`에는 포함하지 않는다).
+`stories/`·`.storybook/`·공용 컴포넌트를 바꾼 묶음은 배포 전에 `pnpm --filter web run test:storybook`을 별도로 돌린다(`check`에는 포함하지 않는다. 합치기 전의 것은 PR의 CI가 돈다).
 
 ## 다음에 할 일
 
