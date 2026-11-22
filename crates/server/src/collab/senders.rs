@@ -10,8 +10,13 @@
 //! worker and, if it ended it, put down, whichever worker holds its document
 //! ([`Senders::turn`]): of those they send together, to the documents of one worker or
 //! of several, the ones after the first that ended a worker are refused before they
-//! are sent. The users of an organization do not wait for each other: each may end a
-//! worker once before they are held back, and the organization is held from its third.
+//! are sent. The turn is a user's: the users of an organization do not wait for each
+//! other's turn, and each may end a worker once before they are held back (the
+//! organization is held from its third). An update that waits for its turn holds its
+//! card's room and slot: who writes into that card, opens it or is sent what they lack
+//! of it waits with it, for each update of that user ahead of it (one worker's queue
+//! and call each, up to the time limit), as they waited for those of the same worker
+//! before.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -115,29 +120,36 @@ struct Line {
 /// checked, sent or put down meanwhile ([`Senders::turn`]). Given back as it is
 /// dropped, however the one that holds it ends.
 #[derive(Debug)]
+#[must_use = "the turn is given back when this is dropped"]
 pub(super) struct Turn<'senders> {
-    // Before the place, so that the turn is given back before the line may leave the
-    // table: one who comes after finds the line, not a new turn while this one is held.
+    // Before the place in the line, so that the turn is given back before the line may
+    // leave the table: one who comes after finds the line, not a new turn while this
+    // one is held.
     _held: OwnedMutexGuard<()>,
-    _place: Place<'senders>,
+    _in_line: InLine<'senders>,
 }
 
-/// A place in the line of a user, taken before their turn is waited for: whoever stops
+/// An update in the line of a user, from before their turn is waited for: whoever stops
 /// waiting leaves it as well as whoever is done with the turn, and the last to leave
 /// takes the line out of the table.
 #[derive(Debug)]
-struct Place<'senders> {
+struct InLine<'senders> {
     senders: &'senders Senders,
     key: (Tenant, String),
 }
 
-impl Drop for Place<'_> {
+impl Drop for InLine<'_> {
     fn drop(&mut self) {
         // Nothing panics with the lines held; a destructor does not panic.
         let Ok(mut lines) = self.senders.lines.lock() else {
             return;
         };
-        if let Some(line) = lines.get_mut(&self.key) {
+        let line = lines.get_mut(&self.key);
+        debug_assert!(
+            line.as_ref().is_some_and(|line| line.in_line > 0),
+            "an update leaves a line it is in"
+        );
+        if let Some(line) = line {
             line.in_line = line.in_line.saturating_sub(1);
             if line.in_line == 0 {
                 lines.remove(&self.key);
@@ -147,8 +159,8 @@ impl Drop for Place<'_> {
 }
 
 impl Senders {
-    /// The turn of a user of an organization, once the updates of theirs that came
-    /// before are done with it, in the order they came: an update is checked
+    /// The turn of a user of an organization, once the updates of theirs that wait for
+    /// it before this one are done with it, in the order they wait: an update is checked
     /// ([`Senders::held_until`]), sent to its worker and, if it ended it, put down
     /// ([`Senders::ended_worker`]) in it. Only their own updates wait for it, those of
     /// another user, or of the same user in another organization, do not; one that
@@ -164,11 +176,11 @@ impl Senders {
             line.in_line += 1;
             Arc::clone(&line.turn)
         };
-        // Taken before the wait, so that one that stops waiting leaves it.
-        let place = Place { senders: self, key };
+        // Before the wait, so that one that stops waiting leaves the line.
+        let in_line = InLine { senders: self, key };
         Turn {
             _held: turn.lock_owned().await,
-            _place: place,
+            _in_line: in_line,
         }
     }
 
@@ -454,7 +466,7 @@ mod tests {
         assert_eq!(senders.lines(), 1, "hers alone");
         drop(ann);
         assert_eq!(senders.lines(), 0, "nobody is kept");
-        tokio::time::timeout(soon, senders.turn(ONE, "ann"))
+        let _again = tokio::time::timeout(soon, senders.turn(ONE, "ann"))
             .await
             .expect("her turn again");
     }
@@ -495,7 +507,7 @@ mod tests {
         }
         assert_eq!(senders.lines(), 0, "nobody is kept");
         for tenant in [ONE, Tenant::Unset] {
-            tokio::time::timeout(Duration::from_secs(1), senders.turn(tenant, "ann"))
+            let _again = tokio::time::timeout(Duration::from_secs(1), senders.turn(tenant, "ann"))
                 .await
                 .expect("given back");
         }

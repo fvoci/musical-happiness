@@ -454,19 +454,33 @@ async fn the_updates_a_sender_sent_together_to_two_workers_end_one() {
 
 /// Waits until some user's update holds or waits for their turn.
 async fn in_line(e: &Editing) {
-    while e.app.collab().senders_in_line() == 0 {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    let waited = tokio::time::timeout(Duration::from_secs(60), async {
+        while e.app.collab().senders_in_line() == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    assert!(waited.is_ok(), "no update came to its turn");
 }
 
 /// While an update of one user is on its way to ending a worker, holding their turn,
 /// the updates of other users are taken by the other worker: of another user of the
-/// organization, and of a user of another organization. Once it ended, no turn is kept
-/// in either organization.
+/// organization, and of a user of another organization. Once it ended, killed, no turn
+/// is kept in either organization.
 #[cfg(unix)]
 #[tokio::test]
 async fn others_are_taken_while_an_update_of_a_sender_ends_a_worker() {
-    let th = two_workers().await;
+    // A time limit the others' updates are far within, however busy the machine: the
+    // worker is killed under the update once they are taken.
+    let th = Setup::native()
+        .configure(|config| {
+            config.collab.collab_workers = 2;
+            config.collab.collab_worker_timeout_ms = 120_000;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
     let ending = editing(&th, &paragraphs(&["x"])).await;
     let other = editing(&th, &paragraphs(&["y"])).await;
     let collab = ending.app.collab().clone();
@@ -484,7 +498,7 @@ async fn others_are_taken_while_an_update_of_a_sender_ends_a_worker() {
     let pids = collab.worker_pids().await;
     assert!(pids.iter().all(Option::is_some), "{pids:?}");
 
-    collab.stall_updates(&ending.app, &ending.card_id, 30_000);
+    collab.stall_updates(&ending.app, &ending.card_id, 100_000);
     let take = tokio::spawn({
         let (collab, app, card_id, user) = (
             collab.clone(),
@@ -524,6 +538,7 @@ async fn others_are_taken_while_an_update_of_a_sender_ends_a_worker() {
             .expect("a user of another organization writes meanwhile");
     }
     assert!(!take.is_finished(), "the worker had not ended yet");
+    kill(pids[0].expect("the first worker runs"));
     let ended = take.await.expect("ended").expect_err("it ended the worker");
     assert!(!held_back(&ended), "{ended:?}");
     assert_eq!(collab.senders_in_line(), 0, "no turn is kept");
@@ -585,6 +600,7 @@ async fn the_turn_of_a_sender_is_given_back_however_their_update_ends() {
     assert_eq!(collab.senders_in_line(), 0, "answered");
 
     // Lost: the worker ended between two requests, and the update is sent again.
+    let mut events = collab.subscribe();
     let pid = collab.worker_pids().await[0].expect("a worker runs");
     kill(pid);
     while collab.worker_pids().await[0] == Some(pid) {
@@ -598,6 +614,12 @@ async fn the_turn_of_a_sender_is_given_back_however_their_update_ends() {
     )
     .await
     .expect("taken by the worker started again");
+    let reopened = std::iter::from_fn(|| events.try_recv().ok())
+        .any(|event| event.card_id == first.card_id && event.change == DocChange::Reopened);
+    assert!(
+        reopened,
+        "the update found its worker gone and was sent again"
+    );
     assert_eq!(collab.senders_in_line(), 0, "sent again");
 
     // Killed under the update. Its identifier first: the worker answers nothing else

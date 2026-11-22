@@ -366,12 +366,14 @@ impl Collab {
         let blame = asked_for.blame();
         for _ in 0..2 {
             self.ensure_open(app, card_id, slot).await?;
-            // The sender's turn, with the slot held and its document open: the slot, the
-            // turn, then the worker's queue, and whoever holds a turn waits for no slot.
-            // In it, again after the waits for the document and for the turn, the sender
-            // is checked, the update sent and its death put down: of the updates a sender
+            // The sender's turn, with the slot held and its document open: a room's turn,
+            // the organization's gate, the slot, the sender's turn, then the worker's
+            // queue, and whoever holds a sender's turn waits for no room, gate or slot. In
+            // it, again after the waits for the document and for the turn, the sender is
+            // checked, the update sent and its death put down: of the updates a sender
             // sent together, to one worker or several, those after the first that ended
-            // a worker are not sent.
+            // a worker are not sent. A try that finds the worker gone gives the turn back
+            // and waits for it again.
             let _turn = match asked_for {
                 AskedFor::Sender(user_id) => {
                     let turn = self.inner.senders.turn(app.store().tenant(), user_id).await;
