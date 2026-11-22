@@ -221,10 +221,13 @@ async fn who_leaves_is_put_out_of_the_rooms_at_once() {
         .await;
     let org_id = org_of(&ts).await;
     let body = crate::rooms::paragraphs(&["first"]);
-    let (_table, mut one, mut two) = crate::rooms::two_in_a_room(&ts, &body).await;
-    let changed_at = tokio::time::Instant::now();
+    let (table, mut one, mut two) = crate::rooms::two_in_a_room(&ts, &body).await;
+    let collab = ts.app.collab();
+    assert_eq!(collab.room_members(&ts.app, &table.card_id).await, 2);
     leave(&ts.client2, &org_id).await.check_no_content();
-    let left = crate::rooms_changes::soon(&mut two, "DOC_LEFT", changed_at).await;
+    // Out of the room as soon as the leaving has answered; who stays is left.
+    assert_eq!(collab.room_members(&ts.app, &table.card_id).await, 1);
+    let left = two.text("DOC_LEFT").await;
     assert_eq!(
         left,
         json!({"action": "DOC_LEFT", "doc": two.doc, "reason": "not_found"})
