@@ -67,17 +67,17 @@ impl Collab {
             .expect("the pauses are not poisoned") = Some(delay);
     }
 
-    /// Pauses the next periodic check after its reads, before applying its answers:
-    /// the first is told when it gets there, and it goes on when the second is.
+    /// Pauses the next periodic check of any room after its reads, before applying its
+    /// answers: the first is told when it gets there, and it goes on when the second is.
     #[doc(hidden)]
     #[must_use]
     pub fn pause_next_recheck(&self) -> (Arc<Notify>, Arc<Notify>) {
         self.pause_next(Pause::AfterRecheck)
     }
 
-    /// Pauses the next periodic check that was not answered of somebody, before it
-    /// waits to ask once more: the first is told when it gets there, and it goes on
-    /// when the second is.
+    /// Pauses the next periodic check of any room that was not answered of somebody,
+    /// before it waits to ask once more: the first is told when it gets there, and it
+    /// goes on when the second is.
     #[doc(hidden)]
     #[must_use]
     pub fn pause_next_asking_once_more(&self) -> (Arc<Notify>, Arc<Notify>) {

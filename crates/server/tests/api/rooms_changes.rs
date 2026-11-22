@@ -33,9 +33,12 @@ async fn a_role_change_and_removal_reach_every_connection_immediately() {
     another_card.joined(TEST_WORKSPACE_ID, &card.id).await;
 
     give(&th, &table.board_id, &user, "viewer").await;
+    // Written as soon as the change has answered: every room it reaches had it by then.
+    for peer in [&mut member, &mut other_tab, &mut another_card] {
+        peer.write("refused").await;
+    }
     for peer in [&mut member, &mut other_tab, &mut another_card] {
         assert_eq!(peer.text("DOC_MODE").await["mode"], json!("read"));
-        peer.write("refused").await;
         assert_eq!(
             peer.text("DOC_NACK").await["reason"],
             json!("document_read_only")
@@ -49,13 +52,14 @@ async fn a_role_change_and_removal_reach_every_connection_immediately() {
         ))
         .await
         .check_no_content();
-    for peer in [&mut member, &mut other_tab, &mut another_card] {
-        assert_eq!(peer.text("DOC_LEFT").await["reason"], json!("not_found"));
-    }
+    // Out of the room as soon as the removal has answered.
     assert_eq!(
         th.app.collab().room_members(&th.app, &table.card_id).await,
         1
     );
+    for peer in [&mut member, &mut other_tab, &mut another_card] {
+        assert_eq!(peer.text("DOC_LEFT").await["reason"], json!("not_found"));
+    }
     th.teardown().await;
 }
 

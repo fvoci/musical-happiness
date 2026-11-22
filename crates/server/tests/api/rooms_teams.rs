@@ -103,8 +103,9 @@ async fn a_team_role_lowered_then_taken_off_the_board_reaches_the_room_at_once()
     member.write_acked("written through the team").await;
 
     assign(&th, &table, &team_id, "viewer").await;
-    assert_eq!(member.text("DOC_MODE").await["mode"], json!("read"));
+    // Written as soon as the change has answered: the room had it by then.
     member.write("refused").await;
+    assert_eq!(member.text("DOC_MODE").await["mode"], json!("read"));
     assert_eq!(
         member.text("DOC_NACK").await["reason"],
         json!("document_read_only")
