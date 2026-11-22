@@ -1,0 +1,218 @@
+//! The link mailed to the address an account had, with the notice that it was changed,
+//! that gives the account that address back: for its owner, should somebody who knew
+//! the password have moved it. Stored as a digest only, outside any organization. While
+//! it stands its address is the account's to have again, and nobody else takes it.
+
+use crate::db::{Dialect, Id, Scope};
+use crate::email_change::{self, EMAIL_CHANGE_LIFETIME_MILLIS};
+use crate::{Store, StoreError, password_reset, sessions, signups, users};
+
+/// A link that gives an address back stands this long from the change it was mailed
+/// for, in milliseconds: as long as a change of address waits to be confirmed.
+pub const EMAIL_REVERT_LIFETIME_MILLIS: i64 = EMAIL_CHANGE_LIFETIME_MILLIS;
+
+/// An account a link gave its address back to, for what follows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmailReverted {
+    /// The account.
+    pub user_id: String,
+    /// Its login name.
+    pub username: String,
+    /// The address it had before the link was used.
+    pub before: String,
+    /// The address the link gave back, or none where another account or a registration
+    /// had it by then and the account kept `before`.
+    pub restored: Option<String>,
+}
+
+impl Store {
+    /// Uses the link under `digest`, all of it or none: the address it was mailed to is
+    /// the account's again, unless another account or a registration that has not
+    /// ended at `now` has it, and in any case the account's sessions end, its password
+    /// is locked ([`users::lock_password`]), and what was asked or mailed under the
+    /// account as it was goes: the change of address that waited, the reset links, and
+    /// the links of this kind made after this one. Those made before it stand. Works
+    /// for an account that waits to be deleted, as a reset link does. Returns none for
+    /// a link that is unknown, used, ended or of an account whose erasing began.
+    ///
+    /// # Errors
+    ///
+    /// Returns the database error; nothing is changed then.
+    pub async fn revert_email_change(
+        &self,
+        digest: &str,
+        now: i64,
+    ) -> Result<Option<EmailReverted>, StoreError> {
+        // Whoever has the address of the server may ask this, with any text: one that
+        // is no link waits for nobody, where a link takes its turn with every
+        // registration (below).
+        let known = self
+            .with_conn(async |scope| Ok(find(scope, digest, now).await?.is_some()))
+            .await?;
+        if !known {
+            return Ok(None);
+        }
+        self.transaction(async |scope| {
+            // As a change of address is confirmed: the names, then the account.
+            signups::claim_account_names(scope).await?;
+            let Some(link) = find(scope, digest, now).await? else {
+                return Ok(None);
+            };
+            let Some((username, before)) = hold_account(scope, &link.user_id).await? else {
+                return Ok(None);
+            };
+            // Of two at once, one takes it.
+            let mut take = scope.sql("DELETE FROM email_reverts WHERE token_hash = ");
+            take.bind(digest).push_bind(" AND expires_at > ", now);
+            if scope.execute(take).await? == 0 {
+                return Ok(None);
+            }
+            let mut later = scope.sql("DELETE FROM email_reverts WHERE user_id = ");
+            later
+                .bind(Id(&link.user_id))
+                .push_bind(" AND create_at > ", link.create_at);
+            scope.execute(later).await?;
+            let restored =
+                if email_change::is_held(scope, &link.email, Some(&link.user_id), now).await? {
+                    None
+                } else {
+                    email_change::set_address(scope, &link.user_id, &link.email, now).await?;
+                    Some(link.email)
+                };
+            password_reset::end_links_of_user(scope, &link.user_id).await?;
+            users::lock_password(scope, &link.user_id, now).await?;
+            sessions::delete_sessions_of_user(scope, &link.user_id).await?;
+            Ok(Some(EmailReverted {
+                user_id: link.user_id,
+                username,
+                before,
+                restored,
+            }))
+        })
+        .await
+    }
+
+    /// Whether a link of this kind that stands at `now` holds the address, in any
+    /// letter case: a new account is not made with it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the database error.
+    pub async fn email_is_held_for_revert(
+        &self,
+        email: &str,
+        now: i64,
+    ) -> Result<bool, StoreError> {
+        self.with_conn(async |scope| holds(scope, email, None, now).await)
+            .await
+    }
+}
+
+/// A link that stands.
+struct Link {
+    user_id: String,
+    /// The address it gives back.
+    email: String,
+    create_at: i64,
+}
+
+async fn find(scope: &mut Scope<'_>, digest: &str, now: i64) -> Result<Option<Link>, StoreError> {
+    let mut sql =
+        scope.sql("SELECT user_id, email, create_at FROM email_reverts WHERE token_hash = ");
+    sql.bind(digest).push_bind(" AND expires_at > ", now);
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| {
+            Ok(Link {
+                user_id: row.id(0)?,
+                email: row.text(1)?,
+                create_at: row.int(2)?,
+            })
+        })
+        .transpose()
+}
+
+/// Holds the row of an account somebody can sign in to (in use, or waiting to be
+/// deleted) until the transaction ends, and returns its name and address.
+async fn hold_account(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<Option<(String, String)>, StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT username, email FROM users WHERE (delete_at = 0 OR ({})) AND id = ",
+        users::WAITS
+    ));
+    sql.bind(Id(user_id));
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR UPDATE");
+    }
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| Ok((row.text(0)?, row.text(1)?)))
+        .transpose()
+}
+
+/// Stores the link under `digest` that gives the account `user_id`, whose row the
+/// transaction holds, the address `email` back. It is made at `now`, or else just
+/// after the latest link of the account: which of two links came later is never in
+/// doubt, also of two made at the same moment.
+pub(crate) async fn insert(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    email: &str,
+    digest: &str,
+    now: i64,
+) -> Result<(), StoreError> {
+    let mut latest = scope.sql("SELECT MAX(create_at) FROM email_reverts WHERE user_id = ");
+    latest.bind(Id(user_id));
+    let latest = match scope.fetch_optional(latest).await? {
+        Some(row) => row.opt_int(0)?,
+        None => None,
+    };
+    let made = latest.map_or(now, |latest| now.max(latest.saturating_add(1)));
+    let mut sql = scope.sql(
+        "INSERT INTO email_reverts (token_hash, user_id, email, create_at, expires_at) VALUES (",
+    );
+    sql.bind(digest)
+        .push_bind(", ", Id(user_id))
+        .push_bind(", ", email)
+        .push_bind(", ", made)
+        .push_bind(", ", now.saturating_add(EMAIL_REVERT_LIFETIME_MILLIS))
+        .push(")");
+    scope.execute(sql).await?;
+    Ok(())
+}
+
+/// Whether a link of an account other than `but` that stands at `now` holds the
+/// address, in any letter case.
+pub(crate) async fn holds(
+    scope: &mut Scope<'_>,
+    email: &str,
+    but: Option<&str>,
+    now: i64,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT 1 FROM email_reverts WHERE lower(email) = lower(");
+    sql.bind(email).push_bind(") AND expires_at > ", now);
+    if let Some(but) = but {
+        sql.push_bind(" AND user_id <> ", Id(but));
+    }
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
+/// Ends the links of the account: its erasing began.
+pub(crate) async fn end_of_user(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
+    let mut sql = scope.sql("DELETE FROM email_reverts WHERE user_id = ");
+    sql.bind(Id(user_id));
+    scope.execute(sql).await?;
+    Ok(())
+}
+
+/// Removes the links that ended by `now`.
+pub(crate) async fn delete_expired(scope: &mut Scope<'_>, now: i64) -> Result<(), StoreError> {
+    let mut sql = scope.sql("DELETE FROM email_reverts WHERE expires_at <= ");
+    sql.bind(now);
+    scope.execute(sql).await?;
+    Ok(())
+}

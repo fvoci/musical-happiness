@@ -1,0 +1,482 @@
+//! The link mailed to the address an account had, with the notice that it changed: it
+//! gives that address back, once, to whoever holds it, and ends every session of the
+//! account, locks its password until a reset sets a new one, and keeps the address
+//! from anybody else while it stands.
+
+use std::time::{Duration, Instant};
+
+use reqwest::StatusCode;
+use serde_json::{Value, json};
+
+use crate::common::{
+    ApiResponse, Client, PASSWORD, Setup, TestServer, USER1_USERNAME, USER2_USERNAME,
+};
+use crate::email_verification_more::switched_on;
+use crate::fake_oidc::{FakeProvider, Person};
+use crate::fake_smtp::{FakeSmtp, Received};
+use crate::oidc::{Browser, org_of, set_provider, with_key_and_private_addresses};
+use crate::websocket::{Event, PATIENCE, Socket};
+
+const ASK: &str = "/users/me/email-change";
+const REVERT: &str = "/email-change/revert";
+const OLD: &str = "user1@sample.com";
+const NEW: &str = "moved@example.test";
+
+async fn mailing(smtp: &FakeSmtp) -> TestServer {
+    Setup::native()
+        .smtp(smtp.settings())
+        .start()
+        .await
+        .init_basic()
+        .await
+}
+
+/// The messages to `recipient` so far, once the server has nothing more to send.
+async fn mailed_to(th: &TestServer, smtp: &FakeSmtp, recipient: &str) -> Vec<Received> {
+    assert!(
+        th.app.finish_background(Duration::from_secs(10)).await,
+        "the server's background work ends"
+    );
+    smtp.messages()
+        .await
+        .into_iter()
+        .filter(|message| message.recipient == recipient)
+        .collect()
+}
+
+/// The token of the last link to `page` mailed to `recipient`.
+async fn last_link(th: &TestServer, smtp: &FakeSmtp, recipient: &str, page: &str) -> String {
+    let mailed = mailed_to(th, smtp, recipient).await;
+    let link = mailed
+        .iter()
+        .rev()
+        .find_map(|message| {
+            message
+                .decoded
+                .lines()
+                .find(|line| line.starts_with("http") && line.contains(page))
+        })
+        .unwrap_or_else(|| panic!("a link to {page} mailed to {recipient}: {mailed:?}"));
+    link.split_once('#')
+        .expect("a fragment")
+        .1
+        .trim()
+        .to_owned()
+}
+
+/// Moves the client's account to `email` by the link mailed there, and returns the
+/// token of the link mailed to the address before, which gives it back.
+async fn moved(th: &TestServer, smtp: &FakeSmtp, client: &Client, email: &str) -> String {
+    moved_with(th, smtp, client, email, PASSWORD).await
+}
+
+async fn moved_with(
+    th: &TestServer,
+    smtp: &FakeSmtp,
+    client: &Client,
+    email: &str,
+    password: &str,
+) -> String {
+    let before = confirmed(th, smtp, client, email, password).await;
+    last_link(th, smtp, &before, "/revert-email#").await
+}
+
+/// Moves the client's account to `email` by the link mailed there, and returns the
+/// address it had before.
+async fn confirmed(
+    th: &TestServer,
+    smtp: &FakeSmtp,
+    client: &Client,
+    email: &str,
+    password: &str,
+) -> String {
+    let before: Value = client.get("/users/me").await.ok_json();
+    let before = before["email"].as_str().expect("an address").to_owned();
+    client
+        .post(ASK, &json!({"email": email, "password": password}))
+        .await
+        .check_no_content();
+    let link = last_link(th, smtp, email, "/confirm-email#").await;
+    th.anonymous()
+        .post("/email-change/confirm", &json!({"token": link}))
+        .await
+        .check_no_content();
+    before
+}
+
+async fn revert(th: &TestServer, token: &str) -> ApiResponse {
+    th.anonymous().post(REVERT, &json!({"token": token})).await
+}
+
+/// The address a link gave back.
+#[track_caller]
+fn restored(response: &ApiResponse) -> String {
+    response.check_ok();
+    response.value()["email"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the address given back: {}", response.text()))
+        .to_owned()
+}
+
+/// The link is invalid: 400 naming the token, whatever became of it.
+#[track_caller]
+fn check_invalid(response: &ApiResponse) {
+    response.check_status(StatusCode::BAD_REQUEST);
+    assert_eq!(response.refused_at(), "/token", "{}", response.text());
+}
+
+/// Whether the server closes the connection, after what was on its way to it.
+async fn closed(socket: &mut Socket) -> bool {
+    loop {
+        match socket.next(PATIENCE).await {
+            Event::Closed => return true,
+            Event::Nothing => return false,
+            Event::Json(_) | Event::Ping => {}
+        }
+    }
+}
+
+/// The notice to the address before carries the link, which tells nothing of the new
+/// address. Used, by a browser that is not signed in, it gives that address back and
+/// ends every session and connection of the account and the reset links; the password
+/// signs in no more, as a wrong one does, until a reset sets a new one. It is used once,
+/// and a link that is used, unknown or nothing is the same 400. The address it was used
+/// at is told, without the one it is now.
+#[tokio::test]
+async fn the_link_gives_the_address_back_and_ends_every_session() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = mailing(&smtp).await;
+    let elsewhere = th.login(USER1_USERNAME, PASSWORD).await;
+    let mut socket = Socket::connect_as(&th.client).await;
+    let back = moved(&th, &smtp, &th.client, NEW).await;
+    let notice = mailed_to(&th, &smtp, OLD).await;
+    let notice = &notice.last().expect("the notice").decoded;
+    assert!(notice.contains(USER1_USERNAME), "{notice}");
+    assert!(!notice.contains("moved"), "the new address: {notice}");
+    th.anonymous()
+        .post("/password-reset/request", &json!({"email": NEW}))
+        .await
+        .check_no_content();
+    let reset = last_link(&th, &smtp, NEW, "/reset-password#").await;
+
+    let unknown = revert(&th, "no such link").await;
+    check_invalid(&unknown);
+    check_invalid(&revert(&th, "").await);
+    assert_eq!(restored(&revert(&th, &back).await), OLD);
+    let again = revert(&th, &back).await;
+    check_invalid(&again);
+    assert_eq!(
+        again.problem(),
+        unknown.problem(),
+        "which it was is not said"
+    );
+
+    for client in [&th.client, &elsewhere] {
+        client.get("/users/me").await.check_unauthorized();
+    }
+    assert!(closed(&mut socket).await, "the connection is closed");
+    th.anonymous()
+        .post(
+            "/password-reset/complete",
+            &json!({"token": reset, "password": "Another-password-1"}),
+        )
+        .await
+        .check_status(StatusCode::BAD_REQUEST);
+    let locked = th.anonymous().login(USER1_USERNAME, PASSWORD).await;
+    let wrong = th
+        .anonymous()
+        .login(USER1_USERNAME, "not the password")
+        .await;
+    locked.check_unauthorized();
+    assert_eq!(
+        locked.problem(),
+        wrong.problem(),
+        "refused as a wrong password is"
+    );
+    th.anonymous()
+        .post("/login", &json!({"email": OLD, "password": PASSWORD}))
+        .await
+        .check_unauthorized();
+
+    let told = mailed_to(&th, &smtp, NEW).await;
+    let told = &told
+        .last()
+        .expect("the notice of the address given back")
+        .decoded;
+    assert!(told.contains(USER1_USERNAME), "{told}");
+    for unsaid in ["sample.com", "user1@", "http"] {
+        assert!(!told.contains(unsaid), "{unsaid} in the notice: {told}");
+    }
+
+    // A reset to the address given back sets a password that signs in.
+    th.anonymous()
+        .post("/password-reset/request", &json!({"email": OLD}))
+        .await
+        .check_no_content();
+    let reset = last_link(&th, &smtp, OLD, "/reset-password#").await;
+    th.anonymous()
+        .post(
+            "/password-reset/complete",
+            &json!({"token": reset, "password": "Recovered-password-1"}),
+        )
+        .await
+        .check_no_content();
+    let back_in = th.login(USER1_USERNAME, "Recovered-password-1").await;
+    let me: Value = back_in.get("/users/me").await.ok_json();
+    assert_eq!(me["email"], OLD, "{me}");
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+/// The links of A to B and of B to C: whoever used the later one, to have B again, did
+/// not end the earlier one, which gives A back after it. Used first, the earlier one
+/// ends the later. Nothing the account does in between ends either: a new password, a
+/// change asked for and taken back, another one that waits.
+#[tokio::test]
+async fn a_later_link_does_not_end_an_earlier_one() {
+    let smtp = FakeSmtp::start_on(0).await;
+    // Four notices to one account in an hour, and six askings.
+    let mut settings = smtp.settings();
+    settings.mail_reset_per_account_hour = 6;
+    let th = Setup::native()
+        .smtp(settings)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let to_a = moved(&th, &smtp, &th.client, "b@example.test").await;
+    let to_b = moved(&th, &smtp, &th.client, "c@example.test").await;
+    let changed = th
+        .client
+        .post(
+            "/users/me/password",
+            &json!({"oldPassword": PASSWORD, "newPassword": "Changed-password-1"}),
+        )
+        .await;
+    changed.check_no_content();
+    let client = th.client_with_token(&changed.session_cookie().expect("the new cookie"));
+    for email in ["d@example.test", "e@example.test"] {
+        client
+            .post(
+                ASK,
+                &json!({"email": email, "password": "Changed-password-1"}),
+            )
+            .await
+            .check_no_content();
+    }
+    client.delete(ASK).await.check_no_content();
+    client
+        .post(
+            ASK,
+            &json!({"email": "f@example.test", "password": "Changed-password-1"}),
+        )
+        .await
+        .check_no_content();
+
+    assert_eq!(restored(&revert(&th, &to_b).await), "b@example.test");
+    assert_eq!(restored(&revert(&th, &to_a).await), OLD);
+    // Each told at the address it was used at, by a notice that leads nowhere.
+    for recipient in ["c@example.test", "b@example.test"] {
+        let mailed = mailed_to(&th, &smtp, recipient).await;
+        let last = &mailed.last().expect("mailed").decoded;
+        assert!(!last.contains("http"), "{recipient}: {last}");
+    }
+
+    // The other way round, by another account.
+    let to_a = moved(&th, &smtp, &th.client2, "b2@example.test").await;
+    let to_b = moved(&th, &smtp, &th.client2, "c2@example.test").await;
+    assert_eq!(restored(&revert(&th, &to_a).await), "user2@sample.com");
+    check_invalid(&revert(&th, &to_b).await);
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+/// While its link stands, the address the account had is nobody else's: another
+/// account's change to it is answered as any and mails nothing, and a registration or a
+/// link for members is refused as for an address an account has.
+#[tokio::test]
+async fn while_a_link_stands_nobody_else_takes_the_address() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = mailing(&smtp).await;
+    moved(&th, &smtp, &th.client, NEW).await;
+    let mailed_before = mailed_to(&th, &smtp, OLD).await.len();
+
+    th.client2
+        .post(
+            ASK,
+            &json!({"email": "User1@Sample.com", "password": PASSWORD}),
+        )
+        .await
+        .check_no_content();
+    let me: Value = th.client2.get("/users/me").await.ok_json();
+    assert_eq!(me["pendingEmail"], "User1@Sample.com", "it waits: {me}");
+    assert_eq!(
+        mailed_to(&th, &smtp, OLD).await.len()
+            + mailed_to(&th, &smtp, "User1@Sample.com").await.len(),
+        mailed_before,
+        "nothing is mailed to it"
+    );
+
+    let link = th.member_link().await;
+    let accept = async |email: &str| {
+        th.anonymous()
+            .post(
+                "/invitations/accept",
+                &json!({"token": link, "account": {
+                    "username": "newcomer", "email": email, "password": PASSWORD,
+                }}),
+            )
+            .await
+    };
+    let held = accept(OLD).await;
+    let taken = accept("user2@sample.com").await;
+    held.check_status(StatusCode::CONFLICT);
+    assert_eq!(held.error_reason(), "email_taken");
+    assert_eq!(held.problem(), taken.problem(), "as an account's");
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+/// An account made through a provider sets a password, moves its address under it, and
+/// has it given back: the provider still signs it in, and to that session the password
+/// confirms nothing and changes nothing, as a wrong one would not.
+#[tokio::test]
+async fn a_locked_password_is_refused_as_a_wrong_one_and_the_provider_still_signs_in() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let fake = FakeProvider::start().await;
+    let th = Setup::native()
+        .trusting_oidc_provider(&fake.certificate_der)
+        .configure(with_key_and_private_addresses)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let org_id = org_of(&th).await;
+    set_provider(&th, &org_id, &fake).await;
+    let th = switched_on(th, &smtp).await;
+    let browser = Browser::new(&th, &fake);
+    let mut person = Person::new("subject-ada", "ada@example.com");
+    person.preferred_username = Some("ada".to_owned());
+    fake.sign_in_as(person);
+    let client = th.client_with_token(browser.sign_in(&org_id).await.token());
+    let set = client
+        .put("/users/me/password", &json!({"password": "Ada-password-1"}))
+        .await;
+    set.check_no_content();
+    let client = th.client_with_token(&set.session_cookie().expect("the new cookie"));
+    // The provider's address is the identity's: the account has its own from here,
+    // and a link back to it from the next.
+    let first = confirmed(&th, &smtp, &client, "ada@example.org", "Ada-password-1").await;
+    assert_eq!(first, "", "no address of its own");
+    let back = moved_with(&th, &smtp, &client, "ada@example.net", "Ada-password-1").await;
+    assert_eq!(restored(&revert(&th, &back).await), "ada@example.org");
+    client.get("/users/me").await.check_unauthorized();
+
+    th.anonymous()
+        .login("ada", "Ada-password-1")
+        .await
+        .check_unauthorized();
+    let client = th.client_with_token(browser.sign_in(&org_id).await.token());
+    let identities: Value = client.get("/users/me/identities").await.ok_json();
+    assert_eq!(identities.as_array().map(Vec::len), Some(1), "{identities}");
+    // A wrong password of another account, whose failed attempts are counted apart.
+    let same = async |path: &str, body: &dyn Fn(&str) -> Value| {
+        let locked = client.post(path, &body("Ada-password-1")).await;
+        let wrong = th.client.post(path, &body("not the password")).await;
+        assert_eq!(locked.problem(), wrong.problem(), "{path}");
+        assert_ne!(locked.status, StatusCode::NO_CONTENT, "{path}");
+    };
+    same(
+        "/users/me/password/confirm",
+        &|password| json!({"password": password}),
+    )
+    .await;
+    same(
+        "/users/me/password",
+        &|password| json!({"oldPassword": password, "newPassword": "Taken-over-1"}),
+    )
+    .await;
+    same(
+        ASK,
+        &|password| json!({"email": "elsewhere@example.org", "password": password}),
+    )
+    .await;
+    th.teardown().await;
+    smtp.stop().await;
+    fake.stop();
+}
+
+/// A link left out because its address is held takes the turn of the pace that one
+/// mailed would: the next message to anybody waits for it as it would after one that
+/// left, so how soon it comes tells nothing of the address. Held by an account, and by
+/// a link that gives it back.
+#[tokio::test]
+async fn a_link_left_out_takes_its_turn_of_the_pace() {
+    // One message a second: the second waits a second for its turn.
+    const INTERVAL: Duration = Duration::from_secs(1);
+    for held_by_a_link in [false, true] {
+        let smtp = FakeSmtp::start_on(0).await;
+        let mut settings = smtp.settings();
+        settings.mail_per_second = 1;
+        let th = Setup::native()
+            .smtp(settings)
+            .start()
+            .await
+            .init_basic()
+            .await;
+        let held = if held_by_a_link {
+            // Moved past the mailer, which would take turns of the pace.
+            let store = th.app.store();
+            let user2 = store
+                .get_user_by_username(USER2_USERNAME)
+                .await
+                .expect("the account");
+            let now = fvoci_server::auth::now_millis();
+            assert!(
+                store
+                    .ask_email_change(&user2.id, &user2.password_hash, "two@example.test", now)
+                    .await
+                    .expect("asked")
+            );
+            assert!(
+                store
+                    .renew_email_change_link(&user2.id, "two@example.test", "link", now)
+                    .await
+                    .expect("a link")
+            );
+            store
+                .confirm_email_change("link", "back", now)
+                .await
+                .expect("confirmed")
+                .expect("moved");
+            "User2@Sample.com"
+        } else {
+            "user2@sample.com"
+        };
+        tokio::time::sleep(INTERVAL).await;
+        th.client
+            .post(ASK, &json!({"email": held, "password": PASSWORD}))
+            .await
+            .check_no_content();
+        assert!(th.app.finish_background(Duration::from_secs(10)).await);
+        let asked = Instant::now();
+        th.client
+            .post(ASK, &json!({"email": NEW, "password": PASSWORD}))
+            .await
+            .check_no_content();
+        assert_eq!(mailed_to(&th, &smtp, NEW).await.len(), 1);
+        let waited = asked.elapsed();
+        assert!(
+            waited >= INTERVAL.mul_f32(0.8),
+            "held by a link: {held_by_a_link}; the link came after {waited:?}"
+        );
+        assert!(
+            smtp.messages()
+                .await
+                .iter()
+                .all(|message| { !message.recipient.eq_ignore_ascii_case("user2@sample.com") })
+        );
+        th.teardown().await;
+        smtp.stop().await;
+    }
+}

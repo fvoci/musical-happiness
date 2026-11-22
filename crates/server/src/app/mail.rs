@@ -392,6 +392,18 @@ pub(super) struct Queued {
     org: Option<share::OrgPlace>,
 }
 
+impl Queued {
+    /// Takes the turn of the pace the message would have taken to leave, and sends
+    /// nothing: for a message that is left out where the mail that others are sent
+    /// afterwards must not tell it from one that is sent. While the way is closed no
+    /// message leaves to be timed, and the turn is left to one that may.
+    pub(super) async fn pass(self, mailer: &Mailer) {
+        if !mailer.pace.is_closed() {
+            mailer.pace.turn(self.kind).await;
+        }
+    }
+}
+
 /// A message the caller made, to one recipient; the sender is the mailer's.
 pub(super) struct Letter {
     pub(super) to: String,

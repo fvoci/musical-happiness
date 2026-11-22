@@ -171,7 +171,8 @@ impl Store {
                     .push_bind(", delete_after = ", delete_after)
                     .push_bind(", update_at = ", now)
                     .push_bind(" WHERE delete_at = 0 AND id = ", Id(user_id))
-                    .push_bind(" AND password_hash = ", seen_password_hash);
+                    .push_bind(" AND password_hash = ", seen_password_hash)
+                    .push_bind(" AND password_locked_at = ", 0_i64);
                 if scope.execute(sql).await? == 0 {
                     return Ok(DeletionAsking::Changed);
                 }

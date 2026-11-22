@@ -4,7 +4,7 @@
 
 use crate::db::{Dialect, Id, Scope};
 use crate::signups::{self, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS};
-use crate::{Store, StoreError, Taken, password_reset};
+use crate::{Store, StoreError, Taken, email_revert, password_reset};
 
 /// A change that is not confirmed ends this long after it was asked for, in
 /// milliseconds: as a registration that is not confirmed does.
@@ -102,9 +102,10 @@ impl Store {
             .await
     }
 
-    /// Whether an account, deleted or not, or a registration that has not ended at
-    /// `now` has the address, in any letter case: a change to it would not be
-    /// confirmed, so no link is mailed for it.
+    /// Whether an account, deleted or not, a registration that has not ended at `now`
+    /// or a link that gives an account its address back ([`email_revert`]) has the
+    /// address, in any letter case: a change to it would not be confirmed, so no link
+    /// is mailed for it.
     ///
     /// # Errors
     ///
@@ -173,12 +174,15 @@ impl Store {
 
     /// Consumes the link under `digest` and makes the address it was mailed to the
     /// account's, all of it or none: the account is in use, and no other account,
-    /// deleted or not, and no registration that has not ended has the address. What
-    /// was mailed to the address before goes with it: the reset credentials of the
-    /// account. Returns the account as it was, or none where nothing is changed: a
-    /// link that is unknown, used, replaced or ended, an account that is not in use,
-    /// an address that was taken meanwhile. That last link is not consumed: the change
-    /// waits on, and the link makes it once nobody has the address.
+    /// deleted or not, no registration that has not ended and no link that gives
+    /// another account its address back has the address. What was mailed to the
+    /// address before goes with it: the reset credentials of the account. The address
+    /// before, if the account had one, may be had again by the link stored under
+    /// `revert` ([`Store::revert_email_change`]), which holds it meanwhile. Returns the
+    /// account as it was, or none where nothing is changed: a link that is unknown,
+    /// used, replaced or ended, an account that is not in use, an address that was
+    /// taken meanwhile. That last link is not consumed: the change waits on, and the
+    /// link makes it once nobody has the address.
     ///
     /// # Errors
     ///
@@ -186,6 +190,7 @@ impl Store {
     pub async fn confirm_email_change(
         &self,
         digest: &str,
+        revert: &str,
         now: i64,
     ) -> Result<Option<EmailChanged>, StoreError> {
         // Whoever has the address of the server may ask this, with any text: one that
@@ -219,6 +224,9 @@ impl Store {
                 return Ok(None);
             }
             set_email(scope, &user_id, &new_email, now).await?;
+            if !account.email.is_empty() {
+                email_revert::insert(scope, &user_id, &account.email, revert, now).await?;
+            }
             Ok(Some(EmailChanged {
                 user_id,
                 username: account.username,
@@ -292,7 +300,8 @@ struct Held {
 
 /// Holds the row of the account in use against other changes until the transaction
 /// ends, and returns what it has: none for an account that is not in use, or, where
-/// `password_hash` names one, whose password is another by now.
+/// `password_hash` names the one a password was checked against, whose password is
+/// another by now or locked.
 async fn hold_account(
     scope: &mut Scope<'_>,
     user_id: &str,
@@ -301,7 +310,8 @@ async fn hold_account(
     let mut sql = scope.sql("SELECT username, email FROM users WHERE delete_at = 0 AND id = ");
     sql.bind(Id(user_id));
     if let Some(password_hash) = password_hash {
-        sql.push_bind(" AND password_hash = ", password_hash);
+        sql.push_bind(" AND password_hash = ", password_hash)
+            .push_bind(" AND password_locked_at = ", 0_i64);
     }
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");
@@ -318,9 +328,10 @@ async fn hold_account(
         .transpose()
 }
 
-/// Whether an account other than `but`, deleted or not, or a registration that has not
-/// ended at `now` has the address, in any letter case.
-async fn is_held(
+/// Whether an account other than `but`, deleted or not, a registration that has not
+/// ended at `now`, or a link that stands then and gives an account other than `but`
+/// its address back has the address, in any letter case.
+pub(crate) async fn is_held(
     scope: &mut Scope<'_>,
     email: &str,
     but: Option<&str>,
@@ -336,12 +347,27 @@ async fn is_held(
     }
     let mut signup = scope.sql("SELECT 1 FROM signups WHERE lower(email) = lower(");
     signup.bind(email).push_bind(") AND expires_at > ", now);
-    Ok(scope.fetch_optional(signup).await?.is_some())
+    if scope.fetch_optional(signup).await?.is_some() {
+        return Ok(true);
+    }
+    email_revert::holds(scope, email, but, now).await
 }
 
 /// Makes `new_email` the address of the account, and ends what was mailed for the one
 /// before and what waited: its reset credentials and its change.
 async fn set_email(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    new_email: &str,
+    now: i64,
+) -> Result<(), StoreError> {
+    set_address(scope, user_id, new_email, now).await?;
+    password_reset::end_links_of_user(scope, user_id).await
+}
+
+/// Makes `new_email` the address of the account, which nobody else has: the caller
+/// asked under the claim on the names.
+pub(crate) async fn set_address(
     scope: &mut Scope<'_>,
     user_id: &str,
     new_email: &str,
@@ -357,7 +383,7 @@ async fn set_email(
         StoreError::Database(error) => crate::users::unique_violation(error),
         other => other,
     })?;
-    password_reset::end_links_of_user(scope, user_id).await
+    Ok(())
 }
 
 /// Removes the change the account waits for; says whether there was one.

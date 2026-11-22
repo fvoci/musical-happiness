@@ -28,6 +28,7 @@ mod common;
 mod confirmed_password;
 mod container_rename;
 mod email_change;
+mod email_revert;
 mod file_info;
 mod image_files;
 mod instance_role_scope;

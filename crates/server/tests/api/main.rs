@@ -47,6 +47,7 @@ mod deleted_boards_listed;
 mod deleted_cards;
 mod document_visibility;
 mod email_change;
+mod email_revert;
 mod email_verification;
 mod email_verification_again;
 mod email_verification_invited;

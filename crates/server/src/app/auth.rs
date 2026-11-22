@@ -99,7 +99,8 @@ impl App {
             return Err(incorrect_login());
         };
         let verdict = self.verify(&user.password_hash, password).await?;
-        if verdict == Verdict::Mismatch {
+        // A locked password is refused as a wrong one is, after the same work.
+        if verdict == Verdict::Mismatch || user.password_is_locked() {
             tracing::debug!(user_id = %user.id, "invalid password for user");
             attempt.failed(Instant::now());
             return Err(incorrect_login());
@@ -138,7 +139,9 @@ impl App {
                         AppError::from(error).context("reading the user after login")
                     }
                 })?;
-            if self.verify(&current.password_hash, password).await? != Verdict::Mismatch {
+            if self.verify(&current.password_hash, password).await? != Verdict::Mismatch
+                && !current.password_is_locked()
+            {
                 seen_hash = current.password_hash;
                 stored = self.create_session(&session, &token, &seen_hash).await?;
             }
@@ -487,11 +490,19 @@ impl App {
         {
             return Err(username_taken());
         }
+        // Asked whatever the two found, so that an address an account had and may have
+        // back ([`fvoci_store::Store::email_is_held_for_revert`]) is refused as one
+        // that an account has, after the same work.
+        let kept = self
+            .store()
+            .email_is_held_for_revert(&account.email, now_millis())
+            .await?;
         if self
             .find_user_for_login(Lookup::Email(&account.email))
             .await?
             .is_some()
             || held_by_another(self.find_signup("", &account.email).await?)
+            || kept
         {
             return Err(email_taken());
         }
@@ -740,6 +751,7 @@ impl App {
         let holder = PasswordHolder {
             username: &user.username,
             password_hash: &user.password_hash,
+            locked: user.password_is_locked(),
         };
         if !self.is_password_of(holder, password, attempt).await? {
             tracing::debug!(user_id = %user.id, "invalid password for user");
@@ -752,6 +764,7 @@ impl App {
 
     /// Whether `password` is the one of `holder`, which ends `attempt`, admitted at its
     /// name: a wrong one is a failure at the name, a right one ends the failures there.
+    /// A locked password is a wrong one, found so after the same work.
     pub(super) async fn is_password_of(
         &self,
         holder: PasswordHolder<'_>,
@@ -759,7 +772,8 @@ impl App {
         attempt: crate::auth::limiter::Attempt,
     ) -> Result<bool, AppError> {
         let right = password.len() <= MAXIMUM_PASSWORD_BYTES
-            && self.verify(holder.password_hash, password).await? != Verdict::Mismatch;
+            && self.verify(holder.password_hash, password).await? != Verdict::Mismatch
+            && !holder.locked;
         if right {
             attempt.succeeded(holder.username);
         } else {
@@ -776,6 +790,8 @@ pub(super) struct PasswordHolder<'a> {
     pub(super) username: &'a str,
     /// An Argon2id PHC string.
     pub(super) password_hash: &'a str,
+    /// Whether the password is taken nowhere ([`User::password_locked_at`]).
+    pub(super) locked: bool,
 }
 
 /// What a login looks a user up by.

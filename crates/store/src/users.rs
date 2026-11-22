@@ -20,8 +20,8 @@ use crate::{directory, members, users_by_id};
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
 pub(crate) const USER_COLUMNS: &str = concat!(
-    "id, username, email, password_hash, create_at, update_at, delete_at, is_admin, \
-     display_name, ",
+    "id, username, email, password_hash, password_locked_at, create_at, update_at, delete_at, \
+     is_admin, display_name, ",
     person_names::name_columns!()
 );
 
@@ -336,9 +336,9 @@ impl Store {
     /// it could do has changed, so its old token is no longer accepted.
     ///
     /// The hash is replaced only while it is still `seen_password_hash`, the hash the
-    /// old password was checked against. Returns whether it was: `false` if the password
-    /// was set anew in the meantime, by a reset or by another change, and nothing is
-    /// changed then.
+    /// old password was checked against, and is not locked ([`lock_password`]). Returns
+    /// whether it was: `false` if the password was set anew or locked in the meantime,
+    /// and nothing is changed then.
     ///
     /// All of it happens or none.
     ///
@@ -365,7 +365,8 @@ impl Store {
             sql.push_bind("password_hash = ", password_hash)
                 .push_bind(", update_at = ", now_millis())
                 .push_bind(" WHERE delete_at = 0 AND id = ", Id(user_id))
-                .push_bind(" AND password_hash = ", seen_password_hash);
+                .push_bind(" AND password_hash = ", seen_password_hash)
+                .push_bind(" AND password_locked_at = ", 0_i64);
             if scope.execute(sql).await? == 0 {
                 return Ok(false);
             }
@@ -560,12 +561,13 @@ fn user_from_row(row: &Row) -> Result<User, StoreError> {
         username: row.text(1)?,
         email: row.text(2)?,
         password_hash: row.text(3)?,
-        create_at: row.int(4)?,
-        update_at: row.int(5)?,
-        delete_at: row.int(6)?,
-        is_admin: row.bool(7)?,
-        display_name: row.text(8)?,
-        name: person_names::name_from_row(row, 9)?,
+        password_locked_at: row.int(4)?,
+        create_at: row.int(5)?,
+        update_at: row.int(6)?,
+        delete_at: row.int(7)?,
+        is_admin: row.bool(8)?,
+        display_name: row.text(9)?,
+        name: person_names::name_from_row(row, 10)?,
         ..User::default()
     })
 }
@@ -678,6 +680,7 @@ pub(crate) async fn insert_user_row(scope: &mut Scope<'_>, user: &User) -> Resul
         .push_bind(", ", &user.username)
         .push_bind(", ", &user.email)
         .push_bind(", ", &user.password_hash)
+        .push_bind(", ", user.password_locked_at)
         .push_bind(", ", user.create_at)
         .push_bind(", ", user.update_at)
         .push_bind(", ", user.delete_at)
@@ -715,7 +718,8 @@ pub(crate) fn unique_violation(error: sqlx::Error) -> StoreError {
     }
 }
 
-/// Sets the password hash of the user that `lookup` selects, deleted or not.
+/// Sets the password hash of the user that `lookup` selects, deleted or not, and ends
+/// a lock on the password: the operator set it.
 async fn update_password(
     scope: &mut Scope<'_>,
     lookup: Lookup<'_>,
@@ -723,6 +727,7 @@ async fn update_password(
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("UPDATE users SET ");
     sql.push_bind("password_hash = ", password_hash)
+        .push_bind(", password_locked_at = ", 0_i64)
         .push_bind(", update_at = ", now_millis())
         .push(" WHERE ");
     lookup.push_condition(&mut sql);
@@ -738,6 +743,23 @@ async fn stored_settings(scope: &mut Scope<'_>, user_id: &str) -> Result<UserSet
     Ok(UserSettings::from_stored(stored.iter().map(|preference| {
         (preference.name.as_str(), preference.value.as_str())
     })))
+}
+
+/// Locks the password of the account at `now`, if it has one: it is taken nowhere, as
+/// the proof of a login or of anything a session asks, until a new one is set through a
+/// reset link or by the operator. The hash stays, so the account still has a password:
+/// a session made through a provider opens no more of it than it did.
+pub(crate) async fn lock_password(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    now: i64,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("UPDATE users SET password_locked_at = ");
+    sql.bind(now)
+        .push_bind(", update_at = ", now)
+        .push_bind(" WHERE password_hash <> '' AND id = ", Id(user_id));
+    scope.execute(sql).await?;
+    Ok(())
 }
 
 /// Holds a user's row against other changes of what is the user's until the

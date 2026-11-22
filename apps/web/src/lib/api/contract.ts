@@ -227,7 +227,8 @@ export interface paths {
          *     asked for. From then on reset links go to the new address and `login` finds the
          *     account by it; the reset links mailed to the address before end, and that address
          *     is mailed a notice that it is the account's no more, which names the account and
-         *     nothing of the new address. The account's sessions go on.
+         *     nothing of the new address, with a link that gives the account that address back
+         *     (`revertEmailChange`). The account's sessions go on.
          *
          *     A link is used once. A token that is missing, used, ended, replaced by a newer
          *     mail or request, or taken back (`cancelEmailChange`), one of an account that is no
@@ -237,6 +238,55 @@ export interface paths {
          *     from, as registrations are, and too many are 429.
          */
         post: operations["confirmEmailChange"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/email-change/revert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Give an account the email address it had back
+         * @description Consumes the token of the link mailed, with the notice of `confirmEmailChange`, to
+         *     the address the account had until then (`<server_url>/revert-email#<token>`, for
+         *     seven days from the change, used once): for the owner of an account whose address
+         *     was moved by somebody who knew the password. No session is needed and none is made.
+         *     Opening the page of the link changes nothing; this request does, all of it at once:
+         *
+         *     - the address the link was mailed to is the account's again and is answered as
+         *       `email`, unless another account or a registration has it by now: then the
+         *       account keeps the address it has, and `email` is left out;
+         *     - every session of the account ends, and its live connections close;
+         *     - the account's password is locked: `login`, and every request that asks for the
+         *       password, refuses it as a wrong one, until a new one is set through a reset link
+         *       (`requestPasswordReset`, mailed to the address the account has) or by the
+         *       operator. Sign-ins through a provider go on as they did, and open no more;
+         *     - the change of address that waited ends, and so do the account's reset links and
+         *       the links of this kind mailed after this one. Those mailed before it stand.
+         *
+         *     The address the account had until then is mailed a notice that names nothing of
+         *     the address it has now. No reset link is mailed by this request.
+         *
+         *     While a link stands, the address it was mailed to is held for the account: another
+         *     account's change of address, `register` and `acceptInvitation` are answered as for
+         *     an address an account has. Nothing ends a link but its use, its seven days and the
+         *     erasing of the account: not a newer change of address, nor taking a change back,
+         *     nor a password changed, set or reset, nor asking to delete the account.
+         *
+         *     A token that is missing, used, ended, of a link mailed after one that was used, or
+         *     of an account that is being erased, is 400 naming `token` in `errors`, and changes
+         *     nothing: which of them it was is not said. Requests are counted by where they come
+         *     from, as registrations are, and too many are 429.
+         */
+        post: operations["revertEmailChange"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6410,6 +6460,19 @@ export interface components {
             /** @description The requester's language tag, as in `requestEmailChange`. */
             language?: string;
         };
+        RevertEmailChange: {
+            /** @description The secret from the fragment of the link mailed with the notice of a change. */
+            token: string;
+        };
+        /** @description What became of the address of an account a link was used for. */
+        RevertedEmailChange: {
+            /**
+             * @description The address the account has again: the one the link was mailed to. Left out
+             *     where another account or a registration had it by then, and the account kept
+             *     the address it had.
+             */
+            email?: string | null;
+        };
         /** @description One thing a search found: the user reads it now. */
         SearchHit: {
             /** @description The identifier of the board the card is on, or of the wiki the page is in. */
@@ -7165,6 +7228,50 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Too many requests from where this one comes from. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    revertEmailChange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevertEmailChange"];
+            };
+        };
+        responses: {
+            /** @description The account's sessions ended and its password is locked, and it has the address back unless `email` is left out. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevertedEmailChange"];
+                };
             };
             /** @description Too many requests from where this one comes from. */
             429: {
