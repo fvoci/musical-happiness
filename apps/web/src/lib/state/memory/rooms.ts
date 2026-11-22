@@ -195,9 +195,8 @@ export class MemoryRooms {
 
   #card(containerId: string, cardId: string): StoredCard | undefined {
     const block = this.#world.blocks.get(cardId);
-    if ((block?.type !== 'card' && block?.type !== 'page') || block.containerId !== containerId)
-      return;
-    return block as StoredCard;
+    const bodied = block && ['card', 'page', 'entry'].includes(block.type);
+    return bodied && block.containerId === containerId ? (block as StoredCard) : undefined;
   }
 
   /** The way the user may be in the room now; undefined when not at all. */

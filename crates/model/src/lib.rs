@@ -25,6 +25,7 @@ mod container_teams;
 mod containers_and_blocks;
 mod date_value;
 mod deleted_item;
+mod diary;
 mod file_info;
 mod file_lease;
 mod file_version;
@@ -107,6 +108,13 @@ pub use date_value::{
     rewrite_previous_date_values,
 };
 pub use deleted_item::DeletedItem;
+pub use diary::{
+    DAYS_PER_LIST, DIARIES_PER_SPACE, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryEntry,
+    DiaryEntryPatch, DiaryMaking, DiaryRun, ENTRIES_PER_DIARY, ENTRY_DATE_FIELD, ENTRY_DAYS_AHEAD,
+    ENTRY_MOOD_FIELD, ENTRY_NOTE_MAX_CHARS, ENTRY_PLACE_FIELD, ENTRY_WEATHER_FIELD, MonthDay, Mood,
+    MoodChange, NewDiaryEntry, ParseDiaryDateError, ParseMonthDayError, ParseMoodError, entry_date,
+    entry_mood,
+};
 pub use file_info::{FileInfo, FileKey, is_storage_path};
 pub use file_lease::{FileLease, FileLeaseRequest, HeldFileLease};
 pub use file_version::{FileVersion, FileVersionBase, NewFileVersion};

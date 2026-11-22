@@ -14,10 +14,11 @@ use utoipa_axum::routes;
 
 use super::contract::bodies::NewBoard;
 use super::contract::params::{
-    AcceptLanguage, AsTemplate, BoardId, ContainerId, MemberWorkspaceId, ToWorkspace,
+    AcceptLanguage, AsTemplate, BoardId, ContainerId, MemberWorkspaceId, PeopleContainerId,
+    ToWorkspace,
 };
 use super::contract::tag;
-use super::workspace::{InContainer, InWorkspace};
+use super::workspace::{InBoardOrWiki, InContainer, InWorkspace};
 
 use super::{
     ApiResult, accept_language, created, decode_json, json_response, no_content, query_param,
@@ -89,7 +90,7 @@ pub(super) fn check_closed_members(
     }
     if kind == BoardObject::Board && is_outside::<ContainerKind>(object.get("kind")) {
         return Err(
-            AppError::bad_request("the kind of a board is `board` or `wiki`")
+            AppError::bad_request("the kind of a board is `board`, `wiki` or `diary`")
                 .with_pointer(format!("{at}/kind")),
         );
     }
@@ -356,7 +357,7 @@ async fn handle_delete_container(
     path = "/w/{workspaceId}/containers/{containerId}/duplicate",
     operation_id = "duplicateContainer",
     tag = tag::CONTAINERS,
-    params(MemberWorkspaceId, ContainerId, AsTemplate, ToWorkspace, AcceptLanguage),
+    params(MemberWorkspaceId, PeopleContainerId, AsTemplate, ToWorkspace, AcceptLanguage),
     responses((
         status = 201,
         description = "The copy: one board and its blocks. The blocks are in the order of the original's, oldest first.",
@@ -364,7 +365,7 @@ async fn handle_delete_container(
     )),
 )]
 async fn handle_duplicate_container(
-    InContainer(ws): InContainer,
+    InBoardOrWiki(ws): InBoardOrWiki,
     Path((_, container_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     headers: HeaderMap,
