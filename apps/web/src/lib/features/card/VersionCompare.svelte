@@ -35,13 +35,12 @@
   const target = $derived(compare.target);
   /** The other versions to compare with: all kept but the one read. */
   const others = $derived(reading.versions.filter((one) => one.version !== chosen?.version));
-  const choice = $derived(
-    target?.kind === 'version'
-      ? String(target.version.version)
-      : target?.kind === 'current' || (target?.kind === 'whole' && compare.kind === 'current')
-        ? 'current'
-        : 'previous',
-  );
+  /** What the choice says, also while the version is shown as it is: what it is compared with then. */
+  const choice = $derived.by(() => {
+    const chosenTarget = compare.chosenTarget;
+    if (chosenTarget?.kind === 'version') return String(chosenTarget.version.version);
+    return chosenTarget?.kind === 'current' ? 'current' : 'previous';
+  });
   const direction = $derived.by((): string | undefined => {
     if (!chosen || !target) return undefined;
     const to = whenKept(chosen);

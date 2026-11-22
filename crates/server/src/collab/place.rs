@@ -264,6 +264,31 @@ impl Collab {
         slot.open.as_ref().map(|open| open.state_bytes)
     }
 
+    /// How many worker processes ended, of every worker: for the tests of how many an
+    /// update ends.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub async fn workers_ended(&self) -> u64 {
+        let mut ended = 0;
+        for worker in &self.inner.workers {
+            ended += worker
+                .ended()
+                .await
+                .expect("the worker's task runs")
+                .workers;
+        }
+        ended
+    }
+
+    /// How many users, of every organization, have an update that holds or waits for
+    /// their turn ([`super::senders::Senders::turn`]): none once every update is done.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn senders_in_line(&self) -> usize {
+        self.inner.senders.lines()
+    }
+
     /// Every slot.
     pub(super) fn all_slots(&self) -> Vec<Arc<Mutex<Slot>>> {
         let slots = self.inner.slots.lock().expect("the slots are not poisoned");
@@ -341,12 +366,22 @@ impl Collab {
         let blame = asked_for.blame();
         for _ in 0..2 {
             self.ensure_open(app, card_id, slot).await?;
-            if let AskedFor::Sender(user_id) = asked_for {
-                // Again after the waits for the document and for a worker started again:
-                // of the updates a sender sent together, those after the first that ended
-                // a worker are not sent to the next.
-                self.held_back(app, user_id)?;
-            }
+            // The sender's turn, with the slot held and its document open: a room's turn,
+            // the organization's gate, the slot, the sender's turn, then the worker's
+            // queue, and whoever holds a sender's turn waits for no room, gate or slot. In
+            // it, again after the waits for the document and for the turn, the sender is
+            // checked, the update sent and its death put down: of the updates a sender
+            // sent together, to one worker or several, those after the first that ended
+            // a worker are not sent. A try that finds the worker gone gives the turn back
+            // and waits for it again.
+            let _turn = match asked_for {
+                AskedFor::Sender(user_id) => {
+                    let turn = self.inner.senders.turn(app.store().tenant(), user_id).await;
+                    self.held_back(app, user_id)?;
+                    Some(turn)
+                }
+                AskedFor::Server => None,
+            };
             let open = slot.open.as_ref().expect("the document is open");
             let worker = &self.inner.workers[open.worker];
             match worker
@@ -564,8 +599,9 @@ pub(super) enum AskedFor<'user> {
     /// The server, for itself or for what an editor reads: the worker
     /// ([`Blame::Worker`]).
     Server,
-    /// The user whose update the request takes ([`Blame::Sender`]): held back for a
-    /// death, and refused while held back.
+    /// The user whose update the request takes ([`Blame::Sender`]): asked in their turn
+    /// ([`super::senders::Senders::turn`]), held back for a death, and refused while held
+    /// back.
     Sender(&'user str),
 }
 

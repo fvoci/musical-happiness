@@ -4,15 +4,27 @@
 //! those of everyone in their organization from its third such sender within a day. An
 //! update is no more than a worker's time limit to anybody else (the worker is started
 //! again at once for it, [`super::worker::Blame::Sender`]); this keeps its sender from
-//! sending it again and again. Updates a sender sent together are refused as they reach
-//! the worker after the first that ended it ([`super::place::AskedFor::Sender`]); those
-//! under way on other workers at that time may end them too.
+//! sending it again and again.
+//!
+//! Of the updates of a user of an organization, one at a time is checked, sent to its
+//! worker and, if it ended it, put down, whichever worker holds its document
+//! ([`Senders::turn`]): of those they send together, to the documents of one worker or
+//! of several, the ones after the first that ended a worker are refused before they
+//! are sent. The turn is a user's: the users of an organization do not wait for each
+//! other's turn, and each may end a worker once before they are held back (the
+//! organization is held from its third). An update that waits for its turn holds its
+//! card's room and slot, and its organization's gate: who writes into that card, opens
+//! it or is sent what they lack of it, and the server writing its body, waits with it,
+//! and so does a deletion in the organization and every request about a document there
+//! after it; for each update of that user ahead of it (one worker's queue and call
+//! each, up to the time limit), as they waited for those of the same worker before.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use fvoci_store::Tenant;
+use tokio::sync::OwnedMutexGuard;
 use tokio::time::Instant;
 
 /// How long the updates of a sender are refused after the first that ended a worker:
@@ -87,13 +99,100 @@ impl Organization {
     }
 }
 
-/// The organizations whose users' updates ended a worker.
+/// The organizations whose users' updates ended a worker, and the turns of the users
+/// whose updates are under way.
 #[derive(Debug, Default)]
 pub(super) struct Senders {
     organizations: Mutex<HashMap<Tenant, Organization>>,
+    /// By organization and user, while an update of theirs holds or waits for its turn
+    /// ([`Senders::turn`]).
+    lines: Mutex<HashMap<(Tenant, String), Line>>,
+}
+
+/// The turn of a user of an organization, and how many of their updates hold or wait
+/// for it.
+#[derive(Debug)]
+struct Line {
+    turn: Arc<tokio::sync::Mutex<()>>,
+    in_line: usize,
+}
+
+/// The turn of a user of an organization, held: no other update of theirs there is
+/// checked, sent or put down meanwhile ([`Senders::turn`]). Given back as it is
+/// dropped, however the one that holds it ends.
+#[derive(Debug)]
+#[must_use = "the turn is given back when this is dropped"]
+pub(super) struct Turn<'senders> {
+    // Before the place in the line, so that the turn is given back before the line may
+    // leave the table: one who comes after finds the line, not a new turn while this
+    // one is held.
+    _held: OwnedMutexGuard<()>,
+    _in_line: InLine<'senders>,
+}
+
+/// An update in the line of a user, from before their turn is waited for: whoever stops
+/// waiting leaves it as well as whoever is done with the turn, and the last to leave
+/// takes the line out of the table.
+#[derive(Debug)]
+struct InLine<'senders> {
+    senders: &'senders Senders,
+    key: (Tenant, String),
+}
+
+impl Drop for InLine<'_> {
+    fn drop(&mut self) {
+        // Nothing panics with the lines held; a destructor does not panic.
+        let Ok(mut lines) = self.senders.lines.lock() else {
+            return;
+        };
+        let was_in = match lines.get_mut(&self.key) {
+            Some(line) => {
+                line.in_line = line.in_line.saturating_sub(1);
+                if line.in_line == 0 {
+                    lines.remove(&self.key);
+                }
+                true
+            }
+            None => false,
+        };
+        // With the lines let go, which a panic would poison.
+        drop(lines);
+        debug_assert!(was_in, "an update leaves a line it is in");
+    }
 }
 
 impl Senders {
+    /// The turn of a user of an organization, once the updates of theirs that wait for
+    /// it before this one are done with it, in the order they wait: an update is checked
+    /// ([`Senders::held_until`]), sent to its worker and, if it ended it, put down
+    /// ([`Senders::ended_worker`]) in it. Only their own updates wait for it, those of
+    /// another user, or of the same user in another organization, do not; one that
+    /// stops waiting leaves the line.
+    pub(super) async fn turn(&self, tenant: Tenant, user_id: &str) -> Turn<'_> {
+        let key = (tenant, user_id.to_owned());
+        let turn = {
+            let mut lines = self.lines.lock().expect("the lines are not poisoned");
+            let line = lines.entry(key.clone()).or_insert_with(|| Line {
+                turn: Arc::default(),
+                in_line: 0,
+            });
+            line.in_line += 1;
+            Arc::clone(&line.turn)
+        };
+        // Before the wait, so that one that stops waiting leaves the line.
+        let in_line = InLine { senders: self, key };
+        Turn {
+            _held: turn.lock_owned().await,
+            _in_line: in_line,
+        }
+    }
+
+    /// How many users' updates hold or wait for their turn.
+    #[cfg(any(test, feature = "test-util"))]
+    pub(super) fn lines(&self) -> usize {
+        self.lines.lock().expect("the lines are not poisoned").len()
+    }
+
     /// Until when the updates of a user of an organization are refused, at `now`; `None`
     /// if they are not.
     pub(super) fn held_until(
@@ -339,6 +438,82 @@ mod tests {
         let later = near + Duration::from_secs(11);
         senders.ended_worker(ONE, "fay", later);
         assert_eq!(senders.held_until(ONE, "zed", later), held);
+    }
+
+    /// How many of the updates of a user of an organization hold or wait for their turn.
+    fn in_line(senders: &Senders, tenant: Tenant, user_id: &str) -> usize {
+        let lines = senders.lines.lock().expect("not poisoned");
+        lines
+            .get(&(tenant, user_id.to_owned()))
+            .map_or(0, |line| line.in_line)
+    }
+
+    /// The next update of a user waits for their turn, and one of another user, or of
+    /// the same user in another organization, does not; nobody is kept once all are done.
+    #[tokio::test(start_paused = true)]
+    async fn only_the_updates_of_the_same_user_wait_for_their_turn() {
+        let senders = Senders::default();
+        let soon = Duration::from_secs(1);
+        let ann = senders.turn(ONE, "ann").await;
+        let next = tokio::time::timeout(soon, senders.turn(ONE, "ann")).await;
+        assert!(next.is_err(), "her next update waits");
+        assert_eq!(in_line(&senders, ONE, "ann"), 1, "and leaves as it stops");
+        let bob = tokio::time::timeout(soon, senders.turn(ONE, "bob"))
+            .await
+            .expect("another user does not wait");
+        let elsewhere = tokio::time::timeout(soon, senders.turn(Tenant::Unset, "ann"))
+            .await
+            .expect("nor does she in another organization");
+        assert_eq!(senders.lines(), 3);
+        drop((bob, elsewhere));
+        assert_eq!(senders.lines(), 1, "hers alone");
+        drop(ann);
+        assert_eq!(senders.lines(), 0, "nobody is kept");
+        let _again = tokio::time::timeout(soon, senders.turn(ONE, "ann"))
+            .await
+            .expect("her turn again");
+    }
+
+    /// A turn is given back, and its place in the line too, by an update stopped while
+    /// it waits for the turn and by one stopped while it holds it, in two organizations.
+    #[tokio::test(start_paused = true)]
+    async fn an_update_stopped_while_it_waits_or_holds_its_turn_gives_it_back() {
+        let senders = Arc::new(Senders::default());
+        let mut stopped = Vec::new();
+        for tenant in [ONE, Tenant::Unset] {
+            let (held, holding) = tokio::sync::oneshot::channel();
+            let holder = tokio::spawn({
+                let senders = Arc::clone(&senders);
+                async move {
+                    let _turn = senders.turn(tenant, "ann").await;
+                    let _ = held.send(());
+                    std::future::pending::<()>().await;
+                }
+            });
+            holding.await.expect("the turn is held");
+            let waiter = tokio::spawn({
+                let senders = Arc::clone(&senders);
+                async move {
+                    let _turn = senders.turn(tenant, "ann").await;
+                }
+            });
+            while in_line(&senders, tenant, "ann") < 2 {
+                tokio::task::yield_now().await;
+            }
+            stopped.extend([waiter, holder]);
+        }
+        assert_eq!(senders.lines(), 2);
+        // The ones that wait first, then the ones that hold.
+        for task in stopped {
+            task.abort();
+            let _ = task.await;
+        }
+        assert_eq!(senders.lines(), 0, "nobody is kept");
+        for tenant in [ONE, Tenant::Unset] {
+            let _again = tokio::time::timeout(Duration::from_secs(1), senders.turn(tenant, "ann"))
+                .await
+                .expect("given back");
+        }
     }
 
     /// An organization none of whose users is remembered any more, and that is not

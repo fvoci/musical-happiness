@@ -125,9 +125,11 @@
       open = false;
     },
   );
+  /** A version is being read: whichever, so that a list read again (a version kept) is no change. */
+  const readingOne = $derived(chosen !== undefined);
   // Narrow, with a version open, it goes back to the list first.
   closeOnBack(
-    () => open && narrow.current && chosen !== undefined,
+    () => open && narrow.current && readingOne,
     () => reading?.leave(),
   );
 
