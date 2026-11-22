@@ -11,9 +11,9 @@ use crate::websocket::PATIENCE;
 /// Where the body of the card of this file's test names somebody.
 const MENTION: &str = "/content/0/content/1/attrs/userId";
 
-/// Reads `reader` until it is told of `card_id` with `text` in its body, and then
+/// Reads `reader` until it is told of `card_id` with `text` in its summary, and then
 /// until nothing comes for a while: every message is JSON that does not name `me`,
-/// and none is a frame of a room. The message that told of the body.
+/// and none is a frame of a room. The message that told of the summary.
 async fn told_of(reader: &mut Peer, card_id: &str, text: &str, me: &str) -> Value {
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut told: Option<Value> = None;
@@ -35,7 +35,9 @@ async fn told_of(reader: &mut Peer, card_id: &str, text: &str, me: &str) -> Valu
                 );
                 let about = message["action"] == "UPDATE_BLOCK"
                     && message["block"]["id"] == card_id
-                    && message["block"]["body"].to_string().contains(text);
+                    && message["summary"]["preview"]["text"]
+                        .as_str()
+                        .is_some_and(|preview| preview.contains(text));
                 if about && told.is_none() {
                     told = Some(message);
                 }
@@ -49,9 +51,9 @@ async fn told_of(reader: &mut Peer, card_id: &str, text: &str, me: &str) -> Valu
 /// card were not there (`rooms::who_may_not_read_is_refused_as_for_no_card` has the
 /// reader without a session and a user of no workspace; here, also a member of the
 /// workspace who is not on the board). What a member types in the room reaches the
-/// reader as the card's body, over the subscription and over HTTP, with its mention
-/// naming nobody, and no frame of the room reaches the reader; the member reads the
-/// mention as it is.
+/// reader as the summary of the card's body over the subscription and as its body over
+/// HTTP, naming nobody, and no frame of the room reaches the reader; the member reads
+/// the mention as it is.
 #[tokio::test]
 async fn a_reader_by_link_is_kept_out_of_the_room_and_told_its_body_naming_nobody() {
     let th = Setup::local_mode().start().await.init_basic().await;
@@ -108,11 +110,9 @@ async fn a_reader_by_link_is_kept_out_of_the_room_and_told_its_body_naming_nobod
 
     for reader in &mut readers {
         let told = told_of(reader, &t.card_id, "typed in the room", &me).await;
-        assert_eq!(
-            told["block"]["body"].pointer(MENTION),
-            Some(&json!("")),
-            "{told}"
-        );
+        // The body is read over HTTP; the summary's preview has nothing of the mention.
+        assert_eq!(told["block"]["body"], Value::Null, "{told}");
+        assert_eq!(told["summary"]["hasBody"], json!(true), "{told}");
     }
     let read: Vec<Value> = th
         .anonymous()

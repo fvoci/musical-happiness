@@ -764,42 +764,56 @@ async fn why_a_connection_ended_is_counted() {
 }
 
 /// A board's member and a reader without a session follow the same board by its read
-/// token: the member's connection, which sees the board, is told the block as a member
-/// is; the reader by the link alone is not told who wrote it or whom it mentions.
+/// token: the member's connection, which sees the board, is told a comment on the card
+/// as a member is; the reader by the link alone is not told who wrote it or whom its
+/// body mentions. (A card's own message carries no body.)
 #[tokio::test]
 async fn a_member_following_by_read_token_is_told_as_a_member() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let (_board, mut block, token) = shared_board_with_a_card(&th, &user1.id).await;
-    block.body = fvoci_model::Body::parse(json!({"type": "doc", "content": [
-        {"type": "paragraph", "content": [{"type": "mention", "attrs": {"userId": user1.id}}]},
-    ]}))
-    .expect("a body");
+    let (_board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
+    let comment = Block {
+        id: new_id(),
+        parent_id: block.id.clone(),
+        container_id: block.container_id.clone(),
+        block_type: BlockType::Comment,
+        created_by: user1.id.clone(),
+        body: fvoci_model::Body::parse(json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "mention", "attrs": {"userId": user1.id}}]},
+        ]}))
+        .expect("a body"),
+        ..Block::default()
+    };
     let mention = "/block/body/content/0/content/0/attrs/userId";
     let (mut member, _) =
         follow_block_on(&th, Socket::connect_as(&th.client).await, &block, &token).await;
     let (mut reader, _) = follow_block(&th, &block, &token).await;
     th.app
         .ws()
-        .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
+        .broadcast_block_change(ROOT_WORKSPACE_ID, &comment)
         .await;
-    let told = member
-        .next_json(PATIENCE)
-        .await
-        .expect("the member is told");
+    // What the reader's following broadcast of the card may still be on its way.
+    let of_the_comment = async |socket: &mut Socket| loop {
+        let told = socket
+            .next_json(PATIENCE)
+            .await
+            .expect("the comment is told");
+        if told["block"]["id"] == comment.id {
+            break told;
+        }
+    };
+    let told = of_the_comment(&mut member).await;
     assert_eq!(told["block"]["createdBy"], json!(user1.id), "{told}");
     assert_eq!(told.pointer(mention), Some(&json!(user1.id)), "{told}");
-    let told = reader
-        .next_json(PATIENCE)
-        .await
-        .expect("the reader is told");
+    let told = of_the_comment(&mut reader).await;
     assert_eq!(told["block"]["createdBy"], json!(""), "{told}");
     assert_eq!(told.pointer(mention), Some(&json!("")), "{told}");
     th.teardown().await;
 }
 
 /// Whoever follows a board by its read token alone is not told who made or changed a
-/// block, over the websocket as over HTTP. A member is.
+/// block, over the websocket as over HTTP, nor whom the card's body mentions: the
+/// message carries the summary of the body, which names nobody. A member is told who.
 #[tokio::test]
 async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
     let th = Setup::local_mode().start().await.init_basic().await;
@@ -810,17 +824,20 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
         {"type": "paragraph", "content": [{"type": "mention", "attrs": {"userId": user1.id}}]},
     ]}))
     .expect("a body");
-    let mention = "/block/body/content/0/content/0/attrs/userId";
+    let names_nobody = |message: &Value| {
+        assert_eq!(message["block"]["body"], Value::Null, "{message}");
+        assert_eq!(message["summary"]["hasBody"], json!(true), "{message}");
+        assert!(
+            !message.to_string().contains(&user1.id),
+            "nor who is mentioned: {message}"
+        );
+    };
 
     let (mut reader, message) = follow_block(&th, &block, &token).await;
     assert_eq!(message["block"]["id"], json!(block.id), "{message}");
     assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
     assert_eq!(message["block"]["modifiedBy"], json!(""), "{message}");
-    assert_eq!(
-        message.pointer(mention),
-        Some(&json!("")),
-        "nor who is mentioned"
-    );
+    names_nobody(&message);
 
     let mut member = Socket::connect_as(&th.client).await;
     subscribe_to_workspace(&th, &mut member, ROOT_WORKSPACE_ID, &user1.id).await;
@@ -833,11 +850,7 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
         .await
         .expect("the member is told");
     assert_eq!(message["block"]["createdBy"], json!(user1.id), "{message}");
-    assert_eq!(
-        message.pointer(mention),
-        Some(&json!(user1.id)),
-        "{message}"
-    );
+    assert_eq!(message["block"]["body"], Value::Null, "{message}");
     // The same broadcast, as the reader has it: what the member is told does not reach
     // the reader, nor the reverse.
     let message = reader
@@ -845,7 +858,7 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
         .await
         .expect("the reader is told too");
     assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
-    assert_eq!(message.pointer(mention), Some(&json!("")), "{message}");
+    names_nobody(&message);
 
     // A signed-in user who is no member of the board follows it as the token's reader:
     // nor are they told who the values of the board's person properties name.
@@ -868,7 +881,7 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
     let stranger = Socket::connect_as(&th.client2).await;
     let (_stranger, message) = follow_block_on(&th, stranger, &block, &token).await;
     assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
-    assert_eq!(message.pointer(mention), Some(&json!("")), "{message}");
+    names_nobody(&message);
     assert_eq!(
         message["block"]["fields"]["properties"],
         json!({"owner": "", "workspace": ["", ""]}),
@@ -1120,12 +1133,23 @@ fn check_against(openapi: &Value, what: &Value, value: &Value, at: &str) {
 /// Checks one message the server sent against `contracts/websocket.json`.
 pub(crate) fn check_message(contract: &Value, openapi: &Value, message: &Value) {
     let action = message["action"].as_str().expect("a message has an action");
-    let members = &contract["messages"][action]["members"];
-    assert!(
-        members.is_object(),
-        "contracts/websocket.json lists {action}"
-    );
-    check_against(openapi, members, message, action);
+    let entry = &contract["messages"][action];
+    let mut members = entry["members"]
+        .as_object()
+        .unwrap_or_else(|| panic!("contracts/websocket.json lists {action}"))
+        .clone();
+    // A member the entry names optional is checked where the message has it.
+    let optional: Vec<&str> = entry["optional"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|name| {
+            name.as_str()
+                .expect("optional members are named by strings")
+        })
+        .collect();
+    members.retain(|key, _| !optional.contains(&key.as_str()) || message.get(key).is_some());
+    check_against(openapi, &Value::Object(members), message, action);
 }
 
 pub(crate) fn read_contract(name: &str) -> Value {
