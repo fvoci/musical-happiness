@@ -20,6 +20,7 @@
  * cut into words: it is said to be removed and added whole.
  */
 import {
+  countsOne,
   DIFF_MARK,
   marksKey,
   valueKey,
@@ -45,22 +46,26 @@ interface Inline {
   runs: { from: number; to: number; node: BodyNode }[];
   /** The key of each thing that is not text, by where it is in `text`. */
   atoms: Map<number, string>;
+  /** Where the things that count as a word are: not the line breaks. */
+  counted: Set<number>;
 }
 
 function inlineOf(block: BodyNode): Inline {
   let text = '';
   const runs: Inline['runs'] = [];
   const atoms = new Map<number, string>();
+  const counted = new Set<number>();
   for (const node of block.content ?? []) {
     const from = text.length;
     if (node.type === 'text') text += node.text ?? '';
     else {
       text += ATOM;
       atoms.set(from, node.type + valueKey(node.attrs ?? {}));
+      if (countsOne(node.type)) counted.add(from);
     }
     runs.push({ from, to: text.length, node });
   }
-  return { text, runs, atoms };
+  return { text, runs, atoms, counted };
 }
 
 const sameAt = (a: Inline, i: number, b: Inline, j: number): boolean =>
@@ -310,13 +315,17 @@ export interface InlineDiff {
 
 /**
  * How much a piece of text counts: its words, or its lines; a thing that is
- * not text counts one. The end of a line at either edge of the piece belongs
+ * not text counts one, as in a block removed whole (`weightOf`). The end of a line at either edge of the piece belongs
  * to the line next to it.
  */
 function weight(inline: Inline, from: number, to: number, unit: 'words' | 'lines'): number {
   const text = inline.text.slice(from, to);
-  if (unit === 'words')
-    return wordCount(text.replaceAll(ATOM, ' ')) + (text.split(ATOM).length - 1);
+  if (unit === 'words') {
+    let things = 0;
+    for (let at = text.indexOf(ATOM); at !== -1; at = text.indexOf(ATOM, at + 1))
+      if (inline.counted.has(from + at)) things += 1;
+    return wordCount(text.replaceAll(ATOM, ' ')) + things;
+  }
   const lines = text.split('\n');
   if (lines[0] === '') lines.shift();
   if (lines.at(-1) === '') lines.pop();

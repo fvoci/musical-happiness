@@ -4,13 +4,15 @@
   character of its title in a small frame.
 
   A wiki is told apart from a board: one without an icon has a book in place
-  of the character, and one with an icon a small book at its corner.
+  of the character, and one with an icon a small book at its corner. A diary
+  likewise, by a notebook.
 
   Always decoration: the title is written next to it, or is the name of the
   button it sits in (which says that it is a wiki).
 -->
 <script lang="ts">
   import BookOpenIcon from '@lucide/svelte/icons/book-open';
+  import NotebookPenIcon from '@lucide/svelte/icons/notebook-pen';
 
   import { avatarInitial } from '$lib/components/avatar/avatar.ts';
   import type { ContainerKind } from '$lib/logic/wire.ts';
@@ -26,7 +28,10 @@
 
   let { icon, title, locale, kind }: Props = $props();
 
-  const wiki = $derived(kind === 'wiki');
+  /** What tells a wiki or a diary from a board; none for a board. */
+  const KindIcon = $derived(
+    kind === 'wiki' ? BookOpenIcon : kind === 'diary' ? NotebookPenIcon : undefined,
+  );
 </script>
 
 {#if icon}
@@ -37,20 +42,20 @@
     class="relative inline-grid size-5 shrink-0 place-items-center text-base leading-none"
   >
     {icon}
-    {#if wiki}
-      <BookOpenIcon
+    {#if KindIcon}
+      <KindIcon
         class="absolute -right-1 -bottom-1 size-3 rounded-[3px] bg-sidebar p-px text-muted-foreground"
       />
     {/if}
   </span>
-{:else if wiki}
+{:else if KindIcon}
   <span
     aria-hidden="true"
-    data-board-icon="wiki"
-    data-kind="wiki"
+    data-board-icon={kind}
+    data-kind={kind}
     class="inline-grid size-5 shrink-0 place-items-center rounded-sm border border-input-border text-muted-foreground"
   >
-    <BookOpenIcon class="size-3.5" />
+    <KindIcon class="size-3.5" />
   </span>
 {:else}
   <span

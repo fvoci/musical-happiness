@@ -102,13 +102,18 @@ export async function focusAtEnd(body: Locator): Promise<void> {
   // The editor of the room's document, not the view shown before it came.
   await expect(body).toHaveAttribute('data-editor', 'ready');
   await expect(body).not.toHaveAttribute('data-settling');
-  await body
-    .locator('.ProseMirror')
-    .evaluate(
-      (element: HTMLElement & { editor?: { commands: { focus: (at: string) => void } } }) => {
+  await body.locator('.ProseMirror').evaluate(
+    (element: HTMLElement & { editor?: { commands: { focus: (at: string) => void } } }) =>
+      new Promise<void>((resolve) => {
         element.editor?.commands.focus('end');
-      },
-    );
-  // The editor takes the focus a frame after it is asked to: a key pressed before goes elsewhere.
+        // The editor takes the focus a frame after it is asked to (in WebKit at once, and
+        // then again in that frame): a key pressed before goes elsewhere, and a field opened
+        // before loses the focus to the editor, which closes it. A frame asked for after
+        // the editor's comes after it.
+        requestAnimationFrame(() => {
+          resolve();
+        });
+      }),
+  );
   await expect(body.locator('.ProseMirror')).toBeFocused();
 }

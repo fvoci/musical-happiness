@@ -728,21 +728,17 @@ impl From<StoreError> for AppError {
                 error.subject = Some(Subject::Board);
                 error
             }
-            // What a board of its kind is not: the member that says otherwise.
+            // What a board of its kind is not, and one diary more than a space has.
             StoreError::InvalidContainer(
                 refused @ (ContainerError::KindChanges { .. }
                 | ContainerError::WikiIsTemplate
-                | ContainerError::WikiHasCardProperties),
-            ) => {
-                let member = match refused {
-                    ContainerError::WikiIsTemplate => "isTemplate",
-                    ContainerError::WikiHasCardProperties => "cardProperties",
-                    _ => "kind",
-                };
-                let mut error = Self::bad_request(refused).with_field(member);
-                error.subject = Some(Subject::Board);
-                error
-            }
+                | ContainerError::WikiHasCardProperties
+                | ContainerError::DiaryIsTemplate
+                | ContainerError::DiaryHasCardProperties
+                | ContainerError::DiaryNotPrivate
+                | ContainerError::DiaryOffOwnSpace
+                | ContainerError::TooManyDiaries { .. }),
+            ) => Self::not_of_its_kind(refused),
             // Whatever else the store refuses of a block names the member at fault and
             // the block. A parent that is no block of the board, whether it is none at all
             // or another board's: the answer does not tell the two apart. A block without a
@@ -761,6 +757,10 @@ impl From<StoreError> for AppError {
                 Self::bad_request("an identifier in the request is not a valid identifier")
             }
             StoreError::Conflict(_) => Self::conflict(error),
+            StoreError::NotRestorable {
+                source: source @ BlockError::DayTaken { .. },
+                ..
+            } => Self::from(source),
             StoreError::NotRestorable { source, .. } => Self::conflict(format_args!(
                 "the block cannot come back where it was: {source}"
             )),

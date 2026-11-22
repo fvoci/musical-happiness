@@ -17,6 +17,9 @@ const PHONE = {
   hasTouch: true,
 };
 
+/** The remote-update spike: measurements, not checks, kept out of the other projects. */
+const REMOTE = /spikes[\\/]remote[\\/].*\.spec\.ts$/;
+
 export default defineConfig({
   testDir: 'spikes',
   outputDir: 'test-results/spikes',
@@ -27,8 +30,8 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'desktop', testIgnore: PHONE_ONLY, use: { ...devices['Desktop Chrome'] } },
-    { name: 'touch', testIgnore: PHONE_ONLY, use: { ...devices['Pixel 7'] } },
+    { name: 'desktop', testIgnore: [PHONE_ONLY, REMOTE], use: { ...devices['Desktop Chrome'] } },
+    { name: 'touch', testIgnore: [PHONE_ONLY, REMOTE], use: { ...devices['Pixel 7'] } },
     // A phone's screen in both engines, for what is measured on one (spikes/kanban-scroll),
     // only when there is a built app to measure: a plain run has no WebKit to start.
     ...(process.env.FVOCI_SPIKE_APP
@@ -45,6 +48,9 @@ export default defineConfig({
           },
         ]
       : []),
+    // Measurements of one large body, each run in a browser of its own.
+    { name: 'remote-chromium', testMatch: REMOTE, use: { ...devices['Desktop Chrome'] } },
+    { name: 'remote-webkit', testMatch: REMOTE, use: { ...devices['Desktop Safari'] } },
   ],
   webServer: {
     command: `vite --config vite.spikes.config.ts --port ${PORT}`,

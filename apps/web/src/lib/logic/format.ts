@@ -221,6 +221,21 @@ export function displayDayRange(first: CalendarDate, last: CalendarDate, locale:
   );
 }
 
+/** `2026`: the year of a date, with the word for "year" some languages add. */
+export function displayYear(date: CalendarDate, locale: string): string {
+  return calendarFormatter(locale, 'year', { year: 'numeric' }).format(utcDay(date));
+}
+
+/** `Saturday, November 21, 2026`. */
+export function displayDayWithYear(date: CalendarDate, locale: string): string {
+  return calendarFormatter(locale, 'day-year', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long',
+  }).format(utcDay(date));
+}
+
 /** `Thu`: the short name of the weekday of a date. */
 export function displayWeekday(date: CalendarDate, locale: string): string {
   return calendarFormatter(locale, 'weekday', { weekday: 'short' }).format(utcDay(date));

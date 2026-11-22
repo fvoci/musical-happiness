@@ -125,6 +125,50 @@ pub mod testing {
         crate::update::placing_steps(doc, update)
     }
 
+    /// The JSON a Y document projects to, before it is checked as a body: the walk of
+    /// [`to_body`] alone, without `Body::parse`.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the walk refuses the document.
+    pub fn projected(doc: &Doc) -> Result<Option<serde_json::Value>, BodyError> {
+        use yrs::ReadTxn as _;
+        let txn = doc.transact();
+        txn.get_xml_fragment(crate::FIELD)
+            .map_or(Ok(None), |root| crate::project::projected(&txn, &root))
+    }
+
+    /// What the changes of `update` are charged in `copy`, the document read from
+    /// `state` of `changes` changes, as [`crate::take_update`] charges them within
+    /// `limit`: the update read again, and its steps counted, reading the lists of the
+    /// state only where the cheap count is past `limit`.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the update, or the state, cannot be read.
+    pub fn charged(
+        copy: &Doc,
+        state: &[u8],
+        changes: u64,
+        update: &[u8],
+        limit: u64,
+    ) -> Result<u64, UpdateError> {
+        let (sent, _) = crate::update::read(copy, update)?;
+        crate::update::charged(copy, (state, changes), (update, &sent), limit)
+    }
+
+    /// Whether two states are the same as [`crate::take_update`] tells it.
+    #[must_use]
+    pub fn same_state(one: &[u8], other: &[u8]) -> bool {
+        crate::update::same_state(one, other)
+    }
+
+    /// The size of a body as its limit is measured.
+    #[must_use]
+    pub fn size_of(body: &Body) -> usize {
+        crate::take::size_of(body)
+    }
+
     pub use crate::reading::List;
 
     /// How many steps the library takes to read a state into an empty document

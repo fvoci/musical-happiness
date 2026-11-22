@@ -100,7 +100,7 @@ export function flushCard<Card extends { id: string }>(world: World, card: Card)
 export function flushContainers(world: World, containers: readonly { id: string }[]): void {
   for (const board of containers) {
     for (const block of world.blocksOf(board.id)) {
-      if (block.type === 'card' || block.type === 'page') flushCard(world, block);
+      if (['card', 'page', 'entry'].includes(block.type)) flushCard(world, block);
     }
   }
 }

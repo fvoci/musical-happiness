@@ -690,6 +690,8 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
                 "category_containers".to_owned(),
                 "category_containers_container_of_its_organization".to_owned()
             ),
+            // No key says a diary is in its owner's own space alone (0055).
+            ("containers".to_owned(), "diaries_of_a_space".to_owned()),
             // No key says who may be in a space: its owner alone, and no link leads
             // into one (0051).
             (
@@ -706,6 +708,8 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
                 "organizations".to_owned(),
                 "organizations_keep_their_kind".to_owned()
             ),
+            // Nor that no link leads into a diary (0055).
+            ("sharing".to_owned(), "sharing_of_no_diary".to_owned()),
             (
                 "uploads".to_owned(),
                 "uploads_target_of_its_organization".to_owned()

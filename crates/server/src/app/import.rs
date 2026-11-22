@@ -12,8 +12,8 @@ use std::path::Path;
 
 use bytes::Bytes;
 use fvoci_model::{
-    ArchiveHeader, ArchiveLine, Block, Container, ContainerMember, ContainersAndBlocks,
-    ContainersAndBlocksError, JsonMap, PageLimits, Renewed, WorkspaceRole,
+    ArchiveHeader, ArchiveLine, Block, Container, ContainerKind, ContainerMember,
+    ContainersAndBlocks, ContainersAndBlocksError, JsonMap, PageLimits, Renewed, WorkspaceRole,
     renew_containers_and_blocks_ids_told,
 };
 use serde_json::Value;
@@ -162,7 +162,15 @@ impl App {
                 containers.push((index, dir));
             }
         }
-        let elsewhere = named_elsewhere(&zip, &containers, options).await?;
+        let (elsewhere, diaries) = named_elsewhere(&zip, &containers, options).await?;
+        // What the archive cannot say of itself: whether the workspace takes its
+        // diaries. Asked before the first board is stored, as each diary is asked again
+        // when it is.
+        if diaries > 0 {
+            self.store()
+                .check_room_for_diaries(&options.workspace_id, diaries)
+                .await?;
+        }
 
         // First pass: the boards; a file entry needs its board already known.
         let mut left_out: HashSet<String> = HashSet::new();
@@ -429,7 +437,7 @@ impl ParsedContainer {
 /// nothing. What is read is dropped and read again to be stored, so that one board at a
 /// time is held. Returns what the bodies name that is no block of their own board: it
 /// may be a block of another board of the archive, whose new identifier is asked for
-/// when that board is stored.
+/// when that board is stored. And how many diaries the archive holds.
 ///
 /// # Errors
 ///
@@ -438,14 +446,18 @@ async fn named_elsewhere(
     zip: &Archive,
     containers: &[(usize, String)],
     options: &ImportOptions,
-) -> Result<HashSet<String>, AppError> {
+) -> Result<(HashSet<String>, u32), AppError> {
     let mut elsewhere = HashSet::new();
+    let mut diaries: u32 = 0;
     for (index, _) in containers {
         let jsonl = read_entry(zip, *index, MAX_JSONL_BYTES).await?;
         let container = parse_board_jsonl(jsonl, options, &HashSet::new()).await?;
+        let kinds = container.containers_and_blocks.containers.iter();
+        let of_diaries = kinds.filter(|one| one.kind == ContainerKind::Diary).count();
+        diaries = diaries.saturating_add(u32::try_from(of_diaries).unwrap_or(u32::MAX));
         elsewhere.extend(container.named_elsewhere());
     }
-    Ok(elsewhere)
+    Ok((elsewhere, diaries))
 }
 
 /// The boards of an archive as they were stored.

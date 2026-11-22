@@ -19,7 +19,7 @@ use crate::websocket::{Event, Socket, subscribe_to_workspace};
 
 /// The account's own space as the asking names it among what goes: empty here.
 fn gone_space(org_id: &str) -> Value {
-    json!({"id": org_id, "kind": "personal", "name": "", "boards": 0, "wikis": 0, "files": 0})
+    json!({"id": org_id, "kind": "personal", "name": "", "boards": 0, "wikis": 0, "diaries": 0, "files": 0})
 }
 
 /// How long a test waits for what the server sends.
@@ -474,7 +474,7 @@ async fn an_organization_behind_the_wall_does_not_go_by_a_password() {
         open["organizations"],
         json!([
             space,
-            {"id": org_id, "kind": "team", "name": ORG_NAME, "boards": 0, "wikis": 0, "files": 0}
+            {"id": org_id, "kind": "team", "name": ORG_NAME, "boards": 0, "wikis": 0, "diaries": 0, "files": 0}
         ]),
         "{open}"
     );
