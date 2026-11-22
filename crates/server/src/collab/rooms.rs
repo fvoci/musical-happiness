@@ -51,9 +51,9 @@ use super::messages::{self, reason_of};
 use super::queue::{Capacity, NotQueued, Queue, Queued};
 use super::versions::Left;
 use super::{Collab, DocChange, DocEvent, Loaded, admission, refusals};
-use crate::app::{App, Asker};
+use crate::app::{App, Asker, SessionKept};
 use crate::config::collab::CollabSettings;
-use fvoci_store::SessionTaken;
+use fvoci_store::{Making, SessionTaken};
 
 use crate::error::{AppError, Reason};
 use crate::permissions::DocMode;
@@ -148,9 +148,10 @@ pub(super) struct Connection {
     id: u64,
     /// The user of the connection's session; empty for a connection without one.
     pub(super) user_id: String,
-    /// The provider the connection's session was made through; none for a password,
-    /// and for a connection without a session.
-    pub(super) made_through: Option<String>,
+    /// How the connection's session was made, and what it confirmed as it came in
+    /// or since, as the websocket connection keeps it too: that of a password for a
+    /// connection without a session.
+    pub(super) making: SessionKept,
     pub(super) queue: Queue,
     joined: Mutex<Joined>,
     /// Cancelled when the connection is to be closed: an update it sent ended the
@@ -172,7 +173,7 @@ impl Connection {
     pub(super) fn asker(&self) -> Asker<'_> {
         Asker {
             user_id: &self.user_id,
-            made_through: self.made_through.as_deref(),
+            making: self.making.making(),
         }
     }
 
@@ -281,12 +282,13 @@ struct Asked {
     who: Who,
 }
 
-/// Whom the store is asked about: a user, the provider their session was made
-/// through, and the workspace they named as they came in.
+/// Whom the store is asked about: a user, how their session was made and what it
+/// confirmed, and the workspace they named as they came in. One answer is shared by
+/// those of whom all three are the same, and by no others.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct Who {
     user_id: String,
-    made_through: Option<String>,
+    making: Making,
     workspace_id: String,
 }
 
@@ -295,7 +297,7 @@ impl Who {
     fn asker(&self) -> Asker<'_> {
         Asker {
             user_id: &self.user_id,
-            made_through: self.made_through.as_deref(),
+            making: self.making.as_deref(),
         }
     }
 }
@@ -419,13 +421,15 @@ impl Turn {
 }
 
 impl Collab {
-    /// A connection of `asker` for the rooms, in none yet.
-    pub(super) fn connection(&self, asker: Asker<'_>) -> Arc<Connection> {
+    /// A connection of the user `user_id` for the rooms, in none yet, of the session
+    /// `making` keeps: the same keeping as the websocket connection's, so that what
+    /// the session confirms while it lasts is confirmed here too.
+    pub(super) fn connection(&self, user_id: &str, making: SessionKept) -> Arc<Connection> {
         let rooms = &self.inner.rooms;
         Arc::new(Connection {
             id: rooms.next_connection.fetch_add(1, Ordering::Relaxed),
-            user_id: asker.user_id.to_owned(),
-            made_through: asker.made_through.map(str::to_owned),
+            user_id: user_id.to_owned(),
+            making,
             queue: Queue::new(Capacity {
                 messages: rooms.queue_messages,
                 bytes: usize::try_from(self.inner.limits.state_bytes)
@@ -596,8 +600,8 @@ impl Collab {
             let before = turn.members.len();
             // From the last: a member put out takes the place of none not yet looked at.
             for index in (0..turn.members.len()).rev() {
-                let made_through = turn.members[index].connection.made_through.as_deref();
-                if !takes.opened_by(made_through) {
+                let making = turn.members[index].connection.making.making();
+                if !takes.opened_by(making) {
                     turn.put_out(index, &reason);
                 }
             }

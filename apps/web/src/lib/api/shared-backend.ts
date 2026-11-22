@@ -306,6 +306,7 @@ export class SharedBackend implements Backend {
 
   // Every change is refused before it is sent.
   patchMe: Backend['patchMe'] = refused;
+  confirmPassword: Backend['confirmPassword'] = refused;
   patchSettings: Backend['patchSettings'] = refused;
   createBoard: Backend['createBoard'] = refused;
   patchContainer: Backend['patchContainer'] = refused;

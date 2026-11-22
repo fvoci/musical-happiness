@@ -78,7 +78,13 @@ export * from './problems.ts';
 
 export interface User extends UserNames {
   id: string;
+  /** Of the reader's own user only where the backend has accounts: nobody is told another's. */
   email: string;
+  /**
+   * Only on the reader's own user: the address the account waits to change
+   * to, until the link mailed there is opened (`Account.emailChange`).
+   */
+  pendingEmail?: string | undefined;
   /**
    * The parts of the name, which of them the user is shown by
    * (`displayName` is made of them), the title and the credentials: whoever
@@ -286,6 +292,14 @@ export interface Backend
    * (`patchMe`); the user as they are now, `displayName` made anew.
    */
   patchMe(patch: NameChange): Promise<User>;
+  /**
+   * Gives the account's password in the session the reader has: their own
+   * space, closed to it until then (`passwordRequired`), opens to it for as
+   * long as it lasts, and it is the same session to everything else. A wrong
+   * password is 400 `invalid_credentials`, too many tries 429, an account
+   * without a password 409.
+   */
+  confirmPassword(password: string): Promise<void>;
   workspaces(): Promise<WorkspaceInfo[]>;
   /** The people of a workspace: who can be mentioned or set as a person. */
   users(workspaceId: string): Promise<User[]>;

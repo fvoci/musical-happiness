@@ -10,6 +10,7 @@
  */
 import { getLocale } from '$lib/i18n/paraglide/runtime.js';
 import type { Account, Backend, People } from '$lib/state/index.ts';
+import type { EmailChange } from '$lib/state/email-change.ts';
 import type { EmailVerification, WaitingAccount } from '$lib/state/email-verification.ts';
 import type { PasswordRecovery } from '$lib/state/password-recovery.ts';
 import type { Organizations } from '$lib/state/organization.ts';
@@ -168,6 +169,16 @@ export async function startEmailVerification(): Promise<EmailVerification> {
 /** Mails a registration that waits for its address a new link, in the page's language. */
 export async function resendLink(waiting: WaitingAccount): Promise<void> {
   await (await startEmailVerification()).resend(waiting, getLocale());
+}
+
+/** The link that changes an account's address is opened signed in or not. */
+export async function startEmailChange(): Promise<EmailChange> {
+  const [{ ServerEmailChange }, { Http }] = await Promise.all([
+    import('$lib/api/email-change.ts'),
+    import('$lib/api/http.ts'),
+  ]);
+  const base = readBasePath(document);
+  return new ServerEmailChange(new Http(base === '' ? '' : `/${base}`));
 }
 
 /** Recovery is available before there is an account or a workspace to load. */

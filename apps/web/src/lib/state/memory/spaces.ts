@@ -52,6 +52,31 @@ export function workersOf(world: World, workspaceId: string): ReadonlySet<string
 }
 
 /**
+ * Gives the user a password and closes their own space to the session, as
+ * the server does to a session made through a provider: it opens again to
+ * the password (`confirmPassword`).
+ */
+export function closeOwnSpace(world: World, userId: string, password: string): void {
+  world.passwords.set(userId, password);
+  ownSpaceOf(world, userId).passwordRequired = true;
+}
+
+/**
+ * The session gives the account's password, as the server reads it
+ * (`confirmPassword`): the own space opens to it. 409 for an account that
+ * has none, 400 `invalid_credentials` at the member for another password.
+ */
+export function confirmPassword(world: World, userId: string, password: string): void {
+  const kept = world.passwords.get(userId);
+  if (kept === undefined) fail(409, 'the account has no password');
+  if (kept !== password) {
+    const refusal = { detail: 'the password is wrong', reason: 'invalid_credentials' };
+    throw new BackendError(400, { ...refusal, errors: [{ ...refusal, pointer: '/password' }] });
+  }
+  ownSpaceOf(world, userId).passwordRequired = false;
+}
+
+/**
  * 404 unless the user works in the workspace: the shared one, or their own
  * space; 401 `password_sign_in_required` in an own space marked closed to the
  * session (`passwordRequired`), as the server answers a provider's session.

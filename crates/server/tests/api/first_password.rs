@@ -21,7 +21,7 @@ use crate::own_space::workspaces_and_own;
 use crate::rooms::Peer;
 use crate::sso::{Passwords, admin_through_provider, require_sso};
 
-const FIRST_PASSWORD: &str = "a first Pa$$word";
+pub(crate) const FIRST_PASSWORD: &str = "a first Pa$$word";
 
 /// Whether the account of the client is told it has a password.
 async fn has_password(client: &Client) -> Value {
@@ -30,7 +30,11 @@ async fn has_password(client: &Client) -> Value {
 }
 
 /// A board in the user's own space that they administer, and its identifier.
-async fn board_in_the_space(ts: &TestServer, own: &UserWorkspace, user_id: &str) -> String {
+pub(crate) async fn board_in_the_space(
+    ts: &TestServer,
+    own: &UserWorkspace,
+    user_id: &str,
+) -> String {
     let mut board = Container {
         id: new_id(),
         workspace_id: own.id.clone(),
@@ -49,7 +53,7 @@ async fn board_in_the_space(ts: &TestServer, own: &UserWorkspace, user_id: &str)
 }
 
 /// The boards the session's user is listed as a member of, in every organization.
-async fn boards_of(client: &Client) -> Vec<String> {
+pub(crate) async fn boards_of(client: &Client) -> Vec<String> {
     let members: Vec<ContainerMember> = client.get("/users/me/memberships").await.ok_json();
     members
         .into_iter()
@@ -59,7 +63,7 @@ async fn boards_of(client: &Client) -> Vec<String> {
 
 /// How many boards the session is told its account's own space holds, where it asks
 /// what deleting the account comes to: nothing for a session the space is closed to.
-async fn counted_in_the_space(client: &Client) -> Value {
+pub(crate) async fn counted_in_the_space(client: &Client) -> Value {
     let deletion: Value = client.get("/users/me/deletion").await.ok_json();
     let space = &deletion["organizations"][0];
     assert_eq!(space["kind"], json!("personal"), "{deletion}");
@@ -67,7 +71,7 @@ async fn counted_in_the_space(client: &Client) -> Value {
 }
 
 /// Signs in with the name and the password, and answers what the server said.
-async fn login(ts: &TestServer, username: &str, password: &str) -> (StatusCode, Client) {
+pub(crate) async fn login(ts: &TestServer, username: &str, password: &str) -> (StatusCode, Client) {
     let mut client = ts.anonymous();
     let answer = client.login(username, password).await;
     (answer.status, client)
@@ -189,7 +193,7 @@ async fn an_account_made_through_a_provider_sets_its_first_password_once() {
 }
 
 /// What a session is told is closed to it for want of the account's password.
-async fn check_asks_for_the_password(client: &Client, path: &str) {
+pub(crate) async fn check_asks_for_the_password(client: &Client, path: &str) {
     let refused = client.get(path).await;
     refused.check_unauthorized();
     assert_eq!(
@@ -265,7 +269,12 @@ async fn a_space_takes_the_password_alone_once_its_account_has_one() {
 }
 
 /// A card on a board of the user's own space, past the routes, and its identifier.
-async fn card_in_the_space(ts: &TestServer, own: &UserWorkspace, board: &str, by: &str) -> String {
+pub(crate) async fn card_in_the_space(
+    ts: &TestServer,
+    own: &UserWorkspace,
+    board: &str,
+    by: &str,
+) -> String {
     let mut card = Block {
         id: new_id(),
         container_id: board.to_owned(),
@@ -283,9 +292,9 @@ async fn card_in_the_space(ts: &TestServer, own: &UserWorkspace, board: &str, by
 }
 
 /// The room of a card of the space is the space's: a connection of the provider's
-/// session is in it while the account has no password, is closed as the first
-/// password is set, and is refused the room from then on as one that asks for a card
-/// that is not there. A connection of the password's session comes in.
+/// session is in it while the account has no password, is put out of it as the first
+/// password is set, staying open, and is refused the room from then on as one that
+/// asks for a card that is not there. A connection of the password's session comes in.
 #[tokio::test]
 async fn the_room_of_a_card_of_a_space_takes_the_password_alone_once_there_is_one() {
     let fake = FakeProvider::start().await;
@@ -311,12 +320,19 @@ async fn the_room_of_a_card_of_a_space_takes_the_password_alone_once_there_is_on
     set.check_no_content();
     let cookie = set.session_cookie().expect("the session's new cookie");
     let client = ts.client_with_token(&cookie);
-    while before.step(Duration::from_secs(5)).await {}
+    while before.step(Duration::from_millis(500)).await {}
+    let told = before.unread();
     assert!(
-        before.unread().contains(&json!({"action": "CLOSED"})),
-        "the connection that was in the room is closed: {:?}",
-        before.unread()
+        told.iter()
+            .any(|message| message["action"] == json!("DOC_LEFT")),
+        "the connection that was in the room is put out of it: {told:?}"
     );
+    assert!(
+        !told.contains(&json!({"action": "CLOSED"})),
+        "and stays open, as the session that set the password goes on: {told:?}"
+    );
+    let refused = before.join(&own.id, &card).await;
+    assert_eq!(refused["action"], json!("DOC_REFUSED"), "{refused}");
 
     let mut by_provider = Peer::connect(&client, 302).await;
     let refused = by_provider.join(&own.id, &card).await;
@@ -333,15 +349,30 @@ async fn the_room_of_a_card_of_a_space_takes_the_password_alone_once_there_is_on
 
 /// Whether a connection of the client's session that follows the workspace of the
 /// space is told of a card made on its board.
-async fn told_of_the_space(ts: &TestServer, client: &Client, at: (&UserWorkspace, &str)) -> bool {
+pub(crate) async fn told_of_the_space(
+    ts: &TestServer,
+    client: &Client,
+    at: (&UserWorkspace, &str),
+) -> bool {
+    let mut socket = client.connect_websocket().await;
+    told_on(ts, &mut socket, client, at).await
+}
+
+/// Whether the connection `socket`, of the client's session, is told of a card made
+/// on the board of the space once it asks to follow the space's workspace.
+pub(crate) async fn told_on(
+    ts: &TestServer,
+    socket: &mut crate::common::WebSocket,
+    client: &Client,
+    at: (&UserWorkspace, &str),
+) -> bool {
     use futures_util::{SinkExt as _, StreamExt as _};
 
     let (own, board) = at;
-    let mut socket = client.connect_websocket().await;
     let follow = json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": own.id});
     let follow = Message::Text(follow.to_string().into());
     socket.send(follow).await.expect("the command is sent");
-    carried_out(ts.app.ws(), &mut socket).await;
+    carried_out(ts.app.ws(), socket).await;
     let by = client.me().await.id;
     let card = card_in_the_space(ts, own, board, &by).await;
     assert!(
@@ -359,10 +390,32 @@ async fn told_of_the_space(ts: &TestServer, client: &Client, at: (&UserWorkspace
     told
 }
 
+/// How what a connection followed ended: the reason of the `UNSUBSCRIBED_WORKSPACE`
+/// it is told, `closed` if the server closed it, or `nothing`.
+async fn unsubscribed_or_closed(socket: &mut crate::common::WebSocket) -> String {
+    use futures_util::StreamExt as _;
+
+    loop {
+        match tokio::time::timeout(Duration::from_secs(2), socket.next()).await {
+            Ok(Some(Ok(Message::Text(text)))) => {
+                let message: Value = serde_json::from_str(&text).expect("a message");
+                if message["action"] == json!("UNSUBSCRIBED_WORKSPACE") {
+                    return message["reason"].as_str().unwrap_or_default().to_owned();
+                }
+            }
+            Ok(Some(Ok(Message::Close(_)) | Err(_)) | None) => return "closed".to_owned(),
+            Ok(Some(Ok(_))) => {}
+            Err(_) => return "nothing".to_owned(),
+        }
+    }
+}
+
 /// What the server answered a connection that followed a space is not kept past the
 /// account's first password, whoever set it: its person from a session, or the
 /// server's operator. A connection of a provider's session is told of the space
-/// before, and one made after is told nothing; the password's session is told.
+/// before, and one made after is told nothing; the password's session is told. The
+/// connection that followed the space as its own session set the password stays open
+/// and is told that it follows the space no more.
 #[tokio::test]
 async fn a_first_password_ends_what_a_provider_session_is_told_of_the_space() {
     let fake = FakeProvider::start().await;
@@ -378,7 +431,11 @@ async fn a_first_password_ends_what_a_provider_session_is_told_of_the_space() {
         let (_, own) = workspaces_and_own(&client).await;
         let board = board_in_the_space(&ts, &own, &client.me().await.id).await;
         let at = (&own, board.as_str());
-        assert!(told_of_the_space(&ts, &client, at).await, "{name}: before");
+        let mut followed = client.connect_websocket().await;
+        assert!(
+            told_on(&ts, &mut followed, &client, at).await,
+            "{name}: before"
+        );
 
         // Nothing is written between the password and the next connection but the
         // password: the session that set it goes on, and the operator ends every one.
@@ -392,6 +449,16 @@ async fn a_first_password_ends_what_a_provider_session_is_told_of_the_space() {
             set.check_no_content();
             ts.client_with_token(&set.session_cookie().expect("the session's new cookie"))
         };
+        let ended = unsubscribed_or_closed(&mut followed).await;
+        let want = if by_operator {
+            "closed"
+        } else {
+            "password sign-in required"
+        };
+        assert_eq!(
+            ended, want,
+            "{name}: the connection that followed the space"
+        );
         assert!(
             !told_of_the_space(&ts, &later, at).await,
             "{name}: a provider's session is told nothing of the space"

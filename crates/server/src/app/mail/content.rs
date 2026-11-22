@@ -45,6 +45,59 @@ impl Content {
         Self::link(subject, &intro, ending, link, language)
     }
 
+    /// The link that makes the address it is mailed to the address of the account
+    /// `username`: named, so that who did not ask sees whose account it is.
+    pub(crate) fn email_change(link: &str, username: &str, language: Language) -> Self {
+        let (subject, intro, ending) = match language {
+            Language::English => (
+                "Confirm your new email address for fvoci",
+                format!(
+                    "Use this link to make this the email address of the fvoci account {username}:"
+                ),
+                "This link expires in 24 hours and can be used once. Until it is used, the account keeps the address it has. If you did not ask for this, ignore this message: nothing changes.",
+            ),
+            Language::Korean => (
+                "fvoci 새 이메일 주소 확인",
+                format!("다음 링크로 이 주소를 fvoci 계정 {username}의 이메일 주소로 정하세요:"),
+                "이 링크는 24시간 동안 한 번만 쓸 수 있습니다. 쓰기 전까지 계정의 주소는 그대로입니다. 요청한 적이 없으면 이 메일을 무시하면 됩니다. 아무것도 바뀌지 않습니다.",
+            ),
+        };
+        Self::link(subject, &intro, ending, link, language)
+    }
+
+    /// The notice to the address the account `username` had, that it is the account's
+    /// no more. It names nothing of the new address, and carries no link: whoever
+    /// reads the old mailbox learns that the address changed, not where to.
+    pub(crate) fn email_changed(username: &str, language: Language) -> Self {
+        let (subject, said, ending) = match language {
+            Language::English => (
+                "The email address of your fvoci account was changed",
+                format!(
+                    "The email address of the fvoci account {username} was changed. This address is no longer the account's: mail for it, a password reset link too, goes to the new address from now on."
+                ),
+                "If you did not change it, somebody else knows the account's password: ask an administrator of your organization, or the operator of the server, for help.",
+            ),
+            Language::Korean => (
+                "fvoci 계정의 이메일 주소가 바뀌었습니다",
+                format!(
+                    "fvoci 계정 {username}의 이메일 주소가 바뀌었습니다. 이 주소는 더 이상 계정의 주소가 아닙니다. 비밀번호 재설정 링크를 비롯한 계정의 메일은 이제 새 주소로 갑니다."
+                ),
+                "직접 바꾸지 않았다면 다른 사람이 계정의 비밀번호를 알고 있는 것입니다. 조직의 관리자나 서버 운영자에게 도움을 요청하세요.",
+            ),
+        };
+        let tag = language.tag();
+        Self {
+            subject,
+            plain: format!("{said}\n\n{ending}\n"),
+            html: format!(
+                "<!doctype html><html lang=\"{tag}\"><body><p>{}</p><p>{}</p></body></html>",
+                escape(&said),
+                escape(ending)
+            ),
+            language,
+        }
+    }
+
     pub(crate) fn invitation(
         link: &str,
         language: Language,
@@ -191,6 +244,38 @@ mod tests {
                 let text = text.to_lowercase();
                 for word in UNSAID {
                     assert!(!text.contains(word), "{language:?}: {word} in {text}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_mails_of_a_changed_address_have_both_languages_and_name_no_workspace() {
+        for language in [Language::English, Language::Korean] {
+            let link =
+                Content::email_change("https://example.test/confirm-email#t<", "a<b", language);
+            assert!(
+                link.plain.contains("https://example.test/confirm-email#t<"),
+                "{}",
+                link.plain
+            );
+            assert!(link.html.contains("#t&lt;"), "{}", link.html);
+            let notice = Content::email_changed("a<b", language);
+            assert!(!notice.plain.contains("http"), "no link: {}", notice.plain);
+            assert!(!notice.plain.contains('@'), "no address: {}", notice.plain);
+            for content in [&link, &notice] {
+                assert!(content.plain.contains("a<b"), "{}", content.plain);
+                assert!(content.html.contains("a&lt;b"), "escaped: {}", content.html);
+                assert!(
+                    content
+                        .html
+                        .contains(&format!("lang=\"{}\"", language.tag()))
+                );
+                for text in [content.subject, &content.plain, &content.html] {
+                    let text = text.to_lowercase();
+                    for word in ["workspace", "워크스페이스", "my space", "내 공간"] {
+                        assert!(!text.contains(word), "{language:?}: {word} in {text}");
+                    }
                 }
             }
         }

@@ -24,16 +24,30 @@ pub struct Me {
     /// sign-in through an organization's provider has none until its person sets one
     /// (`setPassword`), and signs in through the provider only until then.
     pub has_password: bool,
+    /// The email address of the account, which nobody else is answered; empty for an
+    /// account that has none.
+    pub email: String,
+    /// The address the account waits to have confirmed (`requestEmailChange`), which
+    /// becomes `email` by the link mailed to it; left out when it waits for none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_email: Option<String>,
 }
 
 impl Me {
-    /// The user as their own account is answered to them. Reads whether there is a
-    /// password before the hash is blanked: `user` is as the store has it.
+    /// The user as their own account is answered to them, waiting to have
+    /// `pending_email` confirmed if any. Reads whether there is a password before the
+    /// hash is blanked: `user` is as the store has it.
     #[must_use]
-    pub fn of(mut user: User) -> Self {
+    pub fn of(mut user: User, pending_email: Option<String>) -> Self {
         let has_password = !user.password_hash.is_empty();
         user.password_hash.clear();
-        Self { user, has_password }
+        let email = user.email.clone();
+        Self {
+            user,
+            has_password,
+            email,
+            pending_email,
+        }
     }
 }
 
@@ -172,6 +186,10 @@ pub struct Session {
     /// The `OpenID Connect` provider the session was made through; `None` for a session
     /// made with a password.
     pub login: Option<LoginOrigin>,
+    /// When the session confirmed the account's password, in milliseconds since the
+    /// Unix epoch; `None` for one that has not. It stays for as long as the session
+    /// does.
+    pub password_confirmed_at: Option<i64>,
 }
 
 impl Session {

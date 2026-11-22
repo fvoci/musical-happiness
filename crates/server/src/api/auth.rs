@@ -6,7 +6,8 @@ use axum::http::header::{SET_COOKIE, USER_AGENT};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse as _, Response};
 use fvoci_model::{
-    ChangePasswordRequest, LoginRequest, Problem, RegisterRequest, SetPasswordRequest, User,
+    ChangePasswordRequest, ConfirmPasswordRequest, LoginRequest, Problem, RegisterRequest,
+    SetPasswordRequest, User,
 };
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -44,6 +45,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_logout))
         .routes(routes!(handle_change_password, handle_set_password))
+        .routes(routes!(handle_confirm_password))
 }
 
 /// The routes anyone can send a body to: they come before there is a session.
@@ -315,10 +317,12 @@ async fn handle_change_password(
 /// asking for those (`sso_required`). The account's other sessions end, and this one
 /// goes on under a new cookie, as after `changePassword`.
 ///
-/// From then on the account's own space takes only sessions made with the password
-/// (`password_sign_in_required`, see "The user's own space"): this session, which was
-/// made through a provider, opens it no more, and the account's websocket
-/// connections are closed, to come back to what the session opens.
+/// From then on the account's own space takes only sessions that have shown the
+/// password (`password_sign_in_required`, see "The user's own space"): this session,
+/// which was made through a provider and set the password without being asked for
+/// one, opens it no more until it gives the password (`confirmPassword`). Its
+/// websocket connections stay open and hear no more of the space; those of the
+/// account's other sessions are closed.
 ///
 /// Once only: an account that has a password is 409, and changes it with
 /// `changePassword`. The password must have at least 8 characters and at most 1024
@@ -352,5 +356,64 @@ async fn handle_set_password(
     let request: SetPasswordRequest = decode_object(&body)?;
     request.validate()?;
     let token = app.set_password(&session, &request.password).await?;
+    Ok(with_session_cookie(&app, &token, no_content()))
+}
+
+/// Confirm the password in this session
+///
+/// Takes the session as one that has shown the account's password: for a session made
+/// through an organization's provider, to which the account's own space is closed once
+/// the account has a password (`password_sign_in_required`, see "The user's own
+/// space"). From then until the session ends it opens the space as a session made
+/// with the password does, `getMyWorkspaces` lists the space with `passwordRequired`
+/// false, and it goes on opening what it opened of the organizations: nothing else
+/// changes of what it opens, and an organization that takes only sessions made
+/// through another provider stays closed to it (`sso_required`). A session made with
+/// the password is answered the same and opens what it opened.
+///
+/// The session goes on under a new cookie, as after `changePassword`: it opens more
+/// than it did, and the value that opened less is no longer accepted. Its websocket
+/// connections stay open, and are the confirmed session's from then on: what the
+/// space refused them is asked again on the same connection.
+///
+/// A wrong password is 400 (not 401: the session is good) with the reason
+/// `invalid_credentials`, and `errors` names `password`. Wrong ones are counted with
+/// the failed logins to the account by its name, and too many are 429, also for a
+/// login: the limits are those of `login`. An account that has no password
+/// (`hasPassword` of `getMe`) is 409: its space takes any session, and there is
+/// nothing to confirm. A password that was changed while this request was under way
+/// is 409 too.
+#[utoipa::path(
+    post,
+    path = "/users/me/password/confirm",
+    operation_id = "confirmPassword",
+    tag = tag::AUTH,
+    request_body = ConfirmPasswordRequest,
+    responses(
+        (
+            status = 204,
+            description = "The session has shown the password.",
+            headers(("Set-Cookie" = String, description = "The session cookie, with its new value.")),
+        ),
+        (
+            status = 429,
+            description = "The password was wrong too often, or the server has too much password work to do at the moment.",
+            body = Problem,
+            content_type = "application/problem+json",
+            headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
+        ),
+    ),
+)]
+async fn handle_confirm_password(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    client: Option<Extension<ClientAddress>>,
+    body: Bytes,
+) -> ApiResult {
+    let request: ConfirmPasswordRequest = decode_object(&body)?;
+    let token = app
+        .confirm_session_password(&session, &request.password, address_of(client))
+        .await?;
+    // The session goes on under a new token, which replaces the old one in the cookie.
     Ok(with_session_cookie(&app, &token, no_content()))
 }

@@ -182,7 +182,7 @@ impl Store {
                     scope.invalidate_visibility_of(&space.id)?;
                 }
                 sessions::delete_sessions_of_user(scope, user_id).await?;
-                password_reset::delete_password_resets_of_user(scope, user_id).await?;
+                password_reset::end_links_of_user(scope, user_id).await?;
                 Ok(DeletionAsking::Asked(Leaving {
                     requested_at: now,
                     delete_after,

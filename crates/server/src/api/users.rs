@@ -54,9 +54,11 @@ fn user_not_found(error: AppError) -> AppError {
 /// The user of the session
 ///
 /// The user as anybody who sees them is answered them, and what only they are told of
-/// their account: whether it has a password (`hasPassword`). An account made by a
-/// sign-in through an organization's provider has none, and is reached through that
-/// provider only, its own space too, until its person sets one (`setPassword`).
+/// their account: its email address (`email`), the one it waits to have confirmed
+/// (`pendingEmail`, see `requestEmailChange`), and whether it has a password
+/// (`hasPassword`). An account made by a sign-in through an organization's provider
+/// has none, and is reached through that provider only, its own space too, until its
+/// person sets one (`setPassword`).
 #[utoipa::path(
     get,
     path = "/users/me",
@@ -68,8 +70,8 @@ async fn handle_get_me(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    let user = app.user(&session.user_id).await.map_err(user_not_found)?;
-    Ok(json_response(&Me::of(user)))
+    let me = app.me(&session.user_id).await.map_err(user_not_found)?;
+    Ok(json_response(&me))
 }
 
 /// Change the user's account

@@ -56,6 +56,7 @@ async fn open(store: &Store, user_id: &str, login: Option<LoginOrigin>) -> Strin
         expires_at: T0 + 1000,
         user_agent: "a browser".to_owned(),
         login,
+        ..Session::default()
     };
     assert!(
         store

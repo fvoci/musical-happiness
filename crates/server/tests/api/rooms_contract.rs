@@ -27,8 +27,11 @@ async fn left_for_not_reading(
         "action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID, "cardId": card_id,
     })
     .to_string();
-    let (mut slow, waiting) =
-        collab.seat(&th.app, fvoci_server::app::Asker::with_password(user_id));
+    let (mut slow, waiting) = collab.seat(
+        &th.app,
+        user_id,
+        fvoci_server::app::SessionKept::with_password(),
+    );
     assert!(slow.command(&join).await, "a command of the rooms");
     let app = th
         .app
