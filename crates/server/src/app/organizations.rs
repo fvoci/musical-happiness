@@ -4,7 +4,7 @@
 use std::net::IpAddr;
 
 use fvoci_model::{ContainerMember, ContainerRole, OrgKind, Session, UserWorkspace, WorkspaceRole};
-use fvoci_store::{Departure, DepartureRefused, LeftFrom, Tenant};
+use fvoci_store::{Departure, DepartureRefused, LeftFrom};
 
 use super::App;
 use crate::collab::AccessScope;
@@ -79,11 +79,10 @@ impl App {
         session: &Session,
         org_id: &str,
     ) -> Result<(), AppError> {
-        let Ok(tenant) = Tenant::org(org_id) else {
+        let user_id = session.user_id.as_str();
+        let Some(within) = self.enter_org_as_member(user_id, org_id).await? else {
             return Err(AppError::not_found("organization"));
         };
-        let within = self.scoped(tenant);
-        let user_id = session.user_id.as_str();
         match within.store().leave_organization(user_id).await? {
             Departure::Left(left) => {
                 tracing::info!(org_id, user_id, "an account left an organization");
