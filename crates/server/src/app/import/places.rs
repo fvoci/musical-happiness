@@ -504,4 +504,81 @@ mod tests {
         let error = check(&archive, limits).expect_err("too many");
         assert_eq!(error.reason(), Some(Reason::TooManyPages));
     }
+
+    #[test]
+    fn a_course_outline_within_limits_is_taken_and_violations_are_refused() {
+        let chapter = || BlockType::Chapter;
+        let unit = || BlockType::Unit;
+        let valid = [
+            ("ch1", "", chapter()),
+            ("u1", "ch1", unit()),
+            ("u2", "", unit()),
+        ];
+        assert!(check(&of("c", ContainerKind::Course, &valid), LIMITS).is_ok());
+
+        let cases: [(Blocks<'_>, BlockError); 6] = [
+            (&[("a", "", BlockType::Card)], BlockError::NotUnitOnCourse),
+            (&[("a", "", BlockType::Page)], BlockError::NotUnitOnCourse),
+            (
+                &[("ch1", "", chapter()), ("ch2", "ch1", chapter())],
+                BlockError::ChapterBelowBlock,
+            ),
+            (
+                &[("u1", "", unit()), ("ch1", "u1", chapter())],
+                BlockError::ChapterBelowBlock,
+            ),
+            (
+                &[("u1", "", unit()), ("u2", "u1", unit())],
+                BlockError::UnitParentNotChapter,
+            ),
+            (
+                &[("u1", "missing", unit())],
+                BlockError::ParentNotOnContainer,
+            ),
+        ];
+        for (blocks, said) in cases {
+            let refused = refusal(ContainerKind::Course, blocks);
+            assert!(refused.contains(&said.to_string()), "{blocks:?}: {refused}");
+        }
+        for other in [ContainerKind::Board, ContainerKind::Wiki] {
+            for block_type in [unit(), chapter()] {
+                let refused = refusal(other, &[("u1", "", block_type)]);
+                assert!(
+                    refused.contains(&BlockError::UnitOffCourse.to_string()),
+                    "{other:?}: {refused}"
+                );
+            }
+        }
+        let twice = refusal(
+            ContainerKind::Course,
+            &[("u1", "", unit()), ("u1", "", unit())],
+        );
+        assert!(twice.contains("two blocks"), "{twice}");
+
+        // 200 chapters + 2,000 units is allowed; one more of either is refused.
+        let chapter_ids: Vec<String> = (0..CHAPTERS_PER_COURSE).map(|i| format!("c{i}")).collect();
+        let unit_ids: Vec<String> = (0..UNITS_PER_COURSE).map(|i| format!("u{i}")).collect();
+        let mut at_limit: Vec<(&str, &str, BlockType)> = chapter_ids
+            .iter()
+            .map(|id| (id.as_str(), "", chapter()))
+            .collect();
+        at_limit.extend(
+            unit_ids
+                .iter()
+                .map(|id| (id.as_str(), chapter_ids[0].as_str(), unit())),
+        );
+        assert!(check(&of("c", ContainerKind::Course, &at_limit), LIMITS).is_ok());
+
+        let mut extra_chapter = at_limit.clone();
+        extra_chapter.push(("c_extra", "", chapter()));
+        let error = check(&of("c", ContainerKind::Course, &extra_chapter), LIMITS)
+            .expect_err("too many chapters");
+        assert_eq!(error.reason(), Some(Reason::TooManyChapters));
+
+        let mut extra_unit = at_limit;
+        extra_unit.push(("u_extra", "", unit()));
+        let error = check(&of("c", ContainerKind::Course, &extra_unit), LIMITS)
+            .expect_err("too many units");
+        assert_eq!(error.reason(), Some(Reason::TooManyUnits));
+    }
 }

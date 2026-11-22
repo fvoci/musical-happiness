@@ -25,6 +25,9 @@ struct Named {
     wiki: String,
     page: String,
     comment: String,
+    /// A course for everybody in the workspace, which the member joined, and a unit of it.
+    course: String,
+    unit: String,
     file: String,
     upload: String,
     category: String,
@@ -41,7 +44,7 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 44] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 45] = [
     // No workspace of an organization has a diary: a diary is of a user's own space.
     "getDiaries",
     "createDiary",
@@ -86,6 +89,7 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 44] = [
     "undeleteBlock",
     "undeletePage",
     "undeletePageComment",
+    "undeleteUnit",
     // The member's subscription is to the card, by its own identifier.
     "deleteSubscription",
     // The upload asked of is done with by then, or was never begun in parts.
@@ -122,6 +126,7 @@ fn operations() -> Vec<(String, String, String)> {
         | "deleteContainer"
         | "deleteBlock"
         | "deletePage"
+        | "deleteUnit"
         | "deleteBoardsAndBlocks"
         | "deleteUpload"
         | "deleteCategory"
@@ -152,6 +157,8 @@ impl Named {
             .replace("{wikiId}", &self.wiki)
             .replace("{pageId}", &self.page)
             .replace("{commentId}", &self.comment)
+            .replace("{courseId}", &self.course)
+            .replace("{unitId}", &self.unit)
             // No workspace of an organization has a diary: the board named as one is
             // none, in either organization.
             .replace("{diaryId}", &self.board)
@@ -247,6 +254,7 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         .await
         .value();
     let (wiki, page, comment) = wiki_with_a_page(&founder, &at, name).await;
+    let (course, unit) = course_with_a_unit(&founder, &at, name).await;
     write_a_body(&founder, &at, &card).await;
     let file = Client::send(
         founder
@@ -273,8 +281,8 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         )
         .await
         .value();
-    // On the board and the wiki, the member asks what their members are asked.
-    for joined in [&board, &wiki] {
+    // On the board, wiki and course, the member asks what their members are asked.
+    for joined in [&board, &wiki, &course] {
         member
             .post(&format!("{at}/containers/{joined}/join"), &json!({}))
             .await
@@ -315,8 +323,30 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         wiki,
         page,
         comment,
+        course,
+        unit,
         team,
     }
+}
+
+/// A course of the workspace at `at` for everybody in it, with one unit: both identifiers.
+async fn course_with_a_unit(founder: &Client, at: &str, name: &str) -> (String, String) {
+    let course = founder
+        .post(
+            &format!("{at}/courses"),
+            &json!({"title": format!("{name} course"), "type": "O"}),
+        )
+        .await
+        .value();
+    let course = text(&course, "id");
+    let unit = founder
+        .post(
+            &format!("{at}/courses/{course}/units"),
+            &json!({"title": format!("{name} unit")}),
+        )
+        .await
+        .value();
+    (course, text(&unit, "id"))
 }
 
 /// The invitation for members the founder makes in the workspace at `at`, and the
@@ -497,6 +527,9 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getWikis",
         "getPageTree",
         "getPage",
+        "getCourses",
+        "getUnitTree",
+        "getUnit",
         "getPageComments",
         "getPageCommentVersions",
         "getPageBodyVersions",

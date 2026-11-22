@@ -366,6 +366,24 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/diaries/{diaryId}/entries/{entryId}/body-versions/{version}/restore",
         "restoreDiaryEntryBodyVersion",
     ),
+    ("GET", "/courses", "getCourses"),
+    ("POST", "/courses", "createCourse"),
+    ("GET", "/courses/{courseId}/units", "getUnitTree"),
+    ("POST", "/courses/{courseId}/units", "createUnit"),
+    ("GET", "/courses/{courseId}/units/{unitId}", "getUnit"),
+    ("PATCH", "/courses/{courseId}/units/{unitId}", "patchUnit"),
+    ("DELETE", "/courses/{courseId}/units/{unitId}", "deleteUnit"),
+    (
+        "POST",
+        "/courses/{courseId}/units/{unitId}/move",
+        "moveUnit",
+    ),
+    ("GET", "/courses/{courseId}/trash/units", "getDeletedUnits"),
+    (
+        "POST",
+        "/courses/{courseId}/units/{unitId}/undelete",
+        "undeleteUnit",
+    ),
 ];
 
 /// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
@@ -402,6 +420,15 @@ const REACHED_BY_ITEM: &[&str] = &[
     "getDeletedPages",
     "undeletePage",
     "undeletePageComment",
+    "createCourse",
+    "getUnitTree",
+    "createUnit",
+    "getUnit",
+    "patchUnit",
+    "deleteUnit",
+    "moveUnit",
+    "getDeletedUnits",
+    "undeleteUnit",
     "createBoardsAndBlocks",
     "deleteBoardsAndBlocks",
     "patchBoardsAndBlocks",
@@ -575,6 +602,7 @@ fn route_body(operation: &str, user_id: &str, workspace: &str) -> Value {
 const EMPTY_FOR_A_GUEST: &[&str] = &[
     "getWorkspaceBoards",
     "getWikis",
+    "getCourses",
     "resolveReferences",
     "searchReferences",
     "searchWorkspaceContent",
@@ -1065,6 +1093,8 @@ pub(super) struct Items<'a> {
     /// An entry of a diary of the same workspace, where it is of a user's own space;
     /// its `container_id` is the diary. No other workspace has one.
     pub(super) entry: Option<&'a Block>,
+    /// A unit of a course of the same workspace; its `container_id` is the course.
+    pub(super) unit: &'a Block,
     pub(super) file: &'a str,
     pub(super) upload_id: &'a str,
     pub(super) category: &'a str,
@@ -1121,6 +1151,8 @@ impl Items<'_> {
                 "{entryId}",
                 &pick(self.entry.map_or(UNKNOWN_ID, |entry| &entry.id), UNKNOWN_ID),
             )
+            .replace("{courseId}", &pick(&self.unit.container_id, UNKNOWN_ID))
+            .replace("{unitId}", &pick(&self.unit.id, UNKNOWN_ID))
             .replace("{monthDay}", "02-29")
             .replace("{fileId}", &pick(self.file, "missing-file"))
             .replace("{uploadId}", &pick(self.upload_id, "missing-upload"))
@@ -1177,7 +1209,11 @@ pub(super) async fn compare_resource_routes(
                 }
                 "reorderCardProperties" | "createBlocks" => json!([]),
                 "createCard" => json!({"title": "new card"}),
-                "patchCard" | "patchContainer" | "patchBlock" => json!({"title": "changed"}),
+                "createUnit" => json!({"title": "new unit"}),
+                "moveUnit" => json!({"parentId": ""}),
+                "patchCard" | "patchContainer" | "patchBlock" | "patchUnit" => {
+                    json!({"title": "changed"})
+                }
                 "createDiaryEntry" => json!({"date": "2020-02-29"}),
                 "patchDiaryEntry" => json!({"mood": "good"}),
                 "createUpload" => json!({"name": "new.bin", "size": 0}),
@@ -1338,6 +1374,35 @@ pub(super) async fn a_page_in(
         .page
 }
 
+/// A unit of a new open course of the workspace, made by `owner`.
+pub(super) async fn a_unit_in(
+    store: &fvoci_store::Store,
+    workspace_id: &str,
+    owner: &str,
+) -> Block {
+    let mut course = Container {
+        id: new_id(),
+        workspace_id: workspace_id.to_owned(),
+        container_type: ContainerType::Open,
+        kind: fvoci_model::ContainerKind::Course,
+        title: "Hidden course".to_owned(),
+        ..Container::default()
+    };
+    store
+        .insert_container_with_admin(&mut course, owner)
+        .await
+        .expect("a course of the workspace");
+    let new = fvoci_model::NewUnit {
+        title: "Hidden unit".to_owned(),
+        ..fvoci_model::NewUnit::default()
+    };
+    store
+        .create_unit(&course.id, &new, fvoci_model::CourseLimits::DEFAULT, owner)
+        .await
+        .expect("its unit")
+        .unit
+}
+
 /// A comment on the page, by its maker.
 pub(super) async fn a_comment_on(store: &fvoci_store::Store, page: &Block) -> Block {
     let mut comment = Block {
@@ -1412,6 +1477,7 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     let invitation = a_link_into(&ts, HIDDEN_WORKSPACE_ID, &owner).await;
     let team = a_team_in(&ts, &board.workspace_id, &board.created_by).await;
     let page = a_page_in(ts.app.store(), &board.workspace_id, &board.created_by).await;
+    let unit = a_unit_in(ts.app.store(), &board.workspace_id, &board.created_by).await;
     let comment = a_comment_on(ts.app.store(), &page).await;
     let items = Items {
         board: &board,
@@ -1419,6 +1485,7 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
         page: &page,
         comment: &comment,
         entry: None,
+        unit: &unit,
         file: &file,
         upload_id: &upload.id,
         category: &category,
@@ -1667,6 +1734,7 @@ async fn the_paths_from_before_the_workspace_are_not_there() {
     let gone = WORKSPACE_ROUTES
         .iter()
         .filter(|(_, suffix, _)| !suffix.starts_with("/wikis"))
+        .filter(|(_, suffix, _)| !suffix.starts_with("/courses"))
         .filter(|(_, suffix, _)| !suffix.starts_with("/references"))
         .filter(|(_, _, operation)| REACHED_BY_ITEM.contains(operation))
         .map(|(method, suffix, operation)| (*method, fill_with_nothing(suffix), *operation))
@@ -1733,20 +1801,26 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         ..Block::default()
     };
     store.insert_block(&mut card, &me).await.expect("its card");
-    let mut data = &b"sibling workspace file"[..];
     let file = ts
         .app
-        .save_file(&mut data, &board.id, "sibling.txt")
+        .save_file(
+            &mut &b"sibling workspace file"[..],
+            &board.id,
+            "sibling.txt",
+        )
         .await
         .expect("its file");
-    let to_upload = fvoci_server::app::FileToUpload {
-        name: "sibling-upload.txt".to_owned(),
-        size: 0,
-        content_type: String::new(),
-    };
     let upload = ts
         .app
-        .create_upload(&me, &board.id, to_upload)
+        .create_upload(
+            &me,
+            &board.id,
+            fvoci_server::app::FileToUpload {
+                name: "sibling-upload.txt".to_owned(),
+                size: 0,
+                content_type: String::new(),
+            },
+        )
         .await
         .expect("the asker's upload to it");
     let category = ts
@@ -1762,25 +1836,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         .id;
     follow(store, &card, &me).await;
     let page = a_page_in(ts.app.store(), &board.workspace_id, &board.created_by).await;
-    // Under its own workspace each of them is there.
-    let page_path = format!("wikis/{}/pages/{}", page.container_id, page.id);
-    for path in [
-        format!("/w/{TEST_WORKSPACE_ID}/containers/{}", board.id),
-        format!("/w/{TEST_WORKSPACE_ID}/{page_path}"),
-        format!("/w/{TEST_WORKSPACE_ID}/cards/{}", card.id),
-        format!("/w/{TEST_WORKSPACE_ID}/uploads/{}", upload.id),
-        format!("/w/{TEST_WORKSPACE_ID}/users/{elsewhere}"),
-    ] {
-        ts.client.get(&path).await.check_ok();
-    }
-    let subscriptions = ts
-        .client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/subscriptions/{me}"))
-        .await;
-    assert!(
-        subscriptions.text().contains(&card.id),
-        "followed in its workspace"
-    );
+    let unit = a_unit_in(ts.app.store(), &board.workspace_id, &board.created_by).await;
     let invitation = a_link_into(&ts, TEST_WORKSPACE_ID, &me).await;
     let team = a_team_in(&ts, &board.workspace_id, &board.created_by).await;
     let comment = a_comment_on(ts.app.store(), &page).await;
@@ -1790,6 +1846,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         page: &page,
         comment: &comment,
         entry: None,
+        unit: &unit,
         file: &file,
         upload_id: &upload.id,
         category: &category,
@@ -1798,6 +1855,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         team: &team,
         subscriber: (&me, &me),
     };
+    assert_reachable_in_workspace(&ts.client, TEST_WORKSPACE_ID, &me, &items).await;
     let violations = compare_resource_routes(&ts.client, ROOT_WORKSPACE_ID, &items).await;
     // Named in a body or a query (the boards of a combined request, the board files are
     // copied from), the board is as one that does not exist too.
@@ -1810,6 +1868,37 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         violations.is_empty(),
         "what is of the test workspace, asked for under the root one:\n{}",
         violations.join("\n")
+    );
+}
+
+async fn assert_reachable_in_workspace(
+    client: &Client,
+    workspace_id: &str,
+    me: &str,
+    items: &Items<'_>,
+) {
+    for path in [
+        format!("/w/{workspace_id}/containers/{}", items.board.id),
+        format!(
+            "/w/{workspace_id}/wikis/{}/pages/{}",
+            items.page.container_id, items.page.id
+        ),
+        format!(
+            "/w/{workspace_id}/courses/{}/units/{}",
+            items.unit.container_id, items.unit.id
+        ),
+        format!("/w/{workspace_id}/cards/{}", items.card.id),
+        format!("/w/{workspace_id}/uploads/{}", items.upload_id),
+        format!("/w/{workspace_id}/users/{}", items.user),
+    ] {
+        client.get(&path).await.check_ok();
+    }
+    let subscriptions = client
+        .get(&format!("/w/{workspace_id}/subscriptions/{me}"))
+        .await;
+    assert!(
+        subscriptions.text().contains(&items.card.id),
+        "followed in its workspace"
     );
 }
 

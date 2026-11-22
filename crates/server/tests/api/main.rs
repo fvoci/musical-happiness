@@ -43,6 +43,7 @@ mod confirmed_password;
 mod content_blocks;
 mod content_search;
 mod cookies;
+mod courses;
 mod database_busy;
 mod deleted_boards_listed;
 mod deleted_cards;

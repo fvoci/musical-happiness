@@ -48,13 +48,18 @@ async fn a_board_is_of_the_kind_it_was_made_as_whatever_stores_it_again() {
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
     let board = stored(&test, &workspace_id, &user_id, ContainerKind::Board).await;
     let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
+    let course = stored(&test, &workspace_id, &user_id, ContainerKind::Course).await;
     assert_eq!(
         Container::default().kind,
         ContainerKind::Board,
         "a board that says no kind is a board"
     );
 
-    for (made, other) in [(&board, ContainerKind::Wiki), (&wiki, ContainerKind::Board)] {
+    for (made, other) in [
+        (&board, ContainerKind::Wiki),
+        (&wiki, ContainerKind::Board),
+        (&course, ContainerKind::Wiki),
+    ] {
         let mut as_other = Container {
             kind: other,
             title: "of another kind".to_owned(),
@@ -143,6 +148,44 @@ async fn a_wiki_is_no_template_and_has_no_card_properties() {
         "the wiki has none: {:?}",
         read.card_properties
     );
+
+    // Same rules hold for courses.
+    let course_prop: JsonMap = object(json!({"id": "level", "name": "Level", "type": "text"}));
+    let course = || Container {
+        kind: ContainerKind::Course,
+        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+    };
+    let mut course_template = Container {
+        is_template: true,
+        ..course()
+    };
+    assert_eq!(
+        refusal(test.insert_container(&mut course_template, &user_id).await),
+        ContainerError::CourseIsTemplate
+    );
+    let mut course_with_props = Container {
+        card_properties: vec![course_prop.clone()],
+        ..course()
+    };
+    assert_eq!(
+        refusal(
+            test.insert_container(&mut course_with_props, &user_id)
+                .await
+        ),
+        ContainerError::CourseHasCardProperties
+    );
+    let stored_course = stored(&test, &workspace_id, &user_id, ContainerKind::Course).await;
+    let patch = ContainerPatch {
+        updated_card_properties: vec![course_prop],
+        ..ContainerPatch::default()
+    };
+    assert_eq!(
+        refusal(
+            test.patch_container(&stored_course.id, &patch, &user_id)
+                .await
+        ),
+        ContainerError::CourseHasCardProperties
+    );
     test.teardown().await;
 }
 
@@ -183,7 +226,8 @@ async fn every_list_of_boards_is_of_the_kinds_it_is_asked_for() {
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
     let board = stored(&test, &workspace_id, &user_id, ContainerKind::Board).await;
     let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
-    // Somebody who is on both through a team only.
+    let course = stored(&test, &workspace_id, &user_id, ContainerKind::Course).await;
+    // Somebody who is on all three through a team only.
     let (admin, through_team) = (
         common::user(&test, "admin").await,
         common::user(&test, "teammate").await,
@@ -203,7 +247,7 @@ async fn every_list_of_boards_is_of_the_kinds_it_is_asked_for() {
     test.add_team_member(&workspace_id, &team, &through_team, &admin)
         .await
         .expect("a team member is stored");
-    for on in [&board, &wiki] {
+    for on in [&board, &wiki, &course] {
         let role = Some(MinimumRole::Editor);
         test.set_container_team(&workspace_id, &on.id, &team, role, &admin)
             .await
@@ -212,75 +256,102 @@ async fn every_list_of_boards_is_of_the_kinds_it_is_asked_for() {
     let cases = [
         (ContainerKinds::BOARDS, vec![board.id.as_str()]),
         (ContainerKinds::WIKIS, vec![wiki.id.as_str()]),
+        (ContainerKinds::COURSES, vec![course.id.as_str()]),
+        (
+            ContainerKinds::LINKED,
+            vec![board.id.as_str(), wiki.id.as_str()],
+        ),
+        (
+            ContainerKinds::OPEN_TO_READ,
+            vec![wiki.id.as_str(), course.id.as_str()],
+        ),
+        (
+            ContainerKinds::SHARED,
+            vec![board.id.as_str(), wiki.id.as_str(), course.id.as_str()],
+        ),
         (
             ContainerKinds::EVERY,
-            vec![board.id.as_str(), wiki.id.as_str()],
+            vec![board.id.as_str(), wiki.id.as_str(), course.id.as_str()],
         ),
     ];
 
     for (kinds, expected) in &cases {
-        let kinds = *kinds;
-        let of_user = test
-            .get_containers_for_user_and_workspace(
-                &user_id,
-                &workspace_id,
-                PublicContainers::Include,
-                kinds,
-            )
-            .await
-            .expect("the boards of the user");
-        let of_workspace = test
-            .get_containers_of_workspace(&workspace_id, kinds)
-            .await
-            .expect("the boards of the workspace");
-        let found = test
-            .search_containers_for_user(
-                "find",
-                ContainerSearchField::Title,
-                &user_id,
-                PublicContainers::Include,
-                kinds,
-            )
-            .await
-            .expect("the boards found");
-        let found_there = test
-            .search_containers_for_user_in_workspace(&workspace_id, "find", &user_id, kinds)
-            .await
-            .expect("the boards found in the workspace");
-        let memberships = test
-            .container_memberships_of_user(&user_id, fvoci_store::Making::with_password(), kinds)
-            .await
-            .expect("the memberships");
-        let member_of: Vec<&str> = memberships
-            .iter()
-            .map(|member| member.container_id.as_str())
-            .collect();
-        let memberships = test
-            .container_memberships_of_user(
-                &through_team,
-                fvoci_store::Making::with_password(),
-                kinds,
-            )
-            .await
-            .expect("the memberships through the team");
-        let through: Vec<&str> = memberships
-            .iter()
-            .map(|member| member.container_id.as_str())
-            .collect();
-        for (list, listed) in [
-            ("of the user", ids(&of_user)),
-            ("of the workspace", ids(&of_workspace)),
-            ("found", ids(&found)),
-            ("found in the workspace", ids(&found_there)),
-            ("the user is on", member_of),
-            ("a team is on", through),
-        ] {
-            assert_eq!(&listed, expected, "the boards {list}, of {kinds:?}");
-        }
+        assert_listed_kinds(
+            &test,
+            &workspace_id,
+            &user_id,
+            &through_team,
+            *kinds,
+            expected,
+        )
+        .await;
     }
 
     nothing_is_listed_once_closed(&test, &admin, [&user_id, &through_team]).await;
     test.teardown().await;
+}
+
+async fn assert_listed_kinds(
+    test: &Store,
+    workspace_id: &str,
+    user_id: &str,
+    through_team: &str,
+    kinds: ContainerKinds,
+    expected: &[&str],
+) {
+    let of_user = test
+        .get_containers_for_user_and_workspace(
+            user_id,
+            workspace_id,
+            PublicContainers::Include,
+            kinds,
+        )
+        .await
+        .expect("the boards of the user");
+    let of_workspace = test
+        .get_containers_of_workspace(workspace_id, kinds)
+        .await
+        .expect("the boards of the workspace");
+    let found = test
+        .search_containers_for_user(
+            "find",
+            ContainerSearchField::Title,
+            user_id,
+            PublicContainers::Include,
+            kinds,
+        )
+        .await
+        .expect("the boards found");
+    let found_there = test
+        .search_containers_for_user_in_workspace(workspace_id, "find", user_id, kinds)
+        .await
+        .expect("the boards found in the workspace");
+    let memberships = test
+        .container_memberships_of_user(user_id, fvoci_store::Making::with_password(), kinds)
+        .await
+        .expect("the memberships");
+    let member_of: Vec<&str> = memberships
+        .iter()
+        .map(|member| member.container_id.as_str())
+        .collect();
+    let memberships = test
+        .container_memberships_of_user(through_team, fvoci_store::Making::with_password(), kinds)
+        .await
+        .expect("the memberships through the team");
+    let through: Vec<&str> = memberships
+        .iter()
+        .map(|member| member.container_id.as_str())
+        .collect();
+    for (list, listed) in [
+        ("of the user", ids(&of_user)),
+        ("of the workspace", ids(&of_workspace)),
+        ("found", ids(&found)),
+        ("found in the workspace", ids(&found_there)),
+        ("the user is on", member_of),
+        ("a team is on", through),
+    ] {
+        assert_eq!(&listed, expected, "the boards {list}, of {kinds:?}");
+    }
 }
 
 #[tokio::test]
@@ -326,7 +397,8 @@ async fn the_trash_is_listed_by_kind_and_what_went_before_kinds_is_a_board() {
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
     let board = stored(&test, &workspace_id, &user_id, ContainerKind::Board).await;
     let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
-    for deleted in [&board, &wiki] {
+    let course = stored(&test, &workspace_id, &user_id, ContainerKind::Course).await;
+    for deleted in [&board, &wiki, &course] {
         test.delete_container(&deleted.id, &user_id)
             .await
             .expect("the board goes to the trash");
@@ -348,16 +420,24 @@ async fn the_trash_is_listed_by_kind_and_what_went_before_kinds_is_a_board() {
     for (kinds, expected) in [
         (ContainerKinds::BOARDS, vec![board.id.as_str()]),
         (ContainerKinds::WIKIS, vec![wiki.id.as_str()]),
+        (ContainerKinds::COURSES, vec![course.id.as_str()]),
+        (
+            ContainerKinds::LINKED,
+            vec![board.id.as_str(), wiki.id.as_str()],
+        ),
     ] {
         for admin in [None, Some(user_id.as_str())] {
             let listed = test
                 .get_deleted_containers(&workspace_id, admin, None, kinds)
                 .await
                 .expect("the trash is listed");
-            let listed: Vec<&str> = listed
+            let mut listed: Vec<&str> = listed
                 .iter()
                 .map(|deleted| deleted.container.id.as_str())
                 .collect();
+            let mut expected = expected.clone();
+            listed.sort_unstable();
+            expected.sort_unstable();
             assert_eq!(listed, expected, "{kinds:?}, for {admin:?}");
         }
     }
@@ -365,10 +445,14 @@ async fn the_trash_is_listed_by_kind_and_what_went_before_kinds_is_a_board() {
         .get_deleted_containers(&workspace_id, None, None, ContainerKinds::EVERY)
         .await
         .expect("the trash is listed");
-    assert_eq!(every.len(), 2);
+    assert_eq!(every.len(), 3);
 
     // Each comes back as what it was.
-    for (deleted, kind) in [(&board, ContainerKind::Board), (&wiki, ContainerKind::Wiki)] {
+    for (deleted, kind) in [
+        (&board, ContainerKind::Board),
+        (&wiki, ContainerKind::Wiki),
+        (&course, ContainerKind::Course),
+    ] {
         let restored = test
             .undelete_container(&deleted.id, &user_id)
             .await
