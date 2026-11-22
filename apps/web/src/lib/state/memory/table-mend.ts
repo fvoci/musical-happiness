@@ -65,7 +65,7 @@ function cellStays(cell: Y.XmlElement): boolean {
   let match = bodySchema.nodes[cell.nodeName]?.contentMatch;
   for (const child of cell.toArray()) {
     const kind = child instanceof Y.XmlElement ? bodySchema.nodes[child.nodeName] : undefined;
-    match = kind ? match?.matchType(kind) : undefined;
+    match = kind ? (match?.matchType(kind) ?? undefined) : undefined;
     if (!match) return false;
   }
   return match?.validEnd === true;
