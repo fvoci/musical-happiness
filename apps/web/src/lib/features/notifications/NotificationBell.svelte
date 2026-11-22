@@ -61,6 +61,8 @@
   let open = $state(false);
   /** When the list was last shown: the times are written from it. */
   let now = $state(Date.now());
+  /** Closed because a notification was gone to: the focus is the destination's, not the opener's. */
+  let went = false;
 
   const label = $derived(bellLabel(inbox.unread));
 
@@ -83,6 +85,7 @@
   /** The list is read while it is shown, the popover's or the sheet's. */
   function shown(next: boolean): void {
     if (next) {
+      went = false;
       now = Date.now();
       void inbox.open();
     } else {
@@ -94,9 +97,16 @@
     // A click with a key that opens a new tab is the browser's.
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
     event.preventDefault();
+    went = true;
     [open, sheet] = [false, false];
     inbox.close();
     onGo(notification);
+  }
+
+  function onCloseAutoFocus(event: Event): void {
+    if (!went) return;
+    went = false;
+    event.preventDefault();
   }
 </script>
 
@@ -125,6 +135,7 @@
     role="dialog"
     aria-label={m.notifications_title()}
     data-testid="notifications"
+    {onCloseAutoFocus}
     class="max-h-[min(32rem,calc(100dvh-4rem))] w-[min(24rem,calc(100vw-1rem-var(--safe-left)-var(--safe-right)))] gap-0 overflow-y-auto p-0"
   >
     <div class="flex items-center gap-2 border-b px-3 py-2">
@@ -139,6 +150,7 @@
   <Dialog.Content
     data-testid="notifications"
     showCloseButton={false}
+    {onCloseAutoFocus}
     class="top-0 left-0 flex h-dvh max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none p-0 pt-(--safe-top) pr-(--safe-right) pb-(--safe-bottom) pl-(--safe-left) ring-0 sm:max-w-none"
   >
     <Dialog.Header class="shrink-0 flex-row items-center gap-2 border-b py-2 pr-2 pl-4">

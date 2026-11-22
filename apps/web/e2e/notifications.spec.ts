@@ -209,6 +209,7 @@ test.describe('the notifications sheet of a narrow pane', () => {
     await expect(inbox(page)).toBeHidden();
     expect(page.url()).toBe(secondUrl);
     await expect(page.getByTestId('board-title')).toHaveValue('Roadmap');
+    await expect(barMenu(page)).toBeFocused();
 
     // Escape closes the sheet and returns focus to the bar's menu button.
     await openInbox(page);

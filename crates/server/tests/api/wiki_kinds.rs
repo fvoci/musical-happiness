@@ -881,6 +881,22 @@ async fn what_names_a_diary_in_a_body_is_refused() {
         )
         .await;
     entry_as_block.check_bad_request();
+    // Nor is a diary entry a block to subscribe to.
+    let subscribe = |block: &str| {
+        json!({
+            "blockId": block, "blockType": "entry", "subscriberId": world.me, "subscriberType": "user",
+        })
+    };
+    let (to_entry, to_nothing) = (
+        client
+            .post(&format!("{ws}/subscriptions"), &subscribe(&diary.block))
+            .await,
+        client
+            .post(&format!("{ws}/subscriptions"), &subscribe(UNKNOWN_ID))
+            .await,
+    );
+    to_entry.check_not_found();
+    assert_eq!(to_entry.problem(), to_nothing.problem());
     assert_eq!(ids(&client.get(&format!("{ws}/diaries")).await).len(), 1);
     world.ts.teardown().await;
 }

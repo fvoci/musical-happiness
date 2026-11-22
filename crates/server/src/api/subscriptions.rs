@@ -12,7 +12,7 @@ use super::contract::bodies::NewSubscription;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BlockId, SubscriberId};
 use super::contract::tag;
-use super::workspace::{InContainer, InWorkspace};
+use super::workspace::{InBoardOrWiki, InWorkspace};
 
 use super::require_permission_through;
 use super::{ApiResult, created, decode_json, json_object, json_response, no_content};
@@ -117,7 +117,7 @@ impl SubscriptionRequest {
     request_body = NewSubscription,
     responses((status = 201, description = "The subscription.", body = Subscription)),
 )]
-async fn handle_create_subscription(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
+async fn handle_create_subscription(InBoardOrWiki(ws): InBoardOrWiki, body: Bytes) -> ApiResult {
     let subscription = SubscriptionRequest::decode(&body)?.into_subscription()?;
     if ws.session.user_id != subscription.subscriber_id {
         return Err(

@@ -177,7 +177,6 @@ export class MemoryBackend implements Backend {
     }
   }
 
-  /** A board of the `kind`: the server answers a wiki to an operation of cards as one not there. */
   /** Of `kind` where it is asked; `shared`: a board or a wiki, which have members and links. */
   #container(containerId: string, kind: ContainerKind | 'any' | 'shared' = 'any'): Container {
     const board = this.world.containers.get(containerId);
