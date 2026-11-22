@@ -20,8 +20,7 @@
 -->
 <script lang="ts">
   import PlusIcon from '@lucide/svelte/icons/plus';
-  import { tick } from 'svelte';
-  import { SvelteMap } from 'svelte/reactivity';
+  import { tick, untrack } from 'svelte';
 
   import CardFace from '$lib/components/card-face/CardFace.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
@@ -36,6 +35,7 @@
   import { badgesOf, changeOption, type FaceContext } from './board-data.ts';
   import ColumnMenu from './ColumnMenu.svelte';
   import {
+    CardHeights,
     cardsBetween,
     drawnRuns,
     guessHeight,
@@ -150,8 +150,7 @@
   let viewHeight = $state(0);
   /** The card that has, or last had, the focus in the list. */
   let focusId = $state<string | undefined>(undefined);
-  /** How high each card was when it was last drawn. */
-  const measured = new SvelteMap<string, number>();
+  const cardHeights = new CardHeights((cardId) => guesses?.get(cardId));
 
   /** The cards that are not on their way: what the drag counts and the list stacks. */
   const staying = $derived(
@@ -161,7 +160,7 @@
     windowed ? new Map(group.cards.map((card) => [card.id, guessHeight(card, face)])) : undefined,
   );
   const heights = $derived(
-    guesses ? staying.map((card) => measured.get(card.id) ?? guesses.get(card.id) ?? 0) : [],
+    guesses ? staying.map((card) => cardHeights.get(card.id) ?? guesses.get(card.id) ?? 0) : [],
   );
   const tops = $derived(topsOf(heights));
   const atOf = $derived(windowed ? new Map(staying.map((card, at) => [card.id, at])) : undefined);
@@ -184,51 +183,24 @@
     return piecesOf(group.cards, dragged, gap, runs, heights);
   });
 
-  let observer: ResizeObserver | undefined;
-  const observed = new WeakMap<Element, string>();
-
-  /**
-   * A card drawn says how high it is. One that grows or shrinks above what is
-   * in sight moves what is in sight: the list scrolls by as much, so that
-   * nothing seems to move. The browsers that would do so themselves are told
-   * not to (`overflow-anchor`), so that every browser does it once.
-   */
-  function onResized(entries: readonly ResizeObserverEntry[]): void {
-    const top = list?.scrollTop ?? 0;
-    let shift = 0;
-    for (const entry of entries) {
-      const cardId = observed.get(entry.target);
-      const height = entry.borderBoxSize[0]?.blockSize ?? 0;
-      // A card on its way is hidden: it keeps the height it had.
-      if (cardId === undefined || height === 0) continue;
-      const before = measured.get(cardId) ?? guesses?.get(cardId) ?? height;
-      if (Math.abs(height - before) < 0.5 && measured.has(cardId)) continue;
-      measured.set(cardId, height);
-      if (entry.target instanceof HTMLElement && entry.target.offsetTop < top) {
-        shift += height - before;
-      }
-    }
-    if (list && shift !== 0) list.scrollTop += shift;
-  }
-
-  function measure(element: HTMLElement, cardId: string): () => void {
-    observed.set(element, cardId);
-    observer ??= new ResizeObserver(onResized);
-    observer.observe(element);
-    return () => {
-      observed.delete(element);
-      observer?.unobserve(element);
-    };
-  }
-
   function watchList(element: HTMLElement): () => void {
     list = element;
+    const stop = cardHeights.watch(element);
     return () => {
-      observer?.disconnect();
-      observer = undefined;
+      stop();
       list = null;
     };
   }
+
+  // A column moved among the others, or shown again once a pointer has
+  // dragged it, may come back scrolled to its top without a scroll event: it
+  // is put back where it was, where its window is drawn. Not on every scroll.
+  $effect(() => {
+    // The id of its box is its place in the row: it changes when the column moves.
+    if (panelId === '' || hidden || !list) return;
+    const wanted = untrack(() => scrollTop);
+    if (list.scrollTop !== wanted) list.scrollTop = wanted;
+  });
 
   /** The card of whatever took the focus in the list: the card, its menu, the stand-in it is carried as. */
   function onFocusIn(event: FocusEvent): void {
@@ -427,7 +399,7 @@
           at={entry.at}
           position={entry.position}
           count={group.cards.length}
-          measure={windowed ? measure : undefined}
+          measure={windowed ? cardHeights.measure : undefined}
           dragged={draggedIds.includes(entry.card.id)}
           selected={selectedIds.includes(entry.card.id)}
           targetIds={targetsOf(entry.card.id)}

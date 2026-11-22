@@ -13,6 +13,8 @@
  * Cards are counted here as the drag counts them: among those that are not
  * on their way (`at`).
  */
+import { SvelteMap } from 'svelte/reactivity';
+
 import { faceProperties } from '$lib/components/card-face/face.ts';
 import type { Card } from '$lib/logic/wire.ts';
 
@@ -174,4 +176,68 @@ export function piecesOf(
 /** The blank at one end of a window: the one there, or an empty one. */
 function edge(piece: Piece | undefined, key: 'start' | 'end'): Piece {
   return piece?.kind === 'blank' ? { ...piece, key } : { kind: 'blank', key, height: 0, cards: 0 };
+}
+
+/**
+ * How high each card of a long column was when it was last drawn, told by
+ * one ResizeObserver over the cards drawn. A card that grows or shrinks
+ * above what is in sight moves what is in sight: the list scrolls by as
+ * much, so that nothing seems to move. The browsers that would do so
+ * themselves are told not to (`overflow-anchor`), so that every browser
+ * does it once.
+ */
+export class CardHeights {
+  readonly #measured = new SvelteMap<string, number>();
+  readonly #ids = new WeakMap<Element, string>();
+  readonly #guess: (cardId: string) => number | undefined;
+  #observer: ResizeObserver | undefined;
+  #list: HTMLElement | undefined;
+
+  /** `guess`: how high a card not measured yet is taken to be. */
+  constructor(guess: (cardId: string) => number | undefined) {
+    this.#guess = guess;
+  }
+
+  get(cardId: string): number | undefined {
+    return this.#measured.get(cardId);
+  }
+
+  /** Follows the list the cards are in, for its scroll. */
+  readonly watch = (list: HTMLElement): (() => void) => {
+    this.#list = list;
+    return () => {
+      this.#observer?.disconnect();
+      this.#observer = undefined;
+      this.#list = undefined;
+    };
+  };
+
+  /** Measures a card's box while it is drawn. */
+  readonly measure = (element: HTMLElement, cardId: string): (() => void) => {
+    this.#ids.set(element, cardId);
+    this.#observer ??= new ResizeObserver(this.#onResized);
+    this.#observer.observe(element);
+    return () => {
+      this.#ids.delete(element);
+      this.#observer?.unobserve(element);
+    };
+  };
+
+  readonly #onResized = (entries: readonly ResizeObserverEntry[]): void => {
+    const top = this.#list?.scrollTop ?? 0;
+    let shift = 0;
+    for (const entry of entries) {
+      const cardId = this.#ids.get(entry.target);
+      const height = entry.borderBoxSize[0]?.blockSize ?? 0;
+      // A card on its way is hidden: it keeps the height it had.
+      if (cardId === undefined || height === 0) continue;
+      const before = this.#measured.get(cardId) ?? this.#guess(cardId) ?? height;
+      if (Math.abs(height - before) < 0.5 && this.#measured.has(cardId)) continue;
+      this.#measured.set(cardId, height);
+      if (entry.target instanceof HTMLElement && entry.target.offsetTop < top) {
+        shift += height - before;
+      }
+    }
+    if (this.#list && shift !== 0) this.#list.scrollTop += shift;
+  };
 }

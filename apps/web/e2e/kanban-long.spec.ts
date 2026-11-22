@@ -139,6 +139,14 @@ test.describe('a column of 400 cards', () => {
     const carried = card(page, longTitle(goal));
     await expect(carried).toBeFocused();
     await expect(carried).toBeInViewport();
+    // Scrolled away from the focus, the keyboard still goes on from it to the next card.
+    await scrollTo(page, 'end');
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    await expect(card(page, longTitle(goal + 1))).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(carried).toBeFocused();
 
     await page.keyboard.press('Space');
     await expect(kanban(page)).toHaveAttribute('data-dragging', 'keyboard');
@@ -236,6 +244,34 @@ test.describe('a column of 400 cards', () => {
     await expect(made).toBeInViewport();
     await expect(made.locator('xpath=..')).toHaveAttribute('aria-posinset', String(ALL + 1));
   });
+});
+
+test('a long column moved among the others keeps its place and its cards in sight', async ({
+  page,
+}, info) => {
+  await openLong(page, info);
+  await centre(page, card(page, longTitle(1)));
+  await list(page).evaluate((element) => {
+    element.scrollTop += 20_000;
+  });
+  await expect(list(page).locator('[data-card]').first()).toBeAttached();
+  const before = await scrollTop(page);
+  const heading = column(page, LONG_COLUMN).locator('[data-column-heading]');
+  await heading.focus();
+  await page.keyboard.press('Space');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Space');
+  await expect(heading).toBeFocused();
+  // Within a pixel: at three pixels to a point, WebKit rounds where it scrolls to.
+  await expect.poll(async () => Math.abs((await scrollTop(page)) - before)).toBeLessThanOrEqual(1);
+  const shown = await list(page).evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return [...element.querySelectorAll('[data-card]')].some((each) => {
+      const card = each.getBoundingClientRect();
+      return card.bottom > box.top && card.top < box.bottom;
+    });
+  });
+  expect(shown).toBe(true);
 });
 
 test.describe('dragging down a column of 400 cards', () => {

@@ -17,6 +17,8 @@ const meta = {
         0,
       );
     await waitFor(() => expect(counted()).toBe(count));
+    // Where no column is long enough for a window, every card is drawn.
+    if (count <= 60) await expect(root.querySelectorAll('[data-card]')).toHaveLength(count);
     if (count > 0) await expect(root).toHaveTextContent('Example card 001');
     if (args.readOnly)
       await expect(root.querySelectorAll('[data-column-add], [data-column-new]')).toHaveLength(0);
