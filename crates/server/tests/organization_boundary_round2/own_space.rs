@@ -505,25 +505,29 @@ async fn compare_routes(
 /// The space's owner reaches what the others are asked about: the table would hold of
 /// a space that is not there too.
 async fn check_the_owner_reaches_it(space: &Space) {
+    check_reached_by(space, &space.owner).await;
+}
+
+/// The session reaches what is in the space, as its owner's does that opens it.
+async fn check_reached_by(space: &Space, client: &Client) {
     let here = format!("/w/{}", space.workspace.id);
-    space.owner.get(&here).await.check_ok();
-    let listed: Vec<UserWorkspace> = space.owner.get("/users/me/workspaces").await.ok_json();
+    client.get(&here).await.check_ok();
+    let listed: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
     assert!(
         listed.contains(&space.workspace),
         "the space is what it was: {listed:?}"
     );
-    let boards: Vec<Container> = space.owner.get(&format!("{here}/boards")).await.ok_json();
+    let boards: Vec<Container> = client.get(&format!("{here}/boards")).await.ok_json();
     assert!(
         boards.iter().any(|board| board.id == space.board.id),
         "the owner lists the board: {boards:?}"
     );
-    let found = space
-        .owner
+    let found = client
         .get(&format!("{here}/boards/search?q={SECRET}"))
         .await;
     found.check_ok();
     assert!(found.text().contains(&space.board.id), "{}", found.text());
-    let archive = space.owner.get(&format!("{here}/archive/export")).await;
+    let archive = client.get(&format!("{here}/archive/export")).await;
     archive.check_ok();
     assert!(
         archive_entries(&archive.body)
@@ -532,15 +536,15 @@ async fn check_the_owner_reaches_it(space: &Space) {
         "the owner's archive has the board"
     );
     let file = format!("{here}/containers/{}/files/{}", space.board.id, space.file);
-    space.owner.get(&file).await.check_ok();
-    let audit = space.owner.get(&format!("{here}/audit")).await;
+    client.get(&file).await.check_ok();
+    let audit = client.get(&format!("{here}/audit")).await;
     audit.check_ok();
     assert!(
         audit.text().contains(&space.managed.id),
         "the space's audit log has its record: {}",
         audit.text()
     );
-    let found = space.owner.get(&format!("{here}/search?q={SECRET}")).await;
+    let found = client.get(&format!("{here}/search?q={SECRET}")).await;
     found.check_ok();
     assert!(
         found.text().contains(&space.card.id),
@@ -1141,12 +1145,12 @@ async fn a_role_on_a_board_of_a_space_opens_nothing_to_another_account() {
 
 const NO_ROWS: [String; 0] = [];
 
-/// A session of the space's owner that was made through a provider, of an account
-/// that has a password: the owner signs in once more, and the session that comes of
-/// it is written down as a provider's, as the sign-in through one stores it.
-async fn a_provider_session_of_the_owner(ts: &TestServer, space: &Space) -> Client {
+/// A session of the account `user_id`, which signs in as `username` and has a
+/// password, that was made through a provider: the account signs in once more, and the
+/// session that comes of it is written down as a provider's, as the sign-in through
+/// one stores it.
+async fn a_provider_session_of(ts: &TestServer, user_id: &str, username: &str) -> Client {
     let store = ts.app.store().system();
-    let owner = &space.owner_id;
     let of_root =
         format!("SELECT CAST(org_id AS TEXT) FROM workspaces WHERE id = '{ROOT_WORKSPACE_ID}'");
     let org_id = store
@@ -1154,10 +1158,10 @@ async fn a_provider_session_of_the_owner(ts: &TestServer, space: &Space) -> Clie
         .await
         .expect("read")
         .remove(0);
-    let of_owner = format!("SELECT CAST(id AS TEXT) FROM sessions WHERE user_id = '{owner}'");
-    let before = store.texts_unchecked(&of_owner).await.expect("read");
+    let of_user = format!("SELECT CAST(id AS TEXT) FROM sessions WHERE user_id = '{user_id}'");
+    let before = store.texts_unchecked(&of_user).await.expect("read");
     let mut client = ts.anonymous();
-    let signed_in = client.login("space-owner", PASSWORD).await;
+    let signed_in = client.login(username, PASSWORD).await;
     assert!(signed_in.status.is_success(), "{}", signed_in.text());
     let known: Vec<String> = before.iter().map(|id| format!("'{id}'")).collect();
     let provider = new_id();
@@ -1165,13 +1169,72 @@ async fn a_provider_session_of_the_owner(ts: &TestServer, space: &Space) -> Clie
         .execute_unchecked(&format!(
             "UPDATE sessions SET login_provider_id = '{provider}', \
              login_org_id = '{}', login_issuer = 'https://provider.example' \
-             WHERE user_id = '{owner}' AND CAST(id AS TEXT) NOT IN ({})",
+             WHERE user_id = '{user_id}' AND CAST(id AS TEXT) NOT IN ({})",
             org_id,
             known.join(", ")
         ))
         .await;
-    changed.expect("the new session is a provider's");
+    assert_eq!(
+        changed.expect("written"),
+        1,
+        "the new session is a provider's"
+    );
     client
+}
+
+/// The same session once it gave the account's password, under its new cookie.
+async fn having_confirmed_the_password(ts: &TestServer, session: &Client) -> Client {
+    let password = json!({"password": PASSWORD});
+    let confirmed = session.post("/users/me/password/confirm", &password).await;
+    assert_eq!(
+        confirmed.status,
+        StatusCode::NO_CONTENT,
+        "{}",
+        confirmed.text()
+    );
+    ts.client_with_token(&confirmed.session_cookie().expect("its new cookie"))
+}
+
+/// The positive control of the closed space: a session that gave the account's
+/// password reaches all that was closed to it for want of that. No workspace of its
+/// list is closed so, the routes of the space answer it and none of them refuses the
+/// session, the lists across workspaces and what deleting the account comes to count
+/// the space, and its connection is told of a change there.
+async fn check_a_confirmed_session_reaches_it(space: &Space, session: &Client) {
+    let listed: Vec<UserWorkspace> = session.get("/users/me/workspaces").await.ok_json();
+    assert!(
+        listed.iter().all(|workspace| !workspace.password_required),
+        "nothing is closed to it for want of the password: {listed:?}"
+    );
+    check_reached_by(space, session).await;
+    let memberships = session.get("/users/me/memberships").await;
+    assert!(
+        memberships.text().contains(&space.board.id),
+        "it lists the boards of the space: {}",
+        memberships.text()
+    );
+    let deletion: Value = session.get("/users/me/deletion").await.ok_json();
+    assert_ne!(
+        deletion["organizations"][0]["boards"],
+        Value::Null,
+        "what the space holds is counted for it: {deletion}"
+    );
+    let mut socket = session.connect_websocket().await;
+    let told = told_of_a_change(space, &mut socket).await;
+    assert!(!told.is_empty(), "its connection is told of the space");
+    // Last, as some of these change the space: no route under it asks for the
+    // password any more, whatever else it answers a request of nothing.
+    for (method, suffix, operation) in WORKSPACE_ROUTES {
+        let method = method.parse().expect("an HTTP method");
+        let path = format!("/w/{}{}", space.workspace.id, fill_with_nothing(suffix));
+        let answered = Client::send(session.request(method, &path).json(&json!({}))).await;
+        assert_ne!(
+            answered.status,
+            StatusCode::UNAUTHORIZED,
+            "{operation}: {:?}",
+            answer(&answered)
+        );
+    }
 }
 
 /// Once the account of a space has a password, a session of it made through a
@@ -1182,7 +1245,9 @@ async fn a_provider_session_of_the_owner(ts: &TestServer, space: &Space) -> Clie
 /// deleting the account comes to leave it out; the websocket tells such a connection
 /// no change. The session opens the organization as before, the space is listed (so
 /// that its person is asked for the password), a public link of the space is read by
-/// anybody, and a session made with the password reaches all of it.
+/// anybody, and a session made with the password reaches all of it. So does the very
+/// session that was refused, once it gave the password: what was closed to it was
+/// closed for want of that, and of nothing else.
 #[tokio::test]
 async fn a_provider_session_opens_nothing_of_a_space_whose_account_has_a_password() {
     let (index, ts, space) = a_server_with_a_space().await;
@@ -1192,7 +1257,7 @@ async fn a_provider_session_opens_nothing_of_a_space_whose_account_has_a_passwor
         .await
         .expect("the owner shares the board")
         .token;
-    let by_provider = a_provider_session_of_the_owner(&ts, &space).await;
+    let by_provider = a_provider_session_of(&ts, &space.owner_id, "space-owner").await;
     a_board_read_by(&ts, &[&by_provider]).await;
     let root = ROOT_WORKSPACE_ID;
     let mut violations = Vec::new();
@@ -1264,10 +1329,49 @@ async fn a_provider_session_opens_nothing_of_a_space_whose_account_has_a_passwor
         "the password's session lists the boards of the space: {}",
         memberships.text()
     );
+
+    // The session that was refused all of that gives the password, and reaches it.
+    let confirmed = having_confirmed_the_password(&ts, &by_provider).await;
+    confirmed.get(&format!("/w/{root}")).await.check_ok();
+    check_a_confirmed_session_reaches_it(&space, &confirmed).await;
     ts.teardown().await;
     assert!(
         violations.is_empty(),
         "a provider's session reaches something of a space that takes the password:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// What a session confirmed is its own account's password, and opens that account's
+/// own space: to the space of another account it is the session of somebody who is
+/// not its owner, as it was. A colleague's session made through a provider that gave
+/// the colleague's password reaches the colleague's space, and of the owner's no
+/// route, no search, no list, no archive, no audit log and no change told.
+#[tokio::test]
+async fn a_confirmed_password_opens_nothing_of_the_space_of_another_account() {
+    let (index, ts, space) = a_server_with_a_space().await;
+    let colleague_id = ts.client2.me().await.id;
+    let by_provider =
+        a_provider_session_of(&ts, &colleague_id, super::common::USER2_USERNAME).await;
+    let confirmed = having_confirmed_the_password(&ts, &by_provider).await;
+    let listed: Vec<UserWorkspace> = confirmed.get("/users/me/workspaces").await.ok_json();
+    let own = listed.last().expect("the list is never empty");
+    assert_eq!(own.kind, OrgKind::Personal, "{listed:?}");
+    assert!(!own.password_required, "its own space is open: {own:?}");
+    confirmed.get(&format!("/w/{}", own.id)).await.check_ok();
+
+    a_board_read_by(&ts, &[&confirmed]).await;
+    let who = ("a colleague who confirmed their password", Asker::Outsider);
+    let mut violations = compare_routes(who, &confirmed, (&space, &index), ROOT_WORKSPACE_ID).await;
+    let mut socket = confirmed.connect_websocket().await;
+    for told in told_of_a_change(&space, &mut socket).await {
+        violations.push(format!("told over the websocket: {told}"));
+    }
+    check_the_owner_reaches_it(&space).await;
+    ts.teardown().await;
+    assert!(
+        violations.is_empty(),
+        "a confirmed password opens something of another account's space:\n{}",
         violations.join("\n")
     );
 }

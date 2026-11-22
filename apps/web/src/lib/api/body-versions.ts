@@ -1,10 +1,15 @@
 /**
  * The versions of a card's body on the server (`getCardBodyVersions`,
- * `getCardBodyVersion`, `restoreCardBodyVersion`). The card restored comes
- * to the board as any change does, through the socket: the answer's copy of
- * it is not used.
+ * `getCardBodyVersion`, `restoreCardBodyVersion`, `keepCardBodyVersion`).
+ * The card restored comes to the board as any change does, through the
+ * socket: the answer's copy of it is not used.
  */
-import type { BodyVersion, BodyVersionContent, BodyVersions } from '../state/body-versions.ts';
+import type {
+  BodyVersion,
+  BodyVersionContent,
+  BodyVersions,
+  KeptBodyVersion,
+} from '../state/body-versions.ts';
 
 import { bodyOf, type Schemas } from './convert.ts';
 import type { RequestOptions } from './http.ts';
@@ -46,11 +51,20 @@ export class ServerBodyVersions implements BodyVersions {
       { method: 'POST' },
     );
   }
+
+  keep(boardId: string, cardId: string): Promise<KeptBodyVersion> {
+    return this.#ask<Schemas['KeptBodyVersion']>(
+      '/cards/{cardId}/body-versions',
+      { cardId, boardId },
+      { method: 'POST' },
+    );
+  }
 }
 
 /**
  * The versions of a wiki page's body on the server (`getPageBodyVersions`,
- * `getPageBodyVersion`, `restorePageBodyVersion`), as a card's: the wiki is
+ * `getPageBodyVersion`, `restorePageBodyVersion`, `keepPageBodyVersion`),
+ * as a card's: the wiki is
  * named where a card's board is, and the page where the card is. The page
  * restored comes to the wiki through the socket too.
  */
@@ -80,6 +94,14 @@ export class ServerPageVersions implements BodyVersions {
     await this.#ask<Schemas['Page']>(
       '/wikis/{wikiId}/pages/{pageId}/body-versions/{version}/restore',
       { wikiId, pageId, version: String(version) },
+      { method: 'POST' },
+    );
+  }
+
+  keep(wikiId: string, pageId: string): Promise<KeptBodyVersion> {
+    return this.#ask<Schemas['KeptBodyVersion']>(
+      '/wikis/{wikiId}/pages/{pageId}/body-versions',
+      { wikiId, pageId },
       { method: 'POST' },
     );
   }

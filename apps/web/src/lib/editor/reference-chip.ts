@@ -134,3 +134,24 @@ export function openClickedReference(
   event.preventDefault();
   open(id);
 }
+
+/**
+ * Draws the references under `element` and opens the one that is clicked;
+ * gives back what stops the opening. For `{@attach}`: run where what
+ * `drawing` reads is followed, it runs again when a title arrives or
+ * changes; `_placed` is the nodes of the body, which it runs again for.
+ */
+export function attachReferences(
+  element: HTMLElement,
+  drawing: ReferenceDrawing | undefined,
+  ..._placed: unknown[]
+): () => void {
+  drawReferences(element, drawing);
+  const opened = (event: MouseEvent): void => {
+    openClickedReference(event, drawing);
+  };
+  element.addEventListener('click', opened);
+  return () => {
+    element.removeEventListener('click', opened);
+  };
+}

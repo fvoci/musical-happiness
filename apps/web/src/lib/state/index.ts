@@ -51,7 +51,13 @@ export { BoardStore, type CardDrop } from './board.svelte.ts';
 export { addViewAtEnd, duplicateView, moveView } from './view-moves.ts';
 export { type Shareable } from './member-writes.ts';
 export { boardPresence } from './board-presence.svelte.ts';
-export type { BodyVersion, BodyVersionContent, BodyVersions } from './body-versions.ts';
+export type {
+  BodyVersion,
+  BodyVersionCause,
+  BodyVersionContent,
+  BodyVersions,
+  KeptBodyVersion,
+} from './body-versions.ts';
 export { CardPreviews } from './card-previews.svelte.ts';
 export { type CommentEdit } from './card-parts.ts';
 export { CardStore } from './card.svelte.ts';
@@ -61,7 +67,14 @@ export { WikiStore, type PageLooks, type WikiLooks } from './wiki.svelte.ts';
 export { createWiki } from './wiki-parts.ts';
 export { shownWiki } from './shown-wiki.svelte.ts';
 export type { PageDraft, PageMove, WikiDraft, WikiPage, WikiPageDetail } from './wiki-types.ts';
-export { changeName, passwordSet } from './account.ts';
+export {
+  changeName,
+  confirmPassword,
+  passwordChanged,
+  setFirstPassword,
+  rereadEmail,
+} from './account.ts';
+export type { EmailChange } from './email-change.ts';
 export { whileHere } from './here.ts';
 export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from './people.ts';
 export type {

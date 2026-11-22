@@ -7,9 +7,10 @@ use std::collections::HashSet;
 use fvoci_model::{
     Container, ContainerKind, OrgKind, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole,
 };
-use fvoci_store::{PublicContainers, SessionTaken, Tenant};
+use fvoci_store::{Making, PublicContainers, SessionTaken, Tenant};
 
 use super::{App, Asker, as_managed, sso};
+use crate::collab::AccessScope;
 use crate::error::AppError;
 
 /// A workspace as a member of it enters it: the application behind the wall between
@@ -94,8 +95,8 @@ impl App {
     /// Returns 401 for a member whose session does not open the workspace: with the
     /// reason `sso_required` where its organization takes only sessions made through
     /// its provider, and `password_sign_in_required` for the user's own space, of an
-    /// account that has a password, asked of a session made through a provider
-    /// (`sso::require_session_opens`); and the
+    /// account that has a password, asked of a session made through a provider that
+    /// has not confirmed the password (`sso::require_session_opens`); and the
     /// store's error if the membership cannot be read: that is no "not a member".
     pub async fn enter_workspace(
         &self,
@@ -171,7 +172,9 @@ impl App {
     pub(super) fn broadcast_person_change_in_background(&self, user_id: String) {
         let app = self.clone();
         self.spawn_background(async move {
-            let workspaces = match app.store().workspaces_of_user(&user_id, None).await {
+            // Which of them a session opens is not asked: the name changed in all.
+            let every = Making::with_password();
+            let workspaces = match app.store().workspaces_of_user(&user_id, every).await {
                 Ok(workspaces) => workspaces,
                 Err(error) => {
                     tracing::error!(%error, user_id = %user_id, "reading the workspaces of a renamed user failed");
@@ -279,7 +282,7 @@ impl App {
     ) -> Result<Vec<UserWorkspace>, AppError> {
         Ok(self
             .store()
-            .workspaces_of_user(&session.user_id, session.login_provider_id())
+            .workspaces_of_user(&session.user_id, session.into())
             .await?)
     }
 
@@ -366,5 +369,37 @@ impl App {
     /// Returns the store's error if the query fails.
     pub async fn workspaces(&self) -> Result<Vec<Workspace>, AppError> {
         Ok(self.store().get_workspaces().await?)
+    }
+
+    /// Puts the connections of `session`, which gave its account the first password
+    /// and has not shown it, out of the account's own space: the space takes a session
+    /// that has shown the password from here on. What they follow of it ends and its
+    /// rooms let them go; they stay open for what the session still opens, and for the
+    /// space once the session gives the password (`App::confirm_session_password`).
+    /// If the space cannot be read the connections are closed instead, and come back
+    /// to be asked.
+    pub(super) async fn shut_own_space_to(&self, session: &Session) {
+        let shut = async {
+            let workspaces = self
+                .store()
+                .workspaces_of_user(&session.user_id, session.into())
+                .await?;
+            for own in workspaces
+                .iter()
+                .filter(|workspace| workspace.kind == OrgKind::Personal)
+            {
+                let space = self.in_organization(&own.org_id)?;
+                space
+                    .ws()
+                    .end_subscriptions_without_password(&own.id, &session.user_id);
+                let scope = AccessScope::workspace(&own.id).of_user(&session.user_id);
+                space.collab().recheck_access(&space, scope).await;
+            }
+            Ok::<(), AppError>(())
+        };
+        if let Err(error) = shut.await {
+            tracing::warn!(%error, user_id = %session.user_id, "the own space was not shut to the session that set its password; its connections are closed");
+            self.ws().close_session(&session.id);
+        }
     }
 }

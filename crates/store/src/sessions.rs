@@ -13,8 +13,20 @@ use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::oidc::Identity;
 
-const SESSION_COLUMNS: &str = "id, user_id, created_at, last_used_at, expires_at, user_agent, login_provider_id, \
+/// The columns a session is stored with, in the order it is stored in.
+const STORED_COLUMNS: &str = "id, user_id, created_at, last_used_at, expires_at, user_agent, login_provider_id, \
      login_org_id, login_issuer, login_subject, login_revision";
+
+/// The column that says when a session confirmed its account's password, 0 for one
+/// that has not. A session is stored without it ([`insert_session`]), and one
+/// statement sets it ([`Store::confirm_session_password`]).
+const CONFIRMED_COLUMN: &str = "password_confirmed_at";
+
+/// What is read of a session: what it was stored with, and when it confirmed its
+/// account's password.
+fn read_columns() -> String {
+    format!("{STORED_COLUMNS}, {CONFIRMED_COLUMN}")
+}
 
 impl Store {
     /// Stores a new session under the digest of its token, provided the password hash of
@@ -53,6 +65,50 @@ impl Store {
         .await
     }
 
+    /// Records at `now` that the session `session_id` of `user_id` confirmed the
+    /// account's password, and puts it under `token_digest`: it opens the account's own
+    /// space from then on, so its old token no longer finds it. Returns whether it was
+    /// recorded: not for a session that is gone or another account's, not for an
+    /// account that is not in use, and not unless the account's password hash is still
+    /// `seen_password_hash`, the one the password was checked against, and is one. A
+    /// change of the password ends the account's other sessions; this is one step
+    /// with the check, and a change under way is waited for, so that no session comes
+    /// out of it having confirmed a password that is the account's no more.
+    ///
+    /// The only statement that sets what a session confirmed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails, also for a token digest
+    /// another session is stored under.
+    pub async fn confirm_session_password(
+        &self,
+        confirmed: ConfirmedPassword<'_>,
+        token_digest: &str,
+        now: i64,
+    ) -> Result<bool, StoreError> {
+        // An account without a password has none to confirm, and its space takes any
+        // session: nothing is recorded that a first password would find there.
+        if confirmed.seen_password_hash.is_empty() {
+            return Ok(false);
+        }
+        self.transaction(async |scope| {
+            let held =
+                hold_unchanged_account(scope, confirmed.user_id, confirmed.seen_password_hash)
+                    .await?;
+            if held != Some(SignedInto::InUse) {
+                return Ok(false);
+            }
+            let mut sql = scope.sql(&format!("UPDATE sessions SET {CONFIRMED_COLUMN} = "));
+            sql.bind(now)
+                .push_bind(", token_hash = ", token_digest)
+                .push_bind(" WHERE id = ", Id(confirmed.session_id))
+                .push_bind(" AND user_id = ", Id(confirmed.user_id));
+            Ok(scope.execute(sql).await? > 0)
+        })
+        .await
+    }
+
     /// Returns the session with the given token digest, if it is still valid at `now`:
     /// not past its `expires_at`, used after `idle_since`, and of a user who is not
     /// deactivated.
@@ -68,7 +124,8 @@ impl Store {
     ) -> Result<Session, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(&format!(
-                "SELECT {SESSION_COLUMNS} FROM sessions WHERE token_hash = "
+                "SELECT {} FROM sessions WHERE token_hash = ",
+                read_columns()
             ));
             sql.bind(token_digest)
                 .push_bind(" AND expires_at > ", now)
@@ -194,6 +251,18 @@ impl Store {
     }
 }
 
+/// A session that gave its account's password, and what the password was checked
+/// against.
+#[derive(Debug, Clone, Copy)]
+pub struct ConfirmedPassword<'a> {
+    /// The session that gave the password.
+    pub session_id: &'a str,
+    /// The account of the session.
+    pub user_id: &'a str,
+    /// The account's password hash as it was when the password was checked.
+    pub seen_password_hash: &'a str,
+}
+
 fn session_from_row(row: &Row) -> Result<Session, StoreError> {
     Ok(Session {
         id: row.id(0)?,
@@ -203,6 +272,7 @@ fn session_from_row(row: &Row) -> Result<Session, StoreError> {
         expires_at: row.int(4)?,
         user_agent: row.text(5)?,
         login: login_origin(row)?,
+        password_confirmed_at: Some(row.int(11)?).filter(|at| *at != 0),
     })
 }
 
@@ -343,7 +413,8 @@ pub(crate) async fn session_by_digest(
     token_digest: &str,
 ) -> Result<Option<Session>, StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT {SESSION_COLUMNS} FROM sessions WHERE token_hash = "
+        "SELECT {} FROM sessions WHERE token_hash = ",
+        read_columns()
     ));
     sql.bind(token_digest);
     scope
@@ -354,14 +425,15 @@ pub(crate) async fn session_by_digest(
         .transpose()
 }
 
-/// Stores a session under the digest of its token.
+/// Stores a session under the digest of its token, as one that has confirmed nothing:
+/// what a session confirms, it confirms after it is there.
 pub(crate) async fn insert_session(
     scope: &mut Scope<'_>,
     session: &Session,
     token_digest: &str,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(&format!(
-        "INSERT INTO sessions (token_hash, {SESSION_COLUMNS}) VALUES ("
+        "INSERT INTO sessions (token_hash, {STORED_COLUMNS}) VALUES ("
     ));
     sql.bind(token_digest)
         .push_bind(", ", Id(&session.id))

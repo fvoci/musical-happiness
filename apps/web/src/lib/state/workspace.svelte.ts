@@ -85,6 +85,8 @@ export class Workspace {
   entered = $state<entry.EnterStatus>('none');
   /** The identifier of the workspace last asked for, whether or not it was found. */
   asked = $state<string | undefined>(undefined);
+  /** `setFirstPassword` is about to show the session's password: a reading refused meanwhile closes nothing. */
+  showing = false;
   users = $state.raw<User[]>([]);
   /** The workspace's list as the backend gives it without a search: on the server, its oldest ten (D2). */
   workspaceUsers = $state.raw<User[]>([]);
@@ -193,11 +195,11 @@ export class Workspace {
   /**
    * Shows the workspace `workspaceId`: its people, boards and sidebar are
    * read, and what was shown of another (the open board, undo) is let go.
-   * Nothing is done when it is the one entered or being entered. A failure
-   * is told; the status says it (`entered`).
+   * Nothing is done when it is the one entered or being entered, unless
+   * `again`. A failure is told; the status says it (`entered`).
    */
-  async enter(workspaceId: string): Promise<void> {
-    if (this.asked === workspaceId && this.entered !== 'failed') return;
+  async enter(workspaceId: string, again = false): Promise<void> {
+    if (!again && this.asked === workspaceId && this.entered !== 'failed') return;
     const turn = this.#entering + 1;
     try {
       await this.#enter(workspaceId);
@@ -344,7 +346,7 @@ export class Workspace {
    * and is logged too. A 401 is no failure to show (`ends`).
    */
   report(action: ProblemAction, error: unknown): void {
-    if (this.ends(error)) return;
+    if (this.ends(error, action === 'load')) return;
     this.#problemCount += 1;
     this.problems = [
       ...this.problems,
@@ -354,10 +356,11 @@ export class Workspace {
   }
 
   /** Whether `error` ends the session or closes the workspace shown (a 401), as it then does. */
-  ends(error: unknown): boolean {
+  ends(error: unknown, reading = false): boolean {
     // An organization began to take no password, or the own space the password alone: it closes.
     const closing = entry.closedBy(this.workspaces, this.info, error);
     if (closing) {
+      if (reading && this.showing && closing.entered === 'password') return true;
       this.workspaces = closing.workspaces;
       if (!closing.closed) return true;
       this.#entering += 1; // What is still being read of it does not open it again.

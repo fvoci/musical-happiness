@@ -5,7 +5,8 @@ use crate::common;
 use fvoci_model::{AuditAction, AuditRecordActor, new_id};
 use fvoci_store::{AuditPlace, Paging, StoredProvider};
 
-fn settings() -> StoredProvider {
+/// A provider that takes no password: its organization opens to its sessions only.
+pub(crate) fn settings() -> StoredProvider {
     StoredProvider {
         id: String::new(),
         org_id: String::new(),

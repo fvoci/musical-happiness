@@ -194,17 +194,29 @@ An account that was made by a sign-in through an organization's provider has no 
 password (`hasPassword` of `getMe`), and until it has one its space is reached by any \
 session of the account. It is given one by `setPassword`, so that its person reaches \
 the space when they are no longer in that organization. Once the account has a \
-password, the space takes only sessions made with it (`login`): a provider is an \
-organization's, and whoever holds it could make a session of the account. To a session \
-made through a provider the routes under the space's `/w/{workspaceId}` then answer \
-401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space \
-with `passwordRequired` true, `getMyMemberships` leaves its boards out, \
-`getAccountDeletion` names it without what is in it, and the websocket follows \
-nothing of it for such a session (`contracts/websocket.md`). The session stays and \
-opens what it opened of the organizations; signing in with the password opens the \
-space, and an organization that takes only sessions made through its provider \
-(`sso_required`) then asks for a sign-in through that again. What is shared from the \
-space by a public link is read without a session, and is not closed so.
+password, the space takes only sessions that have shown it: one made with it (`login`), \
+and one made through a provider that gave it since (`confirmPassword`). A provider is \
+an organization's, and whoever holds it could make a session of the account. To a \
+session made through a provider that has not given the password, the routes under the \
+space's `/w/{workspaceId}` then answer 401 with the reason \
+`password_sign_in_required`, `getMyWorkspaces` lists the space with `passwordRequired` \
+true, `getMyMemberships` leaves its boards out, `getAccountDeletion` names it without \
+what is in it, and the websocket follows nothing of it for such a session \
+(`contracts/websocket.md`). The session stays and opens what it opened of the \
+organizations.
+
+There are two ways in from there. `confirmPassword` keeps the session: it gives the \
+password once, and from then until it ends the session opens the space beside what it \
+opened before, so that somebody whose organization takes only sessions made through \
+its provider (`sso_required`) goes between that organization and the space without \
+signing in again. Signing in with the password (`login`) opens the space too, in a new \
+session, which such an organization then asks to sign in through its provider again. \
+What a session confirmed opens the account's own space and nothing else: not what is \
+another account's, and nothing of an organization that takes only sessions made \
+through a provider other than the session's own. It goes with the session: a change \
+of the password (`changePassword`, a reset, the operator's) ends the account's other \
+sessions, as it always did, and what they confirmed with them. What is shared from \
+the space by a public link is read without a session, and is not closed so.
 
 It goes with its account: `getAccountDeletion` names it among `organizations` always, \
 and while the account waits to be deleted it is closed with the account: what is \
@@ -298,7 +310,10 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("ContainerTeamRole", Members::AsWritten),
     ("ContainersAndBlocks", Members::All),
     ("BodyVersion", Members::All),
+    ("BodyVersionCause", Members::AsWritten),
     ("BodyVersionContent", Members::All),
+    ("KeptBodyVersion", Members::All),
+    ("KeptOutcome", Members::AsWritten),
     ("Card", Members::AllBut(&["preview"])),
     ("CardPreview", Members::All),
     ("Category", Members::All),
@@ -367,7 +382,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("ReceivedPart", Members::All),
     ("UploadedFile", Members::AsWritten),
     ("User", Members::All),
-    ("Me", Members::All),
+    ("Me", Members::AllBut(&["pendingEmail"])),
     ("PersonName", Members::All),
     ("UserSettings", Members::AsWritten),
     ("UserWorkspace", Members::All),
@@ -399,6 +414,9 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("FileForm", Members::AsWritten),
     ("FinishPasswordReset", Members::All),
     ("CompleteEmailVerification", Members::Only(&["token"])),
+    ("ConfirmEmailChange", Members::All),
+    ("RequestEmailChange", Members::Only(&["email", "password"])),
+    ("ResendEmailChange", Members::Only(&[])),
     ("RequestEmailVerification", Members::Only(&[])),
     ("RequestPasswordReset", Members::Only(&["email"])),
     ("GuestInvitationsChange", Members::All),
@@ -446,6 +464,7 @@ const SCHEMAS: &[(&str, Members)] = &[
         "RegisterRequest",
         Members::Only(&["username", "email", "password"]),
     ),
+    ("ConfirmPasswordRequest", Members::All),
     ("NewOrganization", Members::All),
     ("SetPasswordRequest", Members::All),
     ("SettingsChange", Members::AsWritten),

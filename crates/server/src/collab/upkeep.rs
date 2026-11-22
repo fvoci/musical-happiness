@@ -453,9 +453,9 @@ impl Collab {
         Ok(())
     }
 
-    /// As [`Collab::write_now`]; whether the card was written past the document, and the
-    /// document was made again from it.
-    async fn write_or_replace(
+    /// As [`Collab::write_now`], keeping no version; whether the card was written past
+    /// the document, and the document was made again from it.
+    pub(super) async fn write_or_replace(
         &self,
         app: &App,
         card_id: &str,
