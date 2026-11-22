@@ -28,6 +28,8 @@ mod category_boards;
 mod common;
 mod confirmed_password;
 mod container_rename;
+mod diaries;
+mod diary_schema;
 mod email_change;
 mod file_info;
 mod image_files;

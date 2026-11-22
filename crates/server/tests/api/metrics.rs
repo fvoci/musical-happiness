@@ -594,7 +594,7 @@ async fn the_archives_that_hold_their_place_are_counted() {
 }
 
 #[tokio::test]
-async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
+async fn the_boards_wikis_and_diaries_copied_whole_are_counted_by_work_and_kind() {
     let server = server_with_metrics().await.init_basic().await;
     let client = &server.client;
     let copied = |body: &str, work: &str, kind: &str| {
@@ -606,7 +606,7 @@ async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
     };
     let before = scrape(&server).await;
     for work in ["export", "import", "duplicate", "welcome"] {
-        for kind in ["board", "wiki"] {
+        for kind in ["board", "wiki", "diary"] {
             assert_eq!(
                 copied(&before, work, kind),
                 Some(0.0),
@@ -639,6 +639,20 @@ async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
             .await
             .check_created();
     }
+    // A diary, which is of the user's own space, goes into an archive and comes out of one.
+    let own = crate::own_space::own_workspace(client).await.id;
+    let diary = client
+        .post(&format!("/w/{own}/diaries"), &serde_json::json!({}))
+        .await;
+    diary.check_created();
+    let diary = diary.value()["id"].as_str().expect("its id").to_owned();
+    let export = client
+        .get(&format!("/w/{own}/containers/{diary}/archive/export"))
+        .await;
+    export.check_ok();
+    crate::export::import(client, &own, &export.body)
+        .await
+        .check_ok();
     // The welcome board of a new account is counted apart from the copies people make.
     client
         .post_empty(&format!("{TEST_WS}/onboard"))
@@ -654,6 +668,10 @@ async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
         ("export", "wiki", 2.0),
         ("import", "wiki", 2.0),
         ("duplicate", "wiki", 1.0),
+        ("welcome", "diary", 0.0),
+        ("export", "diary", 1.0),
+        ("import", "diary", 1.0),
+        ("duplicate", "diary", 0.0),
     ];
     for (work, kind, times) in counted {
         assert_eq!(
@@ -662,12 +680,12 @@ async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
             "{work} {kind}: {body}"
         );
     }
-    // Two values of `kind`, four of `work`: nothing else is counted.
+    // Three values of `kind`, four of `work`: nothing else is counted.
     let series = body
         .lines()
         .filter(|line| line.starts_with("fvoci_containers_copied_total{"))
         .count();
-    assert_eq!(series, 8, "{body}");
+    assert_eq!(series, 12, "{body}");
     server.teardown().await;
 }
 

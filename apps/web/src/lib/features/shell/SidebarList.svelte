@@ -29,7 +29,7 @@
   import type { Container } from '$lib/logic/wire.ts';
   import type { Category, SidebarCategory, Workspace } from '$lib/state/index.ts';
 
-  import { shownTitle } from './shown-title.ts';
+  import { namedAs, shownTitle } from './shown-title.ts';
   import ContainerIcon from './ContainerIcon.svelte';
   import { containerDragMessages } from './drag-messages.ts';
   import {
@@ -109,9 +109,10 @@
             );
             return known && !listed ? [known] : [];
           }),
-          // The backend searches boards only: a hidden wiki is found here.
+          // The backend searches boards only: a hidden wiki or diary is found here.
           ...workspace.hiddenContainers.filter(
-            (container) => container.kind === 'wiki' && titleHas(container.title, query),
+            (container) =>
+              (container.kind ?? 'board') !== 'board' && titleHas(container.title, query),
           ),
         ]
       : [],
@@ -306,9 +307,7 @@
             <a
               href={containerHref(container)}
               aria-current={container.id === containerId ? 'page' : undefined}
-              aria-label={container.kind === 'wiki'
-                ? m.shell_wiki_named({ title: titleOf(container) })
-                : undefined}
+              aria-label={namedAs(container.kind, titleOf(container))}
               class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 hover:bg-sidebar-accent roomy:min-h-touch"
               onclick={(event: MouseEvent) => {
                 if (
@@ -381,9 +380,7 @@
               <a
                 href={containerHref(container)}
                 aria-current={container.id === containerId ? 'page' : undefined}
-                aria-label={container.kind === 'wiki'
-                  ? m.shell_wiki_named({ title: titleOf(container) })
-                  : undefined}
+                aria-label={namedAs(container.kind, titleOf(container))}
                 class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 text-muted-foreground hover:bg-sidebar-accent roomy:min-h-touch"
                 onclick={(event: MouseEvent) => {
                   if (

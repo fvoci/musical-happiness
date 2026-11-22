@@ -8,6 +8,7 @@ import type { Container, ContainerMember } from '../../logic/wire.ts';
 import type { DeletedItem, Paging } from '../backend.ts';
 
 import { categoriesIn, tellCategories } from './categories.ts';
+import { checkDiaryRoom } from './diary-places.ts';
 import { pageOf } from './paging.ts';
 import { fail } from './refuse.ts';
 import type { World } from './world.ts';
@@ -172,8 +173,8 @@ export function mayManageCards(
   refusal: string,
 ): void {
   const board = world.containers.get(boardId);
-  // A wiki has no cards: the server answers for one as for a board that is not there.
-  if (!board || board.kind === 'wiki') fail(404, 'no such board');
+  // A wiki or a diary has no cards: the server answers for one as for a board that is not there.
+  if (!board || board.kind === 'wiki' || board.kind === 'diary') fail(404, 'no such board');
   const member = world.members.get(boardId)?.find((each) => each.userId === userId);
   if (!member && board.type !== 'O') fail(404, 'no such board');
   if (!member?.schemeAdmin && !member?.schemeEditor) fail(403, refusal);
@@ -189,6 +190,10 @@ export function takeContainerBack(world: World, userId: string, containerId: str
   const deleted = world.deletedContainers.get(containerId);
   if (!deleted?.members.some((member) => member.userId === userId)) fail(404, 'no such board');
   if (!wasAdmin(deleted.members, userId)) fail(403, 'access denied to undelete board');
+  // As the server's (`insert_container_row`): a diary comes back only where there is room for it.
+  if (deleted.container.kind === 'diary') {
+    checkDiaryRoom(world, userId, deleted.container.workspaceId, 1);
+  }
   world.deletedContainers.delete(containerId);
   world.containers.set(containerId, deleted.container);
   world.members.set(containerId, deleted.members);

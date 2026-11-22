@@ -17,17 +17,17 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
-  import { m } from '$lib/i18n/paraglide/messages.js';
   import type { ContainerKind } from '$lib/logic/wire.ts';
 
   import ContainerIcon from './ContainerIcon.svelte';
+  import { menuNamed, namedAs } from './shown-title.ts';
 
   interface Props {
     containerId: string;
     /** The title as shown: the board's own, or the words for a board without one. */
     title: string;
     icon: string | undefined;
-    /** A board when left out; a wiki says so to a screen reader too. */
+    /** A board when left out; a wiki or a diary says so to a screen reader too. */
     kind?: ContainerKind | undefined;
     href: string;
     /** This is the board on the page. */
@@ -73,7 +73,7 @@
     draggable="false"
     data-drag-item={draggable ? containerId : undefined}
     aria-current={current ? 'page' : undefined}
-    aria-label={kind === 'wiki' ? m.shell_wiki_named({ title }) : undefined}
+    aria-label={namedAs(kind, title)}
     aria-describedby={draggable ? describedBy : undefined}
     class="flex min-h-8 items-center gap-2 rounded-md py-1 pr-9 pl-2 select-none [-webkit-touch-callout:none] hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium roomy:min-h-touch roomy:pr-12"
     {onclick}
@@ -87,9 +87,7 @@
       {#snippet trigger(props: Record<string, unknown>)}
         <IconButton
           {...props}
-          label={kind === 'wiki'
-            ? m.shell_wiki_menu({ name: title })
-            : m.shell_board_menu({ name: title })}
+          label={menuNamed(kind, title)}
           class="absolute top-0 right-0 text-muted-foreground can-hover:opacity-0 can-hover:group-focus-within/board:opacity-100 can-hover:group-hover/board:opacity-100 can-hover:aria-expanded:opacity-100"
         >
           <EllipsisIcon />

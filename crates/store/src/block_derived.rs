@@ -1,5 +1,6 @@
 //! What is kept beside a block and follows from it: the files it shows, the blocks its
-//! body names, and that the search server is to be told of it. Every write of a block,
+//! body names, the day of a diary it is the entry of, and that the search server is to
+//! be told of it. Every write of a block,
 //! and every way a block or a board goes and comes back, passes through here in its own
 //! transaction, so that nothing that follows from a block is left as it was when the
 //! block changes.
@@ -10,7 +11,7 @@ use crate::db::Scope;
 use crate::error::StoreError;
 use crate::file_refs::{self, NewBodyFiles};
 use crate::search_outbox;
-use crate::{body_docs, body_links, body_versions, comment_versions};
+use crate::{body_docs, body_links, body_versions, comment_versions, diaries};
 
 /// Whether the search server holds a document of the block: of a card or a page, but
 /// not of one whose `isTemplate` is `true` ([`Block::is_template`]: for a card, a
@@ -41,7 +42,8 @@ pub(crate) enum Before<'a> {
 
 /// Brings what follows from `block` up to it, as it was just written: the files it
 /// shows ([`file_refs::refresh`], which asks about the files of its body as
-/// `new_files` says), the blocks its body names ([`body_links::refresh`]), and the
+/// `new_files` says), the blocks its body names ([`body_links::refresh`]), the day an
+/// entry is of ([`diaries::refresh`], which refuses a second entry of a day), and the
 /// search server's document of it.
 ///
 /// The search server is told of a block that is searched now if what it holds of it
@@ -53,6 +55,7 @@ pub(crate) async fn refresh(
     before: Before<'_>,
     new_files: NewBodyFiles,
 ) -> Result<(), StoreError> {
+    diaries::refresh(scope, block, Refreshing(())).await?;
     file_refs::refresh(scope, block, new_files, Refreshing(())).await?;
     body_links::refresh(scope, block, Refreshing(())).await?;
     let told = match before {

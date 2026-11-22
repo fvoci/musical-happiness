@@ -15,11 +15,13 @@ pub enum SearchKind {
     Card,
     /// A page of a wiki.
     Page,
+    /// An entry of a diary: found by its writer alone, whose own space the diary is in.
+    Entry,
 }
 
 impl SearchKind {
     /// Every kind there is.
-    pub const ALL: [Self; 2] = [Self::Card, Self::Page];
+    pub const ALL: [Self; 3] = [Self::Card, Self::Page, Self::Entry];
 
     /// The kind of thing a block of this type is to a search; `None` for a block a
     /// search never finds: a view, a comment, an attachment.
@@ -28,6 +30,7 @@ impl SearchKind {
         match block_type {
             BlockType::Card => Some(Self::Card),
             BlockType::Page => Some(Self::Page),
+            BlockType::Entry => Some(Self::Entry),
             _ => None,
         }
     }
@@ -38,6 +41,7 @@ impl SearchKind {
         match self {
             Self::Card => BlockType::Card,
             Self::Page => BlockType::Page,
+            Self::Entry => BlockType::Entry,
         }
     }
 
@@ -47,6 +51,7 @@ impl SearchKind {
         match self {
             Self::Card => "card",
             Self::Page => "page",
+            Self::Entry => "entry",
         }
     }
 }
@@ -66,11 +71,10 @@ impl FromStr for SearchKind {
     type Err = UnknownSearchKind;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        match text {
-            "card" => Ok(Self::Card),
-            "page" => Ok(Self::Page),
-            other => Err(UnknownSearchKind(other.to_owned())),
-        }
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == text)
+            .ok_or_else(|| UnknownSearchKind(text.to_owned()))
     }
 }
 
@@ -88,15 +92,16 @@ pub struct SnippetPart {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchHit {
-    /// The identifier of the card or the page.
+    /// The identifier of the card, the page or the entry.
     pub id: String,
     /// What it is.
     pub kind: SearchKind,
-    /// The identifier of the board the card is on, or of the wiki the page is in.
+    /// The identifier of the board the card is on, of the wiki the page is in, or of
+    /// the diary the entry is in.
     pub container_id: String,
-    /// What its container is: a board, or a wiki.
+    /// What its container is: a board, a wiki, or a diary.
     pub container_kind: ContainerKind,
-    /// Its title as it is now.
+    /// Its title as it is now; of an entry, its day (`2026-11-21`).
     pub title: String,
     /// A card's number on its board, as `Card.number` gives it; absent for a page.
     #[schema(minimum = 1)]
@@ -117,7 +122,7 @@ mod tests {
         for kind in SearchKind::ALL {
             // A new kind is added to `ALL` too: the store reads the blocks of its kinds.
             match kind {
-                SearchKind::Card | SearchKind::Page => {}
+                SearchKind::Card | SearchKind::Page | SearchKind::Entry => {}
             }
             assert_eq!(SearchKind::of_block(&kind.block_type()), Some(kind));
             assert_eq!(kind.as_str().parse(), Ok(kind));

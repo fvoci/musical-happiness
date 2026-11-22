@@ -38,7 +38,11 @@ const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
 
 /** The kinds a block of a type is found as. */
-const KIND_OF_TYPE: Readonly<Record<string, SearchKind>> = { card: 'card', page: 'page' };
+const KIND_OF_TYPE: Readonly<Record<string, SearchKind>> = {
+  card: 'card',
+  page: 'page',
+  entry: 'entry',
+};
 
 /** The 400 of a parameter of the query out of bounds. */
 function refusedParameter(parameter: string, detail: string): never {
@@ -132,7 +136,7 @@ export class MemoryContentSearch implements ContentSearch {
             id: block.id,
             kind,
             containerId: board.id,
-            containerKind: kind === 'page' ? 'wiki' : 'board',
+            containerKind: board.kind ?? 'board',
             title: block.title,
             ...(block.number === undefined ? {} : { number: block.number }),
             snippet: snippetOf(text, words),

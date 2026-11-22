@@ -119,6 +119,27 @@ const ahead = (line: Locator): Promise<string | null> =>
     return range.toString();
   });
 
+/**
+ * The other's caret goes to the start of its first line and back to the end, and this tab has
+ * seen both: the three seconds its name shows begin anew. A name is placed only while it
+ * shows, and End on a caret that is at the end already moves nothing. The frame in which
+ * the name is placed for that move has passed when this comes back: what places it after
+ * is something else (another width).
+ */
+async function movedAgain(other: Page, mine: Locator, text: string): Promise<void> {
+  const line = mine.locator('p').first();
+  await lineBoundary(other, 'start');
+  await expect.poll(() => ahead(line)).toBe('');
+  await lineBoundary(other, 'end');
+  await expect.poll(() => ahead(line)).toBe(text);
+  await mine.evaluate(
+    () =>
+      new Promise((resolve) => {
+        requestAnimationFrame(resolve);
+      }),
+  );
+}
+
 /** The name shows, and is within the body: placed a frame after it is drawn. */
 async function inside(editor: Locator): Promise<void> {
   await expect(caret(editor)).toHaveAttribute('data-named', '');
@@ -232,14 +253,24 @@ test('a name finds its place again when the window is another width', async ({ p
   // Wide, there is room to the right of a short line; narrow, there is none, and the name
   // is moved left as far as it takes, never past the left edge.
   await expect.poll(() => moved(mine)).toBe(0);
+  // Each width has the name's whole three seconds to itself: with one move at the start,
+  // all three widths had to be laid out and placed within three seconds of it.
   for (const width of [390, 150]) {
+    await movedAgain(other, mine, 'Short.');
     await page.setViewportSize({ width, height: 800 });
-    await lineBoundary(other, 'end');
     await inside(mine);
   }
   await expect.poll(() => moved(mine)).toBeLessThan(0);
+  await movedAgain(other, mine, 'Short.');
   await page.setViewportSize({ width: 1280, height: 800 });
-  await expect.poll(() => moved(mine)).toBe(0);
+  // A name that went out before it was placed says so: it is not a name placed wrongly.
+  await expect
+    .poll(async () =>
+      (await caret(mine).getAttribute('data-named')) === null
+        ? 'the name went out before it was placed'
+        : moved(mine),
+    )
+    .toBe(0);
   await other.close();
 });
 

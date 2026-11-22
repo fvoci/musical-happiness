@@ -204,6 +204,18 @@ impl Sql {
         self
     }
 
+    /// The statement that asks the database how it would answer this one, which is a
+    /// query: its plan, a line a row. PostgreSQL runs the query to say what it read.
+    #[cfg(any(test, feature = "test-util"))]
+    pub(crate) fn explained(mut self) -> Self {
+        let asked = match self.dialect {
+            Dialect::Sqlite => "EXPLAIN QUERY PLAN ",
+            Dialect::Postgres => "EXPLAIN (ANALYZE, BUFFERS) ",
+        };
+        self.text.insert_str(0, asked);
+        self
+    }
+
     /// Appends SQL text. The text must not contain values; bind those instead.
     pub(crate) fn push(&mut self, text: &str) -> &mut Self {
         self.text.push_str(text);

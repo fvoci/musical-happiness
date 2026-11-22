@@ -29,6 +29,7 @@
   import { SearchSession } from '$lib/features/search/search-session.svelte.ts';
   import { SearchSwitch } from '$lib/features/search/search-switch.svelte.ts';
   import SearchDialog from '$lib/features/search/SearchDialog.svelte';
+  import { shownTitle } from '$lib/features/shell/shown-title.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { overlayOpen } from '$lib/layout/back.svelte.ts';
   import type { Workspace } from '$lib/state/index.ts';
@@ -137,8 +138,21 @@
     return { workspaceId: workspace.info?.id, wikiId: hit.containerId, pageId: hit.id };
   }
 
+  /** The route of an entry of a diary: the diary's page of its day (its title is its day). */
+  function entryRoute(hit: SearchHit): Partial<Route> {
+    return {
+      workspaceId: workspace.info?.id,
+      diaryId: hit.containerId,
+      monthDay: hit.title.slice(5),
+    };
+  }
+
+  function routeOf(hit: SearchHit): Partial<Route> {
+    return { card: cardRoute, page: pageRoute, entry: entryRoute }[hit.kind](hit);
+  }
+
   function hrefOf(hit: SearchHit): string {
-    return router.href(hit.kind === 'card' ? cardRoute(hit) : pageRoute(hit));
+    return router.href(routeOf(hit));
   }
 
   /**
@@ -151,7 +165,7 @@
    * sidebar.
    */
   async function go(hit: SearchHit): Promise<void> {
-    const route = hit.kind === 'card' ? cardRoute(hit) : pageRoute(hit);
+    const route = routeOf(hit);
     session?.close();
     open = false;
     await tick();
@@ -160,7 +174,7 @@
     } else if (hit.kind === 'card' && route.viewId !== ANY_VIEW) {
       router.openCard(hit.id);
     } else {
-      const kind = hit.kind === 'page' ? 'wiki' : 'board';
+      const kind = ({ card: 'board', page: 'wiki', entry: 'diary' } as const)[hit.kind];
       router.openContainer({ id: hit.containerId, workspaceId: workspace.info?.id ?? '', kind });
       router.go(route, { replace: true });
     }
@@ -184,9 +198,7 @@
 
   function containerOf(hit: SearchHit): string {
     const container = workspace.containers.find((one) => one.id === hit.containerId);
-    if (!container) return '';
-    if (container.title) return container.title;
-    return container.kind === 'wiki' ? m.wiki_untitled() : m['Sidebar.untitled-board']();
+    return container ? shownTitle(container) : '';
   }
 </script>
 

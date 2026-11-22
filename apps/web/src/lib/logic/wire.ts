@@ -84,6 +84,7 @@ export const BLOCK_TYPES = [
   'card',
   'comment',
   'page',
+  'entry',
   'unknown',
 ] as const;
 
@@ -478,8 +479,8 @@ export function remapBlockReferences(block: Block, idMap: Readonly<Record<string
 export const CONTAINER_TYPE_OPEN = 'O';
 export const CONTAINER_TYPE_PRIVATE = 'P';
 export type ContainerType = typeof CONTAINER_TYPE_OPEN | typeof CONTAINER_TYPE_PRIVATE;
-/** What a board is for: `board` for cards and views, `wiki` for pages. It never changes. */
-export type ContainerKind = 'board' | 'wiki';
+/** What a board is for: cards and views, pages, or the entries of a diary. It never changes. */
+export type ContainerKind = 'board' | 'wiki' | 'diary';
 
 export type PropertyType =
   | 'text'
