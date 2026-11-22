@@ -112,7 +112,7 @@ impl Hub {
             return;
         }
         let workspace_id = message.workspace_id();
-        // A card's or a page's without its body: what that body names is not looked up.
+        // A card's, a page's or an entry's without its body: what that body names is not looked up.
         let block = message.block();
         let Some(whole) = text_of(message) else {
             return;
@@ -136,7 +136,7 @@ impl Hub {
             } else {
                 match self.audience.unsaid_by_link(block).await {
                     Ok(unsaid) => {
-                        // A card's or a page's carries no body to copy here.
+                        // A card's, a page's or an entry's carries no body to copy here.
                         let mut public = message.clone();
                         let shown = public.block_mut();
                         shown.hide_people(&unsaid.people);

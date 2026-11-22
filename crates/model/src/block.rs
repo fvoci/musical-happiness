@@ -459,8 +459,8 @@ pub struct Block {
     /// those have one: a body on another block is refused (400 naming `body`). Every image of
     /// it shows a file of the block's board. Whoever reads it by the board's link gets
     /// every mention with an empty `userId`: a shape that is only sent, which a write
-    /// would have refused. A change message (`UPDATE_BLOCK`) of a card or a page has it
-    /// `null`, with a summary of it beside the block.
+    /// would have refused. A change message (`UPDATE_BLOCK`) of a card, a page or an entry
+    /// has it `null`, with a summary of it beside the block.
     pub body: Option<Body>,
     /// Creation time in milliseconds since the Unix epoch.
     pub create_at: i64,

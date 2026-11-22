@@ -1,5 +1,5 @@
-//! A card's and a page's `UPDATE_BLOCK` carries a summary of the body in place of the
-//! body (`contracts/websocket.md` 3): whether there is one, its task items and the
+//! A card's, a page's and an entry's `UPDATE_BLOCK` carries a summary of the body in place
+//! of the body (`contracts/websocket.md` 3): whether there is one, its task items and the
 //! preview a gallery shows, as a list of cards gives them. A comment's carries its body.
 
 use std::time::Duration;
@@ -311,5 +311,63 @@ async fn a_comment_and_a_view_are_told_whole() {
     }
     // Nothing else comes of them.
     assert_eq!(socket.next_json(Duration::from_millis(300)).await, None);
+    th.teardown().await;
+}
+
+/// A diary entry's body is edited in a room too (`BlockType::WITH_ROOM`), so its
+/// `UPDATE_BLOCK` carries a summary in place of its body and matches the contract.
+#[tokio::test]
+async fn a_diary_entry_body_is_told_as_its_summary() {
+    let th = Setup::local_mode().start().await.init_basic().await;
+    let me = th.client.me().await;
+    let own = crate::own_space::own_workspace(&th.client).await.id;
+    let diary = th
+        .client
+        .post(&format!("/w/{own}/diaries"), &json!({}))
+        .await;
+    diary.check_created();
+    let diary_id = diary.value()["id"]
+        .as_str()
+        .expect("diary identifier")
+        .to_owned();
+    let entry = th
+        .client
+        .post(
+            &format!("/w/{own}/diaries/{diary_id}/entries"),
+            &json!({"date": "2024-02-29"}),
+        )
+        .await;
+    entry.check_created();
+    let made = entry.value();
+    let entry_id = made["id"].as_str().expect("entry identifier").to_owned();
+
+    let mut listener = Socket::connect_as(&th.client).await;
+    subscribe_to_workspace(&th, &mut listener, &own, &me.id).await;
+
+    let path = format!("/w/{own}/diaries/{diary_id}/entries/{entry_id}");
+    th.client
+        .patch(
+            &path,
+            &json!({
+                "readAt": made["updateAt"],
+                "body": with_tasks(&[task(Task::Done, "walk"), task(Task::Open, "journal")]),
+            }),
+        )
+        .await
+        .check_ok();
+
+    let told = told_of(&mut listener, &entry_id, "journal").await;
+    assert_eq!(told["block"]["type"], json!("entry"), "{told}");
+    assert_eq!(told["block"]["body"], Value::Null, "{told}");
+    assert_eq!(
+        told["summary"],
+        json!({
+            "hasBody": true,
+            "tasksTotal": 2,
+            "tasksDone": 1,
+            "preview": {"imageFileId": "", "text": "walk\njournal\nnotes"},
+        }),
+        "{told}"
+    );
     th.teardown().await;
 }

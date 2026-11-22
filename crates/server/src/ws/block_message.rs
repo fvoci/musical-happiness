@@ -1,5 +1,5 @@
-//! The message `UPDATE_BLOCK`: a block that changed. A card's or a page's carries a
-//! summary of its body in place of the body, which its room and HTTP give
+//! The message `UPDATE_BLOCK`: a block that changed. A card's, a page's or an entry's
+//! carries a summary of its body in place of the body, which its room and HTTP give
 //! (`contracts/websocket.md` 3); every other block goes whole.
 
 use std::borrow::Cow;
@@ -9,8 +9,8 @@ use serde::Serialize;
 
 use super::Outgoing;
 
-/// What `UPDATE_BLOCK` says of a card's or a page's body in its place, as a list of
-/// cards says it (`getCards`, and its `preview`).
+/// What `UPDATE_BLOCK` says of a card's, a page's or an entry's body in its place, as a
+/// list of cards says it (`getCards`, and its `preview`).
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Summary {
@@ -35,8 +35,8 @@ impl Summary {
     }
 }
 
-/// `UPDATE_BLOCK`: the block, without its body and with its summary if it is a card or
-/// a page.
+/// `UPDATE_BLOCK`: the block, without its body and with its summary if it is a card, a
+/// page or an entry.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct UpdateBlockMessage<'a> {
@@ -67,7 +67,7 @@ impl<'a> UpdateBlockMessage<'a> {
         self.workspace_id
     }
 
-    /// The block the message carries: a card's or a page's without its body.
+    /// The block the message carries: a card's, a page's or an entry's without its body.
     pub(super) fn block(&self) -> &Block {
         &self.block
     }
