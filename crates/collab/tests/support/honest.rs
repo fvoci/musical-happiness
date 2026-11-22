@@ -6,7 +6,7 @@ use std::time::Duration;
 use fvoci_collab::{
     MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, UpdateLimits, take_update,
 };
-use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_NODES};
+use fvoci_model::BODY_MAX_BYTES;
 use serde_json::{Value, json};
 use yrs::{Doc, Text, XmlElementPrelim, XmlFragment, XmlOut, XmlTextPrelim};
 
@@ -53,10 +53,11 @@ fn paragraph(text: &str) -> Value {
 /// many bytes, and as many changes, but for the room the largest paste takes.
 pub(crate) fn bodies() -> Vec<(&'static str, Value)> {
     let (room_nodes, room_bytes) = paste_room();
-    let nodes = (BODY_MAX_NODES - room_nodes) / 2;
+    let (max_nodes, max_bytes) = (super::shapes::nodes(), super::shapes::bytes());
+    let nodes = (max_nodes - room_nodes) / 2;
     let long = "가나다라마바사아자차".repeat(100);
     let long_bytes = serde_json::to_vec(&paragraph(&long)).expect("JSON").len() + 1;
-    let long_count = (BODY_MAX_BYTES - room_bytes) / long_bytes;
+    let long_count = (max_bytes - room_bytes) / long_bytes;
     vec![
         (
             "50,000 nodes",
@@ -76,8 +77,8 @@ pub(crate) fn bodies() -> Vec<(&'static str, Value)> {
         };
         let body = marked(
             between,
-            BODY_MAX_NODES - room_nodes,
-            BODY_MAX_BYTES - room_bytes,
+            max_nodes - room_nodes,
+            max_bytes - room_bytes,
         );
         (name, body)
     }))
