@@ -7,7 +7,8 @@ import base from './playwright.config.ts';
 /**
  * One WebKit worker for every four processors, two at most: on four (GitHub's
  * runner) two workers failed 10 of the 96 tests of the files that failed
- * there, and one worker 3; a developer's machine has always run two.
+ * there, and one worker 3. Eight processors or more run two, as this config
+ * always did; fewer than eight now run one.
  */
 const workers = Math.min(2, Math.max(1, Math.floor(availableParallelism() / 4)));
 

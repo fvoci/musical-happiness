@@ -4,16 +4,16 @@
 # empty or missing output runs everything; `ci-done` passes a skipped job only when
 # its id is on the list (verdict.sh).
 #
-#   EVENT=<github.event_name> BEFORE=<github.event.before> plan.sh
+#   EVENT=<github.event_name> DEFAULT_BRANCH=master BEFORE=<github.event.before> plan.sh
 #
-# Run in a checkout of the run's commit: for a pull request its test merge and that
-# merge's parents, for a push the history of master. A push also needs REPOSITORY
-# and GH_TOKEN (a token that may read the repository's runs).
+# Run in a checkout of the run's commit with the history of the default branch (the
+# trees are enough). A push also needs REPOSITORY and GH_TOKEN, a token that may read
+# the repository's artifacts.
 #
 # What a run changes:
-# - a pull request: what its test merge changes in the commit it was merged into
-#   (`HEAD^1`): the base branch, or for a layer of a stack the test merge of the
-#   layer below;
+# - a pull request: what its test merge changes since it parted from the default
+#   branch. For a layer of a stack that is every layer up to it, so the top layer's
+#   `ci-done` stands for the whole stack;
 # - a push to master: what the push changes (`BEFORE..HEAD`);
 # - a run by hand: everything.
 # When git cannot say, or nothing changed, nothing is skipped.
@@ -22,13 +22,13 @@
 # - Every file under apps/web/: the Rust tests are skipped. No cargo test reads the
 #   web app; `cargo xtask check` does (names), and it always runs.
 # - Every file a `.rs` under crates/ or xtask/src/: the web app's check, unit tests,
-#   stories and the end-to-end tests of the build are skipped. Its build and
-#   `e2e:live`, which runs the server, are not. The web app reads files of crates/
-#   and xtask/ that are not Rust (crates/collab/tests/data/, xtask/exceptions/) and
-#   the root's (deny.toml): those, like any other file, run everything.
-# - A push that is one merge, whose branch had master in it and passed a pull
-#   request's run of this workflow: the merged tree is that branch's, which that run
-#   tested. Only the jobs that save the caches run, by the rules above.
+#   stories, `e2e` and `e2e:apple` are skipped. Its build and `e2e:live`, which runs
+#   the server, are not. The web app reads files of crates/ and xtask/ that are not
+#   Rust (crates/collab/tests/data/, xtask/exceptions/, crates/server/assets/) and the
+#   root's (deny.toml): those, like any other file, run everything.
+# - A push whose tree is one a pull request's run of this repository passed with all
+#   four jobs of the build (ci-done keeps the artifact `tested-<tree>` for that): those
+#   four jobs are skipped. The others, which save the caches, run by the rules above.
 set -euo pipefail
 
 skip=()
@@ -53,37 +53,35 @@ skip_by_files() {
   if $rust_only; then skip+=(web-checks web-e2e web-e2e-apple); fi
 }
 
-# Whether HEAD is one merge whose tree a pull request's run of this workflow tested.
-tested_merge() {
-  local commit first second more runs
-  read -r commit first second more < <(git rev-list --parents --max-count=1 HEAD)
-  if [[ -z $second || -n $more || $first != "$BEFORE" ]]; then
-    echo "plan: the push is not one merge onto the master before it"
+# Whether a pull request's run of a branch of this repository passed on the tree of
+# HEAD with every job of the build.
+tested_tree() {
+  local tree found
+  tree=$(git rev-parse 'HEAD^{tree}')
+  if ! found=$(gh api --jq '[.artifacts[]
+      | select((.expired | not) and .workflow_run.head_repository_id == .workflow_run.repository_id)]
+      | length' "repos/$REPOSITORY/actions/artifacts?name=tested-$tree&per_page=100"); then
+    echo "plan: GitHub did not say whether the tree $tree passed"
     return 1
   fi
-  if ! git merge-base --is-ancestor "$first" "$second"; then
-    echo "plan: the merged branch did not have master in it"
+  if [[ ! $found =~ ^[1-9][0-9]*$ ]]; then
+    echo "plan: no pull request's run passed on the tree $tree with every job of the build"
     return 1
   fi
-  if ! runs=$(gh api --jq .total_count \
-    "repos/$REPOSITORY/actions/workflows/ci.yml/runs?event=pull_request&status=success&head_sha=$second&per_page=1"); then
-    echo "plan: GitHub did not say whether $second passed"
-    return 1
-  fi
-  if ((runs == 0)); then
-    echo "plan: no pull request's run passed on $second"
-    return 1
-  fi
-  echo "plan: $commit has the tree of $second, which a pull request's run passed"
+  echo "plan: a pull request's run passed on the tree $tree with every job of the build"
 }
 
 case ${EVENT:-} in
   pull_request)
-    skip_by_files HEAD^1 HEAD
+    if base=$(git merge-base HEAD "origin/${DEFAULT_BRANCH:-}"); then
+      skip_by_files "$base" HEAD
+    else
+      echo "plan: no commit in common with origin/${DEFAULT_BRANCH:-}: nothing is skipped"
+    fi
     ;;
   push)
     skip_by_files "$BEFORE" HEAD
-    if tested_merge; then skip+=(web-build web-e2e web-e2e-apple web-e2e-live); fi
+    if tested_tree; then skip+=(web-build web-e2e web-e2e-apple web-e2e-live); fi
     ;;
   *)
     echo "plan: a run of ${EVENT:-no event} runs everything"

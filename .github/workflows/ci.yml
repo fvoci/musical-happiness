@@ -16,22 +16,25 @@
 # - no text from outside (titles, branch names, messages) reaches a shell, and the
 #   names of the changed files are read as data, never printed;
 # - only a run on master writes a cache. A pull request reads them and writes none:
-#   what one pull request built never reaches another.
+#   what one pull request built never reaches another. What a pull request's run
+#   leaves for master (`tested-<tree>`) is read only from runs of this repository's
+#   own branches, and only for the very tree that run tested.
 name: ci
 
 on:
   # Whatever the base: the pull requests of a stack have the branch below as theirs.
   # GitHub tests a layer merged into the test merge of the layer below, so on the stack's
   # base with every layer under it (before the stack is linked: into the branch below),
-  # and the plan reads what the layer itself changes there. Each layer has its own
-  # `ci-done`: a layer can be merged with those below it and no more.
+  # and the plan reads all that changed there since master: the top layer's `ci-done`
+  # stands for the stack, and each layer has its own, as a layer can be merged with
+  # those below it and no more.
   # `github.event.pull_request.stack` is not read: it is missing from a run of a pull
   # request opened before its stack was linked (the lowest, by `gh stack submit`). Only
   # a new head starts a run: the layer above a changed one keeps the result of its old
   # head until `gh stack rebase` and `gh stack push`.
   pull_request:
-  # Master after a merge: the jobs that save the caches, and the end-to-end jobs when
-  # the merged tree is not one that a pull request's run passed.
+  # Master after a merge: the jobs that save the caches, and the jobs of the build when
+  # the merged tree is not one that a pull request's run passed with them.
   push:
     branches: [master]
   workflow_dispatch:
@@ -67,20 +70,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # A pull request's test merge and its parents; for a push, master's history.
-          fetch-depth: ${{ github.event_name == 'push' && '0' || '2' }}
+          # The history of every branch, without the files: where a pull request
+          # parted from master, and what a push changes.
+          fetch-depth: 0
+          filter: blob:none
       - id: plan
         env:
           EVENT: ${{ github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           BEFORE: ${{ github.event.before }}
           REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: .github/scripts/plan.sh
 
+  # The S3 tests and the checks of the workflows run whatever became of the check.
   rust-check:
-    name: cargo xtask check, and the workflows
+    name: cargo xtask check, the S3 tests and the workflows
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -97,6 +104,25 @@ jobs:
             9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f \
             cargo-deny-0.20.2-x86_64-unknown-linux-musl/cargo-deny target/tools/bin
       - run: cargo xtask check
+      # `cargo xtask test` runs these only together with both databases: the three
+      # commands are those of `s3_tests` in xtask/src/test.rs. Change one with the other.
+      - id: services
+        if: ${{ !cancelled() }}
+        run: .github/scripts/test-services.sh postgres s3
+      - name: The storage test
+        if: ${{ !cancelled() && steps.services.outcome == 'success' }}
+        run: cargo test --locked --package fvoci-server --test storage -- --ignored
+      - name: Uploads in parts that go to S3
+        if: ${{ !cancelled() && steps.services.outcome == 'success' }}
+        run: cargo test --locked --package fvoci-server --test api -- --ignored with_s3
+      - name: The files of two organizations in one bucket
+        if: ${{ !cancelled() && steps.services.outcome == 'success' }}
+        env:
+          FVOCI_STORE_TEST_DB_TYPE: postgres
+        run: |
+          cargo test --locked --package fvoci-server --test organization_boundary_round2 -- \
+            --ignored --exact \
+            media::s3_files_tokens_uploads_and_housekeeping_stay_in_their_organizations
       # What the jobs are cut for: four processors and 16 GB when this was written.
       - name: The runner's processors, memory and disk
         if: ${{ !cancelled() }}
@@ -299,11 +325,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  # The real server, built here, serving the build of `web-build`; then the tests of
-  # the server's files in S3, which need the same build and PostgreSQL. One worker, as
+  # The real server, built here, serving the build of `web-build`. One worker, as
   # playwright.live.config.ts says: the tests share one server and one database.
   web-e2e-live:
-    name: web e2e:live, and the S3 tests
+    name: web e2e:live
     needs: [plan, web-build]
     if: ${{ !contains(needs.plan.outputs.skip, '"web-e2e-live"') }}
     runs-on: ubuntu-24.04
@@ -329,26 +354,6 @@ jobs:
       # The server of the second organization runs on PostgreSQL.
       - run: .github/scripts/test-services.sh postgres
       - run: pnpm --filter web run e2e:live
-      # `cargo xtask test` runs these only together with both databases: the three
-      # commands are those of `s3_tests` in xtask/src/test.rs. Change one with the
-      # other. S3 starts after `e2e:live`, whose servers are given the job's variables.
-      - id: s3
-        if: ${{ !cancelled() }}
-        run: .github/scripts/test-services.sh s3
-      - name: The storage test
-        if: ${{ !cancelled() && steps.s3.outcome == 'success' }}
-        run: cargo test --locked --package fvoci-server --test storage -- --ignored
-      - name: Uploads in parts that go to S3
-        if: ${{ !cancelled() && steps.s3.outcome == 'success' }}
-        run: cargo test --locked --package fvoci-server --test api -- --ignored with_s3
-      - name: The files of two organizations in one bucket
-        if: ${{ !cancelled() && steps.s3.outcome == 'success' }}
-        env:
-          FVOCI_STORE_TEST_DB_TYPE: postgres
-        run: |
-          cargo test --locked --package fvoci-server --test organization_boundary_round2 -- \
-            --ignored --exact \
-            media::s3_files_tokens_uploads_and_housekeeping_stay_in_their_organizations
       - name: Keep the traces of the failed tests and the servers' logs
         if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -400,3 +405,26 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: .github/scripts/verdict.sh
+      # A pull request that passed with every job of the build keeps the name of the
+      # tree it tested, its test merge's. A push to master whose tree is that one need
+      # not run those jobs again (plan.sh).
+      - name: The tree this run passed
+        id: tree
+        if: >-
+          ${{ github.event_name == 'pull_request'
+          && !contains(needs.plan.outputs.skip, '"web-build"')
+          && !contains(needs.plan.outputs.skip, '"web-e2e"')
+          && !contains(needs.plan.outputs.skip, '"web-e2e-apple"')
+          && !contains(needs.plan.outputs.skip, '"web-e2e-live"') }}
+        run: |
+          tree=$(git rev-parse 'HEAD^{tree}')
+          echo "$tree" >"$RUNNER_TEMP/tested-tree"
+          echo "name=tested-$tree" >>"$GITHUB_OUTPUT"
+      - if: ${{ steps.tree.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.tree.outputs.name }}
+          path: ${{ runner.temp }}/tested-tree
+          if-no-files-found: error
+          # Long enough for a pull request to be merged after its last run.
+          retention-days: 14

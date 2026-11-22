@@ -11,25 +11,31 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 failed=0
 
-# The stand-in for `gh api`: the count of FAKE_RUNS, when the question is for the
-# passed pull request runs of FAKE_SHA; 0 for any other question; fails when
-# FAKE_RUNS is `fail`.
+# The stand-in for `gh api --jq <filter> <path>`: the filter applied to FAKE_JSON when
+# the path asks for the artifact `tested-<FAKE_TREE>`, to an empty list for any other.
+# FAKE_JSON=fail fails; FAKE_ANSWER, when set, is printed instead of the filter's.
 mkdir "$WORK/bin"
 cat >"$WORK/bin/gh" <<'EOF'
 #!/usr/bin/env bash
-[[ ${FAKE_RUNS:-fail} == fail ]] && exit 1
-case "$*" in
-  *"event=pull_request"*"status=success"*"head_sha=$FAKE_SHA"*) echo "$FAKE_RUNS" ;;
-  *) echo 0 ;;
+[[ $1 == api && $2 == --jq ]] || exit 2
+[[ ${FAKE_JSON:-} == fail ]] && exit 1
+if [[ -n ${FAKE_ANSWER:-} ]]; then echo "$FAKE_ANSWER"; exit 0; fi
+case $4 in
+  *"/actions/artifacts?name=tested-$FAKE_TREE&"*) jq --raw-output "$3" <<<"$FAKE_JSON" ;;
+  *) jq --raw-output "$3" <<<'{"artifacts": []}' ;;
 esac
 EOF
 chmod +x "$WORK/bin/gh"
 
 RUST='"rust-postgres","rust-sqlite"'
 WEB='"web-checks","web-e2e","web-e2e-apple"'
-MERGED='"web-build","web-e2e","web-e2e-apple","web-e2e-live"'
+BUILD='"web-build","web-e2e","web-e2e-apple","web-e2e-live"'
+# Artifacts as GitHub lists them: of this repository's branch, of a fork, expired.
+OURS='{"expired": false, "workflow_run": {"repository_id": 7, "head_repository_id": 7}}'
+FORK='{"expired": false, "workflow_run": {"repository_id": 7, "head_repository_id": 9}}'
+OLD='{"expired": true, "workflow_run": {"repository_id": 7, "head_repository_id": 7}}'
 
-# A new repository with one commit on master.
+# A new repository with one commit on master, which is also origin/master.
 repo() {
   local dir="$WORK/repo-$1"
   git init --quiet --initial-branch master "$dir"
@@ -40,6 +46,7 @@ repo() {
   put apps/web/src/app.ts 'one'
   put crates/model/src/lib.rs 'one'
   git add --all && git commit --quiet --message base
+  git update-ref refs/remotes/origin/master HEAD
 }
 
 # Writes $2 to the file $1.
@@ -48,16 +55,8 @@ put() {
   printf '%s\n' "$2" >"$1"
 }
 
-# On a branch from master, changes the files given as path=text pairs (or removes
-# them, given as -path) and commits; then merges it into master, as GitHub's test
-# merge or a merge commit does.
-merge_change() {
-  git checkout --quiet -b "change-$RANDOM"
-  change "$@"
-  git checkout --quiet master
-  git merge --quiet --no-ff --no-edit "@{-1}"
-}
-
+# Changes the files given as path=text pairs (or removes them, given as -path) and
+# commits.
 change() {
   local pair
   for pair in "$@"; do
@@ -70,12 +69,23 @@ change() {
   git commit --quiet --allow-empty --message change
 }
 
+# On a branch from here, changes the files and commits; then merges it here, as
+# GitHub's test merge or a merge commit does.
+merge_change() {
+  local here
+  here=$(git branch --show-current)
+  git checkout --quiet -b "change-$RANDOM"
+  change "$@"
+  git checkout --quiet "$here"
+  git merge --quiet --no-ff --no-edit "@{-1}"
+}
+
 # Runs plan.sh here and compares its list with the expected one.
 expect_plan() {
   local name=$1 want="[$2]" got
   shift 2
-  got=$(env PATH="$WORK/bin:$PATH" GITHUB_OUTPUT=/dev/stdout REPOSITORY=fvoci/test "$@" \
-    bash "$HERE/plan.sh" | sed -n 's/^skip=//p')
+  got=$(env PATH="$WORK/bin:$PATH" GITHUB_OUTPUT=/dev/stdout REPOSITORY=fvoci/test \
+    DEFAULT_BRANCH=master "$@" bash "$HERE/plan.sh" | sed -n 's/^skip=//p')
   if [[ $got == "$want" ]]; then
     echo "ok    plan: $name"
   else
@@ -131,8 +141,41 @@ repo empty
 merge_change
 expect_plan "a pull request that changes nothing skips nothing" "" EVENT=pull_request
 
-repo root
-expect_plan "a commit without a parent skips nothing" "" EVENT=pull_request
+repo unknown-default
+merge_change apps/web/src/app.ts=two
+expect_plan "a default branch git does not have skips nothing" "" EVENT=pull_request \
+  DEFAULT_BRANCH=main
+
+repo moved-master
+git checkout --quiet -b late
+change apps/web/src/app.ts=two
+git checkout --quiet master
+change crates/model/src/lib.rs=moved
+git update-ref refs/remotes/origin/master HEAD
+git merge --quiet --no-ff --no-edit late
+expect_plan "master's own commits since the branch parted are not the pull request's" \
+  "$RUST" EVENT=pull_request
+
+# A stack: the lower layer changes the web app, the upper Rust only. The upper's test
+# merge has the lower's as its first parent.
+repo stack
+git checkout --quiet -b lower
+change apps/web/src/app.ts=two
+git checkout --quiet -b upper
+change crates/model/src/lib.rs=two
+git checkout --quiet lower
+git merge --quiet --no-ff --no-edit upper
+expect_plan "the upper layer of a stack is planned on the layers below it too" "" \
+  EVENT=pull_request
+
+repo stack-rust
+git checkout --quiet -b lower
+change crates/model/src/lib.rs=two
+git checkout --quiet -b upper
+change xtask/src/main.rs=x
+git checkout --quiet lower
+git merge --quiet --no-ff --no-edit upper
+expect_plan "a stack of Rust only skips the web app's tests" "$WEB" EVENT=pull_request
 
 repo dispatch
 merge_change apps/web/src/app.ts=two
@@ -143,48 +186,63 @@ expect_plan "a run without an event skips nothing" "" EVENT=
 repo pushed
 before=$(git rev-parse HEAD)
 merge_change apps/web/src/app.ts=two
-branch=$(git rev-parse HEAD^2)
-expect_plan "a merge whose branch passed skips what it tested" "$RUST,$MERGED" \
-  EVENT=push BEFORE="$before" FAKE_RUNS=1 FAKE_SHA="$branch"
-expect_plan "a merge whose branch did not pass skips by its files only" "$RUST" \
-  EVENT=push BEFORE="$before" FAKE_RUNS=0 FAKE_SHA="$branch"
+tree=$(git rev-parse 'HEAD^{tree}')
+expect_plan "a merge whose tree passed skips the jobs of the build" "$RUST,$BUILD" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OURS]}"
+expect_plan "a merge whose tree passed twice skips the jobs of the build" "$RUST,$BUILD" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OLD, $OURS, $OURS]}"
+expect_plan "a merge whose tree did not pass skips by its files only" "$RUST" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON='{"artifacts": []}'
+expect_plan "a merge whose tree passed only in a fork's run skips by its files only" "$RUST" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$FORK]}"
+expect_plan "a merge whose tree's record expired skips by its files only" "$RUST" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OLD]}"
+expect_plan "a merge whose branch's tree passed, not its own, skips by its files only" "$RUST" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$(git rev-parse 'HEAD^2^{tree}')x" \
+  FAKE_JSON="{\"artifacts\": [$OURS]}"
 expect_plan "a merge when GitHub does not answer skips by its files only" "$RUST" \
-  EVENT=push BEFORE="$before" FAKE_RUNS=fail FAKE_SHA="$branch"
-expect_plan "a merge whose branch's runs were of another commit skips by its files only" \
-  "$RUST" EVENT=push BEFORE="$before" FAKE_RUNS=1 FAKE_SHA="$before"
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON=fail
+for answer in null '1 2' -1 0x1 ''; do
+  expect_plan "a merge when GitHub answers '$answer' skips by its files only" "$RUST" \
+    EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_ANSWER="${answer:- }" FAKE_JSON='{}'
+done
+
+# A merge made with an edit of its own: its tree is not its branch's.
+repo edited-merge
+before=$(git rev-parse HEAD)
+git checkout --quiet -b edited
+change apps/web/src/app.ts=two
+git checkout --quiet master
+git merge --quiet --no-ff --no-commit edited
+put apps/web/src/app.ts 'three'
+git add --all && git commit --quiet --no-edit
+expect_plan "a merge whose tree is not its branch's is not taken for its branch's" "$RUST" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$(git rev-parse 'HEAD^2^{tree}')" \
+  FAKE_JSON="{\"artifacts\": [$OURS]}"
 
 repo pushed-both
 before=$(git rev-parse HEAD)
 merge_change apps/web/src/app.ts=two crates/model/src/lib.rs=two
-expect_plan "a merge of both whose branch passed skips the end-to-end tests" "$MERGED" \
-  EVENT=push BEFORE="$before" FAKE_RUNS=1 FAKE_SHA="$(git rev-parse HEAD^2)"
-
-repo behind
-git checkout --quiet -b old
-change apps/web/src/app.ts=two
-git checkout --quiet master
-change README=moved
-before=$(git rev-parse HEAD)
-git merge --quiet --no-ff --no-edit old
-expect_plan "a merge whose branch had not master in it skips by its files only" "$RUST" \
-  EVENT=push BEFORE="$before" FAKE_RUNS=1 FAKE_SHA="$(git rev-parse HEAD^2)"
+expect_plan "a merge of both whose tree passed skips the jobs of the build" "$BUILD" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$(git rev-parse 'HEAD^{tree}')" \
+  FAKE_JSON="{\"artifacts\": [$OURS]}"
 
 repo two-merges
 before=$(git rev-parse HEAD)
 merge_change apps/web/src/app.ts=two
-merge_change apps/web/src/app.ts=three
-expect_plan "two merges pushed at once skip by their files only" "$RUST" \
-  EVENT=push BEFORE="$before" FAKE_RUNS=1 FAKE_SHA="$(git rev-parse HEAD^2)"
+merge_change crates/model/src/lib.rs=two
+expect_plan "two merges pushed at once are planned on both" "" \
+  EVENT=push BEFORE="$before" FAKE_TREE=none FAKE_JSON='{"artifacts": []}'
 
 repo no-merge
 before=$(git rev-parse HEAD)
 change crates/model/src/lib.rs=two
-expect_plan "a commit pushed without a merge skips by its files only" "$WEB" \
-  EVENT=push BEFORE="$before" FAKE_RUNS=1 FAKE_SHA="$(git rev-parse HEAD)"
+expect_plan "a commit pushed without a merge skips by its files" "$WEB" \
+  EVENT=push BEFORE="$before" FAKE_TREE=none FAKE_JSON='{"artifacts": []}'
 
 repo new-branch
 expect_plan "a push git cannot compare skips nothing" "" \
-  EVENT=push BEFORE=0000000000000000000000000000000000000000 FAKE_RUNS=fail
+  EVENT=push BEFORE=0000000000000000000000000000000000000000 FAKE_JSON=fail
 
 # The verdict, on the `needs` of ci-done as GitHub gives it.
 expect_verdict() {
