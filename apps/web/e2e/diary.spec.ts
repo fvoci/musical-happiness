@@ -124,6 +124,28 @@ test('a year before: written afterwards, one open at a time, the others folded',
   expect(dates).toEqual(['2026-11-21', '2025-11-21']);
 });
 
+test('keys typed at once on a year just pressed all go into it, however late a frame comes', async ({
+  page,
+}) => {
+  await openDiary(page);
+  await page.getByTestId('diary-earlier').click();
+  const last = year(page, '2025-11-21');
+  // A machine short of time draws its frames late: the caret does not wait for one.
+  await page.evaluate(() => {
+    window.requestAnimationFrame = (callback) =>
+      window.setTimeout(() => {
+        callback(performance.now());
+      }, 1000);
+    window.cancelAnimationFrame = (handle) => {
+      window.clearTimeout(handle);
+    };
+  });
+  await last.getByTestId('entry-blank').click();
+  await page.keyboard.type('Typed at once.');
+  await expect(last).toHaveAttribute('data-written', '');
+  await expect(editorOf(last)).toHaveText('Typed at once.');
+});
+
 test('an emptied entry is a day not written again', async ({ page }) => {
   await openDiary(page);
   const today = year(page, '2026-11-21');

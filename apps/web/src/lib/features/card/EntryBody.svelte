@@ -13,10 +13,12 @@
   for that write, which puts it in the room.
 
   A day the reader opened by pressing it (`focus`) has the caret put at the
-  end of what it holds, once, by whichever editor comes first.
+  end of what it holds, once, by whichever editor comes first, and at once:
+  what is typed right after the press goes into it.
 -->
 <script lang="ts">
   import type { Editor as TiptapEditor } from '@tiptap/core';
+  import { Selection } from '@tiptap/pm/state';
 
   import type { DocNode } from '$lib/editor/schema.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -53,7 +55,11 @@
   function place(editor: TiptapEditor): void {
     if (!focus || placed) return;
     placed = true;
-    editor.commands.focus('end');
+    // At once, not a frame later as the editor's own command does: keys pressed
+    // right after the day was opened would go nowhere until that frame.
+    const { state, view } = editor;
+    view.dispatch(state.tr.setSelection(Selection.atEnd(state.doc)).scrollIntoView());
+    view.focus();
   }
 
   function watchDraft(editor: TiptapEditor): void {
