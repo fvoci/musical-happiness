@@ -1,6 +1,6 @@
 //! Authorization at dispatch, backed by the store's committed visibility revision.
 
-use fvoci_model::{Block, ContainerMember, WorkspaceRole};
+use fvoci_model::{ContainerMember, WorkspaceRole};
 
 use super::ending::{Ended, Of};
 use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, ReadPermit, UpdateBlockMessage, text_of};
@@ -107,12 +107,13 @@ impl Hub {
         &self,
         ids: &[ListenerId],
         message: &UpdateBlockMessage<'_>,
-        block: &Block,
     ) {
         if ids.is_empty() {
             return;
         }
         let workspace_id = message.workspace_id();
+        // A card's or a page's without its body: what that body names is not looked up.
+        let block = message.block();
         let Some(whole) = text_of(message) else {
             return;
         };

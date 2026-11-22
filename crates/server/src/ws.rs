@@ -480,7 +480,7 @@ impl Hub {
         )
         .await;
         let by_token: Vec<_> = followers.into_iter().map(|(id, _)| id).collect();
-        self.send_public_block(&by_token, &message, block).await;
+        self.send_public_block(&by_token, &message).await;
     }
 
     /// The connections that follow the block or its parent by `SUBSCRIBE_BLOCKS`, with

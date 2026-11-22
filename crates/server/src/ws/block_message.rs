@@ -4,7 +4,7 @@
 
 use std::borrow::Cow;
 
-use fvoci_model::{Block, Body, CardPreview};
+use fvoci_model::{Block, Body, BodySummary, CardPreview};
 use serde::Serialize;
 
 use super::Outgoing;
@@ -25,9 +25,9 @@ impl Summary {
         let Some(body) = body else {
             return Self::default();
         };
-        let tasks = body.tasks();
+        let BodySummary { has_body, tasks } = body.summary();
         Self {
-            has_body: true,
+            has_body,
             tasks_total: tasks.total,
             tasks_done: tasks.done,
             preview: CardPreview::of(body),
@@ -65,6 +65,11 @@ impl<'a> UpdateBlockMessage<'a> {
 
     pub(super) fn workspace_id(&self) -> &'a str {
         self.workspace_id
+    }
+
+    /// The block the message carries: a card's or a page's without its body.
+    pub(super) fn block(&self) -> &Block {
+        &self.block
     }
 
     /// The block the message carries, to change for whoever is told less of it. The
