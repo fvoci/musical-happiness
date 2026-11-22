@@ -215,7 +215,12 @@ pub(crate) fn run(root: &Path, databases: Option<Database>, choice: &Choice) -> 
     drop(backends);
 
     let results = results.into_inner();
-    let earlier = times::read(&times::path(root)).unwrap_or_default();
+    let earlier = times::read(&times::path(root)).unwrap_or_else(|error| {
+        steps::say(&format!(
+            "times not read, so no test is called flaky: {error:#}"
+        ));
+        Vec::new()
+    });
     let mut record = times::Record::new("test", &clock, &ran);
     let flaky = report::flaky(&results, &times::failures_of(&earlier, &record.source));
     steps::say(&report::lines(&results, &flaky, times::now_unix()));

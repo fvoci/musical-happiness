@@ -10,7 +10,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::fs::OpenOptions;
-use std::io::Write as _;
+use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -238,12 +238,26 @@ fn append_to(file: &Path, record: &Record) -> Result<()> {
         std::fs::create_dir_all(directory)
             .with_context(|| format!("creating {}", directory.display()))?;
     }
-    OpenOptions::new()
+    append_line(file, line).with_context(|| format!("appending to {}", file.display()))
+}
+
+/// Adds `line` at the end of `file`, on a line of its own: after a last line cut short
+/// (a run killed as it wrote), which would otherwise take it along.
+fn append_line(file: &Path, mut line: String) -> std::io::Result<()> {
+    let mut opened = OpenOptions::new()
         .create(true)
+        .read(true)
         .append(true)
-        .open(file)
-        .and_then(|mut opened| opened.write_all(line.as_bytes()))
-        .with_context(|| format!("appending to {}", file.display()))
+        .open(file)?;
+    if opened.seek(SeekFrom::End(0))? > 0 {
+        let mut last = [0_u8];
+        opened.seek(SeekFrom::End(-1))?;
+        opened.read_exact(&mut last)?;
+        if last != *b"\n" {
+            line.insert(0, '\n');
+        }
+    }
+    opened.write_all(line.as_bytes())
 }
 
 /// The records of a time file, oldest first. A file that is not there has none; a line
@@ -477,11 +491,6 @@ mod tests {
             .open(&file)
             .and_then(|mut opened| opened.write_all(b"{\"task\": \"te"))
             .expect("a line cut short");
-        std::fs::OpenOptions::new()
-            .append(true)
-            .open(&file)
-            .and_then(|mut opened| opened.write_all(b"\n"))
-            .expect("its end");
         append_to(&file, &second).expect("written");
         assert_eq!(
             read(&file).expect("read"),

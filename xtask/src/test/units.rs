@@ -232,9 +232,10 @@ impl fmt::Display for Part {
 /// The units of `part`, of all the parts `units` are shared out into, in their order.
 ///
 /// Each unit weighs the seconds `seconds` gives it; a unit it does not know weighs the
-/// median of those it knows (the lower middle one of an even number), and every unit weighs the same if it knows none. The
-/// heaviest unit goes first, each into the part that weighs least so far. The same
-/// units and seconds always make the same parts, every unit in exactly one.
+/// median of those it knows (the lower middle one of an even number), and every unit
+/// weighs the same if it knows none. The heaviest unit goes first, each into the part
+/// that weighs least so far. The same units and seconds always make the same parts,
+/// every unit in exactly one.
 pub(crate) fn partition(units: Vec<Unit>, seconds: &HashMap<String, f64>, part: Part) -> Vec<Unit> {
     let known = |unit: &Unit| {
         seconds
