@@ -286,6 +286,28 @@ describe('a table pasted', () => {
     ]);
   });
 
+  it('as Markdown with a table in a list entry keeps the entry, the table in it as lines', () => {
+    const editor = create(doc(paragraph('')));
+    putCaret(editor, 1);
+    pasteText(
+      editor,
+      '| a | b |\n|---|---|\n| 1 | 2 |\n\n1. step\n\n   | c | d |\n   |---|---|\n   | 3 | 4 |\n\n2. next',
+    );
+    const made = stored(editor);
+    expect(validateDoc(made)).toEqual([]);
+    expect(() => {
+      editor.state.doc.check();
+    }).not.toThrow();
+    expect(made.content?.map((node) => node.type)).toEqual(['table', 'orderedList']);
+    const list = editor.state.doc.child(1);
+    expect(list.child(0).content.content.map((block) => block.textContent)).toEqual([
+      'step',
+      'c | d',
+      '3 | 4',
+    ]);
+    expect(list.child(1).textContent).toBe('next');
+  });
+
   it('into a list entry stands in the document itself', () => {
     const editor = create(
       doc({ type: 'bulletList', content: [{ type: 'listItem', content: [paragraph('item')] }] }),

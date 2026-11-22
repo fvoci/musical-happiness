@@ -30,13 +30,17 @@ const CELLS = new Set(['tableCell', 'tableHeader']);
 const nameOf = (type: { _item: Y.Item | null }): string =>
   type._item ? `${String(type._item.id.client)}.${String(type._item.id.clock)}` : 'start';
 
-/** A client named by a text: a whole number past those a document is made by (room-docs.ts). */
+/**
+ * A client named by a text: a whole number past 2³², which no editor's
+ * client (picked at random below it) nor the maker of a document
+ * (room-docs.ts) is, as the server's mending writes past it too.
+ */
 function clientOf(key: string): number {
   let hash = 0x811c9dc5;
   for (let index = 0; index < key.length; index += 1) {
     hash = Math.imul(hash ^ key.charCodeAt(index), 0x01000193) >>> 0;
   }
-  return 2 + (hash % 0x7fff_fffd);
+  return 2 ** 32 + hash;
 }
 
 /** Writes as the client `key` names, and as the document's own client again after. */

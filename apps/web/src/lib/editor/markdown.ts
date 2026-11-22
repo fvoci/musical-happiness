@@ -28,8 +28,9 @@ export interface Conversion {
  * - `html-as-text`: HTML in the text is shown as the characters it is. The
  *   original showed it the same way, so nothing changes for the reader.
  * - `heading-level-clamped`: a heading of level 4 to 6 became level 3.
- * - `table`: a table past 200 rows or 20 columns became one paragraph per
- *   row, its cells' text between ` | `.
+ * - `table`: a table past 200 rows or 20 columns, or one in a quote or a
+ *   list entry (a table stands only in the document itself), became one
+ *   paragraph per row, its cells' text between ` | `.
  * - `table-alignment-dropped`: a table kept its cells and lost how their
  *   text is aligned; a document has no alignment.
  * - `image-by-address`: an image given by address became a link with the
@@ -61,6 +62,18 @@ export type NoteKind = (typeof NOTE_KINDS)[number];
 
 class Converter {
   readonly notes: ConversionNotes = {};
+  /** How many quotes and list entries the blocks read now are in. */
+  #inside = 0;
+
+  /** What `read` gives, read as inside one more quote or list entry. */
+  #within<T>(read: () => T): T {
+    this.#inside += 1;
+    try {
+      return read();
+    } finally {
+      this.#inside -= 1;
+    }
+  }
 
   note(kind: NoteKind): void {
     this.notes[kind] = (this.notes[kind] ?? 0) + 1;
@@ -155,7 +168,7 @@ class Converter {
       if (token.type === 'checkbox') continue;
       if (token.type === 'text')
         blocks.push(...this.paragraph((token as Tokens.Text).tokens ?? [token]));
-      else blocks.push(...this.blocks([token]));
+      else blocks.push(...this.#within(() => this.blocks([token])));
     }
     if (blocks[0]?.type !== 'paragraph') blocks.unshift({ type: 'paragraph' });
     if (prefix !== '') {
@@ -192,12 +205,15 @@ class Converter {
     return [{ type: 'orderedList', attrs: { start }, content }];
   }
 
-  /** A table, its first row of headers; past the limits, a paragraph per row instead. */
+  /**
+   * A table, its first row of headers; past the limits, or in a quote or a
+   * list entry, a paragraph per row instead.
+   */
   table(table: Tokens.Table): DocNode[] {
     const rows = [table.header, ...table.rows];
     const width = table.header.length;
     if (table.align.some((align) => align !== null)) this.note('table-alignment-dropped');
-    if (rows.length > MAX_TABLE_ROWS || width > MAX_TABLE_COLUMNS) {
+    if (this.#inside > 0 || rows.length > MAX_TABLE_ROWS || width > MAX_TABLE_COLUMNS) {
       this.note('table');
       return rows.flatMap((row) => {
         const content: DocNode[] = [];
@@ -267,7 +283,7 @@ class Converter {
           break;
         }
         case 'blockquote': {
-          const content = this.blocks((token as Tokens.Blockquote).tokens);
+          const content = this.#within(() => this.blocks((token as Tokens.Blockquote).tokens));
           if (content.length > 0) nodes.push({ type: 'blockquote', content });
           break;
         }

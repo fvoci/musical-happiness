@@ -187,6 +187,39 @@ describe('what a document cannot say is counted', () => {
     expect(blocks(fits)[0]?.content).toHaveLength(200);
   });
 
+  it('turns a table in a list entry or a quote into a paragraph per row, as a table stands only in the document', () => {
+    const nested = [
+      '1. step',
+      '',
+      '   | c | d |',
+      '   |---|---|',
+      '   | 3 | 4 |',
+      '',
+      '> | e |',
+      '> |---|',
+      '> | 5 |',
+    ].join('\n');
+    const line = (text: string): DocNode => ({
+      type: 'paragraph',
+      content: [{ type: 'text', text }],
+    });
+    expect(blocks(nested)).toEqual([
+      {
+        type: 'orderedList',
+        attrs: { start: 1 },
+        content: [{ type: 'listItem', content: [line('step'), line('c | d'), line('3 | 4')] }],
+      },
+      { type: 'blockquote', content: [line('e'), line('5')] },
+    ]);
+    expect(notes(nested)).toEqual({ table: 2 });
+    expect(valid(blocks(nested))).toEqual([]);
+    // Out of them again, a table is a table.
+    expect(blocks(`> quoted\n\n| f |\n|---|\n| 6 |`).map((one) => one.type)).toEqual([
+      'blockquote',
+      'table',
+    ]);
+  });
+
   it('turns an image by address into a link', () => {
     expect(blocks('![a chart](https://example.com/c.png)')).toEqual([
       {

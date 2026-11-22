@@ -1,14 +1,14 @@
 //! The table of a body: found by the words of its cells, read by a public link, carried
 //! by an archive and by every copy as it is stored; refused when it does not fill its
 //! grid or is past a limit; and mended, by the server alone, when two edits together
-//! leave it so.
+//! leave it so, once, also when its log is taken again.
 
 use fvoci_collab::testing::Editor;
 use fvoci_model::{ContainerType, SearchHit};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use crate::collab::{body_of, card, editing};
+use crate::collab::{Editing, body_of, card, editing, editing_app, joined};
 use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS};
 use crate::content_search::search_with;
 use crate::export::{boards_of, import};
@@ -375,5 +375,68 @@ async fn a_table_at_its_limit_is_mended_and_a_column_past_it_is_refused() {
         refused.reason().map(fvoci_server::error::Reason::as_str),
         Some("document_too_large")
     );
+    th.teardown().await;
+}
+
+/// How many cells each row of the first table of a body has.
+fn widths(body: Option<&Value>) -> Vec<usize> {
+    body.and_then(|body| body["content"][0]["content"].as_array())
+        .map(|rows| {
+            rows.iter()
+                .map(|row| row["content"].as_array().map_or(0, Vec::len))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A table the server mended as it took two edits is the same table after a server
+/// that was killed before it folded its log: the next takes each logged update again,
+/// and the repair it makes of one is the repair logged after it, so the logged one adds
+/// no cell of its own. At the limit of columns the log is taken again too, past it none.
+#[tokio::test]
+async fn a_mended_table_is_mended_once_when_its_log_is_taken_again() {
+    let th = Setup::native().start().await.init_basic().await;
+    let cases = [
+        (table(None, &[&["a", "b"], &["c", "d"]]), 2),
+        (table(None, &[&["a"; 19], &["b"; 19]]), 19),
+    ];
+    let mut wanted = Vec::new();
+    for (start, columns) in cases {
+        let e = editing(&th, &json!({"type": "doc", "content": [start]})).await;
+        let collab = e.app.collab();
+        let loaded = collab.open(&e.app, &e.card_id).await.expect("opened");
+        let column = Editor::join(101, &loaded.state).add_table_column();
+        let row = Editor::join(102, &loaded.state).add_table_row(columns);
+        for (user, update) in [(&e.user1, column), (&e.user2, row)] {
+            collab
+                .take(&e.app, &e.card_id, loaded.epoch, user, &update)
+                .await
+                .expect("taken");
+        }
+        let (mended, _) = joined(collab, &e.app, &e.card_id, 103).await;
+        let body = mended.body().map(|body| body.document().clone());
+        assert_eq!(
+            widths(body.as_ref()),
+            vec![columns + 1; 3],
+            "mended as it was taken: {body:?}"
+        );
+        wanted.push((e.card_id.clone(), body));
+    }
+
+    let th = th
+        .killed_and_started_again(async |app| app.collab().abandon().await)
+        .await;
+    for (card_id, body) in &wanted {
+        let e = Editing {
+            card_id: card_id.clone(),
+            ..editing_app(&th).await
+        };
+        let (again, _) = joined(e.app.collab(), &e.app, card_id, 109).await;
+        assert_eq!(
+            &again.body().map(|body| body.document().clone()),
+            body,
+            "the log taken again, {card_id}"
+        );
+    }
     th.teardown().await;
 }

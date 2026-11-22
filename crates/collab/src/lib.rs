@@ -86,8 +86,8 @@ pub mod testing {
         Ok(applied(doc, crate::repair::repaired(doc)?))
     }
 
-    /// [`repair`], with what the repair writes written as `writer`: the same changes each
-    /// time, where a repair writes as a client new to the document.
+    /// [`repair`], with what the repair writes written as `writer`: the same changes from
+    /// any document, where a repair writes as a client the document names.
     ///
     /// # Errors
     ///

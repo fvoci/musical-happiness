@@ -58,8 +58,11 @@ pub struct Repair {
 ///
 /// The deletions are made on a copy of the document, which comes back with what the
 /// repair did; no copy if the document is a body already. `doc` is not changed. What the
-/// repair writes is written as a client new to the document each time, picked at random
-/// as an editor's is, so that no two repairs write as one.
+/// repair writes is written as a client named by the document ([`writer_for`]): the
+/// same document is repaired into the same changes. A server that opens a document
+/// takes its logged updates again, each followed by the repair logged after it; the
+/// update is repaired as it was, and the logged repair then adds nothing, where one
+/// written as a new client would have added its cells to the first's.
 ///
 /// # Errors
 ///
@@ -79,8 +82,40 @@ pub(crate) fn repaired(doc: &Doc) -> Result<(Repair, Option<Doc>), BodyError> {
     repaired_by(doc, None)
 }
 
-/// [`repaired`], what it writes written as `writer`, or as a client new to the document
-/// if `None`: a test names one to have the same changes each time.
+/// The first client a repair writes as: past every client an editor picks, which are
+/// below 2³².
+const FIRST_WRITER: u64 = 1 << 32;
+
+/// How many clients a repair may write as: those from [`FIRST_WRITER`] up to 2⁵³, past
+/// which no client is (an editor in a browser reads one as a number).
+const WRITERS: u64 = (1 << 53) - FIRST_WRITER;
+
+/// The client a repair of `doc` writes as, named by what the document holds: where the
+/// changes of each of its clients end. Two documents with the same changes are repaired
+/// as one client into the same changes; once it has written, the document holds more,
+/// and its next repair is another client's.
+fn writer_for(doc: &Doc) -> u64 {
+    let mut ends: Vec<(u64, u32)> = doc
+        .transact()
+        .state_vector()
+        .iter()
+        .map(|(client, end)| (client.get(), *end))
+        .collect();
+    ends.sort_unstable();
+    // FNV-1a over 64 bits: the same in every build and on every machine, which the
+    // standard library's hashers are not promised to be.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for (client, end) in ends {
+        for byte in client.to_le_bytes().into_iter().chain(end.to_le_bytes()) {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    FIRST_WRITER + hash % WRITERS
+}
+
+/// [`repaired`], what it writes written as `writer`, or as the client the document names
+/// ([`writer_for`]) if `None`: a test names one to have the same changes from any
+/// document.
 ///
 /// # Errors
 ///
@@ -109,7 +144,8 @@ pub(crate) fn repaired_by(
 ///
 /// As [`repaired`].
 fn deleting(doc: &Doc, writer: Option<u64>) -> Result<(Repair, Doc), BodyError> {
-    let copy = copy_of(doc, writer).map_err(|_| uncopied())?;
+    let writer = writer.unwrap_or_else(|| writer_for(doc));
+    let copy = copy_of(doc, Some(writer)).map_err(|_| uncopied())?;
     let root = copy.get_or_insert_xml_fragment(FIELD);
     let mut txn = copy.transact_mut();
     let found = Survey { txn: &txn }.root(&root)?;

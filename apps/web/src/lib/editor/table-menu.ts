@@ -77,6 +77,10 @@ export function tableEntries(editor: Editor): SlashEntry[] {
       words: ['column', 'delete', 'remove', '열', '칸', '지우기', '삭제'],
       run: (current) => current.chain().focus().deleteColumn().run(),
     },
+    // The first row's cells are made again as the other kind: two readers who
+    // turn it at once leave the cells of both (e2e-live/body-tables.spec.ts), and
+    // what a third writes in it meanwhile goes with the cells it was in. Headers
+    // as a mark of the row, not a kind of cell, would need body version 6.
     can.toggleHeaderRow() && {
       value: 'table-header-row',
       label: headed(around.node) ? m.editor_table_header_off() : m.editor_table_header_on(),

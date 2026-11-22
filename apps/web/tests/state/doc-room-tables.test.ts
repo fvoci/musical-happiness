@@ -200,6 +200,32 @@ describe('the tables of a room in memory', () => {
     theirs.close();
   });
 
+  it('takes the deletion of each column of the only table by two readers, which leaves no body', async () => {
+    const { world: stored, backend, other, boardId, cardId } = world();
+    const mine = backend.openDoc('w', boardId, cardId, hears());
+    const theirs = other.openDoc('w', boardId, cardId, hears());
+    const [a, b] = await Promise.all([joined(mine), joined(theirs)]);
+    const deleteColumn = (doc: Y.Doc, column: number): void => {
+      doc.transact(() => {
+        for (const row of rowsOf(doc)) row.delete(column);
+      });
+    };
+    deleteColumn(a, 0);
+    deleteColumn(b, 1);
+    await vi.waitFor(() => {
+      expect(a.getXmlFragment(FIELD).length).toBe(0);
+      expect(b.getXmlFragment(FIELD).length).toBe(0);
+      expect(mine.state.pending || theirs.state.pending).toBe(false);
+    });
+    expect(mine.state.status).toBe('joined');
+    expect(theirs.state.status).toBe('joined');
+    expect(bodyOf(a)).toBeNull();
+    roomsOf(stored).flush();
+    expect(stored.blocks.get(cardId)?.body).toBeNull();
+    mine.close();
+    theirs.close();
+  });
+
   it('takes a change that empties the body, which needs no mending', async () => {
     const { world: stored, backend, boardId, cardId } = world();
     const mine = backend.openDoc('w', boardId, cardId, hears());
