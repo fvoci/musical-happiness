@@ -46,6 +46,7 @@
   import { emptyDoc, isEmptyDoc, toStoredDoc, validateDoc, type DocNode } from './schema.ts';
   import { suggestionList } from './suggestion-list.ts';
   import { SlashMenu } from './slash-menu.ts';
+  import { tableEntries } from './table-menu.ts';
   import { BodyUpload, fromUpload } from './uploads.ts';
 
   let {
@@ -187,19 +188,21 @@
     },
   });
 
-  /** The slash menu: only where files can be added, for a file is all it offers for now. */
+  /** The slash menu: a file where files can be added, and tables (table-menu.ts). */
   const slashMenu = SlashMenu.configure({
-    entries: () =>
-      uploadFile
+    entries: (current) => [
+      ...(uploadFile
         ? [
             {
               value: 'file',
               label: m.editor_slash_file(),
               words: ['file', 'attachment', 'upload', '파일', '첨부'],
-              run: (current) => current.storage.bodyUpload.choose(),
+              run: (chosen: Editor) => chosen.storage.bodyUpload.choose(),
             },
           ]
-        : [],
+        : []),
+      ...tableEntries(current),
+    ],
     render: suggestionList({ kind: 'slash', label: m.editor_slash_label }),
   });
 

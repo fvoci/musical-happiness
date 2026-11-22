@@ -21,13 +21,14 @@ import type { StoredCard } from './world.ts';
 /** The client of a document made from a body: the same in every tab, so that two makings are one. */
 const MAKER = 1;
 
-const schema = getSchema(bodyExtensions());
+/** The editor's schema, which a body is read by. */
+export const bodySchema = getSchema(bodyExtensions());
 
 /** The document of a body, made the same way wherever it is made. */
 export function documentOf(body: DocNode | null): Y.Doc {
   const doc = new Y.Doc();
   doc.clientID = MAKER;
-  prosemirrorJSONToYXmlFragment(schema, body ?? emptyDoc(), doc.getXmlFragment(BODY_FIELD));
+  prosemirrorJSONToYXmlFragment(bodySchema, body ?? emptyDoc(), doc.getXmlFragment(BODY_FIELD));
   // Whatever is written next is somebody's: never the maker's again.
   doc.clientID = Math.floor(Math.random() * 0x7fff_ffff) + 2;
   return doc;
@@ -51,6 +52,15 @@ export function sameBody(read: DocNode | null, stored: DocNode | null): boolean 
   const same = JSON.stringify(read) === JSON.stringify(bodyOf(made));
   made.destroy();
   return same;
+}
+
+/** What `doc` has that a holder of `stateVector` lacks; undefined when that is no state vector. */
+export function lackedBy(doc: Y.Doc, stateVector: Uint8Array): Uint8Array | undefined {
+  try {
+    return Y.encodeStateAsUpdate(doc, stateVector);
+  } catch {
+    return undefined;
+  }
 }
 
 /** A short sum of a text (FNV-1a), to tell apart bodies a document was made from. */

@@ -430,12 +430,12 @@ describe('the slash menu', () => {
     expect(document.querySelector('input[type="file"]')).toBeNull();
   });
 
-  it('is not offered without uploads, in code, or after anything but a space', async () => {
+  it('is not offered in code or after anything but a space, and offers no file without uploads', async () => {
     const uploadFile = vi.fn((_file: File) => Promise.resolve('7x.pdf'));
-    for (const [body, props] of [
-      [doc(paragraph()), {}],
-      [doc(code(undefined)), { uploadFile }],
-      [doc(paragraph(text('http:'))), { uploadFile }],
+    for (const [body, props, offered] of [
+      [doc(paragraph()), {}, ['Table']],
+      [doc(code(undefined)), { uploadFile }, []],
+      [doc(paragraph(text('http:'))), { uploadFile }, []],
     ] as const) {
       const { container, unmount } = render(BodyEditor, { doc: body, ...props });
       const editor = editorIn(container);
@@ -444,10 +444,13 @@ describe('the slash menu', () => {
       editor.view.dispatch(
         editor.state.tr.setSelection(TextSelection.atEnd(editor.state.doc)).insertText('/'),
       );
-      // The list is put in the page as soon as the menu is offered; its entries after a turn.
-      expect(document.querySelector('[data-suggestions="slash"]')).toBeNull();
+      // The entries are put in the list a turn after the menu is offered.
       await aTurn();
-      expect(document.querySelector('[data-suggestions="slash"]')).toBeNull();
+      const options = [...document.querySelectorAll('[data-suggestions="slash"] [role="option"]')];
+      expect(options.map((option) => option.textContent)).toEqual(offered);
+      if (offered.length === 0) {
+        expect(document.querySelector('[data-suggestions="slash"]')).toBeNull();
+      }
       unmount();
     }
   });

@@ -64,4 +64,4 @@ export const DIAGRAM_CODE_SELECTOR = 'pre > code.language-mermaid';
  * (table.ts) and the read-only view give each column this as its least
  * width, and the table the sum.
  */
-export const TABLE_CELL_MIN_WIDTH = 25;
+export const TABLE_CELL_MIN_WIDTH = 80;

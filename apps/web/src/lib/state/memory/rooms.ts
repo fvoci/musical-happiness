@@ -14,11 +14,9 @@
  * - The card's body is written from the document 2 seconds after the last
  *   change, 10 at most after the first, and when the last who writes leaves:
  *   the board's listeners are told the card, as `UPDATE_BLOCK` tells them.
- * - A body written whole (`MemoryBackend.writeCardBody`, a version
- *   restored) is written after the room's changes, and makes the document
- *   anew (`DOC_RESET`).
- * - Versions of the body are kept as the room is written in and left
- *   (`body-versions.ts`).
+ * - A body written whole (`MemoryBackend.writeCardBody`, a version restored)
+ *   is written after the room's changes, and makes the document anew
+ *   (`DOC_RESET`). Versions are kept as it is written in and left.
  *
  * The tabs of one browser that each run a world in memory can be joined
  * (`shareRooms`): their documents are made alike from the seed, so that the
@@ -27,11 +25,11 @@
  * time of making: the worlds make identifiers alike) and their documents
  * were made from the same body in the same epoch.
  *
- * Unlike the server, a change that would leave the document no body is
- * refused (`update_refused`), not taken and mended; limits of frames,
- * rooms and connections are not kept; the roles are asked again when the
- * members change, not on a timer; and a room is kept for the life of the
- * world, as the server keeps a document stored.
+ * Unlike the server, a change that leaves no body is refused, not repaired
+ * (`update_refused`), but for tables that merged changes left wrong, mended
+ * as the server mends them (table-mend.ts); limits of frames, rooms and
+ * connections are not kept; the roles are asked again when the members
+ * change, not on a timer; and a room is kept for the life of the world.
  */
 import * as Y from 'yjs';
 
@@ -61,7 +59,8 @@ import { roleOn } from './comments.ts';
 import { bodyFileIds, changeOf, LIMITS } from './shapes.ts';
 import { MemoryCarets } from './room-carets.ts';
 import type { Room, RoomUser, Seat, TabMessage } from './room-seats.ts';
-import { bodyOf, documentOf, sameBody, tabKey } from './room-docs.ts';
+import { bodyOf, documentOf, lackedBy, sameBody, tabKey } from './room-docs.ts';
+import { mendTables } from './table-mend.ts';
 import type { StoredCard, World } from './world.ts';
 
 /** The shared type the editor binds to (`@tiptap/extension-collaboration`). */
@@ -164,9 +163,8 @@ export class MemoryRooms {
   }
 
   /**
-   * Takes what a seat said after the user's latency, in the order said; not
-   * once it has left. Each arrival takes the oldest thing on its way: two
-   * that arrive at the same moment are not taken in the order of their timers.
+   * Takes what a seat said after the user's latency, in the order said; not once it has left.
+   * Each arrival takes the oldest thing on its way, not the one its timer was set for.
    */
   #hear(seat: Seat, take: () => void): void {
     seat.inAt = Math.max(Date.now() + seat.user.latency, seat.inAt);
@@ -333,6 +331,7 @@ export class MemoryRooms {
     this.#say(seat, { message: { action: 'DOC_ACK', doc, epoch: frame.epoch } });
     this.#spread(room, frame.payload, seat);
     this.#post({ kind: 'update', cardId, tab: room.tab, update: frame.payload });
+    this.#mend(room);
     this.#changed(room);
   }
 
@@ -358,7 +357,9 @@ export class MemoryRooms {
     if (probe.store.pendingStructs !== null || probe.store.pendingDs !== null) {
       return 'update_out_of_step';
     }
-    const body = bodyOf(probe);
+    // An empty body is null, a body: only what is none is mended.
+    const read = bodyOf(probe);
+    const body = read === undefined && mendTables(probe) ? bodyOf(probe) : read;
     if (body === undefined) return 'update_refused';
     if (body === null) return undefined;
     if (storedSize(body) > LIMITS.bodyBytes) return 'document_too_large';
@@ -383,6 +384,14 @@ export class MemoryRooms {
         }),
       });
     }
+  }
+
+  /** What merged changes left wrong in a table is mended, and goes to every seat and tab. */
+  #mend(room: Room): void {
+    const mended = mendTables(room.doc);
+    if (!mended) return;
+    this.#spread(room, mended, undefined);
+    this.#post({ kind: 'update', cardId: room.cardId, tab: room.tab, update: mended });
   }
 
   #changed(room: Room): void {
@@ -473,16 +482,8 @@ export class MemoryRooms {
     }
     Y.applyUpdate(room.doc, message.update, this);
     this.#spread(room, message.update, undefined);
+    this.#mend(room);
     this.#changed(room);
-  }
-}
-
-/** What `doc` has that a holder of `stateVector` lacks; undefined when that is no state vector. */
-function lackedBy(doc: Y.Doc, stateVector: Uint8Array): Uint8Array | undefined {
-  try {
-    return Y.encodeStateAsUpdate(doc, stateVector);
-  } catch {
-    return undefined;
   }
 }
 
