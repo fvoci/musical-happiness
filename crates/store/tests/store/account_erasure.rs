@@ -189,7 +189,10 @@ async fn board_of(store: &Store, workspace_id: &str, user_id: &str) -> (String, 
         title: "a card".to_owned(),
         ..Block::default()
     };
+    // Quietly, so that its writer does not watch it: the tests that want the card
+    // followed say so (`work_on`).
     store
+        .telling_nobody()
         .insert_block(&mut card, user_id)
         .await
         .expect("the card is stored");
@@ -383,6 +386,7 @@ async fn work_on(store: &Store, board: &str, card: &str, user_id: &str) {
         ..Block::default()
     };
     store
+        .telling_nobody()
         .insert_block(&mut comment, user_id)
         .await
         .expect("the comment is stored");
