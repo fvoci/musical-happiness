@@ -6,14 +6,15 @@
  * document's.
  */
 import { Editor } from '@tiptap/core';
-import { Selection } from '@tiptap/pm/state';
+import { Selection, TextSelection } from '@tiptap/pm/state';
 import type { SuggestionProps } from '@tiptap/suggestion';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SuggestionEntry } from '$lib/editor/extensions.ts';
 import { bodyExtensions } from '$lib/editor/extensions.ts';
 import { cardNumberMatch, type ReferenceOptions } from '$lib/editor/reference.ts';
 import { toStoredDoc, type DocNode } from '$lib/editor/schema.ts';
+import { COPIED_CARD_LINK } from '$lib/logic/card-numbers.ts';
 
 import { doc, paragraph, text } from '../support/body-docs.ts';
 
@@ -59,6 +60,7 @@ function keyed(target: Editor, letter: string): void {
 const stored = (target: Editor): DocNode => toStoredDoc(target.getJSON() as DocNode);
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   editor?.destroy();
   editor = undefined;
   document.body.replaceChildren();
@@ -81,7 +83,17 @@ describe('what is typed after `#`', () => {
   });
 
   it('is nothing where `#` is part of a word, an address, a heading or `[[`', () => {
-    for (const before of ['C#', 'page#', 'https://example.com/#', '##', '[[#', '#3]', '#a#']) {
+    for (const before of [
+      'C#',
+      'page#',
+      'https://example.com/#',
+      '##',
+      '[[#',
+      '#3]',
+      '#a#',
+      // `[[` is taking the words: one list at a time.
+      '[[Bug #',
+    ]) {
       const made = create(doc(paragraph(text(before))));
       expect(typed(made, '1'), before).toBeNull();
     }
@@ -157,5 +169,48 @@ describe('a card chosen after `#`', () => {
     made.commands.insertContent('#3');
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(offered ?? []).toEqual([]);
+  });
+});
+
+const ADDRESS = `https://app.example/w/ws/boards/b/v/${CARD}`;
+
+/** Pastes a card's link as the app copies it: its address as text, and as HTML under its number and title. */
+function pasteCopiedLink(target: Editor): boolean {
+  const html = `<a href="${ADDRESS}" ${COPIED_CARD_LINK}="">#12 Plan</a>`;
+  const event = new Event('paste', { bubbles: true, cancelable: true }) as Event & {
+    clipboardData: { files: File[]; getData: (type: string) => string };
+  };
+  event.clipboardData = {
+    files: [],
+    getData: (type) => (type === 'text/plain' ? ADDRESS : type === 'text/html' ? html : ''),
+  };
+  return Boolean(
+    target.view.someProp('handlePaste', (handle) =>
+      handle(target.view, event as unknown as ClipboardEvent, target.state.doc.slice(0, 0)),
+    ),
+  );
+}
+
+describe('a card’s link copied in the app, pasted where it is not made a reference', () => {
+  it('over a selection, links what is selected to the address, and puts none of its words', () => {
+    // The simulated page has no clipboard events; the editor makes one to paste text with.
+    vi.stubGlobal('ClipboardEvent', class extends Event {});
+    const made = create(doc(paragraph(text('See here'))), { named: () => CARD });
+    made.view.dispatch(made.state.tr.setSelection(TextSelection.create(made.state.doc, 5, 9)));
+    expect(pasteCopiedLink(made)).toBe(true);
+    expect(made.getText()).toBe('See here');
+    const [, linked] = stored(made).content?.[0]?.content ?? [];
+    expect(linked).toMatchObject({ type: 'text', text: 'here' });
+    expect(linked?.marks).toHaveLength(1);
+    expect(linked?.marks?.[0]).toMatchObject({ type: 'link', attrs: { href: ADDRESS } });
+  });
+
+  it('naming no card here, is its address as text', () => {
+    vi.stubGlobal('ClipboardEvent', class extends Event {});
+    const made = create(doc(paragraph(text('See '))), { named: () => undefined });
+    made.commands.focus('end');
+    expect(pasteCopiedLink(made)).toBe(true);
+    expect(made.getText()).toBe(`See ${ADDRESS}`);
+    expect(JSON.stringify(stored(made))).not.toContain('#12');
   });
 });

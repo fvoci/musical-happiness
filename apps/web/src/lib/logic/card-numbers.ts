@@ -14,6 +14,13 @@ const HIGHEST_NUMBER = 2_147_483_647;
 export const NAMED_AT_MOST = 8;
 
 /**
+ * The attribute of the link that a card's copied link carries as HTML
+ * (`components/card-number/card-link.ts`): the words under it are for other
+ * apps, and a body of this app pastes the address under it instead.
+ */
+export const COPIED_CARD_LINK = 'data-card-link';
+
+/**
  * The number a text names: `12` or `#12`, as `Card.number` writes it (no
  * leading zero, no sign, no space within); none for anything else.
  */
@@ -34,14 +41,17 @@ export function cardNumberText(number: number): string {
  * for digits, the card with that number first, then those whose number
  * begins with them, lowest first; then, as for any other text, the cards
  * whose title has every word of it, whatever the case, the one changed last
- * first. Nothing for nothing typed.
+ * first. Spaces around what was typed do not count. Nothing for nothing
+ * typed.
  */
 export function cardsNamed(cards: readonly Card[], typed: string): Card[] {
   const words = foldCase(typed)
     .split(/\s+/u)
     .filter((word) => word !== '');
   if (words.length === 0) return [];
-  const digits = /^\d+$/.test(typed) ? typed : undefined;
+  const [first] = words;
+  const digits =
+    words.length === 1 && first !== undefined && /^\d+$/.test(first) ? first : undefined;
   const byNumber = digits
     ? cards
         .filter((card) => card.number !== undefined && String(card.number).startsWith(digits))

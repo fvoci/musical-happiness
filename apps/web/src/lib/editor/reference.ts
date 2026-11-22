@@ -23,6 +23,8 @@ import { Suggestion, type SuggestionMatch, type Trigger } from '@tiptap/suggesti
 import { REFERENCE_CLASS, REFERENCE_ID_ATTRIBUTE } from './drawing.ts';
 import type { SuggestionEntry, SuggestionRenderer } from './extensions.ts';
 import { drawReference, openClickedReference, type ReferenceDrawing } from './reference-chip.ts';
+import { COPIED_CARD_LINK } from '$lib/logic/card-numbers.ts';
+
 import { isBlockId } from './schema.ts';
 import { keepTouchFromText } from './touch-press.ts';
 
@@ -71,9 +73,12 @@ export function referenceMatch({ $position }: Trigger): SuggestionMatch {
  * 단어`). The `#` begins a word: at the start of the line, or after a space
  * or a `(`; not `C#`, an address's `#part`, `##`, or `[[#`. What follows it
  * begins with no space (`# ` makes a heading), and a `]`, a `#` or a node
- * that is not text ends it. Not in code.
+ * that is not text ends it. Not in code, and not within what `[[` is
+ * taking (`[[Bug #1`): one list at a time.
  */
-export function cardNumberMatch({ $position }: Trigger): SuggestionMatch {
+export function cardNumberMatch(trigger: Trigger): SuggestionMatch {
+  const { $position } = trigger;
+  if (referenceMatch(trigger)) return null;
   if ($position.parent.type.spec.code) return null;
   if ($position.marks().some((mark) => mark.type.spec.code)) return null;
   const before = $position.parent.textBetween(0, $position.parentOffset, undefined, '￼');
@@ -212,6 +217,20 @@ function inCode(state: EditorState): boolean {
   return Boolean($from.parent.type.spec.code) || $from.marks().some((mark) => mark.type.spec.code);
 }
 
+/**
+ * A card's link copied in this app, pasted where it is not made a reference
+ * (over a selection, in code, an address of no card here): its address, as
+ * text, as it is pasted from anywhere else. The words that the link carries
+ * for other apps, the card's number among them, never go into a body.
+ */
+function copiedCardLink(view: EditorView, event: ClipboardEvent, text: string): boolean {
+  const html = event.clipboardData?.getData('text/html') ?? '';
+  if (text === '' || !html.includes(COPIED_CARD_LINK)) return false;
+  // Pasted with no clipboard of its own, it does not come here again.
+  view.pasteText(text);
+  return true;
+}
+
 /** Whether any of `from`–`to` is code, a block of it or a mark of it. */
 function codeBetween(doc: ProseMirrorNode, from: number, to: number): boolean {
   if (doc.resolve(from).parent.type.spec.code) return true;
@@ -270,9 +289,9 @@ function pastedAddresses(name: string, options: ReferenceOptions): Plugin<Pasted
       handlePaste: (view, event) => {
         const text = event.clipboardData?.getData('text/plain').trim() ?? '';
         // Over a selection an address is the link of what is selected; in code it is text.
-        if (!view.state.selection.empty || inCode(view.state)) return false;
-        const id = text === '' || /\s/.test(text) ? undefined : options.named(text);
-        if (id === undefined || !isBlockId(id)) return false;
+        const free = view.state.selection.empty && !inCode(view.state);
+        const id = !free || text === '' || /\s/.test(text) ? undefined : options.named(text);
+        if (id === undefined || !isBlockId(id)) return copiedCardLink(view, event, text);
         const from = view.state.selection.from;
         // Pasted with no clipboard of its own, it does not come here again.
         view.pasteText(text);

@@ -43,8 +43,11 @@ async function cardTitled(page: Page, title: string): Promise<Required<Omit<DevC
 
 const numberIn = (place: Locator): Locator => place.locator('[data-slot="card-number"]');
 
-/** Every card drawn in `place` shows its own number, as `#N`. */
-async function everyCardNumbered(page: Page, cards: Locator): Promise<void> {
+/**
+ * Every card drawn shows its own number, as `#N`, and no two show one; where
+ * every card of the board is drawn (`whole`), they are 1 to the number of cards.
+ */
+async function everyCardNumbered(page: Page, cards: Locator, whole: boolean): Promise<void> {
   const numbers = new Map((await cardsOfBoard(page)).map((one) => [one.id, one.number]));
   await expect(cards.first()).toBeVisible();
   const drawn = await cards.evaluateAll((elements) =>
@@ -55,6 +58,9 @@ async function everyCardNumbered(page: Page, cards: Locator): Promise<void> {
   );
   expect(drawn.length).toBeGreaterThan(0);
   for (const { id, shown } of drawn) expect(shown, id).toBe(`#${String(numbers.get(id))}`);
+  const shown = drawn.map((one) => Number(one.shown?.slice(1))).sort((a, b) => a - b);
+  expect(new Set(shown).size).toBe(drawn.length);
+  if (whole) expect(shown).toEqual(Array.from({ length: numbers.size }, (_, at) => at + 1));
 }
 
 const bodyOf = (page: Page): Locator => page.getByTestId('card-body');
@@ -78,7 +84,8 @@ test('every view shows a card’s number and says it, and an open card shows it 
   page,
 }, info) => {
   await openView(page, info, WELCOME, 'Onboarding');
-  await everyCardNumbered(page, boardPage(page).locator('[data-card]'));
+  // A phone shows one column of the kanban at a time.
+  await everyCardNumbered(page, boardPage(page).locator('[data-card]'), false);
   const first = boardPage(page).locator('[data-card]').first();
   const id = (await first.getAttribute('data-card')) ?? '';
   const named = (await cardsOfBoard(page)).find((one) => one.id === id);
@@ -97,7 +104,7 @@ test('every view shows a card’s number and says it, and an open card shows it 
   await expect(page.getByTestId('card-location')).toContainText(`#${String(named.number)}`);
 
   await openView(page, info, WELCOME, 'Preview: Table View');
-  await everyCardNumbered(page, page.locator('[role="row"][data-card]'));
+  await everyCardNumbered(page, page.locator('[role="row"][data-card]'), true);
 });
 
 test('a card of the calendar and of the chart shows its number, and its bar says it', async ({

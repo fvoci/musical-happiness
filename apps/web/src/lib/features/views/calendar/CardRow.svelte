@@ -102,7 +102,7 @@
     >
       <span class="flex min-w-0 gap-1.5">
         <CardNumber number={card.number} />
-        <span class={['truncate', !card.title && 'text-muted-foreground']}>
+        <span data-title class={['truncate', !card.title && 'text-muted-foreground']}>
           {placed.title(card)}
         </span>
       </span>

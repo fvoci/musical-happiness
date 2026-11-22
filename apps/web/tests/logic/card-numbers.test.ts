@@ -73,6 +73,9 @@ describe('what `#` and what follows it name', () => {
   it('for digits, the card of that number first, then the numbers they begin, then titles', () => {
     expect(ids('1')).toEqual(['a', 'c', 'b', 't']);
     expect(ids('12')).toEqual(['b']);
+    // A space typed after the digits: still the card of that number first.
+    expect(ids('12 ')).toEqual(['b']);
+    expect(ids('1 ')).toEqual(['a', 'c', 'b', 't']);
     expect(ids('2')).toEqual(['d']);
     expect(ids('99')).toEqual([]);
   });

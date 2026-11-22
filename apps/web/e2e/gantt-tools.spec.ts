@@ -103,7 +103,7 @@ test('grouped as a table is: a heading before the cards of each group, the arrow
       rows.map((row) =>
         row.hasAttribute('data-group')
           ? `group:${row.getAttribute('data-group') ?? ''}`
-          : (row.querySelector('[data-row-title]')?.textContent ?? '').trim(),
+          : (row.querySelector('[data-row-title] [data-title]')?.textContent ?? '').trim(),
       ),
     );
   let under = '';

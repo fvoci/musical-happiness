@@ -109,7 +109,7 @@ test('a dated card is on its day, a range is a bar in each week it crosses', asy
   await startsOn(moment, '2026-11-10');
   // A bar says its day and time for a screen reader.
   if (!touch(info))
-    await expect(moment).toHaveAccessibleName('8:00 AM Create a new card, November 10');
+    await expect(moment).toHaveAccessibleName('8:00 AM number 5, Create a new card, November 10');
   // A day says how many cards it has.
   await expect(
     calendar(page).getByRole('button', { name: 'Thursday, November 12, 2 cards' }),
@@ -265,9 +265,9 @@ test('a card opened from the cards of a day gives the focus back when it closes'
   // Back on the card's bar where a mouse has bars to press; on the day whose popover listed
   // it under a finger; on the line itself in the list under the small grid, which stays.
   const focused = page.locator(':focus');
-  if (!wide(info)) await expect(focused).toHaveAccessibleName('Drag cards');
+  if (!wide(info)) await expect(focused).toHaveAccessibleName('number 1 Drag cards');
   else if (touch(info)) await expect(focused).toHaveAccessibleName(/^Thursday, November 12/);
-  else await expect(focused).toHaveAccessibleName('Drag cards, November 12');
+  else await expect(focused).toHaveAccessibleName('number 1, Drag cards, November 12');
 });
 
 test('the cards without a date are counted in the row and listed on asking (C16)', async ({

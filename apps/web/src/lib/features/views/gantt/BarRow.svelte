@@ -151,7 +151,7 @@
       onclick={follow}
     >
       <CardNumber number={line.number} class="pe-1.5" />
-      <span class="truncate">{line.title}</span>
+      <span data-title class="truncate">{line.title}</span>
       {#if line.late || line.loop}
         <span
           aria-hidden="true"

@@ -147,9 +147,9 @@ test('a Gantt view made on the page draws dated cards as bars, and the server ke
   const gantt = page.getByTestId('gantt');
   await expect(gantt).toHaveAttribute('data-zoom', 'week');
   await expect(gantt.locator('[data-bar]')).toHaveCount(2);
-  await expect(bar(page, 'Pick apples')).toHaveAccessibleName('Pick apples, November 12');
+  await expect(bar(page, 'Pick apples')).toHaveAccessibleName('number 1, Pick apples, November 12');
   await expect(bar(page, 'Press cider')).toHaveAccessibleName(
-    'Press cider, November 12 – November 17',
+    'number 2, Press cider, November 12 – November 17',
   );
   /** How many days a bar is wide, by the marks of the axis (a week each). */
   const daysWide = async (title: string): Promise<number> => {
@@ -165,13 +165,13 @@ test('a Gantt view made on the page draws dated cards as bars, and the server ke
   await tool.click();
   await page.locator('[role="menuitem"][data-action="start"]').click();
   await expect.poll(async () => (await fields()).dateDisplayPropertyId).toBe('start');
-  await expect(bar(page, 'Press cider')).toHaveAccessibleName('Press cider, November 4');
+  await expect(bar(page, 'Press cider')).toHaveAccessibleName('number 2, Press cider, November 4');
 
   // After a reload the view is still a Gantt chart, placed by "Start" as the server keeps it.
   await page.reload();
   await expect(gantt.locator('[data-bar]')).toHaveCount(2);
   await expect(tool).toHaveAccessibleName('Display by: Start');
-  await expect(bar(page, 'Pick apples')).toHaveAccessibleName('Pick apples, November 3');
+  await expect(bar(page, 'Pick apples')).toHaveAccessibleName('number 1, Pick apples, November 3');
   expect(await daysWide('Press cider')).toBe(1);
   expect((await fields()).viewType).toBe('gantt');
   expect(errors).toEqual([]);
@@ -240,7 +240,7 @@ test('the dependencies and the zoom chosen on the page are kept by the server, a
     'Out of order: 1. Show the next.',
   );
   await expect(bar(page, 'Raise the roof')).toHaveAccessibleName(
-    'Raise the roof, November 11 – November 14. After Build the walls. Out of order: starts before the end of Build the walls.',
+    'number 4, Raise the roof, November 11 – November 14. After Build the walls. Out of order: starts before the end of Build the walls.',
   );
 
   await page.getByTestId('gantt-zoom-in').click();
@@ -306,18 +306,24 @@ test('"display by" chosen for a view that named no date can be taken back on the
   await page.goto(boardPath(board, viewId));
   await signInOnPage(page, owner);
   // Placed by the first date, "Due", while it names none.
-  await expect(bar(page, 'Sow the beans')).toHaveAccessibleName('Sow the beans, November 12');
+  await expect(bar(page, 'Sow the beans')).toHaveAccessibleName(
+    'number 1, Sow the beans, November 12',
+  );
   const tool = page.getByTestId('view-header').locator('[data-tool="display-by"]');
   await tool.click();
   await page.locator('[role="menuitem"][data-action="start"]').click();
   await expect.poll(async () => (await fields()).dateDisplayPropertyId).toBe('start');
-  await expect(bar(page, 'Sow the beans')).toHaveAccessibleName('Sow the beans, November 3');
+  await expect(bar(page, 'Sow the beans')).toHaveAccessibleName(
+    'number 1, Sow the beans, November 3',
+  );
 
   // Taken back: the server drops the name, and a reload shows the view as it was.
   await page.getByTestId('undo').click();
   await expect.poll(async () => 'dateDisplayPropertyId' in (await fields())).toBe(false);
   await page.reload();
-  await expect(bar(page, 'Sow the beans')).toHaveAccessibleName('Sow the beans, November 12');
+  await expect(bar(page, 'Sow the beans')).toHaveAccessibleName(
+    'number 1, Sow the beans, November 12',
+  );
   await expect(tool).toHaveAccessibleName('Display by: Due');
   expect(errors).toEqual([]);
   await api.dispose();
@@ -402,7 +408,7 @@ test('a bar dragged on the page, and an end of it, change the card on the server
   expect(await dueOf(cider)).toEqual({ from: '2026-11-15', to: '2026-11-20' });
   await page.reload();
   await expect(bar(page, 'Press cider')).toHaveAccessibleName(
-    'Press cider, November 15 – November 20',
+    'number 1, Press cider, November 15 – November 20',
   );
   expect(errors).toEqual([]);
   await api.dispose();

@@ -396,7 +396,6 @@ export class ReferenceTitles {
   }
 }
 
-/** The cards of the board that were changed last, as references show them; templates left out. */
 /** A card of a board the reader holds, as a reference shows it. */
 function linkedOf(card: Card): LinkedBlock {
   return {
@@ -410,6 +409,7 @@ function linkedOf(card: Card): LinkedBlock {
   };
 }
 
+/** The cards of the board that were changed last, as references show them; templates left out. */
 function recentOf(board: Pick<BoardStore, 'realCards'>): LinkedBlock[] {
   return [...board.realCards]
     .sort((a, b) => b.updateAt - a.updateAt || a.id.localeCompare(b.id))
