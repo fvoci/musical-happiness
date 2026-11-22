@@ -106,17 +106,14 @@ impl Hub {
     pub(super) async fn send_public_block(
         &self,
         ids: &[ListenerId],
-        workspace_id: &str,
+        message: &UpdateBlockMessage<'_>,
         block: &Block,
     ) {
         if ids.is_empty() {
             return;
         }
-        let Some(whole) = text_of(&UpdateBlockMessage {
-            action: "UPDATE_BLOCK",
-            workspace_id,
-            block,
-        }) else {
+        let workspace_id = message.workspace_id();
+        let Some(whole) = text_of(message) else {
             return;
         };
         let mut authorized = Vec::new();
@@ -138,14 +135,12 @@ impl Hub {
             } else {
                 match self.audience.unsaid_by_link(block).await {
                     Ok(unsaid) => {
-                        let mut public = block.clone();
-                        public.hide_people(&unsaid.people);
-                        public.clear_references_but(&unsaid.shown);
-                        text_of(&UpdateBlockMessage {
-                            action: "UPDATE_BLOCK",
-                            workspace_id,
-                            block: &public,
-                        })
+                        // A card's or a page's carries no body to copy here.
+                        let mut public = message.clone();
+                        let shown = public.block_mut();
+                        shown.hide_people(&unsaid.people);
+                        shown.clear_references_but(&unsaid.shown);
+                        text_of(&public)
                     }
                     Err(error) => {
                         tracing::error!(
