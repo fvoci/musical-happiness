@@ -103,8 +103,7 @@
 
 `look`에 관해:
 
-- `build`, `spikes:build`, `build-storybook`을 한 뒤 `tools/serve.ts`로 `dist/`, `dist-spikes/`, `storybook-static/`을 서빙한다. 정적 파일뿐이고 API는 없다.
-- 목록의 주소는 `/app/`(조립된 앱), `/screens/spikes/calendar/`, `/screens/spikes/editor/`, `/screens/spikes/drag/`, `/screens/spikes/mobile/`, `/storybook/`이다.
+- `build`, `spikes:build`, `build-storybook`을 한 뒤 `tools/serve.ts`로 `dist/`, `dist-spikes/`, `storybook-static/`을 서빙한다. 정적 파일뿐이고 API는 없다. 목록의 주소는 `/app/`(조립된 앱), `/screens/spikes/calendar/`, `/screens/spikes/editor/`, `/screens/spikes/drag/`, `/screens/spikes/mobile/`, `/storybook/`이다.
 - 앱은 서버가 하듯 base path `/app` 아래에서, 콘텐츠 보안 정책을 붙여서 나간다.
 - `/app/?dev=1`로 열면 화면 구석에 창의 너비와 지금의 단계가 보인다.
 - 앱의 데이터는 메모리 구현의 것이라 새로 고치면 처음으로 돌아간다. 표시 설정만 기기에 남는다.
@@ -184,7 +183,7 @@
 
 ## 추적되지 않는 것
 
-- 무시되는 산출물은 `dist/`, `dist-spikes/`, `storybook-static/`, `test-results/`, `src/styles/fonts/`, `src/lib/i18n/paraglide/`다. 모두 다시 만들 수 있다.
+- 무시되는 산출물은 `dist/`, `dist-spikes/`, `storybook-static/`, `test-results/`, `src/styles/fonts/`, `src/lib/i18n/paraglide/`, `.wrangler/`, `tools/storybook/wrangler/node_modules/`다. 모두 다시 만들 수 있다.
 - 다시 만들기에 오래 걸리거나 한 번만 만든 것은 저장소 밖 `~/atlas/musical-happiness-carry/web/`에 옮겨져 있다. 새 워크트리에 놓는 명령은 그 폴더의 `README.md` 3절에 있다. 든 것은 이렇다.
   - 글꼴 산출물과 그 원본(`src/styles/fonts/`, `target/web-fonts/`). 이것이 있으면 `build`가 네트워크 없이 지나간다.
   - 마지막 검증의 출력과 측정 스크립트(`target/scratch/`). 번들 크기를 잰 `measure-sizes.mjs`와 `measure.ts`가 여기 있다.

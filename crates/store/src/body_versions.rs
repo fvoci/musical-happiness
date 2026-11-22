@@ -9,13 +9,17 @@
 //! the card is gone for good ([`forget_gone_blocks`]). The files the kept versions show
 //! are not collected ([`crate::file_refs`]).
 //!
+//! Each version says how it came to be kept ([`BodyVersionCause`]): by an editor who
+//! asked for it ([`Store::keep_body_version_by_hand`]), as the body a version was gone
+//! back to ([`Store::restore_body`]), or by the server on its own.
+//!
 //! A page's body is kept as a card's is: "card" here is any block whose body has a room
 //! ([`BlockType::has_room`]).
 
 use std::collections::BTreeSet;
 use std::sync::atomic::Ordering;
 
-use fvoci_model::{Block, BlockType, Body};
+use fvoci_model::{Block, BlockPatch, BlockType, Body, BodyVersionCause};
 use serde_json::Value;
 
 use crate::Store;
@@ -52,6 +56,23 @@ pub struct KeptVersion {
     pub editors: Vec<String>,
     /// The digest of its body, as the server takes it.
     pub body_digest: Vec<u8>,
+    /// How it came to be kept.
+    pub cause: BodyVersionCause,
+}
+
+/// What became of a card's body an editor asked to keep as a version
+/// ([`Store::keep_body_version_by_hand`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ByHand {
+    /// Kept as the version of this number.
+    Kept(i64),
+    /// The body is the card's newest version already, of this number; `None` for no
+    /// body of a card that has no version. Nothing is kept, and nobody is left as
+    /// having written since, as when the server finds it so.
+    Unchanged(Option<i64>),
+    /// A version was kept by hand at or after the time asked for: the newest such.
+    /// Nothing is kept, and who wrote since stays put down for the next version.
+    Recent(i64),
 }
 
 /// A card's body to keep as a version, if it is not the card's newest one.
@@ -62,6 +83,8 @@ struct BodyToKeep<'a> {
     /// Who wrote it whole; `None` for a body its editors typed, who are known already
     /// ([`Store::append_body_updates`]).
     written_by: Option<&'a str>,
+    /// How it comes to be kept.
+    cause: BodyVersionCause,
 }
 
 impl Store {
@@ -95,6 +118,68 @@ impl Store {
             .await
     }
 
+    /// Keeps the body a card holds as a version an editor asked for
+    /// ([`BodyVersionCause::Manual`]), unless it is the card's newest version already
+    /// or a version was kept by hand at or after `since` (in milliseconds since the
+    /// epoch); `None` for a card that is not there. As [`Store::keep_body_version`]
+    /// otherwise, but as of now whoever is named: who asked is not named for asking.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn keep_body_version_by_hand(
+        &self,
+        card_id: &str,
+        since: i64,
+    ) -> Result<Option<ByHand>, StoreError> {
+        self.transaction(async |scope| {
+            let Some(card) = held_card(scope, card_id).await? else {
+                return Ok(None);
+            };
+            let newest = newest_version(scope, &card.id).await?;
+            if !is_kept_already(&card, newest.as_ref()) {
+                let mut sql = scope.sql("SELECT version FROM body_versions WHERE block_id = ");
+                sql.bind(Id(&card.id))
+                    .push_bind(" AND cause = ", BodyVersionCause::Manual.as_str())
+                    .push_bind(" AND kept_at >= ", since)
+                    .push(" ORDER BY version DESC LIMIT 1");
+                if let Some(row) = scope.fetch_optional(sql).await? {
+                    return Ok(Some(ByHand::Recent(row.int(0)?)));
+                }
+            }
+            let body = BodyToKeep {
+                block: &card,
+                written_by: None,
+                cause: BodyVersionCause::Manual,
+            };
+            let kept = keep_and_refresh(scope, &card, &body).await?;
+            Ok(Some(match kept {
+                Some(version) => ByHand::Kept(version),
+                None => ByHand::Unchanged(newest.map(|(version, _)| version)),
+            }))
+        })
+        .await
+    }
+
+    /// Writes the body of a version to a card again, as [`Store::patch_block`] writes
+    /// a body by `user_id`: the body written is kept as the card's newest version
+    /// ([`BodyVersionCause::Restored`]) after the body it is written over.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::patch_block`].
+    pub async fn restore_body(
+        &self,
+        card_id: &str,
+        patch: &BlockPatch,
+        user_id: &str,
+    ) -> Result<(), StoreError> {
+        self.transaction(async |scope| {
+            blocks::patch_block(scope, card_id, patch, user_id, BodyWrite::Restored).await
+        })
+        .await
+    }
+
     /// How many versions are kept, for a scope that begins.
     pub(crate) fn versions_kept(&self) -> VersionsKept {
         VersionsKept {
@@ -110,8 +195,9 @@ impl Store {
     /// Returns [`StoreError::Database`] if a query fails.
     pub async fn body_versions(&self, block_id: &str) -> Result<Vec<KeptVersion>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope
-                .sql("SELECT version, kept_at, body_digest FROM body_versions WHERE block_id = ");
+            let mut sql = scope.sql(
+                "SELECT version, kept_at, body_digest, cause FROM body_versions WHERE block_id = ",
+            );
             sql.bind(Id(block_id)).push(" ORDER BY version DESC");
             let mut versions = scope
                 .fetch_all(sql)
@@ -148,14 +234,15 @@ impl Store {
     ) -> Result<Option<(KeptVersion, Option<Body>)>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT version, kept_at, body_digest, body FROM body_versions WHERE block_id = ",
+                "SELECT version, kept_at, body_digest, cause, body FROM body_versions \
+                 WHERE block_id = ",
             );
             sql.bind(Id(block_id)).push_bind(" AND version = ", version);
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(None);
             };
             let mut kept = kept_version(&row)?;
-            let body = match row.json(3, "body")? {
+            let body = match row.json(4, "body")? {
                 Value::Null => None,
                 document => Some(Body::from_stored(document)),
             };
@@ -172,12 +259,23 @@ impl Store {
     }
 }
 
+/// A version as a row of `version, kept_at, body_digest, cause` has it, without who
+/// wrote it.
 fn kept_version(row: &Row) -> Result<KeptVersion, StoreError> {
+    let cause = row.text(3)?;
     Ok(KeptVersion {
         version: row.int(0)?,
         kept_at: row.int(1)?,
         body_digest: row.bytes(2)?,
         editors: Vec::new(),
+        cause: cause
+            .parse()
+            .map_err(
+                |error: fvoci_model::ParseBodyVersionCauseError| StoreError::Corrupt {
+                    column: "cause",
+                    reason: error.to_string(),
+                },
+            )?,
     })
 }
 
@@ -199,6 +297,19 @@ pub(crate) async fn keep_held(
     scope: &mut Scope<'_>,
     card_id: &str,
 ) -> Result<Option<i64>, StoreError> {
+    let Some(card) = held_card(scope, card_id).await? else {
+        return Ok(None);
+    };
+    let body = BodyToKeep {
+        block: &card,
+        written_by: None,
+        cause: BodyVersionCause::Auto,
+    };
+    keep_and_refresh(scope, &card, &body).await
+}
+
+/// A card whose body has a room, read with its board held; `None` if it is not there.
+async fn held_card(scope: &mut Scope<'_>, card_id: &str) -> Result<Option<Block>, StoreError> {
     let Some(found) = blocks::find_block(scope, card_id).await? else {
         return Ok(None);
     };
@@ -207,19 +318,24 @@ pub(crate) async fn keep_held(
     if !containers::lock_container(scope, &found.container_id).await? {
         return Ok(None);
     }
-    let card = match blocks::find_block(scope, card_id).await? {
-        Some(block) if block.block_type.has_room() => block,
-        _ => return Ok(None),
-    };
-    let body = BodyToKeep {
-        block: &card,
-        written_by: None,
-    };
-    let kept = keep(scope, &body).await?;
+    Ok(blocks::find_block(scope, card_id)
+        .await?
+        .filter(|block| block.block_type.has_room()))
+}
+
+/// Keeps the body of a card read with its board held ([`keep`]), and puts down the
+/// files it shows again if versions past those kept went; the number of the new
+/// version, if one was kept.
+async fn keep_and_refresh(
+    scope: &mut Scope<'_>,
+    card: &Block,
+    body: &BodyToKeep<'_>,
+) -> Result<Option<i64>, StoreError> {
+    let kept = keep(scope, body).await?;
     if kept.forgot_some {
         // The files the card shows are put down again with those of the versions
         // that are left.
-        block_derived::refresh(scope, &card, Before::Unchanged, NewBodyFiles::Unchecked).await?;
+        block_derived::refresh(scope, card, Before::Unchanged, NewBodyFiles::Unchecked).await?;
     }
     Ok(kept.version)
 }
@@ -230,10 +346,26 @@ pub(crate) enum BodyWrite {
     /// A body written whole by its writer: the body before and the body after are
     /// kept as versions within the write ([`record_change`]).
     Whole,
+    /// The body of a version written whole again by its writer ([`Store::restore_body`]):
+    /// kept as [`BodyWrite::Whole`] keeps a body, the body after as
+    /// [`BodyVersionCause::Restored`].
+    Restored,
     /// The body of the card's document as its editors typed it so far
     /// ([`Store::project_body`]): no version of its own; the server keeps one when it
     /// is due ([`Store::keep_body_version`]).
     Projected,
+}
+
+impl BodyWrite {
+    /// How the body after a write is kept as a version within it ([`record_change`]);
+    /// `None` for a write that keeps none.
+    pub(crate) const fn kept_after(self) -> Option<BodyVersionCause> {
+        match self {
+            Self::Whole => Some(BodyVersionCause::Auto),
+            Self::Restored => Some(BodyVersionCause::Restored),
+            Self::Projected => None,
+        }
+    }
 }
 
 /// What became of a body that was to be kept.
@@ -248,14 +380,15 @@ struct Kept {
 
 /// Keeps the versions a write of a card's body whole brings, within that write: the
 /// body before, if it is not the card's newest version yet (by its editors, if any
-/// typed it), and the body after, by `user_id`. Nothing for a write that
-/// leaves the body as it was, and for a block whose body has no room. The caller puts down
-/// the files the card shows after.
+/// typed it), and the body after, by `user_id`, as `cause` says. Nothing for a write
+/// that leaves the body as it was, and for a block whose body has no room. The caller
+/// puts down the files the card shows after.
 pub(crate) async fn record_change(
     scope: &mut Scope<'_>,
     before: &Block,
     after: &Block,
     user_id: &str,
+    cause: BodyVersionCause,
 ) -> Result<(), StoreError> {
     if !after.block_type.has_room()
         || body_digest(before.body.as_ref()) == body_digest(after.body.as_ref())
@@ -266,12 +399,14 @@ pub(crate) async fn record_change(
         let before = BodyToKeep {
             block: before,
             written_by: None,
+            cause: BodyVersionCause::Auto,
         };
         keep(scope, &before).await?;
     }
     let after = BodyToKeep {
         block: after,
         written_by: Some(user_id),
+        cause,
     };
     keep(scope, &after).await?;
     Ok(())
@@ -282,18 +417,8 @@ pub(crate) async fn record_change(
 async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, StoreError> {
     let block = body.block;
     let digest = body_digest(block.body.as_ref());
-    let mut sql = scope.sql("SELECT version, body_digest FROM body_versions WHERE block_id = ");
-    sql.bind(Id(&block.id))
-        .push(" ORDER BY version DESC LIMIT 1");
-    let newest = match scope.fetch_optional(sql).await? {
-        Some(row) => Some((row.int(0)?, row.bytes(1)?)),
-        None => None,
-    };
-    let kept_already = match &newest {
-        Some((_, newest)) => *newest == digest,
-        // No body is no first version: there is nothing in it to go back to.
-        None => block.body.is_none(),
-    };
+    let newest = newest_version(scope, &block.id).await?;
+    let kept_already = is_kept_already(block, newest.as_ref());
     let mut sql = scope.sql("DELETE FROM body_version_editors WHERE block_id = ");
     sql.bind(Id(&block.id))
         .push_bind(" AND version = ", PENDING)
@@ -316,7 +441,8 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
     }
     // Nobody is known to have written it: the body is as old as the card's last
     // change at the latest, and who made that change may have changed something else.
-    let kept_at = if editors.is_empty() {
+    // One asked for is kept when it was asked for.
+    let kept_at = if editors.is_empty() && body.cause != BodyVersionCause::Manual {
         block.update_at
     } else {
         now_millis()
@@ -324,7 +450,7 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
     let version = newest.map_or(1, |(version, _)| version + 1);
     let files: Vec<&str> = block.body.as_ref().map(Body::file_ids).unwrap_or_default();
     let mut sql = scope.sql(
-        "INSERT INTO body_versions (block_id, version, body, body_digest, files, kept_at) \
+        "INSERT INTO body_versions (block_id, version, body, body_digest, files, kept_at, cause) \
          VALUES (",
     );
     sql.bind(Id(&block.id))
@@ -336,6 +462,7 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
         .push_bind(", ", Param::Bytes(digest))
         .push_bind(", ", to_json_text(&files)?)
         .push_bind(", ", kept_at)
+        .push_bind(", ", body.cause.as_str())
         .push(")");
     scope.execute(sql).await?;
     for user_id in &editors {
@@ -353,6 +480,30 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
         version: Some(version),
         forgot_some,
     })
+}
+
+/// The number and the body digest of a card's newest version, if it has one.
+async fn newest_version(
+    scope: &mut Scope<'_>,
+    block_id: &str,
+) -> Result<Option<(i64, Vec<u8>)>, StoreError> {
+    let mut sql = scope.sql("SELECT version, body_digest FROM body_versions WHERE block_id = ");
+    sql.bind(Id(block_id))
+        .push(" ORDER BY version DESC LIMIT 1");
+    match scope.fetch_optional(sql).await? {
+        Some(row) => Ok(Some((row.int(0)?, row.bytes(1)?))),
+        None => Ok(None),
+    }
+}
+
+/// Whether the body a block holds is kept already: it is that of its newest version,
+/// or it is no body and the block has no version. No body is no first version: there
+/// is nothing in it to go back to.
+fn is_kept_already(block: &Block, newest: Option<&(i64, Vec<u8>)>) -> bool {
+    match newest {
+        Some((_, digest)) => *digest == body_digest(block.body.as_ref()),
+        None => block.body.is_none(),
+    }
 }
 
 /// Forgets the versions of a card up to `through`; whether there were any. The files

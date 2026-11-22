@@ -792,8 +792,8 @@ async fn insert_block_at(
             };
         // Before the files are put down: what the body before showed is still shown
         // by its version.
-        if body_write == BodyWrite::Whole {
-            body_versions::record_change(scope, &existing, block, user_id).await?;
+        if let Some(cause) = body_write.kept_after() {
+            body_versions::record_change(scope, &existing, block, user_id, cause).await?;
         }
         block_derived::refresh(scope, block, Before::Stored(&existing), new_files).await?;
     } else {

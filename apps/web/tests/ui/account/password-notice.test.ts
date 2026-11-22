@@ -33,13 +33,13 @@ describe('the notice to set a password', () => {
     const props = mount(() => Promise.resolve());
     const notice = screen.getByRole('region', { name: 'Set a password' });
     expect(notice).toHaveTextContent('nothing else opens My space');
-    expect(notice).toHaveTextContent('My space opens only when you sign in with it');
+    expect(notice).toHaveTextContent('My space asks for it once after each single sign-on');
     // It takes no focus of its own.
     expect(notice).not.toContainElement(document.activeElement as HTMLElement | null);
     await setPassword('a long password');
     expect(props.onSet).toHaveBeenCalledExactlyOnceWith('a long password');
     const done = await screen.findByTestId('password-notice-done');
-    expect(done).toHaveTextContent('Sign in with your user name, grace, and this password');
+    expect(done).toHaveTextContent('Your user name is grace');
     const close = screen.getByRole('button', { name: 'Close' });
     await waitFor(() => {
       expect(close).toHaveFocus();

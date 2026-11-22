@@ -181,6 +181,11 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "getCardBodyVersions",
     ),
     (
+        "POST",
+        "/cards/{cardId}/body-versions",
+        "keepCardBodyVersion",
+    ),
+    (
         "GET",
         "/cards/{cardId}/body-versions/{version}",
         "getCardBodyVersion",
@@ -285,6 +290,11 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "getPageBodyVersions",
     ),
     (
+        "POST",
+        "/wikis/{wikiId}/pages/{pageId}/body-versions",
+        "keepPageBodyVersion",
+    ),
+    (
         "GET",
         "/wikis/{wikiId}/pages/{pageId}/body-versions/{version}",
         "getPageBodyVersion",
@@ -341,6 +351,7 @@ const REACHED_BY_ITEM: &[&str] = &[
     "getPageBodyVersions",
     "getPageBodyVersion",
     "restorePageBodyVersion",
+    "keepPageBodyVersion",
     "movePage",
     "duplicatePage",
     "getDeletedPages",
@@ -392,6 +403,7 @@ const REACHED_BY_ITEM: &[&str] = &[
     "getCardBodyVersions",
     "getCardBodyVersion",
     "restoreCardBodyVersion",
+    "keepCardBodyVersion",
     "createSubscription",
     "deleteSubscription",
     "getSubscriptions",

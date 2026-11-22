@@ -192,6 +192,7 @@ async fn page_versions(case: &mut Case, wiki: &str, page: &str) {
     case.run("getPageBodyVersion", of_version, json!({})).await;
     case.run("restorePageBodyVersion", of_version, json!({}))
         .await;
+    case.run("keepPageBodyVersion", of_page, json!({})).await;
 }
 
 /// A comment on the page: written, listed, changed, its versions read, deleted and
@@ -279,6 +280,8 @@ async fn cards(case: &mut Case, board: &str) -> String {
         json!({}),
     )
     .await;
+    case.run("keepCardBodyVersion", &[("cardId", &card)], json!({}))
+        .await;
     let created = case
         .run(
             "createBlocks",

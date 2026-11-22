@@ -170,10 +170,22 @@ export class LiveChanges {
    * Follows `workspaceId` from now on. An open connection leaves the one it
    * followed and subscribes to this one; what was heard of the old one is
    * the business of whoever listened to it (the workspace reads anew).
+   *
+   * Entered again (`Workspace.enter`, which reads it anew), the one it follows
+   * is asked for again: the server says nothing of an asking it ignores (the
+   * own space, until the session has shown the account's password, on this
+   * connection or on the one before it), so the page cannot know that it is
+   * followed, and the server takes an asking for what is followed already.
+   * Whoever listens reads again too (`resync`): what was not heard meanwhile is
+   * not only what `Workspace.enter` reads (the titles of what bodies refer to).
    */
   enter(workspaceId: string): void {
     const before = this.#workspaceId;
-    if (before === workspaceId) return;
+    if (before === workspaceId) {
+      this.#send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId }));
+      this.#tellAll({ kind: 'resync' });
+      return;
+    }
     this.#workspaceId = workspaceId;
     const socket = this.#socket;
     if (socket && this.#subscribed) {

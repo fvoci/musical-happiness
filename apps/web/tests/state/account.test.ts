@@ -106,6 +106,25 @@ describe('a change of a name, told', () => {
     expect(workspace.me).toMatchObject({ displayName: 'Ada', hasPassword: false });
   });
 
+  it("keeps the reader's address, and the one they wait for, which a changed name comes back without", async () => {
+    const { workspace, world, backend } = setup();
+    const reader = world.users.get(backend.userId);
+    if (!reader) throw new Error('no reader');
+    world.users.set(reader.id, {
+      ...reader,
+      email: 'ada@home.example',
+      pendingEmail: 'a@b.example',
+    });
+    await workspace.load();
+    // As the server answers `patchMe`: nobody's address is in a user.
+    takeUser(workspace, { ...reader, displayName: 'Ada', email: '' });
+    expect(workspace.me).toMatchObject({
+      displayName: 'Ada',
+      email: 'ada@home.example',
+      pendingEmail: 'a@b.example',
+    });
+  });
+
   it('keeps the later of two readings of one person, whichever answers last', async () => {
     const { workspace, backend, other } = setup();
     await workspace.load();
@@ -320,6 +339,26 @@ describe('the display name, on the server', () => {
       url: '/api/v1/users/me/password',
       body: { password: 'a long password' },
     });
+  });
+
+  it('gives the password in the session it has, to the operation that confirms it', async () => {
+    const sent: { method: string | undefined; url: string; body: unknown }[] = [];
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      sent.push({
+        method: init.method,
+        url,
+        body: typeof init.body === 'string' ? JSON.parse(init.body) : undefined,
+      });
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+    await serverBackend('').confirmPassword('a long password');
+    expect(sent).toEqual([
+      {
+        method: 'POST',
+        url: '/api/v1/users/me/password/confirm',
+        body: { password: 'a long password' },
+      },
+    ]);
   });
 
   it('reads whether the server needs the name of the organization a registration starts', async () => {

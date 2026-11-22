@@ -42,7 +42,7 @@ impl App {
         // administrator: asked of a session that opens it, as its workspace is.
         if let Some(own_space) = standing.own_space {
             let takes = SessionTaken::of_space(&user.password_hash);
-            organizations.push(if takes.opened_by(session.login_provider_id()) {
+            organizations.push(if takes.opened_by(session.into()) {
                 let within = self.in_organization(&own_space.id)?;
                 within.store().leaving_organization(own_space).await?
             } else {

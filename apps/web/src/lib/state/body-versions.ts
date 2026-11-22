@@ -1,11 +1,19 @@
 /**
  * The versions the server keeps of a card's body: when the last of those
  * who wrote it leave, at an interval while it is written on (ten minutes,
- * unless the server is set otherwise), and around a body written whole.
- * The newest are kept (fifty, unless the server is set otherwise): the
- * lowest numbers go as new versions come.
+ * unless the server is set otherwise), around a body written whole, and
+ * when an editor asks (`keep`). The newest are kept (fifty, unless the
+ * server is set otherwise): the lowest numbers go as new versions come.
  */
 import type { DocNode } from '../editor/schema.ts';
+
+/**
+ * How a version came to be kept: `manual`, asked for by an editor; `restored`,
+ * the body a version was gone back to; `auto`, by the server on its own (as
+ * its writers leave, by the interval, around a body written whole, and every
+ * version kept before versions said how).
+ */
+export type BodyVersionCause = 'auto' | 'manual' | 'restored';
 
 export interface BodyVersion {
   /** Its place among the card's, counted from 1. */
@@ -19,11 +27,23 @@ export interface BodyVersion {
    * the newest; of none while what was typed is not written to the card yet.
    */
   isCurrent: boolean;
+  cause: BodyVersionCause;
 }
 
 export interface BodyVersionContent extends BodyVersion {
   /** The body of the card then; `null` if it had none. */
   body: DocNode | null;
+}
+
+/**
+ * What became of a body an editor asked to keep now: `kept`, as `version`;
+ * `unchanged`, it is the newest version already (`version`, or none for no
+ * body and no version); `recent`, a version was kept by hand within the last
+ * minute (`version`), and none is kept now.
+ */
+export interface KeptBodyVersion {
+  outcome: 'kept' | 'unchanged' | 'recent';
+  version: BodyVersion | null;
 }
 
 export interface BodyVersions {
@@ -38,6 +58,12 @@ export interface BodyVersions {
    * version that cannot be stored any more.
    */
   restore(boardId: string, cardId: string, version: number): Promise<void>;
+  /**
+   * Keeps the card's body as a version now, for who edits the board: what
+   * its room's editors typed is in it first, and the editors' documents are
+   * left as they are.
+   */
+  keep(boardId: string, cardId: string): Promise<KeptBodyVersion>;
 }
 
 /** Where a backend keeps the versions of the bodies of its cards. */

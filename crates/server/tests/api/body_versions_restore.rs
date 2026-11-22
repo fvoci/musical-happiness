@@ -68,6 +68,12 @@ async fn a_version_restored_is_sent_to_the_room_and_keeps_what_was_typed() {
             (1, Vec::new(), false)
         ]
     );
+    let causes: Vec<&Value> = kept.iter().map(|version| &version["cause"]).collect();
+    assert_eq!(
+        causes,
+        [&json!("restored"), &json!("auto"), &json!("auto")],
+        "the body gone back to, and what the server kept on its own"
+    );
     assert_eq!(
         card(&th.client, &t.card_id).await.modified_by,
         user2,

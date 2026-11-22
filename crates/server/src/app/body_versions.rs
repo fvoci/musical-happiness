@@ -1,8 +1,12 @@
 //! The versions kept of a card's body (`crates/server/src/collab`, which keeps them),
-//! as the card's readers are given them, and as its editors go back to one.
+//! as the card's readers are given them, as its editors keep one now, and as they go
+//! back to one.
 
-use fvoci_model::{Block, BlockPatch, Body, BodyChange, BodyVersion, BodyVersionContent};
-use fvoci_store::{KeptVersion, body_digest};
+use fvoci_model::{
+    Block, BlockPatch, Body, BodyChange, BodyVersion, BodyVersionContent, KeptBodyVersion,
+    KeptOutcome,
+};
+use fvoci_store::{ByHand, KeptVersion, body_digest};
 
 use super::{App, ChangeNotification};
 use crate::error::AppError;
@@ -66,8 +70,36 @@ impl App {
             kept_at: listed.kept_at,
             editors: listed.editors,
             is_current: listed.is_current,
+            cause: listed.cause,
             body,
         })
+    }
+
+    /// Keeps the body of a card as a version now, as one of its editors asks
+    /// ([`crate::collab::Collab::keep_by_hand`]): what its editors typed is written to
+    /// it first, and kept with it. Nothing is kept of a body that is the card's newest
+    /// version already, nor within a minute of a version kept by hand. Gives what
+    /// became of it, with the version that names as the list has it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error if the card is not there, `document_unavailable` if
+    /// what its editors typed cannot be written to it now, and the store's error.
+    pub async fn keep_body_version_now(&self, card_id: &str) -> Result<KeptBodyVersion, AppError> {
+        let (outcome, number) = match self.collab().keep_by_hand(self, card_id).await? {
+            ByHand::Kept(number) => (KeptOutcome::Kept, Some(number)),
+            ByHand::Unchanged(number) => (KeptOutcome::Unchanged, number),
+            ByHand::Recent(number) => (KeptOutcome::Recent, Some(number)),
+        };
+        let version = match number {
+            Some(number) => self
+                .body_versions(card_id)
+                .await?
+                .into_iter()
+                .find(|listed| listed.version == number),
+            None => None,
+        };
+        Ok(KeptBodyVersion { outcome, version })
     }
 
     /// Writes the body of a version to a card again, as `user_id` writing the whole
@@ -147,7 +179,7 @@ impl App {
             body: change,
             ..BlockPatch::default()
         };
-        self.store().patch_block(card_id, &patch, user_id).await?;
+        self.store().restore_body(card_id, &patch, user_id).await?;
         Ok(true)
     }
 }
@@ -160,5 +192,6 @@ fn described(kept: KeptVersion, current: Option<i64>) -> BodyVersion {
         kept_at: kept.kept_at,
         is_current: current == Some(kept.version),
         editors: kept.editors,
+        cause: kept.cause,
     }
 }

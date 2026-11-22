@@ -102,6 +102,8 @@ export class World {
   readonly workspaceMembers = new Set<string>();
   /** Each user's own space, by user, once it was asked for. */
   readonly ownSpaces = new Map<string, WorkspaceInfo>();
+  /** The password of each user that has one (`spaces.ts`): the world signs nobody in by it. */
+  readonly passwords = new Map<string, string>();
   readonly users = new Map<string, User>();
   readonly containers = new Map<string, Container>();
   readonly members = new Map<string, ContainerMember[]>();

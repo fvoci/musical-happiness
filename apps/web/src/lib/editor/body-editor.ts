@@ -138,4 +138,10 @@ export interface BodyEditorProps {
   onFitsAgain?: () => void;
   /** With `collab`: the editor went away with a formula's source written and not yet in the body. */
   onDraftDropped?: () => void;
+  /**
+   * ⌘S or Ctrl+S was pressed in the editor (`save-key.ts`): a version of the
+   * body is to be kept now. The browser's dialog to save the page never
+   * opens, also without this.
+   */
+  onSave?: (() => void) | undefined;
 }

@@ -396,8 +396,9 @@ impl Store {
     }
 
     /// Removes the registrations that ended unconfirmed by `now`, and the links of
-    /// the others that ended: their names and addresses are free again. Returns how
-    /// many registrations went.
+    /// the others that ended: their names and addresses are free again. The changes of
+    /// an account's address that ended unconfirmed go with them. Returns how many
+    /// registrations went.
     ///
     /// # Errors
     ///
@@ -433,6 +434,7 @@ impl Store {
                 }
                 links.push(")");
                 scope.execute(links).await?;
+                crate::email_change::delete_expired(scope, now).await?;
                 Ok(removed)
             })
             .await

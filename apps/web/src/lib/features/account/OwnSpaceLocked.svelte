@@ -1,9 +1,9 @@
 <!--
   What the reader's own space shows to a session made through a provider once
-  the account has a password: that it opens only to a session made with the
-  password, and the password asked for here, under the account's user name.
-  Signed in with it (`onSignIn`), the page goes on in the own space; the
-  session it replaces was good, and nothing else of the page closes.
+  the account has a password: that it opens to the password, and the password
+  asked for here, under the account's user name. Given (`onConfirm`), the own
+  space opens where it is: the reader stays signed in as they were, and what
+  their single sign-on opens stays open.
 
   Shown in place of the space, often right after the password was set from the
   notice, whose form is gone with it: the field takes the focus when nothing
@@ -18,16 +18,18 @@
   import { Input } from '$lib/ui/input/index.js';
   import { Label } from '$lib/ui/label/index.js';
 
+  import { isBackendError } from '$lib/state/index.ts';
+
   import { problemOf } from './problems.ts';
 
   interface Props {
-    /** The user name of the account, which the password signs in. */
+    /** The user name of the account, whose password is asked for. */
     username: string;
-    /** Signs in with the password, and opens the own space; a refusal rejects. */
-    onSignIn: (password: string) => Promise<void>;
+    /** Gives the password, and opens the own space; a refusal rejects. */
+    onConfirm: (password: string) => Promise<void>;
   }
 
-  let { username, onSignIn }: Props = $props();
+  let { username, onConfirm }: Props = $props();
 
   const uid = $props.id();
   let password = $state('');
@@ -41,10 +43,12 @@
     working = true;
     problem = '';
     try {
-      // Signed in, the page opens the own space: the form stays as it is meanwhile.
-      await onSignIn(password);
+      // Given, the page opens the own space: the form stays as it is meanwhile.
+      await onConfirm(password);
     } catch (error) {
-      problem = problemOf(error);
+      // Nobody signs in here: there is no name to have got wrong.
+      const wrong = isBackendError(error) && error.reason === 'invalid_credentials';
+      problem = wrong ? m.account_password_wrong() : problemOf(error);
       // The button was out of use, and the focus with it: back to the field, to try again.
       working = false;
       await tick();
@@ -99,7 +103,7 @@
       {problem}
     </p>
     <Button type="submit" class="roomy:min-h-touch" disabled={working}>
-      {working ? m.account_working() : m.own_space_locked_sign_in()}
+      {working ? m.account_working() : m.own_space_locked_open()}
     </Button>
   </form>
 </div>

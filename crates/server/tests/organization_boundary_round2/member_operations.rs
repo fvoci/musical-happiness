@@ -41,7 +41,7 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 29] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 30] = [
     // The organization's own routes are its administrators'.
     "createOrgWorkspace",
     "deleteOidcFormerProvider",
@@ -77,6 +77,9 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 29] = [
     "completeUpload",
     "putUploadPart",
     "importArchive",
+    // The member's account waits for no change of its address: the sweep asked for
+    // none it could, with its empty body.
+    "resendEmailChange",
 ];
 
 /// The operations the contract publishes: method, path and identifier, in its order.

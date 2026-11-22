@@ -8,12 +8,12 @@ import { storyElement } from './interactions.ts';
 const meta = {
   title: 'Account/Own space locked',
   component: OwnSpaceLocked,
-  args: { username: 'example-reader', onSignIn: fn(() => new Promise<void>(() => undefined)) },
+  args: { username: 'example-reader', onConfirm: fn(() => new Promise<void>(() => undefined)) },
 } satisfies Meta<typeof OwnSpaceLocked>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-async function signIn(canvas: HTMLElement): Promise<void> {
+async function give(canvas: HTMLElement): Promise<void> {
   const field = await storyElement(canvas, '[data-testid="own-space-locked-password"]');
   await userEvent.type(field, 'a long password');
   await userEvent.keyboard('{Enter}');
@@ -24,21 +24,21 @@ export const Asking: Story = {
   play: async ({ canvasElement, args }) => {
     const shown = await storyElement(canvasElement, '[data-testid="own-space-locked"]');
     await expect(shown).toHaveTextContent(m.own_space_locked_text());
-    await signIn(canvasElement);
-    await expect(args.onSignIn).toHaveBeenCalledWith('a long password');
+    await give(canvasElement);
+    await expect(args.onConfirm).toHaveBeenCalledWith('a long password');
   },
 };
 
 /** A wrong password: said at the field. */
 export const WrongPassword: Story = {
   args: {
-    onSignIn: fn(() =>
-      Promise.reject(new BackendError(401, { reason: 'invalid_credentials', detail: 'wrong' })),
+    onConfirm: fn(() =>
+      Promise.reject(new BackendError(400, { reason: 'invalid_credentials', detail: 'wrong' })),
     ),
   },
   play: async ({ canvasElement }) => {
-    await signIn(canvasElement);
+    await give(canvasElement);
     const problem = await storyElement(canvasElement, '[data-testid="own-space-locked-problem"]');
-    await waitFor(() => expect(problem).toHaveTextContent(m.account_invalid_credentials()));
+    await waitFor(() => expect(problem).toHaveTextContent(m.account_password_wrong()));
   },
 };
