@@ -381,7 +381,7 @@ pub(crate) const CONTAINERS_VERSION: i64 = 41;
 
 /// The migration before the one of the diaries, which widens the kinds of a container.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_DIARIES_VERSION: i64 = 51;
+pub(crate) const BEFORE_DIARIES_VERSION: i64 = 54;
 
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].

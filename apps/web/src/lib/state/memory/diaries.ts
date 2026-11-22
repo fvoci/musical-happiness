@@ -44,7 +44,7 @@ import type { StoredBlock, World } from './world.ts';
 /** The server's limits (`crates/model/src/diary.rs`). */
 export const DIARIES_PER_SPACE = 20;
 export const ENTRIES_PER_DIARY = 40_000;
-const DAYS_AHEAD = 2;
+export const DAYS_AHEAD = 2;
 /** The most days one list of written days spans (`DAYS_PER_LIST`). */
 const DAYS_PER_LIST = 366;
 
@@ -229,7 +229,8 @@ export class MemoryDiaries implements Diaries {
     const block: StoredBlock = {
       id: world.newId(),
       containerId: diaryId,
-      parentId: diaryId,
+      // As the server's: an entry is below no block (`EntryBelowBlock`).
+      parentId: '',
       createdBy: userId,
       modifiedBy: userId,
       schema: 1,

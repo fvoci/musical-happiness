@@ -77,6 +77,11 @@ export class DiaryStore implements EntryHost {
       if (reading !== this.#readings || this.monthDay !== monthDay) return;
       this.entries = entries;
       for (const entry of entries) this.#days.get(entry.date)?.adopt(entry);
+      // A day whose entry the read has not (deleted unheard, or made after the read was asked).
+      for (const day of this.#days.values()) {
+        const held = day.entry;
+        if (held && !entries.some((one) => one.id === held.id)) this.#gone(held);
+      }
       [this.status, this.missing] = ['ready', false];
     } catch (error) {
       if (reading !== this.#readings) return;
@@ -162,12 +167,22 @@ export class DiaryStore implements EntryHost {
   #deleted(entryId: string): void {
     this.#deletions += 1;
     this.#goneAt.set(entryId, this.#deletions);
-    const entry = this.entries.find((one) => one.id === entryId);
-    if (!entry) return;
     this.removed(entryId);
     // Its day stays open, with what is being written there: that makes another.
-    const day = this.#days.get(entry.date);
-    if (day?.entry?.id === entryId) day.lose();
+    for (const day of this.#days.values()) if (day.entry?.id === entryId) day.lose();
+  }
+
+  /** An entry a read of its day had not: asked for, it is deleted where it is not there. */
+  #gone(entry: DiaryEntryDetail): void {
+    void this.workspace.backend.diary?.entry(this.diaryId, entry.id).then(
+      (still) => {
+        // Made after the read was asked: it is what the day has.
+        this.received(still);
+      },
+      (error: unknown) => {
+        if (isBackendError(error) && error.status === 404) this.#deleted(entry.id);
+      },
+    );
   }
 
   /** The page goes for good, or is kept to come back to (`persisted`): see `EntryStore.leave`. */

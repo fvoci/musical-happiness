@@ -425,12 +425,12 @@ async fn fill(test: &common::TestStore, own: &Store, diary_id: &str, user_id: &s
 /// read through (what the runs are put together from, SQLite goes through as a
 /// subquery of its own, `written`: that is no table).
 fn check_plan(read: usize, plan: &str) {
+    // Only the runs (the third read) go through a subquery of their own.
+    let own = |line: &str| {
+        read == 2 && (line.contains("SCAN written") || line.contains("SCAN (subquery-"))
+    };
     let through = |line: &str| match db_type() {
-        DbType::Sqlite => {
-            line.contains("SCAN ")
-                && !line.contains("SCAN written")
-                && !line.contains("SCAN (subquery-")
-        }
+        DbType::Sqlite => line.contains("SCAN ") && !own(line),
         DbType::Postgres => line.contains("Seq Scan"),
     };
     assert!(

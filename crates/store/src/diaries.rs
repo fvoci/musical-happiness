@@ -168,7 +168,8 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if the query fails.
+    /// Returns [`StoreError::Database`] if the query fails, and [`StoreError::Corrupt`]
+    /// if a row holds what is no day or no mood.
     pub async fn get_diary_days(
         &self,
         diary_id: &str,
@@ -179,15 +180,15 @@ impl Store {
             let sql = days_between(scope, diary_id, from, to);
             let mut days = Vec::new();
             for row in &scope.fetch_all(sql).await? {
-                let corrupt = |column: &'static str| StoreError::Corrupt {
-                    column,
-                    reason: "a row of diary_days holds what no entry has".to_owned(),
-                };
+                let date = row.text(0)?;
                 days.push(DiaryDay {
-                    date: row.text(0)?.parse().map_err(|_| corrupt("day"))?,
+                    date: date.parse().map_err(|error| corrupt("day", &date, error))?,
                     entry_id: row.id(1)?,
                     mood: match row.opt_text(2)? {
-                        Some(mood) => Some(mood.parse().map_err(|_| corrupt("mood"))?),
+                        Some(mood) => Some(
+                            mood.parse()
+                                .map_err(|error| corrupt("mood", &mood, error))?,
+                        ),
                         None => None,
                     },
                 });
@@ -212,16 +213,11 @@ impl Store {
                 .map(|row| {
                     let day = |at: usize| -> Result<DiaryDate, StoreError> {
                         let text = row.text(at)?;
-                        text.parse().map_err(|_| StoreError::Corrupt {
-                            column: "day",
-                            reason: format!("a row of diary_days holds {text:?}, which is no day"),
-                        })
+                        text.parse().map_err(|error| corrupt("day", &text, error))
                     };
                     let count = row.int(2)?;
-                    let days = u32::try_from(count).map_err(|_| StoreError::Corrupt {
-                        column: "days",
-                        reason: format!("a run of {count} days"),
-                    })?;
+                    let days = u32::try_from(count)
+                        .map_err(|error| corrupt("days", &count.to_string(), error))?;
                     Ok(DiaryRun {
                         from: day(0)?,
                         to: day(1)?,
@@ -363,6 +359,14 @@ fn days_between(
     }
     sql.push(" ORDER BY day");
     sql
+}
+
+/// A value of a row of `diary_days` that is not what its column holds: the value, and why.
+fn corrupt(column: &'static str, value: &str, error: impl std::fmt::Display) -> StoreError {
+    StoreError::Corrupt {
+        column,
+        reason: format!("a row of diary_days holds {value:?}: {error}"),
+    }
 }
 
 /// The query of [`Store::get_diary_runs`]: the days alone, which the key of the table

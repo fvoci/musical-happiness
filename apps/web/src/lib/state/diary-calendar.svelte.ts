@@ -103,8 +103,11 @@ export class DiaryCalendar {
     if (days !== this.days) this.days = days;
     const held = (date: CalendarDate): boolean =>
       this.runs.some((run) => run.from <= date && date <= run.to);
-    // Not counted yet (being read, or refused): read again, not to miss what was heard.
-    if (!this.counted || entries.some((entry) => !held(entry.date))) void this.count();
+    // Being read: read again after, not to miss what was heard. A count refused
+    // waits for what is missed to be read (`resync`), not for every key typed.
+    if (this.#counting || (this.counted && entries.some((entry) => !held(entry.date)))) {
+      void this.count();
+    }
   }
 
   /** Blocks of the diary deleted: an entry's day is no longer written. */

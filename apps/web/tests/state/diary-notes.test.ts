@@ -269,6 +269,139 @@ describe('the notes of a day on its page', () => {
       expect.objectContaining({ weather: '맑음', body: text('떠나기 전') }),
       { keepalive: true },
     );
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed?.weather).toBe('맑음');
+      expect(listed?.body).toEqual(text('떠나기 전'));
+    });
+    store.close();
+  });
+
+  it('hold the notes of a day while its draft waits for the room, and send them as it takes it', async () => {
+    const { store, backend, diary, today } = await aPage();
+    const entry = store.day(today);
+    entry.openBody();
+    entry.write(text('방이 받기 전'));
+    await vi.waitFor(() => {
+      expect(entry.entry).toBeDefined();
+    });
+    const patching = vi.spyOn(backend.diary, 'patchEntry');
+    entry.mark({ mood: 'good' });
+    await settle();
+    // A patch landing before the draft's write would make that write find the entry changed.
+    expect(patching).not.toHaveBeenCalled();
+    expect(entry.notes.mood).toBe('good');
+    expect(entry.takeDraft()).toEqual(text('방이 받기 전'));
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed?.mood).toBe('good');
+    });
+    expect(patching).toHaveBeenCalledWith(
+      diary.id,
+      entry.entry?.id,
+      { mood: 'good' },
+      { keepalive: true },
+    );
+    store.close();
+  });
+
+  it('send the notes alone as the page goes while the draft is being written', async () => {
+    const { store, backend, diary, today } = await aPage();
+    const entry = store.day(today);
+    entry.openBody();
+    entry.write(text('쓰는 중'));
+    await vi.waitFor(() => {
+      expect(entry.entry).toBeDefined();
+    });
+    // The draft's write is on its way as the day is folded, and stays so.
+    const patching = vi
+      .spyOn(backend.diary, 'patchEntry')
+      .mockImplementationOnce(() => new Promise(() => undefined));
+    entry.closeBody();
+    expect(entry.flushing).toBe(true);
+    entry.mark({ weather: '비' }, 'later');
+    store.leave(false);
+    expect(patching).toHaveBeenLastCalledWith(
+      diary.id,
+      entry.entry?.id,
+      { weather: '비' },
+      { keepalive: true },
+    );
+    store.close();
+  });
+
+  it('hear another device’s notes once a page kept to come back to has sent its own', async () => {
+    const { store, backend, diary, today } = await aPage();
+    const there = await backend.diary.createEntry(diary.id, today);
+    await store.show(monthDayOf(today));
+    const entry = store.day(today);
+    entry.mark({ weather: '비' }, 'later');
+    store.leave(true);
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed?.weather).toBe('비');
+    });
+    await settle();
+    await backend.as(backend.userId).diary.patchEntry(diary.id, there.id, { weather: '눈' });
+    await vi.waitFor(() => {
+      expect(entry.notes.weather).toBe('눈');
+    });
+    store.close();
+  });
+
+  it('send nothing twice from a page kept to come back to, what was on its way answered after', async () => {
+    const { store, backend, diary, today } = await aPage();
+    await backend.diary.createEntry(diary.id, today);
+    await store.show(monthDayOf(today));
+    const entry = store.day(today);
+    const patch = backend.diary.patchEntry.bind(backend.diary);
+    let release = (): void => undefined;
+    const patching = vi.spyOn(backend.diary, 'patchEntry').mockImplementationOnce(
+      (...args) =>
+        new Promise((resolve, reject) => {
+          release = () => {
+            patch(...args).then(resolve, reject);
+          };
+        }),
+    );
+    entry.mark({ weather: '비' }, 'later');
+    entry.sendNotes();
+    entry.mark({ place: '집' }, 'later');
+    store.leave(true);
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed?.place).toBe('집');
+    });
+    release();
+    await settle();
+    // The note on its way, then both in one write as the page went: what that write
+    // carried is answered, and is not sent again behind the first.
+    expect(patching).toHaveBeenCalledTimes(2);
+    expect(entry.notes).toMatchObject({ weather: '비', place: '집' });
+    store.close();
+  });
+
+  it('send what was emptied in a day left blank whose deletion is refused', async () => {
+    const { store, backend, diary, today } = await aPage();
+    const entry = store.day(today);
+    entry.openBody();
+    entry.mark({ weather: '비' });
+    await vi.waitFor(async () => {
+      expect(entry.room?.status).toBe('joined');
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed?.weather).toBe('비');
+    });
+    vi.spyOn(backend.diary, 'deleteEntry').mockRejectedValueOnce(
+      new BackendError(500, { detail: 'down' }),
+    );
+    entry.mark({ weather: '' }, 'later');
+    entry.noteBlank(true);
+    entry.closeBody();
+    // Kept, the entry has what was emptied in it, as the reader left it.
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed?.weather).toBe('');
+    });
     store.close();
   });
 
@@ -296,6 +429,85 @@ describe('the notes of a day on its page', () => {
     await settle();
     expect(making).not.toHaveBeenCalled();
     expect(await backend.diary.entriesOn(diary.id, monthDayOf(today))).toEqual([]);
+  });
+
+  it('clear nothing made elsewhere with a mood taken away on its way to an entry gone', async () => {
+    const { store, backend, diary, today } = await aPage();
+    const there = await backend.diary.createEntry(diary.id, today);
+    await backend.diary.patchEntry(diary.id, there.id, { mood: 'bad' });
+    await store.show(monthDayOf(today));
+    const entry = store.day(today);
+    await vi.waitFor(() => {
+      expect(entry.entry?.mood).toBe('bad');
+    });
+    // The mood taken away is on its way while the entry is deleted elsewhere and another made.
+    let refuse = (): void => undefined;
+    const patching = vi.spyOn(backend.diary, 'patchEntry').mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          refuse = () => {
+            reject(new BackendError(404, { detail: 'no such entry' }));
+          };
+        }),
+    );
+    entry.mark({ mood: null });
+    const elsewhere = backend.as(backend.userId).diary;
+    await elsewhere.deleteEntry(diary.id, there.id);
+    const again = await elsewhere.createEntry(diary.id, today);
+    await elsewhere.patchEntry(diary.id, again.id, { mood: 'good' });
+    await vi.waitFor(() => {
+      expect(entry.entry?.id).toBe(again.id);
+    });
+    refuse();
+    await settle();
+    entry.mark({ weather: '비' });
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed).toMatchObject({ weather: '비', mood: 'good' });
+    });
+    expect(patching).toHaveBeenLastCalledWith(
+      diary.id,
+      again.id,
+      { weather: '비' },
+      {
+        keepalive: true,
+      },
+    );
+    store.close();
+  });
+
+  it('forget a mood taken away and refused for a moment, once its entry goes', async () => {
+    const { store, backend, diary, today } = await aPage();
+    const there = await backend.diary.createEntry(diary.id, today);
+    await backend.diary.patchEntry(diary.id, there.id, { mood: 'bad' });
+    await store.show(monthDayOf(today));
+    const entry = store.day(today);
+    await vi.waitFor(() => {
+      expect(entry.entry?.mood).toBe('bad');
+    });
+    const patching = vi
+      .spyOn(backend.diary, 'patchEntry')
+      .mockRejectedValueOnce(new BackendError(500, { detail: 'down' }));
+    entry.mark({ mood: null });
+    await settle();
+    const elsewhere = backend.as(backend.userId).diary;
+    await elsewhere.deleteEntry(diary.id, there.id);
+    await vi.waitFor(() => {
+      expect(entry.entry).toBeUndefined();
+    });
+    const again = await elsewhere.createEntry(diary.id, today);
+    await elsewhere.patchEntry(diary.id, again.id, { mood: 'good' });
+    await vi.waitFor(() => {
+      expect(entry.entry?.id).toBe(again.id);
+    });
+    entry.mark({ weather: '비' });
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed).toMatchObject({ weather: '비', mood: 'good' });
+    });
+    // Only the first, refused, ever held the mood taken away.
+    expect(patching.mock.calls.filter(([, , patch]) => 'mood' in patch)).toHaveLength(1);
+    store.close();
   });
 
   it('write the body after the notes of a day left before its entry was made', async () => {
@@ -371,13 +583,17 @@ describe('the calendar of a diary', () => {
     const { store: first, backend, diary, today, workspace } = await aPage();
     first.close();
     await backend.diary.createEntry(diary.id, today);
-    vi.spyOn(backend.diary, 'runs').mockRejectedValueOnce(
-      new BackendError(500, { detail: 'down' }),
-    );
+    const reading = vi
+      .spyOn(backend.diary, 'runs')
+      .mockRejectedValueOnce(new BackendError(500, { detail: 'down' }));
     const store = new DiaryStore(workspace, diary.id);
     await store.show(monthDayOf(today));
     await settle();
     expect(store.calendar.counted).toBe(false);
+    // What is heard meanwhile (every key typed in a note) does not read the runs again.
+    store.calendar.heard(await backend.diary.entriesOn(diary.id, monthDayOf(today)));
+    await settle();
+    expect(reading).toHaveBeenCalledTimes(1);
     store.calendar.resync();
     await vi.waitFor(() => {
       expect(store.calendar.runs).toEqual([{ from: today, to: today, days: 1 }]);

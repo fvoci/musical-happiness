@@ -115,6 +115,7 @@ export class EntryStore {
   #notesHost(): NotesHost {
     const host = this.host;
     const entry = (): DiaryEntryDetail | undefined => this.entry;
+    const drafted = (): boolean => this.draft !== null;
     return {
       get diaries() {
         return host.workspace.backend.diary;
@@ -122,6 +123,9 @@ export class EntryStore {
       diaryId: host.diaryId,
       get entryId() {
         return entry()?.id;
+      },
+      get held() {
+        return drafted();
       },
       written: (written) => {
         const held = this.entry;
@@ -175,7 +179,13 @@ export class EntryStore {
   /** The entry of the day was made or changed elsewhere (another device): this one is it. */
   adopt(entry: DiaryEntryDetail): void {
     if (entry.date !== this.date || this.#closed) return;
+    const held = this.entry;
+    // Read before what is held was: it is no news.
+    if (held?.id === entry.id && held.updateAt > entry.updateAt) return;
+    // Another than the one held (deleted unheard, and the day written again elsewhere): its room is left.
+    if (held && held.id !== entry.id) this.lose();
     const first = this.entry === undefined;
+    if (first) this.#notes.forgetBlank();
     this.entry = this.#notes.over(entry);
     if (first) void this.#notes.send();
     if (first && this.#wanted) this.openBody();
@@ -192,6 +202,7 @@ export class EntryStore {
     ];
     this.#blankBody = false;
     opened?.close();
+    this.#notes.forgetBlank();
     if (this.#wantsEntry() && !this.#closed) this.#makeIfNone();
   }
 
@@ -203,6 +214,8 @@ export class EntryStore {
     this.draft = draft;
     this.drafting = true;
     if (draft !== null) this.#makeIfNone();
+    // No draft holds the notes any more.
+    else void this.#notes.send();
   }
 
   /** Makes the day's entry, once at a time, unless it has one or was refused a moment ago. */
@@ -217,15 +230,19 @@ export class EntryStore {
     const diaries = this.host.workspace.backend.diary;
     if (!diaries) return;
     try {
-      const entry = this.#notes.over(await diaries.createEntry(this.host.diaryId, this.date));
+      const made = await diaries.createEntry(this.host.diaryId, this.date);
+      // Made elsewhere first, it is answered as it is: what holds nothing here clears nothing of it.
+      this.#notes.forgetBlank();
+      const entry = this.#notes.over(made);
       this.host.received(entry);
       this.unsaved = false;
       if (this.entry === undefined) {
         // Made for what was written here: left blank here, it goes (`closeBody`).
         [this.entry, this.#changedHere] = [entry, true];
       }
+      // Sent where no draft holds them; a draft carries them (`#flush`).
       const noted = this.#notes.send();
-      // Left before the entry was there: what was written goes as its body, after the notes.
+      // Left before the entry was there: what was written goes as its body.
       if (this.#closed || !this.#wanted) {
         await noted;
         await this.#flush();
@@ -248,6 +265,8 @@ export class EntryStore {
     if (this.flushing) return null;
     const draft = this.draft;
     [this.draft, this.drafting] = [null, false];
+    // The room writes the draft as it takes it: the notes it held go now.
+    void this.#notes.send();
     return draft;
   }
 
@@ -301,7 +320,8 @@ export class EntryStore {
     this.#wanted = false;
     const opened = this.#bodyDoc;
     const emptied = this.#emptied();
-    if (emptied) this.#notes.drop();
+    // An entry left blank keeps what waits until it is deleted (`#delete`).
+    if (emptied) this.#notes.stop();
     else void this.#notes.send();
     [this.#bodyDoc, this.room, this.#changedHere, this.#blankBody] = [
       undefined,
@@ -317,33 +337,32 @@ export class EntryStore {
     }
     void opened.settle().then(() => {
       opened.close();
+      // Opened again meanwhile: it is written in, not left.
+      if (this.#bodyDoc || this.#wanted) {
+        void this.#notes.send();
+        return undefined;
+      }
       return this.#delete(emptied);
     });
   }
 
   /**
-   * The page goes for good (the tab closed, another address loaded): what
-   * `closeBody` would send is sent at once, to be sent still once the page
-   * has gone, in one write: the notes not answered yet go with the draft,
-   * whose write would otherwise find the entry changed by them and be lost.
-   * A page kept to come back to (`persisted`) deletes nothing.
+   * The page goes (the tab closed, another address loaded, or kept to come
+   * back to: `persisted`): what `closeBody` would send is sent at once, to be
+   * sent still once the page has gone. A draft goes with the notes not
+   * answered yet in one write (`#flush`); else the notes go in one of their
+   * own (`EntryNotes.leave`). A page kept to come back to deletes nothing.
    */
   leave(persisted: boolean): void {
     const diaries = this.host.workspace.backend.diary;
-    const entry = this.entry;
     const emptied = this.#emptied();
-    const notes = this.#notes.unanswered();
-    if (!diaries || !entry) return;
-    if (this.draft !== null) void this.#flush({ keepalive: true }, notes);
+    if (!diaries || !this.entry) return;
+    if (this.draft !== null && !this.flushing) void this.#flush({ keepalive: true });
     else if (emptied && !persisted) {
       void diaries
         .deleteEntry(this.host.diaryId, emptied.id, { keepalive: true })
         .catch(() => undefined);
-    } else if (notes) {
-      void diaries
-        .patchEntry(this.host.diaryId, entry.id, notes, { keepalive: true })
-        .catch(() => undefined);
-    }
+    } else void this.#notes.leave();
   }
 
   /** The page goes: nothing more is opened here; a draft or notes whose entry could not be made are tried once more. */
@@ -359,24 +378,25 @@ export class EntryStore {
     this.#bodyUploads.giveUp();
   }
 
-  async #flush(
-    options: { keepalive?: boolean } = {},
-    notes: Partial<DayNotes> = {},
-  ): Promise<void> {
+  /** Writes the draft as the body, with the notes it held (`NotesHost.held`). */
+  async #flush(options: { keepalive?: boolean } = {}): Promise<void> {
     const entry = this.entry;
     const diaries = this.host.workspace.backend.diary;
     const draft = this.draft;
     if (!entry || !diaries || draft === null || this.flushing) return;
     this.flushing = true;
+    const notes = this.#notes.unanswered() ?? {};
     try {
       const written = await this.#writeDraft(diaries, entry, { draft, notes }, options);
       // Deleted elsewhere meanwhile: what was written went to the trash with
       // it, and the draft stays, for the entry made again (`lose`).
       if (this.entry?.id !== entry.id) return;
+      this.#notes.carried(notes);
       if (this.draft === draft) [this.draft, this.drafting] = [null, false];
       // Written here, it is not blank: it is emptied here only by a change in its room.
-      [this.entry, this.unsaved, this.#changedHere] = [written, false, false];
-      this.host.received(written);
+      [this.entry, this.unsaved, this.#changedHere] = [this.#notes.over(written), false, false];
+      this.host.received(this.entry);
+      void this.#notes.send();
     } catch (error) {
       this.unsaved = true;
       this.host.workspace.report('save', error);
@@ -410,11 +430,15 @@ export class EntryStore {
   async #delete(entry: DiaryEntryDetail): Promise<void> {
     try {
       await this.host.workspace.backend.diary?.deleteEntry(this.host.diaryId, entry.id);
-      if (this.entry?.id === entry.id) this.entry = undefined;
+      // Its room, opened again as it was deleted, is left; what was marked since stays.
+      if (this.entry?.id === entry.id) this.lose();
       this.host.removed(entry.id);
     } catch (error) {
       // Gone already (deleted elsewhere) is what was wanted.
-      if (!isBackendError(error) || error.status !== 404) this.host.workspace.report('save', error);
+      if (isBackendError(error) && error.status === 404) return;
+      this.host.workspace.report('save', error);
+      // Kept, it keeps what was emptied in it.
+      void this.#notes.send();
     }
   }
 

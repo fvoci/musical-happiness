@@ -33,6 +33,7 @@
   }
 
   let { calendar, streak, opening, today, locale, weekStart, onPick }: Props = $props();
+  const uid = $props.id();
 
   let placeholder = $derived<PickedDay>(parseDate(opening));
 
@@ -80,7 +81,7 @@
         ? undefined
         : calendar.days.find((one) => one.date === day.toString())}
       {@const face = written?.mood ? MOOD_FACES[written.mood] : undefined}
-      {@const said = `diary-written-${day.toString()}`}
+      {@const said = `${uid}-${day.toString()}`}
       <!-- The day's name is its date (bits-ui's label): that it is written is its description. -->
       <Day
         class="gap-0.5 [&>span]:text-sm [&>span]:opacity-100"
