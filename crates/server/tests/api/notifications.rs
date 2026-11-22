@@ -470,8 +470,8 @@ async fn a_mention_typed_by_one_of_several_is_told_as_theirs_and_ones_own_is_not
 }
 
 /// Makes a card of the board that names the user in its body and by its person
-/// property, as one of those of another board: with `sourceBoardId`.
-async fn made_from_another_board(client: &Client, board_id: &str, user_id: &str) {
+/// property, as one of those of the board `source_id`: with `sourceBoardId`.
+async fn made_from_another_board(client: &Client, board_id: &str, source_id: &str, user_id: &str) {
     let mut card = crate::blocks::new_block(board_id, BlockType::Card, "Made from");
     card.body = fvoci_model::Body::parse(mentioning(&[user_id])).expect("a body");
     card.fields
@@ -479,7 +479,7 @@ async fn made_from_another_board(client: &Client, board_id: &str, user_id: &str)
     client
         .post(
             &format!(
-                "{}?sourceBoardId={board_id}",
+                "{}?sourceBoardId={source_id}",
                 crate::blocks::blocks_path(board_id)
             ),
             &[card],
@@ -530,7 +530,8 @@ async fn copies_restores_and_quiet_writes_tell_nobody_and_a_body_only_whom_it_ne
     assert_eq!(waiting().await, 0, "a copy notes nothing");
 
     // Blocks made from those of another board, as a board is from a template.
-    made_from_another_board(&th.client, &board.id, &b.id).await;
+    let source = board_with_owner(&th, ContainerType::Private).await;
+    made_from_another_board(&th.client, &board.id, &source.id, &b.id).await;
     assert_eq!(
         waiting().await,
         0,
@@ -656,5 +657,82 @@ async fn a_server_tells_people_by_itself() {
     .await;
     let theirs = waited.expect("the server told B within half a minute");
     assert_eq!(kinds(&theirs), (vec!["mention"], 0), "{theirs:?}");
+    th.teardown().await;
+}
+
+/// Two who each name the other in one body, written to the card once: each is told
+/// by the other, and neither of their own.
+#[tokio::test]
+async fn two_who_name_each_other_in_one_body_are_each_told_by_the_other() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (a, b) = (th.client.me().await, th.client2.me().await);
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &b.id, "editor").await;
+    let card = card_with(&th.client, &board.id, &Value::Null).await;
+    let mut one = Peer::connect(&th.client, 111).await;
+    let mut two = Peer::connect(&th.client2, 112).await;
+    one.joined(TEST_WORKSPACE_ID, &card.id).await;
+    two.joined(TEST_WORKSPACE_ID, &card.id).await;
+
+    type_mention(&mut one, &b.id).await;
+    two.settle().await;
+    type_mention(&mut two, &a.id).await;
+    th.app
+        .collab()
+        .write_body(&th.app.housekeeping(), &card.id)
+        .await
+        .expect("the body is written to the card");
+    for (who, client, by) in [("A", &th.client, &b.id), ("B", &th.client2, &a.id)] {
+        let theirs = told(&th, client).await;
+        assert_eq!(kinds(&theirs), (vec!["mention"], 0), "{who}: {theirs:?}");
+        assert_eq!(
+            &theirs[0].subject.as_ref().expect("seen").actor_id,
+            by,
+            "{who} was named by the other"
+        );
+    }
+    th.teardown().await;
+}
+
+/// The log of a document is folded into its state every so many updates, and with it
+/// goes who sent which. The body is written to its card before that, so that a name
+/// typed before the fold is still the doing of who typed it: A names B, and B types
+/// on until the log is folded.
+#[tokio::test]
+async fn who_typed_a_name_is_known_though_the_log_was_folded_since() {
+    // B types faster than a person may: the limit of frames is not what is shown.
+    let th = Setup::native()
+        .configure(|config| config.collab.collab_frames_per_second = 1_000_000)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let (a, b) = (th.client.me().await, th.client2.me().await);
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &b.id, "editor").await;
+    let card = card_with(&th.client, &board.id, &Value::Null).await;
+    let mut one = Peer::connect(&th.client, 121).await;
+    let mut two = Peer::connect(&th.client2, 122).await;
+    one.joined(TEST_WORKSPACE_ID, &card.id).await;
+    two.joined(TEST_WORKSPACE_ID, &card.id).await;
+
+    type_mention(&mut one, &b.id).await;
+    two.settle().await;
+    for n in 0..fvoci_server::collab::FOLD_AFTER {
+        two.write_acked(&format!("{n} ")).await;
+    }
+    th.app
+        .collab()
+        .write_body(&th.app.housekeeping(), &card.id)
+        .await
+        .expect("the body is written to the card");
+    assert_eq!(
+        crate::collab::card(&th.client, &card.id).await.modified_by,
+        b.id,
+        "B typed last"
+    );
+    let theirs = told(&th, &th.client2).await;
+    assert_eq!(kinds(&theirs), (vec!["mention"], 0), "{theirs:?}");
+    assert_eq!(theirs[0].subject.as_ref().expect("seen").actor_id, a.id);
     th.teardown().await;
 }
