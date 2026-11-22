@@ -10,7 +10,13 @@ const meta = {
   play: async ({ canvasElement, args }) => {
     const root = await storyElement(canvasElement, '[data-testid="kanban"]');
     const count = typeof args.count === 'number' ? args.count : 8;
-    await waitFor(() => expect(root.querySelectorAll('[data-card]')).toHaveLength(count));
+    // Every card, as the columns count them: a long column draws only a window of its cards.
+    const counted = (): number =>
+      [...root.querySelectorAll('[data-column-count] [aria-hidden="true"]')].reduce(
+        (sum, each) => sum + Number(each.textContent),
+        0,
+      );
+    await waitFor(() => expect(counted()).toBe(count));
     if (count > 0) await expect(root).toHaveTextContent('Example card 001');
     if (args.readOnly)
       await expect(root.querySelectorAll('[data-column-add], [data-column-new]')).toHaveLength(0);
@@ -23,16 +29,18 @@ export const Cards: Story = {};
 export const Empty: Story = { args: { count: 0 } };
 export const ThreeHundredCards: Story = { args: { count: 300 } };
 export const ReadOnly: Story = { args: { readOnly: true } };
-/** 600 cards, 400 of them in one column, on a phone's width: the cards out of sight are not laid out or painted. */
+/** 600 cards, 400 of them in one column, on a phone's width: the column draws a window of them. */
 export const LongColumn: Story = {
   args: { count: 600, narrow: true },
   play: async (context) => {
     await meta.play(context);
     const column = await storyElement(context.canvasElement, '[data-column-cards="todo"]');
-    await expect(column.querySelectorAll('[data-card]')).toHaveLength(400);
-    const last = column.lastElementChild;
-    if (!last) throw new Error('the column has no cards');
-    await expect(getComputedStyle(last).contentVisibility).toBe('auto');
+    const drawn = column.querySelectorAll('[data-card]').length;
+    await expect(drawn).toBeGreaterThan(0);
+    await expect(drawn).toBeLessThan(100);
+    await expect(column.querySelector('[role="listitem"]')?.getAttribute('aria-setsize')).toBe(
+      '400',
+    );
   },
 };
 

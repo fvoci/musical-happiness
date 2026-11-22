@@ -11,13 +11,7 @@ import { expect, test } from '@playwright/test';
 
 import { primaryName } from '../../e2e/keyboard.support.ts';
 import { card, cardsBox, fitPane } from '../../e2e/kanban.support.ts';
-import {
-  LONG,
-  LONG_COLUMN,
-  longTitle,
-  makeLongColumn,
-  showView,
-} from '../../e2e/kanban-long.support.ts';
+import { LONG, LONG_COLUMN, makeLongColumn, showView } from '../../e2e/kanban-long.support.ts';
 
 const APP = process.env.FVOCI_SPIKE_APP;
 const SCREENS = path.resolve(import.meta.dirname, '../../../../target/kanban-scroll/screens');
@@ -37,8 +31,22 @@ for (const width of [390, 1280] as const) {
       await fitPane(page, width === 390 ? 390 : width - 256);
       await showView(page, await makeLongColumn(page), LONG);
       const list = cardsBox(page, LONG_COLUMN);
-      const selected = card(page, longTitle(1000));
-      await selected.scrollIntoViewIfNeeded();
+      // Far down: the column draws a window there, after a blank for the cards above.
+      await list.evaluate((element) => {
+        element.scrollTop = element.scrollHeight * 0.6;
+      });
+      // The first card wholly in sight, once the window has been drawn there.
+      const firstInSight = (): Promise<string> =>
+        list.evaluate((element) => {
+          const top = element.getBoundingClientRect().top;
+          const first = [...element.querySelectorAll('[data-card]')].find(
+            (each) => each.getBoundingClientRect().top >= top,
+          );
+          return first?.querySelector('[data-slot="card-title-text"]')?.textContent.trim() ?? '';
+        });
+      await expect.poll(firstInSight).toMatch(/^Long \d{3,}$/);
+      const title = await firstInSight();
+      const selected = card(page, title);
       await selected.click({ modifiers: [await primaryName(page)] });
       await expect(selected).toHaveAttribute('data-selected');
       await selected.focus();

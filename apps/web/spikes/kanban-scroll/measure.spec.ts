@@ -24,8 +24,11 @@
  *
  * - `FVOCI_SPIKE_CARDS=100`: a shorter column, for what a frame costs whatever
  *   the column holds.
- * - `FVOCI_SPIKE_DRAW_ALL=1`: every card drawn whether in sight or not
- *   (`content-visibility: visible`), so that the two are measured on one build.
+ * - `FVOCI_SPIKE_DRAW_ALL=1`: `content-visibility: visible` on every card, for
+ *   a build that skips the cards out of sight that way (a try before the
+ *   window, which draws only a window whatever this says). The column drawn
+ *   whole is measured on a build of master.
+ * - `FVOCI_SPIKE_WORDY=1`: every third title of two lines or more.
  * - `FVOCI_SPIKE_CSS`: rules laid over the app's, to try out another way of
  *   drawing the column.
  * - `FVOCI_SPIKE_FRAMES=1`: every frame's time of the scrolled runs, besides
@@ -241,6 +244,8 @@ async function dragRun(page: Page, cdp: CDPSession | undefined): Promise<object>
     element.scrollTop = 0;
   });
   const card = list.locator('[data-card]').nth(2);
+  // A window is drawn anew once the column has scrolled.
+  await expect(card).toBeInViewport();
   const from = await card.boundingBox();
   const box = await list.boundingBox();
   if (!from || !box) throw new Error('nothing to drag');
@@ -310,9 +315,9 @@ test('a column of some 1,600 cards, scrolled on a phone', async ({ page, browser
     element.scrollTop = element.scrollHeight;
   });
   const flingUp = await scrollRun(page, cdp, -80, 240);
-  // A fresh page for the jumps: cards seen before keep the height they had.
   const drag = await dragRun(page, cdp);
 
+  // A fresh page for the jumps: cards seen before keep the height they had.
   await cdp?.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   await page.goto('/');
   await expect(page.getByTestId('board-page')).toBeVisible();

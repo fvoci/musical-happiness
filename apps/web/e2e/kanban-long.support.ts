@@ -28,6 +28,7 @@ interface Backend {
   container(containerId: string): Promise<{
     cardProperties: { id: string; name: string; options: { id: string; value: string }[] }[];
   }>;
+  cards(boardId: string): Promise<{ id: string; title: string }[]>;
   createCard(boardId: string, draft: Record<string, unknown>): Promise<{ id: string }>;
   createView(boardId: string, draft: Record<string, unknown>): Promise<{ id: string }>;
 }
@@ -169,4 +170,15 @@ export async function showView(page: Page, path: string, count: number): Promise
   );
   await expect(page.getByTestId('kanban-board')).toBeVisible();
   return drawn;
+}
+
+/** The id of a card of "Project Tasks" by its title, whether the column draws it or not. */
+export async function cardIdOf(page: Page, title: string): Promise<string> {
+  return page.evaluate(async (wanted) => {
+    const backend = (window as unknown as { fvociDev: { backend: Backend } }).fvociDev.backend;
+    const workspaces = await backend.workspaces();
+    const boards = await backend.boards(workspaces[0]?.id ?? '');
+    const boardId = boards.find((board) => board.title === 'Project Tasks')?.id ?? '';
+    return (await backend.cards(boardId)).find((card) => card.title === wanted)?.id ?? '';
+  }, title);
 }

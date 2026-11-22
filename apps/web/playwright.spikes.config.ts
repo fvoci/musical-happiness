@@ -29,9 +29,22 @@ export default defineConfig({
   projects: [
     { name: 'desktop', testIgnore: PHONE_ONLY, use: { ...devices['Desktop Chrome'] } },
     { name: 'touch', testIgnore: PHONE_ONLY, use: { ...devices['Pixel 7'] } },
-    // A phone's screen in both engines, for what is measured on one (spikes/kanban-scroll).
-    { name: 'phone-webkit', testMatch: PHONE_ONLY, use: { ...PHONE, browserName: 'webkit' } },
-    { name: 'phone-chromium', testMatch: PHONE_ONLY, use: { ...PHONE, browserName: 'chromium' } },
+    // A phone's screen in both engines, for what is measured on one (spikes/kanban-scroll),
+    // only when there is a built app to measure: a plain run has no WebKit to start.
+    ...(process.env.FVOCI_SPIKE_APP
+      ? [
+          {
+            name: 'phone-webkit',
+            testMatch: PHONE_ONLY,
+            use: { ...PHONE, browserName: 'webkit' as const },
+          },
+          {
+            name: 'phone-chromium',
+            testMatch: PHONE_ONLY,
+            use: { ...PHONE, browserName: 'chromium' as const },
+          },
+        ]
+      : []),
   ],
   webServer: {
     command: `vite --config vite.spikes.config.ts --port ${PORT}`,

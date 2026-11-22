@@ -17,7 +17,6 @@
   import { primaryModifier } from '$lib/keys.ts';
   import CardPresence from '../CardPresence.svelte';
   import CardFace from '$lib/components/card-face/CardFace.svelte';
-  import { faceProperties } from '$lib/components/card-face/face.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Card } from '$lib/logic/wire.ts';
   import type { BoardStore } from '$lib/state/index.ts';
@@ -31,6 +30,13 @@
     card: Card;
     face: FaceContext;
     href: string;
+    /** Its place among the cards of the column not on their way, as the drag counts; -1 on its way. */
+    at: number;
+    /** Its place in the column and how many cards the column has: for a screen reader, which may not be told of all. */
+    position: number;
+    count: number;
+    /** Is told of the card's box while it is drawn, to know how high it is (a long column, KanbanColumn). */
+    measure: ((element: HTMLElement, cardId: string) => () => void) | undefined;
     /** On its way with a drag: hidden where it was. */
     dragged: boolean;
     selected: boolean;
@@ -51,6 +57,10 @@
     card,
     face,
     href,
+    at,
+    position,
+    count,
+    measure,
     dragged,
     selected,
     targetIds,
@@ -63,12 +73,6 @@
 
   const uid = $props.id();
   const badges = $derived(badgesOf(card));
-  // What the face shows below its title, for how high it is taken to be before it is drawn:
-  // its lines of properties, and the room above them and of the badges.
-  const faceRows = $derived(faceProperties(card, face.templates, face.visiblePropertyIds).length);
-  const faceRoom = $derived(
-    (faceRows > 0 ? 0.25 : 0) + (badges.hasBody || badges.tasksTotal > 0 ? 1.5 : 0),
-  );
 
   function activate(event: MouseEvent | KeyboardEvent): void {
     // The other platform's modifier is no command on a card, as in the table.
@@ -92,29 +96,17 @@
   }
 </script>
 
-<!--
-  A card out of sight is not laid out or painted until it comes near: in a
-  column of a thousand cards that is most of the work of drawing and
-  scrolling it. Until it has been drawn once it is taken to be as high as a
-  face with as many lines as this one shows: 3.125rem of frame and title,
-  2.125rem a line of properties, as a seeded card measures in either
-  density. It stays in the document, for the focus, a screen reader and the
-  page's search. What it skips is clipped to its box, so the box reaches a
-  little past the face (and as far back in), for the rings and the shadow
-  around the face.
--->
 <div
   role="listitem"
-  class={[
-    'group/card relative -m-1 shrink-0 p-1 [contain-intrinsic-block-size:auto_calc(3.125rem+var(--face-room)+var(--face-rows)*2.125rem)] [content-visibility:auto]',
-    dragged && 'hidden',
-  ]}
-  style:--face-rows={faceRows}
-  style:--face-room="{faceRoom}rem"
+  aria-posinset={position + 1}
+  aria-setsize={count}
+  class={['group/card relative shrink-0', dragged && 'hidden']}
+  {@attach (element: HTMLElement) => measure?.(element, card.id)}
 >
   <div
     role="link"
     data-drag-item={card.id}
+    data-drag-at={at >= 0 ? at : undefined}
     data-card={card.id}
     data-selected={selected ? '' : undefined}
     tabindex="0"
@@ -144,7 +136,7 @@
       <span class="sr-only">{m.kanban_selected()}</span>
     {/if}
   </div>
-  <div data-slot="card-menu" class="absolute top-2 right-2 roomy:top-1 roomy:right-1">
+  <div data-slot="card-menu" class="absolute top-1 right-1 roomy:top-0 roomy:right-0">
     <CardMenu
       {board}
       {card}
