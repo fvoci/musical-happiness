@@ -200,11 +200,17 @@ test('a commenter changes their own comment, an admin anybody’s, an editor nob
   await history.click();
   await expect(history).toHaveAttribute('aria-expanded', 'true');
   const versions = helperPage.getByTestId('comment-history').locator('[data-version]');
-  await expect(versions).toHaveCount(2);
+  await expect(versions).toHaveCount(3);
   await expect(versions.nth(0)).toContainText(`Posted by ${guest.username}`);
   await expect(versions.nth(0)).toContainText('No mushrooms, please');
+  await expect(versions.nth(0).locator('ins, del')).toHaveCount(0);
+  // Each later text says what it changed from the one before, the text now last.
   await expect(versions.nth(1)).toContainText(`Changed by ${guest.username}`);
-  await expect(versions.nth(1)).toContainText('No mushrooms or olives');
+  await expect(versions.nth(1).locator('del')).toHaveText([', please']);
+  await expect(versions.nth(1).locator('ins')).toHaveText([' or olives']);
+  await expect(versions.nth(2)).toContainText(`Now, changed by ${owner.username}`);
+  await expect(versions.nth(2).locator('del')).toHaveText([' or']);
+  await expect(versions.nth(2).locator('ins')).toHaveText([', no']);
   // Only to read: nothing in it puts a text back.
   await expect(helperPage.getByTestId('comment-history').getByRole('button')).toHaveCount(0);
 

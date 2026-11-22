@@ -433,3 +433,37 @@ function sameJson(a: unknown, b: unknown): boolean {
     names.every((name) => Object.hasOwn(right, name) && sameJson(left[name], right[name]))
   );
 }
+
+describe('what is counted', () => {
+  const lineBreak: BodyNode = { type: 'hardBreak' };
+
+  test('a list numbered from elsewhere is reshaped, and says from what number to what', () => {
+    const list = (start?: number): BodyNode => ({
+      type: 'orderedList',
+      ...(start === undefined ? {} : { attrs: { start } }),
+      content: [{ type: 'listItem', content: [p('one')] }],
+    });
+    const result = diffBodies(doc(list()), doc(list(5)));
+    expect(result.reshaped).toBe(1);
+    // From 1, which is not stored: the list's own start is 1 when it has none.
+    expect(result.blocks[0]?.was).toEqual({ type: 'orderedList' });
+    expect(result.blocks[0]?.attrs).toEqual({ start: 5 });
+  });
+
+  test('a line break counts the same in a paragraph changed and in one removed whole: as nothing', () => {
+    const changed = diffBodies(doc(p('one')), doc(p('one', lineBreak, 'two')));
+    const whole = diffBodies(doc(p('zero')), doc(p('zero'), p('one', lineBreak, 'two')));
+    expect(changed.added).toBe(1);
+    expect(whole.added).toBe(2);
+    // A break alone added is a change, counted one.
+    expect(diffBodies(doc(p('one two')), doc(p('one', lineBreak, 'two'))).added).toBe(1);
+  });
+
+  test('a diagram added or removed whole counts one, as a picture does, not the words of its source', () => {
+    const diagram = code('graph TD\nA-->B\nB-->C', 'mermaid');
+    const options = { diagramLanguage: 'mermaid' };
+    const added = diffBodies(doc(p('see')), doc(p('see'), diagram), options);
+    const removed = diffBodies(doc(p('see'), diagram), doc(p('see')), options);
+    expect([added.added, removed.removed]).toEqual([1, 1]);
+  });
+});

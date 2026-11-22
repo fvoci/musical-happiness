@@ -76,3 +76,17 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+
+/* A line of code removed is in no version's count: the numbers are the version's own. */
+.doc-body del .doc-code-line {
+  counter-increment: none;
+}
+.doc-body del .doc-code-line::before {
+  content: none;
+}
+
+/* A link on what is marked: the blue of links is too light to be read on its colours. */
+.doc-body :is(ins, del, [data-change], [data-diff='added'], [data-diff='removed']) a,
+.doc-body a:is(ins, del, [data-change]) {
+  color: var(--diff-link);
+}

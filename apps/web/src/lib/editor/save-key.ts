@@ -11,6 +11,17 @@
  */
 import { isSaveKey } from '$lib/keys.ts';
 
+/**
+ * Keeps the browser from opening its dialog to save the page with the keys
+ * that keep a version, where a body is kept by them: anywhere in an open card
+ * and on a wiki's page, on the window, after the body had them (CardBody.svelte
+ * keeps a version when they are pressed in it; anywhere else nothing is kept,
+ * and nothing is said).
+ */
+export function holdSaveKey(event: KeyboardEvent): void {
+  if (isSaveKey(event)) event.preventDefault();
+}
+
 export class SaveKey {
   /** What asks; none for an editor that keeps no version. */
   readonly #save: () => (() => void) | undefined;

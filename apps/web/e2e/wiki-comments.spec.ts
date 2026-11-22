@@ -148,7 +148,13 @@ test('a comment is written below the page, changed, read as it was, and deleted'
   await expect(row).toContainText('A second thought');
   await expect(row.getByTestId('comment-edited')).toBeVisible();
   await row.locator('[data-action="history"]').click();
-  await expect(row.getByTestId('comment-history')).toContainText('A first thought');
+  const history = row.getByTestId('comment-history');
+  await expect(history).toContainText('A first thought');
+  // The text now, with what it changed from the one before: a word removed, one added.
+  const now = history.locator('[data-version="now"]');
+  await expect(now.locator('del')).toHaveText(['first']);
+  await expect(now.locator('ins')).toHaveText(['second']);
+  await expect(now.getByTestId('comment-diff-counts')).toHaveText('1 added · 1 removed');
   // Deleted at once, as a card's; "Undo" brings it back, as it was.
   await row.getByRole('button', { name: /^Delete the comment from/ }).click();
   await expect(commentRows(page)).toHaveCount(0);

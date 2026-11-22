@@ -326,7 +326,8 @@ export class MemoryRooms {
       return;
     }
     const card = this.#card(room.containerId, room.cardId);
-    if (card) typedBy(this.#world, card, seat.user.userId);
+    const holdsAll = (): boolean => sameBody(bodyOf(room.doc) ?? null, card?.body ?? null);
+    if (card) typedBy(this.#world, card, seat.user.userId, holdsAll);
     Y.applyUpdate(room.doc, frame.payload, seat);
     room.lastWriter = seat.user.userId;
     this.#say(seat, { message: { action: 'DOC_ACK', doc, epoch: frame.epoch } });
