@@ -9,6 +9,10 @@
  * keeps, whichever device sent it. A change not answered yet stays over what
  * is heard meanwhile (`over`), so another device's change does not take back
  * what is being typed here; one refused waits to be sent with the next.
+ *
+ * Every patch goes with `keepalive`, so that one on its way when the page goes
+ * still arrives; what is not answered as the page goes is handed to the last
+ * write (`unanswered`) rather than sent behind the bookkeeping.
  */
 import { isBackendError } from './backend.ts';
 import type { DayNotes, Diaries, DiaryEntryDetail } from './diary-types.ts';
@@ -65,9 +69,9 @@ export class EntryNotes {
 
   /**
    * Sends what waits, once there is an entry and nothing else is on its way;
-   * what is changed meanwhile goes after it. `keepalive`: as the page goes.
+   * what is changed meanwhile goes after it.
    */
-  async send(options: { keepalive?: boolean } = {}): Promise<void> {
+  async send(): Promise<void> {
     clearTimeout(this.#timer);
     const { diaries, diaryId, entryId } = this.#host;
     const sending = this.#waiting;
@@ -75,7 +79,7 @@ export class EntryNotes {
     [this.#sending, this.#waiting] = [sending, NONE];
     let written: DiaryEntryDetail;
     try {
-      written = await diaries.patchEntry(diaryId, entryId, sending, options);
+      written = await diaries.patchEntry(diaryId, entryId, sending, { keepalive: true });
     } catch (error) {
       const later = this.#waiting;
       [this.#sending, this.#waiting] = [NONE, { ...sending, ...later }];
@@ -85,7 +89,23 @@ export class EntryNotes {
     }
     this.#sending = NONE;
     this.#host.written(written);
-    if (this.#waiting !== NONE && !options.keepalive) await this.send();
+    if (this.#waiting !== NONE) await this.send();
+  }
+
+  /**
+   * Everything changed here and not answered yet, on its way or waiting, for a
+   * write sent as the page goes; undefined where there is none. It stays here
+   * as it is: a page kept to come back to sends it again.
+   */
+  unanswered(): Partial<DayNotes> | undefined {
+    clearTimeout(this.#timer);
+    return this.pending ? { ...this.#sending, ...this.#waiting } : undefined;
+  }
+
+  /** What waits is not sent: the entry it is of goes as blank. */
+  drop(): void {
+    clearTimeout(this.#timer);
+    this.#waiting = NONE;
   }
 
   /** Nothing is sent by itself any more: the page goes. */

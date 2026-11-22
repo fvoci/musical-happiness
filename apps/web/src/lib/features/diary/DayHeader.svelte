@@ -67,16 +67,26 @@
   const shown = $derived(`2000-${monthDay}` as CalendarDate);
   const isToday = $derived(monthDayOf(today) === monthDay);
   let picking = $state(false);
-  /** The calendar opens on this year's day shown, or today where this year has none (`02-29`). */
-  const opening = $derived(dateIn(yearOf(today), monthDay) ?? today);
+  /**
+   * The calendar opens on the day shown in its latest year up to today (last
+   * year's while this year's is still to come), or on today where neither
+   * year has it (`02-29`): a month whose days can be picked.
+   */
+  const opening = $derived(
+    [yearOf(today), yearOf(today) - 1]
+      .map((year) => dateIn(year, monthDay))
+      .find((date) => date !== undefined && date <= today) ?? today,
+  );
   const streak = $derived(streakOf(calendar.runs, today));
 
   let picker = $state<HTMLElement | null>(null);
 
   /** The calendar opens with its day in hand: the one it opens on, else the first of the month. */
   function focusDay(event: Event): void {
+    const day = picker?.querySelector<HTMLElement>('[data-bits-day][tabindex="0"]');
+    if (!day) return;
     event.preventDefault();
-    picker?.querySelector<HTMLElement>('[data-bits-day][tabindex="0"]')?.focus();
+    day.focus();
   }
 
   function pick(date: CalendarDate): void {

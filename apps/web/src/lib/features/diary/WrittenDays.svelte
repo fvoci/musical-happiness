@@ -61,9 +61,11 @@
     bind:value={() => undefined, pick}
     bind:placeholder={
       () => placeholder,
-      (month: PickedDay) => {
-        placeholder = month;
-        void calendar.showMonth(month.toString() as CalendarDate);
+      (moved: PickedDay) => {
+        // The placeholder follows the focus from day to day: a month is read as it is gone to.
+        const another = moved.year !== placeholder.year || moved.month !== placeholder.month;
+        placeholder = moved;
+        if (another) void calendar.showMonth(moved.toString() as CalendarDate);
       }
     }
     {locale}
@@ -78,19 +80,22 @@
         ? undefined
         : calendar.days.find((one) => one.date === day.toString())}
       {@const face = written?.mood ? MOOD_FACES[written.mood] : undefined}
+      {@const said = `diary-written-${day.toString()}`}
+      <!-- The day's name is its date (bits-ui's label): that it is written is its description. -->
       <Day
         class="gap-0.5 [&>span]:text-sm [&>span]:opacity-100"
         data-written={written ? '' : undefined}
         data-mood={written?.mood ?? undefined}
+        aria-describedby={written ? said : undefined}
       >
         {#snippet children({ day: number }: { day: string })}
           <span class="text-sm leading-none">{number}</span>
           {#if face}
             <face.icon class="size-3.5" />
-            <span class="sr-only">{m.diary_written_mood({ mood: face.name() })}</span>
+            <span id={said} class="sr-only">{m.diary_written_mood({ mood: face.name() })}</span>
           {:else if written}
             <span class="size-1.5 rounded-full bg-current" aria-hidden="true"></span>
-            <span class="sr-only">{m.diary_written()}</span>
+            <span id={said} class="sr-only">{m.diary_written()}</span>
           {/if}
         {/snippet}
       </Day>

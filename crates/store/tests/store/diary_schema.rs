@@ -423,37 +423,39 @@ async fn fill(test: &common::TestStore, own: &Store, diary_id: &str, user_id: &s
 /// found by the index the read is for, an entry by its own key and not by going through
 /// those of its diary, the days alone from the key without the rows, and no table is
 /// read through (what the runs are put together from, SQLite goes through as a
-/// subquery of its own: that is no table).
+/// subquery of its own, `written`: that is no table).
 fn check_plan(read: usize, plan: &str) {
-    let (through, said): (&[&str], [&[&str]; 3]) = match db_type() {
-        DbType::Sqlite => (
-            &["SCAN diary_days", "SCAN blocks", "SCAN d\n", "SCAN d "],
-            [
-                &[
-                    "diary_days_month_day_idx (container_id=? AND month_day=?)",
-                    "SEARCH blocks USING INDEX",
-                    "AND id=?)",
-                ],
-                &[
-                    "SEARCH diary_days USING INDEX",
-                    "(container_id=? AND day>? AND day<?)",
-                ],
-                &["SEARCH diary_days USING COVERING INDEX", "(container_id=?)"],
-            ],
-        ),
-        DbType::Postgres => (
-            &["Seq Scan"],
-            [
-                &["diary_days_month_day_idx", "blocks_pkey"],
-                &["diary_days_pkey", "(day >= "],
-                &["Index Only Scan using diary_days_pkey"],
-            ],
-        ),
+    let through = |line: &str| match db_type() {
+        DbType::Sqlite => {
+            line.contains("SCAN ")
+                && !line.contains("SCAN written")
+                && !line.contains("SCAN (subquery-")
+        }
+        DbType::Postgres => line.contains("Seq Scan"),
     };
-    let plan = format!("{plan}\n");
-    for through in through {
-        assert!(!plan.contains(through), "a table is read through: {plan}");
-    }
+    assert!(
+        !plan.lines().any(through),
+        "a table is read through: {plan}"
+    );
+    let said: [&[&str]; 3] = match db_type() {
+        DbType::Sqlite => [
+            &[
+                "diary_days_month_day_idx (container_id=? AND month_day=?)",
+                "SEARCH blocks USING INDEX",
+                "AND id=?)",
+            ],
+            &[
+                "SEARCH diary_days USING INDEX",
+                "(container_id=? AND day>? AND day<?)",
+            ],
+            &["SEARCH diary_days USING COVERING INDEX", "(container_id=?)"],
+        ],
+        DbType::Postgres => [
+            &["diary_days_month_day_idx", "blocks_pkey"],
+            &["diary_days_pkey", "(day >= "],
+            &["Index Only Scan using diary_days_pkey"],
+        ],
+    };
     for part in said[read] {
         assert!(
             plan.contains(part),

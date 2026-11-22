@@ -56,11 +56,16 @@ describe('the days written in a row', () => {
 
   it('leave out days written after today, on a device where they have come', () => {
     const ahead = runsOf(days('2026-11-20', '2026-11-21', '2026-11-22'));
-    expect(streakOf(ahead, on('2026-11-21'))).toEqual({ current: 2, longest: 3 });
+    expect(streakOf(ahead, on('2026-11-21'))).toEqual({ current: 2, longest: 2 });
     expect(streakOf(runsOf(days('2026-11-22')), on('2026-11-20'))).toEqual({
       current: 0,
-      longest: 1,
+      longest: 0,
     });
+    // The longest run of the past stays the longest, whatever is written ahead.
+    const before = runsOf(
+      days('2026-10-01', '2026-10-02', '2026-10-03', '2026-11-22', '2026-11-23'),
+    );
+    expect(streakOf(before, on('2026-11-21'))).toEqual({ current: 0, longest: 3 });
   });
 
   it('go on through the end of the year and 29 February', () => {

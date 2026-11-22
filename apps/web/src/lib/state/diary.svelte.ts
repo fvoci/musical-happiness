@@ -109,8 +109,8 @@ export class DiaryStore implements EntryHost {
     this.entries = [...this.entries.filter((one) => one.id !== entry.id), entry];
   }
 
+  /** Deleted here or elsewhere; the calendar hears of it as every device does (`#hear`). */
   removed(entryId: string): void {
-    this.calendar.heardDeleted([entryId]);
     this.entries = this.entries.filter((one) => one.id !== entryId);
   }
 

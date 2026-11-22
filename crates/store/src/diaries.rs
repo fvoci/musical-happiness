@@ -207,19 +207,28 @@ impl Store {
     /// if a row holds what is no day.
     pub async fn get_diary_runs(&self, diary_id: &str) -> Result<Vec<DiaryRun>, StoreError> {
         self.with_conn(async |scope| {
-            let corrupt = |column: &'static str| StoreError::Corrupt {
-                column,
-                reason: "a row of diary_days holds what is no day".to_owned(),
-            };
-            let mut runs = Vec::new();
-            for row in &scope.fetch_all(runs_of(scope, diary_id)).await? {
-                runs.push(DiaryRun {
-                    from: row.text(0)?.parse().map_err(|_| corrupt("day"))?,
-                    to: row.text(1)?.parse().map_err(|_| corrupt("day"))?,
-                    days: u32::try_from(row.int(2)?).map_err(|_| corrupt("day"))?,
-                });
-            }
-            Ok(runs)
+            let rows = scope.fetch_all(runs_of(scope, diary_id)).await?;
+            rows.iter()
+                .map(|row| {
+                    let day = |at: usize| -> Result<DiaryDate, StoreError> {
+                        let text = row.text(at)?;
+                        text.parse().map_err(|_| StoreError::Corrupt {
+                            column: "day",
+                            reason: format!("a row of diary_days holds {text:?}, which is no day"),
+                        })
+                    };
+                    let count = row.int(2)?;
+                    let days = u32::try_from(count).map_err(|_| StoreError::Corrupt {
+                        column: "days",
+                        reason: format!("a run of {count} days"),
+                    })?;
+                    Ok(DiaryRun {
+                        from: day(0)?,
+                        to: day(1)?,
+                        days,
+                    })
+                })
+                .collect()
         })
         .await
     }

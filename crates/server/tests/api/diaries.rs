@@ -386,6 +386,39 @@ async fn the_runs_of_a_diary_are_its_written_days_one_after_the_other() {
     th.teardown().await;
 }
 
+/// The body and the notes of a day go in one patch under one `readAt`, as a page sends
+/// them when it goes: both are written, or, where the entry changed since it was read,
+/// neither.
+#[tokio::test]
+async fn the_body_and_the_notes_are_written_together_or_not_at_all() {
+    let (th, ws) = in_a_space().await;
+    let client = &th.client;
+    let diary = a_diary(client, &ws).await;
+    let made = written(client, &diary, &json!({"date": "2024-03-01"})).await;
+    let entry = format!("{diary}/entries/{}", text_of(&made, "id"));
+    let together = json!({
+        "readAt": made["updateAt"], "body": body("함께"), "mood": "good", "weather": "비",
+    });
+    let both = client.patch(&entry, &together).await.value();
+    assert_eq!(
+        (&both["body"], &both["mood"], &both["weather"]),
+        (&body("함께"), &json!("good"), &json!("비"))
+    );
+    let stale = json!({
+        "readAt": made["updateAt"], "body": body("늦게"), "mood": "awful", "place": "집",
+    });
+    client
+        .patch(&entry, &stale)
+        .await
+        .check_status(StatusCode::CONFLICT);
+    let read = client.get(&entry).await.value();
+    assert_eq!(
+        (&read["body"], &read["mood"], &read["place"]),
+        (&body("함께"), &json!("good"), &json!(""))
+    );
+    th.teardown().await;
+}
+
 /// An entry is changed by its patch, which has no member for its day, and its body is
 /// kept in versions as a card's is. The entry of another diary, and of nothing, is no
 /// entry of this one.

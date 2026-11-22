@@ -21,6 +21,21 @@ const calendar = (page: Page): Locator => page.getByTestId('diary-calendar');
 const dayIn = (page: Page, date: string): Locator =>
   calendar(page).locator(`[data-bits-day][data-value="${date}"]`);
 
+/** An entry of the diary shown made on `date` by another device of the reader. */
+async function writtenElsewhere(page: Page, date: string): Promise<void> {
+  await page.evaluate(async (day) => {
+    const diaryId = /diaries\/([^/]+)\//u.exec(location.pathname)?.[1] ?? '';
+    const dev = (
+      window as unknown as {
+        fvociDev: {
+          backend: { diary: { createEntry(id: string, date: string): Promise<unknown> } };
+        };
+      }
+    ).fvociDev;
+    await dev.backend.diary.createEntry(diaryId, day);
+  }, date);
+}
+
 /** The notes of an entry of the diary shown, as the backend has them. */
 async function notesOn(page: Page, monthDay: string): Promise<Record<string, unknown>[]> {
   return page.evaluate(async (day) => {
@@ -112,8 +127,10 @@ test('the calendar marks the written days by mood, counts the days in a row, and
   await expect(calendar(page).getByTestId('streak-longest')).toHaveText('Longest: 2');
   await expect(dayIn(page, '2026-11-19')).toHaveAttribute('data-written', '');
   await expect(dayIn(page, '2026-11-19')).not.toHaveAttribute('data-mood');
+  await expect(dayIn(page, '2026-11-19')).toHaveAccessibleName('Thursday, November 19, 2026');
+  await expect(dayIn(page, '2026-11-19')).toHaveAccessibleDescription('Written');
   await expect(dayIn(page, '2026-11-20')).toHaveAttribute('data-mood', 'bad');
-  await expect(dayIn(page, '2026-11-20')).toContainText('Written, Bad');
+  await expect(dayIn(page, '2026-11-20')).toHaveAccessibleDescription('Written, Bad');
   await expect(dayIn(page, '2026-11-21')).not.toHaveAttribute('data-written');
 
   // Today written: the count goes on to it.
@@ -130,13 +147,27 @@ test('the calendar marks the written days by mood, counts the days in a row, and
   await expect(year(page, '2026-11-19')).toHaveAttribute('data-open', '');
   await expect(calendar(page)).toHaveCount(0);
 
-  // A month before is read as it is gone to.
+  // A month before is read as it is gone to: its written day is marked.
+  await writtenElsewhere(page, '2026-10-05');
   await page.getByTestId('diary-pick').click();
+  await expect(dayIn(page, '2026-10-05')).toHaveCount(0);
   await calendar(page)
     .getByRole('button', { name: /previous/iu })
     .click();
-  await expect(dayIn(page, '2026-10-01')).toBeVisible();
-  await expect(calendar(page).locator('[data-written]')).toHaveCount(0);
+  await expect(dayIn(page, '2026-10-05')).toHaveAttribute('data-written', '');
+  await expect(calendar(page).locator('[data-written]')).toHaveCount(1);
+});
+
+test('a day still to come this year opens the calendar on last year’s, the day in hand', async ({
+  page,
+}) => {
+  await openDiary(page);
+  await page.getByTestId('diary-next').click();
+  await expect(page).toHaveURL(/\/11-22$/u);
+  await page.getByTestId('diary-pick').click();
+  await expect(dayIn(page, '2025-11-22')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(year(page, '2025-11-22')).toHaveAttribute('data-open', '');
 });
 
 test('the notes and the calendar by the keyboard alone', async ({ page }) => {

@@ -41,18 +41,18 @@ export function runsOf(days: readonly CalendarDate[]): Run[] {
  * How many days are written in a row on `today`, from the runs of the diary
  * (the earliest first). A day not written yet today breaks nothing: the run
  * that ends yesterday is still going. Days written after today (on a device
- * where they have come) are no part of the current count.
+ * where they have come) count from the day they come here, in either number.
  */
 export function streakOf(runs: readonly Run[], today: CalendarDate): Streak {
   const yesterday = addDays(today, -1);
   let current = 0;
   let longest = 0;
   for (const run of runs) {
-    longest = Math.max(longest, run.days);
     const reached = run.to >= today ? today : run.to;
-    if (run.from <= reached && reached >= yesterday) {
-      current = daysBetween(run.from, reached) + 1;
-    }
+    if (run.from > reached) continue;
+    const days = daysBetween(run.from, reached) + 1;
+    longest = Math.max(longest, days);
+    if (reached >= yesterday) current = days;
   }
   return { current, longest };
 }

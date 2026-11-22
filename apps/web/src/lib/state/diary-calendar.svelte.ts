@@ -103,20 +103,21 @@ export class DiaryCalendar {
     if (days !== this.days) this.days = days;
     const held = (date: CalendarDate): boolean =>
       this.runs.some((run) => run.from <= date && date <= run.to);
-    if (this.counted && entries.some((entry) => !held(entry.date))) void this.count();
+    // Not counted yet (being read, or refused): read again, not to miss what was heard.
+    if (!this.counted || entries.some((entry) => !held(entry.date))) void this.count();
   }
 
   /** Blocks of the diary deleted: an entry's day is no longer written. */
   heardDeleted(blockIds: readonly string[]): void {
     const days = this.days.filter((day) => !blockIds.includes(day.entryId));
     if (days.length !== this.days.length) this.days = days;
-    if (this.counted) void this.count();
+    void this.count();
   }
 
   /** What was missed is read again. */
   resync(): void {
     if (this.month) void this.showMonth(this.month);
-    if (this.counted) void this.count();
+    void this.count();
   }
 
   #failed(error: unknown): void {

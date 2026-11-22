@@ -58,7 +58,7 @@
     <span class="text-sm text-muted-foreground">{displayWeekday(date, locale)}</span>
     <span class="sr-only">{whole}</span>
   </h2>
-  {#if entry && !(open && !toCome)}
+  {#if entry && !open}
     <NotesShown notes={entry} />
   {/if}
   <!-- A day still to come here may be written already, on a device where it has come. -->

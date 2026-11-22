@@ -124,8 +124,10 @@ export class EntryStore {
         return entry()?.id;
       },
       written: (written) => {
-        if (this.entry?.id !== written.id) return;
-        this.entry = this.#notes.over(written);
+        const held = this.entry;
+        if (held?.id !== written.id) return;
+        // An answer older than the entry held (its body written meanwhile) leaves it as it is.
+        this.entry = this.#notes.over(held.updateAt > written.updateAt ? held : written);
         host.received(this.entry);
       },
       refused: (error) => {
@@ -160,9 +162,9 @@ export class EntryStore {
     void this.#notes.send();
   }
 
-  /** Something wants the day to have an entry: a draft, or notes marked. */
+  /** Something wants the day to have an entry: a draft, or notes marked that hold something. */
   #wantsEntry(): boolean {
-    return this.draft !== null || this.#notes.pending;
+    return this.draft !== null || !isBlank(this.#notes.over(NO_NOTES), true);
   }
 
   /** The body as it was read, shown until the room's document has arrived. */
@@ -297,9 +299,10 @@ export class EntryStore {
    */
   closeBody(): void {
     this.#wanted = false;
-    void this.#notes.send();
     const opened = this.#bodyDoc;
     const emptied = this.#emptied();
+    if (emptied) this.#notes.drop();
+    else void this.#notes.send();
     [this.#bodyDoc, this.room, this.#changedHere, this.#blankBody] = [
       undefined,
       undefined,
@@ -321,16 +324,24 @@ export class EntryStore {
   /**
    * The page goes for good (the tab closed, another address loaded): what
    * `closeBody` would send is sent at once, to be sent still once the page
-   * has gone. A page kept to come back to (`persisted`) deletes nothing.
+   * has gone, in one write: the notes not answered yet go with the draft,
+   * whose write would otherwise find the entry changed by them and be lost.
+   * A page kept to come back to (`persisted`) deletes nothing.
    */
   leave(persisted: boolean): void {
     const diaries = this.host.workspace.backend.diary;
+    const entry = this.entry;
     const emptied = this.#emptied();
-    void this.#notes.send({ keepalive: true });
-    if (this.draft !== null && this.entry) void this.#flush({ keepalive: true });
-    else if (emptied && diaries && !persisted) {
+    const notes = this.#notes.unanswered();
+    if (!diaries || !entry) return;
+    if (this.draft !== null) void this.#flush({ keepalive: true }, notes);
+    else if (emptied && !persisted) {
       void diaries
         .deleteEntry(this.host.diaryId, emptied.id, { keepalive: true })
+        .catch(() => undefined);
+    } else if (notes) {
+      void diaries
+        .patchEntry(this.host.diaryId, entry.id, notes, { keepalive: true })
         .catch(() => undefined);
     }
   }
@@ -348,14 +359,17 @@ export class EntryStore {
     this.#bodyUploads.giveUp();
   }
 
-  async #flush(options: { keepalive?: boolean } = {}): Promise<void> {
+  async #flush(
+    options: { keepalive?: boolean } = {},
+    notes: Partial<DayNotes> = {},
+  ): Promise<void> {
     const entry = this.entry;
     const diaries = this.host.workspace.backend.diary;
     const draft = this.draft;
     if (!entry || !diaries || draft === null || this.flushing) return;
     this.flushing = true;
     try {
-      const written = await this.#writeDraft(diaries, entry, draft, options);
+      const written = await this.#writeDraft(diaries, entry, { draft, notes }, options);
       // Deleted elsewhere meanwhile: what was written went to the trash with
       // it, and the draft stays, for the entry made again (`lose`).
       if (this.entry?.id !== entry.id) return;
@@ -371,18 +385,18 @@ export class EntryStore {
     }
   }
 
-  /** The draft after the body the entry has; read again once where it changed meanwhile. */
+  /** The draft after the body the entry has, with `notes`; read again once where it changed meanwhile. */
   async #writeDraft(
     diaries: Diaries,
     entry: DiaryEntryDetail,
-    draft: DocNode,
+    { draft, notes }: { draft: DocNode; notes: Partial<DayNotes> },
     options: { keepalive?: boolean },
   ): Promise<DiaryEntryDetail> {
     const write = (read: DiaryEntryDetail): Promise<DiaryEntryDetail> =>
       diaries.patchEntry(
         this.host.diaryId,
         read.id,
-        { body: appended(read.body, draft), readAt: read.updateAt },
+        { ...notes, body: appended(read.body, draft), readAt: read.updateAt },
         options,
       );
     try {
