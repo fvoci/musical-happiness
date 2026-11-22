@@ -28,14 +28,14 @@
     title={label}
     class={['flex shrink-0 items-center gap-1 text-xs text-muted-foreground', className]}
   >
-    <span class="flex -space-x-1">
-      {#each people.slice(0, 2) as person (person.userId)}
+    <span class="flex">
+      {#each people.slice(0, 2) as person, index (person.userId)}
         <Avatar
           name={board.workspace.userName(person.userId) ?? m['centerPanel.unknown-user']()}
           colorKey={person.userId}
           locale={board.workspace.locale}
           decorative
-          class="size-4 ring-1 ring-background"
+          class={['size-4 ring-1 ring-background', index > 0 && '-ms-1']}
         />
       {/each}
     </span>

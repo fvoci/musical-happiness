@@ -106,7 +106,20 @@
 
   const cards = $derived(board && view ? board.cardsOf(view, search) : []);
 
-  const cardHref = (cardId: string): string => router.href({ ...router.route, cardId });
+  // Primitive route parts so opening or closing a card (`router.route.cardId`) does not
+  // re-evaluate `cardHref` for every row of a large view.
+  const routeWorkspaceId = $derived(router.route.workspaceId);
+  const routeBoardId = $derived(router.route.boardId);
+  const routeViewId = $derived(router.route.viewId);
+  const routeReadToken = $derived(router.route.readToken);
+  const cardHref = (cardId: string): string =>
+    router.href({
+      workspaceId: routeWorkspaceId,
+      boardId: routeBoardId,
+      viewId: routeViewId,
+      readToken: routeReadToken,
+      cardId,
+    });
   const openCard = (cardId: string): void => {
     router.openCard(cardId);
   };
