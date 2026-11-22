@@ -104,7 +104,18 @@ test.describe('where the reader has not asked for less motion', () => {
         await page.mouse.move((column?.x ?? 0) + 200, (column?.y ?? 0) + 300);
         await page.mouse.wheel(0, 200);
       } else {
-        await page.keyboard.press('ArrowDown');
+        // Depending on where End stopped the smooth scroll, Section 20 can rest a few lines
+        // above the bottom edge of the column; step down until the caret actually scrolls it.
+        const before = await pageColumn(page).evaluate((column) => column.scrollTop);
+        let scrolled = false;
+        for (let step = 0; step < 30 && !scrolled; step += 1) {
+          await page.keyboard.press('ArrowDown');
+          scrolled = await pageColumn(page).evaluate(
+            (column, from) => column.scrollTop > from,
+            before,
+          );
+        }
+        expect(scrolled).toBe(true);
       }
       await expect.poll(() => scrollAtRest(page)).toBe(true);
       await expect(currentItem(page)).not.toHaveText('Section 20');

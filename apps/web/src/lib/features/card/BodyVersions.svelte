@@ -271,14 +271,14 @@
                     </span>
                     {#if version.editors.length > 0}
                       <span class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                        <span class="flex shrink-0 -space-x-1">
-                          {#each version.editors.slice(0, FACES) as userId (userId)}
+                        <span class="flex shrink-0">
+                          {#each version.editors.slice(0, FACES) as userId, index (userId)}
                             <Avatar
                               name={resolveUser(userId)}
                               colorKey={userId}
                               locale={workspace.locale}
                               decorative
-                              class="size-5 ring-2 ring-popover"
+                              class={['size-5 ring-2 ring-popover', index > 0 && '-ms-1']}
                             />
                           {/each}
                         </span>
