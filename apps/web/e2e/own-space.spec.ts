@@ -5,6 +5,9 @@
  * starts empty and says what it is; what is made there stays there, and
  * nothing of the shared workspace shows in it.
  *
+ * Closed to the session once the account has a password, it asks for the
+ * password and opens where it is when the password is given.
+ *
  * What is hidden in the own space (people, invitations, the organization)
  * comes from the server alone, so it is tested against the server
  * (`e2e-live/own-space.spec.ts`).
@@ -12,7 +15,14 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { ON_A_VIEW, placeOf, WORKSPACE } from './address.ts';
-import { boardLink, FIRST_BOARD, openApp, showSidebar, sidebar } from './shell.support.ts';
+import {
+  boardLink,
+  FIRST_BOARD,
+  hideSidebar,
+  openApp,
+  showSidebar,
+  sidebar,
+} from './shell.support.ts';
 import { ON_A_WIKI } from './wiki.support.ts';
 
 const switcher = (page: Page): Locator => sidebar(page).getByTestId('workspace-switcher');
@@ -125,4 +135,64 @@ test('a board of the own space is shared by its public link alone, with nobody t
   await expect(dialog.getByTestId('share-search')).toHaveCount(0);
   await dialog.getByTestId('share-public').click();
   await expect(dialog.getByTestId('share-link')).toHaveValue(/\/shared\/[0-9a-f-]{36}\?r=[^&]+$/u);
+});
+
+/** The world in memory, as the page lends it to the browser tests (`app/backend.ts`). */
+interface Dev {
+  backend: {
+    userId: string;
+    world: {
+      passwords: Map<string, string>;
+      ownSpaces: Map<string, { passwordRequired?: boolean }>;
+    };
+  };
+}
+
+test('the own space that takes the password opens where it is once the password is given', async ({
+  page,
+}) => {
+  await openApp(page);
+  // As the server closes it to a session made through a provider, once the account has a password.
+  await page.evaluate(() => {
+    const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
+    backend.world.passwords.set(backend.userId, 'a long password');
+    const own = backend.world.ownSpaces.get(backend.userId);
+    if (!own) throw new Error('no own space');
+    own.passwordRequired = true;
+    // Gone with the page, if it were loaded again.
+    (window as unknown as { stayed?: boolean }).stayed = true;
+  });
+  await showSidebar(page);
+  await switcher(page).click();
+  await workspacesMenu(page).getByRole('menuitem', { name: 'My space', exact: true }).click();
+  const locked = page.getByTestId('own-space-locked');
+  await expect(locked).toBeVisible();
+  await expect(locked).toContainText('You stay signed in as you are.');
+  const address = page.url();
+  // Where the list of boards is a drawer, it is over the space until it is put away.
+  await hideSidebar(page);
+  const field = page.getByTestId('own-space-locked-password');
+
+  // A wrong password is said at the field, which takes the focus to try again.
+  await field.fill('not it at all');
+  await field.press('Enter');
+  await expect(page.getByTestId('own-space-locked-problem')).toHaveText(
+    'The current password is wrong.',
+  );
+  await expect(field).toBeFocused();
+
+  await field.fill('a long password');
+  await locked.getByRole('button', { name: 'Open My space' }).click();
+  await expect(page.getByTestId('workspace-start')).toBeVisible();
+  await expect(locked).toHaveCount(0);
+  expect(page.url()).toBe(address);
+  expect(await page.evaluate(() => (window as unknown as { stayed?: boolean }).stayed)).toBe(true);
+  await showSidebar(page);
+  await expect(switcher(page)).toHaveAccessibleName('Switch workspace: My space');
+  // The workspace shared with others opens as before, and the own space after it.
+  await switchTo(page, 'fvoci');
+  await expect(page.getByTestId('own-space-locked')).toHaveCount(0);
+  expect(placeOf(page.url()).workspaceId).toBe(WORKSPACE);
+  await switchTo(page, 'My space');
+  await expect(page.getByTestId('workspace-start')).toBeVisible();
 });

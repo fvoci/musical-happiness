@@ -4,13 +4,17 @@
  * its single sign-on to their account in the settings; the organization then
  * begins to take no password; the member, still signed in with theirs, is
  * told so in place of the board, goes through the single sign-on, and is
- * back on the board they asked for, in the same account.
+ * back on the board they asked for, in the same account. Their own space,
+ * which takes the account's password, then opens to that session once it
+ * gives the password, and the two are gone between without signing in again.
  *
  * The server of these tests has one organization, which every test's people
  * are in: the provider and the rule are taken away again at the end, whatever
  * came of the test.
  */
-import { expect, request, test, type APIRequestContext } from '@playwright/test';
+import { expect, request, test, type APIRequestContext, type Page } from '@playwright/test';
+
+import { boardLink, showSidebar, sidebar } from '../e2e/shell.support.ts';
 
 import {
   ADMIN,
@@ -70,6 +74,72 @@ async function throughProvider(
   const back = await api.get(authorizationUrl);
   expect(back.ok(), back.url()).toBe(true);
   return back.url();
+}
+
+/** The reader's workspaces, as the server lists them to the page's session. */
+async function listed(page: Page): Promise<Schemas['UserWorkspace'][]> {
+  const answer = await page.request.get('/api/v1/users/me/workspaces');
+  expect(answer.ok(), await answer.text()).toBe(true);
+  return (await answer.json()) as Schemas['UserWorkspace'][];
+}
+
+/** Goes to a workspace of the reader's through the switcher. */
+async function switchTo(page: Page, workspaceId: string): Promise<void> {
+  await showSidebar(page);
+  await sidebar(page).getByTestId('workspace-switcher').click();
+  const menu = page.getByRole('menu', { name: 'Switch workspace', exact: true });
+  await menu.locator(`[data-action="${workspaceId}"]`).click();
+}
+
+/**
+ * The session single sign-on made, of an account with a password, in the
+ * account's own space: asked for the password there, it gives it and the
+ * space opens where the page is; from then on the organization that takes no
+ * password and the own space are both open to it, to and fro and after the
+ * page is loaded again, and nobody signs in again.
+ */
+async function betweenOwnSpaceAndOrganization(
+  page: Page,
+  password: string,
+  organizationId: string,
+): Promise<void> {
+  const own = (await listed(page)).find((one) => one.kind === 'personal');
+  expect(own?.passwordRequired, 'closed to the session single sign-on made').toBe(true);
+  const ownId = own?.id ?? '';
+  await page.evaluate(() => {
+    (window as unknown as { stayed?: boolean }).stayed = true;
+  });
+  await switchTo(page, ownId);
+  const locked = page.getByTestId('own-space-locked');
+  await expect(locked).toBeVisible();
+  await page.getByTestId('own-space-locked-password').fill('not the password at all');
+  await locked.getByRole('button', { name: 'Open My space' }).click();
+  await expect(page.getByTestId('own-space-locked-problem')).toHaveText(
+    'The current password is wrong.',
+  );
+  await page.getByTestId('own-space-locked-password').fill(password);
+  await locked.getByRole('button', { name: 'Open My space' }).click();
+  await expect(page.getByTestId('workspace-start')).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { stayed?: boolean }).stayed)).toBe(true);
+  for (const workspace of await listed(page)) {
+    expect([workspace.passwordRequired, workspace.ssoRequired], workspace.id).toEqual([
+      false,
+      false,
+    ]);
+  }
+
+  // To the organization and back, and once more on a page loaded again.
+  for (const reload of [false, true]) {
+    await switchTo(page, organizationId);
+    await expect(boardLink(page, 'Behind single sign-on')).toBeVisible();
+    if (reload) await page.reload();
+    await expect(page.getByTestId('sso-required')).toHaveCount(0);
+    await expect(page.getByTestId('sign-in-form')).toHaveCount(0);
+    await switchTo(page, ownId);
+    if (reload) await page.reload();
+    await expect(page.getByTestId('workspace-start')).toBeVisible();
+    await expect(locked).toHaveCount(0);
+  }
 }
 
 test('what takes no password is opened through its single sign-on, back on the board asked for', async ({
@@ -153,6 +223,8 @@ test('what takes no password is opened through its single sign-on, back on the b
     await expect(page.getByText('Kept behind the wall')).toBeVisible();
     await page.getByTestId('open-settings').click();
     await expect(page.getByTestId('signed-in-as')).toContainText(member.username);
+    await page.keyboard.press('Escape');
+    await betweenOwnSpaceAndOrganization(page, member.password, workspace?.id ?? '');
     expect(errors).toEqual([]);
   } finally {
     // The other tests' people sign in with passwords, and to pages without a

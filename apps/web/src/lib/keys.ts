@@ -32,6 +32,21 @@ export function primaryModifier(
     : event.ctrlKey && !event.metaKey;
 }
 
+/**
+ * Whether a key press is the one that keeps a version of a body now: ⌘S on
+ * Apple devices and Ctrl+S elsewhere, without Shift or Alt. A layout of
+ * other letters than Latin ones (Hangul's gives `ㄴ`, a syllable being
+ * composed `Process`) is read by where the key is; a Latin one by its
+ * letter, so that the key where S is on QWERTY is no save on another layout.
+ */
+export function isSaveKey(
+  event: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>,
+  platform?: string,
+): boolean {
+  if (event.shiftKey || event.altKey || !primaryModifier(event, platform)) return false;
+  return /^[a-z]$/i.test(event.key) ? event.key.toLowerCase() === 's' : event.code === 'KeyS';
+}
+
 type ShortcutOptions = { shift?: boolean; alt?: boolean };
 
 /** Native symbols for Apple keyboards; familiar key names elsewhere. */

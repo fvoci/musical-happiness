@@ -20,14 +20,13 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { ClassValue } from 'svelte/elements';
-  import { on } from 'svelte/events';
 
   import './editor.css';
   import { CODE_COPY_TEXTS } from './code-copy-texts.ts';
   import { drawCodeBlocksLater } from './code-later.ts';
   import { drawEmbeds } from './embeds.ts';
   import { drawFileBlocks } from './file-view.ts';
-  import { drawReferences, openClickedReference, type ReferenceDrawing } from './reference-chip.ts';
+  import { attachReferences, type ReferenceDrawing } from './reference-chip.ts';
   import { renderBody } from './render.ts';
 
   interface Props {
@@ -61,22 +60,6 @@
     // A fragment gives its nodes away once; the list can be placed again.
     return rendered.ok ? { ...rendered, nodes: [...rendered.fragment.childNodes] } : rendered;
   });
-
-  /**
-   * Draws the references under `element` and opens the one that is clicked.
-   * Run where what `drawing` reads is followed, it runs again when a title
-   * arrives or changes; `_placed` is the nodes, which it runs again for.
-   */
-  function referencesIn(
-    element: HTMLElement,
-    drawing: ReferenceDrawing | undefined,
-    ..._placed: unknown[]
-  ): () => void {
-    drawReferences(element, drawing);
-    return on(element, 'click', (event) => {
-      openClickedReference(event, drawing);
-    });
-  }
 </script>
 
 {#if !body.ok}
@@ -94,7 +77,7 @@
       // Gives back what stops the drawing when the body changes or goes away.
       return drawEmbeds(element);
     }}
-    {@attach (element: HTMLElement) => referencesIn(element, references, nodes)}
+    {@attach (element: HTMLElement) => attachReferences(element, references, nodes)}
     {@attach (element: HTMLElement) => drawCodeBlocksLater(element, CODE_COPY_TEXTS, nodes)}
   ></div>
 {/if}

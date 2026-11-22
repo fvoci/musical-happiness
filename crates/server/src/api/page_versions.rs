@@ -1,12 +1,13 @@
-//! The versions kept of a page's body: listing them, reading one, and going back to one.
+//! The versions kept of a page's body: listing them, reading one, keeping one now, and
+//! going back to one.
 //!
 //! A page's body is kept as a card's is (`crates/server/src/collab`), and what is given
 //! and done is the card's (`App::body_versions`, `App::body_version`,
-//! `App::restore_body_version`); only the routes are a wiki's, under the handle that
+//! `App::keep_body_version_now`, `App::restore_body_version`); only the routes are a wiki's, under the handle that
 //! reaches wikis (`InWiki`), so that no operation of a card's versions reaches a page.
 
 use axum::extract::Path;
-use fvoci_model::{BodyVersion, BodyVersionContent, Page};
+use fvoci_model::{BodyVersion, BodyVersionContent, KeptBodyVersion, Page};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -21,7 +22,10 @@ use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
-        .routes(routes!(handle_get_page_body_versions))
+        .routes(routes!(
+            handle_get_page_body_versions,
+            handle_keep_page_body_version
+        ))
         .routes(routes!(handle_get_page_body_version))
         .routes(routes!(handle_restore_page_body_version))
 }
@@ -54,6 +58,39 @@ async fn handle_get_page_body_versions(
     .await?;
     let versions = ws.app.body_versions(&page.id).await?;
     Ok(json_response(&versions))
+}
+
+/// Keep a page's body as a version now
+///
+/// As `keepCardBodyVersion` keeps a card's: the body the page has, with what those who
+/// edit it together typed, by hand; nothing of a body that is its newest version
+/// already (`unchanged`), nor within a minute of a version kept by hand (`recent`). For
+/// editors of the wiki (403 for its other members). A page in the trash is not there
+/// (404).
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/body-versions",
+    operation_id = "keepPageBodyVersion",
+    tag = tag::WIKIS,
+    params(MemberWorkspaceId, WikiId, PageId),
+    responses((status = 200, description = "What became of the body.", body = KeptBodyVersion)),
+)]
+async fn handle_keep_page_body_version(
+    InWiki(ws): InWiki,
+    Path((_, wiki_id, page_id)): Path<(String, String, String)>,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    let page = page_with_permission(
+        &ws,
+        &wiki_id,
+        &page_id,
+        ContainerPermission::ManageCards,
+        "access denied to keep a version of the page's body",
+    )
+    .await?;
+    let kept = ws.app.keep_body_version_now(&page.id).await?;
+    tracing::debug!(wiki_id, page_id, user_id, outcome = ?kept.outcome, "KeepPageBodyVersion");
+    Ok(json_response(&kept))
 }
 
 /// A version kept of a page's body

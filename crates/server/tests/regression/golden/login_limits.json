@@ -265,6 +265,7 @@
       "customName": "",
       "deleteAt": 0,
       "displayName": "",
+      "email": "limits-alice@example.com",
       "firstName": "",
       "hasPassword": true,
       "id": "<id:1>",

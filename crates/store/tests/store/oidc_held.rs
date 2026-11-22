@@ -338,7 +338,7 @@ async fn a_held_sign_in_is_carried_over_to_a_guests_account() {
         "still no member of the organization"
     );
     let roles: Vec<_> = test
-        .workspaces_of_user(&guest, None)
+        .workspaces_of_user(&guest, fvoci_store::Making::with_password())
         .await
         .expect("listed")
         .iter()
