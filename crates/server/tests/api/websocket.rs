@@ -1120,12 +1120,20 @@ fn check_against(openapi: &Value, what: &Value, value: &Value, at: &str) {
 /// Checks one message the server sent against `contracts/websocket.json`.
 pub(crate) fn check_message(contract: &Value, openapi: &Value, message: &Value) {
     let action = message["action"].as_str().expect("a message has an action");
-    let members = &contract["messages"][action]["members"];
-    assert!(
-        members.is_object(),
-        "contracts/websocket.json lists {action}"
-    );
-    check_against(openapi, members, message, action);
+    let entry = &contract["messages"][action];
+    let mut members = entry["members"]
+        .as_object()
+        .unwrap_or_else(|| panic!("contracts/websocket.json lists {action}"))
+        .clone();
+    // A member the entry names optional is checked where the message has it.
+    let optional: Vec<&str> = entry["optional"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|name| name.as_str().expect("optional members are named by strings"))
+        .collect();
+    members.retain(|key, _| !optional.contains(&key.as_str()) || message.get(key).is_some());
+    check_against(openapi, &Value::Object(members), message, action);
 }
 
 pub(crate) fn read_contract(name: &str) -> Value {

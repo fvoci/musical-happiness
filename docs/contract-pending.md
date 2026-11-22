@@ -324,5 +324,5 @@
 | H2 | **결정됨.** `User.displayName`은 서버가 이름의 칸(성·이름, 영문 이름, 직접 쓴 이름)과 고른 것(`nameShown`)으로 짓는다(`contracts/name-vectors.json`, 칸은 `patchMe`로). 사용자 검색은 로그인 이름과 이름의 칸에서 찾는다. 조직·워크스페이스의 구성원 목록에도 이름의 칸·호칭·학위가 오고, 이름이 바뀌면 `UPDATE_USER`(`contracts/websocket.md`)가 간다 |
 | H3 | **결정됨.** `getDeletedCards`(보드의 편집자부터)와 `getDeletedContainers`(관리자였던 보드만). 되살리기는 `undeleteBlock`·`undeleteContainer` |
 | H5 | **결정됨(11:05 KST).** 웹앱이 "참여" 단계를 두고 서버의 `joinContainer`는 그대로다 |
-| G5 | 남이 본문을 고치면 블록 전체(본문까지)가 온다(`contracts/websocket.md` 5절). 지금대로 둔다, 그 계획에서 다시 본다 |
+| G5 | **결정됨(2026-11-22).** 남이 본문을 고치면 카드와 페이지의 `UPDATE_BLOCK`은 본문 대신 요약(`summary`)을 싣는다(`contracts/websocket.md` 3절). 댓글과 웹훅은 그대로다 |
 | H7 | 카테고리의 네 메시지는 그 사용자가 그 워크스페이스를 구독한 연결 모두에 간다(tracer-bullet 13) |
