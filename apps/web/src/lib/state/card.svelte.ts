@@ -109,8 +109,14 @@ export class CardStore {
     return this.board.boardId;
   }
 
+  /**
+   * Reads the card's body, comments and attachments, and asks for the body's
+   * room meanwhile, so that its document comes with them. One that cannot be
+   * read leaves the room again: nothing shows the body of a card not read.
+   */
   async load(): Promise<void> {
     this.status = 'loading';
+    this.openBody();
     try {
       const [detail, comments, attachments] = await Promise.all([
         this.#backend.card(this.#boardId, this.cardId),
@@ -123,8 +129,12 @@ export class CardStore {
       this.#comments = comments;
       this.#attachments = attachments;
       this.status = 'ready';
+      // Put out while it was read, after its block was: the reading cannot say whether it is gone.
+      const room = this.#bodyDoc;
+      if (room && this.room?.reason === 'not_found') void this.#stillThere(room, false);
     } catch (error) {
       this.status = 'failed';
+      this.closeBody();
       if (isBackendError(error) && error.status === 404) this.missing = true;
       else this.board.workspace.report('load', error);
     }
@@ -147,20 +157,25 @@ export class CardStore {
   // --------------------------------------------------------------- body
 
   /**
-   * Opens the body in its room, unless it is open there or the backend has
-   * no rooms. What the room says is in `room`; closing the card leaves it.
+   * Opens the body in its room, unless it is open there, the card is
+   * missing, or the backend has no rooms. What the room says is in `room`;
+   * closing the card leaves it. It is asked for with the card's first
+   * reading (`load`), which decides whether the card is there.
    */
   openBody(): void {
     const backend = this.#backend;
     // Not before the workspace is known: the room is asked for in it (opened again once it is).
     const workspaceId = this.board.workspace.info?.id;
-    if (this.#bodyDoc || this.#closed || !backend.openDoc || workspaceId === undefined) return;
+    const notNow = this.#bodyDoc !== undefined || this.#closed || this.missing;
+    if (notNow || !backend.openDoc || workspaceId === undefined) return;
     const opened = backend.openDoc(workspaceId, this.#boardId, this.cardId, {
       state: (state) => {
         if (this.#bodyDoc !== opened) return;
         const shut = state.status === 'out' && state.reason === 'not_found';
         const heldDoc = this.room?.doc !== undefined;
-        if (shut && this.room?.reason !== 'not_found') void this.#stillThere(opened, heldDoc);
+        // While the card is first read, that reading says whether it is there (`load`).
+        const asked = shut && this.room?.reason !== 'not_found' && this.status !== 'loading';
+        if (asked) void this.#stillThere(opened, heldDoc);
         this.room = state;
         this.#showSaving(state.pending);
         // Without the room's document the body is the card's again: read what was missed.

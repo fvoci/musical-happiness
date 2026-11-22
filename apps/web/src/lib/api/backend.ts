@@ -12,7 +12,7 @@ import type {
   BoardView,
 } from '../logic/wire.ts';
 import { openRoomLater } from '../state/doc-opener.ts';
-import { allPages } from '../state/page-reads.ts';
+import { pagesTogether } from '../state/page-reads.ts';
 import { applyViewPatch } from '../state/patches.ts';
 import {
   BackendError,
@@ -559,7 +559,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return viewOf(view);
   }
 
-  /** Every card of the board, read page after page. */
+  /** Every card of the board, its pages read together (`pagesTogether`). */
   async cards(boardId: string): Promise<CardSummary[]> {
     return (await this.#everyCard(boardId, {})).map(cardOf);
   }
@@ -571,7 +571,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   #everyCard(boardId: string, query: Record<string, string>): Promise<Schemas['Card'][]> {
     const path = '/boards/{boardId}/cards';
-    return allPages((paging) =>
+    return pagesTogether((paging) =>
       this.inWorkspace<Schemas['Card'][]>(path, { boardId }, { query: { ...paging, ...query } }),
     );
   }
