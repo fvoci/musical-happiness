@@ -276,3 +276,35 @@ test('while a Word document is drawn, the app answers and "Close" closes the vie
   await expect(viewer(page)).toHaveCount(0, { timeout: 2000 });
   await expect(row.getByRole('link', { name: 'links.docx' })).toBeFocused();
 });
+
+test('the frame still takes the focus when a stylesheet is loading as the document appears', async ({
+  page,
+}) => {
+  await openCard(page);
+  const row = await attach(page, '보고서.pdf', koreanPdf(1), 'application/pdf');
+  let release: (() => void) | undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requested = false;
+  await page.route('**/fvoci-pending-sheet.css', async (route) => {
+    requested = true;
+    await held;
+    await route.fulfill({ contentType: 'text/css', body: '' }).catch(() => undefined);
+  });
+  try {
+    await page.evaluate(() => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/fvoci-pending-sheet.css';
+      document.head.append(link);
+    });
+    await expect.poll(() => requested).toBe(true);
+    await row.getByRole('link', { name: '보고서.pdf' }).click();
+    await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+    await expect(page.getByTestId('file-viewer-frame')).toBeFocused();
+  } finally {
+    release?.();
+    await page.unroute('**/fvoci-pending-sheet.css').catch(() => undefined);
+  }
+});

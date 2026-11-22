@@ -1,7 +1,7 @@
 /** A focus that is on nothing: the page, or a box that only holds it around where it would go. */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { focusAdrift } from '$lib/layout/focus.ts';
+import { focusAdrift, focusRevealed } from '$lib/layout/focus.ts';
 
 function page(): { box: HTMLElement; home: HTMLElement; other: HTMLElement; aside: HTMLElement } {
   document.body.innerHTML =
@@ -48,5 +48,35 @@ describe('a focus that is adrift', () => {
     const { box } = page();
     box.focus();
     expect(focusAdrift(undefined)).toBe(false);
+  });
+});
+
+describe('focusing an element that was just revealed', () => {
+  it('flushes layout before focusing a connected element, forwarding options', () => {
+    const { home } = page();
+    const order: string[] = [];
+    vi.spyOn(home, 'getBoundingClientRect').mockImplementation(() => {
+      order.push('layout');
+      return new DOMRect();
+    });
+    const focus = vi.spyOn(home, 'focus').mockImplementation(() => {
+      order.push('focus');
+    });
+
+    focusRevealed(home, { preventScroll: true });
+
+    expect(order).toEqual(['layout', 'focus']);
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  });
+
+  it('does nothing for a missing or detached element', () => {
+    const detached = document.createElement('button');
+    const focus = vi.spyOn(detached, 'focus');
+
+    focusRevealed(null);
+    focusRevealed(undefined);
+    focusRevealed(detached);
+
+    expect(focus).not.toHaveBeenCalled();
   });
 });

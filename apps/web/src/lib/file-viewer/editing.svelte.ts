@@ -270,9 +270,7 @@ export class EditingSession {
         this.status = { name: 'ready', pages: message.pages };
         // What is typed then goes to the document. After the update: until then the frame is
         // hidden, and takes no focus.
-        void tick().then(() => {
-          this.#frame?.focus();
-        });
+        this.#focusFrame();
         break;
       case 'failed':
         if (this.status.name === 'opening') this.#fail(message.reason);
@@ -437,8 +435,20 @@ export class EditingSession {
     // The frame marks the document unchanged only if nothing changed since it exported it.
     this.#send({ kind: 'stored', request, as: saved.as });
     // Back to the document from the button or the dialog the save was asked with.
+    this.#focusFrame();
+  }
+
+  /**
+   * Moves the focus to the frame once Svelte has updated its visibility. `getBoundingClientRect()`
+   * flushes WebKit's style even while a stylesheet is pending, so `focus()` does not see the
+   * stale `visibility: hidden` and drop focus to `body`.
+   */
+  #focusFrame(): void {
     void tick().then(() => {
-      this.#frame?.focus();
+      const frame = this.#frame;
+      if (!frame?.isConnected) return;
+      frame.getBoundingClientRect();
+      frame.focus();
     });
   }
 
