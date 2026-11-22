@@ -170,17 +170,20 @@ async fn frames_past_the_rate_put_a_connection_out_of_the_room() {
         .await
         .init_basic()
         .await;
+    th.app.collab().pause_frame_rate_clock();
     let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    one.barrier(&th).await;
     // What coming in cost is made up for: ten frames at once from here.
-    tokio::time::sleep(Duration::from_millis(1100)).await;
-    // All of it before anything is read. Three updates, which are taken; thirty
-    // frames for a room it is not in, which cost a count each and the server no time
-    // (the time it takes over a frame is not counted against the connection); an
-    // update past the limit; and to come in again.
+    th.app
+        .collab()
+        .advance_frame_rate_clock(Duration::from_secs(1));
+    // All of it before anything is read. Three updates, which are taken; seven frames
+    // for a room it is not in, which spend the rest of the ten; an update past the
+    // limit; and to come in again.
     for n in 0..3 {
         one.write(&format!("{n}")).await;
     }
-    for _ in 0..30 {
+    for _ in 0..7 {
         one.send_binary(frame(999, 1, UPDATE, &[0, 0])).await;
     }
     one.write("past the limit").await;
@@ -211,7 +214,22 @@ async fn frames_past_the_rate_put_a_connection_out_of_the_room() {
         "what was taken, and no more"
     );
 
-    tokio::time::sleep(Duration::from_millis(1100)).await;
+    // A join costs five frames (half a second at ten a second): 499 ms is not enough,
+    // and one more millisecond is.
+    one.barrier(&th).await;
+    th.app
+        .collab()
+        .advance_frame_rate_clock(Duration::from_millis(499));
+    let still_refused = one.join(TEST_WORKSPACE_ID, &t.card_id).await;
+    assert_eq!(
+        still_refused["reason"],
+        json!("too_many_frames"),
+        "{still_refused}"
+    );
+    one.barrier(&th).await;
+    th.app
+        .collab()
+        .advance_frame_rate_clock(Duration::from_millis(1));
     one.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     assert_eq!(one.body(), two.body());
     two.write_acked("goes on").await;
