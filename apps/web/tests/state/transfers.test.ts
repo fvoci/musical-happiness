@@ -5,6 +5,7 @@ import {
   failureOf,
   TRANSFER_STAYS,
   Transfers,
+  UploadKept,
   type TransferOptions,
 } from '$lib/state/transfers.svelte.ts';
 
@@ -37,6 +38,9 @@ function held_<T>() {
 
 const file = (name: string, size = 10): File => new File(['x'.repeat(size)], name);
 
+/** What was said last, as it was then. */
+const lastSaid = (transfers: Transfers) => transfers.said.at(-1)?.transfer;
+
 function made() {
   const ends = vi.fn<(error: unknown) => boolean>(() => false);
   const report = vi.fn();
@@ -60,7 +64,7 @@ describe('uploads in the stack', () => {
       send: sending.send,
     });
     expect(transfers.list).toMatchObject([{ kind: 'upload', name: 'a.txt', done: 0, total: 10 }]);
-    expect(transfers.said).toMatchObject({ name: 'a.txt', finished: false });
+    expect(transfers.said).toMatchObject([{ transfer: { name: 'a.txt', finished: false } }]);
     const started = transfers.said;
     sending.options.onProgress({ sentBytes: 4, totalBytes: 10 });
     expect(transfers.list[0]).toMatchObject({ done: 4, total: 10 });
@@ -68,7 +72,8 @@ describe('uploads in the stack', () => {
     expect(transfers.said).toBe(started);
     sending.finish('file-1');
     expect(await done).toBe('file-1');
-    expect(transfers.said).toMatchObject({ name: 'a.txt', finished: true });
+    expect(transfers.said).toHaveLength(2);
+    expect(lastSaid(transfers)).toMatchObject({ name: 'a.txt', finished: true });
     vi.advanceTimersByTime(TRANSFER_STAYS - 1);
     expect(transfers.list).toHaveLength(1);
     vi.advanceTimersByTime(1);
@@ -119,7 +124,7 @@ describe('uploads in the stack', () => {
     });
     expect(await done).toBeUndefined();
     expect(transfers.list).toMatchObject([{ failure: 'busy', finished: false }]);
-    expect(transfers.said).toMatchObject({ failure: 'busy' });
+    expect(lastSaid(transfers)).toMatchObject({ failure: 'busy' });
     expect(ends).toHaveBeenCalledOnce();
     // Told in the stack only.
     expect(report).not.toHaveBeenCalled();
@@ -189,9 +194,57 @@ describe('uploads in the stack', () => {
     sending.fail(new BackendError(0, { detail: 'given up' }));
     expect(await done).toBeUndefined();
     expect(transfers.list).toMatchObject([{ failure: 'left' }]);
-    expect(transfers.said).toMatchObject({ failure: 'left' });
+    expect(lastSaid(transfers)).toMatchObject({ failure: 'left' });
     vi.advanceTimersByTime(TRANSFER_STAYS * 10);
     expect(transfers.list).toHaveLength(1);
+  });
+
+  it('says each of those that start or fail at once, in turn, the same words again too', async () => {
+    const { transfers } = made();
+    const first = held_<string>();
+    const second = held_<string>();
+    const one = transfers.upload({ file: file('same.txt'), send: first.send });
+    const two = transfers.upload({ file: file('same.txt'), send: second.send });
+    expect(transfers.said.map(({ transfer }) => [transfer.id, transfer.name])).toEqual([
+      [one.id, 'same.txt'],
+      [two.id, 'same.txt'],
+    ]);
+    first.fail(new BackendError(0, { detail: 'no answer' }));
+    second.fail(new BackendError(0, { detail: 'no answer' }));
+    await Promise.all([one.done, two.done]);
+    const failed = transfers.said.slice(2);
+    expect(failed.map(({ transfer }) => [transfer.id, transfer.failure])).toEqual([
+      [one.id, 'network'],
+      [two.id, 'network'],
+    ]);
+    // Each saying is told from the others, so that a list of them draws each once.
+    expect(new Set(transfers.said.map(({ key }) => key)).size).toBe(4);
+  });
+
+  it('brings one given up back when what it did could not be taken back, said and kept until dismissed', async () => {
+    const { transfers, ends } = made();
+    const sending = held_<string>();
+    const { id, done } = transfers.upload({
+      file: file('late.txt'),
+      card: 'card-1',
+      send: sending.send,
+      retryable: true,
+    });
+    transfers.dismiss(id);
+    expect(transfers.list).toEqual([]);
+    sending.fail(new UploadKept(new BackendError(500, { detail: 'down' })));
+    expect(await done).toBeUndefined();
+    expect(transfers.list).toMatchObject([
+      { id, name: 'late.txt', card: 'card-1', failure: 'kept', finished: false },
+    ]);
+    // Nothing to send again: it is in.
+    expect(transfers.list[0]?.retry).toBeUndefined();
+    expect(lastSaid(transfers)).toMatchObject({ id, failure: 'kept' });
+    expect(ends).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(TRANSFER_STAYS * 10);
+    expect(transfers.list).toHaveLength(1);
+    transfers.dismiss(id);
+    expect(transfers.list).toEqual([]);
   });
 
   it('shows each in the workspace it was started in only', () => {

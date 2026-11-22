@@ -130,12 +130,15 @@
     if (!onMove || !to) return false;
     // Into the page above: its pages show, the page moved among them.
     if (to.parentId !== '') open.set([to.parentId]);
+    const at = rows.findIndex((row) => row.page.id === pageId);
     const moving = onMove(pageId, to);
     void focusOn(pageId);
     // The answer may move its row again, which drops the focus; where the reader took it is theirs.
     void moving.then(() => {
-      if (document.activeElement === document.body) void focusOn(pageId);
       const row = rows.find((one) => one.page.id === pageId);
+      // Gone (somebody else deleted it, which the app tells): the row now in its place.
+      const here = row ? pageId : (rows[at] ?? rows.at(-1))?.page.id;
+      if (document.activeElement === document.body) void focusOn(here);
       if (row) {
         said = m.wiki_moved_to({
           title: titleOf(row.page),
@@ -313,7 +316,7 @@
 <div
   class="flex min-h-0 flex-1 flex-col"
   data-testid="page-tree"
-  data-settling={wiki.moving > 0 ? '' : undefined}
+  data-settling={wiki.settling ? '' : undefined}
 >
   <div class="flex shrink-0 items-center gap-1 px-3 pt-3 pb-1">
     <h2 id="{uid}-title" class="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">

@@ -86,8 +86,10 @@ export type SaveFailure =
   /** What it gave is not a file of the format opened, or is larger than is saved. */
   | 'not-a-document'
   | 'too-large'
-  /** It did not go up, or the server refused it. */
+  /** It did not go up, or the server refused it: the stack of uploads says why. */
   | 'upload'
+  /** The reader gave its upload up, in the stack of uploads. */
+  | 'stopped'
   | 'refused';
 
 /** What was exported and waits for the writer's choice. */
@@ -393,8 +395,8 @@ export class EditingSession {
         ? new File([exported.file], this.#apartName(exported.file.name), exported.file)
         : exported.file;
     const upload = await this.#source.upload(file).catch(() => undefined);
-    if (!upload) {
-      this.saving = { name: 'failed', reason: 'upload' };
+    if (!upload || upload === 'stopped') {
+      this.saving = { name: 'failed', reason: upload ?? 'upload' };
       return;
     }
     if (as === 'apart') {

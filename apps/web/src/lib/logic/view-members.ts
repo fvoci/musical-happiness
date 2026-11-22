@@ -27,6 +27,11 @@ export interface GanttViewFields {
 export interface OptionalViewFields extends GanttViewFields {
   groupById?: string;
   dateDisplayPropertyId?: string;
+  /**
+   * The view's place among the views of its board (`logic/list-places.ts`).
+   * Missing, or no place: the view comes after those with one, by title.
+   */
+  order?: string;
 }
 
 /** Every optional member, by name: one that is added to the type and not here does not compile. */
@@ -35,6 +40,7 @@ const OPTIONAL: Record<keyof OptionalViewFields, true> = {
   dateDisplayPropertyId: true,
   dependencyPropertyId: true,
   ganttZoom: true,
+  order: true,
 };
 
 /** Those of the optional members that `fields` has a value for, and no others. */

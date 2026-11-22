@@ -1,7 +1,8 @@
 /**
  * The tree of a wiki on the real server: pages moved with the keyboard, from
  * "Move…" and dragged, there again where they were put after a reload, as
- * the server keeps them (`movePage`).
+ * the server keeps them (`movePage`); and a page moved that somebody else
+ * deleted before the page heard of it.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -151,6 +152,74 @@ test('a page deleted and brought back, from the trash and by undo, is there afte
   await page.reload();
   await showTree(page);
   await expect.poll(() => treeShape(page)).toEqual(whole);
+  expect(errors).toEqual([]);
+  await api.dispose();
+});
+
+test('a page moved after somebody else deleted it is said not to move, and leaves the tree with its pages', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('wiki-gone');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
+  // What the server sends the page waits here while there is a list to hold it: the
+  // deleting is not heard before the move is answered.
+  let held: (() => void)[] | undefined;
+  await page.routeWebSocket(/\/ws$/, (socket) => {
+    const server = socket.connectToServer();
+    server.onMessage((message) => {
+      if (held)
+        held.push(() => {
+          socket.send(message);
+        });
+      else socket.send(message);
+    });
+  });
+
+  const errors = watchErrors(page);
+  await page.goto('/');
+  await signInOnPage(page, owner);
+  const wikiId = await newWiki(page, 'Tree gone', false);
+  await page.getByTestId('wiki-first-page').click();
+  await nameThePage(page, 'Welcome');
+  await pageAction(page, 'Welcome', 'add-child');
+  await nameThePage(page, 'Getting started');
+  await pageAction(page, 'Welcome', 'add-after');
+  await nameThePage(page, 'Policies');
+  await showTree(page);
+  const whole = ['Welcome', '  Getting started', 'Policies'];
+  await expect.poll(() => treeShape(page)).toEqual(whole);
+  await expect(pageTree(page)).not.toHaveAttribute('data-settling');
+
+  // "Welcome" deleted elsewhere (here, by the API as the same person), unheard of here.
+  held = [];
+  const inWiki = `/api/v1/w/${workspaceId}/wikis/${wikiId}/pages`;
+  const pages = (await (await api.get(inWiki)).json()) as Schemas['PageNode'][];
+  const welcome = pages.find((one) => one.title === 'Welcome')?.id ?? '';
+  const deleted = await api.delete(`${inWiki}/${welcome}`);
+  expect(deleted.ok(), await deleted.text()).toBe(true);
+  expect(await treeShape(page)).toEqual(whole);
+
+  await treeItem(page, 'Welcome').focus();
+  await page.keyboard.press('Alt+ArrowDown');
+  await expect(page.getByTestId('problems')).toContainText(
+    'Somebody else deleted that page, so it was not moved.',
+  );
+  await expect.poll(() => treeShape(page)).toEqual(['Policies']);
+  await expect(treeItem(page, 'Policies')).toBeFocused();
+
+  // What was held arrives, the deleting among it: the tree stays as it is.
+  const late = held;
+  held = undefined;
+  for (const send of late) send();
+  await expect(pageTree(page)).not.toHaveAttribute('data-settling');
+  expect(await treeShape(page)).toEqual(['Policies']);
+  await page.reload();
+  await showTree(page);
+  await expect.poll(() => treeShape(page)).toEqual(['Policies']);
   expect(errors).toEqual([]);
   await api.dispose();
 });

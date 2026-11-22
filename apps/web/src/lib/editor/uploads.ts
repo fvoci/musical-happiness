@@ -44,7 +44,7 @@ export type UploadOutcome = 'done' | 'failed' | 'gone' | 'refused';
 /** The node an upload becomes: an image, or a file block. */
 export type UploadKind = 'image' | 'file';
 
-/** How many uploads of each kind are under way. */
+/** How many uploads of each kind are still under way. */
 export type Pending = Record<UploadKind, number>;
 
 export interface BodyUploadOptions {
@@ -53,10 +53,9 @@ export interface BodyUploadOptions {
   /** What the placeholder of an upload of the kind says to a screen reader. */
   uploadingLabel: (kind: UploadKind) => string;
   /**
-   * How many uploads are under way, whenever that changes, and how the one
-   * that just ended did, and of which kind. Also once the editor is gone
-   * (`destroyed`): a node that could not be put in is said by whoever is
-   * still there.
+   * How an upload that just ended did, and of which kind, with how many are
+   * still under way. Also once the editor is gone (`destroyed`): a node that
+   * could not be put in is said by whoever is still there.
    */
   onProgress: (
     pending: Pending,
@@ -266,7 +265,6 @@ function uploader(
           add: { id, position, label: options.uploadingLabel(kind), kind },
         } satisfies Change),
       );
-      options.onProgress({ ...pending }, undefined, false);
       const finish = (fileId: string | undefined): void => {
         pending[kind] -= 1;
         if (view.isDestroyed) {
