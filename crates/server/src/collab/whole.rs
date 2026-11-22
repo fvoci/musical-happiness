@@ -10,7 +10,18 @@ use fvoci_store::body_digest;
 use super::place::Held;
 use super::{Collab, DocChange, refusals};
 use crate::app::App;
-use crate::error::AppError;
+use crate::error::{AppError, ErrorKind};
+
+/// Whether writing pending document updates to a card should also keep an automatic
+/// version if the version clock says one is due.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum DueVersion {
+    /// Keep an automatic version if one is due (`write_whole`).
+    Keep,
+    /// Skip the automatic version because the caller is keeping one by hand
+    /// (`keep_by_hand`).
+    Skip,
+}
 
 /// The cards and pages whose bodies a batch of patches writes: of `blocks`, those
 /// read for `block_ids`, the ones whose body has a room and whose patch (at the same
@@ -97,7 +108,10 @@ impl Collab {
         }
         let mut written_first = Ok(());
         for (card_id, slot) in &mut held {
-            if let Err(error) = self.write_first(app, card_id, slot).await {
+            if let Err(error) = self
+                .write_pending(app, card_id, slot, DueVersion::Keep)
+                .await
+            {
                 written_first = Err(error);
                 break;
             }
@@ -130,30 +144,38 @@ impl Collab {
     ///
     /// # Errors
     ///
-    /// Returns `document_unavailable` if what was read cannot be written, and the
-    /// errors of reading whether there is a log and of opening it.
-    pub(super) async fn write_first(
+    /// Preserves `NotFound` and `Conflict` errors (such as a card deleted or racing
+    /// concurrently), returns `document_unavailable` if what was read cannot otherwise
+    /// be written, and propagates errors from checking or opening the log.
+    pub(super) async fn write_pending(
         &self,
         app: &App,
         card_id: &str,
         slot: &mut Held,
+        due: DueVersion,
     ) -> Result<(), AppError> {
-        let opened_aside = slot.open.is_none();
+        let opened_aside = slot.open.is_none() && app.store().has_unwritten_body(card_id).await?;
         if opened_aside {
-            if !app.store().has_unwritten_body(card_id).await? {
-                return Ok(());
-            }
             self.open_aside(app, card_id, slot).await?;
         }
-        let written = self.write_now(app, card_id, slot).await.map_err(|error| {
-            tracing::error!(%error, card_id, "cannot write what the editors typed before a body is written whole");
-            refusals::unavailable()
-        });
+        let written = match slot.open {
+            Some(_) => match due {
+                DueVersion::Keep => self.write_now(app, card_id, slot).await,
+                DueVersion::Skip => self.write_or_replace(app, card_id, slot).await.map(drop),
+            },
+            None => Ok(()),
+        };
         if opened_aside {
             // Opened for its log alone: the next request opens it from the card.
             self.forget(slot).await;
         }
-        written
+        written.map_err(|error| match error.kind() {
+            ErrorKind::NotFound | ErrorKind::Conflict => error,
+            _ => {
+                tracing::error!(%error, card_id, "cannot write what the editors typed to its card");
+                refusals::unavailable()
+            }
+        })
     }
 
     /// Makes an open document whose card was written whole again from that body.
