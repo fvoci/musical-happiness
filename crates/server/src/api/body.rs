@@ -80,7 +80,9 @@ pub(crate) fn objects_mut<'v>(
 /// thousands), else the document.
 fn body_refused(error: BodyError) -> AppError {
     let pointer = match &error {
-        BodyError::InvalidNode { path, .. } => format!("/body{path}"),
+        BodyError::InvalidNode { path, .. } | BodyError::TableTooLarge { path } => {
+            format!("/body{path}")
+        }
         _ => "/body".to_owned(),
     };
     AppError::bad_request(error).with_pointer(pointer)

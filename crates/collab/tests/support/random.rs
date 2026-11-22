@@ -129,6 +129,44 @@ fn line(random: &mut Random) -> Vec<Value> {
     content
 }
 
+/// A table that fills its grid: two or three columns, one to three rows, a row of
+/// headers first or not, and at most one cell that spans two columns or two rows. Its
+/// cells hold blocks nested no deeper than `depth` more levels.
+fn table(random: &mut Random, depth: usize) -> Value {
+    let columns = 2 + random.below(2);
+    let rows = 1 + random.below(3);
+    let header = random.chance(3);
+    // The first cell spans two columns, or the last of the first row two rows.
+    let (wide, tall) = match random.below(3) {
+        0 => (true, false),
+        1 => (false, rows > 1),
+        _ => (false, false),
+    };
+    let lines = (0..rows)
+        .map(|row| {
+            let kind = if header && row == 0 {
+                "tableHeader"
+            } else {
+                "tableCell"
+            };
+            let covered = usize::from((row == 0 && wide) || (row == 1 && tall));
+            let width = columns - covered;
+            let cells = (0..width)
+                .map(|at| {
+                    let attrs = match (row, at) {
+                        (0, 0) if wide => Some(json!({"colspan": 2})),
+                        (0, last) if tall && last + 1 == width => Some(json!({"rowspan": 2})),
+                        _ => None,
+                    };
+                    with_content(kind, attrs, blocks(random, depth))
+                })
+                .collect();
+            with_content("tableRow", None, cells)
+        })
+        .collect();
+    with_content("table", None, lines)
+}
+
 /// A node with content, the member left out when there is none.
 fn with_content(kind: &str, attrs: Option<Value>, content: Vec<Value>) -> Value {
     let mut node = Map::new();
@@ -224,7 +262,12 @@ fn block(random: &mut Random, depth: usize) -> Value {
 /// `content`, the start of an ordered list written out. Never one empty paragraph alone.
 pub(crate) fn document(random: &mut Random) -> Value {
     loop {
-        let content = blocks(random, 4);
+        let mut content = blocks(random, 4);
+        // A table stands only in the document itself.
+        if random.chance(3) {
+            let at = random.below(content.len() + 1);
+            content.insert(at, table(random, 2));
+        }
         if content != [json!({"type": "paragraph"})] {
             return json!({"type": "doc", "content": content});
         }

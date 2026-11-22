@@ -2,8 +2,9 @@
  * Two bodies merged by a comparison, drawn for reading (render-diff.ts): what
  * marks a block added, removed or changed, the words heard before each mark,
  * the notes of what a block was, the stops of the way through the changes,
- * and code whose lines changed keeping its marks through its colours
- * (code-view.ts). No stored body can carry the marks.
+ * a table changed drawn whole as it was and as it is, and code whose lines
+ * changed keeping its marks through its colours (code-view.ts). No stored
+ * body can carry the marks.
  */
 import { render } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +21,7 @@ import { diffBodies } from '$lib/logic/body-diff.ts';
 
 import {
   bullets,
+  cell,
   code,
   doc,
   fileBlock,
@@ -32,6 +34,8 @@ import {
   numbered,
   paragraph,
   reference,
+  row,
+  table,
   text,
 } from '../support/body-docs.ts';
 import { clipboardOf, codeRuns } from '../support/code-blocks.ts';
@@ -167,6 +171,34 @@ describe('the marks of a comparison', () => {
     );
     expect(root.querySelectorAll('ul > li')).toHaveLength(2);
     expect(root.querySelector('ul > li:nth-child(2) del')?.textContent).toBe('bread');
+  });
+});
+
+describe('a table', () => {
+  const grid = (texts: string[][]): DocNode =>
+    table(...texts.map((cells) => row(...cells.map((one) => cell({}, paragraph(text(one)))))));
+
+  it('is drawn as a table: one changed as the table it was, removed, and the one it is, added', () => {
+    const before = grid([
+      ['a', 'b'],
+      ['c', 'd'],
+    ]);
+    const after = grid([
+      ['a', 'b'],
+      ['c', 'e'],
+    ]);
+    const last = (frame: Element | undefined): string | null | undefined =>
+      frame?.querySelector('table tr:last-child td:last-child')?.textContent;
+    const same = drawn(doc(paragraph(text('kept')), before), doc(paragraph(text('kept')), before));
+    expect(same.querySelectorAll('[data-diff]')).toHaveLength(0);
+    expect(last(same.querySelector('.tableWrapper') ?? undefined)).toBe('d');
+    const root = drawn(doc(before), doc(after));
+    const frames = [...root.querySelectorAll('.tableWrapper')];
+    expect(frames.map((frame) => [frame.getAttribute('data-diff'), last(frame)])).toEqual([
+      ['removed', 'd'],
+      ['added', 'e'],
+    ]);
+    expect(root.querySelectorAll(`[${DIFF_STOP}]`)).toHaveLength(2);
   });
 });
 

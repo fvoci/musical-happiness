@@ -16,7 +16,8 @@ import BodyView from '$lib/editor/BodyView.svelte';
 import { bodyExtensions } from '$lib/editor/extensions.ts';
 import type { ShownReference } from '$lib/editor/reference-chip.ts';
 import { referenceMatch, type ReferenceOptions } from '$lib/editor/reference.ts';
-import { plainText, toStoredDoc, type DocNode } from '$lib/editor/schema.ts';
+import { plainText } from '$lib/editor/body-text.ts';
+import { toStoredDoc, type DocNode } from '$lib/editor/schema.ts';
 
 import { doc, paragraph, reference, text } from '../support/body-docs.ts';
 

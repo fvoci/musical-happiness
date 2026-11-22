@@ -1,5 +1,5 @@
 {
-  "description": "Y documents made by crates/collab, written by its test (FVOCI_WRITE_VECTORS=1 cargo test -p fvoci-collab --test vectors). documents: from_body of every body contracts/ydoc-vectors.json has under documents and bodies. repairs: every repair of that file after repair. The web app's test reads each with the editor's binding and expects the JSON of the vector of the same name, and that the editor deletes nothing more.",
+  "description": "Y documents made by crates/collab, written by its test (FVOCI_WRITE_VECTORS=1 cargo test -p fvoci-collab --test vectors). documents: from_body of every body contracts/ydoc-vectors.json has under documents and bodies. repairs: every repair of that file after repair. The web app's test reads each with the editor's binding and expects the JSON of the vector of the same name, and that the editor deletes nothing more. mended: every vector of that file under refused and shortened that the server repairs, after repair, with json, the body the server reads from it; the web app's test expects an editor to read the same, and to delete nothing.",
   "documents": [
     {
       "name": "a paragraph of text",
@@ -218,6 +218,62 @@
       "update": "AQQBAAcBB2RlZmF1bHQDB2hlYWRpbmcHAAEAAwlyZWZlcmVuY2UoAAEBAmlkAXckMDFhMWM2ZjYtNGQ1OC03NmYzLWFjYTAtZmZmMzM2ZjE1MzVkKAABAAVsZXZlbAF9AgA="
     },
     {
+      "name": "a table of a header row and a row",
+      "update": "ARsBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgHAAEDBgQAAQQIRW5naW5lZXIoAAECB2NvbHNwYW4BfQEoAAECB3Jvd3NwYW4BfQFHAQIDCXRhYmxlQ2VsbAcAAQ8DCXBhcmFncmFwaAcAARAGBAABEQNBZGEoAAEPB2NvbHNwYW4BfQEoAAEPB3Jvd3NwYW4BfQFHAQEDCHRhYmxlUm93BwABFwMLdGFibGVIZWFkZXIHAAEYAwlwYXJhZ3JhcGgHAAEZBgQAARoEUm9sZSgAARgHY29sc3BhbgF9ASgAARgHcm93c3BhbgF9AUcBGAMLdGFibGVIZWFkZXIHAAEhAwlwYXJhZ3JhcGgHAAEiBgQAASMETmFtZSgAASEHY29sc3BhbgF9ASgAASEHcm93c3BhbgF9AQA="
+    },
+    {
+      "name": "a table without a header row",
+      "update": "ARsBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgHAAEDBgQAAQQBZCgAAQIHY29sc3BhbgF9ASgAAQIHcm93c3BhbgF9AUcBAgMJdGFibGVDZWxsBwABCAMJcGFyYWdyYXBoBwABCQYEAAEKAWMoAAEIB2NvbHNwYW4BfQEoAAEIB3Jvd3NwYW4BfQFHAQEDCHRhYmxlUm93BwABDgMJdGFibGVDZWxsBwABDwMJcGFyYWdyYXBoBwABEAYEAAERAWIoAAEPB2NvbHNwYW4BfQEoAAEPB3Jvd3NwYW4BfQFHAQ8DCXRhYmxlQ2VsbAcAARUDCXBhcmFncmFwaAcAARYGBAABFwFhKAABFQdjb2xzcGFuAX0BKAABFQdyb3dzcGFuAX0BAA=="
+    },
+    {
+      "name": "a table whose first column is headers",
+      "update": "ARsBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgHAAEDBgQAAQQBMigAAQIHY29sc3BhbgF9ASgAAQIHcm93c3BhbgF9AUcBAgMLdGFibGVIZWFkZXIHAAEIAwlwYXJhZ3JhcGgHAAEJBgQAAQoBeSgAAQgHY29sc3BhbgF9ASgAAQgHcm93c3BhbgF9AUcBAQMIdGFibGVSb3cHAAEOAwl0YWJsZUNlbGwHAAEPAwlwYXJhZ3JhcGgHAAEQBgQAAREBMSgAAQ8HY29sc3BhbgF9ASgAAQ8Hcm93c3BhbgF9AUcBDwMLdGFibGVIZWFkZXIHAAEVAwlwYXJhZ3JhcGgHAAEWBgQAARcBeCgAARUHY29sc3BhbgF9ASgAARUHcm93c3BhbgF9AQA="
+    },
+    {
+      "name": "a table of one cell",
+      "update": "AQYBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgoAAECB2NvbHNwYW4BfQEoAAECB3Jvd3NwYW4BfQEA"
+    },
+    {
+      "name": "a table among other blocks gives its cells' lines between theirs",
+      "update": "ASABAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQVhZnRlckcBAAMFdGFibGUHAAEHAwh0YWJsZVJvdwcAAQgDCXRhYmxlQ2VsbAcAAQkDCXBhcmFncmFwaAcAAQoGBAABCwRmb3VyKAABCQdjb2xzcGFuAX0BKAABCQdyb3dzcGFuAX0BRwEJAwl0YWJsZUNlbGwHAAESAwlwYXJhZ3JhcGgoAAESB2NvbHNwYW4BfQEoAAESB3Jvd3NwYW4BfQFHAQgDCHRhYmxlUm93BwABFgMJdGFibGVDZWxsBwABFwMJcGFyYWdyYXBoKAABFwdjb2xzcGFuAX0BKAABFwdyb3dzcGFuAX0BRwEXAwl0YWJsZUNlbGwHAAEbAwlwYXJhZ3JhcGgHAAEcBgQAAR0DdHdvRwEcAwlwYXJhZ3JhcGgHAAEhBgQAASIDb25lKAABGwdjb2xzcGFuAX0BKAABGwdyb3dzcGFuAX0BRwEHAwlwYXJhZ3JhcGgHAAEoBgQAASkGYmVmb3JlAA=="
+    },
+    {
+      "name": "a cell spanning two columns",
+      "update": "AREBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgoAAECB2NvbHNwYW4BfQEoAAECB3Jvd3NwYW4BfQFHAQIDCXRhYmxlQ2VsbAcAAQYDCXBhcmFncmFwaCgAAQYHY29sc3BhbgF9ASgAAQYHcm93c3BhbgF9AUcBAQMIdGFibGVSb3cHAAEKAwl0YWJsZUNlbGwHAAELAwlwYXJhZ3JhcGgHAAEMBgQAAQ0Ed2lkZSgAAQsHY29sc3BhbgF9AigAAQsHcm93c3BhbgF9AQA="
+    },
+    {
+      "name": "a cell spanning two rows",
+      "update": "AREBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgoAAECB2NvbHNwYW4BfQEoAAECB3Jvd3NwYW4BfQFHAQEDCHRhYmxlUm93BwABBgMJdGFibGVDZWxsBwABBwMJcGFyYWdyYXBoKAABBwdjb2xzcGFuAX0BKAABBwdyb3dzcGFuAX0BRwEHAwl0YWJsZUNlbGwHAAELAwlwYXJhZ3JhcGgHAAEMBgQAAQ0EdGFsbCgAAQsHY29sc3BhbgF9ASgAAQsHcm93c3BhbgF9AgA="
+    },
+    {
+      "name": "a cell spanning two rows and two columns",
+      "update": "ARwBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgoAAECB2NvbHNwYW4BfQEoAAECB3Jvd3NwYW4BfQFHAQIDCXRhYmxlQ2VsbAcAAQYDCXBhcmFncmFwaCgAAQYHY29sc3BhbgF9ASgAAQYHcm93c3BhbgF9AUcBBgMJdGFibGVDZWxsBwABCgMJcGFyYWdyYXBoKAABCgdjb2xzcGFuAX0BKAABCgdyb3dzcGFuAX0BRwEBAwh0YWJsZVJvdwcAAQ4DCXRhYmxlQ2VsbAcAAQ8DCXBhcmFncmFwaCgAAQ8HY29sc3BhbgF9ASgAAQ8Hcm93c3BhbgF9AUcBDgMIdGFibGVSb3cHAAETAwl0YWJsZUNlbGwHAAEUAwlwYXJhZ3JhcGgoAAEUB2NvbHNwYW4BfQEoAAEUB3Jvd3NwYW4BfQFHARQDCXRhYmxlQ2VsbAcAARgDCXBhcmFncmFwaCgAARgHY29sc3BhbgF9AigAARgHcm93c3BhbgF9AgA="
+    },
+    {
+      "name": "a row the cells above cover has no cell of its own",
+      "update": "AQsBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3dHAQEDCHRhYmxlUm93BwABAgMJdGFibGVDZWxsBwABAwMJcGFyYWdyYXBoKAABAwdjb2xzcGFuAX0BKAABAwdyb3dzcGFuAX0CRwEDAwl0YWJsZUNlbGwHAAEHAwlwYXJhZ3JhcGgoAAEHB2NvbHNwYW4BfQEoAAEHB3Jvd3NwYW4BfQIA"
+    },
+    {
+      "name": "spans written as 1 and as 1.0",
+      "update": "AQoBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgoAAECB2NvbHNwYW4BfQEoAAECB3Jvd3NwYW4BfQFHAQIDCXRhYmxlQ2VsbAcAAQYDCXBhcmFncmFwaCgAAQYHY29sc3BhbgF9ASgAAQYHcm93c3BhbgF9AQA="
+    },
+    {
+      "name": "a cell of 20 columns",
+      "update": "AQYBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgoAAECB2NvbHNwYW4BfRQoAAECB3Jvd3NwYW4BfQEA"
+    },
+    {
+      "name": "a cell of 200 rows",
+      "update": "Ac0BAQAHAQdkZWZhdWx0AwV0YWJsZQcAAQADCHRhYmxlUm93RwEBAwh0YWJsZVJvd0cBAgMIdGFibGVSb3dHAQMDCHRhYmxlUm93RwEEAwh0YWJsZVJvd0cBBQMIdGFibGVSb3dHAQYDCHRhYmxlUm93RwEHAwh0YWJsZVJvd0cBCAMIdGFibGVSb3dHAQkDCHRhYmxlUm93RwEKAwh0YWJsZVJvd0cBCwMIdGFibGVSb3dHAQwDCHRhYmxlUm93RwENAwh0YWJsZVJvd0cBDgMIdGFibGVSb3dHAQ8DCHRhYmxlUm93RwEQAwh0YWJsZVJvd0cBEQMIdGFibGVSb3dHARIDCHRhYmxlUm93RwETAwh0YWJsZVJvd0cBFAMIdGFibGVSb3dHARUDCHRhYmxlUm93RwEWAwh0YWJsZVJvd0cBFwMIdGFibGVSb3dHARgDCHRhYmxlUm93RwEZAwh0YWJsZVJvd0cBGgMIdGFibGVSb3dHARsDCHRhYmxlUm93RwEcAwh0YWJsZVJvd0cBHQMIdGFibGVSb3dHAR4DCHRhYmxlUm93RwEfAwh0YWJsZVJvd0cBIAMIdGFibGVSb3dHASEDCHRhYmxlUm93RwEiAwh0YWJsZVJvd0cBIwMIdGFibGVSb3dHASQDCHRhYmxlUm93RwElAwh0YWJsZVJvd0cBJgMIdGFibGVSb3dHAScDCHRhYmxlUm93RwEoAwh0YWJsZVJvd0cBKQMIdGFibGVSb3dHASoDCHRhYmxlUm93RwErAwh0YWJsZVJvd0cBLAMIdGFibGVSb3dHAS0DCHRhYmxlUm93RwEuAwh0YWJsZVJvd0cBLwMIdGFibGVSb3dHATADCHRhYmxlUm93RwExAwh0YWJsZVJvd0cBMgMIdGFibGVSb3dHATMDCHRhYmxlUm93RwE0Awh0YWJsZVJvd0cBNQMIdGFibGVSb3dHATYDCHRhYmxlUm93RwE3Awh0YWJsZVJvd0cBOAMIdGFibGVSb3dHATkDCHRhYmxlUm93RwE6Awh0YWJsZVJvd0cBOwMIdGFibGVSb3dHATwDCHRhYmxlUm93RwE9Awh0YWJsZVJvd0cBPgMIdGFibGVSb3dHAT8DCHRhYmxlUm93RwFAAwh0YWJsZVJvd0cBQQMIdGFibGVSb3dHAUIDCHRhYmxlUm93RwFDAwh0YWJsZVJvd0cBRAMIdGFibGVSb3dHAUUDCHRhYmxlUm93RwFGAwh0YWJsZVJvd0cBRwMIdGFibGVSb3dHAUgDCHRhYmxlUm93RwFJAwh0YWJsZVJvd0cBSgMIdGFibGVSb3dHAUsDCHRhYmxlUm93RwFMAwh0YWJsZVJvd0cBTQMIdGFibGVSb3dHAU4DCHRhYmxlUm93RwFPAwh0YWJsZVJvd0cBUAMIdGFibGVSb3dHAVEDCHRhYmxlUm93RwFSAwh0YWJsZVJvd0cBUwMIdGFibGVSb3dHAVQDCHRhYmxlUm93RwFVAwh0YWJsZVJvd0cBVgMIdGFibGVSb3dHAVcDCHRhYmxlUm93RwFYAwh0YWJsZVJvd0cBWQMIdGFibGVSb3dHAVoDCHRhYmxlUm93RwFbAwh0YWJsZVJvd0cBXAMIdGFibGVSb3dHAV0DCHRhYmxlUm93RwFeAwh0YWJsZVJvd0cBXwMIdGFibGVSb3dHAWADCHRhYmxlUm93RwFhAwh0YWJsZVJvd0cBYgMIdGFibGVSb3dHAWMDCHRhYmxlUm93RwFkAwh0YWJsZVJvd0cBZQMIdGFibGVSb3dHAWYDCHRhYmxlUm93RwFnAwh0YWJsZVJvd0cBaAMIdGFibGVSb3dHAWkDCHRhYmxlUm93RwFqAwh0YWJsZVJvd0cBawMIdGFibGVSb3dHAWwDCHRhYmxlUm93RwFtAwh0YWJsZVJvd0cBbgMIdGFibGVSb3dHAW8DCHRhYmxlUm93RwFwAwh0YWJsZVJvd0cBcQMIdGFibGVSb3dHAXIDCHRhYmxlUm93RwFzAwh0YWJsZVJvd0cBdAMIdGFibGVSb3dHAXUDCHRhYmxlUm93RwF2Awh0YWJsZVJvd0cBdwMIdGFibGVSb3dHAXgDCHRhYmxlUm93RwF5Awh0YWJsZVJvd0cBegMIdGFibGVSb3dHAXsDCHRhYmxlUm93RwF8Awh0YWJsZVJvd0cBfQMIdGFibGVSb3dHAX4DCHRhYmxlUm93RwF/Awh0YWJsZVJvd0cBgAEDCHRhYmxlUm93RwGBAQMIdGFibGVSb3dHAYIBAwh0YWJsZVJvd0cBgwEDCHRhYmxlUm93RwGEAQMIdGFibGVSb3dHAYUBAwh0YWJsZVJvd0cBhgEDCHRhYmxlUm93RwGHAQMIdGFibGVSb3dHAYgBAwh0YWJsZVJvd0cBiQEDCHRhYmxlUm93RwGKAQMIdGFibGVSb3dHAYsBAwh0YWJsZVJvd0cBjAEDCHRhYmxlUm93RwGNAQMIdGFibGVSb3dHAY4BAwh0YWJsZVJvd0cBjwEDCHRhYmxlUm93RwGQAQMIdGFibGVSb3dHAZEBAwh0YWJsZVJvd0cBkgEDCHRhYmxlUm93RwGTAQMIdGFibGVSb3dHAZQBAwh0YWJsZVJvd0cBlQEDCHRhYmxlUm93RwGWAQMIdGFibGVSb3dHAZcBAwh0YWJsZVJvd0cBmAEDCHRhYmxlUm93RwGZAQMIdGFibGVSb3dHAZoBAwh0YWJsZVJvd0cBmwEDCHRhYmxlUm93RwGcAQMIdGFibGVSb3dHAZ0BAwh0YWJsZVJvd0cBngEDCHRhYmxlUm93RwGfAQMIdGFibGVSb3dHAaABAwh0YWJsZVJvd0cBoQEDCHRhYmxlUm93RwGiAQMIdGFibGVSb3dHAaMBAwh0YWJsZVJvd0cBpAEDCHRhYmxlUm93RwGlAQMIdGFibGVSb3dHAaYBAwh0YWJsZVJvd0cBpwEDCHRhYmxlUm93RwGoAQMIdGFibGVSb3dHAakBAwh0YWJsZVJvd0cBqgEDCHRhYmxlUm93RwGrAQMIdGFibGVSb3dHAawBAwh0YWJsZVJvd0cBrQEDCHRhYmxlUm93RwGuAQMIdGFibGVSb3dHAa8BAwh0YWJsZVJvd0cBsAEDCHRhYmxlUm93RwGxAQMIdGFibGVSb3dHAbIBAwh0YWJsZVJvd0cBswEDCHRhYmxlUm93RwG0AQMIdGFibGVSb3dHAbUBAwh0YWJsZVJvd0cBtgEDCHRhYmxlUm93RwG3AQMIdGFibGVSb3dHAbgBAwh0YWJsZVJvd0cBuQEDCHRhYmxlUm93RwG6AQMIdGFibGVSb3dHAbsBAwh0YWJsZVJvd0cBvAEDCHRhYmxlUm93RwG9AQMIdGFibGVSb3dHAb4BAwh0YWJsZVJvd0cBvwEDCHRhYmxlUm93RwHAAQMIdGFibGVSb3dHAcEBAwh0YWJsZVJvd0cBwgEDCHRhYmxlUm93RwHDAQMIdGFibGVSb3dHAcQBAwh0YWJsZVJvd0cBxQEDCHRhYmxlUm93RwHGAQMIdGFibGVSb3dHAccBAwh0YWJsZVJvdwcAAcgBAwl0YWJsZUNlbGwHAAHJAQMJcGFyYWdyYXBoKAAByQEHY29sc3BhbgF9ASgAAckBB3Jvd3NwYW4BfYgDAA=="
+    },
+    {
+      "name": "a header cell spanning columns",
+      "update": "AREBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgoAAECB2NvbHNwYW4BfQEoAAECB3Jvd3NwYW4BfQFHAQIDCXRhYmxlQ2VsbAcAAQYDCXBhcmFncmFwaCgAAQYHY29sc3BhbgF9ASgAAQYHcm93c3BhbgF9AUcBAQMIdGFibGVSb3cHAAEKAwt0YWJsZUhlYWRlcgcAAQsDCXBhcmFncmFwaAcAAQwGBAABDQFoKAABCwdjb2xzcGFuAX0CKAABCwdyb3dzcGFuAX0BAA=="
+    },
+    {
+      "name": "a cell of every block",
+      "update": "ATYBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlibG9ja01hdGgoAAEDBWxhdGV4AXcIRSA9IG1jXjJHAQMDBGZpbGUoAAEFBmZpbGVJZAF3DDdtaW51dGVzLnBkZkcBBQMFaW1hZ2UoAAEHBmZpbGVJZAF3CjdjaGFydC5wbmcoAAEHA2FsdAF3B2EgY2hhcnRHAQcDDmhvcml6b250YWxSdWxlRwEKAwljb2RlQmxvY2sHAAELBgQAAQwKbGV0IHggPSAxOygAAQsIbGFuZ3VhZ2UBdwRydXN0RwELAwpibG9ja3F1b3RlBwABGAMJcGFyYWdyYXBoBwABGQYEAAEaBnF1b3RlZEcBGAMIdGFza0xpc3QHAAEhAwh0YXNrSXRlbQcAASIDCXBhcmFncmFwaAcAASMGBAABJARkb25lKAABIgdjaGVja2VkAXhHASEDC29yZGVyZWRMaXN0BwABKgMIbGlzdEl0ZW0HAAErAwlwYXJhZ3JhcGgHAAEsBgQAAS0FdGhpcmQoAAEqBXN0YXJ0AX0DRwEqAwpidWxsZXRMaXN0BwABNAMIbGlzdEl0ZW0HAAE1AwlwYXJhZ3JhcGgHAAE2BgQAATcEaXRlbUcBNAMJcGFyYWdyYXBoBwABPAYEAAE9AXlHAT0DCWhhcmRCcmVha0cBPwMKaW5saW5lTWF0aCgAAUAFbGF0ZXgBdwNhXjJHAUADCXJlZmVyZW5jZSgAAUICaWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGIwMDJHAUIDB21lbnRpb24oAAFEBnVzZXJJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwMkcBRAYEAAFGAnggRwE8AwdoZWFkaW5nBwABSQYEAAFKBXRpdGxlKAABSQVsZXZlbAF9AigAAQIHY29sc3BhbgF9ASgAAQIHcm93c3BhbgF9AQA="
+    },
+    {
       "name": "a text of three runs: plain, bold, plain",
       "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQZwbGFpbiCEAQcEYm9sZIQBCwYgcGxhaW7GAQcBCARib2xkAnt9xgELAQwEYm9sZARudWxsAA=="
     },
@@ -248,6 +304,1945 @@
     {
       "name": "lists inside lists, a quote and tasks",
       "update": "ARkBAAcBB2RlZmF1bHQDCmJ1bGxldExpc3QHAAEAAwhsaXN0SXRlbQcAAQEDCmJsb2NrcXVvdGUHAAECAwh0YXNrTGlzdAcAAQMDCHRhc2tJdGVtBwABBAMOaG9yaXpvbnRhbFJ1bGVHAQUDCXBhcmFncmFwaAcAAQYGBAABBwRkb25lKAABBAdjaGVja2VkAXhHAQQDCHRhc2tJdGVtBwABDQMJcGFyYWdyYXBoKAABDQdjaGVja2VkAXlHAQIDC29yZGVyZWRMaXN0BwABEAMIbGlzdEl0ZW0HAAERAwlwYXJhZ3JhcGgHAAESBgQAARMEZGVlcEYBFARjb2RlAnt9hgEXBGNvZGUEbnVsbEcBEgMJcGFyYWdyYXBoKAABEAVzdGFydAF9A0cBEAMJcGFyYWdyYXBoBwABHAYEAAEdA29uZQA="
+    }
+  ],
+  "mended": [
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "text": "a",
+                "type": "text"
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a heading of level 7",
+      "update": "AQcBAAcBB2RlZmF1bHQDB2hlYWRpbmcHAAEABgQAAQEBaCgAAQAFbGV2ZWwBfQeHAQADCXBhcmFncmFwaAcAAQQGBAABBQFhAQEBAAQ="
+    },
+    {
+      "json": null,
+      "name": "a heading whose level is a text",
+      "update": "AQQBAAcBB2RlZmF1bHQDB2hlYWRpbmcHAAEABgQAAQEBaCgAAQAFbGV2ZWwBdwEyAQEBAAQ="
+    },
+    {
+      "json": null,
+      "name": "a heading whose level is null",
+      "update": "AQQBAAcBB2RlZmF1bHQDB2hlYWRpbmcHAAEABgQAAQEBaCgAAQAFbGV2ZWwBfgEBAQAE"
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "text": "a",
+                "type": "text"
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "an image without a file",
+      "update": "AQQBAAcBB2RlZmF1bHQDBWltYWdlhwEAAwlwYXJhZ3JhcGgHAAEBBgQAAQIBYQEBAQAB"
+    },
+    {
+      "json": null,
+      "name": "an image whose file is empty",
+      "update": "AQIBAAcBB2RlZmF1bHQDBWltYWdlKAABAAZmaWxlSWQBdwABAQEAAg=="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "text": "a",
+                "type": "text"
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a file block without a file",
+      "update": "AQQBAAcBB2RlZmF1bHQDBGZpbGWHAQADCXBhcmFncmFwaAcAAQEGBAABAgFhAQEBAAE="
+    },
+    {
+      "json": null,
+      "name": "a file block whose file is empty",
+      "update": "AQIBAAcBB2RlZmF1bHQDBGZpbGUoAAEABmZpbGVJZAF3AAEBAQAC"
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "type": "paragraph"
+          },
+          {
+            "type": "paragraph"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a mention of nobody, and of somebody who is no identifier",
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQADB21lbnRpb26HAQADCXBhcmFncmFwaAcAAQIDB21lbnRpb24oAAEDBnVzZXJJZAF3AXgBAQIBAQMC"
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "type": "paragraph"
+          },
+          {
+            "type": "paragraph"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a reference to nothing, and to something that is no identifier",
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQADCXJlZmVyZW5jZYcBAAMJcGFyYWdyYXBoBwABAgMJcmVmZXJlbmNlKAABAwJpZAF3AXgBAQIBAQMC"
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "text": "a",
+                "type": "text"
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "formulas without a source and with an empty one",
+      "update": "AQcBAAcBB2RlZmF1bHQDCWJsb2NrTWF0aIcBAAMJYmxvY2tNYXRoKAABAQVsYXRleAF3AIcBAQMJcGFyYWdyYXBoBwABAwMKaW5saW5lTWF0aIcBBAYEAAEFAWEBAQIAAwQB"
+    },
+    {
+      "json": null,
+      "name": "a link without a target",
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQRsaW5rAnt9hAECAXiGAQMEbGluawRudWxsAQEBAQQ="
+    },
+    {
+      "json": null,
+      "name": "a link whose value is true",
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQRsaW5rBHRydWWEAQIBeIYBAwRsaW5rBG51bGwBAQEBBA=="
+    },
+    {
+      "json": null,
+      "name": "a link whose value is a text",
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQRsaW5rCSIvYm9hcmRzIoQBAgF4hgEDBGxpbmsEbnVsbAEBAQEE"
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "text": "a",
+                "type": "text"
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a link that runs a script",
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEBBgYAAQMEbGluax57ImhyZWYiOiJqYXZhc2NyaXB0OmFsZXJ0KDEpIn2EAQQBeIYBBQRsaW5rBG51bGwBAQEDBA=="
+    },
+    {
+      "json": null,
+      "name": "an ordered list that starts below zero",
+      "update": "AQQBAAcBB2RlZmF1bHQDC29yZGVyZWRMaXN0BwABAAMIbGlzdEl0ZW0HAAEBAwlwYXJhZ3JhcGgoAAEABXN0YXJ0AX1BAQEBAAQ="
+    },
+    {
+      "json": null,
+      "name": "a task item whose checked is a text",
+      "update": "AQQBAAcBB2RlZmF1bHQDCHRhc2tMaXN0BwABAAMIdGFza0l0ZW0HAAEBAwlwYXJhZ3JhcGgoAAEBB2NoZWNrZWQBdwN5ZXMBAQEABA=="
+    },
+    {
+      "json": null,
+      "name": "a code block whose language has a space",
+      "update": "AQQBAAcBB2RlZmF1bHQDCWNvZGVCbG9jawcAAQAGBAABAQF4KAABAAhsYW5ndWFnZQF3B2Mgc2hhcnABAQEABA=="
+    },
+    {
+      "json": null,
+      "name": "a text with the character U+0000",
+      "update": "AQMBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQNhAGIBAQEBBA=="
+    },
+    {
+      "json": null,
+      "name": "a mark given twice, once under a name with a hash",
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQRib2xkAnt9hgECDmJvbGQtLWFiY2RlZmdoAnt9hAEDAXiGAQQEYm9sZARudWxshgEFDmJvbGQtLWFiY2RlZmdoBG51bGwBAQEBBg=="
+    },
+    {
+      "json": null,
+      "name": "two links on one text, under names with a hash",
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQ5saW5rLS1hYmNkZWZnaA97ImhyZWYiOiIvb25lIn2GAQIObGluay0tQUJDREVGR0gPeyJocmVmIjoiL3R3byJ9hAEDAXiGAQQObGluay0tYWJjZGVmZ2gEbnVsbIYBBQ5saW5rLS1BQkNERUZHSARudWxsAQEBAQY="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "b",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "c",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a table whose second row is a cell short",
+      "update": "AgSAgICAEACHAQsDCXRhYmxlQ2VsbAcAgICAgBAAAwlwYXJhZ3JhcGgoAICAgIAQAAdjb2xzcGFuAX0BKACAgICAEAAHcm93c3BhbgF9AQ8BAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgHAAEDBgQAAQQBYYcBAgMJdGFibGVDZWxsBwABBgMJcGFyYWdyYXBoBwABBwYEAAEIAWKHAQEDCHRhYmxlUm93BwABCgMJdGFibGVDZWxsBwABCwMJcGFyYWdyYXBoBwABDAYEAAENAWMA"
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableHeader"
+                  },
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableHeader"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "b",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "c",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a row of headers a cell short",
+      "update": "AgSAgICAEACHAQIDC3RhYmxlSGVhZGVyBwCAgICAEAADCXBhcmFncmFwaCgAgICAgBAAB2NvbHNwYW4BfQEoAICAgIAQAAdyb3dzcGFuAX0BDwEABwEHZGVmYXVsdAMFdGFibGUHAAEAAwh0YWJsZVJvdwcAAQEDC3RhYmxlSGVhZGVyBwABAgMJcGFyYWdyYXBoBwABAwYEAAEEAWGHAQEDCHRhYmxlUm93BwABBgMJdGFibGVDZWxsBwABBwMJcGFyYWdyYXBoBwABCAYEAAEJAWKHAQcDCXRhYmxlQ2VsbAcAAQsDCXBhcmFncmFwaAcAAQwGBAABDQFjAA=="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "b",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a table whose second row has no cell, which no cell above covers",
+      "update": "AgiAgICAEAAHAAEKAwl0YWJsZUNlbGwHAICAgIAQAAMJcGFyYWdyYXBoKACAgICAEAAHY29sc3BhbgF9ASgAgICAgBAAB3Jvd3NwYW4BfQGHgICAgBAAAwl0YWJsZUNlbGwHAICAgIAQBAMJcGFyYWdyYXBoKACAgICAEAQHY29sc3BhbgF9ASgAgICAgBAEB3Jvd3NwYW4BfQELAQAHAQdkZWZhdWx0AwV0YWJsZQcAAQADCHRhYmxlUm93BwABAQMJdGFibGVDZWxsBwABAgMJcGFyYWdyYXBoBwABAwYEAAEEAWGHAQIDCXRhYmxlQ2VsbAcAAQYDCXBhcmFncmFwaAcAAQcGBAABCAFihwEBAwh0YWJsZVJvdwA="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "attrs": {
+                      "rowspan": 2
+                    },
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "b",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "c",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a cell whose rowspan reaches past the last row",
+      "update": "AgGAgICAEACoAQYBfQIQAQAHAQdkZWZhdWx0AwV0YWJsZQcAAQADCHRhYmxlUm93BwABAQMJdGFibGVDZWxsBwABAgMJcGFyYWdyYXBoBwABAwYEAAEEAWEoAAECB3Jvd3NwYW4BfQOHAQIDCXRhYmxlQ2VsbAcAAQcDCXBhcmFncmFwaAcAAQgGBAABCQFihwEBAwh0YWJsZVJvdwcAAQsDCXRhYmxlQ2VsbAcAAQwDCXBhcmFncmFwaAcAAQ0GBAABDgFjAQEBBgE="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "attrs": {
+                      "rowspan": 2
+                    },
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "b",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "c",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a cell whose colspan runs into a cell that reaches down from above",
+      "update": "AgGAgICAEACoARABfQERAQAHAQdkZWZhdWx0AwV0YWJsZQcAAQADCHRhYmxlUm93BwABAQMJdGFibGVDZWxsBwABAgMJcGFyYWdyYXBoBwABAwYEAAEEAWGHAQIDCXRhYmxlQ2VsbAcAAQYDCXBhcmFncmFwaAcAAQcGBAABCAFiKAABBgdyb3dzcGFuAX0ChwEBAwh0YWJsZVJvdwcAAQsDCXRhYmxlQ2VsbAcAAQwDCXBhcmFncmFwaAcAAQ0GBAABDgFjKAABDAdjb2xzcGFuAX0CAQEBEAE="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "b",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "c",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "d",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "spans that are no whole number from one up",
+      "update": "AgOAgICAEACoAQYBfQGoAQsBfQGoAREBfQEWAQAHAQdkZWZhdWx0AwV0YWJsZQcAAQADCHRhYmxlUm93BwABAQMJdGFibGVDZWxsBwABAgMJcGFyYWdyYXBoBwABAwYEAAEEAWEoAAECB2NvbHNwYW4BdwEyhwECAwl0YWJsZUNlbGwHAAEHAwlwYXJhZ3JhcGgHAAEIBgQAAQkBYigAAQcHcm93c3BhbgF9AIcBAQMIdGFibGVSb3cHAAEMAwl0YWJsZUNlbGwHAAENAwlwYXJhZ3JhcGgHAAEOBgQAAQ8BYygAAQ0HY29sc3BhbgF8P8AAAIcBDQMJdGFibGVDZWxsBwABEgMJcGFyYWdyYXBoBwABEwYEAAEUAWQBAQMGAQsBEQE="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "text": "a",
+                "type": "text"
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a table whose only row has no cell",
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwV0YWJsZQcAAQMDCHRhYmxlUm93AQEBAwI="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "text": "before",
+                "type": "text"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "b",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "new 0",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "c",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "d",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "new 1",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "e",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "f",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "one adds a column while the other adds a row",
+      "update": "BASAgICAEACHAwUDCXRhYmxlQ2VsbAcAgICAgBAAAwlwYXJhZ3JhcGgoAICAgIAQAAdjb2xzcGFuAX0BKACAgICAEAAHcm93c3BhbgF9AQkDAIcBEgMIdGFibGVSb3cHAAMAAwl0YWJsZUNlbGwHAAMBAwlwYXJhZ3JhcGgHAAMCBgQAAwMBZYcDAQMJdGFibGVDZWxsBwADBQMJcGFyYWdyYXBoBwADBgYEAAMHAWYIAgCHAQ4DCXRhYmxlQ2VsbAcAAgADCXBhcmFncmFwaAcAAgEGBAACAgVuZXcgMIcBFwMJdGFibGVDZWxsBwACCAMJcGFyYWdyYXBoBwACCQYEAAIKBW5ldyAxFgEABwEHZGVmYXVsdAMJcGFyYWdyYXBoBwABAAYEAAEBBmJlZm9yZYcBAAMFdGFibGUHAAEIAwh0YWJsZVJvdwcAAQkDCXRhYmxlQ2VsbAcAAQoDCXBhcmFncmFwaAcAAQsGBAABDAFhhwEKAwl0YWJsZUNlbGwHAAEOAwlwYXJhZ3JhcGgHAAEPBgQAARABYocBCQMIdGFibGVSb3cHAAESAwl0YWJsZUNlbGwHAAETAwlwYXJhZ3JhcGgHAAEUBgQAARUBY4cBEwMJdGFibGVDZWxsBwABFwMJcGFyYWdyYXBoBwABGAYEAAEZAWQA"
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "text": "before",
+                "type": "text"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "c",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "e",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "f",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "one deletes a column while the other adds a row",
+      "update": "AwiAgICAEADHAQoBDgMJdGFibGVDZWxsBwCAgICAEAADCXBhcmFncmFwaCgAgICAgBAAB2NvbHNwYW4BfQEoAICAgIAQAAdyb3dzcGFuAX0BxwETARcDCXRhYmxlQ2VsbAcAgICAgBAEAwlwYXJhZ3JhcGgoAICAgIAQBAdjb2xzcGFuAX0BKACAgICAEAQHcm93c3BhbgF9AQkDAIcBEgMIdGFibGVSb3cHAAMAAwl0YWJsZUNlbGwHAAMBAwlwYXJhZ3JhcGgHAAMCBgQAAwMBZYcDAQMJdGFibGVDZWxsBwADBQMJcGFyYWdyYXBoBwADBgYEAAMHAWYSAQAHAQdkZWZhdWx0AwlwYXJhZ3JhcGgHAAEABgQAAQEGYmVmb3JlhwEAAwV0YWJsZQcAAQgDCHRhYmxlUm93BwABCQMJdGFibGVDZWxsBwABCgMJcGFyYWdyYXBoBwABCwYEAAEMAWGBAQoBAAOHAQkDCHRhYmxlUm93BwABEgMJdGFibGVDZWxsBwABEwMJcGFyYWdyYXBoBwABFAYEAAEVAWOBARMBAAMBAQIOBBcE"
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "text": "before",
+                "type": "text"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "b",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "one joins the two cells of a column while the other deletes the lower row",
+      "update": "AwGAgICAEACoAgABfQEBAgAoAAEKB3Jvd3NwYW4BfQIPAQAHAQdkZWZhdWx0AwlwYXJhZ3JhcGgHAAEABgQAAQEGYmVmb3JlhwEAAwV0YWJsZQcAAQgDCHRhYmxlUm93BwABCQMJdGFibGVDZWxsBwABCgMJcGFyYWdyYXBoBwABCwYEAAEMAWGHAQoDCXRhYmxlQ2VsbAcAAQ4DCXBhcmFncmFwaAcAAQ8GBAABEAFigQEJAQAIAgEBEgkCAQAB"
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "b",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "c",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "d",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a cell with nothing in it",
+      "update": "AgSAgICAEABHAQIDCXRhYmxlQ2VsbAcAgICAgBAAAwlwYXJhZ3JhcGgoAICAgIAQAAdjb2xzcGFuAX0BKACAgICAEAAHcm93c3BhbgF9ARABAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGyHAQIDCXRhYmxlQ2VsbAcAAQMDCXBhcmFncmFwaAcAAQQGBAABBQFihwEBAwh0YWJsZVJvdwcAAQcDCXRhYmxlQ2VsbAcAAQgDCXBhcmFncmFwaAcAAQkGBAABCgFjhwEIAwl0YWJsZUNlbGwHAAEMAwlwYXJhZ3JhcGgHAAENBgQAAQ4BZAEBAQIB"
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "c",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "d",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a cell that holds a text with no paragraph",
+      "update": "AgSAgICAEADHAQIBBgMJdGFibGVDZWxsBwCAgICAEAADCXBhcmFncmFwaCgAgICAgBAAB2NvbHNwYW4BfQEoAICAgIAQAAdyb3dzcGFuAX0BEgEABwEHZGVmYXVsdAMFdGFibGUHAAEAAwh0YWJsZVJvdwcAAQEDCXRhYmxlQ2VsbAcAAQIDCXBhcmFncmFwaAcAAQMGBAABBAFhhwECAwl0YWJsZUNlbGwHAAEGBgQAAQcFbG9vc2WHAQEDCHRhYmxlUm93BwABDQMJdGFibGVDZWxsBwABDgMJcGFyYWdyYXBoBwABDwYEAAEQAWOHAQ4DCXRhYmxlQ2VsbAcAARIDCXBhcmFncmFwaAcAARMGBAABFAFkAQEBBgc="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "c",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "d",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a cell that holds a table",
+      "update": "AgSAgICAEADHAQIBBgMJdGFibGVDZWxsBwCAgICAEAADCXBhcmFncmFwaCgAgICAgBAAB2NvbHNwYW4BfQEoAICAgIAQAAdyb3dzcGFuAX0BFgEABwEHZGVmYXVsdAMFdGFibGUHAAEAAwh0YWJsZVJvdwcAAQEDCXRhYmxlQ2VsbAcAAQIDCXBhcmFncmFwaAcAAQMGBAABBAFhhwECAwl0YWJsZUNlbGwHAAEGAwV0YWJsZQcAAQcDCHRhYmxlUm93BwABCAMJdGFibGVDZWxsBwABCQMJcGFyYWdyYXBoBwABCgYEAAELBWlubmVyhwEBAwh0YWJsZVJvdwcAAREDCXRhYmxlQ2VsbAcAARIDCXBhcmFncmFwaAcAARMGBAABFAFjhwESAwl0YWJsZUNlbGwHAAEWAwlwYXJhZ3JhcGgHAAEXBgQAARgBZAEBAQYL"
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "c",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "d",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "e",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "f",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a cell with nothing in it, after a text with nothing in it",
+      "update": "AgSAgICAEADHAQMBBwMJdGFibGVDZWxsBwCAgICAEAADCXBhcmFncmFwaCgAgICAgBAAB2NvbHNwYW4BfQEoAICAgIAQAAdyb3dzcGFuAX0BGQEABwEHZGVmYXVsdAMFdGFibGUHAAEAAwh0YWJsZVJvdwcAAQEGhwECAwl0YWJsZUNlbGwHAAEDAwlwYXJhZ3JhcGgHAAEEBgQAAQUBYYcBAwMJdGFibGVDZWxshwEHAwl0YWJsZUNlbGwHAAEIAwlwYXJhZ3JhcGgHAAEJBgQAAQoBY4cBAQMIdGFibGVSb3cHAAEMAwl0YWJsZUNlbGwHAAENAwlwYXJhZ3JhcGgHAAEOBgQAAQ8BZIcBDQMJdGFibGVDZWxsBwABEQMJcGFyYWdyYXBoBwABEgYEAAETAWWHAREDCXRhYmxlQ2VsbAcAARUDCXBhcmFncmFwaAcAARYGBAABFwFmAQECAgEHAQ=="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "1",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "2",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "3",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "4",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "5",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "6",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "7",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "8",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "9",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "10",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "11",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "12",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "13",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "14",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "15",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "16",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "17",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "18",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "19",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "0",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "1",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "2",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "3",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "4",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "5",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "6",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "7",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "8",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "9",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "10",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "11",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "12",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "13",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "14",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "15",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "16",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "17",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "18",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "19",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a cell with nothing in it, in a table of twenty columns",
+      "update": "AgSAgICAEABHAQIDCXRhYmxlQ2VsbAcAgICAgBAAAwlwYXJhZ3JhcGgoAICAgIAQAAdjb2xzcGFuAX0BKACAgICAEAAHcm93c3BhbgF9AaABAQAHAQdkZWZhdWx0AwV0YWJsZQcAAQADCHRhYmxlUm93BwABAQMJdGFibGVDZWxshwECAwl0YWJsZUNlbGwHAAEDAwlwYXJhZ3JhcGgHAAEEBgQAAQUBMYcBAwMJdGFibGVDZWxsBwABBwMJcGFyYWdyYXBoBwABCAYEAAEJATKHAQcDCXRhYmxlQ2VsbAcAAQsDCXBhcmFncmFwaAcAAQwGBAABDQEzhwELAwl0YWJsZUNlbGwHAAEPAwlwYXJhZ3JhcGgHAAEQBgQAAREBNIcBDwMJdGFibGVDZWxsBwABEwMJcGFyYWdyYXBoBwABFAYEAAEVATWHARMDCXRhYmxlQ2VsbAcAARcDCXBhcmFncmFwaAcAARgGBAABGQE2hwEXAwl0YWJsZUNlbGwHAAEbAwlwYXJhZ3JhcGgHAAEcBgQAAR0BN4cBGwMJdGFibGVDZWxsBwABHwMJcGFyYWdyYXBoBwABIAYEAAEhATiHAR8DCXRhYmxlQ2VsbAcAASMDCXBhcmFncmFwaAcAASQGBAABJQE5hwEjAwl0YWJsZUNlbGwHAAEnAwlwYXJhZ3JhcGgHAAEoBgQAASkCMTCHAScDCXRhYmxlQ2VsbAcAASwDCXBhcmFncmFwaAcAAS0GBAABLgIxMYcBLAMJdGFibGVDZWxsBwABMQMJcGFyYWdyYXBoBwABMgYEAAEzAjEyhwExAwl0YWJsZUNlbGwHAAE2AwlwYXJhZ3JhcGgHAAE3BgQAATgCMTOHATYDCXRhYmxlQ2VsbAcAATsDCXBhcmFncmFwaAcAATwGBAABPQIxNIcBOwMJdGFibGVDZWxsBwABQAMJcGFyYWdyYXBoBwABQQYEAAFCAjE1hwFAAwl0YWJsZUNlbGwHAAFFAwlwYXJhZ3JhcGgHAAFGBgQAAUcCMTaHAUUDCXRhYmxlQ2VsbAcAAUoDCXBhcmFncmFwaAcAAUsGBAABTAIxN4cBSgMJdGFibGVDZWxsBwABTwMJcGFyYWdyYXBoBwABUAYEAAFRAjE4hwFPAwl0YWJsZUNlbGwHAAFUAwlwYXJhZ3JhcGgHAAFVBgQAAVYCMTmHAQEDCHRhYmxlUm93BwABWQMJdGFibGVDZWxsBwABWgMJcGFyYWdyYXBoBwABWwYEAAFcATCHAVoDCXRhYmxlQ2VsbAcAAV4DCXBhcmFncmFwaAcAAV8GBAABYAExhwFeAwl0YWJsZUNlbGwHAAFiAwlwYXJhZ3JhcGgHAAFjBgQAAWQBMocBYgMJdGFibGVDZWxsBwABZgMJcGFyYWdyYXBoBwABZwYEAAFoATOHAWYDCXRhYmxlQ2VsbAcAAWoDCXBhcmFncmFwaAcAAWsGBAABbAE0hwFqAwl0YWJsZUNlbGwHAAFuAwlwYXJhZ3JhcGgHAAFvBgQAAXABNYcBbgMJdGFibGVDZWxsBwABcgMJcGFyYWdyYXBoBwABcwYEAAF0ATaHAXIDCXRhYmxlQ2VsbAcAAXYDCXBhcmFncmFwaAcAAXcGBAABeAE3hwF2Awl0YWJsZUNlbGwHAAF6AwlwYXJhZ3JhcGgHAAF7BgQAAXwBOIcBegMJdGFibGVDZWxsBwABfgMJcGFyYWdyYXBoBwABfwYEAAGAAQE5hwF+Awl0YWJsZUNlbGwHAAGCAQMJcGFyYWdyYXBoBwABgwEGBAABhAECMTCHAYIBAwl0YWJsZUNlbGwHAAGHAQMJcGFyYWdyYXBoBwABiAEGBAABiQECMTGHAYcBAwl0YWJsZUNlbGwHAAGMAQMJcGFyYWdyYXBoBwABjQEGBAABjgECMTKHAYwBAwl0YWJsZUNlbGwHAAGRAQMJcGFyYWdyYXBoBwABkgEGBAABkwECMTOHAZEBAwl0YWJsZUNlbGwHAAGWAQMJcGFyYWdyYXBoBwABlwEGBAABmAECMTSHAZYBAwl0YWJsZUNlbGwHAAGbAQMJcGFyYWdyYXBoBwABnAEGBAABnQECMTWHAZsBAwl0YWJsZUNlbGwHAAGgAQMJcGFyYWdyYXBoBwABoQEGBAABogECMTaHAaABAwl0YWJsZUNlbGwHAAGlAQMJcGFyYWdyYXBoBwABpgEGBAABpwECMTeHAaUBAwl0YWJsZUNlbGwHAAGqAQMJcGFyYWdyYXBoBwABqwEGBAABrAECMTiHAaoBAwl0YWJsZUNlbGwHAAGvAQMJcGFyYWdyYXBoBwABsAEGBAABsQECMTkBAQECAQ=="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "b",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "c",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "d",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "two people each delete one of the two paragraphs of a cell",
+      "update": "AgSAgICAEABHAQIDCXRhYmxlQ2VsbAcAgICAgBAAAwlwYXJhZ3JhcGgoAICAgIAQAAdjb2xzcGFuAX0BKACAgICAEAAHcm93c3BhbgF9ARQBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwBAAECAQACgQEDAQAFhwECAwl0YWJsZUNlbGwHAAEMAwlwYXJhZ3JhcGgHAAENBgQAAQ4BYocBAQMIdGFibGVSb3cHAAEQAwl0YWJsZUNlbGwHAAERAwlwYXJhZ3JhcGgHAAESBgQAARMBY4cBEQMJdGFibGVDZWxsBwABFQMJcGFyYWdyYXBoBwABFgYEAAEXAWQBAQECCg=="
     }
   ],
   "repairs": [
@@ -366,6 +2361,26 @@
     {
       "name": "nothing is left",
       "update": "AQQBAAcBB2RlZmF1bHQDCmJ1bGxldExpc3SHAQADBXZpZGVvhwEBAwpibG9ja3F1b3RlBwABAgMKYmxvY2txdW90ZQEBAQAE"
+    },
+    {
+      "name": "a table without rows",
+      "update": "AQQBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwV0YWJsZQEBAQMB"
+    },
+    {
+      "name": "a cell straight in a table",
+      "update": "AQgBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwV0YWJsZQcAAQMDCXRhYmxlQ2VsbAcAAQQDCXBhcmFncmFwaAcAAQUGBAABBgFiAQEBAwU="
+    },
+    {
+      "name": "a row in a quote",
+      "update": "AQkBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpibG9ja3F1b3RlBwABAwMIdGFibGVSb3cHAAEEAwl0YWJsZUNlbGwHAAEFAwlwYXJhZ3JhcGgHAAEGBgQAAQcBYgEBAQMG"
+    },
+    {
+      "name": "a table in a quote",
+      "update": "AQoBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpibG9ja3F1b3RlBwABAwMFdGFibGUHAAEEAwh0YWJsZVJvdwcAAQUDCXRhYmxlQ2VsbAcAAQYDCXBhcmFncmFwaAcAAQcGBAABCAFiAQEBAwc="
+    },
+    {
+      "name": "a row that holds a paragraph beside its cell: the row goes, the table stays",
+      "update": "AQ4BAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgHAAEDBgQAAQQBYYcBAQMIdGFibGVSb3cHAAEGAwl0YWJsZUNlbGwHAAEHAwlwYXJhZ3JhcGgHAAEIBgQAAQkBYocBBwMJcGFyYWdyYXBoBwABCwYEAAEMAWMBAQEGCA=="
     }
   ]
 }

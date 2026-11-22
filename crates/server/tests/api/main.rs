@@ -175,6 +175,7 @@ mod sso_websocket;
 mod subscriptions;
 mod system;
 mod table_owner;
+mod tables;
 mod team_lifecycle;
 mod team_review;
 mod team_standing;

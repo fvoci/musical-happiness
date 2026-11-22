@@ -77,6 +77,8 @@ describe('the classes of the three frames', () => {
       'rounded-',
       'border-l',
       'bg-',
+      // What a body in it is on (editor.css: the frame a table moves sideways in).
+      '[--doc-surface:',
       'pt-',
       'pr-',
       'pl-',

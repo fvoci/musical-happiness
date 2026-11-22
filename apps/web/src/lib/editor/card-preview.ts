@@ -4,7 +4,8 @@
  * (`contracts/openapi.json`). The memory backend makes it so, and so does a
  * card read whole with its body.
  */
-import { plainText, type DocNode } from './schema.ts';
+import { plainText } from './body-text.ts';
+import type { DocNode } from './schema.ts';
 
 /** The longest text of a preview, in UTF-16 code units. */
 export const PREVIEW_TEXT_LENGTH = 200;

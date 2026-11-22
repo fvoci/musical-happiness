@@ -16,7 +16,7 @@ use crate::permissions::DocMode;
 impl Collab {
     /// Takes an update a connection sent into the room's document, and sends it on:
     /// `DOC_ACK` to the connection once the log has it, the update to the others, and
-    /// what a repair deleted to all, but to the members an immediate check holds:
+    /// what a repair changed to all, but to the members an immediate check holds:
     /// they are sent it once it keeps them. An update that is not taken is answered
     /// with `DOC_NACK` and goes to nobody.
     pub(in crate::collab) async fn update(

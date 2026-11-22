@@ -144,7 +144,7 @@ pub enum Answer {
     },
     /// An update was taken.
     Taken {
-        /// What a repair deleted, as an update for every editor; `None` if nothing.
+        /// What a repair changed, as an update for every editor; `None` if nothing.
         repair: Option<Vec<u8>>,
         /// The size of the document's state now.
         state_bytes: u64,

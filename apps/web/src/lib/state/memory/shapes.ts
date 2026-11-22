@@ -3,7 +3,8 @@
  * refusal as the server makes it, the shapes its stored blocks are answered
  * in, and an order of lists nobody should lean on.
  */
-import { countTasks, MAX_BODY_BYTES, type DocNode } from '../../editor/schema.ts';
+import { countTasks } from '../../editor/body-text.ts';
+import { MAX_BODY_BYTES, type DocNode } from '../../editor/schema.ts';
 import {
   createBoardView,
   createCard,

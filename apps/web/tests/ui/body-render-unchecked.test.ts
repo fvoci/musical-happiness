@@ -129,6 +129,33 @@ describe('drawing without the validator', () => {
     expect(body.innerHTML).toBe('<p>kept</p>');
   });
 
+  it('draws the rows and cells of a table alone, with spans within the limits', () => {
+    const body = draw(
+      doc(
+        loose({
+          type: 'table',
+          content: [
+            paragraph(text('not a row')),
+            {
+              type: 'tableRow',
+              content: [
+                paragraph(text('not a cell')),
+                {
+                  type: 'tableCell',
+                  attrs: { colspan: 1e9, rowspan: '2" onclick="alert(1)' },
+                  content: [paragraph(text('x'))],
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    expect(body.querySelectorAll('col')).toHaveLength(1);
+    expect(body.querySelector('td')?.getAttributeNames()).toEqual([]);
+    expect(body.textContent).toBe('x');
+  });
+
   it('draws no attribute a node is not meant to have', () => {
     const body = draw(
       doc(

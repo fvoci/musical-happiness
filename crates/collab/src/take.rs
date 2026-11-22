@@ -16,10 +16,10 @@ use crate::update::{
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct Taken {
-    /// The document with the update, and with what a repair deleted. It shares nothing
+    /// The document with the update, and with what a repair changed. It shares nothing
     /// with the document the update was given for, which is as it was.
     pub doc: Doc,
-    /// The body of `doc`, and what a repair deleted to make it one: the deletions, as
+    /// The body of `doc`, and what a repair changed to make it one: the changes, as
     /// an update, are for the editors that hold the document, which did not make them.
     pub repair: Repair,
     /// The size of the state of `doc` ([`crate::state_of`]), in bytes.

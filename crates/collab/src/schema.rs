@@ -46,8 +46,20 @@ const fn plain(name: &'static str) -> Attribute {
     }
 }
 
+/// A span of a cell of a table: one, which the stored form leaves out.
+const fn span(name: &'static str) -> Attribute {
+    Attribute {
+        name,
+        fallback: Fallback::Integer(1),
+        at_fallback: AtFallback::LeftOut,
+    }
+}
+
+/// The spans of a cell, across columns and down rows.
+const CELL: &[Attribute] = &[span("colspan"), span("rowspan")];
+
 /// Every kind of node the editor's schema has, with its attributes in the schema's order.
-pub(crate) const NODES: [(&str, &[Attribute]); 19] = [
+pub(crate) const NODES: [(&str, &[Attribute]); 23] = [
     ("blockMath", &[plain("latex")]),
     ("blockquote", &[]),
     ("bulletList", &[]),
@@ -78,6 +90,10 @@ pub(crate) const NODES: [(&str, &[Attribute]); 19] = [
     ),
     ("paragraph", &[]),
     ("reference", &[plain("id")]),
+    ("table", &[]),
+    ("tableCell", CELL),
+    ("tableHeader", CELL),
+    ("tableRow", &[]),
     (
         "taskItem",
         &[Attribute {
@@ -133,6 +149,10 @@ pub(crate) enum Place {
     ListEntry,
     /// In a task list.
     TaskEntry,
+    /// In a table.
+    TableRow,
+    /// In a row of a table: a cell or a header.
+    TableCell,
 }
 
 /// Where a kind of node stands. A kind nobody knows is judged as a block, and fails.
@@ -142,6 +162,8 @@ pub(crate) fn place(kind: &str) -> Place {
         "text" | "hardBreak" | "mention" | "reference" | "inlineMath" => Place::Line,
         "listItem" => Place::ListEntry,
         "taskItem" => Place::TaskEntry,
+        "tableRow" => Place::TableRow,
+        "tableCell" | "tableHeader" => Place::TableCell,
         _ => Place::Block,
     }
 }
