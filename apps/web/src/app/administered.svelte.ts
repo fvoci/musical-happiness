@@ -4,6 +4,8 @@
  * one they start from the switcher when none was known. Made while the app's
  * component is: the effect is that component's.
  */
+import { untrack } from 'svelte';
+
 import type { Workspace } from '$lib/state/index.ts';
 import type { Organizations } from '$lib/state/organization.ts';
 
@@ -15,9 +17,11 @@ export class Administered {
   constructor(shown: () => Workspace | undefined, api: () => Organizations | undefined) {
     $effect(() => {
       const organizations = api();
-      if (shown()?.status !== 'ready' || !organizations || this.#asked) return;
+      const workspace = shown();
+      if (workspace?.status !== 'ready' || !organizations || this.#asked) return;
       this.#asked = true;
-      organizations.administered().then(
+      // Of the workspaces the shell read as it started: they are not read again for this.
+      organizations.administered(untrack(() => workspace.workspaces)).then(
         (orgId) => {
           this.orgId = orgId;
         },

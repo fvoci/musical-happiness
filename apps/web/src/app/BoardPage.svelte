@@ -51,15 +51,16 @@
   );
   const view = $derived(board?.view(router.route.viewId));
 
+  // The card the reader is on, before the visit starts: the visit is told once, with it.
+  $effect(() => {
+    if (board) boardPresence(board).setCard(router.route.cardId);
+  });
   $effect(() => {
     const shown = board;
     if (shown?.status === 'ready' && !shown.missing && !shown.joinable) {
       return untrack(() => boardPresence(shown).start());
     }
     return undefined;
-  });
-  $effect(() => {
-    if (board) boardPresence(board).setCard(router.route.cardId);
   });
 
   let page = $state<HTMLElement>();

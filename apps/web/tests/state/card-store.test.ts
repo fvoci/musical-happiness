@@ -10,10 +10,12 @@ import { bodyOf, FIELD, roomsOf } from '$lib/state/memory/rooms.ts';
 
 import { openFirstBoard, settle, text } from './support.ts';
 
-async function openAlpha() {
+/** Alpha opened, once `before` has had the board (the room is asked for as the card is opened). */
+async function openAlpha(before?: (made: Awaited<ReturnType<typeof openFirstBoard>>) => void) {
   const made = await openFirstBoard();
   const alpha = made.board.realCards.find((card) => card.title === 'Alpha');
   if (!alpha) throw new Error('no card');
+  before?.(made);
   const card = await made.board.showCard(alpha.id);
   return { ...made, card, cardId: alpha.id };
 }
@@ -23,18 +25,19 @@ async function openAlpha() {
  * off the board; each state of the room is put on `statuses` as it comes.
  */
 async function inTheRoom(statuses: string[] = []) {
-  const made = await openAlpha();
+  const made = await openAlpha(({ backend }) => {
+    const openDoc = backend.openDoc.bind(backend);
+    vi.spyOn(backend, 'openDoc').mockImplementation((workspaceId, boardId, cardId, hears) =>
+      openDoc(workspaceId, boardId, cardId, {
+        ...hears,
+        state: (state) => {
+          statuses.push(state.status);
+          hears.state(state);
+        },
+      }),
+    );
+  });
   const { card, board, backend, world } = made;
-  const openDoc = backend.openDoc.bind(backend);
-  vi.spyOn(backend, 'openDoc').mockImplementation((workspaceId, boardId, cardId, hears) =>
-    openDoc(workspaceId, boardId, cardId, {
-      ...hears,
-      state: (state) => {
-        statuses.push(state.status);
-        hears.state(state);
-      },
-    }),
-  );
   card.openBody();
   await vi.waitFor(() => {
     expect(card.room?.status).toBe('joined');

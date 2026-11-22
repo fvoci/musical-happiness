@@ -278,8 +278,10 @@ describe('a version kept by hand, from the dialog', () => {
     const made = await openFirstBoard();
     const card = made.board.cards.find((one) => one.title === 'Alpha');
     if (!card) throw new Error('no card');
-    // Not in the room yet: what is shown may not be what the card has.
+    // Not in the room (the card asks for it as it opens: it is left here): what is shown may
+    // not be what the card has.
     const open = await made.board.showCard(card.id);
+    open.closeBody();
     const source = cardVersions(made.board, open);
     const asked = vi.spyOn(source.versions, 'keep');
     expect(await keepVersion(source)).toBe('notNow');

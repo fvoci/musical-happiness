@@ -120,16 +120,25 @@
     router.openPage(firstPage(wiki.pages)?.id, { replace: true });
   });
 
-  // Who is on the wiki, while it is shown (joined or not); and on which page.
+  // The page the reader is on, told with the visit (before it starts: it is told once).
+  $effect(() => {
+    wiki?.presence.setCard(pageId);
+  });
+
+  /**
+   * The page the wiki is on is known: the address names one, or the wiki has
+   * none to go to (the address of the wiki alone is replaced by its first page).
+   */
+  const placed = $derived(pageId !== undefined || !wiki || firstPage(wiki.pages) === undefined);
+
+  // Who is on the wiki, while it is shown (joined or not); and on which page. The visit
+  // is told once the page is known: not as the wiki alone, and then again with its page.
   $effect(() => {
     const shown = wiki;
-    if (shown?.status === 'ready' && !shown.missing) {
+    if (shown?.status === 'ready' && !shown.missing && placed) {
       return untrack(() => shown.presence.start());
     }
     return undefined;
-  });
-  $effect(() => {
-    wiki?.presence.setCard(pageId);
   });
 
   /** The page the reader asked to delete, while it is asked whether to. */
