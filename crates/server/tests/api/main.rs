@@ -188,6 +188,7 @@ mod template_stock;
 mod templates;
 mod uploads;
 mod users;
+mod view_writes;
 mod visibility;
 mod websocket;
 mod websocket_access;
