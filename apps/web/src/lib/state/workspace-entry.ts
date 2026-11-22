@@ -78,6 +78,25 @@ export async function startOrganization(
 }
 
 /**
+ * Takes the reader out of the organization `orgId` by `leave`
+ * (`Account.leaveOrganization`), and reads their workspaces again, which have
+ * none of it any more. Where the list cannot be read, the organization's are
+ * taken out of those the page has. A refusal changes nothing, and rejects.
+ */
+export async function leaveOrganization(
+  workspace: { workspaces: WorkspaceInfo[]; readonly backend: Backend },
+  leave: (orgId: string) => Promise<void>,
+  orgId: string,
+): Promise<void> {
+  await leave(orgId);
+  try {
+    workspace.workspaces = await workspace.backend.workspaces();
+  } catch {
+    workspace.workspaces = workspace.workspaces.filter((one) => one.orgId !== orgId);
+  }
+}
+
+/**
  * The boards and the wikis of a workspace the reader can see, the two lists
  * of the sidebar together (a wiki is a board of the kind `wiki`).
  */

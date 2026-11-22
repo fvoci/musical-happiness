@@ -1,21 +1,24 @@
-//! Starting an organization from an account that is there already: the one route about
-//! organizations that is under none. What is done to an organization that exists is
-//! under `/org/{orgId}` (`org`, `org_admin`).
+//! Starting an organization from an account that is there already, the one route about
+//! organizations that is under none, and leaving one. What an organization's
+//! administrators do to it is under `/org/{orgId}` too (`org`, `org_admin`).
 
 use axum::body::Bytes;
-use axum::extract::{Extension, State};
+use axum::extract::{Extension, Path, State};
 use fvoci_model::{NewOrganization, Problem, UserWorkspace};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::auth::address_of;
+use super::contract::params::OrgId;
 use super::contract::tag;
-use super::{ApiResult, RequiredSession, created, decode_object};
+use super::{ApiResult, RequiredSession, created, decode_object, no_content};
 use crate::app::App;
 use crate::client_address::ClientAddress;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
-    OpenApiRouter::new().routes(routes!(handle_create_organization))
+    OpenApiRouter::new()
+        .routes(routes!(handle_create_organization))
+        .routes(routes!(handle_leave_organization))
 }
 
 /// Start an organization
@@ -63,4 +66,47 @@ async fn handle_create_organization(
         .start_organization(&session, &name, address_of(client))
         .await?;
     Ok(created(&workspace))
+}
+
+/// Leave an organization
+///
+/// Takes the account of the session out of an organization that people work in
+/// together, at its own asking, all at once or not at all. It leaves each workspace of
+/// the organization, in use or in the trash, as `removeWorkspaceMember` takes a member
+/// out: a board it was the only admin of passes to the workspace's oldest other
+/// administrator, and a workspace it joined as the organization's administrator
+/// (`joinOrgWorkspace`) records that it left. Its roles on boards and wikis, its teams,
+/// what it follows (`subscriptions`) in the organization and the links of invitations it
+/// made there that nobody used go with it, and so does its membership. Its sessions,
+/// its identities and what it wrote stay, and the organization stays one it made. Its
+/// open connections stop following the organization's workspaces
+/// (`UNSUBSCRIBED_WORKSPACE`). It comes back only as anybody new does: by an invitation,
+/// or as the organization lets in who signs in through its provider. Asked of any
+/// session: leaving is the account's own, whatever provider the organization takes.
+///
+/// 404 for an organization that is not there or the account is no member of, and for
+/// an own space, which nobody leaves. A guest of a workspace is no member of its
+/// organization: 404 here, and it leaves a workspace or board by `leaveContainer`.
+///
+/// What stands in the way is 409, and nothing changes: the server's only administrator
+/// stays in the server's own first organization (reason `last_instance_admin`); the
+/// only administrator of an organization that has other people in it stays until
+/// somebody else is one (reason `sole_org_admin`); and nobody leaves an organization
+/// they are the only person in (reason `alone_in_organization`). Asked in that order.
+/// Of two administrators who leave at once, the second is asked once the first is out.
+#[utoipa::path(
+    post,
+    path = "/org/{orgId}/leave",
+    operation_id = "leaveOrganization",
+    tag = tag::ORGANIZATION,
+    params(OrgId),
+    responses((status = 204, description = "The account is out of the organization.")),
+)]
+async fn handle_leave_organization(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    Path(org_id): Path<String>,
+) -> ApiResult {
+    app.leave_organization(&session, &org_id).await?;
+    Ok(no_content())
 }

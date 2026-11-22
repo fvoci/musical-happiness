@@ -1,6 +1,7 @@
 /** A second organization uses the whole real app with PostgreSQL row policies active. */
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
+import { addressOf } from '../e2e/address.ts';
 import { boardLink, sidebar } from '../e2e/shell.support.ts';
 
 import {
@@ -12,7 +13,18 @@ import {
   restoreBoard,
   startOrganization,
 } from './organizations.support.ts';
-import { person, placeOf, signedIn, watchErrors, type Schemas } from './support.ts';
+import {
+  apiClient,
+  makeBoard,
+  memberLink,
+  person,
+  placeOf,
+  signedIn,
+  signInOnPage,
+  watchErrors,
+  type Person,
+  type Schemas,
+} from './support.ts';
 
 test.use({ locale: 'en-US' });
 
@@ -171,4 +183,122 @@ test('an organization started on a Korean screen begins on the welcome board in 
   await expect(page.getByText('카드를 열어 보세요', { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
   await context.close();
+});
+
+/** `who` registers, starting the organization `name`. */
+async function founded(base: string, who: Person, name: string): Promise<void> {
+  const anybody = await apiClient(base);
+  const registered = await anybody.post('/api/v1/register', {
+    data: { ...who, organizationName: name },
+  });
+  expect(registered.status()).toBe(201);
+  await anybody.dispose();
+}
+
+/** An account made by a link of the organization's workspace `workspaceId`, as a newcomer's. */
+async function joinedBy(base: string, api: APIRequestContext, workspaceId: string) {
+  const newcomer = person('leaver');
+  const token = (await memberLink(api, workspaceId)).token ?? '';
+  const anybody = await apiClient(base);
+  const accepted = await anybody.post('/api/v1/invitations/accept', {
+    data: { token, account: newcomer },
+  });
+  expect(accepted.ok()).toBe(true);
+  await anybody.dispose();
+  return newcomer;
+}
+
+/** `who` signed in on a page of its own, at `address`. */
+async function openedAt(page: Page, who: Person, address: string): Promise<void> {
+  await page.goto(address);
+  await signInOnPage(page, who);
+}
+
+/** Asks to leave the organization `name` in the settings, said in its dialog first. */
+async function leaveInSettings(page: Page, name: string) {
+  await page.getByTestId('open-settings').click();
+  const section = page.getByTestId('settings-dialog').getByTestId('organization-leaving');
+  await section.getByRole('button', { name: `Leave ${name}` }).click();
+  const dialog = page.getByTestId('organization-leave-dialog');
+  await expect(dialog).toContainText(`Leave ${name}?`);
+  await expect(dialog).toContainText('you wrote stay');
+  await dialog.getByRole('button', { name: 'Leave', exact: true }).click();
+  return { section, dialog };
+}
+
+test('a member who leaves an organization finds it no more, and its only administrator may not', async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  // Never the server's first account, whose refusal is that of the server's last administrator.
+  await founded(base, person('before-leaving'), 'Earlier studio');
+  const founder = person('leaving-founder');
+  await founded(base, founder, 'Leaving studio');
+  const api = await signedIn(base, founder);
+  const [workspace] = (await (
+    await api.get('/api/v1/users/me/workspaces')
+  ).json()) as Schemas['UserWorkspace'][];
+  const workspaceId = workspace?.id ?? '';
+  const name = workspace?.name ?? '';
+  const leaver = await joinedBy(base, api, workspaceId);
+  const board = await makeBoard(api, {
+    title: 'Shared plans',
+    workspaceId,
+    members: [{ who: leaver, role: 'editor' }],
+  });
+  const address = addressOf({ workspaceId, boardId: board.boardId, viewId: board.viewId });
+  const errors = watchErrors(page);
+  await openedAt(page, leaver, address);
+  // Another tab of the leaver's, on the same board, hears its cards.
+  const other = await page.context().newPage();
+  const heard: string[] = [];
+  other.on('websocket', (socket) =>
+    socket.on('framereceived', ({ payload }) => heard.push(String(payload))),
+  );
+  await other.goto(address);
+  const card = (title: string) =>
+    api.post(`/api/v1/w/${workspaceId}/boards/${board.boardId}/cards`, { data: { title } });
+  await card('Heard before leaving');
+  await expect(other.getByText('Heard before leaving', { exact: true })).toBeVisible();
+
+  // The founder is its only administrator, beside a member: refused, with what to do first.
+  const theirs = await browser.newContext({ locale: 'en-US', baseURL: base });
+  const founderPage = await theirs.newPage();
+  await openedAt(founderPage, founder, address);
+  const refused = await leaveInSettings(founderPage, name);
+  await expect(refused.dialog.getByRole('alert')).toContainText(
+    'Make someone else an administrator',
+  );
+  await refused.dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect((await api.get('/api/v1/users/me/workspaces')).ok()).toBe(true);
+
+  const left = await leaveInSettings(page, name);
+  await expect(left.dialog).toBeHidden();
+  await expect(left.section.getByRole('status')).toHaveText(`You left ${name}.`);
+  await expect(left.section.getByRole('button', { name: `Leave ${name}` })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  // The page went from the organization's board to the leaver's own space.
+  await expect(sidebar(page).getByTestId('workspace-switcher')).toHaveAccessibleName(
+    'Switch workspace: My space',
+  );
+  const theirApi = await signedIn(base, leaver);
+  const listed = (await (
+    await theirApi.get('/api/v1/users/me/workspaces')
+  ).json()) as Schemas['UserWorkspace'][];
+  expect(listed.map((item) => item.kind)).toEqual(['personal']);
+  await page.goto(address);
+  await expect(page.getByTestId('not-found')).toBeVisible();
+
+  // The other tab was told, and hears the workspace no more: a card made now
+  // reaches the founder's page, not it.
+  await expect
+    .poll(() => heard.some((frame) => frame.includes('UNSUBSCRIBED_WORKSPACE')))
+    .toBe(true);
+  await card('Made after leaving');
+  await expect(founderPage.getByText('Made after leaving', { exact: true })).toBeVisible();
+  expect(heard.filter((frame) => frame.includes('Made after leaving'))).toEqual([]);
+  expect(errors).toEqual([]);
+  await Promise.all([api.dispose(), theirApi.dispose(), theirs.close()]);
 });

@@ -4079,6 +4079,21 @@
             "type": "/problems/last-org-admin"
           },
           {
+            "reason": "sole_org_admin",
+            "title": "Only administrator of the organization",
+            "type": "/problems/sole-org-admin"
+          },
+          {
+            "reason": "alone_in_organization",
+            "title": "Only person in the organization",
+            "type": "/problems/alone-in-organization"
+          },
+          {
+            "reason": "last_instance_admin",
+            "title": "Last administrator of the server",
+            "type": "/problems/last-instance-admin"
+          },
+          {
             "reason": "public_links_off",
             "title": "Public links turned off",
             "type": "/problems/public-links-off"
@@ -6341,6 +6356,42 @@
           }
         },
         "summary": "The audit log of an organization",
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/leave": {
+      "post": {
+        "description": "Takes the account of the session out of an organization that people work in\ntogether, at its own asking, all at once or not at all. It leaves each workspace of\nthe organization, in use or in the trash, as `removeWorkspaceMember` takes a member\nout: a board it was the only admin of passes to the workspace's oldest other\nadministrator, and a workspace it joined as the organization's administrator\n(`joinOrgWorkspace`) records that it left. Its roles on boards and wikis, its teams,\nwhat it follows (`subscriptions`) in the organization and the links of invitations it\nmade there that nobody used go with it, and so does its membership. Its sessions,\nits identities and what it wrote stay, and the organization stays one it made. Its\nopen connections stop following the organization's workspaces\n(`UNSUBSCRIBED_WORKSPACE`). It comes back only as anybody new does: by an invitation,\nor as the organization lets in who signs in through its provider. Asked of any\nsession: leaving is the account's own, whatever provider the organization takes.\n\n404 for an organization that is not there or the account is no member of, and for\nan own space, which nobody leaves. A guest of a workspace is no member of its\norganization: 404 here, and it leaves a workspace or board by `leaveContainer`.\n\nWhat stands in the way is 409, and nothing changes: the server's only administrator\nstays in the server's own first organization (reason `last_instance_admin`); the\nonly administrator of an organization that has other people in it stays until\nsomebody else is one (reason `sole_org_admin`); and nobody leaves an organization\nthey are the only person in (reason `alone_in_organization`). Asked in that order.\nOf two administrators who leave at once, the second is asked once the first is out.",
+        "operationId": "leaveOrganization",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it; and 404 for the user's own space, which nobody administers.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The account is out of the organization."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Leave an organization",
         "tags": [
           "organization"
         ]

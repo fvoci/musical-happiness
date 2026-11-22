@@ -197,6 +197,14 @@ reasons! {
     DefaultWorkspace => "default_workspace", "Default workspace";
     /// The change would leave the organization without an administrator.
     LastOrgAdmin => "last_org_admin", "Last administrator of the organization";
+    /// The account that would leave the organization is its only administrator, and
+    /// other people are in it.
+    SoleOrgAdmin => "sole_org_admin", "Only administrator of the organization";
+    /// The account that would leave the organization is the only person in it.
+    AloneInOrganization => "alone_in_organization", "Only person in the organization";
+    /// The account that would leave the server's own organization is the server's only
+    /// administrator.
+    LastInstanceAdmin => "last_instance_admin", "Last administrator of the server";
     /// The organization has turned its public links off.
     PublicLinksOff => "public_links_off", "Public links turned off";
     /// An invitation mail request names more recipients than one may.

@@ -101,7 +101,12 @@ export {
   type TransferOptions,
   type UploadFailure,
 } from './transfers.svelte.ts';
-export { isOpen, startOrganization, type EnterStatus } from './workspace-entry.ts';
+export {
+  isOpen,
+  leaveOrganization,
+  startOrganization,
+  type EnterStatus,
+} from './workspace-entry.ts';
 export { containerTrash, cardTrash, pageTrash, Trash, type TrashStatus } from './trash.svelte.ts';
 export {
   Workspace,

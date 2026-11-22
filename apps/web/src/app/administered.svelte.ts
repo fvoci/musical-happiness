@@ -11,8 +11,10 @@ export class Administered {
   /** The organization, once known; none where the reader administers none. */
   orgId = $state<string | undefined>(undefined);
   #asked = false;
+  readonly #api: () => Organizations | undefined;
 
   constructor(shown: () => Workspace | undefined, api: () => Organizations | undefined) {
+    this.#api = api;
     $effect(() => {
       const organizations = api();
       if (shown()?.status !== 'ready' || !organizations || this.#asked) return;
@@ -31,5 +33,24 @@ export class Administered {
   /** The reader started an organization: they administer it, unless another is known already. */
   started(orgId: string | undefined): void {
     this.orgId ??= orgId;
+  }
+
+  /**
+   * The reader left an organization: the sidebar does not lead to it any
+   * more, and the server is asked again whether they administer another.
+   */
+  left(orgId: string): void {
+    if (this.orgId !== orgId) return;
+    this.orgId = undefined;
+    this.#api()
+      ?.administered()
+      .then(
+        (next) => {
+          this.orgId ??= next;
+        },
+        () => {
+          // Not told: the way to it is not shown.
+        },
+      );
   }
 }

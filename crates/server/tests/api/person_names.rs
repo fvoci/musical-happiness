@@ -215,6 +215,9 @@ async fn a_change_of_a_name_is_told_to_the_members_who_follow_the_workspace() {
         json!({"action": "UPDATE_USER", "workspaceId": TEST_WORKSPACE_ID, "userId": user2.id}),
         "who, and nothing of the name"
     );
+    let contract = crate::websocket::read_contract("websocket.json");
+    let openapi = crate::websocket::read_contract("openapi.json");
+    crate::websocket::check_message(&contract, &openapi, &told);
     own.expect("UPDATE_USER", "/userId", &user2.id).await;
     // A request that changes nothing tells nothing: none, or the title it has.
     watching.drain().await;

@@ -1,0 +1,92 @@
+<!--
+  The part of the settings that is the reader's account, where the features
+  of the account meet: its address, the sign-ins connected to it, leaving an
+  organization, and deleting it. A session that is over is told as everywhere
+  (`signedIn`).
+
+  Left, an organization's workspaces are not among the reader's any more: the
+  page goes from one of them to the workspace it would start in
+  (`Workspace.firstChoice`), and the app forgets it administered it
+  (`onLeft`).
+-->
+<script lang="ts">
+  import AccountDeletion from '$lib/features/account/AccountDeletion.svelte';
+  import LinkedSignIns from '$lib/features/account/LinkedSignIns.svelte';
+  import OrganizationLeaving from '$lib/features/account/OrganizationLeaving.svelte';
+  import { leavableOrganizations } from '$lib/features/account/organization-leaving.ts';
+  import {
+    leaveOrganization,
+    type Account,
+    type LinkedIdentity,
+    type Workspace,
+  } from '$lib/state/index.ts';
+
+  import EmailChangeHost from './EmailChangeHost.svelte';
+  import type { Router } from './router.svelte.ts';
+  import { signInOrganizations } from './sign-in-organizations.ts';
+
+  interface Props {
+    workspace: Workspace;
+    account: Account;
+    router: Router;
+    /** Does it; a session that is over is told, and passed on. */
+    signedIn: <T>(doing: () => Promise<T>) => Promise<T>;
+    /** Connects a sign-in through the organization's provider, which the browser goes to. */
+    onLink: (orgId: string, password: string) => Promise<void>;
+    onUnlink: (identity: LinkedIdentity, password: string) => Promise<void>;
+    /** A sign-in was connected just now. */
+    justLinked: boolean;
+    /** The connected sign-ins were asked for by name. */
+    linkedAsked: boolean;
+    /** Asks for the account to be deleted. */
+    onDelete: (username: string, password: string) => Promise<void>;
+    /** The reader left the organization. */
+    onLeft: (orgId: string) => void;
+  }
+
+  let {
+    workspace,
+    account,
+    router,
+    signedIn,
+    onLink,
+    onUnlink,
+    justLinked,
+    linkedAsked,
+    onDelete,
+    onLeft,
+  }: Props = $props();
+
+  const leavable = $derived(leavableOrganizations(workspace.workspaces));
+
+  async function leave(orgId: string): Promise<void> {
+    await signedIn(() =>
+      leaveOrganization(workspace, (left: string) => account.leaveOrganization(left), orgId),
+    );
+    onLeft(orgId);
+    if (workspace.info?.orgId === orgId) router.go({ workspaceId: workspace.firstChoice() });
+  }
+</script>
+
+<EmailChangeHost {workspace} {account} />
+<LinkedSignIns
+  read={() => signedIn(() => account.identities())}
+  organizations={() =>
+    signInOrganizations(workspace.workspaces, (orgId: string) => account.loginOptions(orgId))}
+  {onLink}
+  {onUnlink}
+  {justLinked}
+  reveal={linkedAsked}
+/>
+<OrganizationLeaving
+  organizations={leavable}
+  hasPassword={workspace.me?.hasPassword !== false}
+  onLeave={leave}
+/>
+{#if workspace.me}
+  <AccountDeletion
+    username={workspace.me.username}
+    read={() => signedIn(() => account.deletion())}
+    {onDelete}
+  />
+{/if}
