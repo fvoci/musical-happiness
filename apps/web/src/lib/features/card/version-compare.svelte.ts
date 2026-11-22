@@ -121,9 +121,15 @@ export class VersionComparing {
   });
 
   /** What the version being read is compared with now. */
-  readonly target = $derived<CompareTarget | undefined>(
-    this.whole && this.chosenTarget ? { kind: 'whole' } : this.chosenTarget,
-  );
+  readonly target = $derived.by((): CompareTarget | undefined => {
+    const chosen = this.#reading.chosen;
+    if (!chosen) return undefined;
+    return targetOf(chosen, this.#reading.versions, {
+      kind: this.kind,
+      whole: this.whole,
+      pinned: this.pinned,
+    });
+  });
 
   constructor(reading: ComparedReading, source: CompareSource) {
     this.#reading = reading;

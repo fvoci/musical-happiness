@@ -279,20 +279,22 @@ describe('a version kept by hand, from the dialog', () => {
     const made = await openFirstBoard();
     const card = made.board.cards.find((one) => one.title === 'Alpha');
     if (!card) throw new Error('no card');
-    // Not in the room yet: what is shown may not be what the card has. It is being opened.
+    // Not in the room: what is shown may not be what the card has, and no room was asked for.
     const open = await made.board.showCard(card.id);
     const source = cardVersions(made.board, open);
     const asked = vi.spyOn(source.versions, 'keep');
-    expect(await keepVersion(source)).toBe('opening');
+    expect(await keepVersion(source)).toBe('notNow');
     const reading = new VersionsReading(source);
     await vi.waitFor(() => {
       expect(reading.status).toBe('ready');
     });
     const read = vi.spyOn(source.versions, 'list');
+    // The room being joined: it is being opened.
+    open.openBody();
+    expect(open.room?.status).toBe('joining');
     await reading.keep();
     expect(reading.kept).toBe('opening');
     // In the room, but no longer to write in it: not for now.
-    open.openBody();
     await vi.waitFor(() => {
       expect(open.room?.writable).toBe(true);
     });
@@ -347,8 +349,8 @@ describe('a version kept by hand, from the dialog', () => {
     if (!page) throw new Error('no page shown');
     const source = pageVersions(page);
     const asked = vi.spyOn(source.versions, 'keep');
-    expect(await keepVersion(source)).toBe('opening');
     page.openBody();
+    expect(await keepVersion(source)).toBe('opening');
     await vi.waitFor(() => {
       expect(page.room?.writable).toBe(true);
     });

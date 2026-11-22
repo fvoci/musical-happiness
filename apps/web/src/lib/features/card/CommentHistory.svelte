@@ -50,11 +50,10 @@
   const texts = $derived(textsAsOf(commentId, editedAt));
 
   async function textsAsOf(comment: string, changedAt: number): Promise<Text[]> {
+    // Read before the wait, so that the texts are read again when the text now is another.
+    const now = { version: Infinity, body, writtenBy: editedBy, writtenAt: changedAt, now: true };
     const earlier = await read(comment);
-    const all = [
-      ...earlier.map((text) => ({ ...text, now: false })),
-      { version: Infinity, body, writtenBy: editedBy, writtenAt: changedAt, now: true },
-    ];
+    const all = [...earlier.map((text) => ({ ...text, now: false })), now];
     return all.map((text, index) => ({
       ...text,
       change: changeOf(all[index - 1]?.body, text.body),

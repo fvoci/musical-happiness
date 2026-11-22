@@ -61,14 +61,17 @@ export interface VersionsSource {
   current(): Promise<DocNode | null>;
 }
 
-/** The body a room's document holds, or the stored one when there is no room or it holds none. */
-/** Whether a body is still being opened: read, or its room joined or sent again. */
+/**
+ * Whether a body is still being opened: read, or its room joined or sent
+ * again. A body read with no room asked for yet is not: one may never come.
+ */
 function opening(item: Pick<CardStore, 'status' | 'room'>): boolean {
   const status = item.room?.status;
-  if (status === undefined) return item.status !== 'failed';
+  if (status === undefined) return item.status === 'idle' || item.status === 'loading';
   return status === 'joining' || status === 'receiving';
 }
 
+/** The body a room's document holds, or the stored one when there is no room or it holds none. */
 async function bodyNow(
   room: { doc: YDoc | undefined } | undefined,
   stored: DocNode | null,

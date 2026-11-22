@@ -400,7 +400,7 @@ test.describe('pictures', () => {
         page,
       }, testInfo) => {
         test.skip(testInfo.project.name !== 'desktop', 'the sizes are set here');
-        const into = path.resolve(SCREENS, '../../web-small-2/screens');
+        const into = screensDir('comments');
         await page.setViewportSize(size);
         await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
         await openTaskCard(page);

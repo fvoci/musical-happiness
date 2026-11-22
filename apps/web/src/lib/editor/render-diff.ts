@@ -96,7 +96,7 @@ export function noteOf(node: DiffNode): string | undefined {
         : m.body_diff_alt({ from: altText(before.alt), to: altText(after.alt) });
     case 'orderedList':
       // A list's own start is 1, which is not stored.
-      return before.start === after.start
+      return startOf(before.start) === startOf(after.start)
         ? undefined
         : m.body_diff_start({ from: startOf(before.start), to: startOf(after.start) });
     default:
