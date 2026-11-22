@@ -47,6 +47,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # On the trunk of the test stack only: what a run of a stacked pull request is given.
+      - name: Probe of the test stack
+        env:
+          ACTION: ${{ github.event.action }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          STACK: ${{ toJSON(github.event.pull_request.stack) }}
+        run: |
+          printf 'action=%s base=%s@%s head=%s\n' "$ACTION" "$BASE_REF" "$BASE_SHA" "$HEAD_SHA"
+          printf 'stack=%s\n' "$STACK"
+          git cat-file -p HEAD | sed -n '1,4p;/^$/,$p'
       # What the jobs below are cut for: four processors and 16 GB when this was written.
       - name: The runner's processors, memory and disk
         run: |
