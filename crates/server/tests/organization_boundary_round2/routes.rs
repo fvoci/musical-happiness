@@ -309,6 +309,7 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/diaries", "getDiaries"),
     ("POST", "/diaries", "createDiary"),
     ("GET", "/diaries/{diaryId}/days", "getDiaryDays"),
+    ("GET", "/diaries/{diaryId}/runs", "getDiaryRuns"),
     (
         "GET",
         "/diaries/{diaryId}/days/{monthDay}",

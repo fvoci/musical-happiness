@@ -344,8 +344,9 @@ fn of_day(date: DiaryDate) -> NewDiaryEntry {
 }
 
 /// Fills the diary to what one may hold: the first day by the store, and every other as
-/// a copy of it, a day after the other from 1900 on, which is past 2009 at the limit.
-async fn fill(test: &common::TestStore, own: &Store, diary_id: &str, user_id: &str) {
+/// a copy of it, `every` days after the one before from 1900 on (a day after the other
+/// is past 2009 at the limit).
+async fn fill(test: &common::TestStore, own: &Store, diary_id: &str, user_id: &str, every: u32) {
     let first = day("1900-01-01");
     let template = own
         .create_diary_entry(diary_id, first, of_day(first), ENTRIES_PER_DIARY, user_id)
@@ -359,15 +360,15 @@ async fn fill(test: &common::TestStore, own: &Store, diary_id: &str, user_id: &s
             format!(
                 "(WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {more}) SELECT i FROM n) AS n"
             ),
-            "date('1900-01-01', '+' || n.i || ' days')".to_owned(),
+            format!("date('1900-01-01', '+' || (n.i * {every}) || ' days')"),
             "printf('e0000000-0000-4000-8000-%012x', n.i)".to_owned(),
-            "json_object('date', date('1900-01-01', '+' || n.i || ' days'))".to_owned(),
+            format!("json_object('date', date('1900-01-01', '+' || (n.i * {every}) || ' days'))"),
         ),
         DbType::Postgres => (
             format!("generate_series(1, {more}) AS n(i)"),
-            "(DATE '1900-01-01' + n.i)::text".to_owned(),
+            format!("(DATE '1900-01-01' + n.i * {every})::text"),
             "('e0000000-0000-4000-8000-' || lpad(to_hex(n.i), 12, '0'))::uuid".to_owned(),
-            "jsonb_build_object('date', (DATE '1900-01-01' + n.i)::text)".to_owned(),
+            format!("jsonb_build_object('date', (DATE '1900-01-01' + n.i * {every})::text)"),
         ),
     };
     let block_columns = columns_of(&system, "blocks").await;
@@ -417,14 +418,16 @@ async fn fill(test: &common::TestStore, own: &Store, diary_id: &str, user_id: &s
     }
 }
 
-/// What the plan of a read of a diary must say, the entries of a month and day first
-/// and the days of a month second: the days are found by the index the read is for, an
-/// entry by its own key and not by going through those of its diary, and no table is
-/// read through.
+/// What the plan of a read of a diary must say, the entries of a month and day first,
+/// the days of a month second and the days alone (for the runs) third: the days are
+/// found by the index the read is for, an entry by its own key and not by going through
+/// those of its diary, the days alone from the key without the rows, and no table is
+/// read through (what the runs are put together from, SQLite goes through as a
+/// subquery of its own: that is no table).
 fn check_plan(read: usize, plan: &str) {
-    let (through, said): (&str, [&[&str]; 2]) = match db_type() {
+    let (through, said): (&[&str], [&[&str]; 3]) = match db_type() {
         DbType::Sqlite => (
-            "SCAN",
+            &["SCAN diary_days", "SCAN blocks", "SCAN d\n", "SCAN d "],
             [
                 &[
                     "diary_days_month_day_idx (container_id=? AND month_day=?)",
@@ -435,17 +438,22 @@ fn check_plan(read: usize, plan: &str) {
                     "SEARCH diary_days USING INDEX",
                     "(container_id=? AND day>? AND day<?)",
                 ],
+                &["SEARCH diary_days USING COVERING INDEX", "(container_id=?)"],
             ],
         ),
         DbType::Postgres => (
-            "Seq Scan",
+            &["Seq Scan"],
             [
                 &["diary_days_month_day_idx", "blocks_pkey"],
                 &["diary_days_pkey", "(day >= "],
+                &["Index Only Scan using diary_days_pkey"],
             ],
         ),
     };
-    assert!(!plan.contains(through), "a table is read through: {plan}");
+    let plan = format!("{plan}\n");
+    for through in through {
+        assert!(!plan.contains(through), "a table is read through: {plan}");
+    }
     for part in said[read] {
         assert!(
             plan.contains(part),
@@ -465,7 +473,7 @@ async fn a_full_diary_answers_for_a_day_without_being_read() {
     let user_id = common::user(&test, "writer").await;
     let (own, workspace_id) = common::in_own_space(&test, &user_id).await;
     let diary_id = a_diary(&own, &workspace_id, &user_id).await;
-    fill(&test, &own, &diary_id, &user_id).await;
+    fill(&test, &own, &diary_id, &user_id, 1).await;
     // Another diary beside it, to be left out of every answer.
     let beside = a_diary(&own, &workspace_id, &user_id).await;
     let of_beside = day("2000-11-21");
@@ -487,7 +495,7 @@ async fn a_full_diary_answers_for_a_day_without_being_read() {
 
     let at: MonthDay = "11-21".parse().expect("a month and day");
     let (from, to) = (day("2000-11-01"), day("2000-11-30"));
-    let mut took = [Duration::ZERO; 2];
+    let mut took = [Duration::ZERO; 3];
     for _ in 0..RUNS {
         let started = Instant::now();
         let entries = own.get_diary_entries_on(&diary_id, at).await.expect("read");
@@ -503,6 +511,14 @@ async fn a_full_diary_answers_for_a_day_without_being_read() {
             .expect("read");
         took[1] += started.elapsed();
         assert_eq!(days.len(), 30);
+        let started = Instant::now();
+        let runs = own.get_diary_runs(&diary_id).await.expect("read");
+        took[2] += started.elapsed();
+        assert_eq!(runs.len(), 1, "a day after the other is one run");
+        assert_eq!(
+            (runs[0].from, runs[0].days),
+            (day("1900-01-01"), ENTRIES_PER_DIARY)
+        );
     }
     let plans = own
         .plans_of_diary_reads(&diary_id, at, from, to)
@@ -516,12 +532,15 @@ async fn a_full_diary_answers_for_a_day_without_being_read() {
         all.len(),
         usize::try_from(ENTRIES_PER_DIARY).expect("a count")
     );
-    for (read, ((name, plan), took)) in
-        ["the entries of 11-21 in every year", "the days of a month"]
-            .into_iter()
-            .zip(&plans)
-            .zip(took)
-            .enumerate()
+    for (read, ((name, plan), took)) in [
+        "the entries of 11-21 in every year",
+        "the days of a month",
+        "the runs of the written days",
+    ]
+    .into_iter()
+    .zip(&plans)
+    .zip(took)
+    .enumerate()
     {
         println!(
             "{name}, of {ENTRIES_PER_DIARY} entries on {:?}: {:?} a read; the plan:\n  {}",
@@ -531,5 +550,46 @@ async fn a_full_diary_answers_for_a_day_without_being_read() {
         );
         check_plan(read, &plan.join("\n"));
     }
+    test.teardown().await;
+}
+
+/// The most runs a diary may have, a run a day: every other day written, to the limit.
+/// They are read from the key of the days alone, and what the read took and how large
+/// their answer is are printed.
+#[tokio::test]
+async fn a_full_diary_of_every_other_day_answers_its_runs_from_the_key() {
+    const RUNS: u32 = 5;
+    let test = common::setup().await;
+    let user_id = common::user(&test, "writer").await;
+    let (own, workspace_id) = common::in_own_space(&test, &user_id).await;
+    let diary_id = a_diary(&own, &workspace_id, &user_id).await;
+    fill(&test, &own, &diary_id, &user_id, 2).await;
+    let mut took = Duration::ZERO;
+    let mut runs = Vec::new();
+    for _ in 0..RUNS {
+        let started = Instant::now();
+        runs = own.get_diary_runs(&diary_id).await.expect("read");
+        took += started.elapsed();
+    }
+    assert_eq!(
+        runs.len(),
+        usize::try_from(ENTRIES_PER_DIARY).expect("a count")
+    );
+    assert!(runs.iter().all(|run| run.days == 1 && run.from == run.to));
+    assert_eq!(runs[1].from, day("1900-01-03"));
+    let at: MonthDay = "11-21".parse().expect("a month and day");
+    let [.., plan] = own
+        .plans_of_diary_reads(&diary_id, at, day("2000-11-01"), day("2000-11-30"))
+        .await
+        .expect("explained");
+    check_plan(2, &plan.join("\n"));
+    let answer = serde_json::to_vec(&runs).expect("serialized").len();
+    println!(
+        "the runs of {ENTRIES_PER_DIARY} entries a day apart on {:?}: {:?} a read, \
+         {answer} bytes of JSON; the plan:\n  {}",
+        db_type(),
+        took / RUNS,
+        plan.join("\n  ")
+    );
     test.teardown().await;
 }

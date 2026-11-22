@@ -8,6 +8,8 @@
 
   A day nobody wrote on says so ("Not written") and opens to be written; the
   day of this year that is still to come says that, and opens to nothing.
+  An open day has its mood, weather and place to mark above its body
+  (`DayNotes`); a folded one shows them under its year.
   The open day's body, editor and all, is the page's (`body`): a feature
   does not reach into another's.
 -->
@@ -20,6 +22,9 @@
   import { writable } from '$lib/logic/diary-days.ts';
   import { displayDayWithYear, displayWeekday, displayYear } from '$lib/logic/format.ts';
   import type { DiaryStore, EntryStore } from '$lib/state/index.ts';
+
+  import DayNotes from './DayNotes.svelte';
+  import NotesShown from './NotesShown.svelte';
 
   interface Props {
     diary: DiaryStore;
@@ -53,11 +58,16 @@
     <span class="text-sm text-muted-foreground">{displayWeekday(date, locale)}</span>
     <span class="sr-only">{whole}</span>
   </h2>
+  {#if entry && !(open && !toCome)}
+    <NotesShown notes={entry} />
+  {/if}
   <!-- A day still to come here may be written already, on a device where it has come. -->
   {#if toCome && !entry}
     <p class="text-sm text-muted-foreground" data-testid="entry-to-come">{m.diary_not_yet()}</p>
   {:else if open}
-    {@render body(diary.day(date), whole)}
+    {@const day = diary.day(date)}
+    <DayNotes entry={day} label={whole} />
+    {@render body(day, whole)}
   {:else if entry}
     <div class="relative">
       <div

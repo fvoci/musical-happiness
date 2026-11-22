@@ -532,6 +532,7 @@ const ORDERS: &[(&str, &str)] = &[
     ("getDiaryDays", "the earliest first"),
     ("getDiaryEntriesOn", "the latest year first"),
     ("getDiaryEntryBodyVersions", "the newest first"),
+    ("getDiaryRuns", "the earliest first"),
     ("getFileVersions", "The newest first"),
     ("getInvitations", "The newest first"),
     ("getMembers", "By the identifier of the user"),

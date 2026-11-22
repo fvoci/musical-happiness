@@ -6,12 +6,14 @@
  * whole diary. What changes meanwhile is heard on the diary (`watchContainer`):
  * an entry made or changed on the day shown is read again (a change carries no
  * body), also one open here, whose room writes its body now and then: the
- * folded view of it shows what was written; a deleted one goes.
+ * folded view of it shows what was written; a deleted one goes. The diary's
+ * calendar (`calendar`) hears of every entry, of any day.
  */
 import type { CalendarDate } from '../logic/dates.ts';
 import { monthDayOf, type MonthDay } from '../logic/diary-days.ts';
 import type { Container } from '../logic/wire.ts';
 import { isBackendError, type Change } from './backend.ts';
+import { DiaryCalendar } from './diary-calendar.svelte.ts';
 import type { DiaryEntry, DiaryEntryDetail } from './diary-types.ts';
 import { EntryStore, type EntryHost } from './entry.svelte.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
@@ -27,6 +29,8 @@ export class DiaryStore implements EntryHost {
   monthDay = $state.raw<MonthDay | undefined>(undefined);
   /** The entries of that day, in every year written. */
   entries = $state.raw<readonly DiaryEntryDetail[]>([]);
+  /** Its written days by month, and the runs of them. */
+  readonly calendar: DiaryCalendar;
 
   /** The entry of each day of the page, as it is opened. */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown: each store is
@@ -37,6 +41,7 @@ export class DiaryStore implements EntryHost {
   constructor(workspace: Workspace, diaryId: string) {
     this.workspace = workspace;
     this.diaryId = diaryId;
+    this.calendar = new DiaryCalendar(this);
   }
 
   /** The diary as the workspace lists it; undefined while it does not. */
@@ -46,9 +51,12 @@ export class DiaryStore implements EntryHost {
 
   /** Shows a day of the year: its entries are read, those of the day before let go. */
   async show(monthDay: MonthDay): Promise<void> {
-    this.#stop ??= this.workspace.backend.watchContainer(this.diaryId, (change) => {
-      this.#hear(change);
-    });
+    if (!this.#stop) {
+      this.#stop = this.workspace.backend.watchContainer(this.diaryId, (change) => {
+        this.#hear(change);
+      });
+      void this.calendar.count();
+    }
     if (this.monthDay !== monthDay) {
       for (const day of this.#days.values()) day.close();
       this.#days.clear();
@@ -96,11 +104,13 @@ export class DiaryStore implements EntryHost {
   }
 
   received(entry: DiaryEntryDetail): void {
+    this.calendar.heard([entry]);
     if (monthDayOf(entry.date) !== this.monthDay) return;
     this.entries = [...this.entries.filter((one) => one.id !== entry.id), entry];
   }
 
   removed(entryId: string): void {
+    this.calendar.heardDeleted([entryId]);
     this.entries = this.entries.filter((one) => one.id !== entryId);
   }
 
@@ -112,15 +122,18 @@ export class DiaryStore implements EntryHost {
   #hear(change: Change): void {
     switch (change.kind) {
       case 'entries':
+        this.calendar.heard(change.entries);
         for (const entry of change.entries) this.#changed(entry);
         return;
       case 'blocksDeleted':
+        this.calendar.heardDeleted(change.blockIds);
         for (const id of change.blockIds) this.#deleted(id);
         return;
       case 'containerDeleted':
         if (change.containerId === this.diaryId) [this.status, this.missing] = ['failed', true];
         return;
       case 'resync':
+        this.calendar.resync();
         if (this.monthDay) void this.#read(this.monthDay);
         return;
       default:

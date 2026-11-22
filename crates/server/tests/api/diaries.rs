@@ -315,6 +315,77 @@ async fn the_days_of_a_diary_are_read_by_month_and_day_and_by_range() {
     th.teardown().await;
 }
 
+/// The runs of a diary are its written days one after the other, across the ends of
+/// months and years and through 29 February, of that diary alone; an entry in the trash
+/// breaks its run, and one brought back joins it again.
+#[tokio::test]
+async fn the_runs_of_a_diary_are_its_written_days_one_after_the_other() {
+    let (th, ws) = in_a_space().await;
+    let client = &th.client;
+    let diary = a_diary(client, &ws).await;
+    let runs = async || -> Vec<(String, String, u64)> {
+        let listed = client.get(&format!("{diary}/runs")).await;
+        listed.check_ok();
+        let listed = listed.value();
+        let listed = listed.as_array().expect("a list");
+        listed
+            .iter()
+            .map(|run| {
+                let days = run["days"].as_u64().expect("a count");
+                (text_of(run, "from"), text_of(run, "to"), days)
+            })
+            .collect()
+    };
+    let run = |from: &str, to: &str, days: u64| (from.to_owned(), to.to_owned(), days);
+    assert_eq!(runs().await, []);
+    let mut made = Vec::new();
+    for date in [
+        "2024-03-03",
+        "2023-12-31",
+        "2024-02-28",
+        "2024-01-01",
+        "2024-02-29",
+        "2024-03-01",
+        "2025-02-28",
+        "2025-03-01",
+    ] {
+        made.push(written(client, &diary, &json!({ "date": date })).await);
+    }
+    let other = a_diary(client, &ws).await;
+    written(client, &other, &json!({"date": "2024-03-02"})).await;
+    assert_eq!(
+        runs().await,
+        [
+            run("2023-12-31", "2024-01-01", 2),
+            run("2024-02-28", "2024-03-01", 3),
+            run("2024-03-03", "2024-03-03", 1),
+            // 2025 has no 29 February.
+            run("2025-02-28", "2025-03-01", 2),
+        ]
+    );
+    let leap = format!("{diary}/entries/{}", text_of(&made[4], "id"));
+    client
+        .delete(&leap)
+        .await
+        .check_status(StatusCode::NO_CONTENT);
+    assert_eq!(
+        runs().await,
+        [
+            run("2023-12-31", "2024-01-01", 2),
+            run("2024-02-28", "2024-02-28", 1),
+            run("2024-03-01", "2024-03-01", 1),
+            run("2024-03-03", "2024-03-03", 1),
+            run("2025-02-28", "2025-03-01", 2),
+        ]
+    );
+    client
+        .post(&format!("{leap}/undelete"), &json!({}))
+        .await
+        .check_ok();
+    assert_eq!(runs().await[1], run("2024-02-28", "2024-03-01", 3));
+    th.teardown().await;
+}
+
 /// An entry is changed by its patch, which has no member for its day, and its body is
 /// kept in versions as a card's is. The entry of another diary, and of nothing, is no
 /// entry of this one.

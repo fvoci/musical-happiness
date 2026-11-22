@@ -10,10 +10,25 @@
  * day of the calendar no more than two days past the world's own (UTC).
  * Deleting an entry puts it in the trash, where it holds no day.
  */
-import { addDays, dateOfUtc, parseCalendarDate, type CalendarDate } from '../../logic/dates.ts';
+import {
+  addDays,
+  dateOfUtc,
+  daysBetween,
+  parseCalendarDate,
+  type CalendarDate,
+} from '../../logic/dates.ts';
 import { monthDayOf, type MonthDay } from '../../logic/diary-days.ts';
+import { runsOf } from '../../logic/diary-streak.ts';
 import { createBoard, type Container } from '../../logic/wire.ts';
-import type { Diaries, DiaryEntryDetail, EntryPatch } from '../diary-types.ts';
+import {
+  NOTE_MAX_CHARS,
+  type DayNotes,
+  type Diaries,
+  type DiaryDay,
+  type DiaryEntryDetail,
+  type DiaryRun,
+  type EntryPatch,
+} from '../diary-types.ts';
 
 import type { BackendError } from '../problems.ts';
 
@@ -30,6 +45,8 @@ import type { StoredBlock, World } from './world.ts';
 export const DIARIES_PER_SPACE = 20;
 export const ENTRIES_PER_DIARY = 40_000;
 const DAYS_AHEAD = 2;
+/** The most days one list of written days spans (`DAYS_PER_LIST`). */
+const DAYS_PER_LIST = 366;
 
 /** What the diaries share with the backend they are of. */
 export interface DiaryHost {
@@ -164,6 +181,31 @@ export class MemoryDiaries implements Diaries {
       .sort((first, second) => second.date.localeCompare(first.date));
   }
 
+  async days(diaryId: string, from: CalendarDate, to: CalendarDate): Promise<DiaryDay[]> {
+    await this.#enter('days');
+    this.#diary(diaryId);
+    for (const [field, day] of [
+      ['from', from],
+      ['to', to],
+    ] as const) {
+      if (!parseCalendarDate(day)) fail(400, 'no such day', { field });
+    }
+    if (daysBetween(from, to) >= DAYS_PER_LIST) {
+      fail(400, 'too many days at once', { field: 'to', limit: DAYS_PER_LIST });
+    }
+    return this.#entriesOf(diaryId)
+      .map(entryOf)
+      .filter((entry) => entry.date >= from && entry.date <= to)
+      .sort((first, second) => first.date.localeCompare(second.date))
+      .map((entry) => ({ date: entry.date, entryId: entry.id, mood: entry.mood }));
+  }
+
+  async runs(diaryId: string): Promise<DiaryRun[]> {
+    await this.#enter('runs');
+    this.#diary(diaryId);
+    return runsOf(this.#entriesOf(diaryId).map((block) => entryOf(block).date));
+  }
+
   async createEntry(diaryId: string, date: CalendarDate): Promise<DiaryEntryDetail> {
     await this.#enter('createEntry');
     this.#diary(diaryId);
@@ -220,12 +262,16 @@ export class MemoryDiaries implements Diaries {
     if (patch.readAt !== undefined && patch.readAt !== block.updateAt) {
       fail(409, 'the entry changed since it was read');
     }
+    const notes = checkedNotes(patch);
     if (patch.body !== undefined) {
       block.body = checkedWhole(this.#world, diaryId, entryId, patch.body);
-      block.updateAt = this.#world.now();
-      block.modifiedBy = this.#host.userId;
       // As the server: its room's document is made anew from the body written whole.
       this.#world.bodyWritten?.(entryId);
+    }
+    if (patch.body !== undefined || Object.keys(notes).length > 0) {
+      block.fields = { ...block.fields, ...notes };
+      block.updateAt = this.#world.now();
+      block.modifiedBy = this.#host.userId;
       this.#world.tellContainer(diaryId, changeOf(diaryId, block));
     }
     return detailOf(block);
@@ -247,4 +293,20 @@ export class MemoryDiaries implements Diaries {
       blockIds: [entryId],
     });
   }
+}
+
+/** The notes a patch sets, as the server takes them: a weather or place of `NOTE_MAX_CHARS` at most. */
+function checkedNotes(patch: EntryPatch): Partial<DayNotes> {
+  const notes: Partial<DayNotes> = {};
+  if (patch.mood !== undefined) notes.mood = patch.mood;
+  for (const field of ['weather', 'place'] as const) {
+    const text = patch[field];
+    if (text === undefined) continue;
+    if (Array.from(text).length > NOTE_MAX_CHARS) {
+      fail(400, `the ${field} is too long`, { field, limit: NOTE_MAX_CHARS });
+    }
+    if (text.includes('\0')) fail(400, `the ${field} holds a NUL`, { field });
+    notes[field] = text;
+  }
+  return notes;
 }

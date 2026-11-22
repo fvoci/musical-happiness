@@ -1,7 +1,8 @@
 <!--
-  The head of a diary's page: the diary's name, the day of the year shown
-  (`November 21`), the way to the day before and the day after, back to
-  today, and to any day picked from a month (its year shown too, below this
+  The head of a diary's page: the diary's name and the days written in a row,
+  the day of the year shown (`November 21`), the way to the day before and
+  the day after, back to today, and to any day picked from the diary's
+  calendar of written days (`WrittenDays`; its year shown too, below this
   year's), and the diary's menu (renaming it, deleting it).
 
   "Today" is the reader's: it says it is the day shown (`aria-current`) and
@@ -9,11 +10,11 @@
   page was open.
 -->
 <script lang="ts">
-  import { parseDate, type DateValue as PickedDay } from '@internationalized/date';
   import CalendarIcon from '@lucide/svelte/icons/calendar-days';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
+  import FlameIcon from '@lucide/svelte/icons/flame';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
 
@@ -23,14 +24,18 @@
   import { insets } from '$lib/layout/room.svelte.ts';
   import type { CalendarDate } from '$lib/logic/dates.ts';
   import { dateIn, monthDayOf, yearOf, type MonthDay } from '$lib/logic/diary-days.ts';
+  import { streakOf } from '$lib/logic/diary-streak.ts';
   import { displayDay } from '$lib/logic/format.ts';
+  import type { DiaryCalendar } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
-  import { Calendar } from '$lib/ui/calendar/index.js';
   import * as Popover from '$lib/ui/popover/index.js';
+
+  import WrittenDays from './WrittenDays.svelte';
 
   interface Props {
     /** The diary's name as it is shown. */
     title: string;
+    calendar: DiaryCalendar;
     monthDay: MonthDay;
     today: CalendarDate;
     locale: string;
@@ -46,6 +51,7 @@
 
   let {
     title,
+    calendar,
     monthDay,
     today,
     locale,
@@ -61,13 +67,21 @@
   const shown = $derived(`2000-${monthDay}` as CalendarDate);
   const isToday = $derived(monthDayOf(today) === monthDay);
   let picking = $state(false);
-  /** The picker opens on this year's day shown, or today where this year has none (`02-29`). */
-  const placeholder = $derived(parseDate(dateIn(yearOf(today), monthDay) ?? today));
+  /** The calendar opens on this year's day shown, or today where this year has none (`02-29`). */
+  const opening = $derived(dateIn(yearOf(today), monthDay) ?? today);
+  const streak = $derived(streakOf(calendar.runs, today));
 
-  function pick(picked: PickedDay | undefined): void {
-    if (!picked) return;
+  let picker = $state<HTMLElement | null>(null);
+
+  /** The calendar opens with its day in hand: the one it opens on, else the first of the month. */
+  function focusDay(event: Event): void {
+    event.preventDefault();
+    picker?.querySelector<HTMLElement>('[data-bits-day][tabindex="0"]')?.focus();
+  }
+
+  function pick(date: CalendarDate): void {
     picking = false;
-    onPick(picked.toString() as CalendarDate);
+    onPick(date);
   }
 
   const actions = $derived([
@@ -88,6 +102,15 @@
     <p class="min-w-0 flex-1 truncate text-sm text-muted-foreground" data-testid="diary-title">
       {title}
     </p>
+    {#if calendar.counted && streak.current > 0}
+      <p
+        class="flex shrink-0 items-center gap-1 text-sm text-muted-foreground"
+        data-testid="diary-streak-badge"
+      >
+        <FlameIcon class="size-4" />
+        {m.diary_streak({ count: streak.current })}
+      </p>
+    {/if}
     <ActionMenu title={m.diary_menu({ title })} {actions} align="end">
       {#snippet trigger(props: Record<string, unknown>)}
         <IconButton {...props} label={m.diary_menu({ title })} data-testid="diary-menu">
@@ -129,7 +152,12 @@
       >
         <ChevronRightIcon />
       </IconButton>
-      <Popover.Root bind:open={picking}>
+      <Popover.Root
+        bind:open={picking}
+        onOpenChange={(open: boolean) => {
+          if (open) void calendar.showMonth(opening);
+        }}
+      >
         <Popover.Trigger>
           {#snippet child({ props }: { props: Record<string, unknown> })}
             <IconButton {...props} label={m.diary_pick_day()} data-testid="diary-pick">
@@ -143,18 +171,10 @@
           aria-label={m.diary_pick_day()}
           class="w-auto p-1"
           data-testid="diary-picker"
+          bind:ref={picker}
+          onOpenAutoFocus={focusDay}
         >
-          <Calendar
-            type="single"
-            bind:value={() => undefined, pick}
-            {placeholder}
-            {locale}
-            weekStartsOn={(weekStart % 7) as 0 | 1 | 2 | 3 | 4 | 5 | 6}
-            maxValue={parseDate(today)}
-            fixedWeeks
-            calendarLabel={m.diary_pick_day()}
-            class="bg-transparent p-1 roomy:[--cell-size:var(--spacing-touch)]"
-          />
+          <WrittenDays {calendar} {streak} {opening} {today} {locale} {weekStart} onPick={pick} />
         </Popover.Content>
       </Popover.Root>
     </div>

@@ -405,6 +405,7 @@ async fn keep_a_diary(case: &mut Case) {
             format!("{diary}/days?from=2024-02-01&to=2024-02-29"),
         ),
         ("getDiaryEntriesOn", &get, format!("{diary}/days/02-29")),
+        ("getDiaryRuns", &get, format!("{diary}/runs")),
         ("getDiaryEntryBodyVersions", &get, versions.clone()),
         ("getDiaryEntryBodyVersion", &get, format!("{versions}/1")),
         (

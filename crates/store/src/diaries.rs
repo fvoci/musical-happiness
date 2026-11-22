@@ -10,7 +10,7 @@
 
 use fvoci_model::{
     Block, BlockError, BlockType, Container, ContainerError, ContainerKind, ContainerMember,
-    DIARIES_PER_SPACE, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryMaking, MonthDay,
+    DIARIES_PER_SPACE, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryMaking, DiaryRun, MonthDay,
     NewDiaryEntry, OrgKind, entry_date, entry_mood, new_id,
 };
 
@@ -197,6 +197,33 @@ impl Store {
         .await
     }
 
+    /// The runs of the diary's written days ([`DiaryRun`]), the earliest first, made of
+    /// the days alone: of the rows of the days, only their days are read, and no entry;
+    /// the database puts them together, and answers a row a run.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails, and [`StoreError::Corrupt`]
+    /// if a row holds what is no day.
+    pub async fn get_diary_runs(&self, diary_id: &str) -> Result<Vec<DiaryRun>, StoreError> {
+        self.with_conn(async |scope| {
+            let corrupt = |column: &'static str| StoreError::Corrupt {
+                column,
+                reason: "a row of diary_days holds what is no day".to_owned(),
+            };
+            let mut runs = Vec::new();
+            for row in &scope.fetch_all(runs_of(scope, diary_id)).await? {
+                runs.push(DiaryRun {
+                    from: row.text(0)?.parse().map_err(|_| corrupt("day"))?,
+                    to: row.text(1)?.parse().map_err(|_| corrupt("day"))?,
+                    days: u32::try_from(row.int(2)?).map_err(|_| corrupt("day"))?,
+                });
+            }
+            Ok(runs)
+        })
+        .await
+    }
+
     /// The entries of the diary in the trash, the last deleted first and then by
     /// identifier: one page of them if `paging` says so (a page size of zero is every
     /// one).
@@ -329,12 +356,31 @@ fn days_between(
     sql
 }
 
+/// The query of [`Store::get_diary_runs`]: the days alone, which the key of the table
+/// holds in their order, each less its place in that order. That is the same number for
+/// the days of one run, which is how they are put together.
+fn runs_of(scope: &Scope<'_>, diary_id: &str) -> Sql {
+    let day_number = match scope.dialect() {
+        Dialect::Sqlite => "CAST(julianday(day) AS INTEGER)",
+        Dialect::Postgres => "day::date",
+    };
+    let mut sql = scope.sql(&format!(
+        "SELECT MIN(day), MAX(day), CAST(COUNT(*) AS BIGINT) FROM (SELECT day, \
+         {day_number} - CAST(ROW_NUMBER() OVER (ORDER BY day) AS INTEGER) AS run \
+         FROM diary_days WHERE container_id = "
+    ));
+    sql.bind(Id(diary_id))
+        .push(") AS written GROUP BY run ORDER BY MIN(day)");
+    sql
+}
+
 #[cfg(any(test, feature = "test-util"))]
 impl Store {
-    /// How the database answers [`Store::get_diary_entries_on`] and
-    /// [`Store::get_diary_days`] for these: the lines of the plan of each, the very
-    /// statements the two run. On PostgreSQL the statements are run, and the plan says
-    /// what they read. For the tests that a day is found without reading the diary.
+    /// How the database answers [`Store::get_diary_entries_on`],
+    /// [`Store::get_diary_days`] and [`Store::get_diary_runs`] for these: the lines of
+    /// the plan of each, the very statements the three run. On PostgreSQL the
+    /// statements are run, and the plan says what they read. For the tests that a day
+    /// is found without reading the diary.
     ///
     /// # Errors
     ///
@@ -345,12 +391,13 @@ impl Store {
         at: MonthDay,
         from: DiaryDate,
         to: DiaryDate,
-    ) -> Result<[Vec<String>; 2], StoreError> {
+    ) -> Result<[Vec<String>; 3], StoreError> {
         self.with_conn(async |scope| {
-            let mut plans: [Vec<String>; 2] = Default::default();
+            let mut plans: [Vec<String>; 3] = Default::default();
             let queries = [
                 entries_on(scope, diary_id, at),
                 days_between(scope, diary_id, Some(from), Some(to)),
+                runs_of(scope, diary_id),
             ];
             for (plan, query) in plans.iter_mut().zip(queries) {
                 let line = match scope.dialect() {

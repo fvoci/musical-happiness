@@ -172,8 +172,8 @@ export function mayManageCards(
   refusal: string,
 ): void {
   const board = world.containers.get(boardId);
-  // A wiki has no cards: the server answers for one as for a board that is not there.
-  if (!board || board.kind === 'wiki') fail(404, 'no such board');
+  // A wiki or a diary has no cards: the server answers for one as for a board that is not there.
+  if (!board || board.kind === 'wiki' || board.kind === 'diary') fail(404, 'no such board');
   const member = world.members.get(boardId)?.find((each) => each.userId === userId);
   if (!member && board.type !== 'O') fail(404, 'no such board');
   if (!member?.schemeAdmin && !member?.schemeEditor) fail(403, refusal);

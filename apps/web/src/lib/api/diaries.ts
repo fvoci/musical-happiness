@@ -1,20 +1,24 @@
 /**
  * The diaries of the reader's own space and their entries on the server
  * (`Backend.diary`): the operations under `/w/{workspaceId}/diaries`
- * (`getDiaries`, `createDiary`, `getDiaryEntriesOn`, `createDiaryEntry`,
- * `getDiaryEntry`, `patchDiaryEntry`, `deleteDiaryEntry`). What a diary shares
+ * (`getDiaries`, `createDiary`, `getDiaryEntriesOn`, `getDiaryDays`,
+ * `getDiaryRuns`, `createDiaryEntry`, `getDiaryEntry`, `patchDiaryEntry`,
+ * `deleteDiaryEntry`). What a diary shares
  * with a board (reading it, renaming, deleting and bringing it back, the
  * sidebar, its archive) goes by the board's operations.
  */
 import type { CalendarDate } from '../logic/dates.ts';
 import type { MonthDay } from '../logic/diary-days.ts';
 import type { Container } from '../logic/wire.ts';
-import type {
-  Diaries,
-  DiaryEntry,
-  DiaryEntryDetail,
-  EntryPatch,
-  Mood,
+import {
+  MOODS,
+  type Diaries,
+  type DiaryDay,
+  type DiaryEntry,
+  type DiaryEntryDetail,
+  type DiaryRun,
+  type EntryPatch,
+  type Mood,
 } from '../state/diary-types.ts';
 
 import { bodyOf, containerOf, wireBody, type Schemas } from './convert.ts';
@@ -36,8 +40,6 @@ export function entryDetailOf(entry: Schemas['DiaryEntry']): DiaryEntryDetail {
   };
 }
 
-const MOODS: readonly string[] = ['great', 'good', 'okay', 'bad', 'awful'] satisfies Mood[];
-
 /**
  * An entry as a change message brings it: a block of the type `entry`, whose
  * day, mood, weather and place are among its `fields`.
@@ -50,7 +52,7 @@ export function entryOfBlock(block: Schemas['Block']): DiaryEntry {
     id: block.id,
     diaryId: block.containerId,
     date: date as CalendarDate,
-    mood: MOODS.includes(text(fields.mood)) ? (fields.mood as Mood) : null,
+    mood: MOODS.includes(text(fields.mood) as Mood) ? (fields.mood as Mood) : null,
     weather: text(fields.weather),
     place: text(fields.place),
     createAt: block.createAt,
@@ -62,6 +64,9 @@ function entryPatchOf(patch: EntryPatch): Schemas['DiaryEntryPatch'] {
   return {
     ...(patch.body === undefined ? {} : { body: patch.body && wireBody(patch.body) }),
     ...(patch.readAt === undefined ? {} : { readAt: patch.readAt }),
+    ...(patch.mood === undefined ? {} : { mood: patch.mood }),
+    ...(patch.weather === undefined ? {} : { weather: patch.weather }),
+    ...(patch.place === undefined ? {} : { place: patch.place }),
   };
 }
 
@@ -106,6 +111,30 @@ export class ServerDiaries implements Diaries {
       { diaryId, monthDay },
     );
     return entries.map(entryDetailOf);
+  }
+
+  async days(diaryId: string, from: CalendarDate, to: CalendarDate): Promise<DiaryDay[]> {
+    const days = await this.#request<Schemas['DiaryDay'][]>(
+      '/diaries/{diaryId}/days',
+      { diaryId },
+      { query: { from, to } },
+    );
+    return days.map((day) => ({
+      date: day.date as CalendarDate,
+      entryId: day.entryId,
+      mood: day.mood ?? null,
+    }));
+  }
+
+  async runs(diaryId: string): Promise<DiaryRun[]> {
+    const runs = await this.#request<Schemas['DiaryRun'][]>('/diaries/{diaryId}/runs', {
+      diaryId,
+    });
+    return runs.map((run) => ({
+      from: run.from as CalendarDate,
+      to: run.to as CalendarDate,
+      days: run.days,
+    }));
   }
 
   async createEntry(diaryId: string, date: CalendarDate): Promise<DiaryEntryDetail> {

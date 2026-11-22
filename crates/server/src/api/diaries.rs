@@ -9,7 +9,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
     Block, Container, ContainerKind, ContainerType, DAYS_PER_LIST, DeletedDiaryEntry, DiaryDate,
-    DiaryDay, DiaryEntry, DiaryEntryPatch, DiaryMaking, MonthDay, NewDiaryEntry,
+    DiaryDay, DiaryEntry, DiaryEntryPatch, DiaryMaking, DiaryRun, MonthDay, NewDiaryEntry,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -36,6 +36,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_get_diaries, handle_create_diary))
         .routes(routes!(handle_get_diary_days))
+        .routes(routes!(handle_get_diary_runs))
         .routes(routes!(handle_get_diary_entries_on))
         .routes(routes!(handle_create_diary_entry))
         .routes(routes!(
@@ -206,6 +207,38 @@ async fn handle_get_diary_days(
     }
     let days = ws.app.diary_days(&diary_id, from, to).await?;
     Ok(json_response(&days))
+}
+
+/// The runs of a diary's written days
+///
+/// Every run of days of the diary written one after the other, the earliest first: its
+/// first day (`from`), its last (`to`) and how many days it has (`days`), and nothing
+/// of the entries. What a client counts the days written in a row by, the longest and
+/// the one that reaches its today, which the server does not say. A diary without
+/// entries has no runs; entries in the trash have no day. There are no more runs than
+/// the diary has entries.
+#[utoipa::path(
+    get,
+    path = "/w/{workspaceId}/diaries/{diaryId}/runs",
+    operation_id = "getDiaryRuns",
+    tag = tag::DIARIES,
+    params(OwnWorkspaceId, DiaryId),
+    responses((status = 200, description = "The runs of written days.", body = Vec<DiaryRun>)),
+)]
+async fn handle_get_diary_runs(
+    InDiary(ws): InDiary,
+    Path((_, diary_id)): Path<(String, String)>,
+) -> ApiResult {
+    require_container_permission(
+        &ws.app,
+        &ws.session.user_id,
+        &diary_id,
+        ContainerPermission::View,
+        "access denied to fetch the days of the diary",
+    )
+    .await?;
+    let runs = ws.app.diary_runs(&diary_id).await?;
+    Ok(json_response(&runs))
 }
 
 /// The entries of a month and day in every year

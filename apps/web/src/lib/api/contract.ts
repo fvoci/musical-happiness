@@ -3208,6 +3208,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/diaries/{diaryId}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The runs of a diary's written days
+         * @description Every run of days of the diary written one after the other, the earliest first: its
+         *     first day (`from`), its last (`to`) and how many days it has (`days`), and nothing
+         *     of the entries. What a client counts the days written in a row by, the longest and
+         *     the one that reaches its today, which the server does not say. A diary without
+         *     entries has no runs; entries in the trash have no day. There are no more runs than
+         *     the diary has entries.
+         */
+        get: operations["getDiaryRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/diaries/{diaryId}/trash/entries": {
         parameters: {
             query?: never;
@@ -5280,6 +5305,23 @@ export interface components {
             readAt?: number | null;
             /** @description The new weather, at most 100 characters; empty for none. */
             weather?: string | null;
+        };
+        /**
+         * @description Days of a diary one after the other, each with an entry, with a day without one (or
+         *     the edge of the calendar) before the first and after the last: what a count of the
+         *     days written in a row is made of. Which run reaches today, and so how long the
+         *     writer's streak is now, the client says: the server never says what today is.
+         */
+        DiaryRun: {
+            /**
+             * Format: int32
+             * @description How many days the run has, both of its ends counted.
+             */
+            days: number;
+            /** @description The first day of the run, `2026-11-01`. */
+            from: string;
+            /** @description The last day of the run, `2026-11-21`. */
+            to: string;
         };
         /** @description Where a confirmed registration's account was let in. */
         EmailVerified: {
@@ -12204,6 +12246,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiaryEntry"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getDiaryRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of. */
+                workspaceId: string;
+                /** @description The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is. */
+                diaryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The runs of written days. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiaryRun"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

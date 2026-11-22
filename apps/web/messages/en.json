@@ -1671,5 +1671,18 @@
   "diary_body_lost_image": "An image you added was not put in: the entry was sent again meanwhile. Add it once more.",
   "diary_body_lost_file": "A file you added was not put in: the entry was sent again meanwhile. Add it once more.",
   "diary_body_lost_formula": "What you were writing in a formula was not put into the entry: the editor it was open in went away. Write it once more.",
-  "diary_not_saved": "What you wrote on {date} could not be saved. Copy it before you leave."
+  "diary_not_saved": "What you wrote on {date} could not be saved. Copy it before you leave.",
+  "diary_mood": "Mood",
+  "diary_mood_great": "Great",
+  "diary_mood_good": "Good",
+  "diary_mood_okay": "Okay",
+  "diary_mood_bad": "Bad",
+  "diary_mood_awful": "Awful",
+  "diary_weather": "Weather",
+  "diary_place": "Place",
+  "diary_notes_of": "The mood, weather and place of {date}",
+  "diary_streak": "Days in a row: {count}",
+  "diary_streak_longest": "Longest: {count}",
+  "diary_written": "Written",
+  "diary_written_mood": "Written, {mood}"
 }

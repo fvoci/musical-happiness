@@ -1671,5 +1671,18 @@
   "diary_body_lost_image": "그사이 글이 새로 와서 올린 이미지를 넣지 못했습니다. 다시 넣어 주세요.",
   "diary_body_lost_file": "그사이 글이 새로 와서 올린 파일을 넣지 못했습니다. 다시 넣어 주세요.",
   "diary_body_lost_formula": "수식 상자가 열려 있던 편집기가 사라져 수식에 쓰던 것을 글에 넣지 못했습니다. 다시 써 주세요.",
-  "diary_not_saved": "{date}에 쓴 것을 저장하지 못했습니다. 떠나기 전에 복사해 두세요."
+  "diary_not_saved": "{date}에 쓴 것을 저장하지 못했습니다. 떠나기 전에 복사해 두세요.",
+  "diary_mood": "기분",
+  "diary_mood_great": "아주 좋음",
+  "diary_mood_good": "좋음",
+  "diary_mood_okay": "보통",
+  "diary_mood_bad": "나쁨",
+  "diary_mood_awful": "아주 나쁨",
+  "diary_weather": "날씨",
+  "diary_place": "장소",
+  "diary_notes_of": "{date}의 기분, 날씨, 장소",
+  "diary_streak": "이어 쓴 날 {count}일",
+  "diary_streak_longest": "가장 길게 {count}일",
+  "diary_written": "씀",
+  "diary_written_mood": "씀, {mood}"
 }

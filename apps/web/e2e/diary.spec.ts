@@ -11,73 +11,25 @@
  * done as the app's links do (`goInside`). The same diary over a load and
  * from two devices is tested against the server (`e2e-live/diary.spec.ts`).
  */
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
+import {
+  ON_A_DAY,
+  dayOf,
+  diaryPage,
+  editorOf,
+  editors,
+  entriesOn,
+  goToDay,
+  openDiary,
+  switchTo,
+  year,
+} from './diary.support.ts';
 import { screensDir } from './screens.ts';
 import { openApp, showSidebar, sidebar } from './shell.support.ts';
 import { goInside } from './wiki.support.ts';
 
 test.use({ timezoneId: 'Asia/Seoul', locale: 'en-US' });
-
-/** A Saturday morning in Seoul. */
-const MORNING = new Date('2026-11-21T10:00:00+09:00');
-const ID = '[0-9a-f-]{36}';
-const ON_A_DAY = new RegExp(`/w/${ID}/diaries/(${ID})/(\\d{2}-\\d{2})$`, 'u');
-
-const diaryPage = (page: Page): Locator => page.getByTestId('diary-page');
-const year = (page: Page, date: string): Locator =>
-  diaryPage(page).locator(`[data-testid="diary-year"][data-date="${date}"]`);
-const editors = (page: Page): Locator =>
-  diaryPage(page).locator('[data-testid="diary-year"] [contenteditable="true"]');
-const editorOf = (cell: Locator): Locator => cell.locator('[contenteditable="true"]').first();
-
-function dayOf(page: Page): { diaryId: string; monthDay: string } {
-  const [, diaryId = '', monthDay = ''] = ON_A_DAY.exec(page.url()) ?? [];
-  return { diaryId, monthDay };
-}
-
-/** How many entries the diary shown has on a day of the year, as the backend has them. */
-async function entriesOn(page: Page, monthDay: string): Promise<number> {
-  return page.evaluate(
-    async ([diaryId, day]) => {
-      const dev = (
-        window as unknown as {
-          fvociDev: {
-            backend: { diary: { entriesOn(id: string, md: string): Promise<unknown[]> } };
-          };
-        }
-      ).fvociDev;
-      return (await dev.backend.diary.entriesOn(diaryId, day)).length;
-    },
-    [dayOf(page).diaryId, monthDay] as const,
-  );
-}
-
-async function switchTo(page: Page, name: string): Promise<void> {
-  await showSidebar(page);
-  await sidebar(page).getByTestId('workspace-switcher').click();
-  await page
-    .getByRole('menu', { name: 'Switch workspace', exact: true })
-    .getByRole('menuitem', { name, exact: true })
-    .click();
-}
-
-/** The app at `time`, in the own space, its first diary made and open on today. */
-async function openDiary(page: Page, time = MORNING): Promise<void> {
-  await page.clock.install({ time });
-  await openApp(page);
-  await switchTo(page, 'My space');
-  await showSidebar(page);
-  await sidebar(page).getByTestId('open-diary').click();
-  await expect(page).toHaveURL(ON_A_DAY);
-  await expect(diaryPage(page)).toBeVisible();
-}
-
-/** Goes to another day of the year of the diary shown, as a link would. */
-async function goToDay(page: Page, monthDay: string): Promise<void> {
-  await goInside(page, new URL(page.url()).pathname.replace(/\d{2}-\d{2}$/u, monthDay));
-  await expect(diaryPage(page)).toHaveAttribute('data-month-day', monthDay);
-}
 
 test('the shared workspace has no diary; the own space has one way in, made as it is pressed', async ({
   page,
@@ -243,7 +195,8 @@ test('by the keyboard alone: from day to day, from year to year, a year opened',
   const blank = year(page, '2025-11-21').getByTestId('entry-blank');
   await page.getByTestId('diary-pick').focus();
   const focused = (): Promise<boolean> => blank.evaluate((it) => it === document.activeElement);
-  for (let step = 0; step < 6 && !(await focused()); step += 1) await page.keyboard.press('Tab');
+  // Through the open day: its mood, weather, place and body.
+  for (let step = 0; step < 12 && !(await focused()); step += 1) await page.keyboard.press('Tab');
   await expect(blank).toBeFocused();
   await expect(blank).toHaveAccessibleName('Write the entry of Friday, November 21, 2025');
   await page.keyboard.press('Enter');

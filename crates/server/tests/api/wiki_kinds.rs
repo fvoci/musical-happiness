@@ -133,6 +133,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("undeletePage", Reaches::Wikis),
     // What a diary holds.
     ("getDiaryDays", Reaches::Diaries),
+    ("getDiaryRuns", Reaches::Diaries),
     ("getDiaryEntriesOn", Reaches::Diaries),
     ("createDiaryEntry", Reaches::Diaries),
     ("getDiaryEntry", Reaches::Diaries),

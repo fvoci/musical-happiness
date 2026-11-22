@@ -5,7 +5,7 @@
 
 use fvoci_model::{
     Block, BlockType, Container, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryEntry, DiaryMaking,
-    ENTRIES_PER_DIARY, MonthDay, NewDiaryEntry, new_id,
+    DiaryRun, ENTRIES_PER_DIARY, MonthDay, NewDiaryEntry, new_id,
 };
 use fvoci_store::DiaryMade;
 
@@ -139,6 +139,16 @@ impl App {
     ) -> Result<Vec<DiaryDay>, AppError> {
         let days = self.store().get_diary_days(diary_id, Some(from), Some(to));
         Ok(days.await?)
+    }
+
+    /// The runs of the diary's written days, the earliest first: of every day of the
+    /// diary, the day alone, for the client to count the days written in a row.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the days cannot be read.
+    pub async fn diary_runs(&self, diary_id: &str) -> Result<Vec<DiaryRun>, AppError> {
+        Ok(self.store().get_diary_runs(diary_id).await?)
     }
 
     /// The diary's entries in the trash, one page of the list ([`ListPage`]).

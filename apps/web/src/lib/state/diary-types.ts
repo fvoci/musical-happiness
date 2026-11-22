@@ -22,16 +22,44 @@ import type { Container } from '../logic/wire.ts';
 /** How the day was, as its writer marks it. */
 export type Mood = 'great' | 'good' | 'okay' | 'bad' | 'awful';
 
-/** An entry as a change brings it: without its body. */
-export interface DiaryEntry {
-  id: string;
-  diaryId: string;
-  date: CalendarDate;
+/** The moods, the best first: the order a writer picks from. */
+export const MOODS: readonly Mood[] = ['great', 'good', 'okay', 'bad', 'awful'];
+
+/** The most characters of the weather and of the place of a day (`ENTRY_NOTE_MAX_CHARS`). */
+export const NOTE_MAX_CHARS = 100;
+
+/** What a day carries besides its body: none of it is searched. */
+export interface DayNotes {
   mood: Mood | null;
   /** Empty for none. */
   weather: string;
   /** Empty for none. */
   place: string;
+}
+
+/** A day of a diary that has an entry, as its calendar marks it: no more of the entry. */
+export interface DiaryDay {
+  date: CalendarDate;
+  entryId: string;
+  mood: Mood | null;
+}
+
+/**
+ * Days of a diary one after the other, each written: what the days written in
+ * a row are counted by (`logic/diary-streak.ts`), on the reader's today.
+ */
+export interface DiaryRun {
+  from: CalendarDate;
+  to: CalendarDate;
+  /** Both ends counted. */
+  days: number;
+}
+
+/** An entry as a change brings it: without its body. */
+export interface DiaryEntry extends DayNotes {
+  id: string;
+  diaryId: string;
+  date: CalendarDate;
   createAt: number;
   updateAt: number;
 }
@@ -44,7 +72,7 @@ export interface DiaryEntryDetail extends DiaryEntry {
 }
 
 /** What an entry is changed to; what is left out stays. */
-export interface EntryPatch {
+export interface EntryPatch extends Partial<DayNotes> {
   /** A whole new body, sent with `readAt`. */
   body?: DocNode | null;
   /** The `updateAt` the entry was read at: one changed since is refused (409). */
@@ -62,6 +90,10 @@ export interface Diaries {
   createDiary(workspaceId: string, draft: { title?: string; ifNone?: boolean }): Promise<Container>;
   /** The entries of the diary on `monthDay` of every year, with their bodies, in no promised order. */
   entriesOn(diaryId: string, monthDay: MonthDay): Promise<DiaryEntryDetail[]>;
+  /** The written days from `from` to `to`, both included, the earliest first; a year (366 days) at most, else 400. */
+  days(diaryId: string, from: CalendarDate, to: CalendarDate): Promise<DiaryDay[]>;
+  /** Every run of written days of the diary, the earliest first. */
+  runs(diaryId: string): Promise<DiaryRun[]>;
   /**
    * Makes the entry of a day; where the day has one, that one is answered and
    * nothing is made. A day that is no day, or more than two days past the
@@ -69,7 +101,11 @@ export interface Diaries {
    */
   createEntry(diaryId: string, date: CalendarDate): Promise<DiaryEntryDetail>;
   entry(diaryId: string, entryId: string): Promise<DiaryEntryDetail>;
-  /** `keepalive`: sent as the page goes, and still sent once it has gone. */
+  /**
+   * A mood, weather or place is set as it is sent, whatever was there; a body
+   * only with `readAt`. Weather and place longer than `NOTE_MAX_CHARS` are 400.
+   * `keepalive`: sent as the page goes, and still sent once it has gone.
+   */
   patchEntry(
     diaryId: string,
     entryId: string,

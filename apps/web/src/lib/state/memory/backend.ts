@@ -454,12 +454,12 @@ export class MemoryBackend implements Backend {
     ].map(copy);
   }
 
-  /** Into the workspace `to`, as the server's `toWorkspace`. */
+  /** Into `to`, as the server's `toWorkspace`; no diary, nor across spaces but by export. */
   async duplicateContainer(id: string, asTemplate: boolean, to: string): Promise<Container> {
     await this.#enterWorkspace('duplicateContainer', to);
     const source = this.#container(id);
+    if (source.kind === 'diary') fail(404, 'no board');
     if (source.kind === 'wiki' && asTemplate) fail(400, 'a wiki is no template');
-    // Nothing goes between the own space and another but by export and import.
     if (source.isBuiltin !== true && source.workspaceId !== to) fail(404, 'no board');
     return this.#copyContainer(source, asTemplate, to);
   }

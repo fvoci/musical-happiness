@@ -1,8 +1,9 @@
 /**
  * A diary on the real server: what is written on today and on the same day
  * a year before stays on that day's page over a load, the years stacked, the
- * latest on top; and two devices of the same reader write the same day
- * together, in its room.
+ * latest on top; a day's mood, weather and place, the calendar's marks and
+ * the days written in a row stay over a load too, each diary's own; and two
+ * devices of the same reader write the same day together, in its room.
  *
  * The days are the server's real ones: the page's today is the device's, in
  * Seoul here, and the server takes no day more than two days past its own.
@@ -27,6 +28,13 @@ const year = (page: Page, date: string) =>
   page.locator(`[data-testid="diary-year"][data-date="${date}"]`);
 const editorOf = (page: Page, date: string) =>
   year(page, date).locator('[contenteditable="true"]').first();
+
+/** The day before a day `YYYY-MM-DD`. */
+function dayBefore(date: string): string {
+  const day = new Date(`${date}T00:00:00Z`);
+  day.setUTCDate(day.getUTCDate() - 1);
+  return day.toISOString().slice(0, 10);
+}
 
 /** The reader's own space, and their first diary in it, made through the API. */
 async function aDiary(api: APIRequestContext): Promise<{ ownId: string; diaryId: string }> {
@@ -182,4 +190,80 @@ test('an entry emptied and left as the page goes is a day not written', async ({
   await expect(page.getByTestId('diary-page')).toBeVisible();
   await expect.poll(() => stored(api, ownId, diaryId, monthDay), { timeout: 15_000 }).toEqual({});
   await expect(year(page, today)).not.toHaveAttribute('data-written');
+});
+
+test('a day’s mood, weather and place, the calendar and the days in a row stay over a load, each diary’s own', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const who = person('diarist');
+  await register(base, who);
+  const api = await signedIn(base, who);
+  const { ownId, diaryId } = await aDiary(api);
+  const other = await api.post(`/api/v1/w/${ownId}/diaries`, { data: { title: 'Workouts' } });
+  expect(other.status()).toBe(201);
+  const otherId = ((await other.json()) as Schemas['Container']).id;
+  const today = todayInSeoul();
+  const yesterday = dayBefore(today);
+  const made = await api.post(`/api/v1/w/${ownId}/diaries/${diaryId}/entries`, {
+    data: { date: yesterday, mood: 'okay' },
+  });
+  expect(made.status()).toBe(201);
+  const errors = watchErrors(page);
+
+  await page.goto(`/w/${ownId}/diaries/${diaryId}/${today.slice(5)}`);
+  await signInOnPage(page, who);
+  await expect(page.getByTestId('diary-streak-badge')).toHaveText('Days in a row: 1');
+  const cell = year(page, today);
+  await cell.getByRole('button', { name: 'Great', exact: true }).click();
+  await cell.getByRole('textbox', { name: 'Weather' }).fill('Clear');
+  await cell.getByRole('textbox', { name: 'Place' }).fill('Seoul');
+  await cell.getByRole('textbox', { name: 'Place' }).blur();
+  await expect(page.getByTestId('diary-streak-badge')).toHaveText('Days in a row: 2');
+  await expect
+    .poll(
+      async () => {
+        const answer = await api.get(
+          `/api/v1/w/${ownId}/diaries/${diaryId}/days/${today.slice(5)}`,
+        );
+        const [entry] = (await answer.json()) as Schemas['DiaryEntry'][];
+        return entry && { mood: entry.mood, weather: entry.weather, place: entry.place };
+      },
+      { timeout: 15_000 },
+    )
+    .toEqual({ mood: 'great', weather: 'Clear', place: 'Seoul' });
+
+  await page.reload();
+  await expect(page.getByTestId('diary-page')).toBeVisible();
+  await expect(cell.getByRole('button', { name: 'Great' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(cell.getByRole('textbox', { name: 'Weather' })).toHaveValue('Clear');
+  await expect(cell.getByRole('textbox', { name: 'Place' })).toHaveValue('Seoul');
+  await expect(page.getByTestId('diary-streak-badge')).toHaveText('Days in a row: 2');
+  await page.getByTestId('diary-pick').click();
+  const calendar = page.getByTestId('diary-calendar');
+  await expect(calendar.getByTestId('streak-longest')).toHaveText('Longest: 2');
+  await expect(calendar.locator(`[data-bits-day][data-value="${today}"]`)).toHaveAttribute(
+    'data-mood',
+    'great',
+  );
+  // Yesterday may be in the month before: the calendar opens on today's.
+  if (yesterday.slice(0, 7) === today.slice(0, 7)) {
+    await expect(calendar.locator(`[data-bits-day][data-value="${yesterday}"]`)).toHaveAttribute(
+      'data-mood',
+      'okay',
+    );
+  }
+
+  // The other diary has its own days: none.
+  await page.goto(`/w/${ownId}/diaries/${otherId}/${today.slice(5)}`);
+  await expect(page.getByTestId('diary-title')).toHaveText('Workouts');
+  await expect(year(page, today)).not.toHaveAttribute('data-written');
+  await page.getByTestId('diary-pick').click();
+  await expect(page.getByTestId('diary-calendar').getByTestId('streak-current')).toHaveText(
+    'Days in a row: 0',
+  );
+  await expect(page.getByTestId('diary-calendar').locator('[data-written]')).toHaveCount(0);
+  await expect(page.getByTestId('diary-streak-badge')).toHaveCount(0);
+  expect(errors).toEqual([]);
 });

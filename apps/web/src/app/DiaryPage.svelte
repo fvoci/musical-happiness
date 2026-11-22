@@ -203,6 +203,7 @@
     <div class="mx-auto flex max-w-3xl flex-col gap-2 px-4 pt-4 pb-16 roomy:px-3">
       <DayHeader
         {title}
+        calendar={store.calendar}
         monthDay={day}
         today={today.date}
         {locale}

@@ -17,12 +17,17 @@
  * blank with nobody else in its room, is deleted as it is left (`closeBody`,
  * and `leave` as the page goes): an empty day is a day not written, in the
  * diary's calendar too (`isBlank` says what empty is).
+ *
+ * The day's mood, weather and place are marked here too (`mark`, `notes`):
+ * they are the day's at once, sent apart from the body (`EntryNotes`), and a
+ * day without an entry has one made for them as for its first words.
  */
 import type { DocNode } from '../editor/schema.ts';
 import type { CalendarDate } from '../logic/dates.ts';
 import { isBackendError, type BodyDoc, type BodyDocState } from './backend.ts';
 import { BodyUploads } from './body-uploads.svelte.ts';
-import type { Diaries, DiaryEntryDetail } from './diary-types.ts';
+import type { DayNotes, Diaries, DiaryEntryDetail } from './diary-types.ts';
+import { EntryNotes, type NotesHost } from './entry-notes.svelte.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
 /** What an entry needs of its diary's store. */
@@ -39,7 +44,7 @@ export interface EntryHost {
  * file in its body (`blankBody`, as its editor says), and none of the day's
  * notes. What a day may carry besides its body is counted here.
  */
-export function isBlank(entry: DiaryEntryDetail, blankBody: boolean): boolean {
+export function isBlank(entry: DayNotes, blankBody: boolean): boolean {
   return blankBody && entry.mood === null && entry.weather === '' && entry.place === '';
 }
 
@@ -52,6 +57,9 @@ export function appended(body: DocNode | null, draft: DocNode): DocNode {
     ? { ...body, content: [...(body.content ?? []), ...(draft.content ?? [])] }
     : draft;
 }
+
+/** The notes of a day nobody marked. */
+const NO_NOTES: DayNotes = { mood: null, weather: '', place: '' };
 
 /** How long after the entry could not be made it is not asked for again, however much is typed. */
 const MAKE_AGAIN_AFTER = 5000;
@@ -95,11 +103,66 @@ export class EntryStore {
   /** The editor of the room's document holds nothing (`noteBlank`). */
   #blankBody = false;
   #closed = false;
+  readonly #notes: EntryNotes;
 
   constructor(host: EntryHost, date: CalendarDate, entry?: DiaryEntryDetail) {
     this.host = host;
     this.date = date;
     this.entry = entry;
+    this.#notes = new EntryNotes(this.#notesHost());
+  }
+
+  #notesHost(): NotesHost {
+    const host = this.host;
+    const entry = (): DiaryEntryDetail | undefined => this.entry;
+    return {
+      get diaries() {
+        return host.workspace.backend.diary;
+      },
+      diaryId: host.diaryId,
+      get entryId() {
+        return entry()?.id;
+      },
+      written: (written) => {
+        if (this.entry?.id !== written.id) return;
+        this.entry = this.#notes.over(written);
+        host.received(this.entry);
+      },
+      refused: (error) => {
+        host.workspace.report('save', error);
+      },
+    };
+  }
+
+  /** The day's mood, weather and place, as marked here last. */
+  get notes(): DayNotes {
+    return this.#notes.over(this.entry ?? NO_NOTES);
+  }
+
+  /**
+   * The reader marked the day's mood, weather or place (`later`: as they type
+   * it): the day's at once; a day without an entry has one made for it.
+   */
+  mark(change: Partial<DayNotes>, when: 'now' | 'later' = 'now'): void {
+    this.#notes.change(change, when);
+    this.#changedHere = true;
+    const entry = this.entry;
+    if (!entry) {
+      this.#makeIfNone();
+      return;
+    }
+    this.entry = this.#notes.over(entry);
+    this.host.received(this.entry);
+  }
+
+  /** What was typed in the notes goes now: the field was left. */
+  sendNotes(): void {
+    void this.#notes.send();
+  }
+
+  /** Something wants the day to have an entry: a draft, or notes marked. */
+  #wantsEntry(): boolean {
+    return this.draft !== null || this.#notes.pending;
   }
 
   /** The body as it was read, shown until the room's document has arrived. */
@@ -111,7 +174,8 @@ export class EntryStore {
   adopt(entry: DiaryEntryDetail): void {
     if (entry.date !== this.date || this.#closed) return;
     const first = this.entry === undefined;
-    this.entry = entry;
+    this.entry = this.#notes.over(entry);
+    if (first) void this.#notes.send();
     if (first && this.#wanted) this.openBody();
   }
 
@@ -126,7 +190,7 @@ export class EntryStore {
     ];
     this.#blankBody = false;
     opened?.close();
-    if (this.draft !== null && !this.#closed) this.write(this.draft);
+    if (this.#wantsEntry() && !this.#closed) this.#makeIfNone();
   }
 
   /**
@@ -136,7 +200,12 @@ export class EntryStore {
   write(draft: DocNode | null): void {
     this.draft = draft;
     this.drafting = true;
-    if (draft === null || this.entry || this.#making || Date.now() < this.#makeAgainAt) return;
+    if (draft !== null) this.#makeIfNone();
+  }
+
+  /** Makes the day's entry, once at a time, unless it has one or was refused a moment ago. */
+  #makeIfNone(): void {
+    if (this.entry || this.#making || Date.now() < this.#makeAgainAt) return;
     this.#making = this.#make().finally(() => {
       this.#making = undefined;
     });
@@ -146,16 +215,19 @@ export class EntryStore {
     const diaries = this.host.workspace.backend.diary;
     if (!diaries) return;
     try {
-      const entry = await diaries.createEntry(this.host.diaryId, this.date);
+      const entry = this.#notes.over(await diaries.createEntry(this.host.diaryId, this.date));
       this.host.received(entry);
       this.unsaved = false;
       if (this.entry === undefined) {
         // Made for what was written here: left blank here, it goes (`closeBody`).
         [this.entry, this.#changedHere] = [entry, true];
       }
-      // Left before the entry was there: what was written goes as its body.
-      if (this.#closed || !this.#wanted) await this.#flush();
-      else this.openBody();
+      const noted = this.#notes.send();
+      // Left before the entry was there: what was written goes as its body, after the notes.
+      if (this.#closed || !this.#wanted) {
+        await noted;
+        await this.#flush();
+      } else this.openBody();
     } catch (error) {
       this.#makeAgainAt = Date.now() + MAKE_AGAIN_AFTER;
       // Said once, until the entry is made; asked for again by itself where that may pass.
@@ -164,7 +236,7 @@ export class EntryStore {
       if (!passing(error)) return;
       this.#again = setTimeout(() => {
         [this.#again, this.#makeAgainAt] = [undefined, 0];
-        if (!this.#closed && this.draft !== null) this.write(this.draft);
+        if (!this.#closed && this.#wantsEntry()) this.#makeIfNone();
       }, MAKE_AGAIN_AFTER);
     }
   }
@@ -215,7 +287,8 @@ export class EntryStore {
     const alone = (room?.carets?.getStates().size ?? 0) <= 1;
     const held = this.draft !== null || this.flushing;
     const left = this.#changedHere && alone && !held;
-    return entry && room?.doc && left && isBlank(entry, this.#blankBody) ? entry : undefined;
+    const blank = entry && isBlank(this.#notes.over(entry), this.#blankBody);
+    return entry && room?.doc && left && blank ? entry : undefined;
   }
 
   /**
@@ -224,6 +297,7 @@ export class EntryStore {
    */
   closeBody(): void {
     this.#wanted = false;
+    void this.#notes.send();
     const opened = this.#bodyDoc;
     const emptied = this.#emptied();
     [this.#bodyDoc, this.room, this.#changedHere, this.#blankBody] = [
@@ -252,6 +326,7 @@ export class EntryStore {
   leave(persisted: boolean): void {
     const diaries = this.host.workspace.backend.diary;
     const emptied = this.#emptied();
+    void this.#notes.send({ keepalive: true });
     if (this.draft !== null && this.entry) void this.#flush({ keepalive: true });
     else if (emptied && diaries && !persisted) {
       void diaries
@@ -260,14 +335,15 @@ export class EntryStore {
     }
   }
 
-  /** The page goes: nothing more is opened here; a draft whose entry could not be made is tried once more. */
+  /** The page goes: nothing more is opened here; a draft or notes whose entry could not be made are tried once more. */
   close(): void {
     this.closeBody();
     this.#closed = true;
     clearTimeout(this.#again);
-    if (this.draft !== null && !this.entry && !this.#making) {
+    this.#notes.stop();
+    if (this.#wantsEntry() && !this.entry && !this.#making) {
       this.#makeAgainAt = 0;
-      this.write(this.draft);
+      this.#makeIfNone();
     }
     this.#bodyUploads.giveUp();
   }

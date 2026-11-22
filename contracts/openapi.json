@@ -1801,6 +1801,31 @@
         },
         "type": "object"
       },
+      "DiaryRun": {
+        "description": "Days of a diary one after the other, each with an entry, with a day without one (or\nthe edge of the calendar) before the first and after the last: what a count of the\ndays written in a row is made of. Which run reaches today, and so how long the\nwriter's streak is now, the client says: the server never says what today is.",
+        "properties": {
+          "days": {
+            "description": "How many days the run has, both of its ends counted.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "from": {
+            "description": "The first day of the run, `2026-11-01`.",
+            "type": "string"
+          },
+          "to": {
+            "description": "The last day of the run, `2026-11-21`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "days",
+          "from",
+          "to"
+        ],
+        "type": "object"
+      },
       "EmailVerified": {
         "description": "Where a confirmed registration's account was let in.",
         "properties": {
@@ -13473,6 +13498,61 @@
           }
         },
         "summary": "Restore a deleted entry",
+        "tags": [
+          "diaries"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/diaries/{diaryId}/runs": {
+      "get": {
+        "description": "Every run of days of the diary written one after the other, the earliest first: its\nfirst day (`from`), its last (`to`) and how many days it has (`days`), and nothing\nof the entries. What a client counts the days written in a row by, the longest and\nthe one that reaches its today, which the server does not say. A diary without\nentries has no runs; entries in the trash have no day. There are no more runs than\nthe diary has entries.",
+        "operationId": "getDiaryRuns",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DiaryRun"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The runs of written days."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The runs of a diary's written days",
         "tags": [
           "diaries"
         ]

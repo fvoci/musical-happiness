@@ -390,6 +390,23 @@ pub struct DiaryDay {
     pub mood: Option<Mood>,
 }
 
+/// Days of a diary one after the other, each with an entry, with a day without one (or
+/// the edge of the calendar) before the first and after the last: what a count of the
+/// days written in a row is made of. Which run reaches today, and so how long the
+/// writer's streak is now, the client says: the server never says what today is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DiaryRun {
+    /// The first day of the run, `2026-11-01`.
+    #[schema(value_type = String)]
+    pub from: DiaryDate,
+    /// The last day of the run, `2026-11-21`.
+    #[schema(value_type = String)]
+    pub to: DiaryDate,
+    /// How many days the run has, both of its ends counted.
+    pub days: u32,
+}
+
 /// An entry in the trash, as the trash of a diary lists it: `undeleteDiaryEntry` brings
 /// it back to its day.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]

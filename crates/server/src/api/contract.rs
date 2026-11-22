@@ -444,6 +444,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("DeletedPage", Members::All),
     ("DiaryEntry", Members::All),
     ("DiaryDay", Members::AllBut(&["mood"])),
+    ("DiaryRun", Members::All),
     ("DeletedDiaryEntry", Members::AllBut(&["mood"])),
     ("Mood", Members::AsWritten),
     ("NewDiary", Members::Only(&[])),
