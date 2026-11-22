@@ -12,7 +12,8 @@ import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { FilterGroup } from '$lib/logic/wire.ts';
-import type { BoardStore, Workspace } from '$lib/state/index.ts';
+import { BackendError, type BoardStore, type Workspace } from '$lib/state/index.ts';
+import type { MemoryBackend } from '$lib/state/memory/backend.ts';
 import type { SeedTemplate } from '$lib/state/memory/seed.ts';
 
 import { openFirstBoard, OWNER, setup, SMALL, STATUS } from '../../state/support.ts';
@@ -57,6 +58,7 @@ const TWO_VIEWS: SeedTemplate = {
 interface Mounted {
   board: BoardStore;
   workspace: Workspace;
+  backend: MemoryBackend;
   onOpenView: ReturnType<typeof vi.fn<(viewId: string) => void>>;
   onAddCard: ReturnType<typeof vi.fn<() => void>>;
   /** The view the header is shown for, as the store has it now. */
@@ -67,7 +69,7 @@ interface Mounted {
 }
 
 async function mount(title: string, template: SeedTemplate = TWO_VIEWS): Promise<Mounted> {
-  const { board, workspace } = await openFirstBoard(setup([template]));
+  const { board, workspace, backend } = await openFirstBoard(setup([template]));
   const shown = board.views.find((view) => view.title === title);
   if (!shown) throw new Error(`no view called ${title}`);
   const onOpenView = vi.fn<(viewId: string) => void>();
@@ -78,6 +80,7 @@ async function mount(title: string, template: SeedTemplate = TWO_VIEWS): Promise
   return {
     board,
     workspace,
+    backend,
     onOpenView,
     onAddCard,
     view: () => {
@@ -101,10 +104,10 @@ const toolButton = (name: string): HTMLElement => {
   return found;
 };
 
-/** Opens a dropdown the way a mouse does. */
+/** Opens a dropdown the way a mouse does: its click counts one (Bits UI takes one of 0 for a key's). */
 async function openMenu(trigger: HTMLElement): Promise<void> {
   await fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: 'mouse' });
-  await fireEvent.click(trigger);
+  await fireEvent.click(trigger, { detail: 1 });
   await tick();
 }
 
@@ -117,10 +120,20 @@ async function openMenu(trigger: HTMLElement): Promise<void> {
  * screen reader is checked in the browser.
  */
 
-/** The lines of the menu that is open. */
+/** The lines of the menu that is open, not the tools at their ends. */
 const menuLines = (): HTMLElement[] => [
-  ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+  ...document.querySelectorAll<HTMLElement>('[role="menuitem"]:not([data-line-tool])'),
 ];
+/** The tools at the end of the line of a view, by their names. */
+const lineTools = (viewId: string): HTMLElement[] => [
+  ...document.querySelectorAll<HTMLElement>(`[data-line="${viewId}"] [data-line-tool]`),
+];
+/** The tool `id` (`move-up`, `move-down`) at the end of the line of a view. */
+function lineTool(viewId: string, id: string): HTMLElement {
+  const found = lineTools(viewId).find((tool) => tool.dataset.action === id);
+  if (!found) throw new Error(`no ${id} on the line of ${viewId}`);
+  return found;
+}
 const lineTexts = (): string[] => menuLines().map((line) => line.textContent.trim());
 /** The lines of the open list of views that are views: links to them. */
 const viewLinks = (): HTMLAnchorElement[] => [
@@ -152,7 +165,18 @@ describe('the whole row', () => {
     // No tabs: the views are behind the one button, which names the one shown.
     expect(within(header()).queryAllByRole('link')).toHaveLength(0);
     expect(toolButton('views')).toHaveTextContent('List');
+    // Shown whole (a simulated page cuts nothing): no tooltip of the same words.
+    await fireEvent.pointerEnter(toolButton('views'));
+    expect(toolButton('views')).not.toHaveAttribute('title');
+    // Cut (its widths set, as a simulated page lays nothing out): whole in its tooltip.
+    const name = toolButton('views').querySelector('.truncate');
+    if (!name) throw new Error('no name on the button');
+    Object.defineProperty(name, 'scrollWidth', { value: 300, configurable: true });
+    Object.defineProperty(name, 'clientWidth', { value: 120, configurable: true });
+    await fireEvent.pointerEnter(toolButton('views'));
     expect(toolButton('views')).toHaveAttribute('title', 'List');
+    await fireEvent.pointerLeave(toolButton('views'));
+    expect(toolButton('views')).not.toHaveAttribute('title');
     await openMenu(toolButton('views'));
     const views = viewLinks();
     expect(views.map((line) => line.textContent.trim())).toEqual(['Board', 'List']);
@@ -302,10 +326,27 @@ describe('a reader who may only look', () => {
     await openMenu(toolButton('views'));
     expect(lineTexts()).toEqual(['Board', 'List']);
     expect(viewLinks()).toHaveLength(2);
+    // Nor are the views moved.
+    expect(document.querySelectorAll('[data-line-tool]')).toHaveLength(0);
     for (const name of ['properties', 'group', 'filter', 'sort', 'more', 'rename']) {
       expect(header().querySelector(`[data-tool="${name}"]`)).toBeNull();
     }
     expect(screen.queryByTestId('new-card')).toBeNull();
+  });
+
+  it('as a commenter, gets the views and nothing that moves them', async () => {
+    const { board, workspace } = await mount('List');
+    const me = workspace.me?.id;
+    board.members = board.members.map((member) =>
+      member.userId === me
+        ? { ...member, schemeAdmin: false, schemeEditor: false, schemeCommenter: true }
+        : member,
+    );
+    expect(board.role).toBe('commenter');
+    await openMenu(toolButton('views'));
+    expect(lineTexts()).toEqual(['Board', 'List']);
+    expect(document.querySelectorAll('[data-line-tool]')).toHaveLength(0);
+    expect(document.querySelector('[aria-keyshortcuts]')).toBeNull();
   });
 });
 
@@ -321,6 +362,114 @@ describe('views', () => {
     expect(made?.fields.viewType).toBe('gallery');
     expect(made?.fields.visiblePropertyIds).toEqual(['__title']);
     expect(onOpenView).toHaveBeenCalledWith(made?.id);
+  });
+
+  it('moves a view down and up with Alt and the arrows, the list open and the focus on its line', async () => {
+    const { board, workspace } = await mount('List');
+    await openMenu(toolButton('views'));
+    const boardId = board.views.find((view) => view.title === 'Board')?.id ?? '';
+    const line = (viewId: string): HTMLElement => {
+      const found = document.querySelector<HTMLElement>(
+        `[data-line="${viewId}"] [data-action="${viewId}"]`,
+      );
+      if (!found) throw new Error(`no line for ${viewId}`);
+      return found;
+    };
+    // The keys are the line's, and named there: those that do something, at the top down alone.
+    expect(line(boardId).getAttribute('aria-keyshortcuts')).toBe('Alt+ArrowDown');
+
+    line(boardId).focus();
+    await fireEvent.keyDown(line(boardId), { key: 'ArrowDown', altKey: true });
+    await tick();
+    expect(lineTexts().slice(0, 2)).toEqual(['List', 'Board']);
+    // Still open, the focus on Board's line where it went, and its place said.
+    expect(document.activeElement).toBe(line(boardId));
+    expect(screen.getByText('Board is now 2 of 2')).toBeInTheDocument();
+    expect(line(boardId).getAttribute('aria-keyshortcuts')).toBe('Alt+ArrowUp');
+    await settled();
+    expect(board.orderedViews.map((view) => view.title)).toEqual(['List', 'Board']);
+    // Past the end, nothing.
+    await fireEvent.keyDown(line(boardId), { key: 'ArrowDown', altKey: true });
+    await settled();
+    expect(board.orderedViews.map((view) => view.title)).toEqual(['List', 'Board']);
+
+    await fireEvent.keyDown(line(boardId), { key: 'ArrowUp', altKey: true });
+    await tick();
+    expect(lineTexts().slice(0, 2)).toEqual(['Board', 'List']);
+    expect(document.activeElement).toBe(line(boardId));
+    await settled();
+    await workspace.undoLast();
+    await tick();
+    expect(lineTexts().slice(0, 2)).toEqual(['List', 'Board']);
+  });
+
+  it('says where a view moved and refused is, back where it is stored, said once', async () => {
+    const { board, workspace, backend } = await mount('List');
+    vi.spyOn(backend, 'patchView').mockRejectedValue(new BackendError(403, { detail: 'no' }));
+    await openMenu(toolButton('views'));
+    const boardId = board.views.find((view) => view.title === 'Board')?.id ?? '';
+    await fireEvent.click(lineTool(boardId, 'move-down'));
+    await tick();
+    expect(screen.getByText('Board is now 2 of 2')).toBeInTheDocument();
+    await settled();
+    expect(lineTexts().slice(0, 2)).toEqual(['Board', 'List']);
+    expect(screen.getByText('Board is now 1 of 2')).toBeInTheDocument();
+    expect(workspace.problems).toHaveLength(1);
+  });
+
+  it('has buttons at the end of each line for a pointer, closed at the ends, which keep the list open', async () => {
+    const { board } = await mount('List');
+    await openMenu(toolButton('views'));
+    const idOf = (title: string): string =>
+      board.views.find((view) => view.title === title)?.id ?? '';
+    const [boardId, listId] = [idOf('Board'), idOf('List')];
+    const titled = (viewId: string): (string | null)[] =>
+      lineTools(viewId).map((tool) => tool.getAttribute('title'));
+    expect(titled(boardId)).toEqual(['Move Board up (Alt+↑)', 'Move Board down (Alt+↓)']);
+    // Items of the menu, named, for a screen reader read by touch; not Bits UI's, which its
+    // arrows go to: those go from line to line.
+    for (const tool of lineTools(boardId)) {
+      expect(tool.getAttribute('role')).toBe('menuitem');
+      expect(tool.getAttribute('aria-label')).toMatch(/^Move Board (up|down)$/);
+      expect(tool.hasAttribute('data-dropdown-menu-item')).toBe(false);
+      expect(tool.tabIndex).toBe(-1);
+    }
+    // A line is said as one of the lines the arrows go to, the buttons not counted.
+    const lines = menuLines();
+    expect(lines.map((line) => line.getAttribute('aria-posinset'))).toEqual(
+      lines.map((_, index) => String(index + 1)),
+    );
+    expect(lines.every((line) => line.getAttribute('aria-setsize') === String(lines.length))).toBe(
+      true,
+    );
+    const disabled = (viewId: string): boolean[] =>
+      lineTools(viewId).map((tool) => (tool as HTMLButtonElement).disabled);
+    expect(disabled(boardId)).toEqual([true, false]);
+    expect(disabled(listId)).toEqual([false, true]);
+
+    await fireEvent.click(lineTool(boardId, 'move-down'));
+    await tick();
+    expect(lineTexts().slice(0, 2)).toEqual(['List', 'Board']);
+    expect(document.activeElement?.getAttribute('data-action')).toBe(boardId);
+    expect(screen.getByText('Board is now 2 of 2')).toBeInTheDocument();
+    expect(disabled(boardId)).toEqual([false, true]);
+  });
+
+  it('adds a view at the end of a list somebody put in order', async () => {
+    const { board } = await mount('List');
+    await openMenu(toolButton('views'));
+    const listId = board.views.find((view) => view.title === 'List')?.id ?? '';
+    await fireEvent.click(lineTool(listId, 'move-up'));
+    await settled();
+    expect(board.orderedViews.map((view) => view.title)).toEqual(['List', 'Board']);
+    await choose('Add calendar view');
+    await waitFor(() => {
+      expect(board.orderedViews.map((view) => view.title)).toEqual([
+        'List',
+        'Board',
+        'Calendar view',
+      ]);
+    });
   });
 
   it('renames a view with Enter, and not at all after Escape', async () => {

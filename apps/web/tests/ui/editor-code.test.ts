@@ -281,13 +281,20 @@ describe('a move of the caret the editor has not read yet', () => {
       event.stopImmediatePropagation();
     };
     document.addEventListener('selectionchange', late, { capture: true });
-    const walker = document.createTreeWalker(codeOf(target) ?? document.body, NodeFilter.SHOW_TEXT);
-    let last: Node | null = null;
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) last = node;
-    document.getSelection()?.collapse(last, last?.textContent?.length ?? 0);
-    answerNow?.();
-    await coloured(target);
-    document.removeEventListener('selectionchange', late, { capture: true });
+    try {
+      const walker = document.createTreeWalker(
+        codeOf(target) ?? document.body,
+        NodeFilter.SHOW_TEXT,
+      );
+      let last: Node | null = null;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) last = node;
+      document.getSelection()?.collapse(last, last?.textContent?.length ?? 0);
+      answerNow?.();
+      await coloured(target);
+    } finally {
+      // Not left for the tests after, whatever came of this one.
+      document.removeEventListener('selectionchange', late, { capture: true });
+    }
     document.dispatchEvent(new Event('selectionchange'));
     await vi.waitFor(() => {
       expect(target.state.selection.head).toBe(1 + SOURCE.length);

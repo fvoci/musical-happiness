@@ -332,8 +332,8 @@ describe('comments and attachments', () => {
     const uploading = card.uploadFile(new File(['png'], 'a.png', { type: 'image/png' }));
     const other = card.uploadFile(new File(['%PDF'], 'b.pdf'));
     card.close();
-    await expect(uploading).rejects.toThrow();
-    await expect(other).rejects.toThrow();
+    await expect(uploading).rejects.toThrow('a.png did not go up');
+    await expect(other).rejects.toThrow('b.pdf did not go up');
     expect(workspace.transfers.list.map(({ name, failure }) => [name, failure])).toEqual([
       ['a.png', 'left'],
       ['b.pdf', 'left'],
@@ -400,6 +400,45 @@ describe('comments and attachments', () => {
     expect(card.uploads).toHaveLength(0);
     expect(workspace.transfers.list).toEqual([]);
     expect(card.attachments).toHaveLength(1);
+  });
+
+  it('keeps an attachment given up as it was made, when taking it out fails, and says so in the stack', async () => {
+    const { card, backend, workspace, board } = await openAlpha();
+    const create = backend.createAttachment.bind(backend);
+    // Given up in the gap between the attachment made and its answer.
+    vi.spyOn(backend, 'createAttachment').mockImplementationOnce(async (...args) => {
+      const made = await create(...args);
+      workspace.transfers.dismiss(card.uploads[0]?.id ?? 0);
+      return made;
+    });
+    backend.failNext('deleteBlock', new BackendError(500, { detail: 'down' }));
+    const told = workspace.problems.length;
+    await card.attach(new File(['hello'], 'late.txt'));
+    expect(workspace.transfers.list).toMatchObject([{ name: 'late.txt', failure: 'kept' }]);
+    expect(workspace.transfers.said.at(-1)?.transfer).toMatchObject({ failure: 'kept' });
+    // It is attached, on the server and on the card, and no more an upload in place.
+    expect(card.attachments.map((attachment) => attachment.name)).toContain('late.txt');
+    expect(card.uploads).toHaveLength(0);
+    expect(
+      (await backend.attachments(board.boardId, card.cardId)).map((one) => one.name),
+    ).toContain('late.txt');
+    expect(workspace.problems).toHaveLength(told);
+  });
+
+  it('tells nothing of an attachment given up as it was made that is gone already', async () => {
+    const { card, backend, workspace } = await openAlpha();
+    const create = backend.createAttachment.bind(backend);
+    vi.spyOn(backend, 'createAttachment').mockImplementationOnce(async (...args) => {
+      const made = await create(...args);
+      workspace.transfers.dismiss(card.uploads[0]?.id ?? 0);
+      return made;
+    });
+    backend.failNext('deleteBlock', new BackendError(404, { detail: 'gone' }));
+    const said = workspace.transfers.said.length;
+    await card.attach(new File(['hello'], 'gone.txt'));
+    expect(workspace.transfers.list).toEqual([]);
+    // Its start was said, and nothing after.
+    expect(workspace.transfers.said).toHaveLength(said + 1);
   });
 
   it('closes when its card is deleted by somebody else', async () => {

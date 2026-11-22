@@ -410,9 +410,9 @@ test('a long document read past the time limit asks, and waited on is shown by t
   );
   await expect(notice(page)).toContainText('This file is taking long to show.');
   await notice(page).getByRole('button', { name: 'Keep waiting' }).click();
-  // Laid out at last: the seconds of work the document is made for, more on a busy machine. What
-  // says so is the status; the test's own time bounds the wait.
-  await expect(viewer(page)).toHaveAttribute('data-status', 'shown', { timeout: 0 });
+  // Laid out at last: the seconds of work the document is made for (5.5 to 6.6 on a machine
+  // busy with other tests), so a bound of its own, under what is left of the test's time.
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown', { timeout: 15_000 });
   await expect(frameOf(page).locator('.page[data-page="1"] svg')).toBeVisible();
   expect(stopped).toBe(false);
 });
