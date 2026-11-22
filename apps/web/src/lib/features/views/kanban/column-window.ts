@@ -52,6 +52,11 @@ export function topsOf(heights: readonly number[]): number[] {
   return tops;
 }
 
+/** How high the list's content is in full: the cards that stay, and the gap or carried card when one is here. */
+export function contentHeight(tops: readonly number[], gap: number, gapHeight: number): number {
+  return (tops.at(-1) ?? 0) + (gap >= 0 ? gapHeight + CARD_GAP : 0);
+}
+
 /** The cards, from `first` up to `end`, that reach between `from` and `to` pixels down the content. */
 export function cardsBetween(
   tops: readonly number[],

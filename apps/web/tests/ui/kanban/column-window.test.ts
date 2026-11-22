@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CARD_GAP,
   cardsBetween,
+  contentHeight,
   drawnRuns,
   NEAR,
   piecesOf,
@@ -86,6 +87,13 @@ describe('a window on a long column', () => {
     expect(short(pieces)).toEqual(['blank 0', 'c0', 'c1', 'c2', 'blank 0']);
     const keys = pieces.flatMap((piece) => (piece.kind === 'blank' ? [piece.key] : []));
     expect(keys).toEqual(['start', 'end']);
+  });
+
+  it('counts the gap or carried card in the full height of the list while one is there', () => {
+    const tops = topsOf([100, 100, 100]);
+    expect(contentHeight(tops, -1, 120)).toBe(tops.at(-1));
+    expect(contentHeight(tops, 3, 120)).toBe((tops.at(-1) ?? 0) + 120 + CARD_GAP);
+    expect(contentHeight(topsOf([]), 0, 120)).toBe(8 + 120 + 8);
   });
 
   it('draws every card without a window', () => {

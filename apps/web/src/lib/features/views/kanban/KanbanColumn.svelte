@@ -37,6 +37,7 @@
   import {
     CardHeights,
     cardsBetween,
+    contentHeight,
     drawnRuns,
     guessHeight,
     piecesOf,
@@ -386,7 +387,7 @@
       <div
         aria-hidden="true"
         class="pointer-events-none absolute top-0 left-0 w-px"
-        style:height="{tops.at(-1) ?? 0}px"
+        style:height="{contentHeight(tops, gap, gapHeight)}px"
       ></div>
     {/if}
     {#each pieces as entry (entry.kind === 'card' ? entry.card.id : entry.kind === 'gap' ? GAP_KEY : ` blank ${entry.key}`)}
