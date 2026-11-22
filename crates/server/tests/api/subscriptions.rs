@@ -80,9 +80,18 @@ fn sorted(mut subscriptions: Vec<Subscription>) -> Vec<Subscription> {
     subscriptions
 }
 
-/// Inserts a card block on the board through the blocks route.
+/// Inserts a card block on the board through the blocks route, quietly
+/// (`disableNotify`): its writer would watch it otherwise, and these tests make and
+/// end every subscription themselves.
 async fn insert_card(client: &Client, board_id: &str) -> Block {
-    insert_block(client, &new_block(board_id, "", BlockType::Card)).await
+    let mut inserted: Vec<Block> = client
+        .post(
+            &format!("{TEST_WS}/boards/{board_id}/blocks?disableNotify=true"),
+            &[new_block(board_id, "", BlockType::Card)],
+        )
+        .await
+        .created_json();
+    inserted.pop().expect("one block was inserted")
 }
 
 /// `createTestSubscriptions`: a board of the client's user with `count` cards, and the

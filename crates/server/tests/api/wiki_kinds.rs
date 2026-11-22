@@ -69,6 +69,8 @@ const REACHED: &[(&str, Reaches)] = &[
     ("putUploadPart", Reaches::Both),
     ("completeUpload", Reaches::Both),
     ("deleteUpload", Reaches::Both),
+    // Whoever writes a card or a page watches it, and may stop.
+    ("deleteSubscription", Reaches::Both),
     // Its place in the sidebar.
     ("setContainerCategory", Reaches::Both),
     ("hideContainer", Reaches::Both),
@@ -95,7 +97,6 @@ const REACHED: &[(&str, Reaches)] = &[
     ("restoreCardBodyVersion", Reaches::Boards),
     ("keepCardBodyVersion", Reaches::Boards),
     ("getDeletedCards", Reaches::Boards),
-    ("deleteSubscription", Reaches::Boards),
     // What a wiki holds.
     ("getPageTree", Reaches::Wikis),
     ("createPage", Reaches::Wikis),
