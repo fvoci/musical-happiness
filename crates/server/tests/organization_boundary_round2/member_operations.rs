@@ -41,7 +41,22 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 30] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 44] = [
+    // No workspace of an organization has a diary: a diary is of a user's own space.
+    "getDiaries",
+    "createDiary",
+    "getDiaryDays",
+    "getDiaryRuns",
+    "getDiaryEntriesOn",
+    "createDiaryEntry",
+    "getDiaryEntry",
+    "patchDiaryEntry",
+    "deleteDiaryEntry",
+    "getDeletedDiaryEntries",
+    "undeleteDiaryEntry",
+    "getDiaryEntryBodyVersions",
+    "getDiaryEntryBodyVersion",
+    "restoreDiaryEntryBodyVersion",
     // The organization's own routes are its administrators'.
     "createOrgWorkspace",
     "deleteOidcFormerProvider",
@@ -136,6 +151,11 @@ impl Named {
             .replace("{wikiId}", &self.wiki)
             .replace("{pageId}", &self.page)
             .replace("{commentId}", &self.comment)
+            // No workspace of an organization has a diary: the board named as one is
+            // none, in either organization.
+            .replace("{diaryId}", &self.board)
+            .replace("{entryId}", &self.card)
+            .replace("{monthDay}", "02-29")
             .replace("{fileId}", &self.file)
             .replace("{uploadId}", &self.upload)
             .replace("{userId}", &self.member_id)

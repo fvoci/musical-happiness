@@ -10,7 +10,7 @@ use super::contract::bodies::ReferenceIds;
 use super::contract::params::{BlockId, MemberWorkspaceId, Page, PerPage, TitleTerm};
 use super::contract::tag;
 use super::paging::paging_params;
-use super::workspace::InContainer;
+use super::workspace::InBoardOrWiki;
 use super::{ApiResult, decode_json, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
@@ -44,7 +44,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     request_body = ReferenceIds,
     responses((status = 200, description = "What the user is shown of them.", body = Vec<LinkedBlock>)),
 )]
-async fn handle_resolve_references(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
+async fn handle_resolve_references(InBoardOrWiki(ws): InBoardOrWiki, body: Bytes) -> ApiResult {
     let ids: Vec<String> = decode_json(&body)?;
     let linked = ws.app.resolve_references(&ws.session.user_id, &ids).await?;
     Ok(json_response(&linked))
@@ -69,7 +69,7 @@ async fn handle_resolve_references(InContainer(ws): InContainer, body: Bytes) ->
     responses((status = 200, description = "What names it, of the page.", body = Vec<LinkedBlock>)),
 )]
 async fn handle_get_references_to(
-    InContainer(ws): InContainer,
+    InBoardOrWiki(ws): InBoardOrWiki,
     Path((_, block_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
@@ -104,7 +104,7 @@ async fn handle_get_references_to(
     responses((status = 200, description = "What was found.", body = Vec<LinkedBlock>)),
 )]
 async fn handle_search_references(
-    InContainer(ws): InContainer,
+    InBoardOrWiki(ws): InBoardOrWiki,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let term = query_param(query.as_deref(), "q");

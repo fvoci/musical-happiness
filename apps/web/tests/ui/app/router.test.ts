@@ -4,7 +4,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as back from '$lib/layout/back.svelte.ts';
 
 import { localeOfSetting, matchLocale } from '../../../src/app/locale.ts';
-import { parseRoute, readBasePath, routePath, Router } from '../../../src/app/router.svelte.ts';
+import {
+  parseRoute,
+  placeRoute,
+  readBasePath,
+  routePath,
+  Router,
+  shownContainerId,
+} from '../../../src/app/router.svelte.ts';
 
 const none = {
   workspaceId: undefined,
@@ -132,6 +139,50 @@ describe('writing an address', () => {
   it('drops what has nothing to stand under: a card without a view, a board without a workspace', () => {
     expect(routePath({ workspaceId: 't', boardId: 'b', cardId: 'c' }, '')).toBe('/w/t/boards/b');
     expect(routePath({ boardId: 'b', viewId: 'v' }, '')).toBe('/');
+  });
+});
+
+describe('the address of a diary', () => {
+  it('reads the diary and the day of the year, and writes them back', () => {
+    expect(parseRoute('/w/me/diaries/d/11-21', '')).toMatchObject({
+      workspaceId: 'me',
+      diaryId: 'd',
+      monthDay: '11-21',
+      boardId: undefined,
+      unknown: false,
+    });
+    expect(parseRoute('/w/me/diaries/d', '')).toMatchObject({ diaryId: 'd', monthDay: undefined });
+    for (const path of ['/w/me/diaries/d', '/w/me/diaries/d/02-29']) {
+      expect(routePath(parseRoute(path, ''), '')).toBe(path);
+    }
+  });
+
+  it('keeps a day no year has, for the page to say it is not found', () => {
+    expect(parseRoute('/w/me/diaries/d/13-40', '')).toMatchObject({ monthDay: '13-40' });
+  });
+
+  it('is the address of a diary in the sidebar, and its diary the container shown', () => {
+    const diary = { id: 'd', workspaceId: 'me', kind: 'diary' as const };
+    expect(placeRoute(diary)).toEqual({ workspaceId: 'me', diaryId: 'd' });
+    expect(shownContainerId(parseRoute('/w/me/diaries/d/11-21', ''))).toBe('d');
+  });
+
+  it('goes from day to day, the diary kept, and back to the day before', () => {
+    history.replaceState(null, '', '/w/me/diaries/d/11-21');
+    const router = new Router('');
+    const stop = router.listen();
+    const before = history.length;
+    router.openDay('11-22');
+    expect(router.route).toMatchObject({ diaryId: 'd', monthDay: '11-22' });
+    expect(location.pathname).toBe('/w/me/diaries/d/11-22');
+    expect(history.length).toBe(before + 1);
+    router.openDay('11-23', { replace: true });
+    expect(history.length).toBe(before + 1);
+    // Back to another day of the same diary is a move too.
+    history.replaceState(null, '', '/w/me/diaries/d/11-21');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(router.route.monthDay).toBe('11-21');
+    stop();
   });
 });
 

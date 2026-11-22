@@ -6,8 +6,10 @@
  * whose search server cannot hold its index, is 503 `search_unavailable`.
  */
 
-/** What a search finds: a card of a board, or a page of a wiki. */
-export type SearchKind = 'card' | 'page';
+import type { ContainerKind } from '../logic/wire.ts';
+
+/** What a search finds: a card of a board, a page of a wiki, or an entry of a diary. */
+export type SearchKind = 'card' | 'page' | 'entry';
 
 /** A stretch of a snippet: plain text, which matched what was asked or not. */
 export interface SnippetPart {
@@ -19,9 +21,9 @@ export interface SnippetPart {
 export interface SearchHit {
   id: string;
   kind: SearchKind;
-  /** The board the card is on, or the wiki the page is in. */
+  /** The board the card is on, the wiki the page is in, or the diary the entry is in. */
   containerId: string;
-  containerKind: 'board' | 'wiki';
+  containerKind: ContainerKind;
   /** Its title as it is now. */
   title: string;
   /**

@@ -272,7 +272,34 @@ fn describe_the_rest(reason: Reason) -> &'static str {
     describe_transfer(reason)
         .or_else(|| describe_search(reason))
         .or_else(|| describe_page_tree(reason))
+        .or_else(|| describe_diary(reason))
         .unwrap_or_else(|| describe_editing_together(reason))
+}
+
+/// The descriptions of the reasons of a diary: its one entry a day, and how many
+/// entries and diaries there may be.
+fn describe_diary(reason: Reason) -> Option<&'static str> {
+    Some(match reason {
+        Reason::DayTaken => {
+            "Status 409. The day of the diary has an entry, and a diary has one entry a day: \
+             when an entry is restored from the trash to a day that was written anew since. \
+             Nothing was changed. Deleting the entry of the day makes room for the one in \
+             the trash. (Making the entry of a day that has one is no error: \
+             `createDiaryEntry` answers with the entry there is. An archive that holds two \
+             entries of one day is a bad request, as any archive that is wrong in itself.)"
+        }
+        Reason::TooManyEntries => {
+            "Status 400. The diary would have more entries than a diary may, which `limit` \
+             tells (40000; entries in the trash are not counted): when an entry is made, \
+             restored or imported. Nothing was changed."
+        }
+        Reason::TooManyDiaries => {
+            "Status 400. The space would have more diaries than a space may, which `limit` \
+             tells (20; diaries in the trash are not counted): when a diary is made, restored \
+             or imported. Nothing was changed."
+        }
+        _ => return None,
+    })
 }
 
 /// The descriptions of the reasons of the limits of a wiki's tree, and of how many

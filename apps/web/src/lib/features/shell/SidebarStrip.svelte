@@ -20,7 +20,7 @@
   import type { ContainerPlace } from '$lib/logic/urls.ts';
   import { isGuest, type Workspace } from '$lib/state/index.ts';
 
-  import { shownTitle } from './shown-title.ts';
+  import { namedAs, shownTitle } from './shown-title.ts';
   import ContainerIcon from './ContainerIcon.svelte';
 
   interface Props {
@@ -86,7 +86,7 @@
       <li class="shrink-0">
         <a
           href={containerHref(container)}
-          aria-label={container.kind === 'wiki' ? m.shell_wiki_named({ title }) : title}
+          aria-label={namedAs(container.kind, title) ?? title}
           {title}
           aria-current={container.id === containerId ? 'page' : undefined}
           class="grid size-8 place-items-center rounded-lg hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:ring-1 aria-[current=page]:ring-input-border roomy:size-touch"
