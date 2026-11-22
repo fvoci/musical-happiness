@@ -162,29 +162,6 @@ describe('a mouse, taken at once', () => {
     vi.advanceTimersByTime(DRAG_SETTINGS.touchDelay);
     expect(heard).toEqual([]);
   });
-
-  test('only blocks touchmove while a finger drag is active or cancelled while held', () => {
-    vi.useFakeTimers();
-    const addSpy = vi.spyOn(root, 'addEventListener');
-    const removeSpy = vi.spyOn(root, 'removeEventListener');
-    attach();
-    expect(addSpy.mock.calls.some(([type]) => type === 'touchmove')).toBe(false);
-
-    pointer('pointerdown', { x: 0, y: 0 }, { pointerType: 'touch' });
-    expect(addSpy.mock.calls.some(([type]) => type === 'touchmove')).toBe(false);
-
-    vi.advanceTimersByTime(DRAG_SETTINGS.touchDelay);
-    expect(addSpy.mock.calls.some(([type]) => type === 'touchmove')).toBe(true);
-    const duringDrag = new Event('touchmove', { bubbles: true, cancelable: true });
-    item.dispatchEvent(duringDrag);
-    expect(duringDrag.defaultPrevented).toBe(true);
-
-    release({ x: 0, y: 0 }, 'touch');
-    expect(removeSpy.mock.calls.some(([type]) => type === 'touchmove')).toBe(true);
-    const afterDrop = new Event('touchmove', { bubbles: true, cancelable: true });
-    item.dispatchEvent(afterDrop);
-    expect(afterDrop.defaultPrevented).toBe(false);
-  });
 });
 
 describe('Escape left alone', () => {

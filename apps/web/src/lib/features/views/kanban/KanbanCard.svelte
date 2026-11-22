@@ -83,7 +83,7 @@
   let menuMade = $state(false);
   let menuOpen = $state(false);
 
-  async function openMenu(event: MouseEvent): Promise<void> {
+  async function openMenu(event: Event): Promise<void> {
     const holder = (event.currentTarget as HTMLElement | null)?.parentElement;
     menuMade = true;
     await tick();
@@ -178,9 +178,15 @@
         aria-label={menuLabel}
         title={menuLabel}
         aria-haspopup="menu"
+        aria-expanded="false"
         data-card-menu={card.id}
         class={CARD_MENU_BUTTON}
         onclick={(event) => void openMenu(event)}
+        onkeydown={(event) => {
+          if (event.key !== 'ArrowDown') return;
+          event.preventDefault();
+          void openMenu(event);
+        }}
       >
         <svg class="size-4" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
           <circle cx="3" cy="8" r="1.25" /><circle cx="8" cy="8" r="1.25" />

@@ -16,7 +16,7 @@
   two axes and lib/drag sorts along one. A sort of the view orders them.
 -->
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
 
   import CardPresence from '../CardPresence.svelte';
@@ -40,7 +40,17 @@
   const menusMade = new SvelteSet<string>();
   let openMenuId = $state<string | undefined>(undefined);
 
-  async function openMenu(cardId: string, event: MouseEvent): Promise<void> {
+  let shownViewId = untrack(() => view.id);
+  $effect(() => {
+    if (view.id === shownViewId) return;
+    shownViewId = view.id;
+    untrack(() => {
+      openMenuId = undefined;
+      menusMade.clear();
+    });
+  });
+
+  async function openMenu(cardId: string, event: Event): Promise<void> {
     const holder = (event.currentTarget as HTMLElement | null)?.parentElement;
     menusMade.add(cardId);
     await tick();
@@ -140,9 +150,15 @@
               aria-label={label}
               title={label}
               aria-haspopup="menu"
+              aria-expanded="false"
               data-card-menu={card.id}
               class={CARD_MENU_BUTTON}
               onclick={(event) => void openMenu(card.id, event)}
+              onkeydown={(event) => {
+                if (event.key !== 'ArrowDown') return;
+                event.preventDefault();
+                void openMenu(card.id, event);
+              }}
             >
               <svg class="size-4" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                 <circle cx="3" cy="8" r="1.25" /><circle cx="8" cy="8" r="1.25" />
