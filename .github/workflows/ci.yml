@@ -79,7 +79,7 @@ jobs:
       - id: plan
         env:
           EVENT: ${{ github.event_name }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DEFAULT_BRANCH: fvoci/ci-t3-trunk
           BEFORE: ${{ github.event.before }}
           REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
