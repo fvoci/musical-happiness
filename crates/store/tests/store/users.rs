@@ -1012,7 +1012,7 @@ pub(crate) async fn open_session_under(
         last_used_at: SESSION_MADE,
         expires_at: SESSION_MADE + 1000,
         user_agent: "a browser".to_owned(),
-        login: None,
+        ..Session::default()
     };
     let stored = store
         .create_session(&session, digest, seen)

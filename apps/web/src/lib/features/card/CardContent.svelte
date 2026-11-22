@@ -27,7 +27,7 @@
 
   import { bodyReferences } from './body-references.ts';
   import BodyVersions from './BodyVersions.svelte';
-  import { cardVersions, VersionsReading } from './body-versions.svelte.ts';
+  import { cardVersions, keepVersion, VersionsReading } from './body-versions.svelte.ts';
   import CardAttachments from './CardAttachments.svelte';
   import CardBacklinks from './CardBacklinks.svelte';
   import CardBody from './CardBody.svelte';
@@ -161,7 +161,12 @@
       <CardTitle {board} card={summary} autofocus={blank} />
       <CardProperties {board} {view} card={summary} {onOpenCard} />
       {#if ready}
-        <CardBody container={board} {card} {references} />
+        <CardBody
+          container={board}
+          {card}
+          {references}
+          keep={() => keepVersion(cardVersions(board, card))}
+        />
         <CardBacklinks workspace={board.workspace} blockId={card.cardId} />
         <CardAttachments {board} {card} />
         <CardComments {board} {card} {readVersions} />

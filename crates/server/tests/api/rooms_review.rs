@@ -94,7 +94,11 @@ async fn an_accepted_update_keeps_its_ack_when_the_senders_queue_fills() {
     healthy.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     // The same controllable outbox used by rooms_contract: after the initial sync,
     // this connection keeps sending updates but does not read its answers.
-    let (mut slow, outbox) = collab.seat(&th.app, fvoci_server::app::Asker::with_password(&user));
+    let (mut slow, outbox) = collab.seat(
+        &th.app,
+        &user,
+        fvoci_server::app::SessionKept::with_password(),
+    );
     slow.command(
         &json!({"action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id})
             .to_string(),

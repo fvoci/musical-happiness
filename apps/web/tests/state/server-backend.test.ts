@@ -70,6 +70,88 @@ describe('the server backend', () => {
     expect(sent[0]?.headers['X-Requested-With']).toBe('XMLHttpRequest');
   });
 
+  it("reads the reader's own address and the one the account waits for, and asks to change it with the password", async () => {
+    const user = { id: 'u', username: 'ada', displayName: 'Ada', createAt: 1, updateAt: 2 };
+    serve({ ...user, deleteAt: 0, hasPassword: true, email: 'a@old.example' });
+    const backend = serverBackend('/base');
+    const alone = await backend.me();
+    expect(alone).toMatchObject({ email: 'a@old.example', hasPassword: true });
+    expect(alone.pendingEmail).toBeUndefined();
+    serve({
+      ...user,
+      deleteAt: 0,
+      hasPassword: true,
+      email: 'a@old.example',
+      pendingEmail: 'a@new.example',
+    });
+    expect(await backend.me()).toMatchObject({ pendingEmail: 'a@new.example' });
+
+    const sent = serve(undefined, 204);
+    await backend.emailChange.request('a@new.example', 'secret pass', 'ko');
+    await backend.emailChange.resend('ko');
+    await backend.emailChange.cancel();
+    await backend.emailChange.confirm('the token');
+    expect(sent.map(({ method, url, body }) => ({ method, url, body }))).toEqual([
+      {
+        method: 'POST',
+        url: '/base/api/v1/users/me/email-change',
+        body: { email: 'a@new.example', password: 'secret pass', language: 'ko' },
+      },
+      {
+        method: 'POST',
+        url: '/base/api/v1/users/me/email-change/resend',
+        body: { language: 'ko' },
+      },
+      { method: 'DELETE', url: '/base/api/v1/users/me/email-change', body: undefined },
+      // The token is in the body: an address is logged, and kept in histories.
+      { method: 'POST', url: '/base/api/v1/email-change/confirm', body: { token: 'the token' } },
+    ]);
+  });
+
+  it('keeps its connection as the session gives its password, and asks on it again for its workspace once that is entered again', async () => {
+    const made: Socket[] = [];
+    class Socket extends EventTarget {
+      readonly sent: unknown[] = [];
+      closed = false;
+      constructor() {
+        super();
+        made.push(this);
+      }
+      send(data: string): void {
+        this.sent.push(JSON.parse(data));
+      }
+      close(): void {
+        this.closed = true;
+      }
+    }
+    vi.stubGlobal('WebSocket', Socket);
+    serve(undefined, 204);
+    const backend = serverBackend('');
+    const unwatch = backend.watchSelf(() => undefined);
+    await vi.waitFor(() => {
+      expect(made).toHaveLength(1);
+    });
+    const socket = made[0];
+    socket?.dispatchEvent(new Event('open'));
+    const subscribe = { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 'w1' };
+    expect(socket?.sent).toEqual([subscribe]);
+    // The account was given its first password: the server ends what the session follows
+    // of its own space, and ignores the asking again that the page answers with.
+    const ended = JSON.stringify({ action: 'UNSUBSCRIBED_WORKSPACE', workspaceId: 'w1' });
+    socket?.dispatchEvent(new MessageEvent('message', { data: ended }));
+    expect(socket?.sent).toEqual([subscribe, subscribe]);
+
+    await backend.confirmPassword('a long password');
+    await new Promise((done) => setTimeout(done, 20));
+    // No new connection: the server takes this one as the session's that it is now.
+    expect(made).toHaveLength(1);
+    expect(socket?.closed).toBe(false);
+    // The workspace entered again (`Workspace.enter`): what was ignored is asked for again.
+    backend.enter('w1');
+    expect(socket?.sent).toEqual([subscribe, subscribe, subscribe]);
+    unwatch();
+  });
+
   it('asks for a board read before under its own workspace, also after entering another', async () => {
     const sent = serve({ ...BLOCK, id: 'b9', workspaceId: 'w2', title: 'Elsewhere', type: 'O' });
     const backend = serverBackend('');

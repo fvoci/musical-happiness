@@ -451,6 +451,22 @@ impl fmt::Debug for SetPasswordRequest {
     }
 }
 
+/// A request of a session to be taken as one that has shown its account's password.
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ConfirmPasswordRequest {
+    /// The account's password.
+    pub password: String,
+}
+
+impl fmt::Debug for ConfirmPasswordRequest {
+    /// Leaves out the password.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConfirmPasswordRequest")
+            .finish_non_exhaustive()
+    }
+}
+
 /// A request of an account to start an organization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

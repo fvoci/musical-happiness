@@ -160,6 +160,17 @@
   --code-tag: oklch(0.47 0.13 150);
   --code-added: oklch(0.47 0.13 150);
   --code-removed: oklch(0.5 0.19 25);
+  /*
+   * What a comparison of two bodies marks (editor/diff.css): the fill of what
+   * was added and of what was removed, under the text and under code (4.5:1
+   * for both), and the line beside a block added or removed whole (3:1).
+   * The marks differ by more than colour: underline, strike, a solid or a
+   * dashed line.
+   */
+  --diff-added: oklch(0.95 0.045 150);
+  --diff-removed: oklch(0.95 0.035 25);
+  --diff-added-line: oklch(0.55 0.15 150);
+  --diff-removed-line: oklch(0.55 0.18 25);
 
   --radius: 0.5rem;
 
@@ -248,6 +259,10 @@
   --code-tag: oklch(0.85 0.14 145);
   --code-added: oklch(0.85 0.14 145);
   --code-removed: oklch(0.77 0.13 20);
+  --diff-added: oklch(0.3 0.05 150);
+  --diff-removed: oklch(0.3 0.05 25);
+  --diff-added-line: oklch(0.72 0.14 150);
+  --diff-removed-line: oklch(0.72 0.15 25);
 }
 
 /* ------------------------------------------------------------------ type */

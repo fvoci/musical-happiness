@@ -209,6 +209,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/email-change/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm the new email address of an account
+         * @description Consumes the token of the link mailed by `requestEmailChange`, within a day of
+         *     the mail and seven days of the request: the address the link was mailed to becomes
+         *     the account's. No session is needed and none is made: the link shows that its
+         *     holder reads the new address, and the password was given when the change was
+         *     asked for. From then on reset links go to the new address and `login` finds the
+         *     account by it; the reset links mailed to the address before end, and that address
+         *     is mailed a notice that it is the account's no more, which names the account and
+         *     nothing of the new address. The account's sessions go on.
+         *
+         *     A link is used once. A token that is missing, used, ended, replaced by a newer
+         *     mail or request, or taken back (`cancelEmailChange`), one of an account that is no
+         *     longer in use or whose password was set anew since, and one whose address somebody
+         *     else took meanwhile are all answered 400 naming `token` in `errors`, and change
+         *     nothing: which of them it was is not said. Requests are counted by where they come
+         *     from, as registrations are, and too many are 429.
+         */
+        post: operations["confirmEmailChange"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/email-verification/complete": {
         parameters: {
             query?: never;
@@ -1269,9 +1303,11 @@ export interface paths {
         /**
          * The user of the session
          * @description The user as anybody who sees them is answered them, and what only they are told of
-         *     their account: whether it has a password (`hasPassword`). An account made by a
-         *     sign-in through an organization's provider has none, and is reached through that
-         *     provider only, its own space too, until its person sets one (`setPassword`).
+         *     their account: its email address (`email`), the one it waits to have confirmed
+         *     (`pendingEmail`, see `requestEmailChange`), and whether it has a password
+         *     (`hasPassword`). An account made by a sign-in through an organization's provider
+         *     has none, and is reached through that provider only, its own space too, until its
+         *     person sets one (`setPassword`).
          */
         get: operations["getMe"];
         put?: never;
@@ -1402,6 +1438,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/email-change": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change the email address of the account
+         * @description Asks for the address of the account of the session to become `email`. The
+         *     account's `password` is asked for in this request, whatever the session is and
+         *     whatever it has shown before: a session alone does not move the address that
+         *     password resets are mailed to. An account that has no password (`hasPassword` of
+         *     `getMe`) is 409 with the reason `password_not_set`, and sets one first
+         *     (`setPassword`). The account of a session that waits to be deleted changes nothing
+         *     (401, `account_deletion_pending`).
+         *
+         *     **On a server that sends mail** (`mailEnabled` of `getClientConfig`) the address
+         *     does not change yet. The account waits for the new one to be confirmed: `getMe`
+         *     answers it as `pendingEmail`, and a link is mailed to it
+         *     (`<server_url>/confirm-email#<token>`, for 24 hours, used once) that
+         *     `confirmEmailChange` takes. Until then the account's address is the one it had:
+         *     reset links go there, and `login` finds the account by it. An account waits for
+         *     one address: a new request replaces the one before, whose link confirms nothing
+         *     any more, and so does a change or a reset of the password. What is not confirmed
+         *     ends after seven days.
+         *
+         *     The answer is 204 whether or not another account or a registration has the
+         *     address: lookup and mail run once the answer is handed off, nothing is mailed for
+         *     an address somebody has, and nothing holds the address until it is confirmed. An
+         *     account, and an address, are mailed at most `mail_reset_per_account_hour` such
+         *     links an hour; more requests are answered the same and mail nothing.
+         *
+         *     **On a server that sends no mail** there is nothing to confirm an address with, as
+         *     at registration: the address changes with this request, and the answer is 409 with
+         *     the reason `email_taken` if another account or a registration has it, in any
+         *     letter case. The account's reset links end.
+         *
+         *     An address is told apart from another as at registration: by its letters in any
+         *     case. What is no address, or is the account's already, is 400 naming `email`. A
+         *     wrong password is 400 (not 401: the session is good) with the reason
+         *     `invalid_credentials`, naming `password`, counted with the failed logins to the
+         *     account by its name; too many are 429, also for a login. Requests are also limited
+         *     by where they come from, with the requests for a reset link (429). A password that
+         *     was changed while this request was under way is 409.
+         */
+        post: operations["requestEmailChange"];
+        /**
+         * Take back a change of the email address
+         * @description Ends what the account of the session waits for (`pendingEmail` of `getMe`): the
+         *     link that was mailed confirms nothing any more, and the account keeps the address
+         *     it has. No password is asked for: nothing changes of the account. 204 also when it
+         *     waited for nothing.
+         */
+        delete: operations["cancelEmailChange"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/email-change/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mail the link of a change of the email address again
+         * @description Mails a new link to the address the account of the session waits for
+         *     (`pendingEmail` of `getMe`); the link of the mail before confirms nothing once
+         *     the new one is written. No password is asked for: the address is the one the
+         *     password was given for. Answers 204 whatever became of the message, as
+         *     `requestEmailChange` does, within the same hourly limits. 404 for an account that
+         *     waits for no address, and on a server that sends no mail. Requests are limited by
+         *     where they come from, with the requests for a reset link (429).
+         */
+        post: operations["resendEmailChange"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/identities": {
         parameters: {
             query?: never;
@@ -1487,10 +1611,12 @@ export interface paths {
          *     asking for those (`sso_required`). The account's other sessions end, and this one
          *     goes on under a new cookie, as after `changePassword`.
          *
-         *     From then on the account's own space takes only sessions made with the password
-         *     (`password_sign_in_required`, see "The user's own space"): this session, which was
-         *     made through a provider, opens it no more, and the account's websocket
-         *     connections are closed, to come back to what the session opens.
+         *     From then on the account's own space takes only sessions that have shown the
+         *     password (`password_sign_in_required`, see "The user's own space"): this session,
+         *     which was made through a provider and set the password without being asked for
+         *     one, opens it no more until it gives the password (`confirmPassword`). Its
+         *     websocket connections stay open and hear no more of the space; those of the
+         *     account's other sessions are closed.
          *
          *     Once only: an account that has a password is 409, and changes it with
          *     `changePassword`. The password must have at least 8 characters and at most 1024
@@ -1510,6 +1636,47 @@ export interface paths {
          *     that was changed by somebody else while this request was under way is 409.
          */
         post: operations["changePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/password/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm the password in this session
+         * @description Takes the session as one that has shown the account's password: for a session made
+         *     through an organization's provider, to which the account's own space is closed once
+         *     the account has a password (`password_sign_in_required`, see "The user's own
+         *     space"). From then until the session ends it opens the space as a session made
+         *     with the password does, `getMyWorkspaces` lists the space with `passwordRequired`
+         *     false, and it goes on opening what it opened of the organizations: nothing else
+         *     changes of what it opens, and an organization that takes only sessions made
+         *     through another provider stays closed to it (`sso_required`). A session made with
+         *     the password is answered the same and opens what it opened.
+         *
+         *     The session goes on under a new cookie, as after `changePassword`: it opens more
+         *     than it did, and the value that opened less is no longer accepted. Its websocket
+         *     connections stay open, and are the confirmed session's from then on: what the
+         *     space refused them is asked again on the same connection.
+         *
+         *     A wrong password is 400 (not 401: the session is good) with the reason
+         *     `invalid_credentials`, and `errors` names `password`. Wrong ones are counted with
+         *     the failed logins to the account by its name, and too many are 429, also for a
+         *     login: the limits are those of `login`. An account that has no password
+         *     (`hasPassword` of `getMe`) is 409: its space takes any session, and there is
+         *     nothing to confirm. A password that was changed while this request was under way
+         *     is 409 too.
+         */
+        post: operations["confirmPassword"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1562,9 +1729,10 @@ export interface paths {
          *     was not made so: what is under it answers 401 with the reason `sso_required` until
          *     the user signs in through the provider of `orgId`. The user's own space asks for no
          *     provider: its `ssoRequired` is false. Once its account has a password it takes only
-         *     sessions made with that, and is listed with `passwordRequired` true for a session
-         *     made through a provider: what is under it answers 401 with the reason
-         *     `password_sign_in_required` until the user signs in with the password (`login`).
+         *     sessions that have shown that, and is listed with `passwordRequired` true for a
+         *     session made through a provider that has not: what is under it answers 401 with the
+         *     reason `password_sign_in_required` until the session gives the password
+         *     (`confirmPassword`), or the user signs in with it (`login`).
          */
         get: operations["getMyWorkspaces"];
         put?: never;
@@ -2146,7 +2314,25 @@ export interface paths {
          */
         get: operations["getCardBodyVersions"];
         put?: never;
-        post?: never;
+        /**
+         * Keep a card's body as a version now
+         * @description Keeps the body the card has as a version, by hand (`cause` `manual`), as an editor
+         *     asks for one: what those who edit the card together typed is written to it first, so
+         *     that the version is their body of that moment, and what they see and type goes on as
+         *     it was. The version names who wrote the body since the one before, as every version
+         *     does, and is as of now; the caller is not named for asking. It counts with the
+         *     others against the versions kept, the oldest going. After it, the next version the
+         *     server keeps on its own is of what is typed after it.
+         *
+         *     Nothing is kept (`outcome` `unchanged`, `version` the newest) of a body that is the
+         *     card's newest version already, nor (`outcome` `recent`, `version` that one) within
+         *     a minute of a version kept by hand, the server then keeping what was typed since on
+         *     its own. For editors of the card's board, as `restoreCardBodyVersion` is (403 for
+         *     its other members); to a user who is no member of it there is no such card, and a
+         *     card in the trash is not there (404). 503 (`document_unavailable`) if what was typed
+         *     cannot be written to the card now.
+         */
+        post: operations["keepCardBodyVersion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3831,7 +4017,15 @@ export interface paths {
          */
         get: operations["getPageBodyVersions"];
         put?: never;
-        post?: never;
+        /**
+         * Keep a page's body as a version now
+         * @description As `keepCardBodyVersion` keeps a card's: the body the page has, with what those who
+         *     edit it together typed, by hand; nothing of a body that is its newest version
+         *     already (`unchanged`), nor within a minute of a version kept by hand (`recent`). For
+         *     editors of the wiki (403 for its other members). A page in the trash is not there
+         *     (404).
+         */
+        post: operations["keepPageBodyVersion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4396,10 +4590,13 @@ export interface components {
          *     to then.
          */
         BodyVersion: {
+            /** @description How it came to be kept. */
+            cause: components["schemas"]["BodyVersionCause"];
             /**
              * @description Who wrote the body up to this version since the one before, in the order of
              *     their identifiers: those who edited it and those who wrote it whole. Empty for
-             *     a body nobody is known to have written.
+             *     a body nobody is known to have written; who asked for a version is not named
+             *     for asking.
              */
             editors: string[];
             /**
@@ -4412,7 +4609,7 @@ export interface components {
              * Format: int64
              * @description When the version was kept, in milliseconds since the Unix epoch. For a body
              *     nobody is known to have written (one from before versions were kept, or from an
-             *     import), when the card was last changed.
+             *     import) that the server kept, when the card was last changed.
              */
             keptAt: number;
             /**
@@ -4422,9 +4619,17 @@ export interface components {
              */
             version: number;
         };
+        /**
+         * @description How a version of a card's body came to be kept, as its readers are told: by somebody
+         *     who asked for it, by going back to a version, or by the server on its own.
+         * @enum {string}
+         */
+        BodyVersionCause: "auto" | "manual" | "restored";
         /** @description A version kept of a card's body, with the body. */
         BodyVersionContent: {
             body: components["schemas"]["Body"] | null;
+            /** @description How it came to be kept. */
+            cause: components["schemas"]["BodyVersionCause"];
             /**
              * @description Who wrote the body up to this version since the one before, in the order of
              *     their identifiers. Empty for a body nobody is known to have written.
@@ -4704,6 +4909,15 @@ export interface components {
             password?: string;
             /** @description The secret from the confirmation link's fragment. */
             token: string;
+        };
+        ConfirmEmailChange: {
+            /** @description The secret from the confirmation link's fragment. */
+            token: string;
+        };
+        /** @description A request of a session to be taken as one that has shown its account's password. */
+        ConfirmPasswordRequest: {
+            /** @description The account's password. */
+            password: string;
         };
         /** @description A board: a set of blocks and the property definitions of its cards. */
         Container: {
@@ -5181,6 +5395,17 @@ export interface components {
             /** @description The token of the link. */
             token: string;
         };
+        /** @description The answer to an editor who asked to keep a body as a version now. */
+        KeptBodyVersion: {
+            /** @description Whether a version was kept, and if not, why. */
+            outcome: components["schemas"]["KeptOutcome"];
+            version: components["schemas"]["BodyVersion"] | null;
+        };
+        /**
+         * @description What became of a body an editor asked to keep as a version now.
+         * @enum {string}
+         */
+        KeptOutcome: "kept" | "unchanged" | "recent";
         /**
          * @description An organization that goes with the account of its only member, and how much is in
          *     it: the account's own space, and an organization of people that has nobody else. The
@@ -5304,11 +5529,21 @@ export interface components {
          */
         Me: components["schemas"]["User"] & {
             /**
+             * @description The email address of the account, which nobody else is answered; empty for an
+             *     account that has none.
+             */
+            email: string;
+            /**
              * @description Whether the account has a password to sign in with. An account made by a
              *     sign-in through an organization's provider has none until its person sets one
              *     (`setPassword`), and signs in through the provider only until then.
              */
             hasPassword: boolean;
+            /**
+             * @description The address the account waits to have confirmed (`requestEmailChange`), which
+             *     becomes `email` by the link mailed to it; left out when it waits for none.
+             */
+            pendingEmail?: string | null;
         };
         /**
          * @description The roles a member of a board is to have. A role that is left out is taken away, and
@@ -6132,6 +6367,18 @@ export interface components {
             /** @description The login name. */
             username: string;
         };
+        RequestEmailChange: {
+            /** @description The address the account is to have. White space around it is dropped. */
+            email: string;
+            /**
+             * @description The requester's language tag (`ko`, `en-GB`), used when the account's own
+             *     settings name no language the mail is written in (English, Korean); English if
+             *     neither does.
+             */
+            language?: string;
+            /** @description The account's password. */
+            password: string;
+        };
         RequestEmailVerification: {
             /**
              * @description The address the registration was made with, used when no registration has the
@@ -6157,6 +6404,10 @@ export interface components {
              * @description The requester's language tag (`ko`, `en-GB`), used when the account's own setting
              *     names no language the mail is written in (English, Korean); English if neither does.
              */
+            language?: string;
+        };
+        ResendEmailChange: {
+            /** @description The requester's language tag, as in `requestEmailChange`. */
             language?: string;
         };
         /** @description One thing a search found: the user reads it now. */
@@ -6531,9 +6782,10 @@ export interface components {
             /**
              * @description Whether the workspace is closed to the session that asks for being the user's
              *     own space, of an account that has a password, while the session was made
-             *     through a provider. What is under the workspace then answers 401 with the
-             *     reason `password_sign_in_required`; signing in with the account's password
-             *     (`login`) opens it. Always false for a workspace of an organization that people
+             *     through a provider and has not given that password. What is under the
+             *     workspace then answers 401 with the reason `password_sign_in_required`; giving
+             *     the password in the session (`confirmPassword`) opens it, and so does signing in
+             *     with it (`login`). Always false for a workspace of an organization that people
              *     work in.
              */
             passwordRequired: boolean;
@@ -6881,6 +7133,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ClientConfig"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    confirmEmailChange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmEmailChange"];
+            };
+        };
+        responses: {
+            /** @description The address is the account's. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests from where this one comes from. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -8578,6 +8872,106 @@ export interface operations {
             };
         };
     };
+    requestEmailChange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestEmailChange"];
+            };
+        };
+        responses: {
+            /** @description The account waits for the address to be confirmed, or, on a server that sends no mail, has it. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The password was wrong too often, or too many requests came from where this one comes from. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    cancelEmailChange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account waits for no address. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    resendEmailChange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResendEmailChange"];
+            };
+        };
+        responses: {
+            /** @description If nobody has the address, it will receive a new link. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getMyIdentities: {
         parameters: {
             query?: never;
@@ -8745,6 +9139,50 @@ export interface operations {
                 content?: never;
             };
             /** @description The old password was wrong too often, or the server has too much password work to do at the moment. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    confirmPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description The session has shown the password. */
+            204: {
+                headers: {
+                    /** @description The session cookie, with its new value. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The password was wrong too often, or the server has too much password work to do at the moment. */
             429: {
                 headers: {
                     /** @description How many seconds to wait before trying again. */
@@ -9850,6 +10288,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BodyVersion"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    keepCardBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What became of the body. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeptBodyVersion"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -12759,6 +13231,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BodyVersion"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    keepPageBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What became of the body. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeptBodyVersion"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

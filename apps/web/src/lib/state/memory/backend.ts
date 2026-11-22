@@ -15,11 +15,7 @@
 import { cardPreviewOf, type CardPreview } from '../../editor/card-preview.ts';
 import type { FileDetails } from '../../editor/files.ts';
 import type { DocNode } from '../../editor/schema.ts';
-import { readDisplaySettings, type DisplaySettings } from '../../logic/display.ts';
-import { isTimeZone, readRegionalSettings } from '../../logic/regional.ts';
-import { DEFAULT_ACCOUNT_SETTINGS } from '../../logic/account-settings.ts';
 import type { NameChange } from '../../logic/person-names.ts';
-import { readLanguageSettings } from '../../logic/language.ts';
 import {
   createBoard,
   type BlockPatch,
@@ -78,13 +74,13 @@ import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
 import { MemoryWikis } from './wikis.ts';
 import { MemoryCategories, fileAsNew } from './categories.ts';
-import { checkWorkspace, workersOf, workspacesOf } from './spaces.ts';
+import { checkWorkspace, confirmPassword, workersOf, workspacesOf } from './spaces.ts';
 import { copiedBlocks, copyTitle, giveCopiesFiles } from './copies.ts';
 import { memberRole, memberFileUrl } from './container-access.ts';
 import { MemoryFileVersions } from './file-versions.ts';
 import { readableBlob, readableFile, storeUpload } from './files.ts';
 import { userFound, usersAmong, usersNamed } from './users.ts';
-import { changeName } from './account.ts';
+import { changedSettings, changeName, settingsOf } from './account.ts';
 import { archiveLines, archiveOf, blockOfLine } from './archive.ts';
 import { checkedBody, checkedComment, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, MemoryReferences, renameCopied } from './references.ts';
@@ -257,6 +253,11 @@ export class MemoryBackend implements Backend {
     return copy(changeName(this.world, this.userId, patch));
   }
 
+  async confirmPassword(password: string): Promise<void> {
+    await this.#enter('confirmPassword');
+    confirmPassword(this.world, this.userId, password);
+  }
+
   async workspaces(): Promise<WorkspaceInfo[]> {
     await this.#enter('workspaces');
     return workspacesOf(this.world, this.userId);
@@ -275,36 +276,14 @@ export class MemoryBackend implements Backend {
 
   // ----------------------------------------------------------- settings
 
-  #settings(): AccountSettings {
-    return this.world.settings.get(this.userId) ?? { ...DEFAULT_ACCOUNT_SETTINGS };
-  }
-
   async settings(): Promise<AccountSettings> {
     await this.#enter('settings');
-    return copy(this.#settings());
+    return copy(settingsOf(this.world, this.userId));
   }
 
   async patchSettings(patch: AccountSettingsPatch): Promise<AccountSettings> {
     await this.#enter('patchSettings');
-    const defaults = DEFAULT_ACCOUNT_SETTINGS;
-    const merged: Record<string, unknown> = { ...this.#settings() };
-    for (const [name, value] of Object.entries(patch)) {
-      if (!(name in defaults)) fail(400, `unknown setting ${name}`, { field: name });
-      merged[name] = value ?? defaults[name as keyof AccountSettings];
-    }
-    const zone = merged.timeZone;
-    if (typeof zone !== 'string' || (zone !== 'auto' && !isTimeZone(zone))) {
-      fail(400, 'unknown time zone', { field: 'timeZone' });
-    }
-    const display: DisplaySettings = readDisplaySettings(merged);
-    const regional = readRegionalSettings(merged);
-    const next: AccountSettings = { ...regional, ...display, ...readLanguageSettings(merged) };
-    // A value the reader functions fell back on was not one of the allowed ones.
-    for (const name of Object.keys(patch) as (keyof AccountSettings)[]) {
-      if (patch[name] !== null && patch[name] !== undefined && next[name] !== patch[name]) {
-        fail(400, `invalid value for ${name}`, { field: name });
-      }
-    }
+    const next = changedSettings(this.world, this.userId, patch);
     this.world.settings.set(this.userId, next);
     this.world.tellUsers([this.userId], { kind: 'settings', settings: copy(next) });
     return copy(next);
@@ -478,7 +457,7 @@ export class MemoryBackend implements Backend {
 
   /** A copy of a board or a wiki with its blocks but the comments, every identifier new. */
   #copyContainer(source: Container, asTemplate: boolean, to: string): Container {
-    const title = copyTitle(source, asTemplate, this.#settings().language);
+    const title = copyTitle(source, asTemplate, settingsOf(this.world, this.userId).language);
     const blocks = copiedBlocks(this.world, source);
     return this.#insertContainer({ ...source, isTemplate: asTemplate, title }, blocks, to);
   }

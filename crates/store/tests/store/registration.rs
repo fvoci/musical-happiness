@@ -46,7 +46,9 @@ async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
     assert_eq!(access(&outside, &test.workspace_id).await, None);
     assert_eq!(access(&first, &new_id()).await, None, "no such workspace");
     assert_eq!(access(&first, "no identifier").await, None);
-    let of_outside = unset.workspaces_of_user(&outside, None).await;
+    let of_outside = unset
+        .workspaces_of_user(&outside, fvoci_store::Making::with_password())
+        .await;
     let kinds: Vec<OrgKind> = of_outside
         .expect("the workspaces are listed")
         .iter()
@@ -59,7 +61,7 @@ async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
         .await
         .expect("the member is added");
     let listed = unset
-        .workspaces_of_user(&second, None)
+        .workspaces_of_user(&second, fvoci_store::Making::with_password())
         .await
         .expect("the workspaces are listed");
     let (own, listed) = listed.split_last().expect("the user's own space, last");

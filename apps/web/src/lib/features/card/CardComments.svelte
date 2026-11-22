@@ -24,7 +24,7 @@
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
-  import { isComposing, primaryModifier, shortcutKeys } from '$lib/keys.ts';
+  import { isComposing, isSaveKey, primaryModifier, shortcutKeys } from '$lib/keys.ts';
   import BodyView from '$lib/editor/BodyView.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { displayDateTime, relativeTime } from '$lib/logic/format.ts';
@@ -137,6 +137,12 @@
   }
 
   function onkeydown(event: KeyboardEvent): void {
+    // A comment keeps no versions: the keys that keep one of a body only keep the browser
+    // from saving the page, also while a syllable is being composed.
+    if (isSaveKey(event)) {
+      event.preventDefault();
+      return;
+    }
     if (isComposing(event)) return;
     if (event.key === 'Enter' && primaryModifier(event)) {
       event.preventDefault();

@@ -79,6 +79,13 @@ const TEXT_PAIRS: [string, string][] = [
   ['foreground', 'option-red'],
   // The colours of code, on the surface of a code block (editor/code-block.css).
   ...TOKEN_KINDS.map((kind): [string, string] => [`code-${kind}`, 'muted']),
+  // What a comparison of two bodies marks (editor/diff.css): text and code on it.
+  ['foreground', 'diff-added'],
+  ['foreground', 'diff-removed'],
+  ...TOKEN_KINDS.flatMap((kind): [string, string][] => [
+    [`code-${kind}`, 'diff-added'],
+    [`code-${kind}`, 'diff-removed'],
+  ]),
 ];
 
 /** [indicator, surface] */
@@ -94,6 +101,11 @@ const INDICATOR_PAIRS: [string, string][] = [
   ['ring', 'muted'],
   ['sidebar-ring', 'sidebar'],
   ['sidebar-ring', 'sidebar-accent'],
+  // The line beside a block a comparison says was added or removed whole.
+  ['diff-added-line', 'popover'],
+  ['diff-removed-line', 'popover'],
+  ['diff-added-line', 'background'],
+  ['diff-removed-line', 'background'],
 ];
 
 describe.each(Object.entries(themes))('%s theme', (name, tokens) => {

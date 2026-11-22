@@ -1,6 +1,7 @@
 /** Signing in and out and making an account, where a backend has accounts (part of `backend.ts`). */
 import type { ContainerKind } from '../logic/wire.ts';
 
+import type { EmailChange } from './email-change.ts';
 import type { OrgKind } from './workspace-types.ts';
 
 /** What an account is made with. */
@@ -229,4 +230,6 @@ export interface Account {
   requestDeletion(username: string, password: string): Promise<number>;
   /** Takes the deletion back; the session is an ordinary one again. */
   cancelDeletion(): Promise<void>;
+  /** Changing the account's address, which `Backend.me` then reads anew. */
+  readonly emailChange: EmailChange;
 }
