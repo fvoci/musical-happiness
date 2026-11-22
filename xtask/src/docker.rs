@@ -193,11 +193,17 @@ impl Drop for Teardown<'_> {
     }
 }
 
-/// Removes the trial's files: its secrets and the session of a server that is gone.
-/// Each is tried whatever the others did: both hold secrets.
-fn remove_files(trial: &Trial, directory: &Path) -> Result<()> {
-    let _ = fs::remove_file(directory.join("cookies.txt"));
-    let env = match fs::remove_file(&trial.env_file) {
+/// Removes leftovers of a trial (or of a previous killed run) under `directory`: its
+/// secrets file, session cookies, and trial backup folders. Each is tried whatever the
+/// others did: all may hold secrets.
+fn clean_leftovers(directory: &Path) -> Result<()> {
+    let cookies = match fs::remove_file(directory.join("cookies.txt")) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(error).context("removing the trial's cookies")
+        }
+        _ => Ok(()),
+    };
+    let env = match fs::remove_file(directory.join("smoke.env")) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
             Err(error).context("removing the file of the trial's secrets")
         }
@@ -209,7 +215,19 @@ fn remove_files(trial: &Trial, directory: &Path) -> Result<()> {
             .with_context(|| format!("removing the trial's backups, {}", backups.display())),
         _ => Ok(()),
     };
-    env.and(removed)
+    cookies.and(env).and(removed)
+}
+
+/// Removes the trial's files: its secrets and the session of a server that is gone.
+/// Each is tried whatever the others did: both hold secrets.
+fn remove_files(trial: &Trial, directory: &Path) -> Result<()> {
+    let env = match fs::remove_file(&trial.env_file) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(error).context("removing the file of the trial's secrets")
+        }
+        _ => Ok(()),
+    };
+    clean_leftovers(directory).and(env)
 }
 
 /// Builds, starts, tries and takes down the installation.
@@ -220,12 +238,15 @@ fn remove_files(trial: &Trial, directory: &Path) -> Result<()> {
 pub(crate) fn run(root: &Path) -> Result<()> {
     let started = Instant::now();
     check_compose()?;
+    let directory = root.join("target/docker-smoke");
+    // Remove secrets and backups left behind by an earlier killed run right away, before
+    // building images or starting a new trial.
+    clean_leftovers(&directory)?;
     let names = images::Names::of_checkout(root)?;
     images::build(root, &names)?;
     freshness::probe(root)?;
     let built = started.elapsed();
 
-    let directory = root.join("target/docker-smoke");
     fs::create_dir_all(&directory).with_context(|| format!("creating {}", directory.display()))?;
     let port = free_port()?;
     let secrets = Secrets::new()?;
@@ -403,9 +424,13 @@ fn take_down(trial: &Trial) -> Result<()> {
     if !status.success() {
         bail!("docker compose down ended with {status}");
     }
-    // The name update.sh gave the image it replaced, the trial's own: the image keeps
-    // its other names. Absent unless the update ran.
-    let _ = capture("docker", &["image", "rm", &backup::kept_tag(trial)]);
+    // The tags update.sh gave the images it replaced, the trial's own: each image keeps
+    // its other names. Absent unless an update ran.
+    if let Ok(tags) = backup::kept_tags(trial) {
+        for tag in tags {
+            let _ = capture("docker", &["image", "rm", &tag]);
+        }
+    }
     let label = trial.label();
     let listings: [&[&str]; 3] = [
         &["container", "ls", "--all"],
@@ -435,16 +460,66 @@ fn script_output(mut command: Command, name: &str) -> Result<(bool, String)> {
     Ok((output.status.success(), said.into_owned()))
 }
 
-/// Fails if `text` holds one of the trial's secrets, saying what wrote it.
-fn no_secret_in(trial: &Trial, what: &str, text: &str) -> Result<()> {
-    if trial
-        .secrets
-        .iter()
-        .any(|secret| text.contains(secret.as_str()))
-    {
+/// Fails if `text` holds any of `values`, or a substantial fragment or escaped form of
+/// one, saying what wrote it.
+pub(super) fn no_values_in(values: &[&str], what: &str, text: &str) -> Result<()> {
+    if values.iter().any(|value| value_appears_in(value, text)) {
         bail!("{what} wrote one of the trial's secrets");
     }
     Ok(())
+}
+
+/// Fails if `text` holds one of the trial's secrets (whole, fragmented, or escaped),
+/// saying what wrote it.
+fn no_secret_in(trial: &Trial, what: &str, text: &str) -> Result<()> {
+    let secrets: Vec<&str> = trial.secrets.iter().map(String::as_str).collect();
+    no_values_in(&secrets, what, text)
+}
+
+/// Whether `secret` appears in `text` whole, by line, by any 12-character fragment
+/// (stepped by 6 so any >=18-character slice is caught), or in JSON/compose escaped form.
+fn value_appears_in(secret: &str, text: &str) -> bool {
+    const FRAGMENT: usize = 12;
+    const STEP: usize = 6;
+    if secret.is_empty() {
+        return false;
+    }
+    if text.contains(secret) {
+        return true;
+    }
+    if secret.contains('$') && text.contains(&secret.replace('$', "$$")) {
+        return true;
+    }
+    if secret.contains(['\\', '"', '\n', '\r'])
+        && let Ok(json) = serde_json::to_string(secret)
+    {
+        let inner = json.trim_matches('"');
+        if !inner.is_empty() && text.contains(inner) {
+            return true;
+        }
+    }
+    for line in secret.lines() {
+        if line.len() >= FRAGMENT && text.contains(line) {
+            return true;
+        }
+        let chars: Vec<char> = line.chars().collect();
+        if chars.len() < FRAGMENT {
+            continue;
+        }
+        let mut start = 0;
+        while start + FRAGMENT <= chars.len() {
+            let slice: String = chars[start..start + FRAGMENT].iter().collect();
+            if text.contains(&slice) {
+                return true;
+            }
+            start += STEP;
+        }
+        let tail: String = chars[chars.len() - FRAGMENT..].iter().collect();
+        if text.contains(&tail) {
+            return true;
+        }
+    }
+    false
 }
 
 /// fvoci's container and when it started.
@@ -490,7 +565,7 @@ fn free_port() -> Result<u16> {
 /// Writes `text` to a file only its owner can read.
 fn write_private(path: &Path, text: &str) -> Result<()> {
     use std::io::Write as _;
-    use std::os::unix::fs::OpenOptionsExt as _;
+    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 
     let mut file = fs::OpenOptions::new()
         .write(true)
@@ -499,6 +574,9 @@ fn write_private(path: &Path, text: &str) -> Result<()> {
         .mode(0o600)
         .open(path)
         .with_context(|| format!("writing {}", path.display()))?;
+    // `mode` only takes effect when creating a new file; tighten an existing file too.
+    file.set_permissions(fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("setting permissions on {}", path.display()))?;
     file.write_all(text.as_bytes())
         .with_context(|| format!("writing {}", path.display()))
 }
@@ -635,5 +713,86 @@ mod tests {
     #[test]
     fn hex_writes_two_digits_a_byte() {
         assert_eq!(hex(&[0, 0xab, 0x10]), "00ab10");
+    }
+
+    #[test]
+    fn write_private_tightens_existing_looser_permissions() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = std::env::temp_dir().join(format!("fvoci-xtask-priv-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("secret.env");
+        fs::write(&path, "old").expect("seed file");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("loosen mode");
+
+        write_private(&path, "new secret").expect("write_private");
+        let mode = fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(
+            mode, 0o600,
+            "existing file mode must be tightened to 0600, got {mode:#o}"
+        );
+    }
+
+    #[test]
+    fn no_secret_in_catches_fragments_and_escaped_forms() {
+        let secret = "AbCdEf0123456789GhIjKlMnOpQrStUvWxYz0123456=";
+        let trial = Trial {
+            root: PathBuf::from("/work"),
+            project: "fvoci-smoke-0".to_owned(),
+            env_file: PathBuf::from("/work/smoke.env"),
+            env_names: Vec::new(),
+            base: "http://localhost:1".to_owned(),
+            secrets: vec![secret.to_owned()],
+            role_password: "unused".to_owned(),
+            images: images::Names::for_tests(),
+            mail: mail::Keys::for_tests(),
+        };
+        assert!(no_secret_in(&trial, "clean", "ordinary log output").is_ok());
+        assert!(
+            no_secret_in(&trial, "full", &format!("leaked {secret}")).is_err(),
+            "full secret must be caught"
+        );
+        // Truncated/quoted fragment of the secret (e.g., compose quoting before a $ or line break).
+        assert!(
+            no_secret_in(&trial, "prefix", &format!("prefix '{}'", &secret[..16])).is_err(),
+            "prefix fragment must be caught"
+        );
+        assert!(
+            no_secret_in(
+                &trial,
+                "suffix",
+                &format!("suffix \"{}\"", &secret[secret.len() - 16..])
+            )
+            .is_err(),
+            "suffix fragment must be caught"
+        );
+        let multiline = "part1\npart2$tail";
+        assert!(
+            no_values_in(&[multiline], "json", r#"value="part1\npart2$tail""#).is_err(),
+            "JSON-escaped secret must be caught"
+        );
+        assert!(
+            no_values_in(&["abc$def12345"], "dollar", "abc$$def12345").is_err(),
+            "compose-escaped $$ secret must be caught"
+        );
+    }
+
+    #[test]
+    fn clean_leftovers_removes_stale_smoke_env_cookies_and_backups() {
+        let dir = std::env::temp_dir().join(format!("fvoci-xtask-clean-{}", std::process::id()));
+        let stale_backup = backup::folder(&dir).join("old-run");
+        fs::create_dir_all(&stale_backup).expect("backup dir");
+        fs::write(dir.join("smoke.env"), "FVOCI_SECRET_KEY=stale").expect("env");
+        fs::write(dir.join("cookies.txt"), "session=stale").expect("cookies");
+        fs::write(stale_backup.join("env"), "FVOCI_SECRET_KEY=stale").expect("backup env");
+
+        clean_leftovers(&dir).expect("clean_leftovers");
+        assert!(!dir.join("smoke.env").exists());
+        assert!(!dir.join("cookies.txt").exists());
+        assert!(!backup::folder(&dir).exists());
+        // Calling again when absent succeeds cleanly.
+        clean_leftovers(&dir).expect("clean_leftovers when absent");
+        let _ = fs::remove_dir_all(&dir);
     }
 }
