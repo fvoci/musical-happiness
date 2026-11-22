@@ -21,6 +21,7 @@ mod background;
 mod database;
 mod files;
 mod mail;
+mod notifications;
 mod objects;
 mod ready;
 mod requests;
@@ -34,6 +35,7 @@ pub(crate) use background::{Job, JobOutcome, LoginLimit};
 pub(crate) use database::{Database, DbAccess, DbOutcome};
 pub(crate) use files::{FilesBackend, FilesOperation, FilesOutcome};
 pub(crate) use mail::{MailFailure, MailKind};
+pub(crate) use notifications::NotificationSettled;
 pub(crate) use objects::LooseObjects;
 #[cfg(test)]
 pub(crate) use objects::REMOVAL_ERRORS;
@@ -72,6 +74,7 @@ struct Kept {
     ready: ready::ReadyMetrics,
     objects: objects::ObjectMetrics,
     search: search::SearchMetrics,
+    notifications: notifications::NotificationMetrics,
 }
 
 impl Metrics {
@@ -115,6 +118,7 @@ impl Metrics {
         let ready = ready::ReadyMetrics::register(&registry)?;
         let objects = objects::ObjectMetrics::register(&registry)?;
         let search = search::SearchMetrics::register(&registry)?;
+        let notifications = notifications::NotificationMetrics::register(&registry)?;
         Ok(Self {
             kept: Some(Arc::new(Kept {
                 registry,
@@ -129,6 +133,7 @@ impl Metrics {
                 ready,
                 objects,
                 search,
+                notifications,
             })),
         })
     }

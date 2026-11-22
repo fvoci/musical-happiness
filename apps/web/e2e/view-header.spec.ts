@@ -1192,6 +1192,7 @@ test.describe('search', () => {
 
     // Another view starts without the search.
     await tool(page, 'search').click();
+    await expect(field).toBeFocused();
     await field.fill('scope');
     await expect(cards(page)).toHaveCount(1);
     if (folded) {

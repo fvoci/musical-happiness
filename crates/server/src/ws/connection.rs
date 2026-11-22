@@ -138,6 +138,13 @@ impl Hub {
         let mut listeners = self.listeners();
         listeners.next_id += 1;
         let id = listeners.next_id;
+        if !listener.user_id.is_empty() {
+            listeners
+                .by_user
+                .entry(listener.user_id.clone())
+                .or_default()
+                .push(id);
+        }
         listeners.by_id.insert(id, listener);
         id
     }

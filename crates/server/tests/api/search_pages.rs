@@ -60,7 +60,7 @@ pub(crate) async fn new_page(
 /// A wiki stored past the API, with a page of it: in any workspace of the store's
 /// organization, by any user, for the invited only or open to who works there. The
 /// identifiers of both.
-async fn stored_wiki(
+pub(crate) async fn stored_wiki(
     store: &Store,
     workspace_id: &str,
     wiki_type: ContainerType,

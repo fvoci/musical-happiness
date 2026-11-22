@@ -549,6 +549,7 @@ pub(crate) async fn settings(s: &mut Session) {
             "timeZone": "Asia/Seoul", "weekStart": "monday", "hourCycle": "h23",
             "theme": "dark", "cardOpen": "side", "density": "compact", "haptics": false,
             "language": "ko",
+            "notifyMentions": false, "notifyAssignments": false, "notifyComments": false,
         }))
         .user(&alice)
         .await;

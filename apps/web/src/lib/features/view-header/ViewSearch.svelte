@@ -9,7 +9,7 @@
 <script lang="ts">
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import SearchIcon from '@lucide/svelte/icons/search';
-  import { tick } from 'svelte';
+  import { flushSync } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -33,25 +33,31 @@
   /** The folded row shows the search field in place of everything else. */
   const bar = $derived(!row && shown);
 
-  let box = $state<HTMLElement | null>(null);
+  let trigger = $state<HTMLElement | null>(null);
   let field = $state<HTMLInputElement | null>(null);
 
-  async function open(): Promise<void> {
-    openIn = viewId;
-    await tick();
+  function open(): void {
+    // Synchronous flush keeps focus inside the click's user activation, with no async gap.
+    flushSync(() => {
+      openIn = viewId;
+    });
     field?.focus();
   }
 
-  async function close(): Promise<void> {
-    search = '';
-    openIn = undefined;
-    await tick();
-    box?.querySelector<HTMLElement>('[data-tool="search"]')?.focus();
+  function close(): void {
+    flushSync(() => {
+      search = '';
+      openIn = undefined;
+    });
+    trigger?.focus();
   }
 
   /** Escape closes the field; in the whole row, so does the focus leaving it empty. */
   function onkeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape' && !isComposing(event)) void close();
+    if (event.key === 'Escape' && !isComposing(event)) {
+      event.preventDefault();
+      close();
+    }
   }
 
   function onblur(): void {
@@ -64,49 +70,44 @@
   const BAR = 'absolute inset-0 z-10 flex items-center gap-1 bg-background px-1.5';
 </script>
 
-<div bind:this={box} class="contents">
-  {#if !(row && shown)}
-    <IconButton
-      label={m['ViewHeader.search-text']()}
-      data-tool="search"
-      inert={bar}
-      onclick={() => void open()}
-    >
-      <SearchIcon />
+{#if !(row && shown)}
+  <IconButton
+    bind:ref={trigger}
+    label={m['ViewHeader.search-text']()}
+    data-tool="search"
+    inert={bar}
+    onclick={open}
+  >
+    <SearchIcon />
+  </IconButton>
+{/if}
+
+<div
+  role="search"
+  data-testid="view-search"
+  class={!shown ? 'hidden' : row ? 'w-48 shrink-0' : BAR}
+>
+  {#if !row}
+    <IconButton label={m.viewheader_search_close()} data-tool="search-close" onclick={close}>
+      <ArrowLeftIcon />
     </IconButton>
   {/if}
-
-  <div
-    role="search"
-    data-testid="view-search"
-    class={!shown ? 'hidden' : row ? 'w-48 shrink-0' : BAR}
-  >
-    {#if !row}
-      <IconButton
-        label={m.viewheader_search_close()}
-        data-tool="search-close"
-        onclick={() => void close()}
-      >
-        <ArrowLeftIcon />
-      </IconButton>
-    {/if}
-    <div class="relative min-w-0 flex-1">
-      <SearchIcon
-        class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
-        aria-hidden="true"
-      />
-      <Input
-        bind:ref={field}
-        bind:value={search}
-        type="search"
-        aria-label={m['ViewHeader.search-text']()}
-        placeholder={m['ViewHeader.search-text']()}
-        autocomplete="off"
-        enterkeyhint="search"
-        class="pl-8 roomy:h-touch roomy:text-base"
-        {onkeydown}
-        {onblur}
-      />
-    </div>
+  <div class="relative min-w-0 flex-1">
+    <SearchIcon
+      class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+      aria-hidden="true"
+    />
+    <Input
+      bind:ref={field}
+      bind:value={search}
+      type="search"
+      aria-label={m['ViewHeader.search-text']()}
+      placeholder={m['ViewHeader.search-text']()}
+      autocomplete="off"
+      enterkeyhint="search"
+      class="pl-8 roomy:h-touch roomy:text-base"
+      {onkeydown}
+      {onblur}
+    />
   </div>
 </div>

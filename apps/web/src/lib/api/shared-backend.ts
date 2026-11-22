@@ -26,7 +26,7 @@ import {
 } from '../state/backend.ts';
 import type { CardPreview } from '../editor/card-preview.ts';
 import type { FileDetails } from '../editor/files.ts';
-import { allPages } from '../state/page-reads.ts';
+import { pagesTogether } from '../state/page-reads.ts';
 import { summaryOfBody } from '../state/body-summary.ts';
 import type { LinkedBlock } from '../state/references.ts';
 import type { Wikis } from '../state/wiki-types.ts';
@@ -87,6 +87,8 @@ export class SharedBackend implements Backend {
     restore: refused,
     keep: refused,
   };
+  /** Nobody is told anything through a public link. */
+  readonly notifications = undefined;
   /** No search through a public link: the board is all there is to read. */
   readonly search: Backend['search'] = {
     enabled: () => Promise.resolve(false),
@@ -221,7 +223,7 @@ export class SharedBackend implements Backend {
 
   async cards(boardId: string): Promise<CardSummary[]> {
     this.#only(boardId);
-    const cards = await allPages((paging) =>
+    const cards = await pagesTogether((paging) =>
       this.#read<Schemas['Card'][]>('/cards', {}, { ...paging }),
     );
     return cards.map(cardOf);
@@ -229,7 +231,7 @@ export class SharedBackend implements Backend {
 
   async cardPreviews(boardId: string): Promise<Map<string, CardPreview>> {
     this.#only(boardId);
-    const cards = await allPages((paging) =>
+    const cards = await pagesTogether((paging) =>
       this.#read<Schemas['Card'][]>('/cards', {}, { ...paging, preview: 'true' }),
     );
     return previewsOf(cards);

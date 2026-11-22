@@ -1295,13 +1295,7 @@ async fn messages_match_the_websocket_contract() {
     contract_check
         .hear(&mut socket, "REORDER_CATEGORY_CONTAINERS")
         .await;
-    ws.broadcast_config_change(&th.app.client_config()).await;
-    contract_check
-        .hear(&mut socket, "UPDATE_CLIENT_CONFIG")
-        .await;
-    ws.broadcast_person_change(ROOT_WORKSPACE_ID, &user1.id)
-        .await;
-    contract_check.hear(&mut socket, "UPDATE_USER").await;
+    hear_the_account_changes(&th, &mut socket, &mut contract_check, &user1.id).await;
     // The board deletion goes to the former members, with the board's identifiers only.
     ws.broadcast_container_delete(ROOT_WORKSPACE_ID, &board.id, of_the_invited(&members))
         .await;
@@ -1324,6 +1318,28 @@ async fn messages_match_the_websocket_contract() {
     );
 
     th.teardown().await;
+}
+
+/// Hears the configuration, notification and person broadcasts on `socket`.
+async fn hear_the_account_changes(
+    th: &TestServer,
+    socket: &mut Socket,
+    contract_check: &mut ContractCheck<'_>,
+    user_id: &str,
+) {
+    let ws = th.app.ws();
+    ws.broadcast_config_change(&th.app.client_config()).await;
+    contract_check.hear(socket, "UPDATE_CLIENT_CONFIG").await;
+    let org_id = th
+        .app
+        .store()
+        .tenant()
+        .org_id()
+        .expect("the test server's organization");
+    ws.notifications_changed(user_id, &[&org_id]).await;
+    contract_check.hear(socket, "UPDATE_NOTIFICATIONS").await;
+    ws.broadcast_person_change(ROOT_WORKSPACE_ID, user_id).await;
+    contract_check.hear(socket, "UPDATE_USER").await;
 }
 
 /// Hears what the server answers the connection itself: its presence on the board

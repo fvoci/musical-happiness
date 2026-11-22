@@ -211,7 +211,11 @@ async fn a_database_from_before_keeps_every_row_and_takes_diaries() {
         .await
         .expect("the database is migrated");
     let mut new = by_column(&dump(&database).await);
-    assert_eq!(new.remove("diary_days"), Some(Vec::new()));
+    // Migrations 55–57 add these tables after the pre-diary snapshot.
+    let added = ["diary_days", "notification_outbox", "notifications"];
+    for table in added {
+        assert_eq!(new.remove(table), Some(Vec::new()), "{table} is empty");
+    }
     assert_eq!(
         new.keys().collect::<Vec<_>>(),
         old.keys().collect::<Vec<_>>(),
@@ -223,7 +227,7 @@ async fn a_database_from_before_keeps_every_row_and_takes_diaries() {
     assert_eq!(broken_keys(&database).await, Vec::<String>::new());
 
     let mut new_keys = keys(&database).await;
-    new_keys.retain(|key| !key.starts_with("diary_days"));
+    new_keys.retain(|key| !added.iter().any(|table| key.starts_with(table)));
     assert_eq!(new_keys, old_keys, "every key there was is as it was");
     let system = store.system();
 

@@ -211,10 +211,10 @@ describe('HTML from elsewhere', () => {
     expect(links).toEqual([{ type: 'link', attrs: { href: 'https://example.com/ok' } }]);
   });
 
-  it('turns a table into its text and keeps the document valid', () => {
+  it('keeps a table as a table, its header row too, and the document valid', () => {
     const doc = load('<table><tr><th>h</th></tr><tr><td>cell <b>bold</b></td></tr></table>');
     expect(validateDoc(doc)).toEqual([]);
-    expect(types(doc)).not.toContain('table');
+    expect(types(doc)).toEqual(expect.arrayContaining(['table', 'tableHeader', 'tableCell']));
     expect(textOf(doc)).toContain('cell bold');
   });
 });

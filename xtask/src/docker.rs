@@ -363,7 +363,8 @@ fn try_installation(trial: &Trial, directory: &Path) -> Result<()> {
                 backup::round_trip(trial, directory)
             }),
         ],
-    );
+    )
+    .into_result();
     if checks.is_err() {
         let logs = trial.compose(&["logs", "--no-color", "--tail", "60", "fvoci"])?;
         say(&format!("\nfvoci's last lines:\n{}", logs.output));

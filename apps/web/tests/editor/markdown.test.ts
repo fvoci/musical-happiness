@@ -136,19 +136,88 @@ describe('what a document cannot say is counted', () => {
     expect(notes('##### deep')).toEqual({ 'heading-level-clamped': 1 });
   });
 
-  it('turns a table into a paragraph per row', () => {
-    const table = '| a | b |\n|---|---|\n| 1 | **2** |';
+  it('makes a table, its first row of headers and every row as wide', () => {
+    const table = '| a | b |\n|---|---|\n| 1 | **2** |\n| 3 |';
+    const cell = (type: string, content: DocNode[] = []): DocNode => ({
+      type,
+      content: [content.length > 0 ? { type: 'paragraph', content } : { type: 'paragraph' }],
+    });
+    const text = (value: string, marks?: DocNode['marks']): DocNode =>
+      marks ? { type: 'text', text: value, marks } : { type: 'text', text: value };
     expect(blocks(table)).toEqual([
-      { type: 'paragraph', content: [{ type: 'text', text: 'a | b' }] },
       {
-        type: 'paragraph',
+        type: 'table',
         content: [
-          { type: 'text', text: '1 | ' },
-          { type: 'text', text: '2', marks: [{ type: 'bold' }] },
+          {
+            type: 'tableRow',
+            content: [cell('tableHeader', [text('a')]), cell('tableHeader', [text('b')])],
+          },
+          {
+            type: 'tableRow',
+            content: [
+              cell('tableCell', [text('1')]),
+              cell('tableCell', [text('2', [{ type: 'bold' }])]),
+            ],
+          },
+          { type: 'tableRow', content: [cell('tableCell', [text('3')]), cell('tableCell')] },
         ],
       },
     ]);
-    expect(notes(table)).toEqual({ table: 1 });
+    expect(notes(table)).toEqual({});
+    expect(valid(blocks(table))).toEqual([]);
+    // How its columns were aligned is not kept.
+    expect(notes('| a | b |\n|:--|--:|\n| 1 | 2 |')).toEqual({ 'table-alignment-dropped': 1 });
+  });
+
+  it('turns a table past 200 rows or 20 columns into a paragraph per row', () => {
+    const wide = `|${' c |'.repeat(21)}\n|${'---|'.repeat(21)}\n|${' 1 |'.repeat(21)}`;
+    const lines = blocks(wide);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toEqual({
+      type: 'paragraph',
+      content: [{ type: 'text', text: Array.from({ length: 21 }, () => 'c').join(' | ') }],
+    });
+    expect(notes(wide)).toEqual({ table: 1 });
+    const long = `| h |\n|---|\n${'| r |\n'.repeat(200)}`;
+    expect(blocks(long).map((one) => one.type)).toEqual(
+      Array.from({ length: 201 }, () => 'paragraph'),
+    );
+    expect(notes(long)).toEqual({ table: 1 });
+    const fits = `| h |\n|---|\n${'| r |\n'.repeat(199)}`;
+    expect(blocks(fits)[0]?.content).toHaveLength(200);
+  });
+
+  it('turns a table in a list entry or a quote into a paragraph per row, as a table stands only in the document', () => {
+    const nested = [
+      '1. step',
+      '',
+      '   | c | d |',
+      '   |---|---|',
+      '   | 3 | 4 |',
+      '',
+      '> | e |',
+      '> |---|',
+      '> | 5 |',
+    ].join('\n');
+    const line = (text: string): DocNode => ({
+      type: 'paragraph',
+      content: [{ type: 'text', text }],
+    });
+    expect(blocks(nested)).toEqual([
+      {
+        type: 'orderedList',
+        attrs: { start: 1 },
+        content: [{ type: 'listItem', content: [line('step'), line('c | d'), line('3 | 4')] }],
+      },
+      { type: 'blockquote', content: [line('e'), line('5')] },
+    ]);
+    expect(notes(nested)).toEqual({ table: 2 });
+    expect(valid(blocks(nested))).toEqual([]);
+    // Out of them again, a table is a table.
+    expect(blocks(`> quoted\n\n| f |\n|---|\n| 6 |`).map((one) => one.type)).toEqual([
+      'blockquote',
+      'table',
+    ]);
   });
 
   it('turns an image by address into a link', () => {
@@ -203,8 +272,9 @@ describe('what a document cannot say is counted', () => {
   it('only uses the documented kinds of note', () => {
     const total: Record<string, number> = {};
     addNotes(total, notes('<b>x</b> ##### h'));
-    addNotes(total, notes('| a |\n|---|\n\n<i>y</i>'));
-    expect(total).toEqual({ 'html-as-text': 4, table: 1 });
+    addNotes(total, notes('| a |\n|:-:|\n\n<i>y</i>'));
+    addNotes(total, notes(`|${' c |'.repeat(21)}\n|${'---|'.repeat(21)}`));
+    expect(total).toEqual({ 'html-as-text': 4, table: 1, 'table-alignment-dropped': 1 });
     for (const kind of Object.keys(total)) expect(NOTE_KINDS).toContain(kind);
   });
 });

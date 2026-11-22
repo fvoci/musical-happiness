@@ -540,6 +540,7 @@ const ORDERS: &[(&str, &str)] = &[
     ("getMyIdentities", "Oldest first"),
     ("getMyMemberships", "By the identifier of the board"),
     ("getMyWorkspaces", "the oldest workspace first"),
+    ("getNotifications", "the newest first"),
     ("getOrgAudit", "the newest first"),
     ("getOrgMembers", "the oldest member first"),
     ("getOrgWorkspaces", "the oldest first"),

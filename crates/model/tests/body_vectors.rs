@@ -14,18 +14,29 @@ fn reason(error: &BodyError) -> &'static str {
         BodyError::TooLarge => "tooLarge",
         BodyError::TooDeep => "tooDeep",
         BodyError::TooManyNodes => "tooManyNodes",
+        BodyError::TableTooLarge { .. } => "tableTooLarge",
         BodyError::InvalidNode { .. } => "invalidNode",
     }
 }
 
 /// The document a case's `build` stands for, as the description of the vectors says.
 fn build(recipe: &Value) -> Value {
+    let size = |name: &str| recipe[name].as_u64().and_then(|n| usize::try_from(n).ok());
+    if let (Some(rows), Some(columns)) = (size("rows"), size("columns")) {
+        assert_eq!(
+            recipe.as_object().map(serde_json::Map::len),
+            Some(2),
+            "{recipe}"
+        );
+        let cell = json!({"type": "tableCell", "content": [{"type": "paragraph"}]});
+        let row = json!({"type": "tableRow", "content": vec![cell; columns]});
+        return json!({"type": "doc", "content": [{"type": "table", "content": vec![row; rows]}]});
+    }
     assert_eq!(
         recipe.as_object().map(serde_json::Map::len),
         Some(1),
         "a build names one size: {recipe}"
     );
-    let size = |name: &str| recipe[name].as_u64().and_then(|n| usize::try_from(n).ok());
     if let Some(depth) = size("depth") {
         let mut node = json!({"type": "paragraph"});
         for _ in 0..depth - 2 {

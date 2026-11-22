@@ -186,6 +186,9 @@ describe('settings', () => {
         'haptics',
         'weekStart',
         'language',
+        'notifyMentions',
+        'notifyAssignments',
+        'notifyComments',
       ].sort(),
     );
     const changed = await backend.patchSettings({ theme: 'dark', timeZone: 'Asia/Seoul' });
@@ -202,6 +205,10 @@ describe('settings', () => {
       backend.patchSettings({ density: 'huge' as unknown as 'auto' }),
     );
     expect(density.errors.map((entry) => entry.pointer)).toEqual(['/density']);
+    const notify = await rejection(
+      backend.patchSettings({ notifyComments: 'off' as unknown as boolean }),
+    );
+    expect(notify.errors.map((entry) => entry.pointer)).toEqual(['/notifyComments']);
   });
 });
 

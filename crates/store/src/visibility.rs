@@ -427,6 +427,9 @@ fn affects_visibility(text: &str) -> bool {
         // Which provider an organization takes sessions of (`sso_required`).
         "oidc_providers",
     ];
+    if notes_for_later(text) {
+        return false;
+    }
     let mut deletes = false;
     let mut cascading = false;
     for word in text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
@@ -439,9 +442,64 @@ fn affects_visibility(text: &str) -> bool {
     deletes && cascading
 }
 
+/// The lists a write keeps of what to do later: whom to tell, what to index again, who
+/// watches what. None of them lets anybody see anything, though the statements that
+/// fill them join the boards and the workspaces to find whose rows they note.
+const NOTED_FOR_LATER: [&str; 3] = ["notification_outbox", "search_outbox", "subscriptions"];
+
+/// Whether `text` only inserts rows into one of [`NOTED_FOR_LATER`].
+fn notes_for_later(text: &str) -> bool {
+    let mut words = text
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .filter(|word| !word.is_empty());
+    matches!(
+        (words.next(), words.next(), words.next()),
+        (Some(insert), Some(into), Some(table))
+            if insert.eq_ignore_ascii_case("insert")
+                && into.eq_ignore_ascii_case("into")
+                && NOTED_FOR_LATER.iter().any(|list| table.eq_ignore_ascii_case(list))
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn what_a_write_notes_for_later_moves_no_revision() {
+        // A handle of one organization: one of no organization moves nothing on what
+        // only reads the tables of access anyway.
+        let visibility = Visibility::default();
+        let of_first = org(1);
+        let old = visibility.version(of_first).await;
+        let writing = visibility.writing(of_first);
+        for text in [
+            "INSERT INTO subscriptions (block_id) SELECT b.id FROM blocks AS b \
+             JOIN containers AS bo ON bo.id = b.container_id",
+            "INSERT INTO notification_outbox (org_id) SELECT w.org_id FROM containers AS bo \
+             JOIN workspaces AS w ON w.id = bo.workspace_id",
+            "INSERT INTO search_outbox (scope) SELECT 'block' FROM blocks AS b \
+             JOIN containers AS bo ON bo.id = b.container_id",
+        ] {
+            writing.statement(text);
+        }
+        writing.settled();
+        drop(writing);
+        assert_eq!(visibility.version(of_first).await, old, "no access changed");
+
+        for text in [
+            "INSERT INTO container_members (container_id) SELECT id FROM containers",
+            "UPDATE subscriptions SET notified_at = 1 WHERE block_id IN \
+             (SELECT id FROM blocks WHERE container_id IN (SELECT id FROM containers))",
+        ] {
+            let before = visibility.version(of_first).await;
+            let writing = visibility.writing(of_first);
+            writing.statement(text);
+            writing.settled();
+            drop(writing);
+            assert_ne!(visibility.version(of_first).await, before, "{text}");
+        }
+    }
 
     fn org(n: u128) -> Tenant {
         Tenant::Org(Uuid::from_u128(n))

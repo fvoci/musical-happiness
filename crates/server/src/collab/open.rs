@@ -269,7 +269,7 @@ impl Collab {
         state_seq: i64,
         updates: Vec<LoggedUpdate>,
     ) -> Result<(), Opening> {
-        // What a repair deleted from the stored state is stored, so that the state and
+        // What a repair changed in the stored state is stored, so that the state and
         // the log after it stay the document's.
         if let Some(repaired) = repaired {
             app.store()

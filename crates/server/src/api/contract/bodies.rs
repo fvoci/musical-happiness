@@ -347,6 +347,12 @@ pub(crate) struct SettingsChange {
     /// characters; the server keeps no list of languages, and keeps a tag as given.
     #[schema(max_length = 64)]
     language: Option<String>,
+    /// Whether the user is told when somebody mentions them (`mention`).
+    notify_mentions: Option<bool>,
+    /// Whether the user is told when somebody gives them a card (`assignment`).
+    notify_assignments: Option<bool>,
+    /// Whether the user is told of the new comments on what they watch (`comment`).
+    notify_comments: Option<bool>,
 }
 
 /// The bytes of a file, as the body of an answer.

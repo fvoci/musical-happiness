@@ -324,6 +324,7 @@ impl Server {
         let uploads = start_upload_clean_up(&self.app);
         let restock = app::start_template_restock(&self.app);
         let search = search::start_upkeep(&self.app);
+        let telling = app::start_notification_upkeep(&self.app);
 
         let service = self
             .router()
@@ -394,6 +395,9 @@ impl Server {
         uploads.cancel().await;
         restock.cancel().await;
         search::stop_upkeep(search).await;
+        if let Some(telling) = telling {
+            telling.cancel().await;
+        }
         served.context("serving HTTP")
     }
 
@@ -647,6 +651,7 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
             clean_up_sessions(&app).await;
             app.end_lapsed_former_providers().await;
             app.erase_due_accounts().await;
+            app.forget_old_notifications().await;
         }
     })
 }

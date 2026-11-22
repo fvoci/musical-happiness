@@ -5,7 +5,8 @@
 //! * `cargo xtask measure` — rewrites the list of what is over the limits of length
 //!   from the code as it is. For the one who merges; no check calls it.
 //! * `cargo xtask test` — every test on SQLite and on PostgreSQL, and the S3 storage
-//!   test. Prepares the containers the tests need.
+//!   test, in units of which none stops the others. Prepares the containers the tests
+//!   need. `--database`, `--part` and `--unit` choose fewer.
 //! * `cargo xtask openapi` — fails if `contracts/openapi.json` is not the document the
 //!   server prints; `--write` rewrites the file.
 //! * `cargo xtask docker` — builds the images of `docker/`, starts them as an
@@ -15,6 +16,7 @@
 mod banned;
 mod check;
 mod containers;
+mod cpus;
 mod docker;
 mod files;
 mod layers;
@@ -23,6 +25,7 @@ mod names;
 mod openapi;
 mod steps;
 mod test;
+mod times;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -48,11 +51,34 @@ enum Command {
         skip_licenses: bool,
     },
     /// Runs every test on SQLite and on PostgreSQL, and the S3 storage test. Starts the
-    /// test containers when they are not running and leaves them running.
+    /// test containers when they are not running and stops those it started.
+    ///
+    /// The tests run in units: `libs` (the unit tests of the libraries and binaries),
+    /// `doc` (the documentation tests) and each integration test target by its name. A
+    /// failed unit stops nothing; the summary names the failed tests and the command
+    /// that runs them again, and `target/xtask-times.jsonl` keeps each unit's time.
     Test {
         /// The databases to run the tests on.
         #[arg(long, value_enum, default_value_t = Databases::All)]
         database: Databases,
+        /// Runs one part of the units of one database, `2/4` the second of four: for
+        /// machines that share the run. The same units and times always make the
+        /// same parts.
+        #[arg(long, conflicts_with = "unit")]
+        part: Option<test::Part>,
+        /// A time file (as `target/xtask-times.jsonl`) whose latest times of units run
+        /// whole and passed weigh the units of `--part`; one that is not there, holds
+        /// no record or a line that is not one fails the run. Without it every unit
+        /// weighs the same.
+        #[arg(long, requires = "part")]
+        times: Option<PathBuf>,
+        /// Runs this unit of one database only; may be given more than once.
+        #[arg(long)]
+        unit: Vec<String>,
+        /// Arguments for the test harness of the units of `--unit` instead of their
+        /// filter: `-- --exact name`.
+        #[arg(last = true, requires = "unit", value_name = "HARNESS_ARGUMENTS")]
+        arguments: Vec<String>,
     },
     /// Rewrites `xtask/exceptions/lengths.txt` from the code as it is.
     ///
@@ -88,6 +114,20 @@ enum Databases {
     Sqlite,
     /// PostgreSQL only.
     Postgres,
+    /// The S3 storage tests only; they need PostgreSQL too.
+    S3,
+}
+
+impl Databases {
+    /// The one database it names, or `None` for all of them.
+    fn one(self) -> Option<test::Database> {
+        match self {
+            Self::All => None,
+            Self::Sqlite => Some(test::Database::Sqlite),
+            Self::Postgres => Some(test::Database::Postgres),
+            Self::S3 => Some(test::Database::S3),
+        }
+    }
 }
 
 /// The workspace root: the directory above this crate's manifest.
@@ -114,7 +154,23 @@ fn main() -> ExitCode {
             };
             check::run(&root, licenses)
         }
-        Command::Test { database } => test::run(&root, database),
+        Command::Test {
+            database,
+            part,
+            times,
+            unit,
+            arguments,
+        } => {
+            let choice = match (part, unit.is_empty()) {
+                (Some(part), _) => test::Choice::Part { part, times },
+                (None, false) => test::Choice::Units {
+                    names: unit,
+                    arguments,
+                },
+                (None, true) => test::Choice::Every,
+            };
+            test::run(&root, database.one(), &choice)
+        }
         Command::Measure => lengths::rewrite(&root),
         Command::Openapi { write } => {
             let mode = if write {

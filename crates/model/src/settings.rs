@@ -320,6 +320,10 @@ impl Serialize for TimeZone {
 /// is at its default.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each switch is a separate setting of the wire format, on or off"
+)]
 pub struct UserSettings {
     /// The time zone times are shown in.
     #[schema(value_type = String)]
@@ -342,6 +346,25 @@ pub struct UserSettings {
     /// it was given, case and all: compare tags without regard to case.
     #[schema(value_type = String)]
     pub language: Language,
+    /// Whether the user is told when somebody mentions them (`mention`).
+    pub notify_mentions: bool,
+    /// Whether the user is told when somebody gives them a card (`assignment`).
+    pub notify_assignments: bool,
+    /// Whether the user is told of the new comments on what they watch (`comment`).
+    pub notify_comments: bool,
+}
+
+impl UserSettings {
+    /// Whether the user is told of what is of `kind`. What is off is not made at
+    /// all: switched on again, nothing of the time between comes.
+    #[must_use]
+    pub const fn notifies(&self, kind: crate::NotificationKind) -> bool {
+        match kind {
+            crate::NotificationKind::Mention => self.notify_mentions,
+            crate::NotificationKind::Assignment => self.notify_assignments,
+            crate::NotificationKind::Comment => self.notify_comments,
+        }
+    }
 }
 
 impl Default for UserSettings {
@@ -355,6 +378,9 @@ impl Default for UserSettings {
             density: Density::default(),
             haptics: true,
             language: Language::default(),
+            notify_mentions: true,
+            notify_assignments: true,
+            notify_comments: true,
         }
     }
 }
@@ -378,11 +404,17 @@ pub enum SettingName {
     Haptics,
     /// `language`
     Language,
+    /// `notifyMentions`
+    NotifyMentions,
+    /// `notifyAssignments`
+    NotifyAssignments,
+    /// `notifyComments`
+    NotifyComments,
 }
 
 impl SettingName {
     /// Every setting there is.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 11] = [
         Self::TimeZone,
         Self::WeekStart,
         Self::HourCycle,
@@ -391,6 +423,9 @@ impl SettingName {
         Self::Density,
         Self::Haptics,
         Self::Language,
+        Self::NotifyMentions,
+        Self::NotifyAssignments,
+        Self::NotifyComments,
     ];
 
     /// The name as it is written.
@@ -404,7 +439,18 @@ impl SettingName {
             Self::Density => "density",
             Self::Haptics => "haptics",
             Self::Language => "language",
+            Self::NotifyMentions => "notifyMentions",
+            Self::NotifyAssignments => "notifyAssignments",
+            Self::NotifyComments => "notifyComments",
         }
+    }
+
+    /// Whether the setting is on or off, `true` or `false`.
+    const fn is_flag(self) -> bool {
+        matches!(
+            self,
+            Self::Haptics | Self::NotifyMentions | Self::NotifyAssignments | Self::NotifyComments
+        )
     }
 
     fn from_name(name: &str) -> Option<Self> {
@@ -424,7 +470,10 @@ impl SettingName {
             Self::Theme => words(Theme::WORDS),
             Self::CardOpen => words(CardOpen::WORDS),
             Self::Density => words(Density::WORDS),
-            Self::Haptics => "true or false".to_owned(),
+            Self::Haptics
+            | Self::NotifyMentions
+            | Self::NotifyAssignments
+            | Self::NotifyComments => "true or false".to_owned(),
             Self::Language => "\"auto\" or a language tag such as \"ko\" or \"en-US\"".to_owned(),
         }
     }
@@ -455,13 +504,19 @@ impl UserSettings {
             SettingName::Theme => self.theme = value.parse()?,
             SettingName::CardOpen => self.card_open = value.parse()?,
             SettingName::Density => self.density = value.parse()?,
-            SettingName::Haptics => {
-                self.haptics = value.parse().map_err(|_| ParseSettingError)?;
-            }
+            SettingName::Haptics => self.haptics = parse_flag(value)?,
+            SettingName::NotifyMentions => self.notify_mentions = parse_flag(value)?,
+            SettingName::NotifyAssignments => self.notify_assignments = parse_flag(value)?,
+            SettingName::NotifyComments => self.notify_comments = parse_flag(value)?,
             SettingName::Language => self.language = value.parse()?,
         }
         Ok(())
     }
+}
+
+/// A setting that is on or off, as it is stored.
+fn parse_flag(value: &str) -> Result<bool, ParseSettingError> {
+    value.parse().map_err(|_| ParseSettingError)
 }
 
 /// A change to a user's settings: some set to a value, some put back to their default.
@@ -530,8 +585,8 @@ impl SettingChange {
         };
         let stored = match (setting, value) {
             (_, serde_json::Value::Null) => return Ok(Self::Reset(setting)),
-            (SettingName::Haptics, serde_json::Value::Bool(flag)) => flag.to_string(),
-            (SettingName::Haptics, _) => return Err(invalid()),
+            (setting, serde_json::Value::Bool(flag)) if setting.is_flag() => flag.to_string(),
+            (setting, _) if setting.is_flag() => return Err(invalid()),
             (_, serde_json::Value::String(text)) => text.clone(),
             _ => return Err(invalid()),
         };
@@ -638,314 +693,4 @@ pub fn check_client_state_value(value: &str) -> Result<(), ClientStateError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    fn members(value: serde_json::Value) -> JsonMap {
-        match value {
-            serde_json::Value::Object(members) => members,
-            other => panic!("the test's body must be an object, not {other}"),
-        }
-    }
-
-    fn patched(value: serde_json::Value) -> UserSettings {
-        let patch = UserSettingsPatch::from_members(&members(value)).expect("a valid change");
-        let (set, _reset) = patch.changes();
-        UserSettings::from_stored(set)
-    }
-
-    #[test]
-    fn the_defaults_are_what_is_answered_when_nothing_is_stored() {
-        assert_eq!(
-            serde_json::to_value(UserSettings::from_stored([])).expect("settings are JSON"),
-            json!({
-                "timeZone": "auto", "weekStart": "auto", "hourCycle": "auto",
-                "theme": "auto", "cardOpen": "center", "density": "auto", "haptics": true,
-                "language": "auto",
-            })
-        );
-    }
-
-    #[test]
-    fn every_value_of_every_setting_is_stored_and_read_back() {
-        let cases = [
-            ("weekStart", WeekStart::WORDS),
-            ("hourCycle", HourCycle::WORDS),
-            ("theme", Theme::WORDS),
-            ("cardOpen", CardOpen::WORDS),
-            ("density", Density::WORDS),
-            (
-                "timeZone",
-                &[
-                    "auto",
-                    "Asia/Seoul",
-                    "UTC",
-                    "America/Argentina/Buenos_Aires",
-                ][..],
-            ),
-        ];
-        for (name, words) in cases {
-            for word in words {
-                let settings = patched(json!({name: word}));
-                let answered = serde_json::to_value(&settings).expect("settings are JSON");
-                assert_eq!(answered[name], json!(word), "{name} = {word}");
-            }
-        }
-        for flag in [true, false] {
-            assert_eq!(patched(json!({"haptics": flag})).haptics, flag, "haptics");
-        }
-        for tag in ["auto", "ko", "en-US", "zh-Hant-TW"] {
-            assert_eq!(
-                patched(json!({"language": tag})).language.as_str(),
-                tag,
-                "language"
-            );
-        }
-    }
-
-    #[test]
-    fn a_name_the_database_keeps_for_compatibility_is_kept_as_given() {
-        let settings = patched(json!({"timeZone": "Asia/Calcutta"}));
-        assert_eq!(settings.time_zone.as_str(), "Asia/Calcutta");
-    }
-
-    #[test]
-    fn a_time_zone_is_a_name_of_the_database_as_it_spells_it() {
-        for name in [
-            "Asia/Seoul",
-            "UTC",
-            "Etc/UTC",
-            "Etc/GMT+5",
-            "Etc/GMT-14",
-            "America/Argentina/Buenos_Aires",
-            "America/Ciudad_Juarez",
-            "Europe/Kyiv",
-            "Asia/Calcutta",
-            "Asia/Saigon",
-            "US/Pacific",
-            "GMT0",
-            "EST5EDT",
-        ] {
-            let zone: TimeZone = name.parse().expect("a name of the database");
-            assert_eq!(zone.as_str(), name, "kept as given");
-        }
-        for refused in [
-            "",
-            "asia/seoul",
-            "ASIA/SEOUL",
-            "utc",
-            "Factory",
-            "Etc/Unknown",
-            "Etc/GMT+13",
-            "UTC+09",
-            "+09:00",
-            "Z",
-            " Asia/Seoul",
-            "Asia/Seoul ",
-            "/Asia/Seoul",
-            "Asia//Seoul",
-            "../etc/passwd",
-            "posix/UTC",
-            "right/UTC",
-            "localtime",
-            "posixrules",
-            "zone.tab",
-            "Auto",
-        ] {
-            assert!(
-                refused.parse::<TimeZone>().is_err(),
-                "{refused:?} is no name"
-            );
-        }
-    }
-
-    #[test]
-    fn what_is_no_value_of_a_setting_is_refused_with_its_name() {
-        let cases = [
-            json!({"timeZone": "Mars/Olympus_Mons"}),
-            json!({"timeZone": "asia/seoul"}),
-            json!({"timeZone": "Auto"}),
-            json!({"timeZone": ""}),
-            json!({"timeZone": 9}),
-            json!({"weekStart": "tuesday"}),
-            json!({"weekStart": "Monday"}),
-            json!({"hourCycle": "h24"}),
-            json!({"hourCycle": 12}),
-            json!({"theme": "sepia"}),
-            json!({"theme": true}),
-            json!({"cardOpen": "auto"}),
-            json!({"cardOpen": ["side"]}),
-            json!({"density": "cozy"}),
-            json!({"haptics": "true"}),
-            json!({"haptics": 1}),
-            json!({"haptics": "auto"}),
-        ];
-        for case in cases {
-            let name = case.as_object().expect("an object").keys().next().cloned();
-            let refused = UserSettingsPatch::from_members(&members(case.clone()))
-                .expect_err("no value of the setting");
-            let refused: Vec<_> = refused.into_iter().collect();
-            assert_eq!(refused.len(), 1, "{case}: {refused:?}");
-            assert_eq!(refused[0].reason, RefusalReason::Invalid, "{case}");
-            assert_eq!(
-                Some(refused[0].pointer.trim_start_matches('/')),
-                name.as_deref(),
-                "{case}"
-            );
-        }
-        let message = UserSettingsPatch::from_members(&members(json!({"cardOpen": "auto"})))
-            .expect_err("no value")
-            .to_string();
-        assert_eq!(
-            message, "cardOpen must be one of \"center\", \"side\", \"full\"",
-            "the refusal says what the setting can be"
-        );
-    }
-
-    #[test]
-    fn a_name_that_is_no_setting_is_refused() {
-        for name in ["timezone", "locale", "", "TimeZone"] {
-            let refused = UserSettingsPatch::from_members(&members(json!({name: "auto"})))
-                .expect_err("no such setting");
-            let wanted = SettingsError::UnknownSetting {
-                name: name.to_owned(),
-            };
-            assert_eq!(wanted.field(), name);
-            let refused: Vec<_> = refused.into_iter().collect();
-            assert_eq!(refused.len(), 1, "{refused:?}");
-            assert_eq!(refused[0].pointer, format!("/{name}"));
-            assert_eq!(refused[0].reason, RefusalReason::Unknown);
-            assert_eq!(refused[0].detail, wanted.to_string());
-        }
-    }
-
-    #[test]
-    fn every_member_that_is_wrong_is_refused_and_nothing_is_changed() {
-        let refused = UserSettingsPatch::from_members(&members(json!({
-            "theme": "sepia", "locale": "ko", "density": "compact", "haptics": 1,
-        })))
-        .expect_err("three members are wrong");
-        let refused: Vec<(String, RefusalReason)> = refused
-            .into_iter()
-            .map(|refusal| (refusal.pointer, refusal.reason))
-            .collect();
-        assert_eq!(
-            refused,
-            [
-                ("/haptics".to_owned(), RefusalReason::Invalid),
-                ("/locale".to_owned(), RefusalReason::Unknown),
-                ("/theme".to_owned(), RefusalReason::Invalid),
-            ],
-            "in the order of the names; the one that is fine is not among them"
-        );
-    }
-
-    #[test]
-    fn null_puts_a_setting_back_and_what_is_not_named_is_not_touched() {
-        let patch = UserSettingsPatch::from_members(&members(
-            json!({"theme": null, "density": "compact", "haptics": null}),
-        ))
-        .expect("a valid change");
-        let (set, reset) = patch.changes();
-        assert_eq!(set, [("density", "compact")]);
-        assert_eq!(reset, ["theme", "haptics"]);
-        assert!(!patch.is_empty(), "it changes something");
-        assert!(
-            UserSettingsPatch::from_members(&JsonMap::new())
-                .expect("nothing is a valid change")
-                .is_empty(),
-            "an empty object changes nothing"
-        );
-    }
-
-    #[test]
-    fn stored_values_this_build_cannot_read_leave_the_defaults() {
-        let settings = UserSettings::from_stored([
-            ("theme", "sepia"),
-            ("locale", "ko"),
-            ("haptics", "maybe"),
-            ("timeZone", "Mars/Olympus_Mons"),
-            ("density", "compact"),
-        ]);
-        assert_eq!(
-            settings,
-            UserSettings {
-                density: Density::Compact,
-                ..UserSettings::default()
-            }
-        );
-    }
-
-    #[test]
-    fn names_and_values_of_client_state_are_bounded() {
-        for name in ["a", "welcomePageViewed", "tour.step-1_x", &"n".repeat(64)] {
-            assert_eq!(check_client_state_name(name), Ok(()), "{name}");
-        }
-        for name in ["", &"n".repeat(65), "with space", "키", "a/b", "a\n"] {
-            assert_eq!(
-                check_client_state_name(name),
-                Err(ClientStateError::InvalidName),
-                "{name:?}"
-            );
-        }
-        assert_eq!(check_client_state_value(&"v".repeat(4096)), Ok(()));
-        assert_eq!(
-            check_client_state_value(&"v".repeat(4097)),
-            Err(ClientStateError::ValueTooLong)
-        );
-    }
-
-    #[test]
-    fn a_language_is_auto_or_has_the_shape_of_a_tag() {
-        for tag in [
-            "auto",
-            "ko",
-            "en-US",
-            "en-us",
-            "zh-Hant-TW",
-            "es-419",
-            "sr-Latn",
-            "de-CH-1901",
-            "sl-rozaj-biske",
-            "en-US-u-ca-gregory-hc-h23",
-            "en-x-private",
-            "haw",
-        ] {
-            let read: Language = tag.parse().expect(tag);
-            assert_eq!(read.as_str(), tag, "kept as given");
-        }
-        for tag in [
-            "",
-            "k",
-            "-",
-            "ko-",
-            "-ko",
-            "ko--KR",
-            "ko_KR",
-            "한국어",
-            "ko KR",
-            "toolongtag",
-            "en-toolongsub",
-            "1a",
-            &format!("en-u{}", "-abcdefgh".repeat(7)),
-            "Auto",
-            "AUTO",
-            "abcd",
-            "en-a",
-            "en-x",
-            "en-1",
-            "en-US-US",
-            "de-1901-1901",
-            "en-a-bc-a-de",
-            "en-x-ninechars",
-            "zh-yue-HK",
-            "sgn-BE-FR",
-            "i-klingon",
-            "x-private",
-        ] {
-            assert!(tag.parse::<Language>().is_err(), "{tag:?} is no tag");
-        }
-    }
-}
+mod tests;
