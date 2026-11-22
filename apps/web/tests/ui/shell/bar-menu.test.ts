@@ -25,8 +25,9 @@ describe('the bar menu', () => {
     expect(menu.offers).toEqual([first, second]);
     takeFirst();
     expect(menu.offers).toEqual([second]);
+    // Taken back twice, gone once.
     takeFirst();
-    expect(menu.offers).toEqual([second], 'taken back twice, gone once');
+    expect(menu.offers).toEqual([second]);
     takeSecond();
     expect(menu.offers).toEqual([]);
   });

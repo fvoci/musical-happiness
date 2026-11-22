@@ -39,7 +39,7 @@
   $effect(() => inbox?.start());
 
   /** The bell, which opens its list as a sheet from the bar's menu in a narrow pane. */
-  let bell = $state<ReturnType<typeof NotificationBell>>();
+  let bell = $state<{ openSheet: () => void }>();
   const bar = hasBarMenu() ? barMenu() : undefined;
 
   // Lent to the bar's menu while the bell is there: what it reads of it follows the count.
