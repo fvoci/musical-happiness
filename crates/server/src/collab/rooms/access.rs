@@ -403,6 +403,9 @@ impl Collab {
         // is put out.
         users.retain(|who| !matches!(answers.get(who), Some(Ok(_))));
         if !users.is_empty() {
+            #[cfg(feature = "test-util")]
+            self.paused(super::pauses::Pause::BeforeAskingOnceMore)
+                .await;
             tokio::time::sleep(ASKED_ONCE_MORE_AFTER).await;
             answers.extend(self.answers(room, users).await);
         }

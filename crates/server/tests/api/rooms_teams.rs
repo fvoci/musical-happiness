@@ -4,12 +4,11 @@
 //! of the board follows the change too.
 
 use serde_json::{Value, json};
-use tokio::time::Instant;
 
 use crate::board_broadcasts::WorkspaceSocket;
 use crate::common::{TEST_WORKSPACE_ID, TestServer};
 use crate::rooms::{Peer, Table, give, paragraphs, table};
-use crate::rooms_changes::{seldom, soon, workspace_admin};
+use crate::rooms_changes::{seldom, workspace_admin};
 
 /// A team of the test workspace with the second client's user in it.
 async fn team_of_the_second(th: &TestServer, name: &str) -> String {
@@ -75,8 +74,8 @@ async fn in_a_room_through_a_team(th: &TestServer, role: &str) -> (Table, String
     (table, team_id, member)
 }
 
-async fn left_at_once(member: &mut Peer, changed_at: Instant) {
-    let left = soon(member, "DOC_LEFT", changed_at).await;
+async fn left_at_once(member: &mut Peer) {
+    let left = member.text("DOC_LEFT").await;
     assert_eq!(
         left,
         json!({"action": "DOC_LEFT", "doc": member.doc, "reason": "not_found"}),
@@ -89,12 +88,11 @@ async fn leaving_a_team_puts_its_reader_out_of_the_room_at_once() {
     let th = seldom().start().await.init_basic().await;
     let (_table, team_id, mut member) = in_a_room_through_a_team(&th, "editor").await;
     let user = th.client2.me().await.id;
-    let changed_at = Instant::now();
     th.client
         .delete(&team_path(&team_id, &format!("/members/{user}")))
         .await
         .check_no_content();
-    left_at_once(&mut member, changed_at).await;
+    left_at_once(&mut member).await;
     th.teardown().await;
 }
 
@@ -104,24 +102,19 @@ async fn a_team_role_lowered_then_taken_off_the_board_reaches_the_room_at_once()
     let (table, team_id, mut member) = in_a_room_through_a_team(&th, "editor").await;
     member.write_acked("written through the team").await;
 
-    let changed_at = Instant::now();
     assign(&th, &table, &team_id, "viewer").await;
-    assert_eq!(
-        soon(&mut member, "DOC_MODE", changed_at).await["mode"],
-        json!("read")
-    );
+    assert_eq!(member.text("DOC_MODE").await["mode"], json!("read"));
     member.write("refused").await;
     assert_eq!(
         member.text("DOC_NACK").await["reason"],
         json!("document_read_only")
     );
 
-    let changed_at = Instant::now();
     th.client
         .delete(&assignment(&table, &team_id))
         .await
         .check_no_content();
-    left_at_once(&mut member, changed_at).await;
+    left_at_once(&mut member).await;
     th.teardown().await;
 }
 
@@ -129,12 +122,11 @@ async fn a_team_role_lowered_then_taken_off_the_board_reaches_the_room_at_once()
 async fn deleting_a_team_puts_its_readers_out_of_the_room_at_once() {
     let th = seldom().start().await.init_basic().await;
     let (_table, team_id, mut member) = in_a_room_through_a_team(&th, "commenter").await;
-    let changed_at = Instant::now();
     th.client
         .delete(&team_path(&team_id, ""))
         .await
         .check_no_content();
-    left_at_once(&mut member, changed_at).await;
+    left_at_once(&mut member).await;
     th.teardown().await;
 }
 
@@ -159,15 +151,11 @@ async fn joining_a_team_that_edits_lets_a_reader_write_at_once() {
     let joined = member.joined(TEST_WORKSPACE_ID, &table.card_id).await;
     assert_eq!(joined["mode"], json!("read"), "{joined}");
 
-    let changed_at = Instant::now();
     th.client
         .put(&team_path(team_id, &format!("/members/{user}")), &json!({}))
         .await
         .check_no_content();
-    assert_eq!(
-        soon(&mut member, "DOC_MODE", changed_at).await["mode"],
-        json!("write")
-    );
+    assert_eq!(member.text("DOC_MODE").await["mode"], json!("write"));
     member.write_acked("written once in the team").await;
     th.teardown().await;
 }
@@ -188,13 +176,12 @@ async fn deleting_a_team_reaches_every_board_it_was_on_and_leaves_the_admin_writ
         rooms.push((owner, member));
     }
 
-    let changed_at = Instant::now();
     th.client
         .delete(&team_path(&team_id, ""))
         .await
         .check_no_content();
     for (owner, member) in &mut rooms {
-        left_at_once(member, changed_at).await;
+        left_at_once(member).await;
         owner.write_acked("the owner of the board writes on").await;
         owner.settle().await;
         assert!(

@@ -2,27 +2,16 @@
 
 use std::time::Duration;
 
-use tokio::time::Instant;
-
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::common::{Setup, TEST_WORKSPACE_ID};
-use crate::rooms::{Peer, give, paragraphs, two_in_a_room};
+use crate::rooms::{PATIENCE, Peer, give, paragraphs, two_in_a_room};
 
-/// The periodic check cannot account for any notice received by these tests.
+/// The periodic check cannot account for any notice received by these tests: it asks
+/// once an hour, and each of its reads, and of an immediate check's, may take as long.
+/// A notice that comes at all came without it, however slow the machine.
 pub(crate) fn seldom() -> Setup {
     Setup::native().configure(|config| config.collab.collab_recheck_seconds = 3600)
-}
-
-pub(crate) async fn soon(peer: &mut Peer, action: &str, changed_at: Instant) -> Value {
-    let message = tokio::time::timeout_at(changed_at + Duration::from_secs(1), peer.text(action))
-        .await
-        .expect("the change reaches the room within one second");
-    assert!(
-        changed_at.elapsed() < Duration::from_secs(1),
-        "mutation to notice exceeded one second"
-    );
-    message
 }
 
 #[tokio::test]
@@ -43,13 +32,9 @@ async fn a_role_change_and_removal_reach_every_connection_immediately() {
     let mut another_card = Peer::connect(&th.client2, 104).await;
     another_card.joined(TEST_WORKSPACE_ID, &card.id).await;
 
-    let changed_at = Instant::now();
     give(&th, &table.board_id, &user, "viewer").await;
     for peer in [&mut member, &mut other_tab, &mut another_card] {
-        assert_eq!(
-            soon(peer, "DOC_MODE", changed_at).await["mode"],
-            json!("read")
-        );
+        assert_eq!(peer.text("DOC_MODE").await["mode"], json!("read"));
         peer.write("refused").await;
         assert_eq!(
             peer.text("DOC_NACK").await["reason"],
@@ -57,7 +42,6 @@ async fn a_role_change_and_removal_reach_every_connection_immediately() {
         );
     }
     owner.write_acked("still writing").await;
-    let changed_at = Instant::now();
     th.client
         .delete(&format!(
             "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user}",
@@ -66,10 +50,7 @@ async fn a_role_change_and_removal_reach_every_connection_immediately() {
         .await
         .check_no_content();
     for peer in [&mut member, &mut other_tab, &mut another_card] {
-        assert_eq!(
-            soon(peer, "DOC_LEFT", changed_at).await["reason"],
-            json!("not_found")
-        );
+        assert_eq!(peer.text("DOC_LEFT").await["reason"], json!("not_found"));
     }
     assert_eq!(
         th.app.collab().room_members(&th.app, &table.card_id).await,
@@ -84,15 +65,11 @@ async fn removal_from_the_workspace_reaches_the_room_immediately() {
     let (_table, _owner, mut member) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let user = th.client2.me().await.id;
     workspace_admin(&th).await;
-    let changed_at = Instant::now();
     th.client
         .delete(&format!("/w/{TEST_WORKSPACE_ID}/members/{user}"))
         .await
         .check_no_content();
-    assert_eq!(
-        soon(&mut member, "DOC_LEFT", changed_at).await["reason"],
-        json!("not_found")
-    );
+    assert_eq!(member.text("DOC_LEFT").await["reason"], json!("not_found"));
     th.teardown().await;
 }
 
@@ -140,7 +117,6 @@ async fn becoming_a_guest_closes_an_uninvited_template_room_immediately() {
     workspace_admin(&th).await;
     let (_board, mut reader) = template_reader(&th).await;
     let user = th.client2.me().await.id;
-    let changed_at = Instant::now();
     th.client
         .put(
             &format!("/w/{TEST_WORKSPACE_ID}/members/{user}"),
@@ -148,10 +124,7 @@ async fn becoming_a_guest_closes_an_uninvited_template_room_immediately() {
         )
         .await
         .check_ok();
-    assert_eq!(
-        soon(&mut reader, "DOC_LEFT", changed_at).await["reason"],
-        json!("not_found")
-    );
+    assert_eq!(reader.text("DOC_LEFT").await["reason"], json!("not_found"));
     th.teardown().await;
 }
 
@@ -159,7 +132,6 @@ async fn becoming_a_guest_closes_an_uninvited_template_room_immediately() {
 async fn a_template_closed_to_the_workspace_puts_out_its_uninvited_readers() {
     let th = seldom().start().await.init_basic().await;
     let (board, mut reader) = template_reader(&th).await;
-    let changed_at = Instant::now();
     th.client
         .patch(
             &format!("/w/{TEST_WORKSPACE_ID}/containers/{board}"),
@@ -167,10 +139,7 @@ async fn a_template_closed_to_the_workspace_puts_out_its_uninvited_readers() {
         )
         .await
         .check_ok();
-    assert_eq!(
-        soon(&mut reader, "DOC_LEFT", changed_at).await["reason"],
-        json!("not_found")
-    );
+    assert_eq!(reader.text("DOC_LEFT").await["reason"], json!("not_found"));
     th.teardown().await;
 }
 
@@ -178,14 +147,10 @@ async fn a_template_closed_to_the_workspace_puts_out_its_uninvited_readers() {
 async fn a_batch_closing_a_template_puts_out_its_uninvited_readers() {
     let th = seldom().start().await.init_basic().await;
     let (board, mut reader) = template_reader(&th).await;
-    let changed_at = Instant::now();
     th.client.patch(&format!("/w/{TEST_WORKSPACE_ID}/boards-and-blocks"), &json!({
         "containerIds": [board], "containerPatches": [{"type": "P"}], "blockIds": [], "blockPatches": [],
     })).await.check_ok();
-    assert_eq!(
-        soon(&mut reader, "DOC_LEFT", changed_at).await["reason"],
-        json!("not_found")
-    );
+    assert_eq!(reader.text("DOC_LEFT").await["reason"], json!("not_found"));
     th.teardown().await;
 }
 
@@ -200,7 +165,6 @@ async fn a_batch_closing_several_templates_puts_out_the_readers_of_each() {
         .id;
     let (first, mut first_reader) = template_reader(&th).await;
     let (second, mut second_reader) = template_reader(&th).await;
-    let changed_at = Instant::now();
     th.client
         .patch(
             &format!("/w/{TEST_WORKSPACE_ID}/boards-and-blocks"),
@@ -213,10 +177,7 @@ async fn a_batch_closing_several_templates_puts_out_the_readers_of_each() {
         .await
         .check_ok();
     for reader in [&mut first_reader, &mut second_reader] {
-        assert_eq!(
-            soon(reader, "DOC_LEFT", changed_at).await["reason"],
-            json!("not_found")
-        );
+        assert_eq!(reader.text("DOC_LEFT").await["reason"], json!("not_found"));
     }
     th.teardown().await;
 }
@@ -232,13 +193,9 @@ async fn trashing_a_board_or_workspace_empties_its_rooms_immediately() {
         } else {
             format!("/w/{TEST_WORKSPACE_ID}/containers/{}", table.board_id)
         };
-        let changed_at = Instant::now();
         th.client.delete(&path).await.check_no_content();
         for peer in [&mut owner, &mut member] {
-            assert_eq!(
-                soon(peer, "DOC_LEFT", changed_at).await["reason"],
-                json!("not_found")
-            );
+            assert_eq!(peer.text("DOC_LEFT").await["reason"], json!("not_found"));
         }
         crate::rooms::no_rooms(&th).await;
         th.teardown().await;
@@ -273,7 +230,6 @@ async fn ending_an_organization_administrators_participation_puts_them_out() {
         }
         let mut peer = Peer::connect(&th.client2, 301).await;
         peer.joined(TEST_WORKSPACE_ID, &table.card_id).await;
-        let changed_at = Instant::now();
         if ending == "instance" {
             th.client
                 .put(&format!("/users/{user}/admin"), &json!({"isAdmin": false}))
@@ -293,36 +249,33 @@ async fn ending_an_organization_administrators_participation_puts_them_out() {
                 .await
                 .check_ok();
         }
-        assert_eq!(
-            soon(&mut peer, "DOC_LEFT", changed_at).await["reason"],
-            json!("not_found")
-        );
+        assert_eq!(peer.text("DOC_LEFT").await["reason"], json!("not_found"));
         th.teardown().await;
     }
 }
 
-/// A periodic answer read before a change cannot restore the old write permission.
+/// A periodic answer read before a change cannot restore the old write permission:
+/// once it has gone on, while the next asking is held with its own answers, the
+/// member still reads only.
 #[tokio::test]
 async fn an_old_periodic_answer_does_not_undo_an_immediate_demotion() {
-    let th = Setup::native()
-        .configure(|config| config.collab.collab_recheck_seconds = 1)
-        .start()
-        .await
-        .init_basic()
-        .await;
+    let th = seldom().start().await.init_basic().await;
     let (table, _owner, mut member) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let user = th.client2.me().await.id;
-    let (waiting, go) = th.app.collab().pause_next_recheck();
-    tokio::time::timeout(Duration::from_secs(3), waiting.notified())
+    let collab = th.app.collab();
+    let (waiting, go) = collab.pause_next_recheck();
+    collab.ask_again_now();
+    tokio::time::timeout(PATIENCE, waiting.notified())
         .await
         .expect("the periodic read pauses");
-    let changed_at = Instant::now();
     give(&th, &table.board_id, &user, "viewer").await;
-    assert_eq!(
-        soon(&mut member, "DOC_MODE", changed_at).await["mode"],
-        json!("read")
-    );
+    assert_eq!(member.text("DOC_MODE").await["mode"], json!("read"));
+    let (next, after) = collab.pause_next_recheck();
     go.notify_one();
+    collab.ask_again_now();
+    tokio::time::timeout(PATIENCE, next.notified())
+        .await
+        .expect("the next periodic read pauses");
     assert_eq!(
         member.incoming(crate::rooms::QUIET).await,
         crate::rooms::Incoming::Nothing
@@ -332,6 +285,7 @@ async fn an_old_periodic_answer_does_not_undo_an_immediate_demotion() {
         member.text("DOC_NACK").await["reason"],
         json!("document_read_only")
     );
+    after.notify_one();
     th.teardown().await;
 }
 
@@ -399,14 +353,10 @@ async fn a_board_passed_to_the_workspace_admin_lets_them_write_at_once() {
     let joined = reader.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     assert_eq!(joined["mode"], json!("read"), "{joined}");
     workspace_admin(&th).await;
-    let changed_at = Instant::now();
     th.client
         .delete(&format!("/w/{TEST_WORKSPACE_ID}/members/{other}"))
         .await
         .check_no_content();
-    assert_eq!(
-        soon(&mut reader, "DOC_MODE", changed_at).await["mode"],
-        json!("write")
-    );
+    assert_eq!(reader.text("DOC_MODE").await["mode"], json!("write"));
     th.teardown().await;
 }
