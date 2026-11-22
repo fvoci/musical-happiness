@@ -60,7 +60,10 @@
   const uploads = $derived(shown.filter((one) => one.kind === 'upload'));
   const grouped = $derived(uploads.length > (wide.current ? GROUP_OVER : 1));
   const running = $derived(uploads.filter(underWay));
-  const failed = $derived(uploads.filter((one) => one.failure !== undefined));
+  /** Not uploaded: one kept is in already (`kept`), and is not counted with them. */
+  const failed = $derived(
+    uploads.filter((one) => one.failure !== undefined && one.failure !== 'kept'),
+  );
 
   /** The transfer, or the group of uploads, the reader is asked about giving up. */
   let asking = $state<number | 'group'>();
@@ -81,12 +84,13 @@
   function saidBefore(_shown: string | undefined): number {
     return untrack(() => workspace.transfers.said.at(-1)?.key ?? 0);
   }
-  const since = $derived(saidBefore(workspace.info?.id));
+  // Of the id: the workspace's info is replaced with the same id too, which shows no other.
+  const shownId = $derived(workspace.info?.id);
+  const since = $derived(saidBefore(shownId));
   /** The starts, ends and failures of the workspace shown since, for a screen reader. */
   const sayings = $derived.by(() => {
     // Read first: with nothing said yet, the filter would not ask.
     const after = since;
-    const shownId = workspace.info?.id;
     return workspace.transfers.said.filter(
       ({ key, transfer }) =>
         key > after && (transfer.workspaceId === undefined || transfer.workspaceId === shownId),
@@ -232,6 +236,9 @@
 <svelte:document
   onfocusin={(event: FocusEvent) => {
     writing = inField(event.target) && !stack?.contains(event.target as Node);
+    // Outside the stack (a focus inside it does not come here, `ownFocus`): one that went
+    // with the last of it took no focusout along.
+    reached = false;
   }}
   onfocusout={() => {
     writing = false;

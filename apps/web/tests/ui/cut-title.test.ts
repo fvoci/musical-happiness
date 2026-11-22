@@ -38,12 +38,19 @@ describe('the tooltip of a name', () => {
     expect(element.hasAttribute('title')).toBe(false);
     pointedAt(element);
     expect(element.title).toBe('Everything we ship this quarter');
+    // The pointer gone, the tooltip goes: a reader who comes by the keys is not read it.
+    element.dispatchEvent(new Event('pointerleave'));
+    expect(element.hasAttribute('title')).toBe(false);
     // Wider now (the window, the name): shown whole, no tooltip of the same words.
     widths(120, 120);
     pointedAt(element);
     expect(element.hasAttribute('title')).toBe(false);
-    if (typeof stop === 'function') stop();
+    // Taken away with the label it was for (another name shown), the pointer still over it.
     widths(300, 120);
+    pointedAt(element);
+    expect(element.title).toBe('Everything we ship this quarter');
+    if (typeof stop === 'function') stop();
+    expect(element.hasAttribute('title')).toBe(false);
     pointedAt(element);
     expect(element.hasAttribute('title')).toBe(false);
   });

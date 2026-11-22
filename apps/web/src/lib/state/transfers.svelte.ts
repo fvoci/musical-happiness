@@ -120,7 +120,10 @@ const PASSING: readonly UploadFailure[] = ['network', 'busy', 'room', 'failed'];
 /** How long a finished transfer stays in sight, in milliseconds. */
 export const TRANSFER_STAYS = 6000;
 
-/** How many of the latest sayings are kept: those said at once, however many, are in it. */
+/**
+ * How many of the latest sayings are kept for the stack to read. More said at
+ * once, as many files dropped together start, are not all read: the last are.
+ */
 const SAYINGS_KEPT = 20;
 
 /** Why an upload failed, from what it failed with. */

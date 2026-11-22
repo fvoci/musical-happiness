@@ -5,15 +5,19 @@
  * the workspace shown was is not said again when it comes back.
  */
 import { cleanup, render, screen } from '@testing-library/svelte';
-import { tick } from 'svelte';
-import { afterEach, describe, expect, it } from 'vitest';
+import { flushSync, tick } from 'svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import Transfers from '$lib/features/shell/Transfers.svelte';
 import type { Workspace } from '$lib/state/index.ts';
-import { Transfers as TransferList } from '$lib/state/transfers.svelte.ts';
+import { Transfers as TransferList, UploadKept } from '$lib/state/transfers.svelte.ts';
+
+import { ShownWorkspace } from './shown-workspace.svelte.ts';
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
+  document.body.replaceChildren();
 });
 
 const never = (): Promise<string> => new Promise(() => undefined);
@@ -65,6 +69,18 @@ describe('what the stack says', () => {
     expect(lines()).toEqual(['Uploading again.txt']);
   });
 
+  it('reads what is said as the workspace shown is told anew, the same one', async () => {
+    const { shell, transfers } = twoWorkspaces();
+    const shown = new ShownWorkspace(transfers, 'one');
+    render(Transfers, { workspace: shown.workspace });
+    // The page replaces the info (a workspace entered again) as a file starts.
+    shown.info = { id: 'one' };
+    shell.info = { id: 'one' };
+    transfers.upload({ file: file('now.txt'), send: never });
+    flushSync();
+    expect(lines()).toEqual(['Uploading now.txt']);
+  });
+
   it('names the key that reaches it once', async () => {
     const { transfers, one } = twoWorkspaces();
     render(Transfers, { workspace: one });
@@ -72,5 +88,50 @@ describe('what the stack says', () => {
     await tick();
     const stack = screen.getByRole('region', { name: 'Transfers (F8)' });
     expect(stack.hasAttribute('aria-keyshortcuts')).toBe(false);
+  });
+});
+
+describe('the stack reached by F8', () => {
+  const refused = (): Promise<string> => Promise.reject(new UploadKept(new Error('down')));
+
+  it('is not held out over a sheet any more once the focus went with the last of it', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { transfers, one } = twoWorkspaces();
+    render(Transfers, { workspace: one });
+    const field = document.createElement('input');
+    document.body.append(field);
+    field.focus();
+    transfers.upload({ file: file('a.txt'), send: () => Promise.reject(new Error('down')) });
+    await vi.waitFor(() => screen.getByRole('button', { name: 'Dismiss a.txt' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F8' }));
+    await tick();
+    const dismiss = screen.getByRole('button', { name: 'Dismiss a.txt' });
+    expect(document.activeElement).toBe(dismiss);
+    expect(screen.getByTestId('transfers')).toHaveAttribute('data-reached');
+    dismiss.click();
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(field);
+    });
+    expect(screen.queryByTestId('transfers')).toBeNull();
+    // The next one, with a sheet open, steps aside again.
+    transfers.upload({ file: file('b.txt'), send: never });
+    await tick();
+    expect(screen.getByTestId('transfers')).not.toHaveAttribute('data-reached');
+  });
+
+  it('counts one kept, which is in, apart from those not uploaded', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { transfers, one } = twoWorkspaces();
+    render(Transfers, { workspace: one });
+    const kept = transfers.upload({ file: file('kept.txt'), send: refused });
+    transfers.dismiss(kept.id);
+    transfers.upload({ file: file('lost.txt'), send: () => Promise.reject(new Error('down')) });
+    transfers.upload({ file: file('going.txt'), send: never });
+    await vi.waitFor(() => {
+      expect(transfers.list.map((each) => each.failure)).toEqual(['failed', undefined, 'kept']);
+    });
+    await tick();
+    const group = document.querySelector('[data-transfer-group]');
+    expect(group?.textContent).toContain('· 1 not uploaded');
   });
 });

@@ -165,6 +165,15 @@ describe('the whole row', () => {
     // Shown whole (a simulated page cuts nothing): no tooltip of the same words.
     await fireEvent.pointerEnter(toolButton('views'));
     expect(toolButton('views')).not.toHaveAttribute('title');
+    // Cut (its widths set, as a simulated page lays nothing out): whole in its tooltip.
+    const name = toolButton('views').querySelector('.truncate');
+    if (!name) throw new Error('no name on the button');
+    Object.defineProperty(name, 'scrollWidth', { value: 300, configurable: true });
+    Object.defineProperty(name, 'clientWidth', { value: 120, configurable: true });
+    await fireEvent.pointerEnter(toolButton('views'));
+    expect(toolButton('views')).toHaveAttribute('title', 'List');
+    await fireEvent.pointerLeave(toolButton('views'));
+    expect(toolButton('views')).not.toHaveAttribute('title');
     await openMenu(toolButton('views'));
     const views = viewLinks();
     expect(views.map((line) => line.textContent.trim())).toEqual(['Board', 'List']);
