@@ -297,7 +297,7 @@ fn with_doer(doers: &str, doer: &str) -> String {
     if !doer.is_empty() && doers.len() < MOST_DOERS && !doers.iter().any(|known| known == doer) {
         doers.push(doer.to_owned());
     }
-    serde_json::to_string(&doers).unwrap_or_else(|_| "[]".to_owned())
+    serde_json::to_string(&doers).expect("string lists serialize to JSON")
 }
 
 /// What a line counted (`counted`, a JSON list of [source, doer] pairs) with the
@@ -316,7 +316,7 @@ fn with_counted(counted: &str, source: &str, doer: &str) -> Option<String> {
     if !doer.is_empty() && counted.len() < MOST_DOERS {
         counted.push((source.to_owned(), doer.to_owned()));
     }
-    Some(serde_json::to_string(&counted).unwrap_or_else(|_| "[]".to_owned()))
+    Some(serde_json::to_string(&counted).expect("string lists serialize to JSON"))
 }
 
 /// What a new line counted: the doing of `doer` in `source`, where somebody known did it.
@@ -326,7 +326,7 @@ fn first_counted(source: &str, doer: &str) -> String {
     } else {
         &[(source, doer)]
     };
-    serde_json::to_string(counted).unwrap_or_else(|_| "[]".to_owned())
+    serde_json::to_string(counted).expect("string lists serialize to JSON")
 }
 
 /// Takes the row of `event` off the list, if it is as it was read.

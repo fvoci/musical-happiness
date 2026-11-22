@@ -22,7 +22,7 @@ struct UpdateNotificationsMessage {
 }
 
 /// Whether the sessions made one way hear of what some organizations told their user.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Opens {
     /// One of the organizations lets them hear.
     Yes,
@@ -30,6 +30,18 @@ enum Opens {
     No,
     /// None of those that could be read does, and one could not be read now.
     Unknown,
+}
+
+impl Opens {
+    /// Folds one organization's answer (`Ok(true)` kept from the session, `Ok(false)`
+    /// lets it hear, `Err` could not be read) into the running verdict.
+    fn with_kept<E>(self, kept: &Result<bool, E>) -> Self {
+        match (self, kept) {
+            (Self::Yes, _) | (_, Ok(false)) => Self::Yes,
+            (Self::No, Ok(true)) => Self::No,
+            (Self::Unknown, Ok(true)) | (_, Err(_)) => Self::Unknown,
+        }
+    }
 }
 
 impl Outgoing for UpdateNotificationsMessage {
@@ -99,19 +111,41 @@ impl Hub {
     async fn opens_any(&self, user_id: &str, made: &SessionMade, org_ids: &[&str]) -> Opens {
         let mut opens = Opens::No;
         for org_id in org_ids {
-            match self
+            let kept = self
                 .audience
                 .notifications_kept_from(user_id, made.making(), org_id)
-                .await
-            {
-                Ok(false) => return Opens::Yes,
-                Ok(true) => {}
-                Err(error) => {
-                    tracing::warn!(%error, "websocket: whether a session is told of a notification could not be read");
-                    opens = Opens::Unknown;
-                }
+                .await;
+            if let Err(error) = &kept {
+                tracing::warn!(%error, "websocket: whether a session is told of a notification could not be read");
+            }
+            opens = opens.with_kept(&kept);
+            if opens == Opens::Yes {
+                return Opens::Yes;
             }
         }
         opens
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Opens;
+
+    fn fold(answers: &[Result<bool, ()>]) -> Opens {
+        answers.iter().fold(Opens::No, Opens::with_kept)
+    }
+
+    #[test]
+    fn opens_fold_hears_if_any_organization_allows_and_is_unknown_only_when_none_does_and_one_failed()
+     {
+        assert_eq!(fold(&[]), Opens::No);
+        assert_eq!(fold(&[Ok(true), Ok(true)]), Opens::No);
+        assert_eq!(fold(&[Ok(false)]), Opens::Yes);
+        assert_eq!(fold(&[Ok(true), Ok(false)]), Opens::Yes);
+        assert_eq!(fold(&[Err(()), Ok(false)]), Opens::Yes);
+        assert_eq!(fold(&[Ok(false), Err(())]), Opens::Yes);
+        assert_eq!(fold(&[Err(())]), Opens::Unknown);
+        assert_eq!(fold(&[Ok(true), Err(())]), Opens::Unknown);
+        assert_eq!(fold(&[Err(()), Ok(true)]), Opens::Unknown);
     }
 }

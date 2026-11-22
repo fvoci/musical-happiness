@@ -395,11 +395,29 @@ async fn a_page_is_subscribed_to_by_its_readers_and_not_brought_back_as_a_block(
     to_page.check_not_found();
     assert_eq!(to_page.problem(), to_nothing.problem());
 
-    // A page in the trash is not brought back as a block, by its wiki or by a board.
+    // A non-writer who may read the wiki can subscribe to the page.
+    client
+        .post(
+            &format!("{TEST_WS}/containers/{wiki_id}/members"),
+            &json!({"containerId": wiki_id, "userId": stranger, "schemeViewer": true}),
+        )
+        .await
+        .check_ok();
+    ts.client2
+        .post(&subscriptions, &subscription(&page.id, &stranger))
+        .await
+        .check_created();
+
+    // A page in the trash is neither subscribed to nor brought back as a block, by its wiki or by a board.
+    let second = make(client, &pages, json!({"title": "second"})).await;
     client
         .delete(&format!("{pages}/{}", page.id))
         .await
         .check_status(StatusCode::NO_CONTENT);
+    client
+        .post(&subscriptions, &subscription(&page.id, &me))
+        .await
+        .check_not_found();
     for at in [&of_wiki, &blocks] {
         client
             .post_empty(&format!("{at}/{}/undelete", page.id))
@@ -408,6 +426,16 @@ async fn a_page_is_subscribed_to_by_its_readers_and_not_brought_back_as_a_block(
     }
     client
         .get(&format!("{pages}/{}", page.id))
+        .await
+        .check_not_found();
+
+    // Nor can a page of a trashed wiki be subscribed to.
+    client
+        .delete(&format!("{TEST_WS}/containers/{wiki_id}"))
+        .await
+        .check_no_content();
+    client
+        .post(&subscriptions, &subscription(&second.id, &me))
         .await
         .check_not_found();
     ts.teardown().await;

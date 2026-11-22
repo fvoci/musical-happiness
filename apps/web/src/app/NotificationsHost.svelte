@@ -15,7 +15,7 @@
 
   import NotificationBell from '$lib/features/notifications/NotificationBell.svelte';
   import { bellLabel, unreadBadge } from '$lib/features/notifications/notification-words.ts';
-  import { barMenu, hasBarMenu } from '$lib/features/shell/bar-menu.svelte.ts';
+  import { barMenu, hasBarMenu, type BarOffer } from '$lib/features/shell/bar-menu.svelte.ts';
   import type { Workspace } from '$lib/state/index.ts';
   import { NotificationInbox } from '$lib/state/notification-inbox.svelte.ts';
   import type { Notification } from '$lib/state/notification-types.ts';
@@ -42,11 +42,9 @@
   let bell = $state<{ openSheet: () => void }>();
   const bar = hasBarMenu() ? barMenu() : undefined;
 
-  // Lent to the bar's menu while the bell is there: what it reads of it follows the count.
-  $effect(() => {
-    const shown = inbox;
-    if (!shown || !bar) return;
-    return bar.offer({
+  /** The line and mark lent to the bar's menu for `shown`, whose getters follow its count. */
+  function menuOffer(shown: NotificationInbox): BarOffer {
+    return {
       get line() {
         return {
           id: 'notifications',
@@ -63,7 +61,13 @@
       get markLabel() {
         return bellLabel(shown.unread);
       },
-    });
+    };
+  }
+
+  // Lent to the bar's menu while the bell is there: what it reads of it follows the count.
+  $effect(() => {
+    if (!inbox || !bar) return;
+    return bar.offer(menuOffer(inbox));
   });
 
   /** Waiting for the comment of the last notification gone to, if it is still on its way. */

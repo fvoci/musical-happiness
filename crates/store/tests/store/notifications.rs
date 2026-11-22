@@ -472,16 +472,19 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
     // Somebody else has two, the oldest of all and read: nothing of theirs goes
     // for what the other is told.
     let other = common::user(store, &format!("o{}", &new_id()[24..])).await;
-    let org = store.tenant().org_id();
-    assert!(org.is_some(), "the store reaches one organization");
+    let org = store
+        .tenant()
+        .org_id()
+        .expect("the store reaches one organization");
     for at in [1_i64, 2] {
         let id = told_of_a_new_card(store, (&board_id, &writer), &other, at, few).await;
         assert_eq!(
             store
                 .read_notification(reader(&other), &id, at + 1)
                 .await
-                .expect("read"),
-            org
+                .expect("read")
+                .as_deref(),
+            Some(org.as_str())
         );
     }
     // Five, one after another, each of another card; the second and the fourth are
@@ -494,8 +497,9 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
                 store
                     .read_notification(reader(&named), &id, at * 100 + 1)
                     .await
-                    .expect("read"),
-                org
+                    .expect("read")
+                    .as_deref(),
+                Some(org.as_str())
             );
         }
         made.push(id);
@@ -546,7 +550,7 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
             .expect("read")
             .into_iter()
             .collect::<Vec<_>>(),
-        [(org.clone().expect("checked above"), 2)],
+        [(org.clone(), 2)],
         "two, of the one organization"
     );
     // Read before a time: the other's two, read long ago; then the two read at 2000.

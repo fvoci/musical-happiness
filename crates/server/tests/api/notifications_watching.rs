@@ -204,7 +204,10 @@ async fn the_writer_of_a_page_is_told_of_its_comments() {
     assert_eq!(
         (
             stopped.len(),
-            stopped[0].subject.as_ref().map(|line| line.times)
+            stopped
+                .first()
+                .and_then(|one| one.subject.as_ref())
+                .map(|line| line.times)
         ),
         (1, Some(1)),
         "nothing more: {stopped:?}"
@@ -222,7 +225,10 @@ async fn the_writer_of_a_page_is_told_of_its_comments() {
     assert_eq!(
         (
             again.len(),
-            again[0].subject.as_ref().map(|line| line.times)
+            again
+                .first()
+                .and_then(|one| one.subject.as_ref())
+                .map(|line| line.times)
         ),
         (1, Some(2)),
         "watched again, and told: {again:?}"

@@ -170,3 +170,70 @@ test('the switch of comments is kept off, and nothing is told while it is', asyn
   await expect(inbox(page).getByRole('link', { name: /commented on Quiet plan/ })).toBeVisible();
   await expect(inbox(page).getByRole('link', { name: /2 times/ })).toHaveCount(0);
 });
+
+test.describe('the notifications sheet of a narrow pane', () => {
+  test.use({ viewport: { width: 393, height: 800 }, hasTouch: true });
+
+  test('takes the focus, closes on back without leaving the page, and returns the focus to the menu', async ({
+    page,
+  }) => {
+    await openApp(page);
+    const firstUrl = page.url();
+    // Navigate to a second board first so an unhandled back would leave the current page.
+    await showSidebar(page);
+    await sidebar(page).getByRole('link', { name: 'Roadmap' }).click();
+    await expect(page.getByTestId('board-title')).toHaveValue('Roadmap');
+    const secondUrl = page.url();
+    expect(secondUrl).not.toBe(firstUrl);
+
+    // Open the notifications sheet from the bar's menu: focus moves into the sheet and stays
+    // there after the bottom sheet closes.
+    await openInbox(page);
+    await expect(inbox(page)).toBeVisible();
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(page.getByTestId('bottom-sheet')).toHaveCount(0);
+    await expect
+      .poll(() => inbox(page).evaluate((dialog) => dialog.contains(document.activeElement)))
+      .toBe(true);
+
+    // Wait for the overlay entry to settle after the menu sheet's step back, then press Back:
+    // the sheet closes and the page underneath stays.
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Boolean((history.state as Record<string, unknown> | null)?.fvociOverlay),
+        ),
+      )
+      .toBe(true);
+    await page.goBack();
+    await expect(inbox(page)).toBeHidden();
+    expect(page.url()).toBe(secondUrl);
+    await expect(page.getByTestId('board-title')).toHaveValue('Roadmap');
+
+    // Escape closes the sheet and returns focus to the bar's menu button.
+    await openInbox(page);
+    await expect(inbox(page)).toBeVisible();
+    await expect(page.getByTestId('bottom-sheet')).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Boolean((history.state as Record<string, unknown> | null)?.fvociOverlay),
+        ),
+      )
+      .toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(inbox(page)).toBeHidden();
+    await expect(barMenu(page)).toBeFocused();
+
+    // Closing with Escape gave the overlay entry back, so Back returns to the first board.
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Boolean((history.state as Record<string, unknown> | null)?.fvociOverlay),
+        ),
+      )
+      .toBe(false);
+    await page.goBack();
+    await expect(page).toHaveURL(firstUrl);
+  });
+});

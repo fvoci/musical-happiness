@@ -19,6 +19,7 @@
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { relativeTime } from '$lib/logic/format.ts';
   import { userDisplayName } from '$lib/logic/users.ts';
   import type { NotificationInbox } from '$lib/state/notification-inbox.svelte.ts';
@@ -43,6 +44,14 @@
 
   /** The list as a sheet of the whole screen, as a narrow pane opens it. */
   let sheet = $state(false);
+
+  // The back button closes the sheet, as the other dialogs: the page under it stays.
+  closeOnBack(
+    () => sheet,
+    () => {
+      sheetToggled(false);
+    },
+  );
 
   /** Opens the list as a sheet: what stands for the bell in a narrow pane does. */
   export function openSheet(): void {
