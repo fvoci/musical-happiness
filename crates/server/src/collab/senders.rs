@@ -13,10 +13,11 @@
 //! are sent. The turn is a user's: the users of an organization do not wait for each
 //! other's turn, and each may end a worker once before they are held back (the
 //! organization is held from its third). An update that waits for its turn holds its
-//! card's room and slot: who writes into that card, opens it or is sent what they lack
-//! of it waits with it, for each update of that user ahead of it (one worker's queue
-//! and call each, up to the time limit), as they waited for those of the same worker
-//! before.
+//! card's room and slot, and its organization's gate: who writes into that card, opens
+//! it or is sent what they lack of it, and the server writing its body, waits with it,
+//! and so does a deletion in the organization and every request about a document there
+//! after it; for each update of that user ahead of it (one worker's queue and call
+//! each, up to the time limit), as they waited for those of the same worker before.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -144,17 +145,19 @@ impl Drop for InLine<'_> {
         let Ok(mut lines) = self.senders.lines.lock() else {
             return;
         };
-        let line = lines.get_mut(&self.key);
-        debug_assert!(
-            line.as_ref().is_some_and(|line| line.in_line > 0),
-            "an update leaves a line it is in"
-        );
-        if let Some(line) = line {
-            line.in_line = line.in_line.saturating_sub(1);
-            if line.in_line == 0 {
-                lines.remove(&self.key);
+        let was_in = match lines.get_mut(&self.key) {
+            Some(line) => {
+                line.in_line = line.in_line.saturating_sub(1);
+                if line.in_line == 0 {
+                    lines.remove(&self.key);
+                }
+                true
             }
-        }
+            None => false,
+        };
+        // With the lines let go, which a panic would poison.
+        drop(lines);
+        debug_assert!(was_in, "an update leaves a line it is in");
     }
 }
 

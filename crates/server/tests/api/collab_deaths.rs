@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use fvoci_collab::testing::Editor;
-use fvoci_server::collab::DocChange;
+use fvoci_server::collab::{Collab, DocChange};
 use fvoci_server::error::{AppError, Reason};
 use serde_json::{Value, json};
 
@@ -281,8 +281,8 @@ fn held_back(error: &AppError) -> bool {
 }
 
 /// Updates of one user to several cards sent together, which would each end the worker:
-/// the first does, and the others are refused as held back as they reach the worker
-/// started again, not taken one after another.
+/// the first does, and the others wait for the sender's turn and are refused as held
+/// back before they are sent, not taken one after another.
 #[cfg(unix)]
 #[tokio::test]
 async fn the_updates_a_sender_sent_together_end_one_worker() {
@@ -453,9 +453,9 @@ async fn the_updates_a_sender_sent_together_to_two_workers_end_one() {
 }
 
 /// Waits until some user's update holds or waits for their turn.
-async fn in_line(e: &Editing) {
+async fn until_someone_is_in_line(collab: &Collab) {
     let waited = tokio::time::timeout(Duration::from_secs(60), async {
-        while e.app.collab().senders_in_line() == 0 {
+        while collab.senders_in_line() == 0 {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
@@ -513,7 +513,7 @@ async fn others_are_taken_while_an_update_of_a_sender_ends_a_worker() {
                 .await
         }
     });
-    in_line(&ending).await;
+    until_someone_is_in_line(&collab).await;
     collab
         .take(
             &other.app,
@@ -633,8 +633,12 @@ async fn the_turn_of_a_sender_is_given_back_however_their_update_ends() {
         &first.user1,
         on_first.append_paragraph("broken"),
     ));
-    in_line(&first).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    until_someone_is_in_line(&collab).await;
+    // Killed once it is on the update, which it is while it does not tell its pid.
+    while tokio::time::timeout(Duration::from_millis(100), collab.worker_pids())
+        .await
+        .is_ok()
+    {}
     kill(pid);
     let ended = ending
         .await
@@ -649,7 +653,9 @@ async fn the_turn_of_a_sender_is_given_back_however_their_update_ends() {
     collab.take_updates(&first.app, &first.card_id);
 
     // Past the time limit, given up by its caller: the take goes on in a task of its
-    // own, and the next update of the sender waits for it.
+    // own, and the next update of the sender, sent as soon as it holds the turn, waits
+    // for it.
+    let (again, again_epoch) = joined(&collab, &first.app, &first.card_id, 203).await;
     collab.stall_updates(&second.app, &second.card_id, 30_000);
     let given_up = tokio::time::timeout(
         Duration::ZERO,
@@ -662,8 +668,7 @@ async fn the_turn_of_a_sender_is_given_back_however_their_update_ends() {
     )
     .await;
     assert!(given_up.is_err(), "given up before it was done");
-    in_line(&second).await;
-    let (again, again_epoch) = joined(&collab, &first.app, &first.card_id, 203).await;
+    until_someone_is_in_line(&collab).await;
     let next = take(
         &first,
         again_epoch,
