@@ -17,11 +17,13 @@
 //!   document an update is given for is never changed. The steps are not given on
 //!   their own, so that none is left out or taken in another order.
 //!
-//! No function here changes a document it is given: what holds one replaces it with
-//! the document that comes back. Each reads it under its lock, and waits for that: do
-//! not call one while the same thread holds a transaction on that document. The Y
-//! library is given on as [`yrs`], so that what holds a document names its types from
-//! the version this crate is built with.
+//! Free functions that borrow a document (`&Doc`) never mutate it; [`BodyDoc::take_in_place`]
+//! consumes a document to apply and repair in place, returning the untouched document on
+//! pre-apply refusal or requiring [`BodyDoc::rebuild`] from the caller's checkpoint on
+//! post-apply refusal. Each reads a document under its lock, and waits for that: do not
+//! call one while the same thread holds a transaction on that document. The Y library is
+//! given on as [`yrs`], so that what holds a document names its types from the version
+//! this crate is built with.
 //!
 //! What the shape is, and what an editor does with shared content, is not assumed here:
 //! the web app's tests state it (`apps/web/spikes/collab`) and write it down as vectors
@@ -41,7 +43,10 @@ mod take;
 mod update;
 
 pub use build::{from_body, from_body_by, new_doc};
-pub use doc::{BodyDoc, Changed, client_changes, reading_steps, steps_ahead};
+pub use doc::{
+    BodyDoc, BodyTakeError, Changed, StateCounts, client_changes, reading_steps, state_counts,
+    steps_ahead,
+};
 pub use repair::Repair;
 pub use take::{TakeError, Taken, from_state, take_update};
 pub use update::{
@@ -70,9 +75,9 @@ pub mod testing {
         crate::project::to_body(doc)
     }
 
-    /// Repairs a Y document in place: the changes of a repaired copy are made to it
-    /// too, as an editor that holds the document takes them. A repair that fails
-    /// leaves it as it was.
+    /// Repairs a Y document in place: runs the in-place repair on a copy and applies its
+    /// update to `doc` only if the repair succeeds, so a repair that fails leaves `doc`
+    /// as it was.
     ///
     /// # Errors
     ///
@@ -80,10 +85,10 @@ pub mod testing {
     ///
     /// # Panics
     ///
-    /// Panics if the changes of a copy do not apply to the document they were made
-    /// from, which would be a defect.
+    /// Panics if the changes of the repair do not apply to `doc`, which would be a
+    /// defect.
     pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
-        Ok(applied(doc, crate::repair::repaired(doc)?))
+        repair_isolated(doc, None)
     }
 
     /// [`repair`], with what the repair writes written as `writer`: the same changes from
@@ -97,18 +102,24 @@ pub mod testing {
     ///
     /// As [`repair`].
     pub fn repair_by(doc: &Doc, writer: u64) -> Result<Repair, BodyError> {
-        Ok(applied(doc, crate::repair::repaired_by(doc, Some(writer))?))
+        repair_isolated(doc, Some(writer))
     }
 
-    /// Makes the changes of a repair to the document it was made from.
-    fn applied(doc: &Doc, (repair, _): (Repair, Option<Doc>)) -> Repair {
+    /// Runs [`crate::repair::repaired_by`] on a copy of `doc` and applies the resulting
+    /// repair update back to `doc` on success.
+    fn repair_isolated(doc: &Doc, writer: Option<u64>) -> Result<Repair, BodyError> {
+        let copy = crate::update::copy_of(doc, None).map_err(|_| BodyError::InvalidNode {
+            path: String::new(),
+            problem: "the document cannot be read again to be repaired",
+        })?;
+        let repair = crate::repair::repaired_by(&copy, writer)?;
         if let Some(changes) = &repair.update {
             let changes = Update::decode_v1(changes).expect("the changes are an update");
             doc.transact_mut()
                 .apply_update(changes)
                 .expect("the changes apply to the document they were made from");
         }
-        repair
+        Ok(repair)
     }
 
     /// The Y document with an update, not yet projected or repaired.

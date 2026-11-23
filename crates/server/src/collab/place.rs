@@ -91,6 +91,9 @@ pub(super) struct OpenDoc {
     /// written to its card and the document made again from it before its state is
     /// folded or another update is taken.
     pub(super) must_remake: bool,
+    /// Whether the worker asked for a fold because its rollback log (`since`) grew
+    /// large enough to rebase.
+    pub(super) wants_fold: bool,
     /// Who sent the last update; what writes the body writes it as them.
     pub(super) last_writer: String,
     /// When the first update whose body is not written was taken.

@@ -163,6 +163,9 @@ pub enum Answer {
         /// and must be made again from its body before its state is stored or another
         /// update is taken.
         remake: bool,
+        /// Whether the updates held since the last checkpoint have grown enough that
+        /// the server should fold the document's state soon.
+        fold: bool,
     },
     /// Bytes: a state vector, a diff or a state.
     Bytes(Vec<u8>),
@@ -418,6 +421,7 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
             steps_ahead,
             files,
             remake,
+            fold,
         }) => {
             out.tag(3)
                 .optional(repair.as_deref())
@@ -426,7 +430,8 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
                 .number(*client_changes)
                 .number(*steps_ahead)
                 .names(files)
-                .tag(u8::from(*remake));
+                .tag(u8::from(*remake))
+                .tag(u8::from(*fold));
         }
         Ok(Answer::Bytes(bytes)) => {
             out.tag(4).bytes(bytes);
@@ -467,6 +472,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, Malformed> {
             steps_ahead: input.number()?,
             files: input.names()?,
             remake: input.flag()?,
+            fold: input.flag()?,
         }),
         4 => Ok(Answer::Bytes(input.bytes()?)),
         5 => Ok(Answer::Body(input.optional()?)),
@@ -679,6 +685,7 @@ mod tests {
                 steps_ahead: 800_000,
                 files: Vec::new(),
                 remake: false,
+                fold: true,
             }),
             Ok(Answer::Taken {
                 repair: Some(vec![6]),
@@ -688,6 +695,7 @@ mod tests {
                 steps_ahead: 0,
                 files: vec!["7a.png".to_owned(), "7b.png".to_owned()],
                 remake: true,
+                fold: false,
             }),
             Ok(Answer::Bytes(vec![4, 5])),
             Ok(Answer::Body(Some(b"{}".to_vec()))),
@@ -724,7 +732,7 @@ mod tests {
         let mut long = Request::State(1).encode();
         long.push(0);
         assert!(Request::decode(&long).is_err(), "a byte after the end");
-        let mut bad_remake = encode_response(&Ok(Answer::Taken {
+        let mut bad_fold = encode_response(&Ok(Answer::Taken {
             repair: None,
             state_bytes: 1,
             clients: 1,
@@ -732,8 +740,16 @@ mod tests {
             steps_ahead: 0,
             files: Vec::new(),
             remake: false,
+            fold: false,
         }));
-        *bad_remake.last_mut().expect("flag byte") = 2;
-        assert!(decode_response(&bad_remake).is_err(), "flag past 0 or 1");
+        *bad_fold.last_mut().expect("fold flag byte") = 2;
+        assert!(decode_response(&bad_fold).is_err(), "fold flag past 0 or 1");
+        let len = bad_fold.len();
+        bad_fold[len - 1] = 0;
+        bad_fold[len - 2] = 2;
+        assert!(
+            decode_response(&bad_fold).is_err(),
+            "remake flag past 0 or 1"
+        );
     }
 }

@@ -510,7 +510,8 @@ fn updates_at_the_limit_one_after_the_other_leave_a_document_read_in_its_steps()
         clock, 0,
         "none of those updates left an unsettled document held"
     );
-    // Past the steps with something to repair is still refused.
+    // Past the steps with something to repair: repaired in place and marked for remake
+    // without re-reading the slow state, and remaking from its body takes 0 steps.
     let mut needs_repair: Vec<Change> = (0..most)
         .map(|_| Change::Item {
             left: None,
@@ -524,16 +525,22 @@ fn updates_at_the_limit_one_after_the_other_leave_a_document_read_in_its_steps()
         (TYPIST, CHILDREN - 1),
         Content::element("nothing-a-body-has"),
     ));
-    let refused = take_update(&doc, &Update::of(ABOVE, 0, needs_repair).bytes(), &SERVED)
-        .expect_err("past the steps with a repair is still refused");
-    let TakeError::Update(UpdateError::TooManyReadingSteps { steps, limit }) = refused else {
-        panic!("expected TooManyReadingSteps, got {refused}");
-    };
-    assert_eq!(limit, READING_STEPS);
+    let repaired_past = take_update(&doc, &Update::of(ABOVE, 0, needs_repair).bytes(), &SERVED)
+        .expect("past the steps with a repair is taken and marked for remake");
+    assert!(repaired_past.remake, "must remake after in-place repair");
+    assert_eq!(repaired_past.repair.deleted, 1, "unknown node deleted");
     assert!(
-        steps <= limit + CHILDREN + most + 1,
-        "{steps} steps counted"
+        repaired_past.repair.update.is_some(),
+        "repair update emitted"
     );
+    assert!(
+        repaired_past.reading_steps > READING_STEPS
+            && repaired_past.reading_steps <= READING_STEPS + CHILDREN + most + 1,
+        "{} steps counted",
+        repaired_past.reading_steps
+    );
+    let remade = from_body(repaired_past.repair.body.as_ref().expect("a body"));
+    assert_eq!(steps_of(&remade), 0, "remade after repair takes 0 steps");
     // Fewer changes in an update, until the document is at its steps.
     let few = 4;
     let mut taken_updates = 0;
@@ -906,8 +913,8 @@ fn delete_every_other_letter(
 /// paragraphs. The second update pushes reading steps past `READING_STEPS`: it is
 /// accepted with `remake: true`, its body holds all 1,015 edited paragraphs, and
 /// remaking from that body leaves 0 steps. Combining the same update with an invalid
-/// node (requiring a repair) is still refused, and `client_changes` / `body_bytes`
-/// limits are not bypassed.
+/// node (requiring a repair) is also repaired in place and marked for remake, and
+/// `client_changes` / `body_bytes` limits are not bypassed.
 #[test]
 fn two_step_deletions_into_2047_sessions_are_taken_and_marked_for_remake() {
     let doc = document_of_2047_sessions();
@@ -986,7 +993,12 @@ fn two_step_deletions_into_2047_sessions_are_taken_and_marked_for_remake() {
         "client_changes limit is still enforced"
     );
 
-    // With an invalid node needing repair, the update past reading steps is still refused.
+    assert_repair_past_reading_steps_taken(&after_first.doc);
+}
+
+fn assert_repair_past_reading_steps_taken(after_first: &yrs::Doc) {
+    // With an invalid node needing repair, the update past reading steps is now repaired
+    // in place and marked for remake without re-reading the slow state.
     let second_with_repair = Update {
         runs: vec![Run {
             client: 3_000,
@@ -1004,13 +1016,19 @@ fn two_step_deletions_into_2047_sessions_are_taken_and_marked_for_remake() {
             })
             .collect(),
     };
-    let refused = take_update(&after_first.doc, &second_with_repair.bytes(), &SERVED)
-        .expect_err("repair + reading steps is still refused");
+    let repaired_past = take_update(after_first, &second_with_repair.bytes(), &SERVED)
+        .expect("repair + reading steps is taken and marked for remake");
+    assert!(repaired_past.remake, "must remake");
+    assert_eq!(repaired_past.repair.deleted, 1, "unknown node deleted");
     assert!(
-        matches!(
-            refused,
-            TakeError::Update(UpdateError::TooManyReadingSteps { .. })
-        ),
-        "{refused}"
+        repaired_past.repair.update.is_some(),
+        "repair update emitted"
     );
+    assert!(
+        repaired_past.reading_steps > READING_STEPS,
+        "{} steps",
+        repaired_past.reading_steps
+    );
+    let remade = from_body(repaired_past.repair.body.as_ref().expect("a body"));
+    assert_eq!(steps_of(&remade), 0, "remade takes 0 steps");
 }

@@ -83,8 +83,8 @@ pub const PLACING_STEPS: u64 = 3 * 1024 * 1024;
 /// document an update a client sends leaves, and one that was stored
 /// ([`UpdateLimits::reading_steps`]). The library places a change by walking past the
 /// changes between the neighbours it names, and walks so again every time it reads the
-/// document from its state: two or three times for every update, five where the update
-/// is repaired, and twice as the document is opened. A step takes 0.13 to 0.24 µs in a
+/// document from its state: once as what an update leaves is settled, again if a repair
+/// changes the document, and once as a canonical document is opened. A step takes 0.13 to 0.24 µs in a
 /// list of 50,000 (release build, a machine that does other work besides, at which
 /// all the times here were measured; a busier one took twice as long), so each
 /// reading of such a document at this many steps takes 0.15 to 0.25 s more than the
@@ -121,11 +121,10 @@ pub const PLACING_STEPS: u64 = 3 * 1024 * 1024;
 /// document is closed with nobody holding it, and at three quarters under its
 /// editors. What an update adds is not in that count (a change it writes, or cuts in
 /// two, is a step for every 128 clients), so an update can still leave a document
-/// past this limit: when the copy with the update is already a valid body (needs no
-/// repair), [`crate::take_update`] still takes it without reading the slow state
-/// again and marks [`crate::Taken::remake`] so what holds it writes its body and
-/// makes it again from that without losing the update; only one that also needs a
-/// repair is refused with [`UpdateError::TooManyReadingSteps`].
+/// past this limit: [`crate::take_update`] still takes it (repairing in place if
+/// needed, without reading the slow state again) and marks [`crate::Taken::remake`] so
+/// what holds it writes its body and makes it again from that without losing the
+/// update.
 ///
 /// A stored state past it is refused before the library reads it, in the time of the
 /// count, which stops a little past the limit whatever the state holds: one that was
@@ -256,6 +255,7 @@ pub fn state_of(doc: &Doc) -> Vec<u8> {
 ///
 /// Returns [`UpdateError::DocumentUnreadable`] if the document's own state cannot be
 /// read again as any update is read.
+#[cfg(any(test, feature = "test-util"))]
 pub(crate) fn copy_of(doc: &Doc, writer: Option<u64>) -> Result<Doc, UpdateError> {
     doc_of_state(&state_of(doc), writer).map_err(UpdateError::DocumentUnreadable)
 }
@@ -302,6 +302,8 @@ fn read_walked(state: &[u8], walked: &scan::Walked, writer: Option<u64>) -> Resu
 /// before the library read it.
 struct Counted {
     doc: Doc,
+    /// How many changes the state holds.
+    changes: u64,
     /// The most changes of one client.
     client_changes: u64,
     /// The steps the reading took; 0 where they are not counted.
@@ -310,12 +312,16 @@ struct Counted {
     steps_ahead: u64,
 }
 
-/// What [`read_counted`] did with a state.
+/// What [`count_and_read`] did with a state.
 enum ReadOutcome {
-    /// Within [`UpdateLimits::reading_steps`] (or uncounted) and read back into a `Doc`.
+    /// Within [`UpdateLimits::reading_steps`] (or uncounted) and read back into a fresh
+    /// `Doc` (after dropping the prior `Doc`).
     Read(Counted),
-    /// Past [`UpdateLimits::reading_steps`]: the library did not read it.
+    /// Past [`UpdateLimits::reading_steps`]: the library did not read it, and the prior
+    /// `Doc` comes back unsettled.
     PastLimit {
+        doc: Doc,
+        changes: u64,
         client_changes: u64,
         steps: u64,
         steps_ahead: u64,
@@ -323,63 +329,175 @@ enum ReadOutcome {
     },
 }
 
-/// Counts a state an update left against [`UpdateLimits::reading_steps`] and reads it
-/// back if it is within the limit; a state past the limit does not reach the library.
-fn read_counted(state: &[u8], limits: &UpdateLimits) -> Result<ReadOutcome, UpdateError> {
+/// Counts `state` against [`UpdateLimits::reading_steps`] and [`UpdateLimits::client_changes`];
+/// when within the reading-step limit, drops `doc` before reading `state` back into a
+/// fresh `Doc` so only one `Doc` is live in memory at a time. A state past the limit
+/// does not reach the library and keeps `doc` in [`ReadOutcome::PastLimit`].
+fn count_and_read(
+    doc: Doc,
+    state: &[u8],
+    limits: &UpdateLimits,
+) -> Result<ReadOutcome, UpdateError> {
     let unreadable = |refusal: Refusal| UpdateError::LeavesUnreadable(refusal.reason().to_owned());
     let Some(limit) = limits.reading_steps else {
-        let (doc, walked) = read_state(state).map_err(UpdateError::LeavesUnreadable)?;
+        let walked = scan::check(state).map_err(unreadable)?;
+        check_client_changes(walked.most, limits)?;
+        drop(doc);
+        let again = read_walked(state, &walked, None).map_err(UpdateError::LeavesUnreadable)?;
         return Ok(ReadOutcome::Read(Counted {
-            doc,
+            doc: again,
+            changes: walked.changes,
             client_changes: walked.most,
             reading_steps: 0,
             steps_ahead: 0,
         }));
     };
     let read = reading::count(state, limit).map_err(unreadable)?;
+    check_client_changes(read.walked.most, limits)?;
     if read.steps > limit {
         return Ok(ReadOutcome::PastLimit {
+            doc,
+            changes: read.walked.changes,
             client_changes: read.walked.most,
             steps: read.steps,
             steps_ahead: read.ahead,
             limit,
         });
     }
-    let doc = read_walked(state, &read.walked, None).map_err(UpdateError::LeavesUnreadable)?;
-    // Lengths counted otherwise than the library counts them would have found the
-    // neighbours of the changes in other places than the library does.
-    let ends = doc.transact().state_vector();
-    let as_the_library = ends.len() == read.ends.len()
-        && read
-            .ends
-            .iter()
-            .all(|(client, end)| u64::from(ends.get(&ClientID::new(*client))) == *end);
-    if !as_the_library {
-        return Err(unreadable(Refusal::Lengths));
-    }
+    drop(doc);
+    let again = read_walked(state, &read.walked, None).map_err(UpdateError::LeavesUnreadable)?;
+    check_ends(&again, &read.ends).map_err(unreadable)?;
     Ok(ReadOutcome::Read(Counted {
-        doc,
+        doc: again,
+        changes: read.walked.changes,
         client_changes: read.walked.most,
         reading_steps: read.steps,
         steps_ahead: read.ahead,
     }))
 }
 
-/// Refuses a stored state whose reading takes more steps than
-/// [`UpdateLimits::reading_steps`], before the library reads it.
-pub(crate) fn within_reading_steps(state: &[u8], limits: &UpdateLimits) -> Result<(), UpdateError> {
-    let Some(limit) = limits.reading_steps else {
-        return Ok(());
-    };
-    match reading::count(state, limit) {
-        Ok(read) if read.steps > limit => Err(UpdateError::TooManyReadingSteps {
-            steps: read.steps,
-            limit,
-        }),
-        Ok(_) => Ok(()),
-        Err(Refusal::Gap) => Err(UpdateError::MissingChanges),
-        Err(refusal) => Err(UpdateError::Unreadable(refusal.reason().to_owned())),
+/// Verifies that the library read every client's changes to the same length as
+/// `reading::count`: different lengths would mean neighbours lay in other places.
+fn check_ends(doc: &Doc, expected: &[(u64, u64)]) -> Result<(), Refusal> {
+    let ends = doc.transact().state_vector();
+    let as_the_library = ends.len() == expected.len()
+        && expected
+            .iter()
+            .all(|(client, end)| u64::from(ends.get(&ClientID::new(*client))) == *end);
+    if as_the_library {
+        Ok(())
+    } else {
+        Err(Refusal::Lengths)
     }
+}
+
+/// Opens a stored state directly, counting its reading steps only once when `state` is
+/// already canonical (`state_of(&doc) == state`). A state past
+/// [`UpdateLimits::reading_steps`] is refused before `yrs` reads it.
+pub(crate) fn from_state_settled(
+    state: &[u8],
+    limits: &UpdateLimits,
+) -> Result<Settled, UpdateError> {
+    if state.len() > limits.state_bytes {
+        return Err(UpdateError::DocumentTooLarge {
+            size: state.len(),
+            limit: limits.state_bytes,
+        });
+    }
+    let (walked, steps, ahead, expected_ends) = if let Some(limit) = limits.reading_steps {
+        let read = reading::count(state, limit).map_err(|refusal| match refusal {
+            Refusal::Gap => UpdateError::MissingChanges,
+            other => UpdateError::Unreadable(other.reason().to_owned()),
+        })?;
+        if read.steps > limit {
+            return Err(UpdateError::TooManyReadingSteps {
+                steps: read.steps,
+                limit,
+            });
+        }
+        (read.walked, read.steps, read.ahead, Some(read.ends))
+    } else {
+        let walked = scan::check(state)
+            .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))?;
+        if walked.begins.iter().any(|(_, clock)| *clock > 0) {
+            return Err(UpdateError::MissingChanges);
+        }
+        (walked, 0, 0, None)
+    };
+    if let Some(limit) = limits.clients
+        && walked.begins.len() > limit
+    {
+        return Err(UpdateError::TooManyClients {
+            clients: walked.begins.len(),
+            limit,
+        });
+    }
+    check_client_changes(walked.most, limits)?;
+    let update =
+        Update::decode_v1(state).map_err(|error| UpdateError::Unreadable(error.to_string()))?;
+    let doc = doc_of_client(None);
+    {
+        let mut txn = doc.transact_mut();
+        txn.apply_update(update)
+            .map_err(|error| UpdateError::Unappliable(error.to_string()))?;
+    }
+    check_applied(&doc)?;
+    if let Some(ends) = expected_ends.as_deref() {
+        check_ends(&doc, ends)
+            .map_err(|refusal| UpdateError::LeavesUnreadable(refusal.reason().to_owned()))?;
+    }
+    let encoded = state_of(&doc);
+    if encoded == state {
+        return Ok(Settled {
+            doc,
+            state: encoded,
+            changes: walked.changes,
+            client_changes: walked.most,
+            reading_steps: steps,
+            steps_ahead: ahead,
+            outcome: Outcome::Settled,
+        });
+    }
+    settled_from(doc, encoded, limits)
+}
+
+/// Rebuilds a settled document from a checkpoint `base` and the accepted updates and
+/// repairs `since` it, leaving a state byte-for-byte identical to the settled document
+/// before a rejected in-place update.
+pub(crate) fn rebuild<U: AsRef<[u8]>>(base: &[u8], since: &[U]) -> Result<Doc, UpdateError> {
+    let doc = doc_of_state(base, None).map_err(UpdateError::DocumentUnreadable)?;
+    if since.is_empty() {
+        return Ok(doc);
+    }
+    for entry in since {
+        let bytes = entry.as_ref();
+        scan::check(bytes)
+            .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))?;
+        let update =
+            Update::decode_v1(bytes).map_err(|error| UpdateError::Unreadable(error.to_string()))?;
+        let mut txn = doc.transact_mut();
+        txn.apply_update(update)
+            .map_err(|error| UpdateError::Unappliable(error.to_string()))?;
+        if txn.has_missing_updates() {
+            return Err(UpdateError::MissingChanges);
+        }
+    }
+    let state = state_of(&doc);
+    drop(doc);
+    let again = doc_of_state(&state, None).map_err(UpdateError::LeavesUnreadable)?;
+    let state_again = state_of(&again);
+    if same_state(&state_again, &state) {
+        return Ok(again);
+    }
+    drop(again);
+    let twice = doc_of_state(&state_again, None).map_err(UpdateError::LeavesUnreadable)?;
+    let state_settled = state_of(&twice);
+    if !same_state(&state_settled, &state_again) {
+        return Err(UpdateError::LeavesUnreadable(
+            "its state reads to a document whose state reads to another".to_owned(),
+        ));
+    }
+    Ok(twice)
 }
 
 /// Reads the bytes of an update for a document, after the walk that keeps from the
@@ -405,6 +523,93 @@ pub(crate) fn read(doc: &Doc, update: &[u8]) -> Result<(Update, usize), UpdateEr
     let update =
         Update::decode_v1(update).map_err(|error| UpdateError::Unreadable(error.to_string()))?;
     Ok((update, clients))
+}
+
+/// Checks post-apply invariants on `doc`: no waiting changes and no unexpected roots.
+fn check_applied(doc: &Doc) -> Result<(), UpdateError> {
+    let txn = doc.transact();
+    if txn.has_missing_updates() {
+        return Err(UpdateError::MissingChanges);
+    }
+    for (name, root) in txn.root_refs() {
+        if name != FIELD || !matches!(root, Out::YXmlFragment(_)) {
+            return Err(UpdateError::UnexpectedRoot(name.to_owned()));
+        }
+    }
+    Ok(())
+}
+
+/// Applies `sent` to `doc` in place, verifies post-apply invariants, and settles it.
+fn apply_and_settle(doc: Doc, sent: Update, limits: &UpdateLimits) -> Result<Settled, UpdateError> {
+    {
+        let mut txn = doc.transact_mut();
+        txn.apply_update(sent)
+            .map_err(|error| UpdateError::Unappliable(error.to_string()))?;
+    }
+    check_applied(&doc)?;
+    settled_sized(doc, limits)
+}
+
+/// Why [`with_update_in_place`] refused an update.
+pub(crate) enum UpdateInPlaceError {
+    /// Refused before `doc` was changed; the untouched document comes back.
+    Untouched(Doc, UpdateError),
+    /// Refused while or after applying the update; `doc` may have been changed and was
+    /// dropped.
+    Dirty(UpdateError),
+}
+
+/// Takes a client's update into `doc` **in place**, using the caller's cached
+/// `prior_state` and `prior_changes` to charge placing steps without encoding or copying
+/// `doc`.
+///
+/// Checks that fail before `apply_update` return [`UpdateInPlaceError::Untouched`] with
+/// `doc` intact; failures during or after `apply_update` drop `doc` and return
+/// [`UpdateInPlaceError::Dirty`], telling the caller to rebuild from its checkpoint.
+pub(crate) fn with_update_in_place(
+    doc: Doc,
+    prior_state: &[u8],
+    prior_changes: u64,
+    update: &[u8],
+    limits: &UpdateLimits,
+) -> Result<Settled, UpdateInPlaceError> {
+    if update.len() > limits.update_bytes {
+        return Err(UpdateInPlaceError::Untouched(
+            doc,
+            UpdateError::TooLarge {
+                size: update.len(),
+                limit: limits.update_bytes,
+            },
+        ));
+    }
+    let (sent, clients) = match read(&doc, update) {
+        Ok(read) => read,
+        Err(error) => return Err(UpdateInPlaceError::Untouched(doc, error)),
+    };
+    if let Some(limit) = limits.clients
+        && clients > limit
+    {
+        return Err(UpdateInPlaceError::Untouched(
+            doc,
+            UpdateError::TooManyClients { clients, limit },
+        ));
+    }
+    if let Some(limit) = limits.placing_steps {
+        if let Err(error) = deletions_in_order(&sent) {
+            return Err(UpdateInPlaceError::Untouched(doc, error));
+        }
+        let steps = match charged(&doc, (prior_state, prior_changes), (update, &sent), limit) {
+            Ok(steps) => steps,
+            Err(error) => return Err(UpdateInPlaceError::Untouched(doc, error)),
+        };
+        if steps > limit {
+            return Err(UpdateInPlaceError::Untouched(
+                doc,
+                UpdateError::PlacedPastTooMany { steps, limit },
+            ));
+        }
+    }
+    apply_and_settle(doc, sent, limits).map_err(UpdateInPlaceError::Dirty)
 }
 
 /// The Y document as it would be with a client's update: a copy of `doc` with the
@@ -434,7 +639,7 @@ pub(crate) fn with_update(
     with_update_sized(doc, update, limits).map(|settled| settled.doc)
 }
 
-/// [`with_update`], with the size of the state of what comes back.
+/// [`with_update`], with the settled state and counts of what comes back.
 pub(crate) fn with_update_sized(
     doc: &Doc,
     update: &[u8],
@@ -463,24 +668,7 @@ pub(crate) fn with_update_sized(
         }
     }
     drop(state);
-    let update = sent;
-    {
-        let mut txn = copy.transact_mut();
-        txn.apply_update(update)
-            .map_err(|error| UpdateError::Unappliable(error.to_string()))?;
-    }
-    {
-        let txn = copy.transact();
-        if txn.has_missing_updates() {
-            return Err(UpdateError::MissingChanges);
-        }
-        for (name, root) in txn.root_refs() {
-            if name != FIELD || !matches!(root, Out::YXmlFragment(_)) {
-                return Err(UpdateError::UnexpectedRoot(name.to_owned()));
-            }
-        }
-    }
-    settled_sized(copy, limits)
+    apply_and_settle(copy, sent, limits)
 }
 
 /// Refuses an update whose deletions of a client go back or overlap. The library walks
@@ -547,20 +735,21 @@ pub(crate) enum Outcome {
     Settled,
     /// Not read back: reading its state would take `steps` steps, past `limit`.
     /// Must be made again from its body before its state is stored or another update
-    /// is taken, and refused with [`UpdateError::TooManyReadingSteps`] if a repair
-    /// is needed.
+    /// is taken.
     Remake { steps: u64, limit: u64 },
 }
 
 /// A document as a server that stored it reads it ([`settled_sized`]), or the
-/// unsettled copy when reading its state would take more steps than allowed
-/// ([`Outcome::Remake`]), with the size of its state, the most changes of one of its
-/// clients, the steps the library takes to read it from its state, and the most it
-/// may take once one more client has written into it (0 where they are not counted).
+/// unsettled document when reading its state would take more steps than allowed
+/// ([`Outcome::Remake`]), with its state bytes, total change count, the most changes of
+/// one of its clients, the steps the library takes to read it from its state, and the
+/// most it may take once one more client has written into it (0 where they are not
+/// counted).
 #[derive(Debug)]
 pub(crate) struct Settled {
     pub(crate) doc: Doc,
-    pub(crate) state_bytes: usize,
+    pub(crate) state: Vec<u8>,
+    pub(crate) changes: u64,
     pub(crate) client_changes: u64,
     pub(crate) reading_steps: u64,
     pub(crate) steps_ahead: u64,
@@ -594,27 +783,31 @@ fn check_client_changes(changes: u64, limits: &UpdateLimits) -> Result<(), Updat
 /// [`UpdateError::LeavesUnreadable`] for a state that does not read again to itself.
 pub(crate) fn settled_sized(doc: Doc, limits: &UpdateLimits) -> Result<Settled, UpdateError> {
     let state = state_of(&doc);
+    settled_from(doc, state, limits)
+}
+
+/// [`settled_sized`] given `doc` and its already-encoded `state`.
+fn settled_from(doc: Doc, state: Vec<u8>, limits: &UpdateLimits) -> Result<Settled, UpdateError> {
     if state.len() > limits.state_bytes {
         return Err(UpdateError::DocumentTooLarge {
             size: state.len(),
             limit: limits.state_bytes,
         });
     }
-    let again = match read_counted(&state, limits)? {
-        ReadOutcome::Read(again) => {
-            check_client_changes(again.client_changes, limits)?;
-            again
-        }
+    let again = match count_and_read(doc, &state, limits)? {
+        ReadOutcome::Read(again) => again,
         ReadOutcome::PastLimit {
+            doc,
+            changes,
             client_changes,
             steps,
             steps_ahead,
             limit,
         } => {
-            check_client_changes(client_changes, limits)?;
             return Ok(Settled {
                 doc,
-                state_bytes: state.len(),
+                state,
+                changes,
                 client_changes,
                 reading_steps: steps,
                 steps_ahead,
@@ -626,34 +819,37 @@ pub(crate) fn settled_sized(doc: Doc, limits: &UpdateLimits) -> Result<Settled, 
     if same_state(&state_again, &state) {
         return Ok(Settled {
             doc: again.doc,
-            state_bytes: state_again.len(),
+            state: state_again,
+            changes: again.changes,
             client_changes: again.client_changes,
             reading_steps: again.reading_steps,
             steps_ahead: again.steps_ahead,
             outcome: Outcome::Settled,
         });
     }
+    if state_again.len() > limits.state_bytes {
+        return Err(UpdateError::DocumentTooLarge {
+            size: state_again.len(),
+            limit: limits.state_bytes,
+        });
+    }
     // A first reading may write the same document otherwise (neighbouring changes it
     // joins); a second must not. What it writes is what is stored and read from then
     // on, and a change it joined is cut again by every reading: counted as well.
-    let read_twice = match read_counted(&state_again, limits)? {
+    let read_twice = match count_and_read(again.doc, &state_again, limits)? {
         ReadOutcome::Read(read_twice) => read_twice,
         ReadOutcome::PastLimit {
+            doc,
+            changes,
             client_changes,
             steps,
             steps_ahead,
             limit,
         } => {
-            if state_again.len() > limits.state_bytes {
-                return Err(UpdateError::DocumentTooLarge {
-                    size: state_again.len(),
-                    limit: limits.state_bytes,
-                });
-            }
-            check_client_changes(client_changes, limits)?;
             return Ok(Settled {
-                doc: again.doc,
-                state_bytes: state_again.len(),
+                doc,
+                state: state_again,
+                changes,
                 client_changes: again.client_changes.max(client_changes),
                 reading_steps: steps,
                 steps_ahead,
@@ -669,8 +865,9 @@ pub(crate) fn settled_sized(doc: Doc, limits: &UpdateLimits) -> Result<Settled, 
     }
     Ok(Settled {
         doc: read_twice.doc,
-        state_bytes: state_settled.len(),
-        client_changes: again.client_changes,
+        state: state_settled,
+        changes: read_twice.changes,
+        client_changes: again.client_changes.max(read_twice.client_changes),
         reading_steps: read_twice.reading_steps,
         steps_ahead: read_twice.steps_ahead,
         outcome: Outcome::Settled,

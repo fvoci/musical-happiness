@@ -784,29 +784,33 @@ fn an_update_of_a_client_below_the_document_is_refused_or_taken_in_time() {
         most
     };
     // The most changes an update may walk: each walks about half the list.
+    // Past reading steps with an unknown node to repair: repaired in place and marked
+    // for remake without re-reading the slow state.
     let placed = most_within(&|changes| {
         placing_steps(&doc, &walking(changes)).expect("counted") <= PLACING_STEPS
     });
     assert!(placed > 100, "{placed} changes");
     let start = Instant::now();
-    let refused = take_update(&doc, &walking(placed), &ROOMY).expect_err("too many steps");
+    let over = take_update(&doc, &walking(placed), &ROOMY).expect("repaired and marked for remake");
     let took = start.elapsed();
+    assert!(over.remake, "past reading steps: must remake");
+    assert_eq!(over.repair.deleted, 1, "unknown node repaired in place");
     assert!(
-        matches!(
-            refused,
-            TakeError::Update(UpdateError::TooManyReadingSteps { .. })
-        ),
-        "{refused}"
+        over.reading_steps > READING_STEPS,
+        "{} steps",
+        over.reading_steps
     );
-    assert!(took < Duration::from_secs(5), "refused in {took:?}");
-    // The most changes that leave a document within its steps: a third as many.
+    assert!(took < Duration::from_secs(5), "taken in {took:?}");
+    // The most changes that leave a document settled within its steps: a third as many.
     let read = most_within(&|changes| {
         placing_steps(&doc, &walking(changes)).expect("counted") <= READING_STEPS
     });
     let most = (1..=read)
         .rev()
-        .find(|changes| take_update(&doc, &walking(*changes), &ROOMY).is_ok())
-        .expect("a change is taken");
+        .find(|changes| {
+            take_update(&doc, &walking(*changes), &ROOMY).is_ok_and(|taken| !taken.remake)
+        })
+        .expect("a change is taken settled");
     assert!(
         most * 4 > placed && read - most < 3,
         "{most} of {read} changes"
@@ -814,6 +818,7 @@ fn an_update_of_a_client_below_the_document_is_refused_or_taken_in_time() {
     let start = Instant::now();
     let taken = take_update(&doc, &walking(most), &ROOMY).expect("taken");
     let took = start.elapsed();
+    assert!(!taken.remake, "within reading steps: settled");
     assert_eq!(taken.repair.deleted, 1);
     assert!(
         taken.reading_steps * 10 > READING_STEPS * 9,

@@ -55,6 +55,22 @@ const LIMITS: UpdateLimits = UpdateLimits {
     reading_steps: Some(READING_STEPS),
 };
 
+/// Runs `run` [`RUNS`] times, preparing fresh input with `setup` outside the timer, and
+/// returns the times with what the middle run returned.
+fn timed_with<S, T>(mut setup: impl FnMut() -> S, mut run: impl FnMut(S) -> T) -> (Runs, T) {
+    let mut runs: Vec<(Duration, T)> = (0..RUNS)
+        .map(|_| {
+            let input = setup();
+            let start = Instant::now();
+            let value = run(input);
+            (start.elapsed(), value)
+        })
+        .collect();
+    let times: Vec<Duration> = runs.iter().map(|(took, _)| *took).collect();
+    runs.sort_by_key(|(took, _)| *took);
+    (Runs::of(&times), runs.swap_remove(RUNS / 2).1)
+}
+
 #[test]
 #[ignore = "a measurement, run by name in a release build"]
 fn times() {
@@ -67,13 +83,26 @@ fn times() {
         let body_bytes = serde_json::to_vec(body.document()).expect("JSON").len();
         let (made, doc) = timed(|| from_body(&body));
         let state = state_of(&doc);
+        let changes = changes_of(&state);
         let (projected, read) = timed(|| to_body(&doc).expect("a body"));
         assert!(read.is_some(), "{name}: a body");
         let update = typed(&doc);
-        let (taken, with) = timed(|| take_update(&doc, &update, &LIMITS).expect("taken"));
+        let (taken, with) = timed_with(
+            || BodyDoc::from_state(&state, &LIMITS).expect("opened").doc,
+            |held| {
+                held.take_in_place(&state, changes, &update, &LIMITS)
+                    .expect("taken")
+            },
+        );
         assert_eq!(with.repair.deleted, 0, "{name}: nothing to repair");
         let update = unknown(&doc);
-        let (repaired, with) = timed(|| take_update(&doc, &update, &LIMITS).expect("repaired"));
+        let (repaired, with) = timed_with(
+            || BodyDoc::from_state(&state, &LIMITS).expect("opened").doc,
+            |held| {
+                held.take_in_place(&state, changes, &update, &LIMITS)
+                    .expect("repaired")
+            },
+        );
         assert_eq!(with.repair.deleted, 1, "{name}: the unknown node went");
         let (opened, _) = timed(|| from_state(&state, &LIMITS).expect("opened"));
         // Reading the lists of the document, which an update of many changes pays
@@ -149,43 +178,41 @@ fn applied(state: yrs::Update) -> Doc {
     doc
 }
 
-/// Takes `update` into `doc` as [`take_update`] does an update that needs no repair,
-/// one pass at a time, and the passes the worker makes after it
+/// Takes `update` into `doc` in place as [`BodyDoc::take_in_place`] does an update that
+/// needs no repair, one pass at a time, and the passes the worker makes after it
 /// (`collab_worker/serve.rs`); with the state and the body of the document it leaves.
 ///
-/// What is left out takes the update's time, not the state's: its deletions held to
-/// their order, its roots looked at, and the clients' ends compared after the count.
-/// The update is read (`update::read`, the walk of it and its clients counted against
-/// the document's) inside the charge. The charge reads the clocks of the state only
-/// where its cheap count of the update's changes against all of the document's is past
-/// [`PLACING_STEPS`], and its lists only where the count of the clocks is past it too;
-/// the row says whether it went past the cheap count.
-fn take_by_passes(doc: &Doc, update: &[u8]) -> (Passes, Vec<u8>, Option<Body>) {
+/// Passes 1–4 of the old copy-first take (`state_of`, `scan`, `decode`, `apply to copy`)
+/// are gone: the update is charged against the held `doc` and cached `prior_state` /
+/// `prior_changes`, applied in place, and the held `doc` is dropped before the settled
+/// read-back.
+fn take_by_passes(
+    doc: Doc,
+    prior_state: &[u8],
+    prior_changes: u64,
+    update: &[u8],
+) -> (Passes, Vec<u8>, Option<Body>) {
     use yrs::updates::decoder::Decode as _;
     let mut passes = Passes::default();
     let take = Paid::InTheTake;
     let decode = |state: &[u8]| yrs::Update::decode_v1(state).expect("an update");
-    let state = passes.time("1. state_of the document", take, || state_of(doc));
-    let changes = passes.time("2. scan of its state", take, || changes_of(&state));
-    let read = passes.time("3. decode", take, || decode(&state));
-    let copy = passes.time("4. apply to a copy", take, || applied(read));
     passes.time(
         "4a. the update read and charged (update::read, placing::charge)",
         take,
-        || charged(&copy, &state, changes, update, PLACING_STEPS).expect("charged"),
+        || charged(&doc, prior_state, prior_changes, update, PLACING_STEPS).expect("charged"),
     );
     // Past no limit the charge is its cheap count, which it gives where that is within
     // the limit, and reads the state's clocks, and maybe its lists, for otherwise.
-    let cheap =
-        charged(&copy, &state, changes, update, u64::MAX).expect("charged") <= PLACING_STEPS;
+    let cheap = charged(&doc, prior_state, prior_changes, update, u64::MAX).expect("charged")
+        <= PLACING_STEPS;
     // Decoded already in the take, by `update::read`.
     let sent = decode(update);
-    passes.time("4b. the update applied to the copy", take, || {
-        copy.transact_mut()
+    passes.time("4b. the update applied in place", take, || {
+        doc.transact_mut()
             .apply_update(sent)
             .expect("the update applies");
     });
-    let state = passes.time("5. state_of the copy", take, || state_of(&copy));
+    let state = passes.time("5. state_of the document", take, || state_of(&doc));
     let read_steps = passes.time("6. reading::count", take, || {
         reading_steps(&state, READING_STEPS).expect("a state")
     });
@@ -193,6 +220,9 @@ fn take_by_passes(doc: &Doc, update: &[u8]) -> (Passes, Vec<u8>, Option<Body>) {
         read_steps <= READING_STEPS,
         "read within its steps: {read_steps}"
     );
+    passes.time("the held document dropped before read-back", take, || {
+        drop(doc);
+    });
     let read = passes.time("7. decode", take, || decode(&state));
     let mut again = passes.time("8. apply", take, || applied(read));
     let mut state_again = passes.time("9. state_of again", take, || state_of(&again));
@@ -201,13 +231,13 @@ fn take_by_passes(doc: &Doc, update: &[u8]) -> (Passes, Vec<u8>, Option<Body>) {
         // `settled_sized` reads what the first reading wrote once more.
         (again, state_again) = passes.time("6–10 again: read twice", take, || {
             reading_steps(&state_again, READING_STEPS).expect("a state");
+            drop(again);
             let twice = applied(decode(&state_again));
             let settled = state_of(&twice);
             assert!(same_state(&settled, &state_again), "it reads to itself");
             (twice, settled)
         });
     }
-    passes.time("the copy dropped", take, || drop(copy));
     let json = passes.time("11. projection", take, || {
         projected(&again).expect("a body")
     });
@@ -228,11 +258,9 @@ fn take_by_passes(doc: &Doc, update: &[u8]) -> (Passes, Vec<u8>, Option<Body>) {
             .expect("a body")
             .map(|body| serde_json::to_vec(body.document()).expect("JSON"))
     });
-    passes.time(
-        "a document as large dropped (the worker drops the one it replaces)",
-        Paid::ByTheWorker,
-        || drop(again),
-    );
+    passes.time("settled document dropped", Paid::ByTheWorker, || {
+        drop(again);
+    });
     passes.0.push((
         if cheap {
             "(the charge: the cheap count, the state's clocks and lists not read)"
@@ -245,10 +273,9 @@ fn take_by_passes(doc: &Doc, update: &[u8]) -> (Passes, Vec<u8>, Option<Body>) {
     (passes, state_again, body)
 }
 
-/// How long each pass of an ordinary take takes, for the shapes of [`PASSED`]: a
-/// paragraph typed at the end, taken pass by pass ([`take_by_passes`]), beside the
-/// whole take and what is left of it. The passes are held to leave what
-/// [`take_update`] leaves; the two are taken in turn, one first and then the other.
+/// How long each pass of an ordinary in-place take takes, for the shapes of [`PASSED`]:
+/// a paragraph typed at the end, taken pass by pass ([`take_by_passes`]), beside
+/// [`BodyDoc::take_in_place`] and [`take_update`].
 #[test]
 #[ignore = "a measurement, run by name in a release build"]
 fn passes() {
@@ -257,35 +284,43 @@ fn passes() {
     for (name, document) in shapes::measured(&PASSED) {
         let doc = from_body(&body_of(&document));
         let state = state_of(&doc);
+        let changes = changes_of(&state);
         println!(
             "| {name} | the document: {} nodes, a state of {:.2} MB, {} changes of its writer | | |",
             nodes_of(&document),
             mega(state.len()),
-            changes_of(&state),
+            changes,
         );
-        drop((document, state));
+        drop(document);
         let update = typed(&doc);
         let mut rounds = Vec::new();
         let mut wholes = Vec::new();
         for round in 0..RUNS {
             let whole = || {
+                let held = BodyDoc::from_state(&state, &LIMITS).expect("opened").doc;
                 let start = Instant::now();
-                let taken = take_update(&doc, &update, &LIMITS).expect("taken");
+                let taken = held
+                    .take_in_place(&state, changes, &update, &LIMITS)
+                    .expect("taken");
                 (start.elapsed(), taken)
             };
-            let ((took, taken), (passes, state, body)) = if round % 2 == 0 {
-                let by_passes = take_by_passes(&doc, &update);
+            let by_passes = || {
+                let fresh = from_state(&state, &LIMITS).expect("opened").doc;
+                take_by_passes(fresh, &state, changes, &update)
+            };
+            let ((took, taken), (passes, got_state, body)) = if round % 2 == 0 {
+                let by_passes = by_passes();
                 (whole(), by_passes)
             } else {
                 let whole = whole();
-                (whole, take_by_passes(&doc, &update))
+                (whole, by_passes())
             };
             let start = Instant::now();
             let with = with_update(&doc, &update, &LIMITS).expect("taken");
             let with_update = start.elapsed();
             assert_eq!(taken.repair.deleted, 0, "{name}: nothing to repair");
             assert!(
-                state == state_of(&taken.doc),
+                got_state == taken.state,
                 "{name}: the passes leave its state"
             );
             assert_eq!(body, taken.repair.body, "{name}: the passes leave its body");
@@ -316,7 +351,7 @@ fn passes() {
             Paid::Told,
             of(|whole| whole.2),
         );
-        row("take_update", Paid::InTheTake, of(|whole| whole.0));
+        row("take_in_place", Paid::InTheTake, of(|whole| whole.0));
         // Less than nothing where the passes, each timed alone, took longer.
         let mut rest: Vec<f64> = wholes
             .iter()
@@ -324,12 +359,12 @@ fn passes() {
             .collect();
         rest.sort_by(f64::total_cmp);
         println!(
-            "| {name} | take_update less its passes | | {:.1} ({:.1}–{:.1}) |",
+            "| {name} | take_in_place less its passes | | {:.1} ({:.1}–{:.1}) |",
             rest[RUNS / 2],
             rest[0],
             rest[RUNS - 1]
         );
-        row("with_update (1–10)", Paid::Told, of(|whole| whole.1));
+        row("with_update (copy+1–10)", Paid::Told, of(|whole| whole.1));
     }
 }
 
@@ -360,7 +395,19 @@ fn honest() {
         }
         let doc = honest::document(&document);
         for edit in honest::edits(&doc, &LIMITS) {
-            let (took, _) = timed(|| take_update(&edit.doc, &edit.update, &LIMITS).expect("taken"));
+            let edit_state = state_of(&edit.doc);
+            let edit_changes = changes_of(&edit_state);
+            let (took, _) = timed_with(
+                || {
+                    BodyDoc::from_state(&edit_state, &LIMITS)
+                        .expect("opened")
+                        .doc
+                },
+                |doc| {
+                    doc.take_in_place(&edit_state, edit_changes, &edit.update, &LIMITS)
+                        .expect("taken")
+                },
+            );
             println!(
                 "| {name} | {} | {} | {took} |",
                 edit.name,
@@ -643,8 +690,8 @@ fn most_during<T>(run: impl FnOnce() -> T) -> usize {
 }
 
 /// The memory of each shape: what the document a worker holds takes, and the most an
-/// update takes above it while it is taken, with a repair and without. Bytes the
-/// program asked for; what the allocator keeps around them comes on top.
+/// in-place update takes above it while it is taken, with a repair and without. Bytes
+/// the program asked for; what the allocator keeps around them comes on top.
 #[test]
 #[ignore = "a measurement, run by name in a release build"]
 fn memory() {
@@ -653,13 +700,33 @@ fn memory() {
     for (name, document) in shapes::measured(&SHAPES) {
         let state = state_of(&from_body(&body_of(&document)));
         drop(document);
+        let sample = from_state(&state, &LIMITS).expect("opened").doc;
+        let typed = typed(&sample);
+        let unknown = unknown(&sample);
+        drop(sample);
+
         let before = allocated();
-        let held = from_state(&state, &LIMITS).expect("opened").doc;
+        let opened = BodyDoc::from_state(&state, &LIMITS).expect("opened");
+        let doc = opened.doc;
+        let changes = opened.changes;
+        drop(opened.repair);
+        drop(opened.state);
         let holding = allocated().saturating_sub(before);
-        let typed = typed(&held);
-        let unknown = unknown(&held);
-        let taking = most_during(|| take_update(&held, &typed, &LIMITS).expect("taken"));
-        let repairing = most_during(|| take_update(&held, &unknown, &LIMITS).expect("repaired"));
+        let taking = most_during(|| {
+            doc.take_in_place(&state, changes, &typed, &LIMITS)
+                .expect("taken")
+        });
+
+        let opened = BodyDoc::from_state(&state, &LIMITS).expect("opened");
+        let doc = opened.doc;
+        let changes = opened.changes;
+        drop(opened.repair);
+        drop(opened.state);
+        let repairing = most_during(|| {
+            doc.take_in_place(&state, changes, &unknown, &LIMITS)
+                .expect("repaired")
+        });
+
         let per = |bytes: usize| mega(bytes) / mega(state.len());
         println!(
             "| {name} | {:.2} MB | {} | {:.1} MB ({:.1}x) | +{:.1} MB ({:.1}x) | +{:.1} MB ({:.1}x) |",

@@ -9,11 +9,14 @@ use yrs::{Doc, ReadTxn, StateVector, Transact};
 use crate::build::{from_body, new_doc};
 use crate::project::to_body;
 use crate::repair::Repair;
-use crate::take::{TakeError, from_state, take_update};
-use crate::update::{UpdateError, UpdateLimits, state_of};
+use crate::take::{TakeError, TakeInPlaceError, from_state, take_update, take_update_in_place};
+use crate::update::{UpdateError, UpdateLimits, rebuild, state_of};
 
-/// The Y document of a body. It is made from a stored body or state and replaced by
-/// the one an update leaves; it is never changed in place.
+/// The Y document of a body. It is made from a stored body or state; callers either
+/// take updates on a copy ([`BodyDoc::take`]) or consume it in place
+/// ([`BodyDoc::take_in_place`]) and rebuild from their checkpoint ([`BodyDoc::rebuild`])
+/// if an update is refused after modifying it, so no caller ever observes a partially
+/// mutated document.
 #[derive(Debug)]
 pub struct BodyDoc {
     doc: Doc,
@@ -27,8 +30,12 @@ pub struct Changed {
     pub doc: BodyDoc,
     /// Its body, and what a repair changed to make it one ([`Repair`]).
     pub repair: Repair,
+    /// Its whole state ([`BodyDoc::state`]), already encoded.
+    pub state: Vec<u8>,
     /// The size of its state ([`BodyDoc::state`]), in bytes.
     pub state_bytes: usize,
+    /// How many changes it holds in total.
+    pub changes: u64,
     /// The most changes one of its clients has, deleted ones too
     /// ([`crate::MAX_CLIENT_CHANGES`]).
     pub client_changes: u64,
@@ -41,6 +48,33 @@ pub struct Changed {
     /// Whether `doc` must be made again from its body ([`BodyDoc::from_body`]) before
     /// its state is stored or another update is taken ([`crate::Taken::remake`]).
     pub remake: bool,
+}
+
+/// Why [`BodyDoc::take_in_place`] refused an update.
+#[derive(Debug)]
+pub enum BodyTakeError {
+    /// Refused before the document was mutated; the untouched `doc` is returned.
+    Untouched {
+        /// The unchanged document.
+        doc: BodyDoc,
+        /// Why the update was refused.
+        error: TakeError,
+    },
+    /// Refused during or after mutating the document; the document was dropped and the
+    /// caller must rebuild from its checkpoint with [`BodyDoc::rebuild`].
+    Dirty(TakeError),
+}
+
+/// Counts read from a document's state in one pass ([`state_counts`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StateCounts {
+    /// How many changes the state holds in total.
+    pub changes: u64,
+    /// The most changes one client has in the state, deleted ones too.
+    pub client_changes: u64,
+    /// The most steps the Y library may take to read it once one more client has
+    /// written into it ([`steps_ahead`]).
+    pub steps_ahead: u64,
 }
 
 impl Default for BodyDoc {
@@ -82,6 +116,44 @@ impl BodyDoc {
     /// As [`crate::take_update`].
     pub fn take(&self, update: &[u8], limits: &UpdateLimits) -> Result<Changed, TakeError> {
         take_update(&self.doc, update, limits).map(Changed::from)
+    }
+
+    /// Takes a client's update into `self` in place, using `prior_state` and
+    /// `prior_changes` (from opening or the previous [`Changed`]) to charge placing
+    /// steps without copying `self`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BodyTakeError::Untouched`] with `self` intact if the update was
+    /// refused before mutation, or [`BodyTakeError::Dirty`] if the update was refused
+    /// during or after mutation (callers must rebuild with [`BodyDoc::rebuild`]).
+    pub fn take_in_place(
+        self,
+        prior_state: &[u8],
+        prior_changes: u64,
+        update: &[u8],
+        limits: &UpdateLimits,
+    ) -> Result<Changed, BodyTakeError> {
+        match take_update_in_place(self.doc, prior_state, prior_changes, update, limits) {
+            Ok(taken) => Ok(Changed::from(taken)),
+            Err(TakeInPlaceError::Untouched(doc, error)) => Err(BodyTakeError::Untouched {
+                doc: Self { doc },
+                error,
+            }),
+            Err(TakeInPlaceError::Dirty(error)) => Err(BodyTakeError::Dirty(error)),
+        }
+    }
+
+    /// Rebuilds a settled document from a checkpoint `base` state and the accepted
+    /// updates and repairs `since` it, restoring a state byte-for-byte identical to the
+    /// settled document before a rejected in-place update.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UpdateError`] if `base` or any update in `since` cannot be read or
+    /// settled.
+    pub fn rebuild<U: AsRef<[u8]>>(base: &[u8], since: &[U]) -> Result<Self, UpdateError> {
+        rebuild(base, since).map(|doc| Self { doc })
     }
 
     /// The whole document as a version 1 update, as it is stored ([`crate::state_of`]).
@@ -128,13 +200,31 @@ impl From<crate::Taken> for Changed {
         Self {
             doc: BodyDoc { doc: taken.doc },
             repair: taken.repair,
+            state: taken.state,
             state_bytes: taken.state_bytes,
+            changes: taken.changes,
             client_changes: taken.client_changes,
             reading_steps: taken.reading_steps,
             steps_ahead: taken.steps_ahead,
             remake: taken.remake,
         }
     }
+}
+
+/// Counts total changes, max changes per client, and [`steps_ahead`] of a document's
+/// `state` in a single pass.
+///
+/// # Errors
+///
+/// Returns [`UpdateError::Unreadable`] if the bytes are no whole state the crate reads.
+pub fn state_counts(state: &[u8]) -> Result<StateCounts, UpdateError> {
+    crate::reading::count(state, crate::READING_STEPS)
+        .map(|read| StateCounts {
+            changes: read.walked.changes,
+            client_changes: read.walked.most,
+            steps_ahead: read.ahead,
+        })
+        .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))
 }
 
 /// The most changes one client has in a document's `state`, deleted ones too
@@ -170,7 +260,7 @@ pub fn reading_steps(state: &[u8], stop_past: u64) -> Result<u64, UpdateError> {
 /// sessions wrote one after the other is read in few steps, or in none, until a
 /// session whose client is read before the others writes after the last of them:
 /// the update that brings it past [`crate::READING_STEPS`] forces an immediate remake
-/// from its body ([`Changed::remake`], or is refused if it also needs a repair), though
+/// from its body ([`Changed::remake`]), though
 /// nothing in it was made to be slow. What holds a document makes it again from its body
 /// while this is far from that limit, before such an update comes.
 ///
@@ -178,8 +268,8 @@ pub fn reading_steps(state: &[u8], stop_past: u64) -> Result<u64, UpdateError> {
 /// change of the document it cuts in two by writing or deleting inside it, is looked
 /// at for every client as well, a step for every 128 clients. An update of tens of
 /// thousands of those into a document of thousands of clients can still pass the
-/// limit, and is taken with [`Changed::remake`] set so the document is made again
-/// from its body without losing it (unless it also needs a repair).
+/// limit, and is taken (and repaired in place if needed) with [`Changed::remake`] set
+/// so the document is made again from its body without losing it.
 /// Counted no further than a little past [`crate::READING_STEPS`].
 ///
 /// # Errors

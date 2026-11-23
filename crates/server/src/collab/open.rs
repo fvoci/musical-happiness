@@ -94,6 +94,7 @@ impl Collab {
             client_changes,
             steps_ahead,
             must_remake: false,
+            wants_fold: false,
             last_writer: block.modified_by.clone(),
             first_unwritten: None,
             last_update: Instant::now(),
@@ -151,6 +152,7 @@ impl Collab {
             client_changes: 0,
             steps_ahead: 0,
             must_remake: false,
+            wants_fold: false,
             // Who sent the last update logged, which the fold of the log keeps.
             last_writer: if stored.last_writer.is_empty() {
                 block.modified_by.clone()
@@ -278,7 +280,17 @@ impl Collab {
                 .fold_body_doc(card_id, &repaired, state_seq, open.as_read())
                 .await?;
         }
+        let mut skip_repair: Option<Vec<u8>> = None;
         for update in updates {
+            if update.written_by.is_empty()
+                && skip_repair.as_deref() == Some(update.bytes.as_slice())
+            {
+                // The preceding `Retake` left the document past `READING_STEPS` and
+                // already applied this repair in place; skip the logged repair row.
+                skip_repair = None;
+                continue;
+            }
+            skip_repair = None;
             if open.must_remake {
                 // Another logged update follows one that already left the document
                 // unsettled past `READING_STEPS`: do not hand the slow state back to
@@ -301,11 +313,13 @@ impl Collab {
                 (
                     _,
                     Answer::Taken {
+                        repair,
                         state_bytes,
                         clients,
                         client_changes,
                         steps_ahead,
                         remake,
+                        fold,
                         ..
                     },
                 ) => {
@@ -314,6 +328,10 @@ impl Collab {
                     open.client_changes = client_changes;
                     open.steps_ahead = steps_ahead;
                     open.must_remake |= remake;
+                    open.wants_fold |= fold;
+                    if remake {
+                        skip_repair = repair;
+                    }
                 }
                 (_, other) => return Err(unexpected(&other).into()),
             }

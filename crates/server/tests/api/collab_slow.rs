@@ -1,9 +1,9 @@
 //! Documents made slow to read: changes that each walk a long list every time the Y
 //! library reads the document from its state. An update that leaves a valid body past
-//! the steps it may take to read is logged, written to the card, and the document made
-//! again from that body so the update is kept (only one that also needs a repair is
-//! refused), as one near the steps it may take is, and one stored before the steps
-//! were counted is opened without ending a worker.
+//! the steps it may take to read (including one repaired in place) is logged, written
+//! to the card, and the document made again from that body so the update is kept, as
+//! one near the steps it may take is, and one stored before the steps were counted is
+//! opened without ending a worker.
 
 use std::time::Duration;
 
@@ -11,7 +11,6 @@ use fvoci_collab::testing::Editor;
 use fvoci_collab::{BodyDoc, READING_STEPS, UpdateLimits, reading_steps};
 use fvoci_model::ContainerType;
 use fvoci_server::collab::DocChange;
-use fvoci_server::error::{AppError, Reason};
 use fvoci_store::{BodyBefore, body_digest};
 use serde_json::{Value, json};
 
@@ -119,10 +118,6 @@ fn repair_needed_walkers(past: u64, children: u64) -> Run {
     run
 }
 
-fn reason_of(error: &AppError) -> Option<&'static str> {
-    error.reason().map(Reason::as_str)
-}
-
 /// A server that takes an update large enough to type a long list in.
 pub(crate) async fn roomy() -> TestServer {
     Setup::native()
@@ -191,110 +186,122 @@ async fn a_document_that_takes_many_steps_to_read_is_made_again_from_its_body() 
 
 /// An update that leaves a valid body past the steps a document may take to read is
 /// taken, logged, written to its card, and the document made again from that body so
-/// the update is kept (whether on a freshly made document or an edited one). An update
-/// past the steps that also needs a repair is still refused (`document_too_large`),
-/// without remaking a freshly made document, and remaking an edited one without the
-/// refused update.
+/// the update is kept — both without repair and when repaired in place (whether on a
+/// freshly made document or an edited one).
 #[tokio::test]
 async fn a_document_whose_update_is_past_its_steps_is_taken_and_made_again_from_its_body() {
     const CHILDREN: u64 = 10_000;
     let past = READING_STEPS / CHILDREN + 5;
     let th = roomy().await;
+
+    // 1. Past the steps without repair on a freshly made document.
     let e = editing(&th, &paragraphs(&["kept"])).await;
     let collab = e.app.collab();
     let mut events = collab.subscribe();
-    let mut told = || {
-        std::iter::from_fn(|| events.try_recv().ok())
-            .any(|event| event.card_id == e.card_id && event.change == DocChange::Remade)
-    };
     let loaded = collab.open(&e.app, &e.card_id).await.expect("opened");
-    let take = async |epoch: i64, update: Vec<u8>| {
-        collab
-            .take(&e.app, &e.card_id, epoch, &e.user1, &update)
-            .await
-    };
-
-    // Past the steps with a repair on a freshly made document: still refused, not remade.
-    let both_bad = update_of(&[repair_needed_walkers(past, CHILDREN), typing(CHILDREN)]);
-    let refused = take(loaded.epoch, both_bad)
-        .await
-        .expect_err("past the steps with a repair");
-    assert_eq!(
-        reason_of(&refused),
-        Some("document_too_large"),
-        "repair past steps is refused"
-    );
-    assert_eq!(stored(&e).await.epoch, loaded.epoch, "not made again");
-    assert!(!told(), "the room is told nothing");
-
-    // Past the steps with a valid body on a freshly made document: accepted and remade.
     let both = update_of(&[walkers(0, past, CHILDREN), typing(CHILDREN)]);
-    let taken = take(loaded.epoch, both)
+    let taken = collab
+        .take(&e.app, &e.card_id, loaded.epoch, &e.user1, &both)
         .await
         .expect("past the steps without repair is taken");
     assert!(taken.remade, "made again with the update");
-    assert!(told(), "the room is told");
+    assert!(taken.repair.is_none(), "no repair needed");
+    assert!(
+        std::iter::from_fn(|| events.try_recv().ok())
+            .any(|ev| ev.card_id == e.card_id && ev.change == DocChange::Remade),
+        "the room is told"
+    );
     let made = stored(&e).await;
     assert_eq!(made.epoch, loaded.epoch + 1, "made again");
-    assert_eq!(
-        reading_steps(&made.state, u64::MAX).expect("a state"),
-        0,
-        "a body's own document"
-    );
+    assert_eq!(reading_steps(&made.state, u64::MAX).expect("state"), 0);
     let (again, again_epoch) = joined(collab, &e.app, &e.card_id, 102).await;
     assert_eq!(again_epoch, made.epoch, "rejoined at the remade epoch");
     let body = again.body().map(|body| body.document().clone());
-    assert_eq!(
-        paragraphs_of(body.as_ref()),
-        10_001,
-        "the update's paragraphs are kept"
-    );
-    assert_eq!(
-        body_of(&card(&th.client, &e.card_id).await),
-        body,
-        "the card holds the remade body"
-    );
-    let on = take(again_epoch, again.append_paragraph("on"))
+    assert_eq!(paragraphs_of(body.as_ref()), 10_001);
+    assert_eq!(body_of(&card(&th.client, &e.card_id).await), body);
+    let on = collab
+        .take(
+            &e.app,
+            &e.card_id,
+            again_epoch,
+            &e.user1,
+            &again.append_paragraph("on"),
+        )
         .await
         .expect("an editor that loaded it again goes on");
     assert!(!on.remade, "not made again at every update");
 
-    // Past the steps with a repair on an edited document (`state_bytes > made_bytes`):
-    // still refused (`document_too_large`), and the edited document IS remade from its
-    // body without the refused update.
-    let typed_again = take(again_epoch, typed_in_order(CHILDREN))
-        .await
-        .expect("typed list on edited document");
-    assert!(!typed_again.remade, "typed list stays settled");
-    let refused_edited = take(
-        again_epoch,
-        update_of(&[repair_needed_walkers(past, CHILDREN)]),
+    // 2. Past the steps WITH an in-place repair on a freshly made document.
+    let e_fresh = editing(&th, &paragraphs(&["kept"])).await;
+    assert_repaired_past_steps_remakes(
+        &th,
+        &e_fresh,
+        None,
+        update_of(&[repair_needed_walkers(past, CHILDREN), typing(CHILDREN)]),
+        10_001,
     )
-    .await
-    .expect_err("past the steps with a repair on edited doc");
-    assert_eq!(
-        reason_of(&refused_edited),
-        Some("document_too_large"),
-        "repair past steps on edited doc is refused"
+    .await;
+
+    // 3. Past the steps WITH an in-place repair on an edited document (`state_bytes > made_bytes`).
+    let e_edited = editing(&th, &paragraphs(&["kept"])).await;
+    assert_repaired_past_steps_remakes(
+        &th,
+        &e_edited,
+        Some(typed_in_order(CHILDREN)),
+        update_of(&[repair_needed_walkers(past, CHILDREN)]),
+        10_001,
+    )
+    .await;
+
+    th.teardown().await;
+}
+
+async fn assert_repaired_past_steps_remakes(
+    th: &TestServer,
+    e: &Editing,
+    prefix: Option<Vec<u8>>,
+    heavy_with_repair: Vec<u8>,
+    expected_paragraphs: usize,
+) {
+    let collab = e.app.collab();
+    let mut events = collab.subscribe();
+    let loaded = collab.open(&e.app, &e.card_id).await.expect("opened");
+    if let Some(first) = prefix {
+        let taken = collab
+            .take(&e.app, &e.card_id, loaded.epoch, &e.user1, &first)
+            .await
+            .expect("prefix taken");
+        assert!(!taken.remade, "prefix stays settled");
+    }
+    let taken = collab
+        .take(
+            &e.app,
+            &e.card_id,
+            loaded.epoch,
+            &e.user1,
+            &heavy_with_repair,
+        )
+        .await
+        .expect("past the steps with repair is taken and remade");
+    assert!(taken.remade, "remade after in-place repair");
+    assert!(taken.repair.is_some(), "repair update returned");
+    assert!(
+        std::iter::from_fn(|| events.try_recv().ok())
+            .any(|ev| ev.card_id == e.card_id && ev.change == DocChange::Remade),
+        "the room is told"
     );
-    assert!(told(), "edited doc is remade after refusal");
-    let after_refusal = stored(&e).await;
+    let after = stored(e).await;
+    assert_eq!(after.epoch, loaded.epoch + 1, "made again");
     assert_eq!(
-        after_refusal.epoch,
-        made.epoch + 1,
-        "edited doc remade to next epoch"
-    );
-    assert_eq!(
-        reading_steps(&after_refusal.state, u64::MAX).expect("a state"),
+        reading_steps(&after.state, u64::MAX).expect("state"),
         0,
-        "remade after refusal takes 0 steps"
+        "remade after repair takes 0 steps"
     );
     assert_eq!(
         paragraphs_of(body_of(&card(&th.client, &e.card_id).await).as_ref()),
-        20_002,
-        "kept + first 10k + on + second 10k, without the refused update"
+        expected_paragraphs,
+        "all valid paragraphs preserved and unknown node deleted"
     );
-    th.teardown().await;
 }
 
 /// A card whose document is stored as updates that were taken before the steps of a
@@ -1043,6 +1050,96 @@ async fn recovering_after_projection_and_before_remake_dedups_mentions() {
         kinds(&told(&th, &th.client2).await),
         (vec!["mention"], 0),
         "no duplicate mention notification after post-projection recovery"
+    );
+    th.teardown().await;
+}
+
+/// Stopping the server at `paused_before_projection` after logging BOTH an update past
+/// `READING_STEPS` that needed an in-place repair AND its logged repair row recovers on
+/// restart without failing replay on the repair row: the repaired body (with the update's
+/// valid paragraphs and without the invalid node) is written to the card and the document
+/// is remade to 0 reading steps.
+#[tokio::test]
+async fn closing_at_paused_before_projection_keeps_a_repaired_update_past_reading_steps() {
+    const LIST: u64 = 10_000;
+    let past = READING_STEPS / LIST + 5;
+    let th = roomy().await;
+    let a = th.client.me().await;
+    let e = editing(&th, &paragraphs(&["kept"])).await;
+    let app = e.app.clone();
+    let collab = app.collab().clone();
+    let loaded = collab.open(&app, &e.card_id).await.expect("opened");
+    collab
+        .take(&app, &e.card_id, loaded.epoch, &a.id, &typed_in_order(LIST))
+        .await
+        .expect("typed");
+
+    let (waiting, go) = collab.pause_next_projection();
+    let heavy_with_repair = update_of(&[repair_needed_walkers(past, LIST)]);
+    let taking = tokio::spawn({
+        let (collab, app, card_id, user_id) =
+            (collab.clone(), app.clone(), e.card_id.clone(), a.id.clone());
+        async move {
+            collab
+                .take(&app, &card_id, loaded.epoch, &user_id, &heavy_with_repair)
+                .await
+        }
+    });
+    waiting.notified().await;
+
+    // Both the client update and its repair update are logged (3 rows total with typed),
+    // and the card has not been projected yet.
+    let logged = app
+        .store()
+        .get_body_doc(&e.card_id)
+        .await
+        .expect("read")
+        .expect("doc");
+    assert_eq!(
+        (logged.projected_seq, logged.log_end, logged.updates.len()),
+        (0, 3, 3),
+        "typed + heavy update + logged repair row are all persisted"
+    );
+    assert!(
+        logged.updates[2].written_by.is_empty(),
+        "third row is the repair update"
+    );
+
+    let th = th
+        .killed_and_started_again(async |old_app| {
+            old_app.store().close().await;
+            go.notify_one();
+            let taken = taking
+                .await
+                .expect("joined")
+                .expect("update and repair were logged before store closed");
+            assert!(taken.repair.is_some(), "repair update returned");
+            assert!(!taken.remade, "remake failed because store closed");
+        })
+        .await;
+
+    let expected = usize::try_from(LIST).expect("fits") + 1;
+    wait_for_paragraphs(&th, &e.card_id, expected).await;
+    let restarted = Editing {
+        card_id: e.card_id.clone(),
+        ..editing_app(&th).await
+    };
+    let (again, again_epoch) =
+        joined(restarted.app.collab(), &restarted.app, &e.card_id, 202).await;
+    let body = again.body().map(|body| body.document().clone());
+    assert_eq!(
+        paragraphs_of(body.as_ref()),
+        expected,
+        "all valid paragraphs kept and unknown element deleted"
+    );
+    let made = stored(&restarted).await;
+    assert_eq!(made.epoch, loaded.epoch + 1, "remade on restart");
+    assert_eq!(again_epoch, made.epoch, "rejoined at remade epoch");
+    assert_eq!(made.updates.len(), 0, "log cleared after remake");
+    assert_eq!(
+        reading_steps(&made.state, u64::MAX).expect("a state"),
+        0,
+        "recovered document takes 0 reading steps"
     );
     th.teardown().await;
 }
