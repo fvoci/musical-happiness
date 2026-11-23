@@ -28,6 +28,7 @@ import type { CardPreview } from '../editor/card-preview.ts';
 import type { FileDetails } from '../editor/files.ts';
 import { pagesTogether } from '../state/page-reads.ts';
 import { summaryOfBody } from '../state/body-summary.ts';
+import type { Courses } from '../state/course-types.ts';
 import type { LinkedBlock } from '../state/references.ts';
 import type { Wikis } from '../state/wiki-types.ts';
 import type { Container } from '../logic/wire.ts';
@@ -43,6 +44,7 @@ import {
   viewOf,
   type Schemas,
 } from './convert.ts';
+import { unitDetailOf, unitOf } from './courses.ts';
 import { Http, type ApiPath } from './http.ts';
 import { pageDetailOf, pageOf } from './wikis.ts';
 
@@ -139,6 +141,40 @@ export class SharedBackend implements Backend {
     undeletePage: refused,
     movePage: refused,
     duplicatePage: refused,
+  };
+  /**
+   * A course's link reads its outline and its units, naming nobody, and nothing
+   * else of a course (no comments, no versions, no subscriptions, no trash, no
+   * other course); nothing is changed.
+   */
+  readonly course: Courses = {
+    courses: nothing,
+    units: async (courseId) => {
+      this.#only(courseId);
+      const nodes = await this.#read<Schemas['UnitNode'][]>('/units');
+      return nodes.map((node) => unitOf(node, courseId));
+    },
+    unit: async (courseId, unitId) => {
+      this.#only(courseId);
+      return unitDetailOf(await this.#read<Schemas['Unit']>('/units/{unitId}', { unitId }));
+    },
+    comments: nothing,
+    createComment: refused,
+    patchComment: refused,
+    deleteComment: refused,
+    restoreComment: refused,
+    commentVersions: nothing,
+    bodyVersions: this.bodyVersions,
+    watching: nothing,
+    watchUnit: refused,
+    unwatchUnit: refused,
+    deletedUnits: nothing,
+    createCourse: refused,
+    createUnit: refused,
+    patchUnit: refused,
+    deleteUnit: refused,
+    undeleteUnit: refused,
+    moveUnit: refused,
   };
   readonly #http: Http;
   readonly #containerId: string;

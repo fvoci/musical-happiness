@@ -11,6 +11,8 @@
 import type { DocNode } from '../editor/schema.ts';
 import type { Container, ContainerType, MemberRole } from '../logic/wire.ts';
 
+import type { BodyWrite, Comment, CommentVersion } from './backend.ts';
+import type { BodyVersions } from './body-versions.ts';
 import type { DeletedItem, Paging } from './trash-reads.ts';
 
 /** Whether an outline entry is a unit (with a body) or a chapter (a top-level heading). */
@@ -94,9 +96,38 @@ export interface Courses {
   deletedUnits(courseId: string, paging?: Paging): Promise<DeletedItem[]>;
   /** Restores a unit (or a chapter with the units deleted with it) from the trash. */
   undeleteUnit(courseId: string, unitId: string): Promise<CourseUnitDetail>;
+
+  // Comments on a unit (chapters return 404).
+  /** Oldest first. Open-course unjoined workspace members may read. */
+  comments(courseId: string, unitId: string): Promise<Comment[]>;
+  /** For the course's commenters and up. A comment must be non-empty and have no file blocks. */
+  createComment(courseId: string, unitId: string, body: DocNode): Promise<Comment>;
+  /** Replaces a comment's text; 409 when it changed since `readAt`. */
+  patchComment(
+    courseId: string,
+    unitId: string,
+    commentId: string,
+    write: BodyWrite,
+  ): Promise<Comment>;
+  /** Moves a unit comment to the trash. */
+  deleteComment(courseId: string, unitId: string, commentId: string): Promise<void>;
+  /** Restores a deleted unit comment onto its unit. */
+  restoreComment(courseId: string, unitId: string, commentId: string): Promise<Comment>;
+  /** Previous texts of a unit comment. */
+  commentVersions(courseId: string, unitId: string, commentId: string): Promise<CommentVersion[]>;
+  /** The versions of a unit's body (chapters return 404). */
+  readonly bodyVersions: BodyVersions;
+
+  // Subscriptions (watching) for shared-workspace units.
+  /** Block IDs the user is subscribed to in the workspace. */
+  watching(workspaceId: string, subscriberId: string): Promise<string[]>;
+  /** Subscribes the user to notifications on a unit. */
+  watchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void>;
+  /** Unsubscribes the user from notifications on a unit. */
+  unwatchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void>;
 }
 
-/** Where a backend keeps its courses. Public link readers do not have courses until t5. */
+/** Where a backend keeps its courses. One by a public link reads only its course's outline and units. */
 export interface CoursesOfBackend {
   readonly course?: Courses;
 }

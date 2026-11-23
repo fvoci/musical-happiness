@@ -38,6 +38,7 @@
     onEditCourse: () => void;
     onDeleteCourse: () => void;
     onOpenTrash: () => void;
+    onShare?: (() => void) | undefined;
     /** Optional reserved slot for L2 "My progress". */
     progress?: Snippet | undefined;
     /** The outline tree rendered in the left column; receives a callback to close a narrow drawer. */
@@ -56,6 +57,8 @@
     outlineWrap?: Snippet<[Snippet]> | undefined;
     /** Live viewers badge for the unit heading. */
     viewers?: Snippet<[string]> | undefined;
+    /** Unit head actions (e.g. versions menu). */
+    unitActions?: Snippet<[UnitStore]> | undefined;
     /** Shown when a unit URL names a missing unit. */
     missingUnit: Snippet;
     /** The unit body editor. */
@@ -75,6 +78,7 @@
     onEditCourse,
     onDeleteCourse,
     onOpenTrash,
+    onShare,
     progress,
     tree,
     outlineButton,
@@ -84,6 +88,7 @@
     barAttach,
     outlineWrap,
     viewers,
+    unitActions,
     missingUnit,
     body,
     notice,
@@ -210,6 +215,7 @@
       onEdit={onEditCourse}
       onDelete={onDeleteCourse}
       onTrash={onOpenTrash}
+      {onShare}
       {progress}
     />
     {@render tree({
@@ -288,6 +294,7 @@
             unit={shownUnit}
             autofocus={autofocusUnit}
             viewers={viewers ? unitViewers : undefined}
+            actions={unitActions}
             {body}
           />
         {/key}

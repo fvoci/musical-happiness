@@ -9,21 +9,24 @@ const VIEW = '01930000-0000-7000-8000-0000000000c1';
 const CARD = '01930000-0000-7000-8000-0000000000d1';
 const WIKI = '01930000-0000-7000-8000-0000000000e1';
 const PAGE = '01930000-0000-7000-8000-0000000000f1';
+const COURSE = '01930000-0000-7000-8000-000000000011';
+const UNIT = '01930000-0000-7000-8000-000000000012';
 const here: Here = { origin: 'https://fvoci.example', basePath: '', workspaceId: WS };
 
-describe('the address of a card or a page', () => {
-  it('names the card of a card’s address and the page of a page’s', () => {
+describe('the address of a card, a page, or a unit', () => {
+  it('names the card, page, or unit of its address', () => {
     expect(referenceAt(`https://fvoci.example/w/${WS}/boards/${BOARD}/${VIEW}/${CARD}`, here)).toBe(
       CARD,
     );
     expect(referenceAt(`https://fvoci.example/w/${WS}/wikis/${WIKI}/${PAGE}`, here)).toBe(PAGE);
+    expect(referenceAt(`https://fvoci.example/w/${WS}/courses/${COURSE}/${UNIT}`, here)).toBe(UNIT);
     // A query and a fragment are no part of what is named.
     expect(
       referenceAt(`https://fvoci.example/w/${WS}/boards/${BOARD}/${VIEW}/${CARD}?x=1#top`, here),
     ).toBe(CARD);
   });
 
-  it('names nothing for a board, a view, a wiki, or anything longer', () => {
+  it('names nothing for a board, a view, a wiki, a course without a unit, or anything longer', () => {
     for (const path of [
       `/w/${WS}`,
       `/w/${WS}/boards/${BOARD}`,
@@ -31,6 +34,8 @@ describe('the address of a card or a page', () => {
       `/w/${WS}/boards/${BOARD}/${VIEW}/${CARD}/more`,
       `/w/${WS}/wikis/${WIKI}`,
       `/w/${WS}/wikis/${WIKI}/${PAGE}/more`,
+      `/w/${WS}/courses/${COURSE}`,
+      `/w/${WS}/courses/${COURSE}/${UNIT}/more`,
       `/w/${WS}/other/${WIKI}/${PAGE}`,
       `/shared/${BOARD}/${VIEW}/${CARD}`,
       '/',

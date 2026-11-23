@@ -17,11 +17,11 @@
 
   interface Props {
     workspace: Workspace;
-    /** The card, or the page of a wiki, that is named. */
+    /** The card, the page of a wiki, or the unit of a course that is named. */
     blockId: string;
     /** Which it is, for the heading. */
-    of?: 'card' | 'page';
-    /** The level of the heading: under a card's title, or under a page's. */
+    of?: 'card' | 'page' | 'unit';
+    /** The level of the heading: under a card's title, or under a page's or unit's. */
     heading?: 'h2' | 'h3';
   }
 
@@ -89,7 +89,7 @@
     data-testid="card-backlinks"
   >
     <svelte:element this={heading} id="{uid}-heading" class="font-semibold">
-      {of === 'page' ? m.page_backlinks() : m.card_backlinks()}
+      {of === 'page' ? m.page_backlinks() : of === 'unit' ? m.unit_backlinks() : m.card_backlinks()}
       <span class="font-normal text-muted-foreground">{naming.length}{more ? '+' : ''}</span>
     </svelte:element>
     <ul class="flex flex-col gap-1">

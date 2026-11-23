@@ -1906,7 +1906,7 @@
   "app_course_managed_hint": "You are not a member of this course. Join it to read its units; every member of the workspace will see that you joined.",
   "app_problem_too_many_units": "A course holds at most {limit} units. Nothing changed.",
   "app_problem_too_many_chapters": "A course holds at most {limit} chapters. Nothing changed.",
-  "share_course_title": "Course members",
+  "share_course_title": "Share course",
   "share_course_workspace_open": "Anyone in {workspace} can read this course and join it",
   "share_course_guest_hint": "A guest sees this course and nothing else of {workspace}. The link is for one person.",
   "share_course_guest_links_title": "Guest links of this course",
@@ -1914,5 +1914,13 @@
   "teams_course_remove": "Remove team from course",
   "course_trash_below": "Units below: {count}",
   "app_problem_unit_move_gone": "Somebody else deleted that unit, so it could not be moved.",
-  "course_unit_viewers": "{count} viewing this unit: {names}"
+  "course_unit_viewers": "{count} viewing this unit: {names}",
+  "editor_reference_unit": "Unit",
+  "unit_backlinks": "What links to this unit",
+  "unit_version_no_body": "The unit had no body then.",
+  "unit_version_is_current": "The unit has this body now.",
+  "unit_version_restore_description": "The unit's body becomes the version of {when} for everyone. The body it has now is kept as a version, so you can go back to it.",
+  "course_unit_more": "More for the unit {title}",
+  "course_unit_watch": "Watch this unit",
+  "course_unit_watching": "Watching this unit"
 }

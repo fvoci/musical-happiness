@@ -182,18 +182,11 @@ export class MemoryBackend implements Backend {
     }
   }
 
-  /** Of `kind` where asked; `shared`: board/wiki/course; `linked`: board/wiki only. */
-  #container(
-    containerId: string,
-    kind: ContainerKind | 'any' | 'shared' | 'linked' = 'any',
-  ): Container {
+  /** Of `kind` where asked; `shared`: board/wiki/course (not diary). */
+  #container(containerId: string, kind: ContainerKind | 'any' | 'shared' = 'any'): Container {
     const board = this.world.containers.get(containerId);
     const found = board?.kind ?? 'board';
-    const ok =
-      kind === 'any' ||
-      (kind === 'shared' && found !== 'diary') ||
-      (kind === 'linked' && found !== 'diary' && found !== 'course') ||
-      found === kind;
+    const ok = kind === 'any' || (kind === 'shared' && found !== 'diary') || found === kind;
     return board && ok ? board : fail(404, 'no board');
   }
 
@@ -601,13 +594,13 @@ export class MemoryBackend implements Backend {
 
   async sharing(id: string): Promise<Sharing> {
     await this.#enter('sharing');
-    this.#container(id, 'linked');
+    this.#container(id, 'shared');
     return copy(this.world.sharing.get(id) ?? { enabled: false, token: '' });
   }
 
   async setSharing(id: string, change: SharingChange): Promise<Sharing> {
     await this.#enter('setSharing');
-    this.#container(id, 'linked');
+    this.#container(id, 'shared');
     const before = this.world.sharing.get(id);
     const token =
       !before?.token || change.regenerate ? this.world.newId().replaceAll('-', '') : before.token;

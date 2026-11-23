@@ -4,9 +4,12 @@
   no icon field on the server).
 -->
 <script lang="ts">
+  import BellIcon from '@lucide/svelte/icons/bell';
+  import BellOffIcon from '@lucide/svelte/icons/bell-off';
   import { onDestroy, untrack, type Snippet } from 'svelte';
 
   import { autosize } from '$lib/components/autosize.ts';
+  import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { isComposing } from '$lib/keys.ts';
   import type { CourseStore, CourseUnit, UnitStore } from '$lib/state/index.ts';
@@ -19,10 +22,12 @@
     autofocus?: boolean;
     /** Live viewers badge, supplied by the app shell. */
     viewers?: Snippet | undefined;
+    /** Extra head actions (e.g. versions menu), supplied by the app shell. */
+    actions?: Snippet<[UnitStore]> | undefined;
     body: Snippet<[UnitStore]>;
   }
 
-  let { course, store, unit, autofocus = false, viewers, body }: Props = $props();
+  let { course, store, unit, autofocus = false, viewers, actions, body }: Props = $props();
 
   const PAUSE = 800;
 
@@ -128,9 +133,26 @@
           </h1>
         {/if}
       </div>
-      {#if viewers}
-        <div class="shrink-0 pt-1">
-          {@render viewers()}
+      {#if viewers !== undefined || actions !== undefined || (store.canWatch && store.watching !== undefined)}
+        <div class="flex shrink-0 items-center gap-1 pt-1">
+          {@render viewers?.()}
+          {#if store.canWatch && store.watching !== undefined}
+            <IconButton
+              label={store.watching ? m.course_unit_watching() : m.course_unit_watch()}
+              aria-pressed={store.watching}
+              disabled={store.watchingBusy}
+              data-testid="unit-watch-toggle"
+              class={store.watching ? 'text-primary' : 'text-muted-foreground'}
+              onclick={() => void store.setWatching(!store.watching)}
+            >
+              {#if store.watching}
+                <BellIcon aria-hidden="true" />
+              {:else}
+                <BellOffIcon aria-hidden="true" />
+              {/if}
+            </IconButton>
+          {/if}
+          {@render actions?.(store)}
         </div>
       {/if}
     </div>
