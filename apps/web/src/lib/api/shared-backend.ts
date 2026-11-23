@@ -175,6 +175,9 @@ export class SharedBackend implements Backend {
     deleteUnit: refused,
     undeleteUnit: refused,
     moveUnit: refused,
+    myProgress: nothing,
+    putUnitProgress: refused,
+    progressSummary: () => Promise.resolve({ totalUnits: 0, members: [] }),
   };
   readonly #http: Http;
   readonly #containerId: string;

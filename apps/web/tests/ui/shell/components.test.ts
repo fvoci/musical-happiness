@@ -307,7 +307,7 @@ describe('the sidebar over a workspace', () => {
 
   it('the search narrows the boards and leaves out the categories without a match', async () => {
     await mount();
-    const search = screen.getByRole('textbox', { name: 'Find a board or wiki' });
+    const search = screen.getByRole('textbox', { name: 'Find a board, wiki, or course' });
     await fireEvent.input(search, { target: { value: 'goal' } });
     expect(titles()).toEqual(['Personal Goals', 'Company Goals & OKRs']);
 
@@ -330,7 +330,7 @@ describe('the sidebar over a workspace', () => {
     await mount();
     expect(document.querySelectorAll('[data-drag-item]')).toHaveLength(14);
     expect(document.querySelectorAll('[data-drag-list]')).toHaveLength(4);
-    await fireEvent.input(screen.getByRole('textbox', { name: 'Find a board or wiki' }), {
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Find a board, wiki, or course' }), {
       target: { value: 'goal' },
     });
     expect(document.querySelectorAll('[data-drag-item]')).toHaveLength(0);
@@ -361,9 +361,9 @@ describe('the sidebar over a workspace', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('the foot has "Add board or wiki" and the reader’s account, named by the reader', async () => {
+  it('the foot has "Add board, wiki, or course" and the reader’s account, named by the reader', async () => {
     const { onAddBoard, onOpenSettings } = await mount();
-    await fireEvent.click(screen.getByRole('button', { name: 'Add board or wiki' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Add board, wiki, or course' }));
     expect(onAddBoard).toHaveBeenCalledOnce();
     await fireEvent.click(
       screen.getByRole('button', { name: '김하나 (@hana): account and settings' }),
