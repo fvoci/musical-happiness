@@ -151,9 +151,11 @@ describe('the numbers of cards, in memory', () => {
     const exported = await (await backend.exportContainer(boardId)).bytes.text();
     const betaLine = exported
       .split('\n')
-      .filter((line) => line.includes(betaId))
-      .map((line) => JSON.parse(line) as { data: { number?: number } })[0];
-    expect(betaLine?.data.number).toBeUndefined();
+      .filter((line) => line.trim() !== '')
+      .map((line) => JSON.parse(line) as { type?: string; data?: { id?: string; number?: number } })
+      .find((entry) => entry.type === 'block' && entry.data?.id === betaId);
+    expect(betaLine).toBeDefined();
+    expect(betaLine?.data?.number).toBeUndefined();
 
     // New card takes #4 (never reusing #2).
     const delta = await backend.createCard(boardId, { title: 'Delta' });

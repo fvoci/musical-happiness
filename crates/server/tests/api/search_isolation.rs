@@ -398,6 +398,7 @@ struct NumberedWorld {
     guest: Client,
     alpha_card_2: String,
     beta_card_2: String,
+    unjoined_card_2: String,
     team_card_2: String,
     invited_card_2: String,
     text_card: String,
@@ -468,7 +469,7 @@ async fn numbered_world(th: &TestServer) -> NumberedWorld {
 
     // Unjoined open board: #1, #2 (user2 did NOT join; must be hidden from user2)
     new_card(&th.client, &unjoined.id, "Unjoined first", "body").await;
-    new_card(&th.client, &unjoined.id, "Unjoined second", "body").await;
+    let unjoined_2 = new_card(&th.client, &unjoined.id, "Unjoined second", "body").await;
 
     // Guest-invited private board: #1, #2
     new_card(&th.client, &invited.id, "Guest first", "body").await;
@@ -503,6 +504,7 @@ async fn numbered_world(th: &TestServer) -> NumberedWorld {
         guest,
         alpha_card_2: alpha_2.id,
         beta_card_2: beta_2.id,
+        unjoined_card_2: unjoined_2.id,
         team_card_2: team_2.id,
         invited_card_2: invited_2.id,
         text_card: text_card.id,
@@ -552,6 +554,22 @@ async fn check_numbered_search(th: &TestServer, w: &NumberedWorld) {
     }
 
     let owner_hits: Vec<SearchHit> = search(&th.client, TEST_WS, "#2").await.ok_json();
+    assert_eq!(
+        sorted(
+            &owner_hits
+                .iter()
+                .map(|hit| hit.id.as_str())
+                .collect::<Vec<_>>()
+        ),
+        sorted(&[
+            &w.alpha_card_2,
+            &w.beta_card_2,
+            &w.unjoined_card_2,
+            &w.invited_card_2,
+            &w.team_card_2,
+        ]),
+        "owner finds only live in-org readable #2 cards (excluding trashed and other-org boards)"
+    );
     let alpha_hit = owner_hits
         .iter()
         .find(|hit| hit.id == w.alpha_card_2)
