@@ -41,7 +41,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 62] = [
+const STEPS: [Step; 63] = [
     Step {
         version: 1,
         description: "baseline",
@@ -417,6 +417,12 @@ const STEPS: [Step; 62] = [
         sqlite: include_str!("../schema/sqlite/0065_audit_org_member_removed.sql"),
         postgres: include_str!("../schema/postgres/0065_audit_org_member_removed.sql"),
     },
+    Step {
+        version: 66,
+        description: "course schedules",
+        sqlite: include_str!("../schema/sqlite/0066_course_schedules.sql"),
+        postgres: include_str!("../schema/postgres/0066_course_schedules.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -458,6 +464,10 @@ pub(crate) const BEFORE_TIME_ENTRIES_VERSION: i64 = 63;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION: i64 = 64;
 
+/// The migration before course schedules (0066).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_COURSE_SCHEDULES_VERSION: i64 = 65;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -481,7 +491,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 12] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 41] = [
+pub(crate) const ORG_TABLES: [&str; 42] = [
     "audit_log",
     "blocks",
     "body_docs",
@@ -495,6 +505,7 @@ pub(crate) const ORG_TABLES: [&str; 41] = [
     "container_members",
     "container_teams",
     "containers",
+    "course_schedules",
     "deleted_blocks",
     "deleted_containers",
     "diary_days",
@@ -788,5 +799,16 @@ mod tests {
             .find(|step| step.version == BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION + 1)
             .expect("the migration after BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION is in the list");
         assert_eq!(step.description, "audit org member removed");
+    }
+
+    /// Migration 66 is course schedules, immediately following `BEFORE_COURSE_SCHEDULES_VERSION` (65).
+    #[test]
+    fn migration_66_is_course_schedules() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_COURSE_SCHEDULES_VERSION + 1)
+            .expect("migration 66 is in the list");
+        assert_eq!(step.version, 66);
+        assert_eq!(step.description, "course schedules");
     }
 }

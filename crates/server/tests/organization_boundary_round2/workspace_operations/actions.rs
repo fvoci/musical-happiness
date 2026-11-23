@@ -158,6 +158,33 @@ async fn courses(case: &mut Case) {
     .await;
     case.present("getMyCourseProgress", at, &unit).await;
     case.present("getCourseProgressSummary", at, &user).await;
+    case.run(
+        "putCourseSchedule",
+        at,
+        json!({"startDate": "2026-11-01", "targetDate": "2026-11-30", "studyDays": 127, "autoAssign": true}),
+    )
+    .await;
+    case.present("getCourseSchedule", at, &unit).await;
+    case.run(
+        "redistributeCourseSchedule",
+        at,
+        json!({"fromDate": "2026-11-02", "targetDate": "2026-11-30", "studyDays": 127}),
+    )
+    .await;
+    case.run(
+        "putUnitSchedule",
+        of_unit,
+        json!({"plannedDate": "2026-11-24"}),
+    )
+    .await;
+    case.run(
+        "redistributeMyCourseSchedule",
+        at,
+        json!({"fromDate": "2026-11-03", "targetDate": "2026-11-30", "studyDays": 127}),
+    )
+    .await;
+    case.run("getWorkspaceLearningToday", &[], json!({})).await;
+    case.run("deleteCourseSchedule", at, json!({})).await;
     case.run("moveUnit", of_unit, json!({"parentId": ""})).await;
     case.run("deleteUnit", of_unit, json!({})).await;
     case.present("getDeletedUnits", at, &unit).await;

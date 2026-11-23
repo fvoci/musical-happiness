@@ -34,6 +34,7 @@ mod container_team_trash;
 mod container_teams;
 mod containers;
 mod containers_and_blocks;
+mod course_schedules;
 mod courses;
 mod data_steps;
 mod db;

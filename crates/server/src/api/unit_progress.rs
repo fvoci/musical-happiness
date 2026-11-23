@@ -29,7 +29,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 
 /// Loads course access and requires `View` permission, returning 404 when the course is
 /// hidden or does not exist.
-async fn course_view_access(
+pub(super) async fn course_view_access(
     app: &App,
     user_id: &str,
     course_id: &str,
