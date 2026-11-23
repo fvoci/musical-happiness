@@ -329,9 +329,46 @@ fn parse_number(raw: &str) -> Option<String> {
     if stripped.is_empty() {
         return None;
     }
-    let normalized = stripped.replace(',', "");
+    let normalized = if stripped.contains(',') {
+        if !is_thousands_grouped_number(stripped) {
+            return None;
+        }
+        stripped.replace(',', "")
+    } else {
+        stripped.to_owned()
+    };
     let parsed: f64 = normalized.parse().ok()?;
     parsed.is_finite().then_some(normalized)
+}
+
+/// Whether `text` uses strict English thousands grouping (`1,234` / `-1,234,567.89`),
+/// avoiding misclassifying European decimals (`1,5`) or comma-separated lists (`1,2,3`).
+fn is_thousands_grouped_number(text: &str) -> bool {
+    let unsigned = text.strip_prefix(['+', '-']).unwrap_or(text);
+    let (integer, fractional) = match unsigned.split_once('.') {
+        Some((int_part, frac_part)) => (int_part, Some(frac_part)),
+        None => (unsigned, None),
+    };
+    if let Some(frac) = fractional
+        && (frac.is_empty() || !frac.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return false;
+    }
+    let mut groups = integer.split(',');
+    let Some(first) = groups.next() else {
+        return false;
+    };
+    if first.is_empty() || first.len() > 3 || !first.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let mut has_tail = false;
+    for group in groups {
+        has_tail = true;
+        if group.len() != 3 || !group.bytes().all(|b| b.is_ascii_digit()) {
+            return false;
+        }
+    }
+    has_tail
 }
 
 fn is_http_url(raw: &str) -> bool {

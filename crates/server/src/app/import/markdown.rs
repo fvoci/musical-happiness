@@ -223,6 +223,7 @@ impl<'r> Converter<'r> {
             Event::SoftBreak | Event::HardBreak => self.push_break(),
             Event::Rule => {
                 self.bump_nodes(1)?;
+                self.flush_list_item_inlines()?;
                 self.push_block(json!({"type": "horizontalRule"}));
                 Ok(())
             }

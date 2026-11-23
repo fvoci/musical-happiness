@@ -351,16 +351,26 @@ fn match_row_markdowns(
     }
 
     let mut used = vec![false; candidates.len()];
-    let mut matched = Vec::with_capacity(db.rows.len());
-    for row in &db.rows {
+    let mut matched = vec![None; db.rows.len()];
+    // Pass 1: lock in every exact title match first so a normalized match on an earlier row
+    // cannot steal a companion Markdown file that exact-matches a later row.
+    for (slot, row) in matched.iter_mut().zip(&db.rows) {
         let row_trimmed = row.title.trim();
-        let row_norm = normalize_match_key(row_trimmed);
-        let found_idx = pop_unused(&mut by_clean, row_trimmed, &mut used).or_else(|| {
-            (!row_norm.is_empty())
-                .then(|| pop_unused(&mut by_norm, &row_norm, &mut used))
-                .flatten()
-        });
-        matched.push(found_idx.map(|idx| candidates[idx].0.clone()));
+        if let Some(idx) = pop_unused(&mut by_clean, row_trimmed, &mut used) {
+            *slot = Some(candidates[idx].0.clone());
+        }
+    }
+    // Pass 2: match remaining rows using normalized (case/punctuation-insensitive) keys.
+    for (slot, row) in matched.iter_mut().zip(&db.rows) {
+        if slot.is_some() {
+            continue;
+        }
+        let row_norm = normalize_match_key(row.title.trim());
+        if !row_norm.is_empty()
+            && let Some(idx) = pop_unused(&mut by_norm, &row_norm, &mut used)
+        {
+            *slot = Some(candidates[idx].0.clone());
+        }
     }
     matched
 }

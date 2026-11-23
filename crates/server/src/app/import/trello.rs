@@ -20,7 +20,7 @@ use fvoci_model::{
 };
 use serde_json::{Map, Value, json};
 
-use super::bundle::{check_json_safety, read_bounded_file};
+use super::bundle::{check_json_safety, has_url_scheme, read_bounded_file};
 use super::markdown::{
     BodyContext, ExternalOnlyResolver, blocks_to_body, linked_text_node, markdown_to_blocks,
     text_heading, text_paragraph,
@@ -685,10 +685,15 @@ fn append_attachments(
             continue;
         }
         // SSRF protection: external Trello attachment URLs are NEVER fetched by the server.
+        // Only link absolute URLs with an allowed scheme; keep relative paths as plain text
+        // so they do not turn into clickable internal fvoci paths.
         let (inline, kept_link) = if url.is_empty() {
             (json!({"type": "text", "text": name}), false)
-        } else {
+        } else if has_url_scheme(url) {
             linked_text_node(name, url)
+        } else {
+            let shown = if name.is_empty() { url } else { name };
+            (json!({"type": "text", "text": shown}), false)
         };
         if !url.is_empty() {
             if kept_link {

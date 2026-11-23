@@ -103,6 +103,11 @@ impl App {
     ) -> Result<ImportSummary, AppError> {
         self.require_import_workspace(workspace_id, modified_by)
             .await?;
+        let largest_file = u64::try_from(self.limits().largest_file).unwrap_or(0);
+        let limits = BundleLimits {
+            max_file_bytes: limits.max_file_bytes.min(largest_file),
+            ..limits
+        };
         let options = ImportOptions {
             workspace_id: workspace_id.to_owned(),
             modified_by: modified_by.to_owned(),

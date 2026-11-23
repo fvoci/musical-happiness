@@ -637,6 +637,14 @@ Task B,No,85%,\"May 14, 2026\",https://example.com/b,Beta,Done,Second detailed s
     let nul_err = parse_notion_csv("Name,Val\nA,bad\0x\n", &BundleLimits::default())
         .expect_err("NUL CSV rejected");
     assert_eq!(nul_err.kind(), ErrorKind::BadRequest, "NUL CSV is 400");
+
+    // Non-thousands comma values (`1,5`) must NOT be silently mangled into `15` as Number.
+    let comma_csv = "Name,Ratio\nA,\"1,5\"\nB,\"2,5\"\n";
+    let comma_parsed = parse_notion_csv(comma_csv, &BundleLimits::default()).expect("CSV parses");
+    assert_ne!(
+        comma_parsed.card_properties[0]["type"], "number",
+        "non-thousands comma values like 1,5 are not inferred as number"
+    );
 }
 
 #[tokio::test]
