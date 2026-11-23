@@ -244,6 +244,38 @@ fn a_container_of_an_older_task_lacks_the_superuser_it_is_given_now() {
 }
 
 #[test]
+fn the_default_containers_use_digest_pinned_images_matching_ci() {
+    let postgres = Container::postgres().expect("the default container");
+    let object_store = Container::object_store().expect("the default container");
+    for image in [postgres.image, object_store.image] {
+        let digest = image
+            .split_once("@sha256:")
+            .map(|(_, digest)| digest)
+            .unwrap_or_default();
+        assert!(
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')),
+            "expected a 64-hex sha256 digest pin, got {image}"
+        );
+    }
+    let script =
+        std::fs::read_to_string(crate::workspace_root().join(".github/scripts/test-services.sh"))
+            .expect("test-services.sh is readable");
+    for (variable, image) in [
+        ("POSTGRES_IMAGE", postgres.image),
+        ("S3_IMAGE", object_store.image),
+    ] {
+        let expected = format!("{variable}='{image}'");
+        assert!(
+            script.lines().any(|line| line == expected),
+            "test-services.sh does not define {expected}"
+        );
+    }
+}
+
+#[test]
 fn the_status_code_is_read_from_the_status_line() {
     assert_eq!(
         status_code("HTTP/1.1 409 Conflict\r\nServer: x\r\n\r\n"),

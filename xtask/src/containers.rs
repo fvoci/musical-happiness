@@ -51,6 +51,15 @@ const POSTGRES_MAX_CONNECTIONS: u32 = 300;
 /// shared memory segment").
 const POSTGRES_SHM_BYTES: u64 = 1024 * 1024 * 1024;
 
+/// The PostgreSQL image, pinned to a multi-architecture manifest index (`linux/amd64`,
+/// `linux/arm64/v8`). Change together with `.github/scripts/test-services.sh`.
+const POSTGRES_IMAGE: &str =
+    "postgres:18@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a";
+
+/// The S3-compatible store image, pinned to a multi-architecture manifest index
+/// (`linux/amd64`, `linux/arm64`). Change together with `.github/scripts/test-services.sh`.
+const OBJECT_STORE_IMAGE: &str = "chrislusf/seaweedfs:latest@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15";
+
 /// The bucket the S3 storage test writes into.
 const S3_BUCKET: &str = "fvoci-test";
 
@@ -81,7 +90,7 @@ impl Container {
             // postgres: worktrees of either may run their tests side by side.
             name: name_from_env("FVOCI_TEST_PG_CONTAINER", "fvoci-test-postgres"),
             host_port: port_from_env("FVOCI_TEST_PG_PORT", 15434)?,
-            image: "postgres:18",
+            image: POSTGRES_IMAGE,
             internal_port: 5432,
             environment: vec![
                 format!("POSTGRES_USER={POSTGRES_USER}"),
@@ -103,7 +112,7 @@ impl Container {
         Ok(Self {
             name: name_from_env("FVOCI_TEST_S3_CONTAINER", "fvoci-test-s3"),
             host_port: port_from_env("FVOCI_TEST_S3_PORT", 18333)?,
-            image: "chrislusf/seaweedfs:latest",
+            image: OBJECT_STORE_IMAGE,
             internal_port: 8333,
             environment: Vec::new(),
             shm_bytes: None,
