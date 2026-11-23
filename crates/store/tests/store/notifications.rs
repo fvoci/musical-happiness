@@ -2,10 +2,12 @@
 //! block puts its rows on in its own transaction, what the worker takes off it, and
 //! the bounds a person's notifications are kept within.
 
-use fvoci_model::{Block, BlockType, Body, Container, ContainerType, NotificationKind, new_id};
+use fvoci_model::{
+    Block, BlockType, Body, Container, ContainerType, NotificationKind, Workspace, new_id,
+};
 use fvoci_store::{
     Making, NotificationEvent, NotificationLimits, NotificationReader, Paging, Store,
-    StoredNotification, Told,
+    StoredNotification, Told, WorkspaceTrashing,
 };
 use serde_json::json;
 
@@ -884,5 +886,84 @@ async fn what_goes_for_good_takes_what_was_told_of_it() {
         std::slice::from_ref(&other.id),
         "but for the other board's"
     );
+    test.teardown().await;
+}
+
+/// Purging a workspace removes its boards and the blocks they leave behind
+/// (`remove_what_they_left`), forgetting both settled notifications and waiting outbox
+/// rows of that workspace while leaving another workspace's notifications intact.
+#[tokio::test]
+async fn purging_a_workspace_forgets_what_was_told_of_its_boards() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let (kept_board, writer, named) = board_and_two(store).await;
+    for statement in [
+        format!("UPDATE organization_members SET role = 'admin' WHERE user_id = '{writer}'"),
+        format!("UPDATE users SET is_admin = true WHERE id = '{writer}'"),
+    ] {
+        test.execute_unchecked(&statement)
+            .await
+            .expect("the writer administers the organization");
+    }
+    let doomed_ws = Workspace {
+        id: new_id(),
+        title: "Doomed".to_owned(),
+        ..Workspace::default()
+    };
+    store
+        .create_named_workspace(&doomed_ws, &writer)
+        .await
+        .expect("the workspace is made");
+    let doomed_board = common::create_test_boards(store, &doomed_ws.id, &writer, 1)
+        .await
+        .remove(0)
+        .id;
+
+    let mut kept_card = card(&kept_board, mentioning(&named));
+    store
+        .insert_block(&mut kept_card, &writer)
+        .await
+        .expect("kept card");
+    let event = events(store).await.remove(0);
+    made(store.tell_of(&event, 1, LIMITS).await.expect("told"));
+
+    let mut settled_card = card(&doomed_board, mentioning(&named));
+    store
+        .insert_block(&mut settled_card, &writer)
+        .await
+        .expect("doomed settled card");
+    let event = events(store).await.remove(0);
+    made(store.tell_of(&event, 1, LIMITS).await.expect("told"));
+
+    let mut waiting_card = card(&doomed_board, mentioning(&named));
+    store
+        .insert_block(&mut waiting_card, &writer)
+        .await
+        .expect("doomed waiting card");
+    assert_eq!(events(store).await.len(), 1, "waiting outbox row");
+
+    assert_eq!(
+        store
+            .trash_workspace(&doomed_ws.id, &writer)
+            .await
+            .expect("trashed"),
+        WorkspaceTrashing::Done
+    );
+    store
+        .purge_workspace(&doomed_ws.id, i64::MAX)
+        .await
+        .expect("purged");
+
+    let left: Vec<String> = told(store, &named)
+        .await
+        .into_iter()
+        .map(|one| one.block_id)
+        .collect();
+    assert_eq!(
+        left,
+        std::slice::from_ref(&kept_card.id),
+        "only the kept workspace's notification remains"
+    );
+    assert_eq!(events(store).await, [], "waiting outbox row is gone");
     test.teardown().await;
 }

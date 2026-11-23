@@ -8,10 +8,11 @@ use fvoci_model::{BlockType, Card, ContainerType, SubscriberType, Subscription};
 use fvoci_server::app::tend_notifications;
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
+use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::blocks::{block_path, delete, undelete_path};
-use crate::boards::patch_board;
+use crate::boards::{delete_member, editor, patch_board};
 use crate::common::{Client, HIDDEN_WORKSPACE_ID, Setup, TEST_WS, TestServer};
 use crate::content_search::set_role;
 use crate::notifications::{
@@ -116,11 +117,12 @@ async fn whoever_may_join_an_open_board_is_told_of_it_until_it_is_closed() {
 
     make(&th, &board.id, "P").await;
     comment_on(&th.client, &card, &mentioning(&[&worker_id])).await;
+    comment_on(&th.client, &card, &plain("private comment")).await;
     let closed = told(&th, &worker).await;
     assert_eq!(
         kinds(&closed),
         (vec![], 2),
-        "nothing more, and nothing of it: {closed:?}"
+        "nothing more (mention or comment), and nothing of it: {closed:?}"
     );
     assert_eq!(watched(&worker).await, Vec::<String>::new(), "not listed");
     assert!(
@@ -138,10 +140,10 @@ async fn whoever_may_join_an_open_board_is_told_of_it_until_it_is_closed() {
 }
 
 /// Nobody comes to watch, or to know the identifier of, what they do not read: a card
-/// given to somebody of the workspace with no role on its invited-only board, to
-/// somebody of another workspace, or of another organization, makes none of them a
-/// watcher. A subscription to it made past the API is not listed to its subscriber,
-/// who may still end it.
+/// given to somebody of the workspace with no role on its invited-only board (including
+/// a workspace administrator who only manages it), to somebody of another workspace, or
+/// of another organization, makes none of them a watcher. A subscription to it made past
+/// the API is not listed to its subscriber, who may still end it.
 #[tokio::test]
 async fn nobody_watches_or_is_listed_what_they_do_not_read() {
     let th = Setup::native().start().await.init_basic().await;
@@ -149,8 +151,11 @@ async fn nobody_watches_or_is_listed_what_they_do_not_read() {
     let board = board_with_owner(&th, ContainerType::Private).await;
     let outsider = th.add_user("outsider").await;
     let outsider_id = outsider.me().await.id;
+    let ws_admin = th.add_user("wsadmin").await;
+    let ws_admin_id = ws_admin.me().await.id;
+    set_role(&th, &ws_admin_id, "admin").await;
     let elsewhere = th.stranger_in(HIDDEN_WORKSPACE_ID).await;
-    let mut given = vec![outsider_id.clone(), elsewhere];
+    let mut given = vec![outsider_id.clone(), ws_admin_id.clone(), elsewhere];
     if db_type_of_the_tests() == DbType::Postgres {
         let (theirs, _, their_board) = another_organization(&th).await;
         let owner = theirs
@@ -172,33 +177,112 @@ async fn nobody_watches_or_is_listed_what_they_do_not_read() {
         "its writer alone"
     );
     assert_eq!(told(&th, &outsider).await, []);
+    assert_eq!(told(&th, &ws_admin).await, []);
 
-    th.app
-        .store()
-        .create_subscription(Subscription {
-            block_type: BlockType::Card,
-            block_id: card.id.clone(),
-            subscriber_type: SubscriberType::User,
-            subscriber_id: outsider_id.clone(),
-            notified_at: 0,
-            create_at: 0,
-            delete_at: 0,
-        })
-        .await
-        .expect("a subscription past the API");
-    assert_eq!(watched(&outsider).await, Vec::<String>::new(), "not listed");
-    outsider
-        .delete(&format!(
-            "{TEST_WS}/subscriptions/{}/{outsider_id}",
-            card.id
-        ))
-        .await
-        .check_no_content();
+    for (client, user_id) in [(&outsider, &outsider_id), (&ws_admin, &ws_admin_id)] {
+        th.app
+            .store()
+            .create_subscription(Subscription {
+                block_type: BlockType::Card,
+                block_id: card.id.clone(),
+                subscriber_type: SubscriberType::User,
+                subscriber_id: user_id.clone(),
+                notified_at: 0,
+                create_at: 0,
+                delete_at: 0,
+            })
+            .await
+            .expect("a subscription past the API");
+        assert_eq!(watched(client).await, Vec::<String>::new(), "not listed");
+        client
+            .delete(&format!("{TEST_WS}/subscriptions/{}/{user_id}", card.id))
+            .await
+            .check_no_content();
+    }
     assert_eq!(
         watchers(&th, &card.id).await,
         std::slice::from_ref(&a.id),
         "ended"
     );
+    th.teardown().await;
+}
+
+/// Course units are outside linked board/wiki subscriptions and notifications: subscribing
+/// through the API is refused as not found, a subscription written directly to the store
+/// is not listed, and mentioning a worker in a unit sends no notification.
+#[tokio::test]
+async fn a_course_unit_is_neither_subscribable_nor_listed() {
+    let th = Setup::native().start().await.init_basic().await;
+    let worker = th.add_user("learner").await;
+    let worker_id = worker.me().await.id;
+    let course = th
+        .client
+        .post(
+            &format!("{TEST_WS}/courses"),
+            &json!({"type": "O", "title": "Open course"}),
+        )
+        .await;
+    course.check_created();
+    let course_id = course.value()["id"].as_str().expect("course id").to_owned();
+    let chapter = th
+        .client
+        .post(
+            &format!("{TEST_WS}/courses/{course_id}/units"),
+            &json!({"kind": "chapter", "parentId": "", "title": "Ch 1"}),
+        )
+        .await;
+    chapter.check_created();
+    let chapter_id = chapter.value()["id"]
+        .as_str()
+        .expect("chapter id")
+        .to_owned();
+    let unit = th
+        .client
+        .post(
+            &format!("{TEST_WS}/courses/{course_id}/units"),
+            &json!({"kind": "unit", "parentId": chapter_id, "title": "Unit 1"}),
+        )
+        .await;
+    unit.check_created();
+    let unit_id = unit.value()["id"].as_str().expect("unit id").to_owned();
+    let read_at = unit.value()["updateAt"].as_i64().expect("updateAt");
+
+    th.client
+        .patch(
+            &format!("{TEST_WS}/courses/{course_id}/units/{unit_id}"),
+            &json!({"readAt": read_at, "body": mentioning(&[&worker_id])}),
+        )
+        .await
+        .check_ok();
+    assert_eq!(told(&th, &worker).await, [], "course units do not notify");
+
+    let refused = worker
+        .post(
+            &format!("{TEST_WS}/subscriptions"),
+            &json!({
+                "blockType": "unit",
+                "blockId": unit_id,
+                "subscriberType": "user",
+                "subscriberId": worker_id,
+            }),
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::NOT_FOUND, "{}", refused.text());
+
+    th.app
+        .store()
+        .create_subscription(Subscription {
+            block_type: BlockType::Unit,
+            block_id: unit_id,
+            subscriber_type: SubscriberType::User,
+            subscriber_id: worker_id,
+            notified_at: 0,
+            create_at: 0,
+            delete_at: 0,
+        })
+        .await
+        .expect("direct subscription");
+    assert_eq!(watched(&worker).await, Vec::<String>::new(), "not listed");
     th.teardown().await;
 }
 
@@ -247,15 +331,20 @@ async fn a_quiet_card_tells_nobody_and_its_writer_alone_watches_it() {
 
 /// Who watched a card or a page watches it again once it is back from the trash, from
 /// when they first did: the subscriptions it took along come back, and a comment on
-/// the card is told to them as before.
+/// the card is told to them as before. Somebody removed from the board while the card
+/// was in the trash does not come back as a watcher.
 #[tokio::test]
 async fn who_watched_a_card_or_a_page_watches_it_again_once_it_is_back() {
     let th = Setup::native().start().await.init_basic().await;
     let b = th.client2.me().await;
+    let leaver = th.add_user("leaver").await;
+    let leaver_id = leaver.me().await.id;
     let board = board_with_owner(&th, ContainerType::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
+    give(&th, &board.id, &leaver_id, "editor").await;
     let card = card_with(&th.client, &board.id, &Value::Null).await;
     comment_on(&th.client2, &card, &plain("Watching")).await;
+    comment_on(&leaver, &card, &plain("Leaving soon")).await;
     let wiki = new_wiki(&th.client).await;
     let page = new_page(&th.client, &wiki, "", "A page", "text").await;
     let mut both = vec![card.id.clone(), page.id.clone()];
@@ -270,6 +359,9 @@ async fn who_watched_a_card_or_a_page_watches_it_again_once_it_is_back() {
         ..fvoci_model::Block::default()
     };
     delete(&th.client, &as_block).await;
+    delete_member(&th.client, &editor(&board.id, &leaver_id))
+        .await
+        .check_no_content();
     th.client
         .delete(&format!("{TEST_WS}/wikis/{wiki}/pages/{}", page.id))
         .await
@@ -290,8 +382,14 @@ async fn who_watched_a_card_or_a_page_watches_it_again_once_it_is_back() {
         .check_ok();
     assert_eq!(watched(&th.client).await, both, "back, both");
     assert_eq!(listed(&th.client2).await, before, "as it was made");
+    assert!(
+        !watchers(&th, &card.id).await.contains(&leaver_id),
+        "removed while in the trash, scrubbed from saved watchers"
+    );
+    assert_eq!(watched(&leaver).await, Vec::<String>::new());
 
     comment_on(&th.client, &card, &plain("Back")).await;
     assert_eq!(kinds(&told(&th, &th.client2).await), (vec!["comment"], 0));
+    assert_eq!(told(&th, &leaver).await, []);
     th.teardown().await;
 }

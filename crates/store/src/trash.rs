@@ -18,6 +18,10 @@ mod stored;
 mod told;
 mod watchers;
 
+pub(crate) use watchers::{
+    forget_watcher_of_container, forget_watcher_of_organization, forget_watcher_of_workspace,
+};
+
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
@@ -470,11 +474,25 @@ pub(crate) fn push_paging(sql: &mut Sql, paging: Option<Paging>) {
 /// it was written, against the allowlist of that time, which a later one may not
 /// accept.
 pub(crate) fn block_from_json(row: &Row, index: usize) -> Result<Block, StoreError> {
+    block_from_value(row.json(index, "block")?)
+}
+
+/// Reads a block and the subscriptions it kept in the trash from one JSON parse.
+fn block_and_watchers_from_json(
+    row: &Row,
+    index: usize,
+) -> Result<(Block, Vec<watchers::StoredWatcher>), StoreError> {
+    let mut value = row.json(index, "block")?;
+    let kept = watchers::take_kept(&mut value)?;
+    Ok((block_from_value(value)?, kept))
+}
+
+/// Decodes a stored trash block JSON value, keeping its body as stored.
+fn block_from_value(mut value: serde_json::Value) -> Result<Block, StoreError> {
     let corrupt = |error: serde_json::Error| StoreError::Corrupt {
         column: "block",
         reason: error.to_string(),
     };
-    let mut value = row.json(index, "block")?;
     let body = value
         .as_object_mut()
         .and_then(|members| members.remove("body"))
@@ -656,8 +674,8 @@ pub(crate) async fn take_blocks_out_of_trash(
     let mut restored: Vec<Block> = Vec::with_capacity(rows.len());
     let mut kept = Vec::with_capacity(rows.len());
     for row in &rows {
-        let block = block_from_json(row, 0)?;
-        kept.push((block.id.clone(), watchers::kept_in(row, 0)?));
+        let (block, watchers) = block_and_watchers_from_json(row, 0)?;
+        kept.push((block.id.clone(), watchers));
         restored.push(block);
     }
     let mut known_users = KnownUsers::default();

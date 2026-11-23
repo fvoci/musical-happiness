@@ -271,11 +271,12 @@ async fn handle_post_blocks(
     let query = query.as_deref();
     let user_id = ws.session.user_id.as_str();
     // Blocks made from those of another board (a board from a template, a template
-    // from a board) are copies: whom they name was named there, and is not told again.
+    // from a board) are copies: whom they name was named there, and is neither told
+    // again nor made a watcher.
     let notification = if query_param(query, "sourceBoardId").is_empty() {
         change_notification(query)
     } else {
-        ChangeNotification::Suppress
+        ChangeNotification::Copied
     };
     // Which permission is needed depends on the blocks, so the body is read first; but
     // whoever may not even see the board learns nothing from what the body is like.

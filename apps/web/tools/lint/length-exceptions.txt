@@ -22,7 +22,7 @@
 
 file 899 src/lib/api/backend.ts
 file 881 src/lib/logic/wire.ts
-file 733 src/lib/state/board.svelte.ts
+file 732 src/lib/state/board.svelte.ts
 file 936 src/lib/state/memory/backend.ts
 file 817 src/lib/state/workspace.svelte.ts
 function 223 src/lib/state/memory/seed.ts seedWorld

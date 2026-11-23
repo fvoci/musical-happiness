@@ -443,10 +443,9 @@ export class BoardStore {
     if (isEmptyCardPatch(forward)) return;
     let said = false;
     await this.#perform(
-      () => {
-        const again = said;
+      async () => {
+        await this.#cardWrites.write(cardId, forward, backward, said);
         said = true;
-        return this.#cardWrites.write(cardId, forward, backward, again);
       },
       () => this.#cardWrites.write(cardId, backward, forward, true),
       description,

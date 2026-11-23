@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use crate::db::{Dialect, Id, Row, Scope};
+use crate::db::{Dialect, Id, Param, Scope, Sql};
 use crate::error::StoreError;
 
 /// Where a block of the trash keeps its subscriptions: no member of a block's own JSON.
@@ -73,10 +73,9 @@ pub(super) fn with_watchers(
     Ok(value)
 }
 
-/// The subscriptions the block of a row of the trash kept: none for one that kept none,
-/// as what went into the trash before they were kept.
-pub(super) fn kept_in(row: &Row, index: usize) -> Result<Vec<StoredWatcher>, StoreError> {
-    let mut block = row.json(index, "block")?;
+/// Takes the subscriptions kept in a parsed block JSON of the trash: none for one that
+/// kept none, as what went into the trash before they were kept.
+pub(super) fn take_kept(block: &mut Value) -> Result<Vec<StoredWatcher>, StoreError> {
     match block.get_mut(KEY).map(Value::take) {
         None | Some(Value::Null) => Ok(Vec::new()),
         Some(kept) => serde_json::from_value(kept).map_err(|error| StoreError::Corrupt {
@@ -84,6 +83,88 @@ pub(super) fn kept_in(row: &Row, index: usize) -> Result<Vec<StoredWatcher>, Sto
             reason: error.to_string(),
         }),
     }
+}
+
+/// Removes `user_id` from the saved watchers of the trashed blocks selected by `sql`
+/// (`SELECT id, block FROM deleted_blocks WHERE ...`), writing back only rows that
+/// actually named `user_id`.
+async fn forget_watcher(scope: &mut Scope<'_>, sql: Sql, user_id: &str) -> Result<(), StoreError> {
+    for row in scope.fetch_all(sql).await? {
+        let mut block = row.json(1, "block")?;
+        let Some(watchers) = block.get_mut(KEY).and_then(Value::as_array_mut) else {
+            continue;
+        };
+        let before = watchers.len();
+        watchers.retain(|entry| entry.get("subscriberId").and_then(Value::as_str) != Some(user_id));
+        if watchers.len() == before {
+            continue;
+        }
+        if watchers.is_empty()
+            && let Some(members) = block.as_object_mut()
+        {
+            members.remove(KEY);
+        }
+        let mut update = scope.sql("UPDATE deleted_blocks SET block = ");
+        update
+            .bind(Param::json(&block)?)
+            .push_bind(" WHERE id = ", Id(&row.id(0)?));
+        scope.execute(update).await?;
+    }
+    Ok(())
+}
+
+/// Forgets `user_id` among the saved watchers of blocks in the trash of `container_id`,
+/// so a user removed from a board does not come back as a watcher when a block is
+/// restored.
+pub(crate) async fn forget_watcher_of_container(
+    scope: &mut Scope<'_>,
+    container_id: &str,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("SELECT id, block FROM deleted_blocks WHERE container_id = ");
+    sql.bind(Id(container_id));
+    forget_watcher(scope, sql, user_id).await
+}
+
+/// Forgets `user_id` among the saved watchers of blocks in the trash of `workspace_id`,
+/// on both live and trashed containers of that workspace.
+pub(crate) async fn forget_watcher_of_workspace(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql(
+        "SELECT id, block FROM deleted_blocks WHERE container_id IN (\
+         SELECT id FROM containers WHERE workspace_id = ",
+    );
+    sql.bind(Id(workspace_id))
+        .push_bind(
+            " UNION SELECT id FROM deleted_containers WHERE workspace_id = ",
+            Id(workspace_id),
+        )
+        .push(")");
+    forget_watcher(scope, sql, user_id).await
+}
+
+/// Forgets `user_id` among the saved watchers of every trashed block of the scope's
+/// organization (live and trashed containers alike).
+pub(crate) async fn forget_watcher_of_organization(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql(
+        "SELECT id, block FROM deleted_blocks WHERE container_id IN (\
+         SELECT c.id FROM containers AS c JOIN workspaces AS w ON w.id = c.workspace_id \
+         WHERE w.org_id = ",
+    );
+    sql.bind(scope.org()?)
+        .push_bind(
+            " UNION SELECT d.id FROM deleted_containers AS d \
+             JOIN workspaces AS w ON w.id = d.workspace_id WHERE w.org_id = ",
+            scope.org()?,
+        )
+        .push(")");
+    forget_watcher(scope, sql, user_id).await
 }
 
 /// Makes again the subscriptions `block_id` kept in the trash, of the subscribers that

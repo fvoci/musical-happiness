@@ -122,10 +122,11 @@ impl Store {
         self.with_conn(async |scope| {
             let mut sql = select_subscriptions(scope);
             sql.push_bind(" AND subscriber_id = ", Id(subscriber_id))
-                .push(
+                .push(&format!(
                     " AND block_id IN (SELECT bl.id FROM blocks AS bl \
-                     JOIN containers AS bo ON bo.id = bl.container_id WHERE bo.workspace_id = ",
-                )
+                     JOIN containers AS bo ON bo.id = bl.container_id{} WHERE bo.workspace_id = ",
+                    scope.same_organization(&[("bo", "bl")]),
+                ))
                 .bind(Id(workspace_id))
                 .push(") ORDER BY create_at, block_id");
             fetch_subscriptions(scope, sql).await

@@ -35,21 +35,33 @@ const told = (id: string, updateAt: number, readAt = 0): Notification => ({
   },
 });
 
-/** A bell over notifications whose list answers `items` once `answer` is called. */
-function mount(items: Notification[]) {
-  let answer: () => void = () => undefined;
-  const listed = new Promise<Notification[]>((resolve) => {
-    answer = () => {
-      resolve(items);
-    };
-  });
+/** A bell over mutable notifications whose `list` resolves each call when `answerNext` is called. */
+function mount(initial: Notification[]) {
+  let items = initial.map((one) => ({ ...one }));
+  const pending: (() => void)[] = [];
   const notifications = {
-    list: vi.fn<Notifications['list']>(() => listed),
+    list: vi.fn<Notifications['list']>(
+      () =>
+        new Promise<Notification[]>((resolve) => {
+          pending.push(() => {
+            resolve(items.map((one) => ({ ...one })));
+          });
+        }),
+    ),
     unread: vi.fn<Notifications['unread']>(() =>
       Promise.resolve(items.filter((one) => one.readAt === 0).length),
     ),
-    read: vi.fn<Notifications['read']>(() => Promise.resolve()),
-    readAll: vi.fn<Notifications['readAll']>(() => Promise.resolve()),
+    read: vi.fn<Notifications['read']>((id: string) => {
+      items = items.map((one) => (one.id === id && one.readAt === 0 ? { ...one, readAt: 1 } : one));
+      return Promise.resolve();
+    }),
+    readAll: vi.fn<Notifications['readAll']>((through?: number) => {
+      const bound = through ?? Number.POSITIVE_INFINITY;
+      items = items.map((one) =>
+        one.readAt === 0 && one.updateAt <= bound ? { ...one, readAt: bound } : one,
+      );
+      return Promise.resolve();
+    }),
   } satisfies Notifications;
   const inbox = new NotificationInbox(
     notifications,
@@ -59,7 +71,12 @@ function mount(items: Notification[]) {
   render(NotificationBell, {
     props: { inbox, locale: 'en-US', hrefOf: () => '/somewhere', onGo: vi.fn() },
   });
-  return { notifications, inbox, answer };
+  const answerNext = (): void => {
+    const next = pending.shift();
+    if (!next) throw new Error('no pending notifications.list() call');
+    next();
+  };
+  return { notifications, inbox, answerNext, pendingCount: () => pending.length };
 }
 
 const readAll = (): HTMLElement => screen.getByTestId('read-all-notifications');
@@ -77,27 +94,64 @@ describe('the bell', () => {
   });
 
   it('lets all be marked as read only once the list is read and while one of it is unread', async () => {
-    const { notifications, answer } = mount([told('a', 30), told('b', 20, 25), told('c', 10)]);
+    const { notifications, answerNext, pendingCount } = mount([
+      told('a', 30),
+      told('b', 20, 25),
+      told('c', 10),
+    ]);
     await fireEvent.click(screen.getByTestId('open-notifications'));
     expect(await screen.findByTestId('notifications')).toBeInTheDocument();
     expect(readAll()).toBeDisabled();
 
-    answer();
+    answerNext();
     await waitFor(() => {
       expect(readAll()).toBeEnabled();
     });
     await fireEvent.click(readAll());
     expect(notifications.readAll).toHaveBeenCalledWith(30);
+    // Settle the follow-up refresh list call and confirm the button stays disabled.
+    await waitFor(() => {
+      expect(pendingCount()).toBe(1);
+    });
+    answerNext();
     await waitFor(() => {
       expect(readAll()).toBeDisabled();
+      expect(notifications.list).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('disables mark all while reloading a previously opened list with unread items', async () => {
+    const { answerNext, pendingCount } = mount([told('a', 30), told('b', 10)]);
+    const trigger = screen.getByTestId('open-notifications');
+    await fireEvent.click(trigger);
+    expect(await screen.findByTestId('notifications')).toBeInTheDocument();
+    answerNext();
+    await waitFor(() => {
+      expect(readAll()).toBeEnabled();
+    });
+
+    // Close and reopen: stale unread items remain in memory while the fresh fetch is in flight.
+    await fireEvent.click(trigger);
+    await waitFor(() => {
+      expect(screen.queryByTestId('notifications')).toBeNull();
+    });
+    await fireEvent.click(trigger);
+    expect(await screen.findByTestId('notifications')).toBeInTheDocument();
+    expect(pendingCount()).toBe(1);
+    expect(readAll()).toBeDisabled();
+
+    answerNext();
+    await waitFor(() => {
+      expect(readAll()).toBeEnabled();
     });
   });
 
   it('lets nothing be marked of a list that is all read, or empty', async () => {
     for (const items of [[told('a', 2, 3)], []]) {
-      const { answer } = mount(items);
-      answer();
+      const { answerNext } = mount(items);
       await fireEvent.click(screen.getByTestId('open-notifications'));
+      expect(await screen.findByTestId('notifications')).toBeInTheDocument();
+      answerNext();
       await waitFor(() => {
         expect(
           screen.queryAllByRole('listitem').length +

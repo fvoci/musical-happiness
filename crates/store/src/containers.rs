@@ -915,6 +915,7 @@ pub(crate) async fn delete_member(
     {
         // Whoever may no longer see the board is no longer told what changes on it.
         subscriptions::end_subscriptions_to_container(scope, container_id, user_id).await?;
+        crate::trash::forget_watcher_of_container(scope, container_id, user_id).await?;
     }
     Ok(())
 }

@@ -238,40 +238,51 @@ test('a mention typed into a body two people write is told as the doing of who t
   const first = await writing(browser, base, address, ada);
   const second = await writing(browser, base, address, bora);
   const errors = [first, second].map(watchErrors);
+  try {
+    // Ada writes a line; Bora names Cleo after it, picking her from the people offered.
+    await editor(first).click();
+    await first.keyboard.type('Who books the room?');
+    await expect(editor(second)).toContainText('Who books the room?');
+    await editor(second).click();
+    await second.keyboard.press('End');
+    await second.keyboard.type(` @${cleo.username}`);
+    const offered = second.locator('[data-suggestions="mention"]').getByRole('option');
+    await expect(offered.first()).toContainText(cleo.username);
+    await second.keyboard.press('Enter');
+    await expect(editor(first).locator('[data-mention]')).toHaveCount(1);
+    // Ada writes last: the body is written as hers.
+    await editor(first).click();
+    await first.keyboard.press('End');
+    await first.keyboard.type('Thanks.');
+    await expect(editor(second)).toContainText('Thanks.');
 
-  // Ada writes a line; Bora names Cleo after it, picking her from the people offered.
-  await editor(first).click();
-  await first.keyboard.type('Who books the room?');
-  await expect(editor(second)).toContainText('Who books the room?');
-  await editor(second).click();
-  await second.keyboard.press('End');
-  await second.keyboard.type(` @${cleo.username}`);
-  const offered = second.locator('[data-suggestions="mention"]').getByRole('option');
-  await expect(offered.first()).toContainText(cleo.username);
-  await second.keyboard.press('Enter');
-  await expect(editor(first).locator('[data-mention]')).toHaveCount(1);
-  // Ada writes last: the body is written as hers.
-  await editor(first).click();
-  await first.keyboard.press('End');
-  await first.keyboard.type('Thanks.');
-  await expect(editor(second)).toContainText('Thanks.');
-
-  // Cleo is told of the mention, by Bora; nobody of their own.
-  const told = async (who: APIRequestContext) =>
-    ((await (await who.get('/api/v1/notifications')).json()) as Schemas['Notification'][])
-      .map((one) => one.subject)
-      .filter((subject) => subject?.blockId === cardId)
-      .map((subject) => ({ kind: subject?.kind, actorId: subject?.actorId }));
-  await expect
-    .poll(() => told(cleoApi), { timeout: 30_000 })
-    .toEqual([{ kind: 'mention', actorId: boraId }]);
-  const card = (await (
-    await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
-  ).json()) as Schemas['Card'];
-  expect(card.modifiedBy, 'written as the last who typed').toBe(adaId);
-  expect(await told(boraApi)).toEqual([]);
-
-  for (const page of [first, second]) await page.context().close();
-  for (const one of [api, boraApi, cleoApi]) await one.dispose();
+    // Wait for both Ada's final edit projection and Cleo's notification by Bora; nobody of their own.
+    await expect
+      .poll(
+        async () => {
+          const card = (await (
+            await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+          ).json()) as Schemas['Card'];
+          return {
+            modifiedBy: card.modifiedBy,
+            hasThanks: JSON.stringify(card.body).includes('Thanks.'),
+          };
+        },
+        { timeout: 30_000 },
+      )
+      .toEqual({ modifiedBy: adaId, hasThanks: true });
+    const told = async (who: APIRequestContext) =>
+      ((await (await who.get('/api/v1/notifications')).json()) as Schemas['Notification'][])
+        .map((one) => one.subject)
+        .filter((subject) => subject?.blockId === cardId)
+        .map((subject) => ({ kind: subject?.kind, actorId: subject?.actorId }));
+    await expect
+      .poll(() => told(cleoApi), { timeout: 30_000 })
+      .toEqual([{ kind: 'mention', actorId: boraId }]);
+    expect(await told(boraApi)).toEqual([]);
+  } finally {
+    for (const page of [first, second]) await page.context().close();
+    for (const one of [api, boraApi, cleoApi]) await one.dispose();
+  }
   expect(errors.flat()).toEqual([]);
 });

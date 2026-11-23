@@ -299,7 +299,7 @@ pub(crate) struct Scope<'c> {
     /// ([`crate::Store::keep_search_outbox`]); `None` for a scope that notes none.
     search_outbox: Option<&'c AtomicBool>,
     /// Whether the writes of blocks of this scope note whom to tell
-    /// ([`crate::Store::telling_nobody`]).
+    /// ([`crate::Store::telling_nobody`], [`crate::Store::quietly`]).
     noting: Noting,
 }
 

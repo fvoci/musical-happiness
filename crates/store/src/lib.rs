@@ -276,7 +276,7 @@ pub struct PoolStatus {
 pub struct Store {
     inner: Arc<Inner>,
     tenant: Tenant,
-    /// Whom what this handle writes notes to be told ([`Store::telling_nobody`]).
+    /// Whom what this handle writes notes to be told ([`Store::telling_nobody`], [`Store::quietly`]).
     noting: db::Noting,
 }
 
