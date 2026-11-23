@@ -20,20 +20,20 @@ export function kindLabel(kind: TimeEntryKind): string {
   }
 }
 
-/** Contrast-safe badge classes for light and dark themes. */
+/** Contrast-safe badge classes for light and dark themes (using app design tokens). */
 export const KIND_BADGE_CLASS: Record<TimeEntryKind, string> = {
-  lecture: 'bg-sky-500/15 text-sky-700 border-sky-500/25 dark:text-sky-300',
-  study: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/25 dark:text-emerald-300',
-  work: 'bg-amber-500/15 text-amber-800 border-amber-500/25 dark:text-amber-300',
-  other: 'bg-muted text-muted-foreground border-border',
+  lecture: 'bg-option-blue text-foreground border-border',
+  study: 'bg-option-green text-foreground border-border',
+  work: 'bg-option-orange text-foreground border-border',
+  other: 'bg-option-default text-foreground border-border',
 };
 
-/** Solid swatch classes for summary bar segments and legend dots. */
+/** Swatch classes for summary bar segments and legend dots (using app design tokens). */
 export const KIND_BAR_CLASS: Record<TimeEntryKind, string> = {
-  lecture: 'bg-sky-500 dark:bg-sky-400',
-  study: 'bg-emerald-500 dark:bg-emerald-400',
-  work: 'bg-amber-500 dark:bg-amber-400',
-  other: 'bg-muted-foreground/60',
+  lecture: 'bg-option-blue',
+  study: 'bg-option-green',
+  work: 'bg-option-orange',
+  other: 'bg-option-gray',
 };
 
 /** Formats milliseconds into a compact localized duration (`2h 15m`, `45m`, `12s`, `0m`). */

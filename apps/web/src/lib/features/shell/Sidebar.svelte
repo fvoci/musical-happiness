@@ -377,29 +377,18 @@
     </button>
   {/if}
   {#if timeHref && workspace.me?.id}
-    <a
-      href={timeHref}
+    <button
+      type="button"
       data-testid="open-my-time"
       aria-current={meTime ? 'page' : undefined}
       class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium roomy:min-h-touch"
-      onclick={(event: MouseEvent) => {
-        if (
-          !onOpenTime ||
-          event.button !== 0 ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.shiftKey ||
-          event.altKey
-        ) {
-          return;
-        }
-        event.preventDefault();
-        onOpenTime();
+      onclick={() => {
+        onOpenTime?.();
       }}
     >
       <ClockIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
       <span class="min-w-0 flex-1 truncate">{m.time_title()}</span>
-    </a>
+    </button>
   {/if}
   {#if orgHref && !ownSpace}
     <a

@@ -37,21 +37,21 @@
 
 <div
   data-testid="active-timer-pill"
-  class="flex max-w-44 shrink-0 items-center overflow-hidden rounded-full border border-rose-500/35 bg-rose-500/10 text-xs text-foreground @columns/pane:max-w-72 dark:border-rose-400/35 dark:bg-rose-500/15"
+  class="flex max-w-44 shrink-0 items-center overflow-hidden rounded-full border border-destructive/40 bg-destructive/10 text-xs text-foreground @columns/pane:max-w-72"
 >
   <a
     {href}
     data-testid="active-timer-link"
     aria-label={m.time_pill_open({ target: label })}
     title={label}
-    class="flex min-w-0 items-center gap-1.5 py-1 pr-1.5 pl-2.5 transition-colors hover:bg-rose-500/15 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring roomy:min-h-touch"
+    class="flex min-w-0 items-center gap-1.5 py-1 pr-1.5 pl-2.5 transition-colors hover:bg-destructive/15 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring roomy:min-h-touch"
     onclick={handleOpen}
   >
     <span class="relative flex size-2 shrink-0" aria-hidden="true">
       <span
-        class="absolute inline-flex size-full animate-ping rounded-full bg-rose-500 opacity-75 motion-reduce:hidden"
+        class="absolute inline-flex size-full animate-ping rounded-full bg-destructive opacity-75 motion-reduce:hidden"
       ></span>
-      <span class="relative inline-flex size-2 rounded-full bg-rose-600 dark:bg-rose-400"></span>
+      <span class="relative inline-flex size-2 rounded-full bg-destructive"></span>
     </span>
     <span
       class={[
@@ -66,7 +66,7 @@
       {label}
     </span>
     <span
-      class="shrink-0 font-mono text-[0.75rem] font-semibold text-rose-700 tabular-nums dark:text-rose-300"
+      class="shrink-0 font-mono text-[0.75rem] font-semibold text-destructive tabular-nums"
       data-testid="active-timer-elapsed"
     >
       {clock}
@@ -78,7 +78,7 @@
     aria-label={m.time_stop_timer()}
     title={m.time_stop_timer()}
     disabled={busy}
-    class="grid size-7 shrink-0 place-items-center border-l border-rose-500/25 text-rose-700 transition-colors hover:bg-rose-500/20 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring disabled:opacity-50 dark:text-rose-300 roomy:size-touch"
+    class="grid size-7 shrink-0 place-items-center border-l border-destructive/25 text-destructive transition-colors hover:bg-destructive/20 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring disabled:opacity-50 roomy:size-touch"
     onclick={onStop}
   >
     <SquareIcon class="size-3 fill-current" aria-hidden="true" />

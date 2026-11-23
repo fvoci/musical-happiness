@@ -86,7 +86,7 @@
   data-entry-id={entry.id}
   class={[
     'flex flex-col gap-2 rounded-lg border bg-card px-3 py-2.5 text-card-foreground sm:flex-row sm:items-center sm:gap-3',
-    running && 'border-rose-500/40 bg-rose-500/5 dark:border-rose-400/35',
+    running && 'border-destructive/40 bg-destructive/5',
   ]}
 >
   <div class="flex min-w-0 flex-1 flex-col gap-1">
@@ -102,10 +102,10 @@
       </span>
       {#if running}
         <span
-          class="inline-flex shrink-0 items-center gap-1 rounded-full bg-rose-500/15 px-2 py-0.5 text-[0.6875rem] leading-4 font-medium text-rose-700 dark:text-rose-300"
+          class="inline-flex shrink-0 items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-[0.6875rem] leading-4 font-medium text-destructive"
           data-testid="time-entry-running-badge"
         >
-          <span class="size-1.5 rounded-full bg-rose-500" aria-hidden="true"></span>
+          <span class="size-1.5 rounded-full bg-destructive" aria-hidden="true"></span>
           {m.time_recording()}
         </span>
       {/if}
@@ -148,7 +148,7 @@
     <span
       class={[
         'text-sm font-semibold tabular-nums',
-        running ? 'font-mono text-rose-700 dark:text-rose-300' : 'text-foreground',
+        running ? 'font-mono text-destructive' : 'text-foreground',
       ]}
       data-testid="time-entry-duration"
     >
@@ -160,7 +160,7 @@
         <IconButton
           label={m.time_stop_timer()}
           data-testid="time-entry-stop"
-          class="text-rose-700 hover:text-rose-800 dark:text-rose-300 dark:hover:text-rose-200"
+          class="text-destructive hover:text-destructive/80"
           onclick={onStop}
         >
           <SquareIcon class="size-3.5 fill-current" />

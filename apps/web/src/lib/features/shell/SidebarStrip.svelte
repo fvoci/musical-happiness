@@ -113,30 +113,17 @@
   </ul>
   <div class="my-1 w-8 shrink-0 border-t"></div>
   {#if timeHref && workspace.me?.id}
-    <a
-      href={timeHref}
-      aria-label={m.time_title()}
-      title={m.time_title()}
+    <IconButton
+      label={m.time_title()}
       aria-current={meTime ? 'page' : undefined}
       data-testid="strip-open-my-time"
-      class="grid size-8 place-items-center rounded-lg hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:ring-1 aria-[current=page]:ring-input-border roomy:size-touch"
-      onclick={(event: MouseEvent) => {
-        if (
-          !onOpenTime ||
-          event.button !== 0 ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.shiftKey ||
-          event.altKey
-        ) {
-          return;
-        }
-        event.preventDefault();
-        onOpenTime();
+      class={meTime ? 'bg-sidebar-accent ring-1 ring-input-border' : undefined}
+      onclick={() => {
+        onOpenTime?.();
       }}
     >
-      <ClockIcon class="size-4" aria-hidden="true" />
-    </a>
+      <ClockIcon />
+    </IconButton>
   {/if}
   <!-- A guest is on the boards they were invited to, and makes none; nobody where none is shown. -->
   {#if workspace.info && !isGuest(workspace)}

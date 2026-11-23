@@ -48,14 +48,14 @@
     disabled={busy}
     data-testid="target-timer-stop"
     aria-label={m.time_stop_timer()}
-    class="h-8 gap-1.5 border-rose-500/40 bg-rose-500/10 px-2.5 text-xs text-rose-700 hover:bg-rose-500/20 hover:text-rose-800 dark:border-rose-400/40 dark:text-rose-300 dark:hover:text-rose-200 roomy:min-h-touch"
+    class="h-8 gap-1.5 border-destructive/40 bg-destructive/10 px-2.5 text-xs text-destructive hover:bg-destructive/20 hover:text-destructive roomy:min-h-touch"
     onclick={onStop}
   >
     <span class="relative flex size-2 shrink-0" aria-hidden="true">
       <span
-        class="absolute inline-flex size-full animate-ping rounded-full bg-rose-500 opacity-75 motion-reduce:hidden"
+        class="absolute inline-flex size-full animate-ping rounded-full bg-destructive opacity-75 motion-reduce:hidden"
       ></span>
-      <span class="relative inline-flex size-2 rounded-full bg-rose-600 dark:bg-rose-400"></span>
+      <span class="relative inline-flex size-2 rounded-full bg-destructive"></span>
     </span>
     <span class="font-mono font-semibold tabular-nums" data-testid="target-timer-elapsed">
       {clock}
