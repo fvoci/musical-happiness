@@ -41,6 +41,7 @@ import {
   type CommentVersion,
   type DownloadedFile,
   type DownloadOptions,
+  type ImportOptions,
   type Sharing,
   type SharingChange,
   type UploadedFile,
@@ -857,12 +858,10 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   }
 
   /**
-   * Imports an archive sent in parts (`upload.ts`). An archive over the
-   * server's `maxImportBytes` is refused before anything is sent, with the
-   * limit, as the server would (413). It takes a turn among the uploads: it
-   * counts toward the same open uploads of the reader.
+   * Imports an archive or external export in parts (`upload.ts`). Oversized files
+   * are refused before upload (413 with limit); takes an upload slot while running.
    */
-  async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
+  async importArchive(workspaceId: string, file: File, options?: ImportOptions) {
     const limit = (await this.#config.read()).maxImportBytes;
     if (file.size > limit) {
       throw tooLarge('archive', limit);

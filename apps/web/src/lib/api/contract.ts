@@ -1976,6 +1976,145 @@ export interface paths {
         patch: operations["patchUserSettings"];
         trace?: never;
     };
+    "/api/v1/users/me/time/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's currently running timer
+         * @description Returns `{ "entry": TimeEntry }` if the user of the session has a running timer in an
+         *     organization the session opens, or `{ "entry": null }` otherwise. Timers running in an
+         *     organization closed to this session (`sso_required` or unconfirmed personal space) are
+         *     hidden.
+         */
+        get: operations["getActiveTimeEntry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/time/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the caller's time entries and totals
+         * @description Returns one page of the user's own time entries across every organization open to this
+         *     session, newest first (`startedAt DESC, id DESC`), together with `summary` totals over
+         *     every matching entry across all pages. Completed entries contribute `endedAt - startedAt`
+         *     to `summary`; a running entry (`endedAt` is `null`) is counted in `summary.count` and
+         *     contributes `0` milliseconds until stopped.
+         *
+         *     Optional filters: `from` (`startedAt >= from`), `to` (`startedAt <= to`), `kind`,
+         *     `blockId`, `containerId`, plus standard `page` and `perPage` pagination.
+         */
+        get: operations["listTimeEntries"];
+        put?: never;
+        /**
+         * Manually log a completed time entry
+         * @description Creates a completed time entry (`endedAt >= startedAt`) for the user of the session
+         *     without stopping or modifying any currently running timer. Target validation and
+         *     organization session walls work the same way as `startTimeEntry`.
+         */
+        post: operations["createTimeEntry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/time/entries/{entryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete one of the caller's time entries
+         * @description Permanently deletes one of the user's own time entries in an organization open to this
+         *     session. Answers 404 for another user's entry, a missing identifier, or an entry in an
+         *     organization closed to this session.
+         */
+        delete: operations["deleteTimeEntry"];
+        options?: never;
+        head?: never;
+        /**
+         * Edit one of the caller's time entries
+         * @description Updates `kind`, `startedAt`, `endedAt` and/or `note` on one of the user's own entries
+         *     in an organization open to this session. Setting `endedAt` on a running timer stops it.
+         *     Answers 400 if `endedAt < startedAt` or any field is invalid, and 404 for another
+         *     user's entry, a missing identifier, or an entry in an organization closed to this
+         *     session.
+         */
+        patch: operations["patchTimeEntry"];
+        trace?: never;
+    };
+    "/api/v1/users/me/time/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a live timer
+         * @description Starts a running timer for the user of the session. At most one timer may run per
+         *     account across all organizations: if another timer is already running (in the same
+         *     organization or another), it is stopped automatically in the same transaction and
+         *     returned in `stopped` when its organization is open to this session.
+         *
+         *     Optional `workspaceId`, `containerId` and `blockId` link the entry to a readable
+         *     non-template card or course unit (or board/course container). Passing `workspaceId`
+         *     alone creates a workspace-scoped entry with `targetKind: null` (refused with 404 for
+         *     workspace guests). Linking to an unreadable, trashed, template, or non-card/non-unit
+         *     block answers 404. Linking to a target in an organization closed to this session
+         *     answers 401 (`sso_required` or `password_sign_in_required`). Targetless timers are
+         *     stored in the user's own space.
+         */
+        post: operations["startTimeEntry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/time/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop the caller's currently running timer
+         * @description Stops the running timer visible to this session (`endedAt` set to now) and returns the
+         *     completed entry. Answers 404 if no timer is running in an organization open to this
+         *     session.
+         */
+        post: operations["stopTimeEntry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/workspaces": {
         parameters: {
             query?: never;
@@ -2104,9 +2243,9 @@ export interface paths {
          *     original (the line-based version 1 and the ZIP of version 2) and a ZIP without
          *     `version.json` are 400, and nothing of them is stored. An archive of more than
          *     10,000 entries, whose entries unpack to more than 1 GiB together, or with a
-         *     `board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with
-         *     the `limit` passed, and nothing of it is stored; for the entry that is too large the
-         *     reason is `archive_entry_too_large`. The blocks that show files are
+         *     `board.jsonl` of more than 64 MiB (or a single JSONL line over 6 MiB) or a file larger
+         *     than `maxFileBytes` is 413 with the `limit` passed, and nothing of it is stored; for the
+         *     entry or line that is too large the reason is `archive_entry_too_large`. The blocks that show files are
          *     pointed at the board's new copies of them, the images and file blocks of bodies
          *     included. A file the board's line lists under `missingFiles` is not stored, even when
          *     the archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy
@@ -2128,6 +2267,12 @@ export interface paths {
          *     A user runs one import at a time, and the server as many as its setting
          *     `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
          *     `import_running` or `server_imports_busy`; the upload stays open, to be named again.
+         *
+         *     Optional `format` selects `"fvoci"` (default, `.boardarchive`/`.zip`), `"trello"`
+         *     (`.json`), or `"notion"` (`.zip`). External formats commit all boards, wikis, blocks,
+         *     and bundled local files atomically: any validation, limit, or storage failure leaves
+         *     nothing stored. Returns a structured `ImportSummary` with counts, newly created
+         *     container identifiers, native `membersLeftOut`, and bounded `skipped` / `warnings`.
          */
         post: operations["importArchive"];
         delete?: never;
@@ -5633,6 +5778,10 @@ export interface components {
              */
             deleteAfter: number;
         };
+        /** @description The caller's currently running timer, if any. */
+        ActiveTimeEntry: {
+            entry: components["schemas"]["TimeEntry"] | null;
+        };
         /** @description Whether a user is to be an administrator of the instance. */
         AdminChange: {
             /** @description `true` makes the user an administrator, `false` ends that. */
@@ -6395,6 +6544,29 @@ export interface components {
             /** @description Live units of the course in outline tree order (chapters and trashed units excluded). */
             units: components["schemas"]["ScheduledUnit"][];
         };
+        /** @description Request body for manually logging a completed time entry (`POST /users/me/time/entries`). */
+        CreateTimeEntryRequest: {
+            /** @description Optional card (non-template) or unit identifier to link. */
+            blockId?: string | null;
+            /** @description Optional board or course identifier of the target. */
+            containerId?: string | null;
+            /**
+             * Format: int64
+             * @description End timestamp in milliseconds since the Unix epoch (`>= startedAt`).
+             */
+            endedAt: number;
+            /** @description Activity category (`lecture`, `study`, `work`, `other`). */
+            kind: components["schemas"]["TimeEntryKind"];
+            /** @description Optional note (at most 1000 characters). */
+            note?: string;
+            /**
+             * Format: int64
+             * @description Start timestamp in milliseconds since the Unix epoch.
+             */
+            startedAt: number;
+            /** @description Optional workspace identifier of the target. */
+            workspaceId?: string | null;
+        };
         /**
          * @description A degree or a professional qualification written after a person's name.
          * @enum {string}
@@ -6733,23 +6905,71 @@ export interface components {
          * @enum {string}
          */
         HourCycle: "auto" | "h12" | "h23";
-        /** @description An archive to import: one sent in parts with `createImportUpload`. */
+        /** @description Counts of entities created by an import. */
+        ImportCounts: {
+            /** @description Number of boards created (`ContainerKind::Board`). */
+            boards: number;
+            /** @description Number of cards created (`BlockType::Card`). */
+            cards: number;
+            /** @description Number of comments created (`BlockType::Comment`). */
+            comments: number;
+            /** @description Number of files stored. */
+            files: number;
+            /** @description Number of wiki pages created (`BlockType::Page`). */
+            pages: number;
+            /** @description Number of wikis created (`ContainerKind::Wiki`). */
+            wikis: number;
+        };
+        /**
+         * @description The source format of an import.
+         * @enum {string}
+         */
+        ImportFormat: "fvoci" | "trello" | "notion";
+        /** @description An archive or external export to import: sent in parts with `createImportUpload`. */
         ImportRequest: {
+            /**
+             * @description Source format of the uploaded file: `fvoci` (native archive `.boardarchive`/`.zip`,
+             *     default when omitted), `trello` (Trello board `.json`), or `notion` (Notion
+             *     Markdown & CSV `.zip`).
+             */
+            format?: components["schemas"]["ImportFormat"];
             /**
              * @description The upload of the archive, every part of it received. It is thrown away by the
              *     import, whether the import succeeds or not.
              */
             uploadId: string;
         };
-        /** @description What an import did beyond making the archive's boards. */
-        ImportResult: {
-            /**
-             * @description How many of the users who were members of the archive's boards were left out of
-             *     the boards made of them, because they are not in the workspace; each counted
-             *     once. Who they are is not told.
-             */
+        /** @description Result summary returned after a completed import. */
+        ImportSummary: {
+            /** @description Identifiers of the newly created containers, in creation order. */
+            containerIds: string[];
+            /** @description Format that was imported. */
+            format: components["schemas"]["ImportFormat"];
+            /** @description Counts of items stored in the workspace. */
+            imported: components["schemas"]["ImportCounts"];
+            /** @description Native archive members left out because they are not in the workspace. */
             membersLeftOut: number;
+            /** @description Items skipped during conversion or import. */
+            skipped: components["schemas"]["ImportWarning"][];
+            /** @description Non-fatal degradation notices (e.g. external URLs kept as links). */
+            warnings: components["schemas"]["ImportWarning"][];
+            /** @description Number of additional skipped items or warnings omitted past `MAX_REPORTED_WARNINGS`. */
+            warningsOmitted?: number;
         };
+        /** @description One skipped or degraded item recorded during an import. */
+        ImportWarning: {
+            /** @description Machine-readable reason code. */
+            code: components["schemas"]["ImportWarningCode"];
+            /** @description Bounded source path or item label. */
+            item: string;
+            /** @description Short explanation of what happened. */
+            reason: string;
+        };
+        /**
+         * @description Stable machine-readable category for a skipped or degraded import item.
+         * @enum {string}
+         */
+        ImportWarningCode: "external_attachment_linked" | "external_image_linked" | "missing_local_asset" | "closed_item_skipped" | "content_truncated" | "markdown_degraded" | "unsupported_entry_skipped" | "unresolved_reference" | "csv_row_warning";
         /**
          * @description One thing of a request that was refused, and where in the request it is: exactly
          *     one of `pointer`, `parameter` and `header` says.
@@ -8279,6 +8499,32 @@ export interface components {
             /** @description The text of the stretch. */
             text: string;
         };
+        /** @description Request body for starting a live timer (`POST /users/me/time/start`). */
+        StartTimeEntryRequest: {
+            /** @description Optional card (non-template) or unit identifier to track time against. */
+            blockId?: string | null;
+            /** @description Optional board or course identifier of the target. */
+            containerId?: string | null;
+            /** @description Activity category (`lecture`, `study`, `work`, `other`). */
+            kind: components["schemas"]["TimeEntryKind"];
+            /** @description Optional note (at most 1000 characters). */
+            note?: string;
+            /** @description Optional workspace identifier of the target. */
+            workspaceId?: string | null;
+        };
+        /**
+         * @description Result of starting a timer: the newly started entry and, if a previous active timer
+         *     in an organization open to this session was stopped automatically, that stopped entry.
+         */
+        StartedTimeEntry: {
+            /** @description The newly started active timer (`endedAt` is `null`). */
+            entry: components["schemas"]["TimeEntry"];
+            /**
+             * @description The previous active timer that was stopped in the same transaction, if one was
+             *     running in an organization open to this session.
+             */
+            stopped?: components["schemas"]["TimeEntry"];
+        };
         /**
          * @description The kind of entity that subscribes.
          * @enum {string}
@@ -8345,6 +8591,123 @@ export interface components {
          * @enum {string}
          */
         Theme: "auto" | "light" | "dark";
+        /** @description One personal time tracking entry. */
+        TimeEntry: {
+            /**
+             * @description The card or unit linked to this entry, or `null` if none. Preserved even if
+             *     the target block is later moved to the trash or permanently deleted.
+             */
+            blockId: string | null;
+            /** @description The board or course of the linked target, or `null` if none. */
+            containerId: string | null;
+            /**
+             * Format: int64
+             * @description Creation time in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /**
+             * Format: int64
+             * @description When the entry ended, in milliseconds since the Unix epoch; `null` while running.
+             */
+            endedAt: number | null;
+            /** @description The entry's identifier. */
+            id: string;
+            /** @description Activity category (`lecture`, `study`, `work`, `other`). */
+            kind: components["schemas"]["TimeEntryKind"];
+            /** @description Optional note written by the user (at most 1000 characters). */
+            note: string;
+            /**
+             * Format: int64
+             * @description When the entry started, in milliseconds since the Unix epoch.
+             */
+            startedAt: number;
+            targetKind: components["schemas"]["TimeTargetKind"] | null;
+            /**
+             * @description Snapshot of the target's title taken when the entry was recorded, or `null` if
+             *     targetless. Preserved when the target is later deleted.
+             */
+            targetTitle: string | null;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+            /** @description The workspace of the linked target, or `null` for a targetless entry. */
+            workspaceId: string | null;
+        };
+        /**
+         * @description What kind of activity a time entry records.
+         * @enum {string}
+         */
+        TimeEntryKind: "lecture" | "study" | "work" | "other";
+        /** @description Total completed duration in milliseconds broken down by `TimeEntryKind`. */
+        TimeEntryKindTotals: {
+            /**
+             * Format: int64
+             * @description Completed milliseconds logged as `lecture`.
+             */
+            lecture: number;
+            /**
+             * Format: int64
+             * @description Completed milliseconds logged as `other`.
+             */
+            other: number;
+            /**
+             * Format: int64
+             * @description Completed milliseconds logged as `study`.
+             */
+            study: number;
+            /**
+             * Format: int64
+             * @description Completed milliseconds logged as `work`.
+             */
+            work: number;
+        };
+        /** @description One page of personal time entries paired with the aggregate summary of the full filter. */
+        TimeEntryList: {
+            /** @description The requested page of entries, ordered newest first (`startedAt DESC, id DESC`). */
+            entries: components["schemas"]["TimeEntry"][];
+            /** @description Totals across every entry matching the query filters. */
+            summary: components["schemas"]["TimeEntrySummary"];
+        };
+        /** @description Request body for editing one of the user's time entries (`PATCH /users/me/time/entries/{entryId}`). */
+        TimeEntryPatch: {
+            /**
+             * Format: int64
+             * @description New end timestamp in milliseconds since the Unix epoch. Setting this on a running
+             *     timer stops it at the given timestamp.
+             */
+            endedAt?: number;
+            /** @description New activity category. */
+            kind?: components["schemas"]["TimeEntryKind"];
+            /** @description New note (at most 1000 characters). */
+            note?: string;
+            /**
+             * Format: int64
+             * @description New start timestamp in milliseconds since the Unix epoch.
+             */
+            startedAt?: number;
+        };
+        /** @description Aggregated summary across all matching entries (across all pages). */
+        TimeEntrySummary: {
+            /** @description Completed duration in milliseconds per activity kind. */
+            byKind: components["schemas"]["TimeEntryKindTotals"];
+            /**
+             * Format: int64
+             * @description Total number of matching entries across all pages (including any running entry).
+             */
+            count: number;
+            /**
+             * Format: int64
+             * @description Total completed duration in milliseconds (running timers contribute 0 until stopped).
+             */
+            totalMs: number;
+        };
+        /**
+         * @description What kind of resource a time entry was linked to when created.
+         * @enum {string}
+         */
+        TimeTargetKind: "card" | "unit" | "board" | "course";
         /**
          * @description A title written before a person's name.
          * @enum {string}
@@ -11526,6 +11889,240 @@ export interface operations {
             };
         };
     };
+    getActiveTimeEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The currently running timer, or null. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActiveTimeEntry"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listTimeEntries: {
+        parameters: {
+            query?: {
+                /** @description Inclusive lower bound on `startedAt`, in milliseconds since the Unix epoch. */
+                from?: number;
+                /** @description Inclusive upper bound on `startedAt`, in milliseconds since the Unix epoch. Must be greater than or equal to `from` when both are given. */
+                to?: number;
+                /** @description Narrows the list to entries of this kind: `lecture`, `study`, `work` or `other`. Anything else is 400. */
+                kind?: "lecture" | "study" | "work" | "other";
+                /** @description Narrows the list to entries linked to this card or unit identifier. */
+                blockId?: string;
+                /** @description Narrows the list to entries linked to this board or course identifier. */
+                containerId?: string;
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
+                page?: number;
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
+                perPage?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching entries and aggregate summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeEntryList"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createTimeEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTimeEntryRequest"];
+            };
+        };
+        responses: {
+            /** @description The created time entry. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeEntry"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteTimeEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the time entry: one of the user of the session. */
+                entryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The time entry was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchTimeEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the time entry: one of the user of the session. */
+                entryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TimeEntryPatch"];
+            };
+        };
+        responses: {
+            /** @description The updated time entry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeEntry"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    startTimeEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartTimeEntryRequest"];
+            };
+        };
+        responses: {
+            /** @description The newly started timer and any previously running timer that was stopped. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartedTimeEntry"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    stopTimeEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stopped time entry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeEntry"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getMyWorkspaces: {
         parameters: {
             query?: never;
@@ -11675,13 +12272,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The boards of the archive are made. */
+            /** @description Summary of the boards, wikis, blocks, and files created by the import. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImportResult"];
+                    "application/json": components["schemas"]["ImportSummary"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

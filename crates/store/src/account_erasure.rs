@@ -414,9 +414,10 @@ impl Store {
 /// when their account is erased, whichever organization a row is of. An upload that
 /// was open is not among them: nobody sends its parts any more, and its clean-up needs
 /// the row to throw away what was sent (`uploads.rs`).
-const PERSONAL: [(&str, &str); 12] = [
+const PERSONAL: [(&str, &str); 13] = [
     ("notifications", "recipient_id"),
     ("notification_outbox", "recipient_id"),
+    ("time_entries", "user_id"),
     ("user_identities", "user_id"),
     ("email_changes", "user_id"),
     ("email_reverts", "user_id"),
@@ -754,6 +755,13 @@ pub(crate) async fn leave_organization(
     scope.execute(sql).await?;
     trash::forget_watcher_of_organization(scope, user_id).await?;
     crate::unit_progress::forget_user_in_organization(scope, user_id).await?;
+    // Serialize with concurrent `start_time_entry` / `create_time_entry` (which hold
+    // `users`) so an in-flight timer write cannot insert an orphan after we clear rows.
+    crate::users::hold_user_for_cleanup(scope, user_id).await?;
+    let mut sql = scope.sql("DELETE FROM time_entries WHERE user_id = ");
+    sql.bind(Id(user_id))
+        .push_bind(" AND org_id = ", scope.org()?);
+    scope.execute(sql).await?;
     let mut sql = scope.sql("DELETE FROM organization_members WHERE user_id = ");
     sql.bind(Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?);
@@ -801,6 +809,9 @@ async fn remove_organization(scope: &mut Scope<'_>) -> Result<Purged, StoreError
         removed.records += of_workspace.records;
         removed.files.extend(of_workspace.files);
     }
+    let mut sql = scope.sql("DELETE FROM time_entries WHERE org_id = ");
+    sql.bind(scope.org()?);
+    scope.execute(sql).await?;
     let mut sql = scope.sql("DELETE FROM sessions WHERE login_org_id = ");
     sql.bind(scope.org()?);
     scope.execute(sql).await?;

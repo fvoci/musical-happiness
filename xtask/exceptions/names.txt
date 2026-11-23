@@ -178,6 +178,8 @@ crates/store/src/containers.rs | container_team_access::
 crates/store/src/containers.rs | push_has_team_role
 crates/store/src/directory.rs | container_team_access
 crates/store/src/directory.rs | push_has_team_role
+crates/store/src/time_entries.rs | container_team_access
+crates/store/src/time_entries.rs | push_has_team_role
 crates/store/src/workspaces.rs | container_team_access::push_has_team_role
 crates/server/src/permissions.rs | team_role
 crates/server/src/permissions.rs | mod team_table

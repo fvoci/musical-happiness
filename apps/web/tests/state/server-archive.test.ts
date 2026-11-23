@@ -113,7 +113,19 @@ describe('an import', () => {
         return answer(201, { uploadId: 'up9', partSize: 4, partCount: 2, expiresAt: 1 });
       }
       if (url.includes('/parts/')) return answer(204);
-      if (url.endsWith('/archive/import')) return answer(200, { membersLeftOut: 2 });
+      if (url.endsWith('/archive/import')) {
+        const body = (typeof init.body === 'string' ? JSON.parse(init.body) : {}) as {
+          format?: 'fvoci' | 'trello' | 'notion';
+        };
+        return answer(200, {
+          format: body.format ?? 'fvoci',
+          imported: { boards: 1, wikis: 0, cards: 2, pages: 0, comments: 0, files: 0 },
+          membersLeftOut: 2,
+          containerIds: ['c1'],
+          skipped: [],
+          warnings: [],
+        });
+      }
       return answer(404, { type: '/problems/not-found', status: 404, detail: 'no' });
     });
     return calls;
@@ -127,7 +139,14 @@ describe('an import', () => {
       new File(['12345678'], 'boards.boardarchive', { type: 'application/zip' }),
       { onProgress: (progress) => seen.push(progress.sentBytes) },
     );
-    expect(imported).toEqual({ membersLeftOut: 2 });
+    expect(imported).toEqual({
+      format: 'fvoci',
+      imported: { boards: 1, wikis: 0, cards: 2, pages: 0, comments: 0, files: 0 },
+      membersLeftOut: 2,
+      containerIds: ['c1'],
+      skipped: [],
+      warnings: [],
+    });
     expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
       'GET /api/v1/client-config',
       'POST /api/v1/w/t1/archive/uploads',
@@ -142,6 +161,25 @@ describe('an import', () => {
     });
     expect(calls[4]?.json).toEqual({ uploadId: 'up9' });
     expect(seen).toEqual([4, 8]);
+  });
+
+  it('forwards explicit format (`trello` / `notion`) on the import request body', async () => {
+    const calls = importServer(100);
+    const trello = await serverBackend('').importArchive(
+      't1',
+      new File(['{"lists":[]}'], 'trello.json', { type: 'application/json' }),
+      { format: 'trello' },
+    );
+    expect(trello.format).toBe('trello');
+    expect(calls.at(-1)?.json).toEqual({ uploadId: 'up9', format: 'trello' });
+
+    const notion = await serverBackend('').importArchive(
+      't1',
+      new File(['PK123456'], 'notion.zip', { type: 'application/zip' }),
+      { format: 'notion' },
+    );
+    expect(notion.format).toBe('notion');
+    expect(calls.at(-1)?.json).toEqual({ uploadId: 'up9', format: 'notion' });
   });
 
   it('refuses an archive over the server’s limit before sending anything', async () => {

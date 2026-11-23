@@ -16,12 +16,15 @@ import {
 } from '../state/backend.ts';
 import type {
   CourseDraft,
+  CourseProgressSummary,
   Courses,
   CourseUnit,
   CourseUnitDetail,
   UnitDraft,
   UnitMove,
   UnitPatch,
+  UnitProgress,
+  UnitProgressUpdate,
 } from '../state/course-types.ts';
 import type { DeletedItem, Paging } from '../state/trash-reads.ts';
 
@@ -34,6 +37,11 @@ import {
   wireBody,
   type Schemas,
 } from './convert.ts';
+import {
+  getCourseProgressSummary,
+  getMyCourseProgress,
+  putUnitProgress as sendUnitProgress,
+} from './unit-progress.ts';
 import type { WikiRequest } from './wikis.ts';
 
 /** A unit or chapter as the outline lists it; `courseId` is the course it was read from. */
@@ -336,5 +344,22 @@ export class ServerCourses implements Courses {
       { method: 'DELETE' },
       workspaceId,
     );
+  }
+
+  myProgress(courseId: string, workspaceId?: string): Promise<UnitProgress[]> {
+    return getMyCourseProgress(this.#request, workspaceId, courseId);
+  }
+
+  putUnitProgress(
+    courseId: string,
+    unitId: string,
+    update: UnitProgressUpdate,
+    workspaceId?: string,
+  ): Promise<UnitProgress> {
+    return sendUnitProgress(this.#request, workspaceId, courseId, unitId, update);
+  }
+
+  progressSummary(courseId: string, workspaceId?: string): Promise<CourseProgressSummary> {
+    return getCourseProgressSummary(this.#request, workspaceId, courseId);
   }
 }

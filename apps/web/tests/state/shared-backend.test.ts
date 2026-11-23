@@ -183,12 +183,13 @@ describe('the backend of a course’s public link', () => {
       () => courses.deleteUnit('c1', 'u1'),
       () => courses.watchUnit('shared', 'u1', ''),
       () => courses.unwatchUnit('shared', 'u1', ''),
+      () => courses.putUnitProgress('c1', 'u1', { completed: true }),
     ]) {
       await expect(write()).rejects.toSatisfy(isBackendError);
     }
   });
 
-  it('reads no comments, versions, or subscriptions of a unit, asking the server nothing', async () => {
+  it('reads no comments, versions, subscriptions, or progress of a unit, asking the server nothing', async () => {
     const sent = serve([]);
     const courses = new SharedBackend('', 'c1', 't').course;
     expect([
@@ -196,7 +197,9 @@ describe('the backend of a course’s public link', () => {
       await courses.commentVersions('c1', 'u1', 'cm1'),
       await courses.bodyVersions.list('c1', 'u1'),
       await courses.watching('shared', ''),
-    ]).toEqual([[], [], [], []]);
+      await courses.myProgress('c1'),
+      await courses.progressSummary('c1'),
+    ]).toEqual([[], [], [], [], [], { totalUnits: 0, members: [] }]);
     expect(sent).toEqual([]);
     for (const write of [
       () => courses.createComment('c1', 'u1', { type: 'doc', content: [] }),

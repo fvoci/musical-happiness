@@ -900,7 +900,12 @@ describe('archives', () => {
     const imported = await workspace.importArchive(
       new File([archive?.bytes ?? ''], archive?.name ?? 'a'),
     );
-    expect(imported).toEqual({ membersLeftOut: 0 });
+    expect(imported).toMatchObject({
+      format: 'fvoci',
+      membersLeftOut: 0,
+      imported: { boards: 1, wikis: 0 },
+    });
+    expect(imported?.containerIds).toHaveLength(1);
     await settle();
     expect(workspace.containers).toHaveLength(before + 1);
     const copy = workspace.containers.find(

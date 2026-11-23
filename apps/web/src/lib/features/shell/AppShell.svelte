@@ -446,6 +446,11 @@
   {onSignOut}
   {onChangePassword}
   account={accountSettings}
+  {containerHref}
+  onOpenContainer={(container: ContainerPlace) => {
+    settingsOpen = false;
+    openContainer(container);
+  }}
   onOpenRecords={readRecords && worksHere
     ? () => {
         settingsOpen = false;
