@@ -168,15 +168,13 @@ export async function restoreCard(board: BoardStore, cardId: string): Promise<vo
   const { backend } = board.workspace;
   await backend.restoreBlock(board.boardId, cardId);
   try {
+    const restored = await backend.card(board.boardId, cardId);
+    let next = take(board.cards, restored);
     const cards = await backend.cards(board.boardId);
     // eslint-disable-next-line svelte/prefer-svelte-reactivity -- local lookup map, never reactive
     const byId = new Map(cards.map((card) => [card.id, card]));
-    let next = board.cards;
     for (const card of cards) {
-      if (
-        card.id === cardId ||
-        ancestorsOf(card.id, byId).some((ancestor) => ancestor.id === cardId)
-      ) {
+      if (ancestorsOf(card.id, byId).some((ancestor) => ancestor.id === cardId)) {
         next = take(next, card);
       }
     }
