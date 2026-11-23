@@ -1,6 +1,6 @@
 # 서버의 설정
 
-적은 때: 2026-11-11 05:05 KST, 고친 때: 2026-11-19 02:35 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
+적은 때: 2026-11-11 05:05 KST, 고친 때: 2026-11-23 13:25 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
 
 키를 더하거나 바꾸면 같은 커밋에서 이 문서를 고친다. 이 문서는 코드와 함께 검사된다. `config.rs`의 테스트 `the_configuration_document_lists_every_key`가 다음을 견준다.
 
@@ -30,7 +30,7 @@
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
-| `server_url` | `FVOCI_SERVER_URL` | 문자열 | `"http://localhost:8000"` | 사용자가 서버에 닿는 주소다. 경로가 있으면 웹앱이 그 경로를 자기 주소의 기준으로 쓴다. 서버가 실제로 그 경로 아래에서 답하게 하는 것은 `FVOCI_BASE_PATH`(아래 "그 밖의 환경 변수")이므로 둘을 같게 준다. 경로를 떼어 넘기는 프록시 뒤라면 그 변수는 비워 둔다. 바꾸는 요청과 WebSocket이 받아들이는 출처(`Origin`)가 이 주소에서 나온다. `https://`로 시작하면 세션 쿠키가 `Secure`가 되고 이름이 `__Host-fvoci_session`이 된다. 출처로 읽을 수 없는 주소면 시작하지 않는다 |
+| `server_url` | `FVOCI_SERVER_URL` | 문자열 | `"http://localhost:8000"` | 사용자가 서버에 닿는 주소다. 경로가 있으면 웹앱이 그 경로를 자기 주소의 기준으로 쓴다. 서버가 실제로 그 경로 아래에서 답하게 하는 것은 `FVOCI_BASE_PATH`(아래 "그 밖의 환경 변수")이므로 둘을 같게 준다. 경로를 떼어 넘기는 프록시 뒤라면 그 변수는 비워 둔다. 출처 루트에서만 읽히는 `/robots.txt`(`Disallow: /`)와 `/.well-known/security.txt`는 `FVOCI_BASE_PATH`가 있어도 언제나 서버의 출처 루트에서 답한다(다른 앱과 한 출처를 나누는 프록시 뒤라면 프록시가 출처 루트를 맡고, fvoci가 내주는 페이지의 `X-Robots-Tag: noindex, nofollow`가 색인을 막는다). 바꾸는 요청과 WebSocket이 받아들이는 출처(`Origin`)가 이 주소에서 나온다. `https://`로 시작하면 세션 쿠키가 `Secure`가 되고 이름이 `__Host-fvoci_session`이 된다. 출처로 읽을 수 없는 주소면 시작하지 않는다 |
 | `port` | `FVOCI_PORT` | 정수(1–65535) | `8000` | 들을 포트. 0이면 시작하지 않는다 |
 | `listen_loopback_only` | `FVOCI_LISTEN_LOOPBACK_ONLY` | 참·거짓 | `false` | 참이면 루프백(`localhost`)에서만 듣는다. 거짓이면 모든 인터페이스(IPv6, 안 되면 IPv4)에서 듣는다 |
 | `serve_https` | `FVOCI_SERVE_HTTPS` | 참·거짓 | `false` | 참이면 서버가 직접 HTTPS를 연다. 인증서는 작업 디렉터리의 `./cert/cert.pem`과 `./cert/key.pem`이다 |
@@ -40,6 +40,7 @@
 | `public_link_connections_per_container` | `FVOCI_PUBLIC_LINK_CONNECTIONS_PER_CONTAINER` | 정수(1 이상) | `200` | 공개 링크로 한 보드나 위키를 함께 읽는 연결의 수. 링크의 읽기 토큰으로 블록을 따라가거나(`SUBSCRIBE_BLOCKS`) 그 토큰으로 방문을 알리는(`SET_PRESENCE`) 연결을 하나로 센다(로그인한 사람의 연결도 링크로 읽으면 센다). 다 찼으면 새 연결의 구독은 받지 않고 `UNSUBSCRIBED_BLOCKS`(`reason` `public link connections full`)로 알리며, 방문은 받지 않아 보드의 "익명 n명"에 세지 않는다. 이미 읽는 연결과 보드의 구성원이 보통으로 여는 연결에는 닿지 않는다. 0은 시작 오류다 |
 | `public_link_connections_per_address` | `FVOCI_PUBLIC_LINK_CONNECTIONS_PER_ADDRESS` | 정수(1 이상) | `10` | 위의 연결 가운데 한 주소에서 오는 것의 수. IPv6 주소는 /64로 센다. 주소는 요청 로그와 로그인 제한이 쓰는 것이다(`trusted_proxies` 뒤면 `X-Forwarded-For`). 넘으면 위와 같다. 0은 시작 오류다 |
 | `compress_responses` | `FVOCI_COMPRESS_RESPONSES` | 참·거짓 | `true` | 참이면 API의 JSON 응답을 클라이언트의 `Accept-Encoding`에 따라 zstd, brotli, gzip으로 압축한다(32바이트 미만과 오류 응답은 그대로). 압축하는 프록시나 CDN 뒤라면 거짓으로 둔다. 내보내는 아카이브와 파일은 이것과 관계없이 압축하지 않는다(길이를 그대로 보낸다). 웹앱의 정적 파일은 빌드가 만든 `.zst`, `.br`, `.gz`를 고르므로 이것과 관계없다 |
+| `security_contact` | `FVOCI_SECURITY_CONTACT` | 문자열 | `""` | `GET /.well-known/security.txt`(RFC 9116)의 `Contact`에 실을 보안 제보 연락처(`mailto:security@example.com`, `https://example.com/security`, `tel:+1-555-0100` 꼴). 비어 있으면 `/.well-known/security.txt`는 404다. 값이 있으면 `Expires`는 응답 시각 기준 180일 뒤(UTC RFC 3339)로 내고, `server_url`이 `https://`이면 출처 기준 `Canonical`을 함께 낸다. 옛 경로 `/security.txt`는 언제나 404다. 위 세 스킴의 URI가 아니거나 공백·제어 문자가 있으면 시작하지 않는다 |
 
 ## 키: 데이터베이스
 

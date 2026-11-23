@@ -279,7 +279,9 @@ impl App {
             metrics.clone(),
         );
         let files = files.measured(metrics.clone());
-        let web = WebRoot::new(&config.web_app_path, &config.server_url);
+        let security_contact = config.security_contact()?;
+        let web = WebRoot::new(&config.web_app_path, &config.server_url)
+            .with_security_contact(security_contact);
         let webhook = Webhook::new(config.block_change_webhooks.clone())
             .context("unable to set up the webhook client")?;
         let oidc = Fetcher::new(

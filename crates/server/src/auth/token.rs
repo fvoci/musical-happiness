@@ -185,7 +185,7 @@ impl Origins {
 /// The origin of a URL in one spelling: scheme and host in lower case, the port unless
 /// it is the scheme's own. `None` for what is no `http` or `https` URL with a host; the
 /// `null` that browsers send for pages without an origin is none.
-fn origin_of(url: &str) -> Option<String> {
+pub(crate) fn origin_of(url: &str) -> Option<String> {
     let uri: Uri = url.trim().parse().ok()?;
     let scheme = uri.scheme_str()?.to_ascii_lowercase();
     let default_port = match scheme.as_str() {
