@@ -9,7 +9,8 @@ use crate::build::new_doc;
 use crate::project::to_body;
 use crate::repair::{Repair, repaired};
 use crate::update::{
-    Settled, UpdateError, UpdateLimits, settled_sized, with_update_sized, within_reading_steps,
+    Outcome, Settled, UpdateError, UpdateLimits, settled_sized, with_update_sized,
+    within_reading_steps,
 };
 
 /// A document that took an update, with its body.
@@ -33,6 +34,11 @@ pub struct Taken {
     /// The most steps the library may take to read `doc` once one more client has
     /// written into it ([`crate::steps_ahead`]); 0 where the limits have no count.
     pub steps_ahead: u64,
+    /// Whether `doc` must be made again from its body ([`crate::from_body`]) before
+    /// its state is stored or another update is taken: reading its state would take
+    /// more steps than [`UpdateLimits::reading_steps`], so `doc` was not read back
+    /// from its state.
+    pub remake: bool,
 }
 
 /// Why an update, or a stored state, is not taken. The document it was given for is as
@@ -86,24 +92,25 @@ pub enum TakeError {
 ///
 /// Returns [`TakeError::Update`] if the update cannot be taken at all (see
 /// [`UpdateError`]: among them one whose changes would take more steps to place than
-/// [`UpdateLimits::placing_steps`], and one that leaves a document that takes more
-/// steps to read than [`UpdateLimits::reading_steps`]), [`TakeError::Body`] if the
-/// document with it is no body and a
-/// repair does not make it one, and [`TakeError::BodyTooLarge`] if its body is past
-/// [`UpdateLimits::body_bytes`].
+/// [`UpdateLimits::placing_steps`], and one that leaves a document needing repair past
+/// [`UpdateLimits::reading_steps`]), [`TakeError::Body`] if the document with it is no
+/// body and a repair does not make it one, and [`TakeError::BodyTooLarge`] if its body
+/// is past [`UpdateLimits::body_bytes`].
 ///
 /// A document keeps what was deleted from it, so it grows with every edit: typing and
 /// deleting 10 kB a hundred times leaves a body of two letters in a state of 1 MB. Once
 /// it is near [`UpdateLimits::state_bytes`], every update is refused with
-/// [`UpdateError::DocumentTooLarge`], deletions too; and changes made to be walked stay
-/// in it, so that near [`UpdateLimits::reading_steps`] updates are refused with
-/// [`UpdateError::TooManyReadingSteps`]. What holds the document then makes
-/// it again from its body ([`crate::from_body`]), which starts without what was
-/// deleted and is read in no such steps ([`Taken::steps_ahead`] tells it how near
-/// the document may be after one more client wrote, so that it is made again before
-/// an update is refused), and has the editors that hold the old one load the new one: an update made
-/// against the old document is refused by the new one
-/// ([`UpdateError::MissingChanges`]).
+/// [`UpdateError::DocumentTooLarge`], deletions too. Changes that make the state slow
+/// to read stay in it as well: once an update would take the document past
+/// [`UpdateLimits::reading_steps`], if the copy with the update is already a valid
+/// body (needs no repair), it is still returned with [`Taken::remake`] set so what
+/// holds the document writes its body and makes it again from that ([`crate::from_body`])
+/// without losing the update; only an update that also needs a repair is refused with
+/// [`UpdateError::TooManyReadingSteps`]. [`Taken::steps_ahead`] tells what holds the
+/// document how near it may be after one more client wrote, so that it is made again
+/// beforehand; making it again starts without what was deleted and in no reading steps,
+/// and has the editors that hold the old one load the new one: an update made against
+/// the old document is refused by the new one ([`UpdateError::MissingChanges`]).
 pub fn take_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeError> {
     let with = with_update_sized(doc, update, limits)?;
     to_taken(with, limits)
@@ -135,7 +142,15 @@ pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeErro
         client_changes: None,
         ..*limits
     };
-    take_update(&new_doc(), state, &limits)
+    let taken = take_update(&new_doc(), state, &limits)?;
+    if taken.remake {
+        return Err(UpdateError::TooManyReadingSteps {
+            steps: taken.reading_steps,
+            limit: limits.reading_steps.unwrap_or_default(),
+        }
+        .into());
+    }
+    Ok(taken)
 }
 
 /// The document an update left, as a body: as it is, or repaired.
@@ -146,16 +161,56 @@ pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeErro
 /// than when it deletes in a document it holds. What is given back is what a server
 /// that stored it reads, with the body of that; if that is no body, the update is
 /// refused.
+///
+/// Where `with` was not settled because reading its state would exceed
+/// [`UpdateLimits::reading_steps`] ([`Outcome::Remake`]), it is projected without
+/// repairing: if it is already a body within [`UpdateLimits::body_bytes`] it comes
+/// back with [`Taken::remake`] set; if it needs a repair it is refused with
+/// [`UpdateError::TooManyReadingSteps`], because repair copies the document by reading
+/// its state again.
 fn to_taken(with: Settled, limits: &UpdateLimits) -> Result<Taken, TakeError> {
+    if let Outcome::Remake { steps, limit } = with.outcome {
+        let body = match to_body(&with.doc) {
+            Ok(body) => body,
+            Err(
+                limit_err @ (BodyError::TooLarge
+                | BodyError::TooDeep
+                | BodyError::TooManyNodes
+                | BodyError::TableTooLarge { .. }),
+            ) => return Err(limit_err.into()),
+            Err(BodyError::InvalidNode { .. } | BodyError::NotADocument) => {
+                return Err(UpdateError::TooManyReadingSteps { steps, limit }.into());
+            }
+        };
+        let repair = Repair {
+            deleted: 0,
+            mended: 0,
+            update: None,
+            body,
+        };
+        return finish_taken(with, repair, limits);
+    }
     let (mut repair, repaired) = repaired(&with.doc)?;
     let settled = match repaired {
         None => with,
         Some(copy) => {
-            let again = settled_sized(&copy, limits)?;
+            let again = settled_sized(copy, limits)?;
+            if let Outcome::Remake { steps, limit } = again.outcome {
+                return Err(UpdateError::TooManyReadingSteps { steps, limit }.into());
+            }
             repair.body = to_body(&again.doc)?;
             again
         }
     };
+    finish_taken(settled, repair, limits)
+}
+
+/// Checks `repair.body` against [`UpdateLimits::body_bytes`] and builds [`Taken`].
+fn finish_taken(
+    settled: Settled,
+    repair: Repair,
+    limits: &UpdateLimits,
+) -> Result<Taken, TakeError> {
     if let Some(body) = &repair.body {
         let size = size_of(body);
         if size > limits.body_bytes {
@@ -172,6 +227,7 @@ fn to_taken(with: Settled, limits: &UpdateLimits) -> Result<Taken, TakeError> {
         client_changes: settled.client_changes,
         reading_steps: settled.reading_steps,
         steps_ahead: settled.steps_ahead,
+        remake: matches!(settled.outcome, Outcome::Remake { .. }),
     })
 }
 

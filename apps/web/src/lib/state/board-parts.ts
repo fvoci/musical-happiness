@@ -3,11 +3,15 @@
  * workspace shown, a member's role, the flags of a role, adding a member,
  * the place of a drop, the card a copy is made as.
  */
+import { cardsOfView } from '../logic/card-list.ts';
 import { valuesOfCopy } from '../logic/dependencies.ts';
+import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
 import { propertyBehavior } from '../logic/properties.ts';
 import {
   cardProperty,
   parseRelationValue,
+  viewGrouping,
+  viewQuery,
   type BoardView,
   type Container,
   type ContainerKind,
@@ -127,21 +131,6 @@ export function roleFlags(
   };
 }
 
-/**
- * The property a view groups its cards by: the one it names. A board view
- * that names none, or one that cannot group, is grouped by the first
- * property that can, as the original drew such a view.
- */
-export function groupingPropertyOf(
-  view: BoardView,
-  properties: readonly PropertyTemplate[],
-): PropertyTemplate | undefined {
-  const named = properties.find((template) => template.id === view.fields.groupById);
-  if (view.fields.viewType !== 'board') return named;
-  if (named && propertyBehavior(named.type).canGroup) return named;
-  return properties.find((template) => propertyBehavior(template.type).canGroup);
-}
-
 /** A card with one property set to `value`, or cleared when empty. */
 export function withCardProperty(
   card: CardSummary,
@@ -177,4 +166,64 @@ export interface CardDrop {
    * column (`placeAmongAll`). Left out: `index` counts every card.
    */
   shown?: readonly string[];
+}
+
+/** The property a view groups its cards by, falling back to the first groupable property on boards. */
+export function groupingPropertyOf(
+  properties: readonly PropertyTemplate[],
+  view: BoardView,
+): PropertyTemplate | undefined {
+  const named = properties.find((template) => template.id === view.fields.groupById);
+  if (view.fields.viewType !== 'board') return named;
+  if (named && propertyBehavior(named.type).canGroup) return named;
+  return properties.find((template) => propertyBehavior(template.type).canGroup);
+}
+
+/** The columns of a view, visible and hidden, for cards already filtered and sorted. */
+export function groupsOfView(
+  properties: readonly PropertyTemplate[],
+  view: BoardView,
+  cards: readonly Card[],
+  noValueLabel: NoValueLabel,
+): BoardGroups {
+  const grouping = viewGrouping(view);
+  return getVisibleAndHiddenGroups(
+    cards,
+    grouping.visibleOptionIds,
+    grouping.hiddenOptionIds,
+    groupingPropertyOf(properties, view),
+    noValueLabel,
+  );
+}
+
+/** What a board view needs from a board store to filter and order its cards. */
+export interface BoardCardsSource {
+  readonly realCards: readonly CardSummary[];
+  readonly board: Container | undefined;
+  readonly cardsById: ReadonlyMap<string, CardSummary>;
+  readonly workspace: {
+    userName(userId: string): string | undefined;
+    readonly locale: string;
+    readonly regional: { readonly timeZone: string };
+  };
+}
+
+/** The cards a view shows, in its order, for a search text. */
+export function cardsOfBoardView(
+  source: BoardCardsSource,
+  view: BoardView,
+  searchText = '',
+): Card[] {
+  return cardsOfView(
+    source.realCards,
+    source.board?.cardProperties ?? [],
+    viewQuery(view),
+    searchText,
+    {
+      usernameOf: (userId) => source.workspace.userName(userId),
+      locale: source.workspace.locale,
+      timeZone: source.workspace.regional.timeZone,
+      cardTitle: (cardId) => source.cardsById.get(cardId)?.title,
+    },
+  );
 }

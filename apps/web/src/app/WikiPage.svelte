@@ -90,7 +90,11 @@
       // And so were its deleted pages, the dialog of its people and the versions of a page.
       [trash, trashOpen, sharing] = [undefined, false, false];
       [versions, versionsOpen] = [undefined, false];
-      void store.load();
+      const explicit = pageId;
+      const remembered = explicit ?? workspace.rememberedWikiPage(store.wikiId);
+      void store.load(
+        remembered ? { pageId: remembered, speculative: explicit === undefined } : undefined,
+      );
     });
     return () => {
       store.close();
@@ -98,9 +102,18 @@
     };
   });
 
-  // Without a page in the address: the first one, in place of the wiki's address.
+  // Without a page in the address: the remembered page once confirmed, else the first page.
   $effect(() => {
     if (wiki?.status !== 'ready' || pageId) return;
+    const target = wiki.speculativePageId;
+    if (target) {
+      const open = wiki.openPage;
+      if ((open?.pageId === target && open.status === 'ready') || wiki.page(target)) {
+        router.openPage(target, { replace: true });
+      }
+      return;
+    }
+    if (!wiki.pagesReady) return;
     const first = firstPage(wiki.pages);
     if (first) router.openPage(first.id, { replace: true });
   });
@@ -130,7 +143,9 @@
    * The page the wiki is on is known: the address names one, or the wiki has
    * none to go to (the address of the wiki alone is replaced by its first page).
    */
-  const placed = $derived(pageId !== undefined || !wiki || firstPage(wiki.pages) === undefined);
+  const placed = $derived(
+    pageId !== undefined || !wiki || (wiki.pagesReady && firstPage(wiki.pages) === undefined),
+  );
 
   // Who is on the wiki, while it is shown (joined or not); and on which page. The visit
   // is told once the page is known: not as the wiki alone, and then again with its page.
@@ -170,11 +185,17 @@
     if (next) router.openContainer(next);
   }
 
-  // The page of the address is the one open; none without one.
+  // The page of the address is the one open; none without one unless a speculative first page is loading.
   $effect(() => {
     const shown = wiki;
     const id = pageId;
-    if (shown?.status === 'ready') untrack(() => shown.showPage(id));
+    if (!shown) return;
+    const status = shown.status;
+    if (id !== undefined) {
+      if (status === 'loading' || status === 'ready') untrack(() => shown.showPage(id));
+    } else if (status === 'ready' && !shown.speculativePageId) {
+      untrack(() => shown.showPage(undefined));
+    }
   });
 </script>
 
@@ -295,7 +316,7 @@
           {/if}
         {/snippet}
         {#snippet pageActions(page: PageStore)}
-          {@const shown = wiki.page(page.pageId)}
+          {@const shown = wiki.page(page.pageId) ?? page.meta}
           {#if shown}
             <PageMenu
               page={shown}

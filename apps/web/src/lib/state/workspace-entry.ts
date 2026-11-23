@@ -2,7 +2,7 @@
  * Entering a workspace (`Workspace.enter`): which one to start in, and what
  * is read of it.
  */
-import { createBoardView, type Container } from '../logic/wire.ts';
+import { createBoard as createEmptyBoard, createBoardView, type Container } from '../logic/wire.ts';
 
 import {
   isBackendError,
@@ -10,6 +10,7 @@ import {
   isPasswordSignInRequired,
   ssoOrgOf,
   type Backend,
+  type BoardDraft,
   type Category,
   type User,
   type WorkspaceInfo,
@@ -86,7 +87,12 @@ export async function startOrganization(
  * whose workspaces are read again as well.
  */
 export async function leaveOrganization(
-  workspace: { workspaces: WorkspaceInfo[]; readonly backend: Backend },
+  workspace: {
+    workspaces: WorkspaceInfo[];
+    readonly backend: Backend;
+    evictOrg?(orgId: string): void;
+    pruneWorkspaces?(): void;
+  },
   leave: (orgId: string) => Promise<void>,
   orgId: string,
 ): Promise<void> {
@@ -101,14 +107,21 @@ export async function leaveOrganization(
 
 /** Reads the reader's workspaces again, or takes out the organization's where they cannot be. */
 async function rereadWithout(
-  workspace: { workspaces: WorkspaceInfo[]; readonly backend: Backend },
+  workspace: {
+    workspaces: WorkspaceInfo[];
+    readonly backend: Backend;
+    evictOrg?(orgId: string): void;
+    pruneWorkspaces?(): void;
+  },
   orgId: string,
 ): Promise<void> {
+  workspace.evictOrg?.(orgId);
   try {
     workspace.workspaces = await workspace.backend.workspaces();
   } catch {
     workspace.workspaces = workspace.workspaces.filter((one) => one.orgId !== orgId);
   }
+  workspace.pruneWorkspaces?.();
 }
 
 /**
@@ -139,6 +152,50 @@ export async function templatesOf(workspace: {
     workspace.report('load', error);
     return [];
   }
+}
+
+/** Searches boards across every open workspace, oldest first. */
+export async function searchBoardsOf(
+  workspace: {
+    readonly backend: Backend;
+    readonly info: WorkspaceInfo | undefined;
+    readonly workspaces: readonly WorkspaceInfo[];
+    report(action: 'load', error: unknown): void;
+  },
+  query: string,
+): Promise<Container[]> {
+  if (!workspace.info || query.trim() === '') return [];
+  const found = workspace.workspaces.filter(isOpen).map((one) =>
+    workspace.backend.searchBoards(one.id, query.trim()).catch((error: unknown) => {
+      if (isBackendError(error) && error.status === 401) workspace.report('load', error);
+      else if (!isBackendError(error)) console.error(error);
+      return [];
+    }),
+  );
+  return (await Promise.all(found)).flat().sort((one, other) => one.createAt - other.createAt);
+}
+
+/** Copies the welcome board for a new account and hands it to `receive`. */
+export async function onboardOf(workspace: {
+  readonly backend: Backend;
+  readonly info: WorkspaceInfo | undefined;
+  report(action: 'load', error: unknown): void;
+  receiveContainer(container: Container): void;
+}): Promise<string | undefined> {
+  if (!workspace.info) return undefined;
+  let boardId: string;
+  try {
+    boardId = await workspace.backend.onboard(workspace.info.id);
+  } catch (error) {
+    workspace.report('load', error);
+    return undefined;
+  }
+  try {
+    workspace.receiveContainer(await workspace.backend.container(boardId));
+  } catch {
+    // It is made; the server's message, or the next reading, shows it.
+  }
+  return boardId;
 }
 
 /**
@@ -186,12 +243,16 @@ export type Entered =
  * account was given one, since the list was read) is told the same: it is
  * still theirs, known by its name, with the way to sign in that opens it.
  */
-export async function enterWorkspace(backend: Backend, workspace: WorkspaceInfo): Promise<Entered> {
+export async function enterWorkspace(
+  backend: Backend,
+  workspace: WorkspaceInfo,
+  subscribe = true,
+): Promise<Entered> {
   const none = { info: undefined, closed: undefined };
   if (workspace.ssoRequired && workspace.orgId)
     return { ...none, status: 'sso', closed: workspace };
   if (workspace.passwordRequired) return { ...none, status: 'password', closed: workspace };
-  backend.enter?.(workspace.id);
+  if (subscribe) backend.enter?.(workspace.id);
   try {
     const read = await readWorkspace(backend, workspace);
     return read
@@ -253,6 +314,61 @@ export function closedBy(
     closed: ofIt ? { ...shown, orgId, ssoRequired: true } : undefined,
     entered: 'sso',
   };
+}
+
+/** Copies a board, wiki or template into a board (or template) in the current workspace. */
+export async function duplicateContainerOf(
+  workspace: {
+    readonly backend: Backend;
+    readonly info: WorkspaceInfo | undefined;
+    report(action: 'save', error: unknown): void;
+    receiveContainer(container: Container): void;
+  },
+  containerId: string,
+  asTemplate: boolean,
+): Promise<Container | undefined> {
+  if (!workspace.info) return undefined;
+  try {
+    const copy = await workspace.backend.duplicateContainer(
+      containerId,
+      asTemplate,
+      workspace.info.id,
+    );
+    if (!asTemplate) workspace.receiveContainer(copy);
+    return copy;
+  } catch (error) {
+    workspace.report('save', error);
+    return undefined;
+  }
+}
+
+/** Makes a board and its first kanban view together, adding it to the sidebar at once. */
+export async function createBoardOf(
+  workspace: {
+    readonly backend: Backend;
+    readonly info: WorkspaceInfo | undefined;
+    report(action: 'save', error: unknown): void;
+    receiveContainer(container: Container): void;
+  },
+  draft: BoardDraft,
+  viewTitle: string,
+  statusName: string,
+): Promise<Container | undefined> {
+  if (!workspace.info) return undefined;
+  try {
+    const cardProperties =
+      draft.cardProperties ?? createEmptyBoard(undefined, statusName).cardProperties;
+    const { board } = await workspace.backend.createBoard(
+      workspace.info.id,
+      { ...draft, cardProperties },
+      firstKanban(cardProperties, viewTitle),
+    );
+    workspace.receiveContainer(board);
+    return board;
+  } catch (error) {
+    workspace.report('save', error);
+    return undefined;
+  }
 }
 
 /**

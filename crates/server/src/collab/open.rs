@@ -93,6 +93,7 @@ impl Collab {
             clients: 1,
             client_changes,
             steps_ahead,
+            must_remake: false,
             last_writer: block.modified_by.clone(),
             first_unwritten: None,
             last_update: Instant::now(),
@@ -149,6 +150,7 @@ impl Collab {
             clients: 0,
             client_changes: 0,
             steps_ahead: 0,
+            must_remake: false,
             // Who sent the last update logged, which the fold of the log keeps.
             last_writer: if stored.last_writer.is_empty() {
                 block.modified_by.clone()
@@ -277,6 +279,17 @@ impl Collab {
                 .await?;
         }
         for update in updates {
+            if open.must_remake {
+                // Another logged update follows one that already left the document
+                // unsettled past `READING_STEPS`: do not hand the slow state back to
+                // `yrs`; fall back to remaking from the card's body.
+                return Err(Opening::Refused(
+                    AppError::bad_request(
+                        "a logged update follows one that left the document past the steps it may take to read",
+                    )
+                    .with_reason(Reason::UpdateRefused),
+                ));
+            }
             let request = Request::Retake {
                 doc: open.number,
                 update: update.bytes,
@@ -292,6 +305,7 @@ impl Collab {
                         clients,
                         client_changes,
                         steps_ahead,
+                        remake,
                         ..
                     },
                 ) => {
@@ -299,6 +313,7 @@ impl Collab {
                     open.clients = clients;
                     open.client_changes = client_changes;
                     open.steps_ahead = steps_ahead;
+                    open.must_remake |= remake;
                 }
                 (_, other) => return Err(unexpected(&other).into()),
             }

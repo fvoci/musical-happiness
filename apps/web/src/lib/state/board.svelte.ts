@@ -8,19 +8,16 @@
  * arrives through the backend's change messages and is applied the same way
  * as the answers to the reader's own writes.
  */
-import { cardsOfView } from '../logic/card-list.ts';
-import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
-import {
-  viewGrouping,
-  viewQuery,
-  type BlockPatch,
-  type Container,
-  type ContainerMember,
-  type BoardView,
-  type Card,
-  type MemberRole,
-  type PropertyTemplate,
-  type PropertyValue,
+import type { BoardGroups, NoValueLabel } from '../logic/group.ts';
+import type {
+  BlockPatch,
+  Container,
+  ContainerMember,
+  BoardView,
+  Card,
+  MemberRole,
+  PropertyTemplate,
+  PropertyValue,
 } from '../logic/wire.ts';
 
 import {
@@ -40,11 +37,17 @@ import { CardStore } from './card.svelte.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
 import { authorIds, memberId } from './user-names.ts';
-import { readBoard } from './board-load.ts';
+import {
+  handleBoardLoadFailure,
+  handleBoardRefreshFailure,
+  joinOpenBoard,
+  readBoard,
+} from './board-load.ts';
 import {
   canChangeComment,
-  containerOfWorkspace,
+  cardsOfBoardView,
   groupingPropertyOf,
+  groupsOfView,
   roleOf,
   withCardProperty,
   type CardDrop,
@@ -72,11 +75,9 @@ export class BoardStore {
   get containerId(): string {
     return this.boardId;
   }
-
   get container(): Container | undefined {
     return this.board;
   }
-
   set container(board: Container | undefined) {
     this.board = board;
   }
@@ -129,12 +130,11 @@ export class BoardStore {
   readonly canShare = $derived(this.role === 'admin');
   readonly canComment = $derived(this.canEdit || this.role === 'commenter');
 
-  /** Whether the reader may delete a comment written by `createdBy`, and bring it back. */
+  /** Whether the reader may delete or edit a comment written by `createdBy` (`canChangeComment`). */
   canDeleteComment(createdBy: string): boolean {
     return canChangeComment(this.role, createdBy, this.workspace.me?.id);
   }
 
-  /** Whether the reader may change the text of a comment written by `createdBy`. */
   canEditComment(createdBy: string): boolean {
     return canChangeComment(this.role, createdBy, this.workspace.me?.id);
   }
@@ -166,85 +166,91 @@ export class BoardStore {
     return this.workspace.backend;
   }
 
+  /** Increments on every load or cache resume so `whileHere` detects board round-trips. */
+  visit = 0;
+  /** Set when cache invalidation detaches this store while active so leaving closes it instead of re-caching. */
+  evicted = false;
+  #evictionGen = 0;
+
   async load(): Promise<void> {
-    this.status = 'loading';
-    this.missing = false;
-    this.joinable = false;
+    this.visit += 1;
+    [this.#parked, this.revalidating, this.evicted] = [false, false, false];
+    [this.status, this.missing, this.joinable] = ['loading', false, false];
     try {
       // Listen first: a change made while the lists are being read is not lost.
-      this.#stopWatching?.();
-      this.#stopWatching = this.#backend.watchContainer(this.boardId, (change) => {
-        this.#apply(change);
-      });
+      this.#listen();
       const [board, views, cards, members] = await readBoard(this.workspace, this.boardId);
-      this.board = board;
-      this.views = views;
-      this.cards = cards;
-      this.members = members;
+      if (this.#isInactive()) return;
+      [this.board, this.views, this.cards, this.members] = [board, views, cards, members];
       this.status = 'ready';
     } catch (error) {
-      this.status = 'failed';
-      if (isBackendError(error) && error.status === 404) this.missing = true;
-      else if (isBackendError(error) && error.status === 403 && (await this.#explainRefusal())) {
-        this.joinable = !this.missing;
-      } else this.workspace.report('load', error);
+      if (this.isClosed()) return;
+      await handleBoardLoadFailure(this, error);
     }
   }
 
-  /**
-   * Whether a refusal is explained: an open board of the workspace that the reader may join reads
-   * as itself, while the rest is refused (its title and description are shown with a way to join,
-   * the user's decision H5); a board not there, or of another workspace, is `missing`.
-   */
-  async #explainRefusal(): Promise<boolean> {
-    try {
-      const board = await containerOfWorkspace(
-        this.#backend,
-        this.boardId,
-        this.workspace.info?.id,
-      );
-      if (board.type !== 'O' || board.isTemplate) return false;
-      this.board = board;
-      return true;
-    } catch (error) {
-      this.missing = isBackendError(error) && error.status === 404;
-      return this.missing;
-    }
+  markEvicted(): void {
+    this.#evictionGen += 1;
+    this.evicted = true;
+  }
+
+  #listen(): void {
+    this.#stopWatching?.();
+    this.#stopWatching = this.#backend.watchContainer(this.boardId, this.#apply.bind(this));
+  }
+
+  isClosed(): boolean {
+    return this.#closed;
+  }
+
+  #isInactive(): boolean {
+    return this.#closed || this.#parked;
+  }
+
+  /** Detaches live listeners, open card rooms and pending re-readings. */
+  #detach(): void {
+    this.#refreshing += 1;
+    this.#lastComments.cancel();
+    this.#stopWatching?.();
+    this.#stopWatching = undefined;
+    this.closeCard();
   }
 
   /** Joins the open board shown (`joinable`) and opens it. False (and told) when that failed. */
-  async join(): Promise<boolean> {
-    if (this.joining) return false;
-    this.joining = true;
-    try {
-      await this.#backend.joinContainer(this.boardId);
-    } catch (error) {
-      // Made private or deleted meanwhile: there is nothing to join.
-      if (isBackendError(error) && error.status === 404) {
-        this.joinable = false;
-        this.missing = true;
-      } else this.workspace.report('save', error);
-      return false;
-    } finally {
-      this.joining = false;
-    }
-    // Left meanwhile (the address changed): the board is not read for nobody.
-    if (this.#closed) return false;
-    // The sidebar hears of it from the server (a member message reads it again).
-    await this.load();
-    return this.status === 'ready';
+  join(): Promise<boolean> {
+    return joinOpenBoard(this);
   }
 
   /** The reader asked to join (`join`) and the answer has not come. */
   joining = $state(false);
+  /** True while a cached board is revalidating in the background after `resume()`. */
+  revalidating = $state(false);
   #closed = false;
+  #parked = false;
+
+  /** Detaches listeners, open card rooms and timers while keeping the board cached. */
+  park(): void {
+    [this.#parked, this.revalidating] = [true, false];
+    this.#detach();
+  }
+
+  /** Re-attaches live listening and refreshes cached data in the background. */
+  async resume(): Promise<void> {
+    if (this.#closed) return;
+    [this.#parked, this.revalidating] = [false, true];
+    this.visit += 1;
+    const visit = this.visit;
+    this.#listen();
+    try {
+      await this.#refresh();
+    } finally {
+      if (this.visit === visit) this.revalidating = false;
+    }
+  }
 
   close(): void {
-    this.#closed = true;
-    this.#stopWatching?.();
-    this.#stopWatching = undefined;
-    this.openCard?.close();
-    this.openCard = undefined;
+    [this.#closed, this.#parked, this.revalidating] = [true, false, false];
+    this.#detach();
   }
 
   view(viewId: string | undefined): BoardView | undefined {
@@ -257,31 +263,17 @@ export class BoardStore {
 
   /** The cards a view shows, in its order, for a search text. */
   cardsOf(view: BoardView, searchText = ''): Card[] {
-    const properties = this.board?.cardProperties ?? [];
-    return cardsOfView(this.realCards, properties, viewQuery(view), searchText, {
-      usernameOf: (userId) => this.workspace.userName(userId),
-      locale: this.workspace.locale,
-      timeZone: this.workspace.regional.timeZone,
-      cardTitle: (cardId) => this.cardsById.get(cardId)?.title,
-    });
+    return cardsOfBoardView(this, view, searchText);
   }
 
   /** The property a view groups its cards by (`groupingPropertyOf`). */
   groupingOf(view: BoardView): PropertyTemplate | undefined {
-    return groupingPropertyOf(view, this.board?.cardProperties ?? []);
+    return groupingPropertyOf(this.board?.cardProperties ?? [], view);
   }
 
   /** The columns of a view, visible and hidden, for cards already filtered and sorted. */
   groupsOf(view: BoardView, cards: readonly Card[], noValueLabel: NoValueLabel): BoardGroups {
-    const grouping = viewGrouping(view);
-    const groupBy = this.groupingOf(view);
-    return getVisibleAndHiddenGroups(
-      cards,
-      grouping.visibleOptionIds,
-      grouping.hiddenOptionIds,
-      groupBy,
-      noValueLabel,
-    );
+    return groupsOfView(this.board?.cardProperties ?? [], view, cards, noValueLabel);
   }
 
   // ------------------------------------------------------------ changes
@@ -297,6 +289,7 @@ export class BoardStore {
         if (this.#boardWrites.receive(change.container)) this.#takeBoard(change.container);
         break;
       case 'containerDeleted':
+        this.workspace.evictContainer(this.boardId);
         // An open board may only have been closed to the reader (taken off
         // it): read again, it shows as one to join, or as gone.
         if (this.board?.type === 'O' && !this.board.isTemplate && !this.#closed) {
@@ -309,6 +302,12 @@ export class BoardStore {
       case 'members':
         this.#people.told += 1;
         this.members = change.members;
+        if (
+          this.workspace.me &&
+          !change.members.some((member) => member.userId === this.workspace.me?.id)
+        ) {
+          this.workspace.evictContainer(this.boardId);
+        }
         void this.workspace.learnUsers(change.members.map(memberId), { members: true });
         break;
       case 'blocks':
@@ -343,17 +342,18 @@ export class BoardStore {
    * that overlap, the later one counts.
    */
   async #refresh(): Promise<void> {
-    if (this.status !== 'ready') return;
+    if (this.status !== 'ready' || this.#closed || this.#parked) return;
     this.#refreshing += 1;
     const heard = this.#lastComments.begin();
     const reading = this.#refreshing;
+    const evictionGen = this.#evictionGen;
     const cardsBefore = this.cards.map((card) => card.id);
     const viewsBefore = this.views.map((view) => view.id);
     const membersTold = this.#people.told;
     try {
       const [board, views, cards, members] = await readBoard(this.workspace, this.boardId);
       // A newer reading has begun meanwhile: it is the one that counts.
-      if (reading !== this.#refreshing) return;
+      if (reading !== this.#refreshing || this.#isInactive()) return;
       if (this.#boardWrites.receive(board)) this.#takeBoard(board);
       this.views = reread(this.views, views, viewsBefore, (view) => this.#viewWrites.receive(view));
       const shown = this.cards;
@@ -363,6 +363,7 @@ export class BoardStore {
         this.members = members;
         void this.workspace.learnUsers(members.map(memberId), { members: true });
       }
+      if (this.#evictionGen === evictionGen) this.evicted = false;
       const open = this.openCard;
       if (open) {
         const card = this.card(open.cardId);
@@ -371,13 +372,11 @@ export class BoardStore {
         void open.refresh();
       }
     } catch (error) {
-      if (reading !== this.#refreshing) return;
-      if (isBackendError(error) && error.status === 404) {
-        this.missing = true;
-        this.status = 'failed';
-      } else {
-        this.workspace.report('load', error);
-      }
+      await handleBoardRefreshFailure(
+        this,
+        error,
+        () => reading === this.#refreshing && !this.#isInactive(),
+      );
     }
   }
 
@@ -413,6 +412,9 @@ export class BoardStore {
     try {
       return await this.workspace.undo.perform(redo, undo, description, groupId, false, ready);
     } catch (error) {
+      if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+        this.workspace.evictContainer(this.boardId);
+      }
       this.workspace.report('save', error);
       return undefined;
     }
@@ -472,7 +474,6 @@ export class BoardStore {
   async setCardTitle(cardId: string, title: string): Promise<void> {
     await this.changeCard(cardId, (card) => ({ ...card, title }), 'changeTitle');
   }
-
   async setCardIcon(cardId: string, icon: string): Promise<void> {
     await this.changeCard(
       cardId,
@@ -606,6 +607,7 @@ export class BoardStore {
     if (waitForId !== undefined) await this.#viewWrites.settled(waitForId);
     const before = this.views.map((view) => view.id);
     const views = await this.#backend.views(this.boardId);
+    if (this.#isInactive()) return;
     this.views = reread(this.views, views, before, (view) => this.#viewWrites.receive(view));
   }
 
@@ -704,11 +706,9 @@ export class BoardStore {
   addMember(userId: string, role: ContainerRole): Promise<void> {
     return this.#people.add(userId, role);
   }
-
   setMemberRole(userId: string, role: ContainerRole): Promise<void> {
     return this.#people.setRole(userId, role);
   }
-
   removeMember(userId: string): Promise<void> {
     return this.#people.remove(userId);
   }

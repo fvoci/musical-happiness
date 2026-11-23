@@ -11,10 +11,9 @@
 # - it runs on `pull_request` only, never with more than the right to read, and uses
 #   no secret but the run's own token, which can only read;
 # - every action is pinned to a commit, the tools the workflow downloads itself to a
-#   SHA-256 and Playwright's image to a digest. Playwright's server (from npm, in that
-#   image) and browsers are fetched by their version, and the images of the test
-#   containers are the tags xtask names (xtask/src/containers.rs), as on a developer's
-#   machine;
+#   SHA-256, and Playwright's and the test containers' images to multi-architecture
+#   digests (xtask/src/containers.rs, .github/scripts/test-services.sh). Playwright's
+#   server (from npm, in that image) and browsers are fetched by their version;
 # - no text from outside (titles, branch names, messages) reaches a shell, and the
 #   names of the changed files are read as data, never printed;
 # - only a run on master writes a cache. A pull request reads them and writes none:
@@ -39,16 +38,15 @@ on:
   # the merged tree is not one that a pull request's run passed with them.
   push:
     branches: [master]
-  workflow_dispatch:
 
 permissions:
   contents: read
 
-# A newer run of a pull request, or of a branch started by hand, ends the older one.
-# The runs of master are one per commit, and all of them finish.
+# A newer run of a pull request ends the older one. The runs of master are one per
+# commit, and all of them finish.
 concurrency:
-  group: ci-${{ github.event_name == 'push' && github.sha || github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
@@ -82,7 +80,7 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           BEFORE: ${{ github.event.before }}
           REPOSITORY: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
         run: .github/scripts/plan.sh
 
   # The S3 tests and the checks of the workflows run whatever became of the check.
@@ -106,25 +104,10 @@ jobs:
             9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f \
             cargo-deny-0.20.2-x86_64-unknown-linux-musl/cargo-deny target/tools/bin
       - run: cargo xtask check
-      # `cargo xtask test` runs these only together with both databases: the three
-      # commands are those of `s3_tests` in xtask/src/test.rs. Change one with the other.
-      - id: services
+      # xtask starts PostgreSQL and S3 itself, as on a developer's machine.
+      - name: S3 storage tests
         if: ${{ !cancelled() }}
-        run: .github/scripts/test-services.sh postgres s3
-      - name: The storage test
-        if: ${{ !cancelled() && steps.services.outcome == 'success' }}
-        run: cargo test --locked --package fvoci-server --test storage -- --ignored
-      - name: Uploads in parts that go to S3
-        if: ${{ !cancelled() && steps.services.outcome == 'success' }}
-        run: cargo test --locked --package fvoci-server --test api -- --ignored with_s3
-      - name: The files of two organizations in one bucket
-        if: ${{ !cancelled() && steps.services.outcome == 'success' }}
-        env:
-          FVOCI_STORE_TEST_DB_TYPE: postgres
-        run: |
-          cargo test --locked --package fvoci-server --test organization_boundary_round2 -- \
-            --ignored --exact \
-            media::s3_files_tokens_uploads_and_housekeeping_stay_in_their_organizations
+        run: cargo xtask test --database s3
       # What the jobs are cut for: four processors and 16 GB when this was written.
       - name: The runner's processors, memory and disk
         if: ${{ !cancelled() }}

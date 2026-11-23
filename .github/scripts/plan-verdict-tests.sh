@@ -13,26 +13,34 @@ failed=0
 
 # The stand-in for `gh api --jq <filter> <path>`: the filter applied to FAKE_JSON when
 # the path asks for the artifact `tested-<FAKE_TREE>`, to an empty list for any other;
-# for a run, its conclusion as FAKE_RUNS gives it (`<id>=<conclusion> …`), or a failure
-# as for a run GitHub does not have. FAKE_JSON=fail fails; FAKE_ANSWER, when set, is
-# printed instead of every answer.
+# FAKE_ARTIFACTS_RAW, when set, replaces only the artifacts answer so malformed run ids
+# are still checked against /actions/runs/*. For a run, FAKE_RUNS_JSON maps run id (or
+# `*` as a wildcard for malformed-id tests) to a run JSON object, or fails as for a run
+# GitHub does not have. FAKE_JSON=fail fails every call.
 mkdir "$WORK/bin"
 cat >"$WORK/bin/gh" <<'EOF'
 #!/usr/bin/env bash
+set -euo pipefail
 [[ $1 == api && $2 == --jq ]] || exit 2
 [[ ${FAKE_JSON:-} == fail ]] && exit 1
-if [[ -n ${FAKE_ANSWER:-} ]]; then echo "$FAKE_ANSWER"; exit 0; fi
 case $4 in
-  *"/actions/artifacts?name=tested-$FAKE_TREE&"*) jq --raw-output "$3" <<<"$FAKE_JSON" ;;
-  */actions/artifacts\?*) jq --raw-output "$3" <<<'{"artifacts": []}' ;;
+  *"/actions/artifacts?name=tested-${FAKE_TREE:-}&"*)
+    if [[ -n ${FAKE_ARTIFACTS_RAW+x} ]]; then
+      printf '%s\n' "$FAKE_ARTIFACTS_RAW"
+      exit 0
+    fi
+    jq --raw-output "$3" <<<"$FAKE_JSON"
+    ;;
+  */actions/artifacts\?*)
+    jq --raw-output "$3" <<<'{"artifacts": []}'
+    ;;
   */actions/runs/*)
-    for pair in ${FAKE_RUNS:-11=success}; do
-      if [[ ${pair%%=*} == "${4##*/}" ]]; then
-        jq --raw-output "$3" <<<"{\"conclusion\": \"${pair#*=}\"}"
-        exit 0
-      fi
-    done
-    exit 1
+    id=${4#*/actions/runs/}
+    runs_json='{}'
+    if [[ -n ${FAKE_RUNS_JSON:-} ]]; then runs_json=$FAKE_RUNS_JSON; fi
+    run=$(jq --compact-output --arg id "$id" '.[$id] // .["*"] // empty' <<<"$runs_json")
+    [[ -n $run ]] || exit 1
+    jq --raw-output "$3" <<<"$run"
     ;;
   *) exit 2 ;;
 esac
@@ -43,11 +51,28 @@ RUST='"rust-postgres","rust-sqlite"'
 WEB='"web-checks","web-e2e","web-e2e-apple"'
 BUILD='"web-build","web-e2e","web-e2e-apple","web-e2e-live"'
 # Artifacts as GitHub lists them: of a run (11) of this repository's branch, of a fork's
-# run (12), expired (13), of a run (14) whose later attempt failed.
+# run (12), expired (13), of a run (14) whose later attempt failed, missing repo ids (16),
+# missing expired flag (17).
 OURS='{"expired": false, "workflow_run": {"id": 11, "repository_id": 7, "head_repository_id": 7}}'
 FORK='{"expired": false, "workflow_run": {"id": 12, "repository_id": 7, "head_repository_id": 9}}'
 OLD='{"expired": true, "workflow_run": {"id": 13, "repository_id": 7, "head_repository_id": 7}}'
 RED='{"expired": false, "workflow_run": {"id": 14, "repository_id": 7, "head_repository_id": 7}}'
+MISSING_REPO='{"expired": false, "workflow_run": {"id": 16}}'
+MISSING_EXPIRED='{"workflow_run": {"id": 17, "repository_id": 7, "head_repository_id": 7}}'
+
+# One workflow run object as GitHub returns it; defaults are a completed, passing ci.yml
+# pull_request run for HEAD^2.
+run_json() {
+  local head_sha=${1:-$(git rev-parse 'HEAD^2')}
+  local event=${2:-pull_request}
+  local path=${3:-.github/workflows/ci.yml}
+  local conclusion=${4:-success}
+  local status=${5:-completed}
+  jq --null-input --compact-output \
+    --arg event "$event" --arg path "$path" \
+    --arg conclusion "$conclusion" --arg status "$status" --arg head_sha "$head_sha" \
+    '{event: $event, path: $path, status: $status, conclusion: $conclusion, head_sha: $head_sha}'
+}
 
 # A new repository with one commit on master, which is also origin/master.
 repo() {
@@ -193,7 +218,7 @@ expect_plan "a stack of Rust only skips the web app's tests" "$WEB" EVENT=pull_r
 
 repo dispatch
 merge_change apps/web/src/app.ts=two
-expect_plan "a run by hand skips nothing" "" EVENT=workflow_dispatch
+expect_plan "an unexpected event skips nothing" "" EVENT=workflow_dispatch
 expect_plan "a run without an event skips nothing" "" EVENT=
 
 # Pushes to master: BEFORE is master before the push.
@@ -201,36 +226,80 @@ repo pushed
 before=$(git rev-parse HEAD)
 merge_change apps/web/src/app.ts=two
 tree=$(git rev-parse 'HEAD^{tree}')
+ok_run=$(run_json)
+ok_runs="{\"11\": $ok_run}"
+all_ok="{\"11\": $ok_run, \"12\": $ok_run, \"13\": $ok_run, \"16\": $ok_run, \"17\": $ok_run}"
 expect_plan "a merge whose tree passed skips the jobs of the build" "$RUST,$BUILD" \
-  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OURS]}"
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OURS]}" \
+  FAKE_RUNS_JSON="$ok_runs"
 expect_plan "a merge whose tree passed twice skips the jobs of the build" "$RUST,$BUILD" \
-  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OLD, $OURS, $OURS]}"
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OLD, $OURS, $OURS]}" \
+  FAKE_RUNS_JSON="$ok_runs"
 expect_plan "a merge whose tree did not pass skips by its files only" "$RUST" \
-  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON='{"artifacts": []}'
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON='{"artifacts": []}' \
+  FAKE_RUNS_JSON="$ok_runs"
 expect_plan "a merge whose tree passed only in a fork's run skips by its files only" "$RUST" \
   EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$FORK]}" \
-  FAKE_RUNS="11=success 12=success 13=success"
+  FAKE_RUNS_JSON="$all_ok"
 expect_plan "a merge whose tree's record expired skips by its files only" "$RUST" \
   EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OLD]}" \
-  FAKE_RUNS="11=success 12=success 13=success"
-expect_plan "a merge whose branch's tree passed, not its own, skips by its files only" "$RUST" \
-  EVENT=push BEFORE="$before" FAKE_TREE="$(git rev-parse 'HEAD^2^{tree}')x" \
-  FAKE_JSON="{\"artifacts\": [$OURS]}"
+  FAKE_RUNS_JSON="$all_ok"
+expect_plan "a merge whose tree's record lacks repository ids skips by its files only" "$RUST" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$MISSING_REPO]}" \
+  FAKE_RUNS_JSON="$all_ok"
+expect_plan "a merge whose tree's record lacks expired flag skips by its files only" "$RUST" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$MISSING_EXPIRED]}" \
+  FAKE_RUNS_JSON="$all_ok"
+expect_plan "a merge whose tree's run was a push event skips by its files only" "$RUST" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OURS]}" \
+  FAKE_RUNS_JSON="{\"11\": $(run_json '' push)}"
+expect_plan "a merge whose tree's run was a dispatch event skips by its files only" "$RUST" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OURS]}" \
+  FAKE_RUNS_JSON="{\"11\": $(run_json '' workflow_dispatch)}"
+expect_plan "a merge whose tree's run was another workflow skips by its files only" "$RUST" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OURS]}" \
+  FAKE_RUNS_JSON="{\"11\": $(run_json '' pull_request .github/workflows/other.yml)}"
+expect_plan "a merge whose tree's run was for HEAD instead of HEAD^2 skips by its files only" \
+  "$RUST" EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OURS]}" \
+  FAKE_RUNS_JSON="{\"11\": $(run_json "$(git rev-parse HEAD)")}"
+expect_plan "a merge whose tree's run was for HEAD^1 instead of HEAD^2 skips by its files only" \
+  "$RUST" EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OURS]}" \
+  FAKE_RUNS_JSON="{\"11\": $(run_json "$(git rev-parse 'HEAD^1')")}"
 expect_plan "a merge whose tree's run failed at a later attempt skips by its files only" \
   "$RUST" EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$RED]}" \
-  FAKE_RUNS="11=success 14=failure"
+  FAKE_RUNS_JSON="{\"11\": $ok_run, \"14\": $(run_json '' pull_request .github/workflows/ci.yml failure)}"
+expect_plan "a merge whose tree's run was cancelled skips by its files only" \
+  "$RUST" EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$RED]}" \
+  FAKE_RUNS_JSON="{\"11\": $ok_run, \"14\": $(run_json '' pull_request .github/workflows/ci.yml cancelled)}"
+expect_plan "a merge whose tree's run is still in progress skips by its files only" \
+  "$RUST" EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OURS]}" \
+  FAKE_RUNS_JSON="{\"11\": $(run_json '' pull_request .github/workflows/ci.yml success in_progress)}"
 expect_plan "a merge whose tree passed in one of two runs skips the jobs of the build" \
   "$RUST,$BUILD" EVENT=push BEFORE="$before" FAKE_TREE="$tree" \
-  FAKE_JSON="{\"artifacts\": [$RED, $OURS]}" FAKE_RUNS="11=success 14=failure"
+  FAKE_JSON="{\"artifacts\": [$RED, $OURS]}" \
+  FAKE_RUNS_JSON="{\"11\": $ok_run, \"14\": $(run_json '' pull_request .github/workflows/ci.yml failure)}"
 expect_plan "a merge whose tree's run GitHub no longer has skips by its files only" "$RUST" \
   EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OURS]}" \
-  FAKE_RUNS="15=success"
+  FAKE_RUNS_JSON="{\"15\": $ok_run}"
 expect_plan "a merge when GitHub does not answer skips by its files only" "$RUST" \
-  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON=fail
-for answer in null '1 2' -1 0x1 ''; do
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON=fail FAKE_RUNS_JSON="$ok_runs"
+for answer in null '1 2' -1 0x1 '../11' ''; do
   expect_plan "a merge when GitHub answers '$answer' skips by its files only" "$RUST" \
-    EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_ANSWER="${answer:- }" FAKE_JSON='{}'
+    EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_ARTIFACTS_RAW="$answer" \
+    FAKE_JSON='{}' FAKE_RUNS_JSON="{\"*\": $ok_run}"
 done
+
+# A merge after master moved: HEAD^2's tree differs from HEAD's tree.
+repo diverged-merge
+git checkout --quiet -b feature
+change apps/web/src/app.ts=two
+git checkout --quiet master
+change README=two
+before=$(git rev-parse HEAD)
+git merge --quiet --no-ff --no-edit feature
+expect_plan "a merge whose branch's tree passed, not its own, skips by its files only" "$RUST" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$(git rev-parse 'HEAD^2^{tree}')" \
+  FAKE_JSON="{\"artifacts\": [$OURS]}" FAKE_RUNS_JSON="{\"11\": $(run_json)}"
 
 # A merge made with an edit of its own: its tree is not its branch's.
 repo edited-merge
@@ -243,14 +312,14 @@ put apps/web/src/app.ts 'three'
 git add --all && git commit --quiet --no-edit
 expect_plan "a merge whose tree is not its branch's is not taken for its branch's" "$RUST" \
   EVENT=push BEFORE="$before" FAKE_TREE="$(git rev-parse 'HEAD^2^{tree}')" \
-  FAKE_JSON="{\"artifacts\": [$OURS]}"
+  FAKE_JSON="{\"artifacts\": [$OURS]}" FAKE_RUNS_JSON="{\"11\": $(run_json)}"
 
 repo pushed-both
 before=$(git rev-parse HEAD)
 merge_change apps/web/src/app.ts=two crates/model/src/lib.rs=two
 expect_plan "a merge of both whose tree passed skips the jobs of the build" "$BUILD" \
   EVENT=push BEFORE="$before" FAKE_TREE="$(git rev-parse 'HEAD^{tree}')" \
-  FAKE_JSON="{\"artifacts\": [$OURS]}"
+  FAKE_JSON="{\"artifacts\": [$OURS]}" FAKE_RUNS_JSON="{\"11\": $(run_json)}"
 
 repo two-merges
 before=$(git rev-parse HEAD)
@@ -264,6 +333,24 @@ before=$(git rev-parse HEAD)
 change crates/model/src/lib.rs=two
 expect_plan "a commit pushed without a merge skips by its files" "$WEB" \
   EVENT=push BEFORE="$before" FAKE_TREE=none FAKE_JSON='{"artifacts": []}'
+expect_plan "a single-parent push fails closed even if its tree has a matching run" "$WEB" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$(git rev-parse 'HEAD^{tree}')" \
+  FAKE_JSON="{\"artifacts\": [$OURS]}" \
+  FAKE_RUNS_JSON="{\"*\": $(run_json "$(git rev-parse HEAD)")}"
+
+repo octopus
+git checkout --quiet -b branch-a
+change apps/web/src/app.ts=two
+git checkout --quiet master
+git checkout --quiet -b branch-b
+change apps/web/src/other.ts=two
+git checkout --quiet master
+before=$(git rev-parse HEAD)
+git merge --quiet --no-ff --no-edit branch-a branch-b
+expect_plan "an octopus merge fails closed even if a matching run exists" "$RUST" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$(git rev-parse 'HEAD^{tree}')" \
+  FAKE_JSON="{\"artifacts\": [$OURS]}" \
+  FAKE_RUNS_JSON="{\"*\": $(run_json "$(git rev-parse 'HEAD^2')")}"
 
 repo new-branch
 expect_plan "a push git cannot compare skips nothing" "" \
