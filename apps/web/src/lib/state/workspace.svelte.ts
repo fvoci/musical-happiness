@@ -30,7 +30,8 @@ import {
   type Category,
   type Change,
   type DownloadedFile,
-  type Imported,
+  type ImportFormat,
+  type ImportSummary,
   type WorkspaceInfo,
   type User,
 } from './backend.ts';
@@ -703,22 +704,21 @@ export class Workspace {
     );
   }
 
-  /**
-   * Imports the boards and wikis of an archive, then reads them and the sidebar
-   * again: the server tells the new boards before their members exist, so
-   * nobody hears of them. What it left out, if it went through.
-   */
-  async importArchive(file: File): Promise<Imported | undefined> {
+  /** Imports an archive or external export and refreshes containers and sidebar before returning. */
+  async importArchive(
+    file: File,
+    format: ImportFormat = 'fvoci',
+  ): Promise<ImportSummary | undefined> {
     const workspace = this.info;
     if (!workspace) return undefined;
     const done = await this.transfers.run(
       'import',
-      `import ${file.name} ${file.size} ${file.lastModified}`,
+      `import ${format} ${file.name} ${file.size} ${file.lastModified}`,
       file.name,
-      (options) => this.backend.importArchive(workspace.id, file, options),
+      (options) => this.backend.importArchive(workspace.id, file, { ...options, format }),
     );
-    // Even a failed import may have made some boards (one after the other).
-    void this.#refresh();
+    if (this.info?.id === workspace.id) await this.#refresh();
+    else this.#caches.workspaces.delete(workspace.id);
     return done;
   }
 

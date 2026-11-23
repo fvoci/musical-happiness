@@ -454,6 +454,12 @@ impl Hub {
         self.close_where(Disconnect::Shutdown, |_| true);
     }
 
+    /// Returns whether any WebSocket connection is currently listening to `workspace_id`.
+    #[must_use]
+    pub fn has_workspace_listeners(&self, workspace_id: &str) -> bool {
+        self.listeners().by_workspace.contains_key(workspace_id)
+    }
+
     // -- broadcasts -------------------------------------------------------------------
 
     /// Tells the board's members in the workspace, and the listeners of the block and of its

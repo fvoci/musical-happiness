@@ -1,14 +1,50 @@
 //! Repairing a Y document that the allowlist refuses.
 
+use std::collections::BTreeSet;
+
 use fvoci_model::{BODY_MAX_DEPTH, Body, BodyError};
 use serde_json::{Value, json};
-use yrs::{Array, ArrayRef, Doc, ReadTxn, Transact, TransactionMut, XmlElementRef, XmlFragmentRef};
+use yrs::{
+    Array, ArrayRef, Doc, ID, ReadTxn, Transact, TransactionMut, XmlElementRef, XmlFragment as _,
+    XmlFragmentRef,
+};
 
 use crate::FIELD;
+use crate::block_cache::{
+    ApplyDelta, BlockCache, DocTotals, check_totals, element_id, measure_block_value,
+    project_and_validate_block,
+};
 use crate::mend::{self, CellAt, Mend, SurveyedRow};
 use crate::project::{project, to_body};
 use crate::read::{self, Child, Content};
 use crate::schema::{self, Place};
+
+/// What an in-place repair did on a [`crate::BodyDoc`], without materializing the full
+/// [`Body`] JSON tree on the hot path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct InPlaceRepair {
+    /// How many nodes and texts were deleted, each with all it held.
+    pub deleted: usize,
+    /// How many cells of tables were put in, or had their spans written again, to mend
+    /// the tables' grids.
+    pub mended: usize,
+    /// The deletions and what mended the tables, as a version 1 update for the editors
+    /// that hold the document; `None` if nothing was changed.
+    pub update: Option<Vec<u8>>,
+}
+
+impl InPlaceRepair {
+    /// No repair was needed.
+    #[must_use]
+    pub(crate) const fn none() -> Self {
+        Self {
+            deleted: 0,
+            mended: 0,
+            update: None,
+        }
+    }
+}
 
 /// What a repair did.
 #[derive(Debug, Clone, PartialEq)]
@@ -196,6 +232,132 @@ fn deleting(doc: &Doc, writer: Option<u64>) -> Result<Repair, BodyError> {
     })
 }
 
+/// Validates `doc` incrementally using `cache` and `delta`, repairing only dirty top-level
+/// blocks (plus any tables with empty text inside rows) when validation fails.
+pub(crate) fn validate_or_repair_in_place(
+    doc: &Doc,
+    cache: &mut BlockCache,
+    delta: &ApplyDelta,
+) -> Result<InPlaceRepair, BodyError> {
+    match cache.apply_delta(doc, delta) {
+        Ok(()) => Ok(InPlaceRepair::none()),
+        Err(dirty) => deleting_with_cache(doc, cache, Some(&dirty)),
+    }
+}
+
+/// Validates `doc` block-by-block into a fresh [`BlockCache`], repairing `doc` in place
+/// and populating the cache if `doc` is not yet a valid body.
+pub(crate) fn build_or_repair_cache(doc: &Doc) -> Result<(BlockCache, InPlaceRepair), BodyError> {
+    if let Ok(cache) = BlockCache::build(doc) {
+        return Ok((cache, InPlaceRepair::none()));
+    }
+    let mut cache = BlockCache::new();
+    let repair = deleting_with_cache(doc, &mut cache, None)?;
+    Ok((cache, repair))
+}
+
+/// Repairs `doc` in place while reusing clean entries from `cache` (when `dirty` is
+/// `Some`) and refreshing `cache` for all surveyed blocks after applying cuts and mends.
+fn deleting_with_cache(
+    doc: &Doc,
+    cache: &mut BlockCache,
+    dirty: Option<&BTreeSet<ID>>,
+) -> Result<InPlaceRepair, BodyError> {
+    let writer = writer_for(doc);
+    let root = doc.get_or_insert_xml_fragment(FIELD);
+    let survey = {
+        let txn = doc.transact();
+        Survey { txn: &txn }.root_cached(&root, dirty.map(|ids| (&*cache, ids)))?
+    };
+    check_totals(DocTotals {
+        blocks: survey.kept_blocks,
+        nodes: survey.kept_nodes,
+        json_bytes: survey.kept_json_bytes,
+        is_empty_doc: survey.only_empty_paragraph,
+    })?;
+    let Changes { cuts, mends } = survey.changes;
+    if cuts.iter().map(Cuts::stretches).sum::<usize>() > MAX_STRETCHES {
+        return Err(BodyError::InvalidNode {
+            path: String::new(),
+            problem: "more separate parts of the document fail than a repair deletes",
+        });
+    }
+    if !mends.is_empty() {
+        mend::check_mends(doc, writer, &mends)?;
+    }
+    let deleted = cuts.iter().map(|cuts| cuts.indexes.len()).sum();
+    let mended = mends.iter().map(Mend::cells).sum();
+    if mends.is_empty() {
+        let mut txn = doc.transact_mut();
+        for cuts in &cuts {
+            cuts.make(&mut txn);
+        }
+        refresh_cache_after_repair(
+            &txn,
+            &root,
+            cache,
+            &survey.surveyed_kept,
+            &survey.surveyed_removed,
+        )?;
+        let update = (deleted > 0).then(|| txn.encode_update_v1());
+        drop(txn);
+        return Ok(InPlaceRepair {
+            deleted,
+            mended: 0,
+            update,
+        });
+    }
+    let mut del_set = {
+        let mut txn = doc.transact_mut();
+        for cuts in &cuts {
+            cuts.make(&mut txn);
+        }
+        txn.delete_set().clone()
+    };
+    let update = mend::apply_mends(doc, writer, &mends, &mut del_set)?;
+    {
+        let txn = doc.transact();
+        refresh_cache_after_repair(
+            &txn,
+            &root,
+            cache,
+            &survey.surveyed_kept,
+            &survey.surveyed_removed,
+        )?;
+    }
+    Ok(InPlaceRepair {
+        deleted,
+        mended,
+        update: Some(update),
+    })
+}
+
+/// Updates `cache` for all blocks surveyed during repair and re-verifies root integrity
+/// and whole-document limits against `doc`, mirroring `project(&txn, &root)?`.
+fn refresh_cache_after_repair<T: ReadTxn>(
+    txn: &T,
+    root: &XmlFragmentRef,
+    cache: &mut BlockCache,
+    kept: &[(ID, XmlElementRef)],
+    removed: &[ID],
+) -> Result<(), BodyError> {
+    for id in removed {
+        cache.remove(id);
+    }
+    for (id, element) in kept {
+        let entry = project_and_validate_block(txn, element)?;
+        cache.upsert(*id, entry);
+    }
+    let root_len = usize::try_from(root.len(txn)).unwrap_or(usize::MAX);
+    if cache.len() != root_len || (root_len > 0 && root.first_child().is_none()) {
+        return Err(BodyError::InvalidNode {
+            path: String::new(),
+            problem: "holds something that is neither a node nor a text",
+        });
+    }
+    cache.check_whole_limits()
+}
+
 /// How many stretches of neighbouring children a repair deletes at most. The library
 /// deletes by index and walks to it from the front of the parent, over what was deleted
 /// before as well, so a repair costs about this many walks through a parent. What two
@@ -250,6 +412,18 @@ struct Found {
     content: Content,
     /// What to change, here and below.
     changes: Changes,
+}
+
+/// What [`Survey::root_cached`] collected without materializing clean blocks' JSON trees.
+#[derive(Debug, Default)]
+struct CachedRootSurvey {
+    kept_blocks: usize,
+    kept_nodes: u64,
+    kept_json_bytes: u64,
+    only_empty_paragraph: bool,
+    changes: Changes,
+    surveyed_kept: Vec<(ID, XmlElementRef)>,
+    surveyed_removed: Vec<ID>,
 }
 
 /// What a repair changes below a node: the children to delete, parent by parent, and
@@ -326,6 +500,77 @@ impl<T: ReadTxn> Survey<'_, T> {
         }
         found.changes.note(root.as_ref(), own);
         Ok(found)
+    }
+
+    /// Surveys the document while skipping clean top-level blocks from `cached` (blocks
+    /// not in `dirty` and without empty text inside a `tableRow`).
+    fn root_cached(
+        &self,
+        root: &XmlFragmentRef,
+        cached: Option<(&BlockCache, &BTreeSet<ID>)>,
+    ) -> Result<CachedRootSurvey, BodyError> {
+        let Some(children) = read::children(self.txn, root) else {
+            return Err(BodyError::InvalidNode {
+                path: String::new(),
+                problem: "the root holds something that is neither a node nor a text",
+            });
+        };
+        let mut out = CachedRootSurvey::default();
+        let mut own = Vec::new();
+        for (index, child) in children.into_iter().enumerate() {
+            if let Some((cache, dirty)) = cached
+                && let Child::Element(element) = &child
+                && let Some(id) = element_id(element)
+                && !dirty.contains(&id)
+                && let Some(summary) = cache.get(&id)
+                && !summary.has_empty_row_text
+            {
+                out.kept_blocks += 1;
+                out.kept_nodes = out.kept_nodes.saturating_add(u64::from(summary.nodes));
+                out.kept_json_bytes = out
+                    .kept_json_bytes
+                    .saturating_add(u64::from(summary.json_bytes));
+                out.only_empty_paragraph = out.kept_blocks == 1 && summary.is_empty_paragraph;
+                continue;
+            }
+            let noted = out.changes.mark();
+            let elem = match &child {
+                Child::Element(element) => element_id(element).map(|id| (id, element.clone())),
+                Child::Text(_) | Child::Other => None,
+            };
+            let is_node = !matches!(child, Child::Text(_));
+            let stays = match self.child(child, 2, &mut out.changes)? {
+                Some(nodes)
+                    if is_node
+                        && nodes
+                            .iter()
+                            .all(|node| passes(node, Place::Block) == Ok(true)) =>
+                {
+                    for node in &nodes {
+                        let (nodes_count, bytes, is_empty) = measure_block_value(node);
+                        out.kept_blocks += 1;
+                        out.kept_nodes = out.kept_nodes.saturating_add(nodes_count);
+                        out.kept_json_bytes = out.kept_json_bytes.saturating_add(bytes);
+                        out.only_empty_paragraph = out.kept_blocks == 1 && is_empty;
+                    }
+                    true
+                }
+                _ => false,
+            };
+            if stays {
+                if let Some(pair) = elem {
+                    out.surveyed_kept.push(pair);
+                }
+            } else {
+                out.changes.rewind(noted);
+                own.push(index_of(index));
+                if let Some((id, _)) = elem {
+                    out.surveyed_removed.push(id);
+                }
+            }
+        }
+        out.changes.note(root.as_ref(), own);
+        Ok(out)
     }
 
     /// Surveys the children of an element, which are at `depth`. `None` if the element

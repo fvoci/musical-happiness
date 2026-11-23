@@ -47,6 +47,16 @@ export {
   type User,
   type ViewDraft,
 } from './backend.ts';
+export { IMPORT_FORMATS, emptyImportCounts } from './import-types.ts';
+export type {
+  ImportCounts,
+  Imported,
+  ImportFormat,
+  ImportOptions,
+  ImportSummary,
+  ImportWarning,
+  ImportWarningCode,
+} from './import-types.ts';
 export type { Registered } from './account-types.ts';
 export { BoardStore, type CardDrop } from './board.svelte.ts';
 export { addViewAtEnd, duplicateView, moveView } from './view-moves.ts';
@@ -85,15 +95,20 @@ export { UnitStore } from './unit.svelte.ts';
 export type { UnitComments } from './unit-comments.svelte.ts';
 export { createCourse } from './course-parts.ts';
 export { shownCourse } from './shown-course.svelte.ts';
+export { hasControlChars, UNIT_PROGRESS_POSITION_MAX_CHARS } from './course-types.ts';
 export type {
   CourseDraft,
+  CourseProgressSummary,
   Courses,
   CourseUnit,
   CourseUnitDetail,
+  MemberCourseProgress,
   UnitDraft,
   UnitKind,
   UnitMove,
   UnitPatch,
+  UnitProgress,
+  UnitProgressUpdate,
 } from './course-types.ts';
 export type { PresenceSource, TreeItem, TreeSource } from './tree-source.ts';
 export {

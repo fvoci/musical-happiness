@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 
 use fvoci_model::{BODY_MAX_DEPTH, BODY_MAX_NODES, Body, BodyError};
 use serde_json::{Value, json};
-use yrs::{Doc, ReadTxn, Transact, XmlFragment, XmlFragmentRef};
+use yrs::{Doc, ReadTxn, Transact, XmlElementRef, XmlFragment, XmlFragmentRef};
 
 use crate::FIELD;
 use crate::read::{self, Child, Content, Pushed};
@@ -61,12 +61,72 @@ pub(crate) fn projected<T: ReadTxn>(
         txn,
         nodes: 1,
         path: Vec::new(),
+        has_empty_row_text: false,
     };
-    let content = walk.content(root, 2)?;
+    let content = walk.content(root, 2, ParentKind::Other)?;
     if content.is_empty() {
         return Ok(None);
     }
     Ok(Some(json!({"type": "doc", "content": content})))
+}
+
+/// Projects a single top-level `element` (at depth 2 under the root), returning its JSON
+/// node, the number of JSON nodes in its subtree, and whether any `tableRow` inside it
+/// holds an empty `XmlText` child (which `repair::Survey::row` removes during a repair).
+pub(crate) fn project_element<T: ReadTxn>(
+    txn: &T,
+    element: &XmlElementRef,
+) -> Result<(Value, usize, bool), BodyError> {
+    let mut walk = Walk {
+        txn,
+        nodes: 1,
+        path: vec![0],
+        has_empty_row_text: false,
+    };
+    walk.count(2)?;
+    let kind = ParentKind::of_tag(element.tag().as_ref());
+    let inner = walk.content(element, 3, kind)?;
+    let node = read::element_node(txn, element, inner);
+    Ok((node, walk.nodes - 1, walk.has_empty_row_text))
+}
+
+/// The compact JSON size of a [`Value`] in bytes, without allocating the JSON string.
+pub(crate) fn json_size_of(value: &Value) -> usize {
+    /// Counts what is written to it.
+    struct Count(usize);
+
+    impl std::io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(bytes.len());
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut count = Count(0);
+    // Writing JSON to a counter does not fail: a `Value` is always JSON.
+    let _ = serde_json::to_writer(&mut count, value);
+    count.0
+}
+
+/// Whether the parent whose children are being walked is a `tableRow`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ParentKind {
+    Other,
+    TableRow,
+}
+
+impl ParentKind {
+    fn of_tag(tag: &str) -> Self {
+        if tag == "tableRow" {
+            Self::TableRow
+        } else {
+            Self::Other
+        }
+    }
 }
 
 /// A walk over shared content: how many nodes it has seen, and where it is.
@@ -77,6 +137,8 @@ struct Walk<'txn, T> {
     nodes: usize,
     /// The index of each node on the way down, in the JSON.
     path: Vec<usize>,
+    /// Set when a `tableRow` parent contains an empty `XmlText` child.
+    has_empty_row_text: bool,
 }
 
 impl<T: ReadTxn> Walk<'_, T> {
@@ -95,6 +157,7 @@ impl<T: ReadTxn> Walk<'_, T> {
         &mut self,
         parent: &impl XmlFragment,
         depth: usize,
+        parent_kind: ParentKind,
     ) -> Result<Vec<Value>, BodyError> {
         let Some(children) = read::children(self.txn, parent) else {
             return Err(self.invalid("holds something that is neither a node nor a text"));
@@ -105,13 +168,20 @@ impl<T: ReadTxn> Walk<'_, T> {
             match child {
                 Child::Element(element) => {
                     self.count(depth)?;
-                    let inner = self.content(&element, depth + 1)?;
+                    let inner = self.content(
+                        &element,
+                        depth + 1,
+                        ParentKind::of_tag(element.tag().as_ref()),
+                    )?;
                     content.push(read::element_node(self.txn, &element, inner));
                 }
                 Child::Text(text) => {
                     let Some(nodes) = read::text_nodes(self.txn, &text) else {
                         return Err(self.invalid("text holds something that is no text"));
                     };
+                    if parent_kind == ParentKind::TableRow && nodes.is_empty() {
+                        self.has_empty_row_text = true;
+                    }
                     // A text without letters is no node: an editor leaves one in a
                     // paragraph it emptied.
                     for node in nodes {

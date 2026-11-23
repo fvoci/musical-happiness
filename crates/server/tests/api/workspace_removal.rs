@@ -188,8 +188,8 @@ async fn an_import_leaves_out_who_is_not_in_the_workspace_and_says_how_many() {
     }
     th.teardown().await;
 
-    assert_eq!(kept.value(), json!({"membersLeftOut": 0}));
-    assert_eq!(left_out.value(), json!({"membersLeftOut": 1}));
+    assert_eq!(kept.value()["membersLeftOut"], json!(0));
+    assert_eq!(left_out.value()["membersLeftOut"], json!(1));
     // The board, and the first import, have the second user; the second import not.
     assert_eq!(held, 2);
 }
@@ -230,5 +230,5 @@ async fn an_import_counts_each_user_once_and_no_membership_without_a_role() {
     th.teardown().await;
 
     // The second user, on both boards, once; the third, without a role, not at all.
-    assert_eq!(imported.value(), json!({"membersLeftOut": 1}));
+    assert_eq!(imported.value()["membersLeftOut"], json!(1));
 }
