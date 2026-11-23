@@ -36,6 +36,8 @@ export interface Route {
   emailRevert?: true;
   /** The organization whose screen is shown; then nothing else is. */
   orgId?: string | undefined;
+  /** The reader's personal time log (`/me/time`). */
+  meTime?: true;
   workspaceId: string | undefined;
   boardId: string | undefined;
   viewId: string | undefined;
@@ -132,6 +134,9 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
       ? { ...NOWHERE, orgId: segments[1] }
       : { ...NOWHERE, unknown: true };
   }
+  if (segments[0] === 'me' && segments[1] === 'time' && segments.length === 2) {
+    return { ...NOWHERE, meTime: true };
+  }
   const [w, workspaceId, section, boardId, viewId, cardId, ...rest] = segments;
   if (section === 'wikis' && boardId !== undefined && cardId === undefined && w === 'w') {
     return { ...NOWHERE, workspaceId, wikiId: boardId, pageId: viewId };
@@ -194,6 +199,7 @@ export const ANY_VIEW = '-';
  */
 function settled(route: Partial<Route>): Route {
   if (route.orgId) return { ...NOWHERE, orgId: route.orgId };
+  if (route.meTime) return { ...NOWHERE, meTime: true };
   const readToken = route.readToken || undefined;
   const workspaceId = (!readToken && route.workspaceId) || undefined;
   // A wiki is the workspace's alone (no public link reads one yet: W4), and no board is with it.
@@ -235,6 +241,7 @@ export function shownContainerId(route: Route): string | undefined {
 /** The address of a route, from the root of the site. */
 export function routePath(route: Partial<Route>, basePath: string): string {
   if (route.orgId) return buildUrl(`/org/${encodeURIComponent(route.orgId)}`, basePath);
+  if (route.meTime) return buildUrl('/me/time', basePath);
   const {
     workspaceId,
     boardId,
@@ -305,6 +312,7 @@ export class Router {
         next.emailConfirm === now.emailConfirm &&
         next.emailRevert === now.emailRevert &&
         next.orgId === now.orgId &&
+        next.meTime === now.meTime &&
         next.workspaceId === now.workspaceId &&
         next.boardId === now.boardId &&
         next.viewId === now.viewId &&

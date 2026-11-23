@@ -136,12 +136,32 @@ export async function addRelation(page: Page): Promise<void> {
 
 /** Writes on each card named the cards it comes after, by their titles; other text is kept as an identifier. */
 export async function setAfter(page: Page, values: Record<string, string[]>): Promise<void> {
+  await setAfterLinks(
+    page,
+    Object.fromEntries(
+      Object.entries(values).map(([title, before]) => [
+        title,
+        before.map((card) => ({ card, kind: 'fs' as const, lagDays: 0 })),
+      ]),
+    ),
+  );
+}
+
+/** Writes typed relation links (`kind` + `lagDays`) on each named card. */
+export async function setAfterLinks(
+  page: Page,
+  values: Record<string, { card: string; kind: 'fs' | 'ss' | 'ff' | 'sf'; lagDays: number }[]>,
+): Promise<void> {
   await page.evaluate(async (wanted) => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
     const idOf = (title: string): string =>
       store.cards.find((each) => each.title === title)?.id ?? title;
-    for (const [title, before] of Object.entries(wanted)) {
-      await store.setCardProperty(idOf(title), 'after', before.map(idOf));
+    for (const [title, links] of Object.entries(wanted)) {
+      await store.setCardProperty(
+        idOf(title),
+        'after',
+        links.map((link) => ({ card: idOf(link.card), kind: link.kind, lagDays: link.lagDays })),
+      );
     }
   }, values);
 }

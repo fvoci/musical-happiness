@@ -108,4 +108,4 @@ CREATE POLICY org_wall ON exam_scores USING (
 -- Allow upcoming course meeting reminders in `notifications`.
 ALTER TABLE notifications DROP CONSTRAINT notifications_kind_check;
 ALTER TABLE notifications ADD CONSTRAINT notifications_kind_check
-    CHECK (kind IN ('mention', 'assignment', 'comment', 'meeting_upcoming'));
+    CHECK (kind IN ('mention', 'assignment', 'comment', 'review_due', 'meeting_upcoming'));

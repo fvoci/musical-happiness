@@ -183,6 +183,20 @@ const REACHED: &[(&str, Reaches)] = &[
     ("deleteCourseExam", Reaches::COURSES),
     ("putMyExamScore", Reaches::COURSES),
     ("deleteMyExamScore", Reaches::COURSES),
+    ("listMyCourseReviews", Reaches::COURSES),
+    ("scheduleUnitReview", Reaches::COURSES),
+    ("completeUnitReview", Reaches::COURSES),
+    ("deleteUnitReview", Reaches::COURSES),
+    ("listMyUnitNotes", Reaches::COURSES),
+    ("createUnitNote", Reaches::COURSES),
+    ("patchUnitNote", Reaches::COURSES),
+    ("deleteUnitNote", Reaches::COURSES),
+    ("getCourseSchedule", Reaches::COURSES),
+    ("putCourseSchedule", Reaches::COURSES),
+    ("deleteCourseSchedule", Reaches::COURSES),
+    ("redistributeCourseSchedule", Reaches::COURSES),
+    ("redistributeMyCourseSchedule", Reaches::COURSES),
+    ("putUnitSchedule", Reaches::COURSES),
     // What names a card, page or unit from a body.
     ("getReferencesTo", Reaches::LINKED),
     // What the holder of a read token reads.
@@ -198,13 +212,15 @@ const REACHED: &[(&str, Reaches)] = &[
 ];
 
 /// The parameters of a path that name a container or something that is of one.
-const NAMING: [&str; 15] = [
+const NAMING: [&str; 17] = [
     "{diaryId}",
     "{entryId}",
     "{courseId}",
     "{unitId}",
     "{meetingId}",
     "{examId}",
+    "{reviewId}",
+    "{noteId}",
     "{containerId}",
     "{boardId}",
     "{wikiId}",
@@ -231,6 +247,10 @@ struct Things {
     meeting: String,
     /// An exam of a course (otherwise an unknown identifier).
     exam: String,
+    /// A review on a course unit; `UNKNOWN_ID` for other kinds.
+    review: String,
+    /// A note on a course unit; `UNKNOWN_ID` for other kinds.
+    note: String,
     file: String,
     upload: String,
     /// The read token of the container, which is shared.
@@ -250,6 +270,8 @@ impl Things {
             comment: UNKNOWN_ID.to_owned(),
             meeting: UNKNOWN_ID.to_owned(),
             exam: UNKNOWN_ID.to_owned(),
+            review: UNKNOWN_ID.to_owned(),
+            note: UNKNOWN_ID.to_owned(),
             file: "missing-file".to_owned(),
             upload: "missing-upload".to_owned(),
             token: "no-token".to_owned(),
@@ -374,10 +396,17 @@ impl World {
             ContainerKind::Course => self.course_unit_with_a_comment(&container).await,
             _ => self.card_with_a_comment(&container).await,
         };
-        let (meeting, exam) = if kind == ContainerKind::Course {
-            self.course_meeting_and_exam(&container).await
+        let (meeting, exam, review, note) = if kind == ContainerKind::Course {
+            let (m, e) = self.course_meeting_and_exam(&container).await;
+            let (r, n) = self.course_review_and_note(&container, &block).await;
+            (m, e, r, n)
         } else {
-            (UNKNOWN_ID.to_owned(), UNKNOWN_ID.to_owned())
+            (
+                UNKNOWN_ID.to_owned(),
+                UNKNOWN_ID.to_owned(),
+                UNKNOWN_ID.to_owned(),
+                UNKNOWN_ID.to_owned(),
+            )
         };
         Things {
             workspace: ROOT_WORKSPACE_ID.to_owned(),
@@ -386,6 +415,8 @@ impl World {
             comment,
             meeting,
             exam,
+            review,
+            note,
             file: text(&uploaded.value(), "fileId"),
             upload: text(&opened.value(), "uploadId"),
             token,
@@ -433,6 +464,25 @@ impl World {
             .await;
         comment.check_done();
         (unit_id, text(&comment.value(), "id"))
+    }
+
+    async fn course_review_and_note(&self, course: &str, unit: &str) -> (String, String) {
+        let client = &self.ts.client;
+        let review = client
+            .post(
+                &format!("{ROOT_WS}/courses/{course}/units/{unit}/reviews"),
+                &json!({"intervalDays": 3}),
+            )
+            .await;
+        review.check_done();
+        let note = client
+            .post(
+                &format!("{ROOT_WS}/courses/{course}/units/{unit}/notes"),
+                &json!({"kind": "question", "content": "a study question"}),
+            )
+            .await;
+        note.check_done();
+        (text(&review.value(), "id"), text(&note.value(), "id"))
     }
 
     async fn card_with_a_comment(&self, board: &str) -> (String, String) {
@@ -548,6 +598,8 @@ impl World {
             .replace("{unitId}", block)
             .replace("{meetingId}", &things.meeting)
             .replace("{examId}", &things.exam)
+            .replace("{reviewId}", &things.review)
+            .replace("{noteId}", &things.note)
             .replace("{monthDay}", "11-21")
             .replace("{boardId}", &things.container)
             .replace("{wikiId}", &things.container)
@@ -616,6 +668,16 @@ impl World {
             "createCourseExam" => json!({"title": "another exam", "maxScore": 100.0}),
             "patchCourseExam" => json!({"title": "changed exam"}),
             "putMyExamScore" => json!({"score": 90.0}),
+            "scheduleUnitReview" => json!({"intervalDays": 7}),
+            "createUnitNote" => json!({"kind": "mistake", "content": "check edge case"}),
+            "patchUnitNote" => json!({"kind": "review", "content": "updated note"}),
+            "putCourseSchedule" => {
+                json!({"startDate": "2026-11-01", "targetDate": "2026-11-30", "studyDays": 31})
+            }
+            "redistributeCourseSchedule" | "redistributeMyCourseSchedule" => {
+                json!({"fromDate": "2026-11-01", "targetDate": "2026-11-30", "studyDays": 31})
+            }
+            "putUnitSchedule" => json!({"plannedDate": "2026-11-24"}),
             "createDiaryEntry" => json!({"date": "2020-02-29"}),
             "patchDiaryEntry" => json!({"mood": "good"}),
             "addMember" | "updateMember" => {
@@ -852,15 +914,11 @@ async fn make_in_own_space(world: &World, own: &str) -> [Things; 4] {
             .await;
         opened.check_done();
         made.push(Things {
-            workspace: own.to_owned(),
             container,
             block,
-            comment: UNKNOWN_ID.to_owned(),
-            meeting: UNKNOWN_ID.to_owned(),
-            exam: UNKNOWN_ID.to_owned(),
             file: text(&uploaded.value(), "fileId"),
             upload: text(&opened.value(), "uploadId"),
-            token: "no-token".to_owned(),
+            ..Things::nothing_in(own)
         });
     }
     made.try_into().expect("four were made")

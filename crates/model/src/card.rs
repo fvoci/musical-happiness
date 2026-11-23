@@ -75,9 +75,12 @@ pub struct Card {
     /// Whether the card is a template.
     pub is_template: bool,
     /// Property values keyed by property identifier: a string, a list of strings, or
-    /// `null`, and for a property of the type `date` a date value (`{"from":
+    /// `null`; for a property of the type `date` a date value (`{"from":
     /// "2026-03-05"}`, `{"from": "2026-03-05", "to": "2026-03-09"}` or `{"from":
-    /// 1772703000000}`) or `null`.
+    /// 1772703000000}`) or `null`; and for a property of the type `relation` a list of
+    /// relation links (`{"card": "<cardId>", "kind": "fs" | "ss" | "ff" | "sf",
+    /// "lagDays": -3650..=3650}`, normalized with all three fields when stored) or
+    /// `null`.
     #[schema(value_type = Object)]
     pub properties: JsonMap,
     /// The card's body. `null` for a card without one, and in a list of cards, which

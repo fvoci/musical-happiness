@@ -23,24 +23,31 @@
 <script lang="ts">
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import RepeatIcon from '@lucide/svelte/icons/repeat';
-  import XIcon from '@lucide/svelte/icons/x';
 
   import PickList from '$lib/components/pick-list/PickList.svelte';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
+  import { relationBadge } from '$lib/components/properties/relation-labels.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import {
+    updateRelationLink,
+    type RelationKind,
+    type RelationLink,
+  } from '$lib/logic/relations.ts';
   import { foldCase } from '$lib/logic/text.ts';
-  import { RELATION_LIMIT, type Card } from '$lib/logic/wire.ts';
+  import { RELATION_LIMIT, relationLink, type Card } from '$lib/logic/wire.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { cn } from '$lib/utils.js';
+
+  import RelationLinkItem from './RelationLinkItem.svelte';
 
   interface Props {
     /** The name of the property. */
     name: string;
     /** The card the value belongs to: it cannot name itself. */
     cardId: string;
-    /** The identifiers in the stored value, each once. */
-    ids: readonly string[];
+    /** The relation links in the stored value, each card once. */
+    links: readonly RelationLink[];
     /** The board's cards that are there, by identifier. */
     cards: ReadonlyMap<string, Card>;
     /** BCP 47 tag: the alphabetical order of the list. */
@@ -56,7 +63,7 @@
     placeholder: string;
     presentation?: Presentation;
     startOpen?: boolean;
-    onChange?: (value: string[]) => void;
+    onChange?: (value: RelationLink[]) => void;
     /** Opens a card; without it the chips are only text. */
     onOpenCard?: (cardId: string) => void;
     /** See PropertyValueProps. */
@@ -66,7 +73,7 @@
   let {
     name,
     cardId,
-    ids,
+    links,
     cards,
     locale,
     excluded,
@@ -91,10 +98,24 @@
   const untitled = (card: Card | undefined): string => card?.title || m['KanbanCard.untitled']();
   const titleOf = (id: string): string => untitled(cards.get(id));
 
-  /** The picked cards that are there, in the order they were picked; never the card itself. */
-  const shown = $derived(ids.filter((id) => id !== cardId && cards.has(id)));
+  /** The picked links whose cards are there, each card once in order; never the card itself. */
+  const shownLinks = $derived(
+    links.filter(
+      (link, at, all) =>
+        link.card !== cardId &&
+        cards.has(link.card) &&
+        all.findIndex((other) => other.card === link.card) === at,
+    ),
+  );
+  const shown = $derived(shownLinks.map((link) => link.card));
   /** The named cards that are not there (deleted), each once: written back as they are. */
-  const hidden = $derived([...new Set(ids.filter((id) => id !== cardId && !cards.has(id)))]);
+  const hidden = $derived([
+    ...new Set(
+      links
+        .filter((link) => link.card !== cardId && !cards.has(link.card))
+        .map((link) => link.card),
+    ),
+  ]);
   const full = $derived(shown.length + hidden.length >= RELATION_LIMIT);
 
   /**
@@ -178,12 +199,35 @@
   /**
    * Writes the value: the picked cards that are there and the hidden ones
    * (unless the reader takes those out), in the order they were named, each
-   * once, never the card itself.
+   * once, preserving existing `kind` and `lagDays` and never naming the card
+   * itself. Newly picked cards default to finish-to-start with zero lag.
    */
   function write(next: readonly string[], keepHidden = true): void {
     const picked = new Set(next.filter((id) => id !== cardId && cards.has(id)));
-    const kept = ids.filter((id) => picked.has(id) || (keepHidden && hidden.includes(id)));
-    onChange?.([...new Set([...kept, ...picked])]);
+    const hiddenSet = new Set(hidden);
+    const keptIds = links
+      .map((link) => link.card)
+      .filter((id) => picked.has(id) || (keepHidden && hiddenSet.has(id)));
+    const ordered = [...new Set([...keptIds, ...picked])];
+    onChange?.(
+      ordered.map((id) => {
+        const existing = links.find((link) => link.card === id);
+        return existing
+          ? relationLink(existing.card, existing.kind, existing.lagDays)
+          : relationLink(id);
+      }),
+    );
+  }
+
+  function updateLink(
+    targetCardId: string,
+    patch: { kind?: RelationKind; lagDays?: number },
+  ): void {
+    const cleaned = links.filter(
+      (link, at, all) =>
+        link.card !== cardId && all.findIndex((other) => other.card === link.card) === at,
+    );
+    onChange?.(updateRelationLink(cleaned, targetCardId, patch));
   }
 
   function pick(card: Card): void {
@@ -206,7 +250,9 @@
 {/snippet}
 
 {#snippet chips()}
-  {#each shown as id (id)}
+  {#each shownLinks as link (link.card)}
+    {@const id = link.card}
+    {@const badge = relationBadge(link.kind, link.lagDays)}
     {#if onOpenCard}
       <button
         type="button"
@@ -217,12 +263,21 @@
         class={cn(chipClass, 'underline-offset-2 hover:underline focus-visible:underline')}
         data-loop={onLoop(id) ? '' : undefined}
         aria-label={m.property_relation_open({ title: titleOf(id) }) +
+          (badge !== '' ? `, ${badge}` : '') +
           (onLoop(id) ? `, ${m.property_relation_in_loop()}` : '')}
         onclick={() => {
           onOpenCard(id);
         }}
       >
         <span class="truncate">{titleOf(id)}</span>
+        {#if badge !== ''}
+          <span
+            data-slot="relation-badge"
+            class="shrink-0 rounded-sm bg-background/70 px-1 text-[0.6875rem] font-medium text-muted-foreground tabular-nums"
+          >
+            {badge}
+          </span>
+        {/if}
         {@render loopMark(id)}
       </button>
     {:else}
@@ -233,6 +288,14 @@
         class={chipClass}
       >
         <span class="truncate">{titleOf(id)}</span>
+        {#if badge !== ''}
+          <span
+            data-slot="relation-badge"
+            class="shrink-0 rounded-sm bg-background/70 px-1 text-[0.6875rem] font-medium text-muted-foreground tabular-nums"
+          >
+            {badge}
+          </span>
+        {/if}
         {@render loopMark(id)}
         {#if onLoop(id)}<span class="sr-only">{m.property_relation_in_loop()}</span>{/if}
       </span>
@@ -275,27 +338,23 @@
       {/snippet}
 
       <div class="flex flex-col gap-1" bind:this={editor}>
-        {#if shown.length > 0}
+        {#if shownLinks.length > 0}
           <ul
-            class="m-0 flex list-none flex-wrap gap-1 p-1"
+            class="m-0 flex list-none flex-col gap-1 p-1"
             aria-label={m.property_relation_picked()}
           >
-            {#each shown as id (id)}
-              <li class={cn(chipClass, 'pr-0.5')}>
-                <span class="truncate">{titleOf(id)}</span>
-                {@render loopMark(id)}
-                {#if onLoop(id)}<span class="sr-only">{m.property_relation_in_loop()}</span>{/if}
-                <button
-                  type="button"
-                  class="relative inline-flex size-5 shrink-0 items-center justify-center rounded-sm group-data-[presentation=sheet]/surface:size-8 group-data-[presentation=sheet]/surface:after:absolute group-data-[presentation=sheet]/surface:after:-inset-1.5 hover:bg-foreground/10"
-                  aria-label={m.property_option_remove({ name: titleOf(id) })}
-                  onclick={() => {
-                    write(shown.filter((other) => other !== id));
-                  }}
-                >
-                  <XIcon class="size-3.5" aria-hidden="true" />
-                </button>
-              </li>
+            {#each shownLinks as link (link.card)}
+              <RelationLinkItem
+                {link}
+                title={titleOf(link.card)}
+                inLoop={onLoop(link.card)}
+                onUpdate={(patch: { kind?: RelationKind; lagDays?: number }) => {
+                  updateLink(link.card, patch);
+                }}
+                onRemove={() => {
+                  write(shown.filter((other) => other !== link.card));
+                }}
+              />
             {/each}
           </ul>
         {/if}

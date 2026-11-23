@@ -25,6 +25,7 @@ mod container_teams;
 mod containers_and_blocks;
 mod course_exam;
 mod course_meeting;
+mod course_schedule;
 mod date_value;
 mod deleted_item;
 mod diary;
@@ -56,6 +57,7 @@ mod team;
 mod time_entry;
 mod unit;
 mod unit_progress;
+mod unit_review;
 mod upload;
 mod user;
 mod workspace;
@@ -123,9 +125,20 @@ pub use course_meeting::{
     CourseMeetingChange, CourseMeetingPatch, MeetingAttendance, MeetingAttendanceUpdate,
     NewCourseMeeting, OptionalIdChange, UnknownAttendanceStatus, ValidatedNewMeeting,
 };
+pub use course_schedule::{
+    AmountUnit, CourseOutlineNodes, CourseSchedule, CourseScheduleUpdate, CourseScheduleView,
+    FieldChange, LearningTodayItem, MAX_SCHEDULE_SPAN_DAYS, ParseAmountUnitError, RedistributePlan,
+    RedistributeScheduleRequest, STUDY_DAYS_ALL, STUDY_DAYS_FRIDAY, STUDY_DAYS_MONDAY,
+    STUDY_DAYS_SATURDAY, STUDY_DAYS_SUNDAY, STUDY_DAYS_THURSDAY, STUDY_DAYS_TUESDAY,
+    STUDY_DAYS_WEDNESDAY, STUDY_DAYS_WEEKDAYS, ScheduledUnit, StudyDays, UNIT_AMOUNT_FIELD,
+    UNIT_AMOUNT_MAX, UNIT_AMOUNT_MIN, UNIT_AMOUNT_UNIT_FIELD, UNIT_SCHEDULED_DATE_FIELD,
+    UnitScheduleUpdate, UnitWeight, ValidatedCourseSchedule, WorkspaceLearningToday,
+    build_course_schedule_view, build_workspace_learning_today, distribute_units, outline_units,
+    study_dates_in_range, today_in_time_zone,
+};
 pub use date_value::{
-    DateValueError, check_date_value, date_property_ids, day_at, days_between, move_dates,
-    rewrite_previous_date_values,
+    DateValueError, add_days, check_date_value, date_property_ids, day_at, days_between,
+    is_calendar_date, move_dates, rewrite_previous_date_values,
 };
 pub use deleted_item::DeletedItem;
 pub use diary::{
@@ -161,7 +174,8 @@ pub use org_admin::{
 };
 pub use org_kind::{OrgKind, UnknownOrgKind};
 pub use organization::{
-    OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
+    OrgRole, UnknownRole, UserOrganization, UserWorkspace, WorkspaceMember, WorkspaceRole,
+    WorkspaceRoleChange,
 };
 pub use page::{
     DeletedPage, NewPage, OrderError, PAGE_ICON_FIELD, PAGE_ORDER_FIELD, Page, PageDuplicate,
@@ -175,8 +189,10 @@ pub use person_name::{
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{
-    RELATION_LIMIT, RELATION_PROPERTY_TYPE, RelationError, RelationProblem, RelationProperties,
-    check_relation_value, relation_property_ids, tidy_copied_relations,
+    ParseRelationKindError, RELATION_LAG_MAX, RELATION_LAG_MIN, RELATION_LIMIT,
+    RELATION_PROPERTY_TYPE, RelationError, RelationKind, RelationLink, RelationLinkError,
+    RelationProblem, RelationProperties, check_relation_value, parse_relation_link,
+    relation_link_card, relation_links_to_value, relation_property_ids, tidy_copied_relations,
 };
 pub use search::{SearchHit, SearchKind, SnippetPart, UnknownSearchKind};
 pub use settings::{
@@ -204,6 +220,14 @@ pub use unit::{
 pub use unit_progress::{
     CompletionChange, CourseProgressSummary, LastPositionChange, MemberCourseProgress,
     UNIT_PROGRESS_POSITION_MAX_CHARS, UnitProgress, UnitProgressChange, UnitProgressUpdate,
+};
+pub use unit_review::{
+    COURSE_REVIEW_INTERVALS_PROPERTY, CompleteUnitReview, CompletedUnitReview, CreateUnitNote,
+    DEFAULT_REVIEW_INTERVALS, MAX_REVIEW_INTERVAL_DAYS, MIN_REVIEW_INTERVAL_DAYS, NewUnitNote,
+    NewUnitReview, ParseReviewStatusError, ParseUnitNoteKindError, PatchUnitNote,
+    ReviewStatusFilter, ScheduleUnitReview, TodayReviewItem, UNIT_NOTE_CONTENT_MAX_CHARS, UnitNote,
+    UnitNoteChange, UnitNoteKind, UnitReview, course_review_intervals,
+    suggested_next_interval_days,
 };
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{LoginOrigin, Me, Session, User, UserPreferencesPatch};

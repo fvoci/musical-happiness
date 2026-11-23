@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 
 use fvoci_model::{
     ContainerKind, ContainerKinds, ContainerMember, ContainerType, OrgKind, OrgRole, User,
-    UserWorkspace, Workspace, WorkspaceRole, new_id,
+    UserOrganization, UserWorkspace, Workspace, WorkspaceRole, new_id,
 };
 use subtle::ConstantTimeEq as _;
 
@@ -34,8 +34,7 @@ mod every_organization;
 mod session_taken;
 mod sign_in;
 
-pub(crate) use session_taken::memberships_of;
-use session_taken::{HAS_PASSWORD, taken};
+pub(crate) use session_taken::{HAS_PASSWORD, memberships_of, taken};
 pub use session_taken::{Making, SessionTaken};
 
 pub(crate) use every_organization::{
@@ -897,6 +896,26 @@ impl Store {
                     Some(row) => role(&row, 0).map(Some),
                     None => Ok(None),
                 }
+            })
+            .await
+    }
+
+    /// Every organization in use that people work in together of which `user_id` is a
+    /// member, oldest first: includes organizations where the account is in no
+    /// workspace, and leaves out personal spaces and organizations where it is only a
+    /// workspace guest.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails, and [`StoreError::Corrupt`]
+    /// if a stored role is none.
+    pub async fn organizations_of_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<UserOrganization>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                every_organization::organizations_of_user(scope, user_id).await
             })
             .await
     }

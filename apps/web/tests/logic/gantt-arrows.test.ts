@@ -11,6 +11,8 @@ import type { Days } from '$lib/logic/dependencies.ts';
 import {
   ARROW_GAP,
   arrowHead,
+  arrowHitPoints,
+  arrowLabelPoint,
   arrowPath,
   arrowPoints,
   arrowsOf,
@@ -26,7 +28,22 @@ import {
   TURN_INSET,
   type Bar,
 } from '$lib/logic/gantt.ts';
-import { createCard, setCardProperty, type Card, type PropertyTemplate } from '$lib/logic/wire.ts';
+import {
+  clampRelationLagDays,
+  parseLagDaysInput,
+  RELATION_KINDS,
+  RELATION_LAG_MAX,
+  RELATION_LAG_MIN,
+  removeRelationLink,
+  updateRelationLink,
+} from '$lib/logic/relations.ts';
+import {
+  createCard,
+  relationLink,
+  setCardProperty,
+  type Card,
+  type PropertyTemplate,
+} from '$lib/logic/wire.ts';
 
 const day = (text: string): CalendarDate => text as CalendarDate;
 const days = (first: string, last = first): Days => ({ first: day(first), last: day(last) });
@@ -38,7 +55,12 @@ const AFTER = 'after';
 function card(id: string, after?: string[]): Card {
   const made = createCard();
   made.id = id;
-  if (after) setCardProperty(made, AFTER, after);
+  if (after)
+    setCardProperty(
+      made,
+      AFTER,
+      after.map((target) => relationLink(target)),
+    );
   return made;
 }
 
@@ -77,8 +99,8 @@ describe('the relations a chart draws', () => {
     const drawn = all.slice(0, 3);
     const relations = relationsOf(drawn, all, AFTER, daysOf);
     expect(relations.edges).toEqual([
-      { from: 'a', to: 'b' },
-      { from: 'a', to: 'c' },
+      { from: 'a', to: 'b', kind: 'fs', lagDays: 0 },
+      { from: 'a', to: 'c', kind: 'fs', lagDays: 0 },
     ]);
   });
 
@@ -93,7 +115,7 @@ describe('the relations a chart draws', () => {
   it('are only between cards that have days: a card without a date has no bar to reach', () => {
     const cards = [card('a'), card('undated', ['a']), card('b', ['undated', 'a'])];
     const relations = relationsOf(cards, cards, AFTER, daysOf);
-    expect(relations.edges).toEqual([{ from: 'a', to: 'b' }]);
+    expect(relations.edges).toEqual([{ from: 'a', to: 'b', kind: 'fs', lagDays: 0 }]);
   });
 
   it('say for each card which cards it comes after, in the order of its value', () => {
@@ -291,5 +313,145 @@ describe('an arrow', () => {
         [2, 0.5],
       ]),
     ).toBe('M1.235 0.5L2 0.5');
+  });
+
+  it('routes all four relation kinds with the right bar ends and arrowhead directions', () => {
+    const a = bar('a', 0, 4, 4); // x: 4..8
+    const b = bar('b', 2, 10, 3); // x: 10..13
+
+    // FS: end of a (8) -> start of b (10), right-pointing head
+    const fs = arrowPoints(a, b, 30, 'fs');
+    expect(fs[0]).toEqual([8, 0.5]);
+    expect(fs.at(-1)).toEqual([10, 2.5]);
+    expect(arrowHead(fs, 'fs')).toBe('M10 2.5L9.6 2.36L9.6 2.64Z');
+
+    // SS: start of a (4) -> start of b (10), C-route on left, right-pointing head
+    const ss = arrowPoints(a, b, 30, 'ss');
+    expect(ss).toEqual([
+      [4, 0.5],
+      [4 - ARROW_GAP, 0.5],
+      [4 - ARROW_GAP, 2.5],
+      [10, 2.5],
+    ]);
+    expect(arrowHead(ss, 'ss')).toBe('M10 2.5L9.6 2.36L9.6 2.64Z');
+
+    // FF: end of a (8) -> end of b (13), backwards-C route on right, left-pointing head
+    const ff = arrowPoints(a, b, 30, 'ff');
+    expect(ff).toEqual([
+      [8, 0.5],
+      [13 + ARROW_GAP, 0.5],
+      [13 + ARROW_GAP, 2.5],
+      [13, 2.5],
+    ]);
+    expect(arrowHead(ff, 'ff')).toBe('M13 2.5L13.4 2.36L13.4 2.64Z');
+
+    // SF direct: start of a (14) -> end of b (5), left-pointing head
+    const sfDirect = arrowPoints(bar('a', 0, 14, 4), bar('b', 2, 2, 3), 30, 'sf');
+    expect(sfDirect).toEqual([
+      [14, 0.5],
+      [14 - ARROW_GAP, 0.5],
+      [14 - ARROW_GAP, 2.5],
+      [5, 2.5],
+    ]);
+    expect(arrowHead(sfDirect, 'sf')).toBe('M5 2.5L5.4 2.36L5.4 2.64Z');
+
+    // SF detour when start of a is left of end of b
+    const sfDetour = arrowPoints(a, b, 30, 'sf');
+    expect(sfDetour).toEqual([
+      [4, 0.5],
+      [4 - ARROW_GAP, 0.5],
+      [4 - ARROW_GAP, 1 - TURN_INSET],
+      [13 + ARROW_GAP, 1 - TURN_INSET],
+      [13 + ARROW_GAP, 2.5],
+      [13, 2.5],
+    ]);
+    expect(arrowHead(sfDetour, 'sf')).toBe('M13 2.5L13.4 2.36L13.4 2.64Z');
+  });
+
+  it('keeps all four relation kinds clamped within 0..=width with valid entry directions', () => {
+    const width = 40;
+    const place = fc.record({
+      x: fc.double({ min: 0, max: width - MIN_BAR_WIDTH, noNaN: true }),
+      width: fc.double({ min: MIN_BAR_WIDTH, max: 10, noNaN: true }),
+    });
+    fc.assert(
+      fc.property(
+        place,
+        place,
+        fc.nat(20),
+        fc.nat(20),
+        fc.constantFrom(...RELATION_KINDS),
+        (rawA, rawB, rowA, rowB, kind) => {
+          fc.pre(rowA !== rowB);
+          const a = bar('a', rowA, rawA.x, Math.min(rawA.width, width - rawA.x));
+          const b = bar('b', rowB, rawB.x, Math.min(rawB.width, width - rawB.x));
+          const points = arrowPoints(a, b, width, kind);
+          const startX = kind === 'fs' || kind === 'ff' ? a.x + a.width : a.x;
+          const endX = kind === 'fs' || kind === 'ss' ? b.x : b.x + b.width;
+          expect(points[0]).toEqual([startX, rowA + 0.5]);
+          expect(points.at(-1)).toEqual([endX, rowB + 0.5]);
+          const before = points.at(-2);
+          expect(before?.[1]).toBe(rowB + 0.5);
+          if (kind === 'fs' || kind === 'ss') expect(before?.[0]).toBeLessThanOrEqual(endX);
+          else expect(before?.[0]).toBeGreaterThanOrEqual(endX);
+          for (const [x] of points) {
+            expect(x).toBeGreaterThanOrEqual(0);
+            expect(x).toBeLessThanOrEqual(width);
+          }
+          points.slice(1).forEach((point, at) => {
+            const from = points[at];
+            expect(point[0] === from?.[0] || point[1] === from?.[1]).toBe(true);
+          });
+        },
+      ),
+    );
+  });
+
+  it('trims hit paths away from bar grips and computes clear label anchors', () => {
+    const direct = arrowPoints(bar('a', 0, 2, 4), bar('b', 2, 10, 3), 30, 'fs');
+    expect(arrowHitPoints(direct)).toEqual([
+      [6.5, 0.85],
+      [6.5, 2.5],
+      [9.5, 2.5],
+    ]);
+    expect(arrowLabelPoint(direct)).toEqual([6.5, 1.5]);
+
+    const detour = arrowPoints(bar('a', 0, 2, 4), bar('b', 1, 5, 3), 30, 'fs');
+    expect(arrowHitPoints(detour)).toEqual([
+      [6.5, 1 - TURN_INSET],
+      [4.5, 1 - TURN_INSET],
+    ]);
+    expect(arrowLabelPoint(detour)).toEqual([5.5, 1 - TURN_INSET]);
+  });
+});
+
+describe('relation link mutation helpers', () => {
+  it('updates and removes one link while preserving untouched and hidden links', () => {
+    const initial = [
+      relationLink('gone', 'sf', -2),
+      relationLink('a', 'fs', 0),
+      relationLink('b', 'ff', 3),
+    ];
+    expect(updateRelationLink(initial, 'a', { kind: 'ss', lagDays: 5 })).toEqual([
+      relationLink('gone', 'sf', -2),
+      relationLink('a', 'ss', 5),
+      relationLink('b', 'ff', 3),
+    ]);
+    expect(removeRelationLink(initial, 'a')).toEqual([
+      relationLink('gone', 'sf', -2),
+      relationLink('b', 'ff', 3),
+    ]);
+  });
+
+  it('clamps and parses lag days within bounds', () => {
+    expect(clampRelationLagDays(RELATION_LAG_MAX + 50)).toBe(RELATION_LAG_MAX);
+    expect(clampRelationLagDays(RELATION_LAG_MIN - 50)).toBe(RELATION_LAG_MIN);
+    expect(clampRelationLagDays(-0)).toBe(0);
+    expect(parseLagDaysInput(' +12 ')).toBe(12);
+    expect(parseLagDaysInput('-0')).toBe(0);
+    expect(parseLagDaysInput('3.5')).toBeUndefined();
+    expect(parseLagDaysInput('')).toBeUndefined();
+    expect(parseLagDaysInput('3651')).toBeUndefined();
+    expect(parseLagDaysInput('-3651')).toBeUndefined();
   });
 });

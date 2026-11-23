@@ -30,6 +30,8 @@ pub enum NotificationKind {
     Assignment,
     /// A card, a page or a unit the person watches has a new comment.
     Comment,
+    /// A scheduled personal review of a course unit is due today.
+    ReviewDue,
     /// A course study meeting is starting soon.
     MeetingUpcoming,
 }
@@ -42,6 +44,7 @@ impl NotificationKind {
             Self::Mention => "mention",
             Self::Assignment => "assignment",
             Self::Comment => "comment",
+            Self::ReviewDue => "review_due",
             Self::MeetingUpcoming => "meeting_upcoming",
         }
     }
@@ -66,6 +69,7 @@ impl FromStr for NotificationKind {
             "mention" => Ok(Self::Mention),
             "assignment" => Ok(Self::Assignment),
             "comment" => Ok(Self::Comment),
+            "review_due" => Ok(Self::ReviewDue),
             "meeting_upcoming" => Ok(Self::MeetingUpcoming),
             other => Err(UnknownNotificationKind(other.to_owned())),
         }
@@ -142,6 +146,7 @@ mod tests {
             NotificationKind::Mention,
             NotificationKind::Assignment,
             NotificationKind::Comment,
+            NotificationKind::ReviewDue,
             NotificationKind::MeetingUpcoming,
         ] {
             assert_eq!(kind.as_str().parse(), Ok(kind));

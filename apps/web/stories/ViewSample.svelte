@@ -17,11 +17,14 @@
     readOnly = false,
     cycle = false,
     late = false,
+    variedRelations = false,
     narrow = false,
     week = false,
     headerOnly = false,
   }: WorkspaceExample & { narrow?: boolean; week?: boolean; headerOnly?: boolean } = $props();
-  const example = $derived(exampleWorkspace({ kind, count, readOnly, cycle, late }));
+  const example = $derived(
+    exampleWorkspace({ kind, count, readOnly, cycle, late, variedRelations }),
+  );
   const board = $derived(example.workspace.board);
   const view = $derived(board?.view('example-view'));
   let search = $state('');

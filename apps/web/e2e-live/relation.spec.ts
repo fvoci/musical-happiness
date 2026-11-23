@@ -84,7 +84,12 @@ test('cards picked into a relation are stored as a list of identifiers and stay 
     await search.press('Enter');
     await closePicker(page);
   }
-  await expect.poll(async () => (await values()).after).toEqual([foundation, bricks]);
+  await expect
+    .poll(async () => (await values()).after)
+    .toEqual([
+      { card: foundation, kind: 'fs', lagDays: 0 },
+      { card: bricks, kind: 'fs', lagDays: 0 },
+    ]);
 
   await page.reload();
   await expect(page.getByTestId('card-dialog')).toBeVisible();
@@ -159,7 +164,10 @@ test('a relation made on the page from a card, and the cards picked into it, sta
         await api.get(`/api/v1/w/${board.workspaceId}/cards/${fill}`)
       ).json()) as Schemas['Card']
     ).properties[propertyId];
-  await expect.poll(value).toEqual([board.cards['Dig the trench'], board.cards['Lay the pipe']]);
+  await expect.poll(value).toEqual([
+    { card: board.cards['Dig the trench'], kind: 'fs', lagDays: 0 },
+    { card: board.cards['Lay the pipe'], kind: 'fs', lagDays: 0 },
+  ]);
 
   // After a reload the property and what was picked are there, as the server keeps them.
   await page.reload();
@@ -195,7 +203,7 @@ test('a copy of a board names its own cards in the relation its Gantt chart read
   const floor = board.cards['Lay the floor'] ?? '';
   const paint = board.cards['Paint the walls'] ?? '';
   const named = await api.patch(`/api/v1/w/${board.workspaceId}/cards/${paint}`, {
-    data: { updatedProperties: { after: [floor] } },
+    data: { updatedProperties: { after: [{ card: floor, kind: 'ss', lagDays: -2 }] } },
   });
   expect(named.ok(), await named.text()).toBe(true);
   const gantt = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
@@ -227,7 +235,7 @@ test('a copy of a board names its own cards in the relation its Gantt chart read
   expect(copiedFloor).not.toBe('');
   expect(copiedFloor).not.toBe(floor);
   expect((byTitle('Paint the walls')?.fields.properties as Record<string, unknown>).after).toEqual([
-    copiedFloor,
+    { card: copiedFloor, kind: 'ss', lagDays: -2 },
   ]);
   const plan = byTitle('Plan');
   expect(plan?.fields.dependencyPropertyId).toBe('after');
@@ -240,7 +248,8 @@ test('a copy of a board names its own cards in the relation its Gantt chart read
   await signInOnPage(page, owner);
   await expect(page.getByTestId('card-dialog')).toBeVisible();
   const chip = property(page, 'After').locator('[data-slot="relation-chip"]');
-  await expect(chip).toHaveText(['Lay the floor']);
+  await expect(chip).toHaveText(['Lay the floor SS -2d']);
+  await expect(chip.locator('[data-slot="relation-badge"]')).toHaveText('SS -2d');
   await expect(chip).toHaveAttribute('data-card-id', copiedFloor);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   await api.dispose();

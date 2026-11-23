@@ -78,7 +78,7 @@ CREATE INDEX exam_scores_user_idx
 -- Widen `notifications.kind` in place without rebuilding the table, as 0061 did.
 DROP INDEX notifications_same_idx;
 ALTER TABLE notifications ADD COLUMN kind_wider TEXT NOT NULL DEFAULT 'mention'
-    CHECK (kind_wider IN ('mention', 'assignment', 'comment', 'meeting_upcoming'));
+    CHECK (kind_wider IN ('mention', 'assignment', 'comment', 'review_due', 'meeting_upcoming'));
 UPDATE notifications SET kind_wider = kind;
 ALTER TABLE notifications DROP COLUMN kind;
 ALTER TABLE notifications RENAME COLUMN kind_wider TO kind;

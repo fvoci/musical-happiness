@@ -6,9 +6,18 @@
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createCard, RELATION_LIMIT, setCardProperty, type Card } from '$lib/logic/wire.ts';
+import {
+  createCard,
+  RELATION_LIMIT,
+  relationLink,
+  setCardProperty,
+  type Card,
+  type RelationLink,
+} from '$lib/logic/wire.ts';
 
 import { fireEvent, mount, press, screen, type, valueButton, within } from './support.ts';
+
+const links = (...ids: string[]): RelationLink[] => ids.map((id) => relationLink(id));
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -64,35 +73,37 @@ const chips = (container: HTMLElement): string[] =>
 
 describe('a relation property, closed', () => {
   it('shows the cards it names by title, an untitled one as such', () => {
-    const { container } = mount('relation', ['card-3', 'card-4'], { cards: CARDS });
+    const { container } = mount('relation', links('card-3', 'card-4'), { cards: CARDS });
     expect(chips(container)).toEqual(['Build the form', 'Untitled']);
   });
 
   it('does not show a card that is not there, nor one named twice', () => {
-    const { container } = mount('relation', ['card-gone', 'card-2', 'card-2'], { cards: CARDS });
+    const { container } = mount('relation', links('card-gone', 'card-2', 'card-2'), {
+      cards: CARDS,
+    });
     expect(chips(container)).toEqual(['Design the form']);
   });
 
   it('shows a placeholder when it names only cards that are not there', () => {
-    const { container } = mount('relation', ['card-gone'], { cards: CARDS });
+    const { container } = mount('relation', links('card-gone'), { cards: CARDS });
     expect(chips(container)).toEqual([]);
     expect(within(button()).getByText('Empty')).toBeInTheDocument();
   });
 
-  it('is empty for a value that is not a list', () => {
+  it('is empty for a value that is not a list of relation links', () => {
     const { container } = mount('relation', 'card-2', { cards: CARDS });
     expect(chips(container)).toEqual([]);
   });
 
   it('opens a card by its chip, named for a screen reader', async () => {
     const onOpenCard = vi.fn();
-    mount('relation', ['card-2'], { cards: CARDS, onOpenCard });
+    mount('relation', links('card-2'), { cards: CARDS, onOpenCard });
     await fireEvent.click(screen.getByRole('button', { name: 'Open Design the form' }));
     expect(onOpenCard).toHaveBeenCalledExactlyOnceWith('card-2');
   });
 
   it('read only: chips without a picker', () => {
-    const { container } = mount('relation', ['card-2'], { cards: CARDS, readOnly: true });
+    const { container } = mount('relation', links('card-2'), { cards: CARDS, readOnly: true });
     expect(chips(container)).toEqual(['Design the form']);
     expect(screen.queryByRole('button', { name: /^My relation/ })).toBeNull();
   });
@@ -106,15 +117,15 @@ describe('a relation property, opened', () => {
   });
 
   it('lists the picked cards last, marked, and Enter on the empty field adds a card', async () => {
-    const { onChange } = mount('relation', ['card-2'], { cards: CARDS });
+    const { onChange } = mount('relation', links('card-2'), { cards: CARDS });
     await fireEvent.click(button());
     expect(rows()).toEqual(['Build the form', 'Untitled', 'Design the form']);
     await press(search(), 'Enter');
-    expect(onChange).toHaveBeenCalledExactlyOnceWith(['card-2', 'card-3']);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(links('card-2', 'card-3'));
   });
 
   it('finds an untitled card by that word', async () => {
-    mount('relation', ['card-2'], { cards: CARDS });
+    mount('relation', links('card-2'), { cards: CARDS });
     await fireEvent.click(button());
     await type(search(), 'untit');
     expect(rows()).toEqual(['Untitled']);
@@ -131,39 +142,88 @@ describe('a relation property, opened', () => {
     await type(search(), 'build');
     expect(rows()).toEqual(['Build the form']);
     await press(search(), 'Enter');
-    expect(onChange).toHaveBeenCalledExactlyOnceWith(['card-3']);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(links('card-3'));
   });
 
   it('adds a card, and takes out one that is pressed again', async () => {
-    const { onChange } = mount('relation', ['card-2'], { cards: CARDS });
+    const { onChange } = mount('relation', links('card-2'), { cards: CARDS });
     await fireEvent.click(button());
     await fireEvent.click(within(list()).getByRole('option', { name: 'Build the form' }));
-    expect(onChange).toHaveBeenLastCalledWith(['card-2', 'card-3']);
+    expect(onChange).toHaveBeenLastCalledWith(links('card-2', 'card-3'));
     await fireEvent.click(within(list()).getByRole('option', { name: 'Design the form' }));
     expect(onChange).toHaveBeenLastCalledWith([]);
   });
 
+  it('preserves existing kind and lagDays on untouched and hidden links when adding or removing', async () => {
+    const existing = [relationLink('card-gone', 'sf', 4), relationLink('card-2', 'ss', -3)];
+    const { onChange } = mount('relation', existing, { cards: CARDS });
+    await fireEvent.click(button());
+    await fireEvent.click(within(list()).getByRole('option', { name: 'Build the form' }));
+    expect(onChange).toHaveBeenLastCalledWith([
+      relationLink('card-gone', 'sf', 4),
+      relationLink('card-2', 'ss', -3),
+      relationLink('card-3', 'fs', 0),
+    ]);
+  });
+
+  it('shows non-default kind/lag badges on chips and edits them inline without touching hidden links', async () => {
+    const existing = [relationLink('card-gone', 'sf', 4), relationLink('card-2', 'ss', 2)];
+    const { container, onChange } = mount('relation', existing, {
+      cards: CARDS,
+      onOpenCard: vi.fn(),
+    });
+    expect(container.querySelector('[data-slot="relation-badge"]')).toHaveTextContent('SS +2d');
+    expect(
+      screen.getByRole('button', { name: 'Open Design the form, SS +2d' }),
+    ).toBeInTheDocument();
+
+    await fireEvent.click(button());
+    const kindSelect = screen.getByLabelText('Relation type for Design the form');
+    await fireEvent.change(kindSelect, { target: { value: 'ff' } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      relationLink('card-gone', 'sf', 4),
+      relationLink('card-2', 'ff', 2),
+    ]);
+
+    const lagInput = screen.getByLabelText('Lag days for Design the form');
+    await fireEvent.input(lagInput, { target: { value: '-1' } });
+    await fireEvent.change(lagInput, { target: { value: '-1' } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      relationLink('card-gone', 'sf', 4),
+      relationLink('card-2', 'ss', -1),
+    ]);
+
+    // Pressing Escape reverts dirty input instead of committing it on blur.
+    onChange.mockClear();
+    await fireEvent.input(lagInput, { target: { value: '99' } });
+    await fireEvent.keyDown(lagInput, { key: 'Escape' });
+    await fireEvent.blur(lagInput);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('takes out a card with the button next to its title, and Backspace takes the last', async () => {
-    const { onChange } = mount('relation', ['card-2', 'card-3'], { cards: CARDS });
+    const { onChange } = mount('relation', links('card-2', 'card-3'), { cards: CARDS });
     await fireEvent.click(button());
     await fireEvent.click(screen.getByRole('button', { name: 'Remove Design the form' }));
-    expect(onChange).toHaveBeenLastCalledWith(['card-3']);
+    expect(onChange).toHaveBeenLastCalledWith(links('card-3'));
     await press(search(), 'Backspace');
-    expect(onChange).toHaveBeenLastCalledWith(['card-2']);
+    expect(onChange).toHaveBeenLastCalledWith(links('card-2'));
   });
 
   it('keeps the cards that are not there in the value it writes, where they were', async () => {
-    const { onChange } = mount('relation', ['card-gone', 'card-2'], { cards: CARDS });
+    const { onChange } = mount('relation', links('card-gone', 'card-2'), { cards: CARDS });
     await fireEvent.click(button());
     await fireEvent.click(within(list()).getByRole('option', { name: 'Build the form' }));
-    expect(onChange).toHaveBeenLastCalledWith(['card-gone', 'card-2', 'card-3']);
+    expect(onChange).toHaveBeenLastCalledWith(links('card-gone', 'card-2', 'card-3'));
     await fireEvent.click(screen.getByRole('button', { name: 'Remove Design the form' }));
-    expect(onChange).toHaveBeenLastCalledWith(['card-gone']);
+    expect(onChange).toHaveBeenLastCalledWith(links('card-gone'));
   });
 
   it('offers nothing more when deleted cards fill the value, and leaves none out by itself', async () => {
     const many = cardsOf({ 'new-card': 'Another card' });
-    const gone = Array.from({ length: RELATION_LIMIT }, (_, at) => `gone-${String(at)}`);
+    const gone = Array.from({ length: RELATION_LIMIT }, (_, at) =>
+      relationLink(`gone-${String(at)}`),
+    );
     const frames = holdFrames();
     const { onChange } = mount('relation', gone, { cards: many });
     await fireEvent.click(button());
@@ -184,11 +244,13 @@ describe('a relation property, opened', () => {
   });
 
   it('takes out only the deleted cards with that button, and keeps the picked ones', async () => {
-    const gone = Array.from({ length: RELATION_LIMIT - 1 }, (_, at) => `gone-${String(at)}`);
-    const { onChange } = mount('relation', ['card-2', ...gone], { cards: CARDS });
+    const gone = Array.from({ length: RELATION_LIMIT - 1 }, (_, at) =>
+      relationLink(`gone-${String(at)}`),
+    );
+    const { onChange } = mount('relation', [relationLink('card-2'), ...gone], { cards: CARDS });
     await fireEvent.click(button());
     await fireEvent.click(screen.getByRole('button', { name: /^Take out the deleted cards/ }));
-    expect(onChange).toHaveBeenCalledExactlyOnceWith(['card-2']);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(links('card-2'));
   });
 
   it('offers no such button when taking the deleted cards out leaves no room', async () => {
@@ -197,13 +259,17 @@ describe('a relation property, opened', () => {
         Array.from({ length: RELATION_LIMIT }, (_, at) => [`c${String(at)}`, `Card ${String(at)}`]),
       ),
     );
-    mount('relation', [...many.keys(), 'card-gone'], { cards: many });
+    mount(
+      'relation',
+      [...many.keys(), 'card-gone'].map((id) => relationLink(id)),
+      { cards: many },
+    );
     await fireEvent.click(button());
     expect(screen.queryByRole('button', { name: /^Take out the deleted cards/ })).toBeNull();
   });
 
   it('shows no such button while deleted cards leave room', async () => {
-    mount('relation', ['card-gone', 'card-2'], { cards: CARDS });
+    mount('relation', links('card-gone', 'card-2'), { cards: CARDS });
     await fireEvent.click(button());
     expect(screen.queryByRole('button', { name: /^Take out the deleted cards/ })).toBeNull();
   });
@@ -217,7 +283,7 @@ describe('a relation property, opened', () => {
         ]),
       ),
     );
-    const picked = [...many.keys()].slice(0, RELATION_LIMIT);
+    const picked = [...many.keys()].slice(0, RELATION_LIMIT).map((id) => relationLink(id));
     const frames = holdFrames();
     const { onChange } = mount('relation', picked, { cards: many });
     await fireEvent.click(button());
@@ -261,7 +327,7 @@ describe('a relation property, opened', () => {
         ]),
       ),
     );
-    const named = [...many.keys()];
+    const named = [...many.keys()].map((id) => relationLink(id));
     const { onChange } = mount('relation', named, { cards: many });
     await fireEvent.click(button());
     await fireEvent.click(screen.getByRole('button', { name: 'Remove Card 0' }));
@@ -269,11 +335,11 @@ describe('a relation property, opened', () => {
   });
 
   it('does not show the card itself when its value names it, and leaves it out when written', async () => {
-    const { container, onChange } = mount('relation', ['card-1', 'card-2'], { cards: CARDS });
+    const { container, onChange } = mount('relation', links('card-1', 'card-2'), { cards: CARDS });
     expect(chips(container)).toEqual(['Design the form']);
     await fireEvent.click(button());
     await fireEvent.click(within(list()).getByRole('option', { name: 'Build the form' }));
-    expect(onChange).toHaveBeenCalledExactlyOnceWith(['card-2', 'card-3']);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(links('card-2', 'card-3'));
   });
 });
 
@@ -297,8 +363,8 @@ describe('a relation read as an order', () => {
       if (!found) throw new Error(`no ${id}`);
       return found;
     };
-    setCardProperty(named('card-2'), 'property-relation', ['card-1']);
-    setCardProperty(named('card-3'), 'property-relation', ['card-2']);
+    setCardProperty(named('card-2'), 'property-relation', links('card-1'));
+    setCardProperty(named('card-3'), 'property-relation', links('card-2'));
     return cards;
   }
 
@@ -328,7 +394,9 @@ describe('a relation read as an order', () => {
       extra.title = `Extra ${String(at)}`;
       cards.set(extra.id, extra);
     }
-    const picked = [...cards.keys()].filter((id) => id.startsWith('extra-'));
+    const picked = [...cards.keys()]
+      .filter((id) => id.startsWith('extra-'))
+      .map((id) => relationLink(id));
     const frames = holdFrames();
     mount('relation', picked, { cards, preventLoops: true });
     await fireEvent.click(button());
@@ -345,7 +413,7 @@ describe('a relation read as an order', () => {
   });
 
   it('marks a card on a loop that is there already, and lets it be taken out', async () => {
-    const { container, onChange } = mount('relation', ['card-3', 'card-4'], {
+    const { container, onChange } = mount('relation', links('card-3', 'card-4'), {
       cards: ordered(),
       preventLoops: true,
       onOpenCard: vi.fn(),
@@ -358,6 +426,6 @@ describe('a relation read as an order', () => {
     await fireEvent.click(button());
     expect(rows()).toEqual(['Build the form', 'Ship it']);
     await fireEvent.click(within(list()).getByRole('option', { name: 'Build the form' }));
-    expect(onChange).toHaveBeenCalledExactlyOnceWith(['card-4']);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(links('card-4'));
   });
 });

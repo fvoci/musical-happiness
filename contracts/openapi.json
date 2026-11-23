@@ -231,6 +231,15 @@
         ],
         "type": "object"
       },
+      "AmountUnit": {
+        "description": "Unit of measure for a course unit's study amount.",
+        "enum": [
+          "minutes",
+          "pages",
+          "problems"
+        ],
+        "type": "string"
+      },
       "AttendanceStatus": {
         "description": "A member's attendance status for a course study meeting.",
         "enum": [
@@ -251,6 +260,7 @@
           "org_admin_revoked",
           "org_admin_granted",
           "org_admin_removed",
+          "org_member_removed",
           "workspace_created",
           "workspace_renamed",
           "workspace_deleted",
@@ -800,7 +810,7 @@
           },
           "properties": {
             "additionalProperties": true,
-            "description": "Property values keyed by property identifier: a string, a list of strings, or\n`null`, and for a property of the type `date` a date value (`{\"from\":\n\"2026-03-05\"}`, `{\"from\": \"2026-03-05\", \"to\": \"2026-03-09\"}` or `{\"from\":\n1772703000000}`) or `null`.",
+            "description": "Property values keyed by property identifier: a string, a list of strings, or\n`null`; for a property of the type `date` a date value (`{\"from\":\n\"2026-03-05\"}`, `{\"from\": \"2026-03-05\", \"to\": \"2026-03-09\"}` or `{\"from\":\n1772703000000}`) or `null`; and for a property of the type `relation` a list of\nrelation links (`{\"card\": \"<cardId>\", \"kind\": \"fs\" | \"ss\" | \"ff\" | \"sf\",\n\"lagDays\": -3650..=3650}`, normalized with all three fields when stored) or\n`null`.",
             "type": "object"
           },
           "tasksDone": {
@@ -1190,6 +1200,52 @@
         },
         "required": [
           "token"
+        ],
+        "type": "object"
+      },
+      "CompleteUnitReview": {
+        "additionalProperties": false,
+        "description": "Request body for completing a personal review.\n\nSend `{}` (or an empty body) to complete the review without scheduling another, or\ninclude `scheduleNextIntervalDays` (`1..=3650`) to schedule the follow-up review in\nthe same transaction.",
+        "properties": {
+          "scheduleNextIntervalDays": {
+            "description": "Optional interval in days (`1..=3650`) for scheduling the next review atomically.",
+            "format": "int32",
+            "maximum": 3650,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "CompletedUnitReview": {
+        "description": "Response returned when completing a personal review.",
+        "properties": {
+          "nextReview": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UnitReview",
+                "description": "The newly scheduled follow-up review when `scheduleNextIntervalDays` was supplied;\notherwise `null`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review": {
+            "$ref": "#/components/schemas/UnitReview",
+            "description": "The completed review record."
+          },
+          "suggestedNextIntervalDays": {
+            "description": "Suggested next review interval in days based on the completed review's interval\nand the course's interval sequence.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nextReview",
+          "review",
+          "suggestedNextIntervalDays"
         ],
         "type": "object"
       },
@@ -1808,6 +1864,116 @@
         ],
         "type": "object"
       },
+      "CourseSchedule": {
+        "description": "Stored shared study schedule of a course.",
+        "properties": {
+          "startDate": {
+            "description": "Start date of the study period (`YYYY-MM-DD`).",
+            "type": "string"
+          },
+          "studyDays": {
+            "description": "Weekday bitmask (`1..=127`; bit 0 = Monday .. bit 6 = Sunday).",
+            "format": "int32",
+            "maximum": 127,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "targetDate": {
+            "description": "Target completion date of the study period (`YYYY-MM-DD`).",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "startDate",
+          "studyDays",
+          "targetDate",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "CourseScheduleUpdate": {
+        "additionalProperties": false,
+        "description": "Request body for creating or updating a course's shared schedule.",
+        "properties": {
+          "autoAssign": {
+            "description": "When `true`, immediately assigns shared `scheduledDate` values across all live\nunits proportionally by study amount. Left out, `false`.",
+            "type": "boolean"
+          },
+          "startDate": {
+            "description": "Start date of the study period (`YYYY-MM-DD`).",
+            "type": "string"
+          },
+          "studyDays": {
+            "description": "Weekday bitmask (`1..=127`; bit 0 = Monday .. bit 6 = Sunday).",
+            "format": "int32",
+            "maximum": 127,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "targetDate": {
+            "description": "Target completion date (`YYYY-MM-DD`), on or after `startDate`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "startDate",
+          "targetDate",
+          "studyDays"
+        ],
+        "type": "object"
+      },
+      "CourseScheduleView": {
+        "description": "Full schedule view of a course for the calling user.",
+        "properties": {
+          "overdueCount": {
+            "description": "Number of incomplete live units whose `effectiveDate` is strictly before `today`.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CourseSchedule",
+                "description": "The course's saved shared schedule, or `null` if none has been configured yet."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "today": {
+            "description": "Today's calendar date (`YYYY-MM-DD`) in the caller's configured time zone (UTC when\nset to `auto`).",
+            "type": "string"
+          },
+          "todayCount": {
+            "description": "Number of incomplete live units whose `effectiveDate` equals `today`.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "units": {
+            "description": "Live units of the course in outline tree order (chapters and trashed units excluded).",
+            "items": {
+              "$ref": "#/components/schemas/ScheduledUnit"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "overdueCount",
+          "schedule",
+          "today",
+          "todayCount",
+          "units"
+        ],
+        "type": "object"
+      },
       "CreateTimeEntryRequest": {
         "additionalProperties": false,
         "description": "Request body for manually logging a completed time entry (`POST /users/me/time/entries`).",
@@ -1856,6 +2022,25 @@
           "kind",
           "startedAt",
           "endedAt"
+        ],
+        "type": "object"
+      },
+      "CreateUnitNote": {
+        "additionalProperties": false,
+        "description": "Request body for creating a personal note on a course unit.",
+        "properties": {
+          "content": {
+            "description": "Note content (trimmed non-empty, at most 10,000 characters).",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UnitNoteKind",
+            "description": "Category of the note (`question`, `mistake`, or `review`)."
+          }
+        },
+        "required": [
+          "kind",
+          "content"
         ],
         "type": "object"
       },
@@ -2921,6 +3106,83 @@
         ],
         "type": "string"
       },
+      "LearningTodayItem": {
+        "description": "One incomplete unit scheduled for today or overdue across enrolled courses in a workspace.",
+        "properties": {
+          "amount": {
+            "description": "Optional study amount (`1..=100_000`).",
+            "format": "int32",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "amountUnit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AmountUnit",
+                "description": "Optional unit of study amount (`minutes`, `pages`, or `problems`)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "courseId": {
+            "description": "Identifier of the course holding this unit.",
+            "type": "string"
+          },
+          "courseTitle": {
+            "description": "Title of the course holding this unit.",
+            "type": "string"
+          },
+          "effectiveDate": {
+            "description": "Effective date (`myPlannedDate` if set, otherwise `scheduledDate`).",
+            "type": "string"
+          },
+          "myPlannedDate": {
+            "description": "Caller's personal planned date (`YYYY-MM-DD`) on the unit, if any.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentId": {
+            "description": "Identifier of the chapter holding this unit; empty for a top-level unit.",
+            "type": "string"
+          },
+          "scheduledDate": {
+            "description": "Shared scheduled date (`YYYY-MM-DD`) on the unit, if any.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "Title of the unit.",
+            "type": "string"
+          },
+          "unitId": {
+            "description": "Identifier of the unit block.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "amountUnit",
+          "courseId",
+          "courseTitle",
+          "effectiveDate",
+          "myPlannedDate",
+          "parentId",
+          "scheduledDate",
+          "title",
+          "unitId"
+        ],
+        "type": "object"
+      },
       "LeavingOrganization": {
         "description": "An organization that goes with the account of its only member, and how much is in\nit: the account's own space, and an organization of people that has nobody else. The\nnumbers are left out for an organization the session that asks does not\nopen (one that takes only sessions made through its provider).",
         "properties": {
@@ -3371,7 +3633,7 @@
           },
           "fields": {
             "additionalProperties": true,
-            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card,\na comment or an attachment and 800,000 for a view. The `properties` of a card\namong them are values by property identifier: a string, a list of strings, or\n`null`.",
+            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card,\na comment or an attachment and 800,000 for a view. The `properties` of a card\namong them are values by property identifier: a string, a list of strings, a date\nvalue, a list of relation link objects (`{\"card\", \"kind\", \"lagDays\"}`), or `null`.",
             "type": "object"
           },
           "id": {
@@ -3503,7 +3765,7 @@
           },
           "properties": {
             "additionalProperties": true,
-            "description": "Property values by property identifier: a string, a list of strings, or `null`.",
+            "description": "Property values by property identifier: a string, a list of strings, a date value,\na list of relation link objects (`{\"card\", \"kind\", \"lagDays\"}`), or `null`.",
             "type": "object"
           },
           "title": {
@@ -3907,6 +4169,27 @@
               "null"
             ]
           },
+          "amount": {
+            "description": "Optional study amount (`1..=100_000`) for a unit; refused on a chapter (400 at\n`/amount`).",
+            "format": "int32",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "amountUnit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AmountUnit",
+                "description": "Optional unit of study amount (`minutes`, `pages`, or `problems`) for a unit;\nrefused on a chapter (400 at `/amountUnit`)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "kind": {
             "$ref": "#/components/schemas/UnitKind",
             "description": "Whether to make a `unit` or a `chapter`. Left out, `unit`."
@@ -3914,6 +4197,13 @@
           "parentId": {
             "description": "The identifier of the chapter the unit goes below: a chapter of the same course.\nLeft out or empty, it goes at the top of the course. A chapter must leave this\nempty (400 at `/parentId` otherwise).",
             "type": "string"
+          },
+          "scheduledDate": {
+            "description": "Optional shared scheduled date (`YYYY-MM-DD`) for a unit; refused on a chapter\n(400 at `/scheduledDate`).",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "title": {
             "description": "The title. Left out, empty.",
@@ -4039,6 +4329,7 @@
           "mention",
           "assignment",
           "comment",
+          "review_due",
           "meeting_upcoming"
         ],
         "type": "string"
@@ -4771,6 +5062,21 @@
         ],
         "type": "object"
       },
+      "PatchUnitNote": {
+        "additionalProperties": false,
+        "description": "Request body for updating a personal note on a course unit.\n\nOmitted fields leave the stored value unchanged; `null` is refused.",
+        "properties": {
+          "content": {
+            "description": "Replacement note content (trimmed non-empty, at most 10,000 characters); omit to\nkeep unchanged.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UnitNoteKind",
+            "description": "Replacement note category; omit to keep unchanged."
+          }
+        },
+        "type": "object"
+      },
       "PersonName": {
         "description": "A person's name, every part of which may be empty.",
         "properties": {
@@ -5345,6 +5651,11 @@
             "type": "/problems/last-instance-admin"
           },
           {
+            "reason": "cannot_remove_self",
+            "title": "Cannot remove yourself",
+            "type": "/problems/cannot-remove-self"
+          },
+          {
             "reason": "public_links_off",
             "title": "Public links turned off",
             "type": "/problems/public-links-off"
@@ -5465,6 +5776,37 @@
           "number",
           "size"
         ],
+        "type": "object"
+      },
+      "RedistributeScheduleRequest": {
+        "additionalProperties": false,
+        "description": "Request body for manually redistributing a course's shared schedule or the caller's\npersonal schedule.\n\nOmitted or `null` members fall back to defaults: `fromDate` defaults to today in the\ncaller's configured time zone (UTC when `auto`), and `targetDate` / `studyDays` fall\nback to the course's saved schedule.",
+        "properties": {
+          "fromDate": {
+            "description": "Start date (`YYYY-MM-DD`) for redistribution; omitted or `null` uses caller's today.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "studyDays": {
+            "description": "Weekday bitmask (`1..=127`); omitted or `null` uses the course's saved `studyDays`.",
+            "format": "int32",
+            "maximum": 127,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "targetDate": {
+            "description": "Target end date (`YYYY-MM-DD`); omitted or `null` uses the course's saved `targetDate`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "ReferenceIds": {
@@ -5596,6 +5938,104 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "ScheduleUnitReview": {
+        "additionalProperties": false,
+        "description": "Request body for scheduling a personal review on a course unit.\n\nProvide `intervalDays` (`1..=3650`), `scheduledDate` (`YYYY-MM-DD`), or both. When\nonly `intervalDays` is sent, `scheduledDate` is computed as `today + intervalDays` in\nthe learner's configured time zone (or UTC). When only `scheduledDate` is sent,\n`intervalDays` is derived from the number of days from `today` clamped to `1..=3650`.",
+        "properties": {
+          "intervalDays": {
+            "description": "Review interval in days (`1..=3650`).",
+            "format": "int32",
+            "maximum": 3650,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "scheduledDate": {
+            "description": "Target calendar date (`YYYY-MM-DD`).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ScheduledUnit": {
+        "description": "One live unit of a course with its shared schedule, caller's personal override,\neffective date, and completion/overdue status.",
+        "properties": {
+          "amount": {
+            "description": "Optional study amount (`1..=100_000`); treated as weight `1` when `null`.",
+            "format": "int32",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "amountUnit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AmountUnit",
+                "description": "Optional unit of study amount (`minutes`, `pages`, or `problems`)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "completed": {
+            "description": "Whether the caller has completed this unit.",
+            "type": "boolean"
+          },
+          "effectiveDate": {
+            "description": "Effective date for the caller: `myPlannedDate` if set, otherwise `scheduledDate`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "myPlannedDate": {
+            "description": "Caller's own personal planned date (`YYYY-MM-DD`), if any. Never shows another\nuser's planned date.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "overdue": {
+            "description": "Whether this unit is overdue for the caller (`!completed && effectiveDate < today`).",
+            "type": "boolean"
+          },
+          "parentId": {
+            "description": "Identifier of the chapter this unit sits under; empty for a top-level unit.",
+            "type": "string"
+          },
+          "scheduledDate": {
+            "description": "Shared scheduled date (`YYYY-MM-DD`) stored on the unit block, if any.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "Title of the unit.",
+            "type": "string"
+          },
+          "unitId": {
+            "description": "Identifier of the unit block.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "amountUnit",
+          "completed",
+          "effectiveDate",
+          "myPlannedDate",
+          "overdue",
+          "parentId",
+          "scheduledDate",
+          "title",
+          "unitId"
+        ],
         "type": "object"
       },
       "SearchHit": {
@@ -6304,9 +6744,94 @@
         ],
         "type": "string"
       },
+      "TodayReviewItem": {
+        "description": "One pending review due today or overdue for the caller in a workspace.",
+        "properties": {
+          "containerId": {
+            "description": "Identifier of the course container.",
+            "type": "string"
+          },
+          "courseTitle": {
+            "description": "Current title of the course.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier of this review.",
+            "type": "string"
+          },
+          "intervalDays": {
+            "description": "Review interval in days (`1..=3650`).",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "overdueDays": {
+            "description": "Number of days overdue (`0` when due today).",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "scheduledDate": {
+            "description": "Scheduled calendar date (`YYYY-MM-DD`).",
+            "type": "string"
+          },
+          "unitId": {
+            "description": "Identifier of the unit block.",
+            "type": "string"
+          },
+          "unitTitle": {
+            "description": "Current title of the unit.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "containerId",
+          "courseTitle",
+          "createAt",
+          "id",
+          "intervalDays",
+          "overdueDays",
+          "scheduledDate",
+          "unitId",
+          "unitTitle",
+          "updateAt"
+        ],
+        "type": "object"
+      },
       "Unit": {
         "description": "A unit or chapter of a course.",
         "properties": {
+          "amount": {
+            "description": "Optional study amount (`1..=100_000`) for a unit; always `null` for a chapter.",
+            "format": "int32",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "amountUnit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AmountUnit",
+                "description": "Optional unit of study amount (`minutes`, `pages`, or `problems`) for a unit;\nalways `null` for a chapter."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "body": {
             "oneOf": [
               {
@@ -6351,6 +6876,13 @@
             "description": "The identifier of the chapter it is below; empty for a chapter and for a unit at\nthe top of its course.",
             "type": "string"
           },
+          "scheduledDate": {
+            "description": "Optional shared scheduled date (`YYYY-MM-DD`) for a unit; always `null` for a\nchapter.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "title": {
             "description": "The title.",
             "type": "string"
@@ -6362,6 +6894,8 @@
           }
         },
         "required": [
+          "amount",
+          "amountUnit",
           "body",
           "courseId",
           "createAt",
@@ -6371,6 +6905,7 @@
           "modifiedBy",
           "order",
           "parentId",
+          "scheduledDate",
           "title",
           "updateAt"
         ],
@@ -6425,6 +6960,27 @@
       "UnitNode": {
         "description": "A unit or chapter as the outline of its course lists it: without its body.",
         "properties": {
+          "amount": {
+            "description": "Optional study amount (`1..=100_000`) for a unit; always `null` for a chapter.",
+            "format": "int32",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "amountUnit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AmountUnit",
+                "description": "Optional unit of study amount (`minutes`, `pages`, or `problems`) for a unit;\nalways `null` for a chapter."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "createAt": {
             "description": "Creation time in milliseconds since the Unix epoch.",
             "format": "int64",
@@ -6446,6 +7002,13 @@
             "description": "The identifier of the chapter it is below; empty for a chapter and for a unit at\nthe top of its course.",
             "type": "string"
           },
+          "scheduledDate": {
+            "description": "Optional shared scheduled date (`YYYY-MM-DD`) for a unit; always `null` for a\nchapter.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "title": {
             "description": "The unit's or chapter's title.",
             "type": "string"
@@ -6457,20 +7020,98 @@
           }
         },
         "required": [
+          "amount",
+          "amountUnit",
           "createAt",
           "id",
           "kind",
           "order",
           "parentId",
+          "scheduledDate",
           "title",
           "updateAt"
         ],
         "type": "object"
       },
+      "UnitNote": {
+        "description": "One personal question, mistake, or review note on a course unit.",
+        "properties": {
+          "containerId": {
+            "description": "Identifier of the course container.",
+            "type": "string"
+          },
+          "content": {
+            "description": "Trimmed note content, 1..=10,000 characters.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier of this note.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UnitNoteKind",
+            "description": "Category of the note (`question`, `mistake`, or `review`)."
+          },
+          "unitId": {
+            "description": "Identifier of the unit block.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "containerId",
+          "content",
+          "createAt",
+          "id",
+          "kind",
+          "unitId",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "UnitNoteKind": {
+        "description": "Category of a learner's personal note on a unit.",
+        "enum": [
+          "question",
+          "mistake",
+          "review"
+        ],
+        "type": "string"
+      },
       "UnitPatch": {
         "additionalProperties": false,
         "description": "What a unit or chapter is changed to. Absent members stay as they are. Where the\nnode stands in the course does not change here (`moveUnit`).",
         "properties": {
+          "amount": {
+            "description": "The new study amount (`1..=100_000`) of a unit; `null` clears it. Refused on a\nchapter (400 at `/amount`).",
+            "format": "int32",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "amountUnit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AmountUnit",
+                "description": "The new unit of study amount (`minutes`, `pages`, or `problems`) of a unit; `null`\nclears it. Refused on a chapter (400 at `/amountUnit`)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "body": {
             "oneOf": [
               {
@@ -6487,6 +7128,13 @@
             "format": "int64",
             "type": [
               "integer",
+              "null"
+            ]
+          },
+          "scheduledDate": {
+            "description": "The new shared scheduled date (`YYYY-MM-DD`) of a unit; `null` clears it. Refused\non a chapter (400 at `/scheduledDate`).",
+            "type": [
+              "string",
               "null"
             ]
           },
@@ -6525,6 +7173,15 @@
               "null"
             ]
           },
+          "suggestedNextIntervalDays": {
+            "description": "Suggested next spaced-repetition review interval in days when the unit is\ncompleted; omitted when incomplete.",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "unitId": {
             "description": "Identifier of the unit block.",
             "type": "string"
@@ -6560,6 +7217,79 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "UnitReview": {
+        "description": "One personal spaced-repetition review scheduled for a unit.",
+        "properties": {
+          "completedAt": {
+            "description": "Completion time in milliseconds since the Unix epoch; `null` while pending.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "containerId": {
+            "description": "Identifier of the course container.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier of this review.",
+            "type": "string"
+          },
+          "intervalDays": {
+            "description": "Review interval in days (`1..=3650`).",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "scheduledDate": {
+            "description": "Scheduled calendar date (`YYYY-MM-DD`).",
+            "type": "string"
+          },
+          "unitId": {
+            "description": "Identifier of the unit block.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "completedAt",
+          "containerId",
+          "createAt",
+          "id",
+          "intervalDays",
+          "scheduledDate",
+          "unitId",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "UnitScheduleUpdate": {
+        "additionalProperties": false,
+        "description": "Request body for setting or clearing the caller's personal planned date on a unit.\n\nThe `plannedDate` member is required on the wire (`null` clears the personal override;\nan omitted key `{}` is rejected with 400).",
+        "properties": {
+          "plannedDate": {
+            "description": "Personal planned date (`YYYY-MM-DD`), or `null` to clear the personal override and\nrevert to the unit's shared `scheduledDate`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "plannedDate"
+        ],
         "type": "object"
       },
       "UnlinkRequest": {
@@ -6784,6 +7514,29 @@
         "minItems": 1,
         "type": "array"
       },
+      "UserOrganization": {
+        "description": "An organization that people work in together, as one of its members finds it\namong theirs.",
+        "properties": {
+          "id": {
+            "description": "The organization's identifier.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The organization's name; empty if it was given none.",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/OrgRole",
+            "description": "What the user is in the organization."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role"
+        ],
+        "type": "object"
+      },
       "UserPreferencesPatch": {
         "description": "A change to the bag of state a client keeps with the account: entries the server\nstores without knowing what they mean.",
         "properties": {
@@ -6973,6 +7726,35 @@
           "settings",
           "title",
           "updateAt"
+        ],
+        "type": "object"
+      },
+      "WorkspaceLearningToday": {
+        "description": "Caller's today and overdue incomplete units across enrolled courses in a workspace.",
+        "properties": {
+          "overdueUnits": {
+            "description": "Incomplete units with `effectiveDate < today`, ordered by `effectiveDate` ascending\n(oldest first), then course creation order, then outline order within each course.",
+            "items": {
+              "$ref": "#/components/schemas/LearningTodayItem"
+            },
+            "type": "array"
+          },
+          "today": {
+            "description": "Today's calendar date (`YYYY-MM-DD`) in the caller's configured time zone (UTC when\nset to `auto`).",
+            "type": "string"
+          },
+          "todayUnits": {
+            "description": "Incomplete units with `effectiveDate == today`, ordered by course creation order\n(`createAt`, `courseId`) and then outline order within each course.",
+            "items": {
+              "$ref": "#/components/schemas/LearningTodayItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "overdueUnits",
+          "today",
+          "todayUnits"
         ],
         "type": "object"
       },
@@ -8432,7 +9214,7 @@
     },
     "/api/v1/org/{orgId}/audit": {
       "get": {
-        "description": "One page of what was done to the organization itself, the newest first: who made a\nmember an administrator or a member, made, renamed, deleted or brought back a\nworkspace, and turned the public links off or on.",
+        "description": "One page of what was done to the organization itself, the newest first: who made a\nmember an administrator or a member, removed a member, made, renamed, deleted or\nbrought back a workspace, and turned the public links off or on.",
         "operationId": "getOrgAudit",
         "parameters": [
           {
@@ -8501,7 +9283,7 @@
     },
     "/api/v1/org/{orgId}/leave": {
       "post": {
-        "description": "Takes the account of the session out of an organization that people work in\ntogether, at its own asking, all at once or not at all. It leaves each workspace of\nthe organization, in use or in the trash, as `removeWorkspaceMember` takes a member\nout: a board it was the only admin of passes to the workspace's oldest other\nadministrator, and a workspace it joined as the organization's administrator\n(`joinOrgWorkspace`) records that it left. Its roles on boards and wikis, its teams,\nwhat it follows (`subscriptions`) in the organization and the links of invitations it\nmade there that nobody used go with it, and so does its membership; who leaves the\nserver's own first organization administers the server no more. Its sessions,\nits identities and what it wrote stay, and the organization stays one it made. Its\nopen connections stop following the organization's workspaces\n(`UNSUBSCRIBED_WORKSPACE`). It comes back only as anybody new does: by an invitation,\nor as the organization lets in who signs in through its provider. Asked of any\nsession: leaving is the account's own, whatever provider the organization takes.\n\n404 for an organization that is not there or the account is no member of, and for\nan own space, which nobody leaves. A guest of a workspace is no member of its\norganization: 404 here, and it leaves a workspace or board by `leaveContainer`.\n\nWhat stands in the way is 409, and nothing changes: the server's only administrator\nstays in the server's own first organization (reason `last_instance_admin`); the\nonly administrator of an organization that has other people in it stays until\nsomebody else is one (reason `sole_org_admin`); and nobody leaves an organization\nthey are the only person in (reason `alone_in_organization`). Asked in that order.\nOf two administrators who leave at once, the second is asked once the first is out.",
+        "description": "Takes the account of the session out of an organization that people work in\ntogether, at its own asking, all at once or not at all. It leaves each workspace of\nthe organization, in use or in the trash, as `removeWorkspaceMember` takes a member\nout: a board it was the only admin of passes to the workspace's oldest other\nadministrator, and a workspace it joined as the organization's administrator\n(`joinOrgWorkspace`) records that it left. Its roles on boards and wikis, its teams,\nwhat it follows (`subscriptions`) in the organization and the links of invitations it\nmade there that nobody used go with it, and so does its membership; who leaves the\nserver's own first organization administers the server no more. Its sessions,\nits identities and what it wrote stay, and the organization stays one it made. Its\nopen connections stop following the organization's workspaces\n(`UNSUBSCRIBED_WORKSPACE`). It comes back only as anybody new does: by an invitation,\nor as the organization lets in who signs in through its provider. Asked of any\nsession: leaving is the account's own, whatever provider the organization takes.\n\n404 for an organization that is not there or the account is no member of, and for\nan own space, which nobody leaves. A guest of a workspace is no member of its\norganization: 404 here, and it leaves a workspace or board by `leaveContainer`.\n\nWhat stands in the way is 409, and nothing changes: an account without a password\n(`hasPassword` of `getMe` is false) must set one (`setPassword`) before leaving\n(reason `password_required`); the server's only administrator stays in the server's\nown first organization (reason `last_instance_admin`); the only administrator of an\norganization that has other people in it stays until somebody else is one (reason\n`sole_org_admin`); and nobody leaves an organization they are the only person in\n(reason `alone_in_organization`). Asked in that order (`password_required`,\n`last_instance_admin`, `sole_org_admin`, `alone_in_organization`). Of two\nadministrators who leave at once, the second is asked once the first is out.",
         "operationId": "leaveOrganization",
         "parameters": [
           {
@@ -8599,6 +9381,51 @@
           }
         },
         "summary": "The members of an organization",
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/members/{userId}": {
+      "delete": {
+        "description": "Takes a member out of the organization, all at once or not at all: ends their\njoinings of workspaces as organization administrator (recorded in each workspace as\n`org_admin_revoked`), takes them out of every workspace of the organization in use\nor in the trash, passes any board they were the only admin of to that workspace's\noldest other administrator on their own account (recorded under the administrator\nwho takes them out), removes their roles on boards and wikis, workspace groups,\nsubscriptions, unused invitation links, and membership of the organization, and ends\ninstance administration if this is the server's own first organization. Recorded in\nthe organization's audit log (`org_member_removed`). Their open connections stop\nfollowing the organization's workspaces (`UNSUBSCRIBED_WORKSPACE`) and leave open\nbody rooms (`DOC_LEFT`). Unlike `leaveOrganization`, this does not require the\nremoved account to have a password.\n\n404 for a user who is no member of the organization, or for a caller who does not\nadminister it (or for an own space or an organization that does not exist).\n\nWhat stands in the way is 409, and nothing changes: an administrator cannot remove\nthemselves here (reason `cannot_remove_self`; use `leaveOrganization` instead); the\nserver's only administrator stays in the server's own first organization (reason\n`last_instance_admin`); the only administrator of an organization that has other\npeople in it stays until somebody else is one (reason `sole_org_admin`); and the\nonly person in the organization is not removed (reason `alone_in_organization`).",
+        "operationId": "removeOrgMember",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it; and 404 for the user's own space, which nobody administers.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the user.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The member is out of the organization."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Remove a member from an organization",
         "tags": [
           "organization"
         ]
@@ -10690,6 +11517,41 @@
         ]
       }
     },
+    "/api/v1/users/me/organizations": {
+      "get": {
+        "description": "The organizations that people work in together of which the user of the session is a\nmember, with their name and the user's role in each. Includes organizations in which\nthe user is in no workspace, and leaves out the user's own space and organizations\nwhere the user is only a guest of a workspace. Asked of any session: an organization\nthat takes only sessions made through its provider is still listed so the user can\nsee it in settings and leave it (`leaveOrganization`). Oldest first.",
+        "operationId": "getMyOrganizations",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserOrganization"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The organizations."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The organizations the user is a member of",
+        "tags": [
+          "users"
+        ]
+      }
+    },
     "/api/v1/users/me/password": {
       "post": {
         "description": "Changes the password of the user of the session, who proves to know the old one.\nThe user's other sessions end, and this one goes on under a new cookie.\n\nA wrong old password is 400 (not 401: the session is good) with the reason\n`invalid_credentials`, and `errors` names `oldPassword`. Wrong ones are counted with the\nfailed logins to the account by its name, and too many are 429, also for a login.\nThe new password must have at least 8 characters and at most 1024 bytes; `errors`\nnames every member that is refused. A password\nthat was changed by somebody else while this request was under way is 409.",
@@ -12625,7 +13487,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof other cards of the board, in the trash or not, each once, at most 50 (a value over\nit from before may be written with fewer of its cards, not with another). Any other is\n400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,\n`relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board\nthat is no card) or `relation_card_not_found`: no card of that identifier on the\nboard, which is also the answer for a card of another board. Every write of a card\nchecks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it\nchanges, and does not ask again for a card that a value named before.",
+        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof relation link objects (`{\"card\": \"<cardId>\", \"kind\": \"fs\" | \"ss\" | \"ff\" | \"sf\",\n\"lagDays\": -3650..=3650}`), naming other cards of the board, in the trash or not,\neach once (even if `kind` differs), at most 50 (a value over it from before may be\nwritten with fewer of its cards, not with another). `kind` defaults to `\"fs\"` and\n`lagDays` defaults to `0` when omitted, unknown fields and plain string arrays are\nrefused with 400, and stored links always include all three fields normalized. Any\nother refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,\n`relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`\n(a block of the board that is no card) or `relation_card_not_found`: no card of that\nidentifier on the board, which is also the answer for a card of another board. Every\nwrite of a card checks so (`patchCard`, the block routes, `createBoardsAndBlocks`)\nthe values it changes, and does not ask again for a card that a value named before.",
         "operationId": "createCard",
         "parameters": [
           {
@@ -16321,6 +17183,191 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/my-schedule/redistribute": {
+      "post": {
+        "description": "Explicitly redistributes only the caller's incomplete live units in outline tree order\nfrom `fromDate` (default: caller's today in their configured `timeZone`) to\n`targetDate` (default: course's saved `targetDate`) across `studyDays` (default:\ncourse's saved `studyDays`), updating only the caller's own `unit_progress.plannedDate`\nrows. Completed units and shared unit `scheduledDate` values are untouched. Available\nto any enrolled course member (including viewers and invited guests) and\npersonal-space owners; unjoined readers of an open course are refused with 403.\nPersonal redistributions never broadcast over websockets, never enter search indexes\nor archives, and emit no webhooks or audit logs.",
+        "operationId": "redistributeMyCourseSchedule",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedistributeScheduleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseScheduleView"
+                }
+              }
+            },
+            "description": "The course schedule view after personal redistribution."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Redistribute my personal schedule in a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/notes/{noteId}": {
+      "delete": {
+        "description": "Deletes one of the caller's personal notes in the course. Another user's note\nidentifier or a missing note answers 404.",
+        "operationId": "deleteUnitNote",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the personal note in the course of the path. 404 for another user's note or one of another course.",
+            "in": "path",
+            "name": "noteId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The personal note is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete a personal note",
+        "tags": [
+          "courses"
+        ]
+      },
+      "patch": {
+        "description": "Updates the `kind` and/or `content` of one of the caller's personal notes in the\ncourse. Another user's note identifier, a note on a trashed unit, or a non-course\ncontainer answers 404.",
+        "operationId": "patchUnitNote",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the personal note in the course of the path. 404 for another user's note or one of another course.",
+            "in": "path",
+            "name": "noteId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchUnitNote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitNote"
+                }
+              }
+            },
+            "description": "The updated personal note."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Update a personal note",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/courses/{courseId}/progress": {
       "get": {
         "description": "Returns the caller's own personal progress rows for every live unit in the course,\nordered by `unitId`. Enrolled course members (including viewers and invited guests)\nand personal-space owners receive their own rows; an unjoined reader of an open course\nreceives an empty array `[]`. Other users' personal rows are never returned. Non-course\ncontainers and unreadable private courses answer 404.",
@@ -16423,6 +17470,421 @@
           }
         },
         "summary": "Progress summary of a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/reviews": {
+      "get": {
+        "description": "Returns the caller's own spaced-repetition reviews for live units of the course.\nOrdered by `scheduledDate` ascending, then `createAt` ascending, then `id` ascending.\nOptional query filters: `status` (`pending`, `completed`, or `all`) and `unitId`.\nUnjoined readers of an open course receive an empty array `[]`. Other users' reviews\nare never returned. Non-course containers and unreadable private courses answer 404.",
+        "operationId": "listMyCourseReviews",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter course reviews by completion state: `pending`, `completed`, or `all` (also when left out). Anything else is 400.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Narrows the course review list to reviews for this unit.",
+            "in": "query",
+            "name": "unitId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UnitReview"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The caller's personal reviews in the course."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "My scheduled reviews in a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/reviews/{reviewId}": {
+      "delete": {
+        "description": "Deletes one of the caller's personal reviews in the course. Another user's review\nidentifier or a missing review answers 404.",
+        "operationId": "deleteUnitReview",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the personal review in the course of the path. 404 for another user's review or one of another course.",
+            "in": "path",
+            "name": "reviewId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The personal review is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Cancel or delete a personal review",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/reviews/{reviewId}/complete": {
+      "post": {
+        "description": "Marks the caller's review as completed (idempotently preserving an existing\n`completedAt`) and returns `suggestedNextIntervalDays` calculated from the review's\ninterval and the course's interval sequence (default `[1, 3, 7, 14, 30]`). Optionally\npass `scheduleNextIntervalDays` (`1..=3650`) to schedule the follow-up review in the\nsame transaction. Another user's review identifier, a review on a trashed unit, or a\nnon-course container answers 404.",
+        "operationId": "completeUnitReview",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the personal review in the course of the path. 404 for another user's review or one of another course.",
+            "in": "path",
+            "name": "reviewId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteUnitReview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletedUnitReview"
+                }
+              }
+            },
+            "description": "The completed review and suggested next interval."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Complete a personal review",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/schedule": {
+      "delete": {
+        "description": "Removes the course's saved shared schedule settings (idempotent if none exists), for\neditors and admins of the course (and personal-space owners). Existing unit\n`scheduledDate` values and learners' personal `plannedDate` rows are left intact.",
+        "operationId": "deleteCourseSchedule",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The shared course schedule is removed."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Remove a course's shared schedule",
+        "tags": [
+          "courses"
+        ]
+      },
+      "get": {
+        "description": "Returns the course's shared schedule settings (`schedule`, or `null` if unset),\ntoday's calendar date (`today`) computed in the caller's configured `timeZone` (UTC\nwhen set to `auto`), `todayCount`, `overdueCount`, and every live unit in outline\ntree order (chapters and trashed units excluded). For enrolled members and\npersonal-space owners, each unit includes the caller's own `myPlannedDate`,\n`effectiveDate` (`myPlannedDate ?? scheduledDate`), `completed`, and `overdue`\n(`!completed && effectiveDate < today`). Unjoined readers of an open course receive\n`myPlannedDate: null` and `completed: false`. Other users' personal planned dates are\nnever disclosed. Overdue units never auto-shift when read.",
+        "operationId": "getCourseSchedule",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseScheduleView"
+                }
+              }
+            },
+            "description": "The course schedule and live unit dates for the caller."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Schedule of a course",
+        "tags": [
+          "courses"
+        ]
+      },
+      "put": {
+        "description": "Creates or updates the course's shared study period (`startDate`..=`targetDate`) and\nweekday bitmask (`studyDays`, 1..=127 where bit 0 is Monday and bit 6 is Sunday). For\neditors and admins of the course (and personal-space owners); viewers and unjoined\nreaders are refused with 403. When `autoAssign` is `true`, proportionally assigns\nshared `scheduledDate` values across all live units in outline tree order by study\namount (default weight 1) and announces modified blocks to websocket listeners and\nwebhooks in the background.",
+        "operationId": "putCourseSchedule",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CourseScheduleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseScheduleView"
+                }
+              }
+            },
+            "description": "The updated course schedule view."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Save a course's shared schedule",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/schedule/redistribute": {
+      "post": {
+        "description": "Explicitly redistributes the shared `scheduledDate` of all live units in outline tree\norder from `fromDate` (default: caller's today in their configured `timeZone`) to\n`targetDate` (default: course's saved `targetDate`) across `studyDays` (default:\ncourse's saved `studyDays`), weighted by each unit's study `amount` (default 1). For\neditors and admins of the course (and personal-space owners); viewers and unjoined\nreaders are refused with 403. Announces modified blocks to websocket listeners and\nwebhooks in the background and never reads any user's personal progress.",
+        "operationId": "redistributeCourseSchedule",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedistributeScheduleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseScheduleView"
+                }
+              }
+            },
+            "description": "The course schedule view after shared redistribution."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Redistribute a course's shared schedule",
         "tags": [
           "courses"
         ]
@@ -16561,7 +18023,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the course. With `kind` `unit` (also when left out), the unit goes below\n`parentId`, a chapter of the same course (400 at `/parentId` otherwise), or at the\ntop of the course. With `kind` `chapter`, the chapter is a title-only heading at the\ntop of the course (`parentId` must be empty; 400 at `/parentId` otherwise) with no\nbody and no room. Among the siblings of that parent it goes right after `after` (400\nat `/after` if that is no sibling of the same parent), first if `after` is empty, and\nlast if it is left out. A unit's body is written by `patchUnit`, or together in its\nroom (`JOIN_DOC`).\n\nA course holds at most 2,000 units and 200 chapters, those in the trash not counted\n(chapters do not count toward the 2,000-unit limit): one more unit is 400 with the\nreason `too_many_units` and the `limit`, and one more chapter is 400 with the reason\n`too_many_chapters` and the `limit`.\n\nThe course's listeners are told with `UPDATE_BLOCK`, whose block of the `type` `unit`\nor `chapter` carries its `order` among its `fields`. Any sibling numbered anew to\nleave room is told of too.",
+        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the course. With `kind` `unit` (also when left out), the unit goes below\n`parentId`, a chapter of the same course (400 at `/parentId` otherwise), or at the\ntop of the course. With `kind` `chapter`, the chapter is a title-only heading at the\ntop of the course (`parentId` must be empty; 400 at `/parentId` otherwise) with no\nbody and no room. Among the siblings of that parent it goes right after `after` (400\nat `/after` if that is no sibling of the same parent), first if `after` is empty, and\nlast if it is left out. A unit may also carry optional study-schedule fields\n(`amount` `1..=100_000`, `amountUnit`, and shared `scheduledDate` `YYYY-MM-DD`;\nforbidden on chapters with 400). A unit's body is written by `patchUnit`, or together\nin its room (`JOIN_DOC`).\n\nA course holds at most 2,000 units and 200 chapters, those in the trash not counted\n(chapters do not count toward the 2,000-unit limit): one more unit is 400 with the\nreason `too_many_units` and the `limit`, and one more chapter is 400 with the reason\n`too_many_chapters` and the `limit`.\n\nThe course's listeners are told with `UPDATE_BLOCK`, whose block of the `type` `unit`\nor `chapter` carries its `order` among its `fields`. Any sibling numbered anew to\nleave room is told of too.",
         "operationId": "createUnit",
         "parameters": [
           {
@@ -16734,7 +18196,7 @@
         ]
       },
       "patch": {
-        "description": "Its title, or (for a unit) its whole body, for editors of the course. A chapter has\nno body: sending `body` on a chapter is 400 at `/body`. A new body is sent with\n`readAt`, the `updateAt` of the unit as it was read: 409 if the unit has changed\nsince, and nothing is changed. Where the body is being edited together, what the\neditors typed is written to the unit first, so a writer who read it before is refused\nand reads it again. Where the node stands in the course does not change here.",
+        "description": "Its title, or (for a unit) its whole body and optional study-schedule fields (`amount`,\n`amountUnit`, `scheduledDate`, each clearable with `null`), for editors of the course.\nA chapter has no body or schedule fields: sending `body`, `amount`, `amountUnit`, or\n`scheduledDate` on a chapter is 400. A new body is sent with\n`readAt`, the `updateAt` of the unit as it was read: 409 if the unit has changed\nsince, and nothing is changed. Where the body is being edited together, what the\neditors typed is written to the unit first, so a writer who read it before is refused\nand reads it again. Where the node stands in the course does not change here.",
         "operationId": "patchUnit",
         "parameters": [
           {
@@ -17556,6 +19018,148 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/notes": {
+      "get": {
+        "description": "Returns the caller's own question, mistake, and review notes on a live unit of the\ncourse. Ordered by `createAt` descending, then `id` descending. Optional query filter\n`kind` (`question`, `mistake`, or `review`). Unjoined readers of an open course\nreceive an empty array `[]` for live units. Chapters, trashed units, and non-course\ncontainers answer 404.",
+        "operationId": "listMyUnitNotes",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter unit notes by category: `question`, `mistake`, or `review`. Left out, every category. Anything else is 400.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UnitNote"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The caller's personal notes on the unit."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "My personal notes on a unit",
+        "tags": [
+          "courses"
+        ]
+      },
+      "post": {
+        "description": "Creates a personal question, mistake, or review note for the caller on a live unit of\nthe course. Content is trimmed and must contain between 1 and 10,000 characters.\nEnrolled course members (including viewers and invited guests) and personal-space\nowners may record notes; unjoined readers of an open course are refused with 403.\nChapters, trashed units, and non-course containers answer 404.",
+        "operationId": "createUnitNote",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUnitNote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitNote"
+                }
+              }
+            },
+            "description": "The created personal note."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Create a personal note on a unit",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/progress": {
       "put": {
         "description": "Creates or updates the caller's own progress row on a live unit of the course.\nEnrolled members of any role (viewer, commenter, editor, admin, including invited\nguests) and personal-space owners may record their own progress; an unjoined reader\nof an open course is refused with 403 until they join the course.\n\nSetting `completed: true` is idempotent and preserves an existing `completedAt`\ntimestamp. Setting `completed: false` clears `completedAt` to `null`. Omitting\n`completed` or `lastPosition` preserves the existing value; sending `lastPosition:\nnull` clears it. Personal progress writes never broadcast over websockets, never\nenter search indexes or archives, and emit no webhooks or audit logs. Chapters,\ntrashed units, units of another course, and non-course containers answer 404.",
@@ -17622,6 +19226,148 @@
           }
         },
         "summary": "Record my progress on a unit",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/reviews": {
+      "post": {
+        "description": "Creates a personal spaced-repetition review for the caller on a live unit of the\ncourse. Provide `intervalDays` (`1..=3650`), `scheduledDate` (`YYYY-MM-DD`), or both.\nEnrolled course members (including viewers and invited guests) and personal-space\nowners may schedule reviews; an unjoined reader of an open course is refused with 403.\nChapters, trashed units, units of another course, and non-course containers answer 404.",
+        "operationId": "scheduleUnitReview",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleUnitReview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitReview"
+                }
+              }
+            },
+            "description": "The scheduled personal review."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Schedule a personal review for a unit",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/schedule": {
+      "put": {
+        "description": "Sets the caller's personal `plannedDate` (`YYYY-MM-DD`) on a live unit of the course,\nor clears it (`null`) to revert to the unit's shared `scheduledDate`. Preserves\n`completedAt` and `lastPosition`. Available to any enrolled course member (including\nviewers and invited guests) and personal-space owners; unjoined readers of an open\ncourse are refused with 403. Never visible to other members, workspace/org admins, or\npublic link readers, and emits no websocket broadcasts, webhooks, search updates, or\naudit logs. Chapters, trashed units, units of another course, and non-course\ncontainers answer 404.",
+        "operationId": "putUnitSchedule",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitScheduleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitProgress"
+                }
+              }
+            },
+            "description": "The updated personal progress row with the new plannedDate."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Set or clear my personal planned date on a unit",
         "tags": [
           "courses"
         ]
@@ -18824,6 +20570,95 @@
         "summary": "Revoke an invitation",
         "tags": [
           "workspaces"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/learning/reviews/today": {
+      "get": {
+        "description": "Returns the caller's own pending reviews whose `scheduledDate` is on or before today\n(in the caller's configured time zone, or UTC) across all live courses of the\nworkspace in which the caller is an active member. Ordered by `scheduledDate`\nascending, then `createAt` ascending, then `id` ascending. Other users' reviews are\nnever returned.",
+        "operationId": "getWorkspaceTodayReviews",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TodayReviewItem"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The caller's pending reviews due today or overdue."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "My reviews due today in a workspace",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/learning/today": {
+      "get": {
+        "description": "Returns the caller's incomplete units due today (`effectiveDate == today`) and\noverdue (`effectiveDate < today`) across all live courses in this workspace that the\ncaller is enrolled in (direct membership or inherited group role), evaluated in the\ncaller's configured `timeZone` (UTC when set to `auto`). `todayUnits` are ordered by\ncourse creation order (`createAt`, `courseId`) and then outline order within each\ncourse; `overdueUnits` are ordered by `effectiveDate` ascending (oldest first), then\ncourse creation order, then outline order. Never includes private courses the caller\nis not enrolled in (even for workspace or organization admins) and never reads\nanother user's personal `plannedDate` or completion status.",
+        "operationId": "getWorkspaceLearningToday",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceLearningToday"
+                }
+              }
+            },
+            "description": "The caller's incomplete units due today and overdue in this workspace."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Today's and overdue learning units in a workspace",
+        "tags": [
+          "courses"
         ]
       }
     },

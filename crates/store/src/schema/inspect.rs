@@ -1,16 +1,79 @@
-//! Database catalog and privilege inspection helpers for [`super`].
+//! Reading a database's migration record and role privileges before running or skipping
+//! migrations.
 
+use super::{A_SCHEMA_TABLE, MIGRATIONS_TABLE, migrator};
 use crate::Store;
 use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
 
-/// The table in which sqlx's migrator records what it applied.
-pub(super) const MIGRATIONS_TABLE: &str = "_sqlx_migrations";
+/// Where a database's schema stands against this build's migrations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SchemaState {
+    /// Every migration of this build is recorded as applied, with this build's text,
+    /// and no other: the database is opened without a statement that changes it.
+    Current,
+    /// Some of this build's migrations are not recorded yet (none, if the database is
+    /// empty); what is recorded is this build's.
+    Behind,
+    /// The record is not this build's: why, as the migrator would say it.
+    Foreign(String),
+}
+
+/// Reads where the database's schema stands, from the record of the migrations.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Schema`] if the record is there but the role may not read it
+/// (it was not granted the tables), and [`StoreError::Database`] if it cannot be read.
+pub(crate) async fn state(store: &Store) -> Result<SchemaState, StoreError> {
+    let migrator = migrator(store.dialect(), None);
+    let known: Vec<(i64, &[u8])> = migrator
+        .iter()
+        .map(|migration| (migration.version, migration.checksum.as_ref()))
+        .collect();
+    store
+        .with_conn(async |scope| {
+            if !has_record(scope).await? {
+                return Ok(SchemaState::Behind);
+            }
+            let sql = scope
+                .sql("SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version");
+            let recorded = scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| Ok((row.int(0)?, row.bytes(1)?, row.bool(2)?)))
+                .collect::<Result<Vec<_>, StoreError>>()?;
+            for (version, checksum, applied) in &recorded {
+                let reason = match known.iter().find(|(known, _)| known == version) {
+                    None => format!(
+                        "the database holds schema migration {version}, which this server \
+                         does not know: it was last opened by a newer server"
+                    ),
+                    Some((_, known)) if known != checksum => format!(
+                        "schema migration {version} of the database differs from this \
+                         server's: the database was created by a different build"
+                    ),
+                    Some(_) if !applied => {
+                        format!("schema migration {version} failed when it was applied")
+                    }
+                    Some(_) => continue,
+                };
+                return Ok(SchemaState::Foreign(reason));
+            }
+            Ok(if recorded.len() == known.len() {
+                SchemaState::Current
+            } else {
+                SchemaState::Behind
+            })
+        })
+        .await
+}
 
 /// Whether the record of the migrations is in the schema the role works in. On
 /// PostgreSQL it is found whatever the role was granted, and a record the role may not
 /// read is an error that says what to grant.
-pub(super) async fn has_record(scope: &mut Scope<'_>) -> Result<bool, StoreError> {
+async fn has_record(scope: &mut Scope<'_>) -> Result<bool, StoreError> {
     if scope.dialect() == Dialect::Sqlite {
         return Ok(table_names(scope)
             .await?
@@ -126,8 +189,22 @@ pub(crate) async fn ungranted_tables(store: &Store) -> Result<Vec<String>, Store
         .await
 }
 
+/// Refuses a database that has this server's tables but no record of the migrations
+/// that made them, which the migrator would try to create again.
+pub(super) async fn refuse_unrecorded_schemas(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+    let tables = table_names(scope).await?;
+    let has = |name: &str| tables.iter().any(|table| table == name);
+    if has(A_SCHEMA_TABLE) && !has(MIGRATIONS_TABLE) {
+        return Err(StoreError::Schema(format!(
+            "the database has a {A_SCHEMA_TABLE} table but no record of schema migrations \
+             ({MIGRATIONS_TABLE}); start with an empty database"
+        )));
+    }
+    Ok(())
+}
+
 /// The names of the tables in the database (on PostgreSQL: in the current schema).
-pub(super) async fn table_names(scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
+async fn table_names(scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
     let sql = match scope.dialect() {
         Dialect::Sqlite => scope.sql("SELECT name FROM sqlite_master WHERE type = 'table'"),
         Dialect::Postgres => scope.sql(

@@ -29,7 +29,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 
 /// Loads course access and requires `View` permission, returning 404 when the course is
 /// hidden or does not exist.
-async fn course_view_access(
+pub(super) async fn course_view_access(
     app: &App,
     user_id: &str,
     course_id: &str,
@@ -71,7 +71,10 @@ async fn handle_get_my_course_progress(
     if !access.has_membership() {
         return Ok(json_response(&Vec::<UnitProgress>::new()));
     }
-    let rows = ws.app.my_course_progress(&course_id, user_id).await?;
+    let rows = ws
+        .app
+        .my_course_progress(&course_id, user_id, &access.container.properties)
+        .await?;
     Ok(json_response(&rows))
 }
 
@@ -119,7 +122,13 @@ async fn handle_put_unit_progress(
     let change = update.check_request()?;
     let progress = ws
         .app
-        .put_unit_progress(&course_id, &unit_id, user_id, &change)
+        .put_unit_progress(
+            &course_id,
+            &unit_id,
+            user_id,
+            &change,
+            &access.container.properties,
+        )
         .await?;
     Ok(json_response(&progress))
 }

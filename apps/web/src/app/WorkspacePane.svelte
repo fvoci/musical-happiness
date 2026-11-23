@@ -28,6 +28,7 @@
   import CoursePage from './CoursePage.svelte';
   import DiaryPage from './DiaryPage.svelte';
   import { lastPlace, rememberPlace } from './last-workspace.ts';
+  import MyTimePage from './MyTimePage.svelte';
   import NotFound from './NotFound.svelte';
   import { placeRoute, shownContainerId, type Router } from './router.svelte.ts';
   import WikiPage from './WikiPage.svelte';
@@ -85,6 +86,8 @@
 
 {#if refused}
   <SignInNotice problem={refused} {onGoOn} {onOpenLinked} />
+{:else if router.route.meTime}
+  <MyTimePage {workspace} {router} />
 {:else if router.route.unknown || (here && workspace.entered === 'missing')}
   <NotFound {router} />
 {:else if here && workspace.entered === 'sso' && workspace.closed?.orgId}

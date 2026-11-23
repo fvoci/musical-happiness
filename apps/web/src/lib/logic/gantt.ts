@@ -20,9 +20,36 @@ import {
   type Days,
   type RelationEdge,
 } from './dependencies.ts';
+import {
+  ARROW_GAP,
+  TURN_INSET,
+  arrowHead,
+  arrowHitPoints,
+  arrowLabelPoint,
+  arrowPath,
+  arrowPoints,
+  arrowsOf,
+  edgeKey,
+  type Arrow,
+  type Point,
+} from './gantt-arrows.ts';
 import type { Weekday } from './regional.ts';
 import type { GanttZoom } from './view-members.ts';
 import type { Card, PropertyTemplate } from './wire.ts';
+
+export {
+  ARROW_GAP,
+  TURN_INSET,
+  arrowHead,
+  arrowHitPoints,
+  arrowLabelPoint,
+  arrowPath,
+  arrowPoints,
+  arrowsOf,
+  edgeKey,
+  type Arrow,
+  type Point,
+};
 
 // ---------------------------------------------------------------- zoom
 
@@ -307,11 +334,6 @@ export function orderingRelations(
   return ids;
 }
 
-/** Names an edge in a set. */
-export function edgeKey(edge: RelationEdge): string {
-  return `${edge.from}\u0000${edge.to}`;
-}
-
 /** What one relation property says about the cards of a chart. */
 export interface ChartRelations {
   /** The edges between two cards that both have a bar: one arrow each. */
@@ -376,106 +398,4 @@ export function cardsBefore(edges: readonly RelationEdge[]): Map<string, string[
     else before.set(to, [from]);
   }
   return before;
-}
-
-// -------------------------------------------------------------- arrows
-
-export type Point = readonly [x: number, y: number];
-
-/** An arrow from the end of the bar of `from` to the start of the bar of `to`. */
-export interface Arrow extends RelationEdge {
-  /** The corners of its way: x in rem, y in rows. The last is the tip. */
-  points: Point[];
-  late: boolean;
-  loop: boolean;
-}
-
-/** How far an arrow goes straight out of a bar and into one, in rem. */
-export const ARROW_GAP = 0.5;
-/** The head: how long in rem, and half its height in rows. */
-const HEAD_LENGTH = 0.4;
-const HEAD_HALF = 0.14;
-
-/**
- * How far from the edge of its own row an arrow runs where it turns back, in
- * rows: under (or over) the bar it leaves, clear of the line between the
- * rows. An arrow down out of one row and an arrow up out of the next would
- * otherwise lie on that same line and read as one.
- */
-export const TURN_INSET = 0.1;
-
-/**
- * The way of an arrow, in straight pieces across and down. Where the second
- * bar begins far enough after the first ends (two gaps, which is some days
- * at a far zoom): out, down (or up), in. Where it does not (it begins on
- * the day the first ends, or before, or just after): out, to the edge of
- * its own row on the side of the second bar, back along it to before that
- * bar, on to its row, in.
- *
- * No corner leaves the axis (`width`): out of a bar cut at the end of the
- * axis the arrow turns at the edge, and before a bar at its start it comes
- * down the edge. The tip is the start of the second bar; for a bar cut at
- * the start of the axis that is the edge itself, and the head lies off the
- * chart with the days that are cut.
- */
-export function arrowPoints(from: Bar, to: Bar, width = Infinity): Point[] {
-  const startX = from.x + from.width;
-  const startY = from.row + 0.5;
-  const endY = to.row + 0.5;
-  const out = Math.min(width, startX + ARROW_GAP);
-  if (to.x - ARROW_GAP >= startX + ARROW_GAP) {
-    return [
-      [startX, startY],
-      [out, startY],
-      [out, endY],
-      [to.x, endY],
-    ];
-  }
-  const before = Math.max(0, to.x - ARROW_GAP);
-  const along = to.row > from.row ? from.row + 1 - TURN_INSET : from.row + TURN_INSET;
-  return [
-    [startX, startY],
-    [out, startY],
-    [out, along],
-    [before, along],
-    [before, endY],
-    [to.x, endY],
-  ];
-}
-
-/** One arrow for each edge whose two cards have a bar. */
-export function arrowsOf(
-  relations: ChartRelations,
-  bars: ReadonlyMap<string, Bar>,
-  /** The width of the axis: no arrow leaves it. */
-  width = Infinity,
-): Arrow[] {
-  return relations.edges.flatMap((edge) => {
-    const from = bars.get(edge.from);
-    const to = bars.get(edge.to);
-    if (!from || !to) return [];
-    const key = edgeKey(edge);
-    return {
-      ...edge,
-      points: arrowPoints(from, to, width),
-      late: relations.late.has(key),
-      loop: relations.loops.has(key),
-    };
-  });
-}
-
-const number = (value: number): string => String(Math.round(value * 1000) / 1000);
-
-/** The line of an arrow as the `d` of an SVG path. */
-export function arrowPath(points: readonly Point[]): string {
-  return points.map(([x, y], at) => `${at === 0 ? 'M' : 'L'}${number(x)} ${number(y)}`).join('');
-}
-
-/** The head of an arrow, a triangle whose tip is the last point, as the `d` of an SVG path. */
-export function arrowHead(points: readonly Point[]): string {
-  const tip = points.at(-1);
-  if (!tip) return '';
-  const [x, y] = tip;
-  const back = number(x - HEAD_LENGTH);
-  return `M${number(x)} ${number(y)}L${back} ${number(y - HEAD_HALF)}L${back} ${number(y + HEAD_HALF)}Z`;
 }

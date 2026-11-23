@@ -5,8 +5,9 @@
 use fvoci_model::{
     AttendanceStatus, AuditAction, Block, BlockType, Category, CompletionChange, Container,
     ContainerKind, ContainerMember, ContainerType, CourseLimits, Credential, LastPositionChange,
-    NameShown, NewCourseExam, NewCourseMeeting, NewUnit, OrgRole, PersonName, Session, Title,
-    UnitProgressChange, User, ValidatedMyExamScore, WorkspaceRole, new_id,
+    NameShown, NewCourseExam, NewCourseMeeting, NewUnit, NewUnitNote, NewUnitReview, OrgRole,
+    PersonName, Session, Title, UnitNoteKind, UnitProgressChange, User, ValidatedMyExamScore,
+    WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AuditPlace, DbType, DeletionAsking, Erasing, ErasureEnd, ErasureStart, Identity, LeftFrom,
@@ -683,16 +684,48 @@ async fn record_course_progress(store: &Store, workspace_id: &str, owner: &str, 
         )
         .await
         .expect("progress is stored");
-    // Shared course attendance is intentionally preserved as a tombstone on erasure,
-    // while personal exam scores (and their private notes) are erased completely.
+    record_course_meetings_and_exams(store, &course.id, &unit.id, learner).await;
+    store
+        .schedule_unit_review(
+            &course.id,
+            &unit.id,
+            learner,
+            &NewUnitReview {
+                scheduled_date: "2026-11-25".to_owned(),
+                interval_days: 3,
+            },
+        )
+        .await
+        .expect("review is stored");
+    store
+        .create_unit_note(
+            &course.id,
+            &unit.id,
+            learner,
+            &NewUnitNote {
+                kind: UnitNoteKind::Mistake,
+                content: "leaver-shelf personal mistake".to_owned(),
+            },
+        )
+        .await
+        .expect("note is stored");
+}
+
+/// Seeds shared course meeting/attendance tombstones and personal exam scores for erasure tests.
+async fn record_course_meetings_and_exams(
+    store: &Store,
+    course_id: &str,
+    unit_id: &str,
+    learner: &str,
+) {
     let meeting = store
         .create_course_meeting(
-            &course.id,
+            course_id,
             &NewCourseMeeting {
                 title: "erasure study".to_owned(),
                 starts_at: T0 + 1000,
                 location: String::new(),
-                unit_ids: vec![unit.id],
+                unit_ids: vec![unit_id.to_owned()],
                 presenter_id: Some(learner.to_owned()),
                 host_id: Some(learner.to_owned()),
                 notes: String::new(),
@@ -703,12 +736,12 @@ async fn record_course_progress(store: &Store, workspace_id: &str, owner: &str, 
         .await
         .expect("meeting is stored");
     store
-        .upsert_meeting_attendance(&course.id, &meeting.id, learner, AttendanceStatus::Present)
+        .upsert_meeting_attendance(course_id, &meeting.id, learner, AttendanceStatus::Present)
         .await
         .expect("attendance is stored");
     let exam = store
         .create_course_exam(
-            &course.id,
+            course_id,
             &NewCourseExam {
                 title: "erasure exam".to_owned(),
                 exam_date: Some("2026-12-01".to_owned()),
@@ -722,7 +755,7 @@ async fn record_course_progress(store: &Store, workspace_id: &str, owner: &str, 
         .expect("exam is stored");
     store
         .upsert_my_exam_score(
-            &course.id,
+            course_id,
             &exam.id,
             learner,
             &ValidatedMyExamScore {

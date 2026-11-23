@@ -548,6 +548,7 @@ const ORDERS: &[(&str, &str)] = &[
     ("getMyCourseProgress", "ordered by `unitId`"),
     ("getMyIdentities", "Oldest first"),
     ("getMyMemberships", "By the identifier of the board"),
+    ("getMyOrganizations", "Oldest first"),
     ("getMyWorkspaces", "the oldest workspace first"),
     ("getNotifications", "the newest first"),
     ("getOrgAudit", "the newest first"),
@@ -594,6 +595,10 @@ const ORDERS: &[(&str, &str)] = &[
     ("getWorkspaceAudit", "the newest first"),
     ("getWorkspaceBoards", "Oldest first"),
     ("getWorkspaceMembers", "The oldest membership first"),
+    (
+        "getWorkspaceTodayReviews",
+        "Ordered by `scheduledDate` ascending",
+    ),
     ("getWorkspaceUsers", "Oldest account first"),
     (
         "getWorkspaceUsersById",
@@ -607,6 +612,11 @@ const ORDERS: &[(&str, &str)] = &[
         "listCourseMeetings",
         "ordered by `startsAt` ascending, then by `id`",
     ),
+    (
+        "listMyCourseReviews",
+        "Ordered by `scheduledDate` ascending",
+    ),
+    ("listMyUnitNotes", "Ordered by `createAt` descending"),
     ("patchBoardsAndBlocks", "each in the order of the request"),
     ("reorderCardProperties", "in their new order"),
     ("reorderCategories", "in their new order"),

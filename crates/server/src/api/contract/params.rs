@@ -66,6 +66,8 @@ parameter!(CourseId: Path "courseId", String, True, "The identifier of the cours
 parameter!(MeetingId: Path "meetingId", String, True, "The identifier of the study meeting: a meeting of the course of the path. 404 for one of another course.");
 parameter!(ExamId: Path "examId", String, True, "The identifier of the exam: an exam of the course of the path. 404 for one of another course.");
 parameter!(UnitId: Path "unitId", String, True, "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.");
+parameter!(ReviewId: Path "reviewId", String, True, "The identifier of the personal review in the course of the path. 404 for another user's review or one of another course.");
+parameter!(NoteId: Path "noteId", String, True, "The identifier of the personal note in the course of the path. 404 for another user's note or one of another course.");
 parameter!(UnitCommentId: Path "commentId", String, True, "The identifier of the comment: a comment on the unit of the path. 404 for a comment on another unit, and for a block that is no comment.");
 parameter!(UnitVersionNumber: Path "version", i64, True, "The number of the version of the unit's body, as `getUnitBodyVersions` lists it.");
 parameter!(MonthDayOfYear: Path "monthDay", String, True, "A month and a day without a year, as `11-21`: two digits each. `02-29` is a day of its own, which only leap years have. 400 for anything else.");
@@ -129,6 +131,9 @@ parameter!(ContentKind: Query "kind", String, False, "The kind of thing to find:
 parameter!(DaysFrom: Query "from", String, True, "The first day to list, as `2026-11-01`. 400 for what is no day, and where it is left out.");
 parameter!(DaysTo: Query "to", String, True, "The last day to list, as `2026-11-30`, at most 365 days after the first. 400 for what is no day, and where it is left out.");
 parameter!(ContentLimit: Query "limit", i64, False, "How many hits to answer with at most, from 1 to 50; 20 if left out.");
+parameter!(ReviewStatus: Query "status", String, False, "Filter course reviews by completion state: `pending`, `completed`, or `all` (also when left out). Anything else is 400.");
+parameter!(ReviewUnitId: Query "unitId", String, False, "Narrows the course review list to reviews for this unit.");
+parameter!(NoteKind: Query "kind", String, False, "Filter unit notes by category: `question`, `mistake`, or `review`. Left out, every category. Anything else is 400.");
 parameter!(UserSearch: Query "search", String, False, "Narrows the list to users whose name has this text in it. In the text `%` stands for any text and `_` for any one character. Whether the case of letters counts depends on the database the server runs on.");
 parameter!(TimeFrom: Query "from", i64, False, "Inclusive lower bound on `startedAt`, in milliseconds since the Unix epoch.");
 parameter!(TimeTo: Query "to", i64, False, "Inclusive upper bound on `startedAt`, in milliseconds since the Unix epoch. Must be greater than or equal to `from` when both are given.");

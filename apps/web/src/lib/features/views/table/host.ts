@@ -40,6 +40,8 @@ export interface RowHost {
   editTitle(cardId: string): void;
   setValue(cardId: string, propertyId: string, value: PropertyValue | undefined): void;
   setTitle(cardId: string, title: string): void;
+  /** Expands or collapses a parent card's visible sub-cards in the table. */
+  toggleParent(cardId: string): void;
   /** The lines of the "more" menu of a row. */
   rowActions(card: Card): MenuAction[];
 }

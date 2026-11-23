@@ -24,6 +24,7 @@
   the page opens it (a compact page).
 -->
 <script lang="ts">
+  import ClockIcon from '@lucide/svelte/icons/clock';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import InfoIcon from '@lucide/svelte/icons/info';
   import MenuIcon from '@lucide/svelte/icons/menu';
@@ -62,6 +63,8 @@
     workspace: Workspace;
     /** The board or wiki on the page. */
     containerId: string | undefined;
+    /** Whether the personal "My time" screen is shown. */
+    meTime?: boolean;
     /** The address of a board's or a wiki's public link with its read token. */
     sharedHref: (containerId: string, readToken: string) => string;
     /** Show the button that opens the drawer. */
@@ -76,6 +79,7 @@
   let {
     workspace,
     containerId,
+    meTime = false,
     sharedHref,
     menuButton,
     onOpenSidebar,
@@ -207,7 +211,17 @@
     </IconButton>
   {/if}
 
-  {#if container}
+  {#if meTime}
+    <div class="flex min-w-0 shrink items-center gap-2 pl-1">
+      <ClockIcon class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <h1
+        class="min-w-0 truncate text-base font-semibold @columns/pane:text-lg"
+        data-testid="top-bar-time-title"
+      >
+        {m.time_title()}
+      </h1>
+    </div>
+  {:else if container}
     <div class="flex min-w-0 shrink items-center gap-1.5 pl-1">
       <ContainerIcon
         icon={container.icon}

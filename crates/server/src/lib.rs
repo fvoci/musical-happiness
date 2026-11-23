@@ -667,6 +667,7 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
             if let Err(error) = app.notify_upcoming_meetings(auth::now_millis()).await {
                 tracing::warn!(%error, "upcoming course meeting notifications were not sent");
             }
+            app.notify_due_reviews_upkeep().await;
         }
     })
 }

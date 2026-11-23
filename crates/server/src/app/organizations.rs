@@ -4,7 +4,7 @@
 use std::net::IpAddr;
 
 use fvoci_model::{ContainerMember, ContainerRole, OrgKind, Session, UserWorkspace, WorkspaceRole};
-use fvoci_store::{Departure, DepartureRefused, LeftFrom};
+use fvoci_store::{Departure, DepartureRefused, LeftFrom, RemovalRefused};
 
 use super::App;
 use crate::collab::AccessScope;
@@ -71,9 +71,9 @@ impl App {
     ///
     /// Returns a 404 (`organization`) for an organization that is not there, is none
     /// that people work in together (an own space), or the account is no member of (a
-    /// guest of its workspaces is none); a 409 with the reason `last_instance_admin`,
-    /// `sole_org_admin` or `alone_in_organization` for what stands in the way, and
-    /// nothing changed then; and the store's error.
+    /// guest of its workspaces is none); a 409 with the reason `password_required`,
+    /// `last_instance_admin`, `sole_org_admin` or `alone_in_organization` for what
+    /// stands in the way, and nothing changed then; and the store's error.
     pub async fn leave_organization(
         &self,
         session: &Session,
@@ -90,14 +90,14 @@ impl App {
                 Ok(())
             }
             Departure::NotAMember => Err(AppError::not_found("organization")),
-            Departure::Refused(refused) => Err(refusal(refused)),
+            Departure::Refused(refused) => Err(departure_refusal(refused)),
         }
     }
 
-    /// What follows an account's leaving the handle's organization of its own accord:
-    /// what stays without an administrator and the boards that passed are logged, and
-    /// who is to be told is ([`App::announce_leaving`]).
-    async fn after_leaving(&self, org_id: &str, user_id: &str, left: &LeftFrom) {
+    /// What follows an account's leaving or being taken out of the handle's
+    /// organization: what stays without an administrator and the boards that passed are
+    /// logged, and who is to be told is ([`App::announce_leaving`]).
+    pub(super) async fn after_leaving(&self, org_id: &str, user_id: &str, left: &LeftFrom) {
         for workspace_id in &left.workspaces_without_administrator {
             tracing::warn!(
                 org_id,
@@ -138,10 +138,10 @@ impl App {
     pub(super) async fn announce_leaving(&self, user_id: &str, left: &LeftFrom) {
         for workspace_id in &left.left {
             self.ws().workspace_role_changed(workspace_id, user_id);
-            self.collab()
-                .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
-                .await;
         }
+        self.collab()
+            .recheck_access(self, AccessScope::organization().of_user(user_id))
+            .await;
         for passed in &left.handed_over {
             let admin = ContainerMember {
                 container_id: passed.container_id.clone(),
@@ -161,18 +161,32 @@ impl App {
 }
 
 /// The 409 of what stands in the way of an account's leaving an organization.
-fn refusal(refused: DepartureRefused) -> AppError {
+fn departure_refusal(refused: DepartureRefused) -> AppError {
+    match refused {
+        DepartureRefused::PasswordRequired => {
+            AppError::conflict("set a password for the account before leaving the organization")
+                .with_reason(Reason::PasswordRequired)
+        }
+        DepartureRefused::LastInstanceAdmin => removal_refusal(RemovalRefused::LastInstanceAdmin),
+        DepartureRefused::SoleAdmin => removal_refusal(RemovalRefused::SoleAdmin),
+        DepartureRefused::Alone => removal_refusal(RemovalRefused::Alone),
+    }
+}
+
+/// The 409 of what stands in the way of taking a member out of an organization (or
+/// leaving it, after checking for a password).
+pub(super) fn removal_refusal(refused: RemovalRefused) -> AppError {
     let (detail, reason) = match refused {
-        DepartureRefused::LastInstanceAdmin => (
+        RemovalRefused::LastInstanceAdmin => (
             "the server must keep an administrator: make somebody else an administrator of \
              the organization first",
             Reason::LastInstanceAdmin,
         ),
-        DepartureRefused::SoleAdmin => (
+        RemovalRefused::SoleAdmin => (
             "the organization must keep an administrator: make somebody else one first",
             Reason::SoleOrgAdmin,
         ),
-        DepartureRefused::Alone => (
+        RemovalRefused::Alone => (
             "nobody else is in the organization: it would be left empty",
             Reason::AloneInOrganization,
         ),

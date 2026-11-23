@@ -32,6 +32,7 @@
   the bar says the same in words.
 -->
 <script lang="ts">
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import RepeatIcon from '@lucide/svelte/icons/repeat';
@@ -40,6 +41,7 @@
   import type { Snippet } from 'svelte';
 
   import CardNumber from '$lib/components/card-number/CardNumber.svelte';
+  import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BarBox } from '$lib/logic/gantt.ts';
 
   import type { CardLine } from './chart.svelte.ts';
@@ -66,6 +68,8 @@
     onfocused: (cardId: string, bar: HTMLElement) => void;
     /** The bar can be dragged, and has grips at its ends. */
     draggable?: boolean;
+    /** Expands or collapses sub-cards beneath this parent row. */
+    ontoggle?: (cardId: string) => void;
     /** The card's "…", over the end of the title: given the card. */
     menu?: Snippet<[string]>;
     /** The bar is being dragged: where it is drawn meanwhile, its days in words, and where they are said. */
@@ -89,12 +93,32 @@
     onkeys,
     onfocused,
     draggable = false,
+    ontoggle,
     menu,
     dragged,
   }: Props = $props();
 
-  /** Shift+F10 or the menu key: the card's "…" opens, as if pressed. */
+  /** Shift+F10 or the menu key opens the card's menu; Left/Right collapses or expands sub-cards. */
   function keys(event: KeyboardEvent): void {
+    if (
+      line.hasChildren &&
+      ontoggle &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.shiftKey
+    ) {
+      if (event.key === 'ArrowLeft' && !line.collapsed) {
+        event.preventDefault();
+        ontoggle(line.id);
+        return;
+      }
+      if (event.key === 'ArrowRight' && line.collapsed) {
+        event.preventDefault();
+        ontoggle(line.id);
+        return;
+      }
+    }
     const asked = event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey);
     if (!asked || !menu) {
       onkeys(event, line.id);
@@ -138,16 +162,50 @@
 
 <li
   data-row={line.id}
+  data-level={line.showIndent ? line.level : undefined}
   class="group/row group/card relative z-1 flex h-(--gantt-row) border-b border-border/60 can-hover:hover:bg-muted/40"
 >
   <div
     class="sticky left-0 z-10 flex w-(--gantt-title) shrink-0 items-stretch border-r bg-background"
   >
+    {#if line.showIndent}
+      <div class="flex shrink-0 items-center ps-1">
+        {#if line.level > 0}
+          <span class="shrink-0" style:width="{line.level * 0.875}rem" aria-hidden="true"></span>
+        {/if}
+        {#if line.hasChildren}
+          <button
+            type="button"
+            data-hierarchy-toggle={line.id}
+            tabindex={current ? 0 : -1}
+            aria-expanded={!line.collapsed}
+            aria-label={line.collapsed
+              ? m.card_hierarchy_expand({ title: line.title })
+              : m.card_hierarchy_collapse({ title: line.title })}
+            class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring roomy:size-touch"
+            onclick={() => {
+              ontoggle?.(line.id);
+            }}
+          >
+            {#if line.collapsed}
+              <ChevronRightIcon class="size-3.5" aria-hidden="true" />
+            {:else}
+              <ChevronDownIcon class="size-3.5" aria-hidden="true" />
+            {/if}
+          </button>
+        {:else}
+          <span class="size-6 shrink-0 roomy:size-touch" aria-hidden="true"></span>
+        {/if}
+      </div>
+    {/if}
     <a
       {href}
       tabindex="-1"
       data-row-title
-      class="flex min-w-0 flex-1 items-center px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset can-hover:hover:bg-muted"
+      class={[
+        'flex min-w-0 flex-1 items-center outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset can-hover:hover:bg-muted',
+        line.showIndent ? 'ps-1 pe-3' : 'px-3',
+      ]}
       onclick={follow}
     >
       <CardNumber number={line.number} class="pe-1.5" />
@@ -176,6 +234,7 @@
       data-dragged={dragged ? '' : undefined}
       data-drag-first={dragged?.first}
       tabindex={current ? 0 : -1}
+      aria-expanded={line.hasChildren ? !line.collapsed : undefined}
       aria-label={line.name}
       title={line.name}
       class={[

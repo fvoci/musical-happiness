@@ -160,6 +160,8 @@ pub struct TimeZone(Option<String>);
 impl TimeZone {
     /// The word for "the time zone of the device".
     pub const AUTO: &'static str = "auto";
+    /// Maximum length in bytes of a time zone identifier accepted by the server.
+    pub const MAX_LENGTH: usize = 64;
 
     /// The setting as it is written: `auto` or the name of the time zone.
     pub fn as_str(&self) -> &str {
@@ -194,7 +196,8 @@ const UNSET_ZONE: &str = "Factory";
 /// `jiff` another crate turns on. It finds names whatever their case and names an
 /// unknown zone as none, so a name is one only when the zone found has that very name.
 fn is_time_zone_name(name: &str) -> bool {
-    name != UNSET_ZONE
+    name.len() <= TimeZone::MAX_LENGTH
+        && name != UNSET_ZONE
         && jiff::tz::TimeZoneDatabase::bundled()
             .get(name)
             .is_ok_and(|zone| zone.iana_name() == Some(name))
@@ -363,7 +366,7 @@ impl UserSettings {
             crate::NotificationKind::Mention => self.notify_mentions,
             crate::NotificationKind::Assignment => self.notify_assignments,
             crate::NotificationKind::Comment => self.notify_comments,
-            crate::NotificationKind::MeetingUpcoming => true,
+            crate::NotificationKind::ReviewDue | crate::NotificationKind::MeetingUpcoming => true,
         }
     }
 }

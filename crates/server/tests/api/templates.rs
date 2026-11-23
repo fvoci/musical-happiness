@@ -944,11 +944,16 @@ async fn a_board_made_from_a_template_has_its_own_files_and_names_its_own_cards(
         .and_then(Value::as_str)
         .expect("the welcome board has a card relation");
     let arranging = &cards["Filter, sort and group"];
-    let named: Vec<&str> = arranging.fields["properties"][relation]
+    let links = arranging.fields["properties"][relation]
         .as_array()
-        .expect("a relation value")
+        .expect("a relation value");
+    let named: Vec<&str> = links
         .iter()
-        .filter_map(Value::as_str)
+        .filter_map(|item| {
+            assert_eq!(item.get("kind"), Some(&json!("fs")));
+            assert_eq!(item.get("lagDays"), Some(&json!(0)));
+            item.get("card").and_then(Value::as_str)
+        })
         .collect();
     assert_eq!(named.len(), 2, "the two cards it comes after");
     assert!(

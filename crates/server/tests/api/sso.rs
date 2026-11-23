@@ -152,6 +152,11 @@ async fn an_organization_that_takes_no_password_opens_for_its_providers_sessions
         }
         client.get("/users/me").await.check_ok();
         client.get("/users/me/settings").await.check_ok();
+        let orgs: Vec<Value> = client.get("/users/me/organizations").await.ok_json();
+        assert!(
+            orgs.iter().any(|org| org["id"] == org_id),
+            "getMyOrganizations lists the walled organization: {orgs:?}"
+        );
         // The user's own space, which no organization closes, is checked to ask
         // for no provider where it is listed.
         let (listed, _own) = crate::own_space::workspaces_and_own(client).await;
@@ -489,6 +494,9 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     // Lists across organizations, leaving out the boards of one the session does not
     // open: asked below.
     "getMyMemberships",
+    // Listing the account's organizations is the account's own, so settings can show
+    // and leave an organization even when it takes only sessions through its provider.
+    "getMyOrganizations",
     "getMyWorkspaces",
     // What the account was told, in every organization its session opens: those of
     // one it does not open are left out of the list and of the count, and are not
@@ -553,6 +561,8 @@ struct Named {
     unit_comment_id: String,
     meeting_id: String,
     exam_id: String,
+    review_id: String,
+    note_id: String,
     file_id: String,
     upload_id: String,
     user_id: String,
@@ -576,6 +586,8 @@ impl Named {
             .replace("{meetingId}", &self.meeting_id)
             .replace("{examId}", &self.exam_id)
             .replace("{commentId}", &self.unit_comment_id)
+            .replace("{reviewId}", &self.review_id)
+            .replace("{noteId}", &self.note_id)
             .replace("{version}", "1")
             .replace("{fileId}", &self.file_id)
             .replace("{uploadId}", &self.upload_id)
@@ -623,8 +635,7 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
         .await
         .value();
     let card_id = card["id"].as_str().expect("a card").to_owned();
-    let (course_id, unit_id, unit_comment_id, meeting_id, exam_id) =
-        course_fixtures(&ts.client).await;
+    let course = course_fixtures(&ts.client).await;
     let file = reqwest::multipart::Part::bytes(b"of the organization".to_vec()).file_name("a.txt");
     let uploaded = Client::send(
         ts.client
@@ -655,11 +666,13 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
     Named {
         org_id: org_id.to_owned(),
         card_id,
-        course_id,
-        unit_id,
-        unit_comment_id,
-        meeting_id,
-        exam_id,
+        course_id: course.course,
+        unit_id: course.unit,
+        unit_comment_id: course.comment,
+        meeting_id: course.meeting,
+        exam_id: course.exam,
+        review_id: course.review,
+        note_id: course.note,
         board,
         file_id,
         upload_id,
@@ -669,9 +682,19 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
     }
 }
 
-/// Makes an open course with a unit (holding one body version), a comment on the unit,
-/// a study meeting, and an exam.
-async fn course_fixtures(client: &Client) -> (String, String, String, String, String) {
+struct CourseFixtures {
+    course: String,
+    unit: String,
+    comment: String,
+    meeting: String,
+    exam: String,
+    review: String,
+    note: String,
+}
+
+/// Makes an open course with a unit (holding one body version), a comment, a study meeting,
+/// an exam, a review, and a note.
+async fn course_fixtures(client: &Client) -> CourseFixtures {
     let course: Value = client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/courses"),
@@ -719,7 +742,31 @@ async fn course_fixtures(client: &Client) -> (String, String, String, String, St
         .await
         .value();
     let exam_id = exam["id"].as_str().expect("an exam").to_owned();
-    (course_id, unit_id, comment_id, meeting_id, exam_id)
+    let review: Value = client
+        .post(
+            &format!("{units}/{unit_id}/reviews"),
+            &json!({"intervalDays": 3}),
+        )
+        .await
+        .value();
+    let review_id = review["id"].as_str().expect("a review").to_owned();
+    let note: Value = client
+        .post(
+            &format!("{units}/{unit_id}/notes"),
+            &json!({"kind": "question", "content": "sso test note"}),
+        )
+        .await
+        .value();
+    let note_id = note["id"].as_str().expect("a note").to_owned();
+    CourseFixtures {
+        course: course_id,
+        unit: unit_id,
+        comment: comment_id,
+        meeting: meeting_id,
+        exam: exam_id,
+        review: review_id,
+        note: note_id,
+    }
 }
 
 /// Every operation of the contract, by its method, its path as written there, and its

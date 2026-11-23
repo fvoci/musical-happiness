@@ -8,8 +8,9 @@ use std::path::Path;
 use fvoci_model::{
     AttendanceStatus, AuditAction, BlockType, Category, CompletionChange, Container, ContainerKind,
     ContainerMember, ContainerType, CourseLimits, LastPositionChange, NewCourseExam,
-    NewCourseMeeting, NewUnit, SubscriberType, Subscription, UnitProgressChange, Upload,
-    UploadPart, ValidatedMyExamScore, WorkspaceRole, new_id,
+    NewCourseMeeting, NewUnit, NewUnitNote, NewUnitReview, STUDY_DAYS_WEEKDAYS, StudyDays,
+    SubscriberType, Subscription, UnitNoteKind, UnitProgressChange, Upload, UploadPart,
+    ValidatedCourseSchedule, ValidatedMyExamScore, WorkspaceRole, new_id,
 };
 use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
 use fvoci_store::{AuditEntry, DbType, SYSTEM_ORG_ID, SharingChange, Store, Tenant};
@@ -673,14 +674,60 @@ async fn a_course_with_progress(store: &Store, workspace_id: &str, user_id: &str
         )
         .await
         .expect("unit progress is stored");
+    seed_course_meetings_and_exams(store, &course.id, &unit.id, user_id).await;
+    store
+        .schedule_unit_review(
+            &course.id,
+            &unit.id,
+            user_id,
+            &NewUnitReview {
+                scheduled_date: "2026-11-25".to_owned(),
+                interval_days: 1,
+            },
+        )
+        .await
+        .expect("unit review is stored");
+    store
+        .create_unit_note(
+            &course.id,
+            &unit.id,
+            user_id,
+            &NewUnitNote {
+                kind: UnitNoteKind::Question,
+                content: "why does RLS hold?".to_owned(),
+            },
+        )
+        .await
+        .expect("unit note is stored");
+    store
+        .upsert_course_schedule(
+            &course.id,
+            &ValidatedCourseSchedule {
+                start_date: "2026-11-01".parse().expect("start date"),
+                target_date: "2026-11-30".parse().expect("target date"),
+                study_days: StudyDays::try_new(STUDY_DAYS_WEEKDAYS).expect("weekdays"),
+                auto_assign: false,
+            },
+            user_id,
+        )
+        .await
+        .expect("course schedule is stored");
+}
+
+async fn seed_course_meetings_and_exams(
+    store: &Store,
+    course_id: &str,
+    unit_id: &str,
+    user_id: &str,
+) {
     let meeting = store
         .create_course_meeting(
-            &course.id,
+            course_id,
             &NewCourseMeeting {
                 title: "weekly sync".to_owned(),
                 starts_at: 1_800_000_000_000,
                 location: "room 1".to_owned(),
-                unit_ids: vec![unit.id.clone()],
+                unit_ids: vec![unit_id.to_owned()],
                 presenter_id: Some(user_id.to_owned()),
                 host_id: Some(user_id.to_owned()),
                 notes: "agenda".to_owned(),
@@ -691,12 +738,12 @@ async fn a_course_with_progress(store: &Store, workspace_id: &str, user_id: &str
         .await
         .expect("course meeting is stored");
     store
-        .upsert_meeting_attendance(&course.id, &meeting.id, user_id, AttendanceStatus::Present)
+        .upsert_meeting_attendance(course_id, &meeting.id, user_id, AttendanceStatus::Present)
         .await
         .expect("meeting attendance is stored");
     let exam = store
         .create_course_exam(
-            &course.id,
+            course_id,
             &NewCourseExam {
                 title: "quiz 1".to_owned(),
                 exam_date: Some("2026-12-01".to_owned()),
@@ -710,7 +757,7 @@ async fn a_course_with_progress(store: &Store, workspace_id: &str, user_id: &str
         .expect("course exam is stored");
     store
         .upsert_my_exam_score(
-            &course.id,
+            course_id,
             &exam.id,
             user_id,
             &ValidatedMyExamScore {

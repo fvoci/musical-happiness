@@ -496,6 +496,66 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/courses/{courseId}/exams/{examId}/my-score",
         "deleteMyExamScore",
     ),
+    ("GET", "/courses/{courseId}/reviews", "listMyCourseReviews"),
+    (
+        "POST",
+        "/courses/{courseId}/units/{unitId}/reviews",
+        "scheduleUnitReview",
+    ),
+    (
+        "POST",
+        "/courses/{courseId}/reviews/{reviewId}/complete",
+        "completeUnitReview",
+    ),
+    (
+        "DELETE",
+        "/courses/{courseId}/reviews/{reviewId}",
+        "deleteUnitReview",
+    ),
+    (
+        "GET",
+        "/courses/{courseId}/units/{unitId}/notes",
+        "listMyUnitNotes",
+    ),
+    (
+        "POST",
+        "/courses/{courseId}/units/{unitId}/notes",
+        "createUnitNote",
+    ),
+    (
+        "PATCH",
+        "/courses/{courseId}/notes/{noteId}",
+        "patchUnitNote",
+    ),
+    (
+        "DELETE",
+        "/courses/{courseId}/notes/{noteId}",
+        "deleteUnitNote",
+    ),
+    ("GET", "/learning/reviews/today", "getWorkspaceTodayReviews"),
+    ("GET", "/courses/{courseId}/schedule", "getCourseSchedule"),
+    ("PUT", "/courses/{courseId}/schedule", "putCourseSchedule"),
+    (
+        "DELETE",
+        "/courses/{courseId}/schedule",
+        "deleteCourseSchedule",
+    ),
+    (
+        "POST",
+        "/courses/{courseId}/schedule/redistribute",
+        "redistributeCourseSchedule",
+    ),
+    (
+        "POST",
+        "/courses/{courseId}/my-schedule/redistribute",
+        "redistributeMyCourseSchedule",
+    ),
+    (
+        "PUT",
+        "/courses/{courseId}/units/{unitId}/schedule",
+        "putUnitSchedule",
+    ),
+    ("GET", "/learning/today", "getWorkspaceLearningToday"),
 ];
 
 /// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
@@ -565,6 +625,20 @@ const REACHED_BY_ITEM: &[&str] = &[
     "deleteCourseExam",
     "putMyExamScore",
     "deleteMyExamScore",
+    "listMyCourseReviews",
+    "scheduleUnitReview",
+    "completeUnitReview",
+    "deleteUnitReview",
+    "listMyUnitNotes",
+    "createUnitNote",
+    "patchUnitNote",
+    "deleteUnitNote",
+    "getCourseSchedule",
+    "putCourseSchedule",
+    "deleteCourseSchedule",
+    "redistributeCourseSchedule",
+    "redistributeMyCourseSchedule",
+    "putUnitSchedule",
     "createBoardsAndBlocks",
     "deleteBoardsAndBlocks",
     "patchBoardsAndBlocks",
@@ -740,6 +814,7 @@ const EMPTY_FOR_A_GUEST: &[&str] = &[
     "getWorkspaceBoards",
     "getWikis",
     "getCourses",
+    "getWorkspaceTodayReviews",
     "resolveReferences",
     "searchReferences",
     "searchWorkspaceContent",
@@ -827,6 +902,12 @@ pub(super) async fn compare_workspace_routes(
             // The guest's own sidebar: the default category, with no board here.
             hidden.status == StatusCode::OK
                 && answer(&hidden).1[0]["containerMetadata"] == json!([])
+                && absent.status == StatusCode::NOT_FOUND
+        } else if *operation == "getWorkspaceLearningToday" && asker == Asker::Guest {
+            // A guest not enrolled in any course sees empty today/overdue lists.
+            hidden.status == StatusCode::OK
+                && answer(&hidden).1["todayUnits"] == json!([])
+                && answer(&hidden).1["overdueUnits"] == json!([])
                 && absent.status == StatusCode::NOT_FOUND
         } else if *operation == "getWorkspaceUsers" && asker == Asker::Guest {
             // The people a guest sees: who is on its boards, none here, and itself.
@@ -1300,6 +1381,8 @@ impl Items<'_> {
             .replace("{unitId}", &pick(&self.unit.id, UNKNOWN_ID))
             .replace("{meetingId}", &pick(&self.unit.id, UNKNOWN_ID))
             .replace("{examId}", &pick(&self.unit.id, UNKNOWN_ID))
+            .replace("{reviewId}", UNKNOWN_ID)
+            .replace("{noteId}", UNKNOWN_ID)
             .replace("{monthDay}", "02-29")
             .replace("{fileId}", &pick(self.file, "missing-file"))
             .replace("{uploadId}", &pick(self.upload_id, "missing-upload"))

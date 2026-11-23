@@ -24,6 +24,7 @@
     newCardMaker,
     referenceTitles,
     whileHere,
+    type CardStore,
     type Workspace,
   } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -31,6 +32,7 @@
   import ManagedContainer from './ManagedContainer.svelte';
   import { referencePlaces } from './reference-places.ts';
   import type { Router } from './router.svelte.ts';
+  import TimeTargetControl from './TimeTargetControl.svelte';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
 
@@ -229,5 +231,17 @@
     onClose={() => {
       router.closeCard();
     }}
-  />
+  >
+    {#snippet headerActions(card: CardStore)}
+      {#if !router.route.shared && workspace.backend.time && workspace.me?.id && !board.board?.isTemplate && card.summary && !card.summary.fields.isTemplate && !card.missing}
+        <TimeTargetControl
+          {workspace}
+          workspaceId={board.board?.workspaceId}
+          containerId={board.boardId}
+          blockId={card.cardId}
+          defaultKind="work"
+        />
+      {/if}
+    {/snippet}
+  </CardDialog>
 {/if}

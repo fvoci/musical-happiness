@@ -1,40 +1,7 @@
 <!--
-  The Gantt view, to read: the cards of the view as bars on the days of one
-  date property (`displayProperty`, as a calendar: the one the view names,
-  or else the first kind of date of the board, or else when the card was
-  made). A card of one day is a bar of one day. Where the view names a card
-  relation as its dependencies, an arrow goes from each card to the cards
-  that come after it; dates are never moved. A card that starts before a
-  card it comes after has ended is out of order (ending and starting on the
-  same day is in order): its arrow is dashed, its title carries a mark, its
-  bar says so in words, and the row above the chart counts them.
-  Cards on a loop are marked and counted the same way.
-
-  Where the reader may change the dates (a date property they may edit), a
-  bar is dragged to other days and its ends to make it longer or shorter
-  (bar-drag.svelte.ts); a press without a drag opens the card. With the
-  keys, "Change date" in the card's "…" at the end of its title moves it
-  (a picker of days, as on the calendar: DayPicker). The header's "New"
-  makes a card of one day on today, or on the first day in sight.
-
-  One box scrolls both ways. The titles of the cards are a column at its
-  left that stays while the days scroll; the marks of the days are two rows
-  at its top that stay while the cards scroll. A narrow pane has the same
-  chart with a narrower column of titles.
-
-  Lengths across are in rem and a row is as high as the style sheet says
-  (`--gantt-row`, higher for a finger), so the chart follows the reader's
-  text size (lib/logic/gantt.ts).
-
-  The view is grouped as a table is (`groupById`): a heading before the cards
-  of each group. A card without a value for the date has no row: the row
-  above the chart counts them and lists them on asking, as the calendar does
-  (a column at the right, or a sheet on a compact page).
-
-  The zoom is the view's (`ganttZoom`), stored where the reader may change
-  the view and kept while the view is shown where not. Where the chart is scrolled to
-  is the state of the screen only: another view, or a new load, starts with
-  today in sight.
+  The Gantt view: cards as bars on the days of one date property, grouped like a
+  table, with interactive four-kind dependency arrows (`FS`/`SS`/`FF`/`SF` and
+  lag days), drag-to-reschedule, keyboard navigation, and undated card list.
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
@@ -58,6 +25,8 @@
   import { UndatedColumn } from '../calendar/undated-column.svelte.ts';
   import type { ViewProps } from '../props.ts';
 
+  import ArrowControls from './ArrowControls.svelte';
+  import { ArrowEdit } from './arrow-edit.svelte.ts';
   import Arrows from './Arrows.svelte';
   import AxisHeader from './AxisHeader.svelte';
   import { BarDrag, type BarGrip } from './bar-drag.svelte.ts';
@@ -68,6 +37,7 @@
   import GroupRow from './GroupRow.svelte';
   import { ganttCardMaker } from './making.ts';
   import { daysLabel } from './names.ts';
+  import RelationEditor from './RelationEditor.svelte';
   import Toolbar from './Toolbar.svelte';
 
   let { board, view, cards, cardHref, onOpenCard }: ViewProps = $props();
@@ -88,10 +58,6 @@
     return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
   }
 
-  /**
-   * The days the box has room for, in steps of four weeks: a window dragged
-   * wider does not work the chart out again at every pixel.
-   */
   const minDays = $derived(Math.ceil(box.width / (DAY_WIDTH[zoom] * rem()) / 28) * 28);
 
   const drag: BarDrag = new BarDrag({
@@ -154,8 +120,8 @@
   /** The middle of today, in rem from the start of the axis. */
   const todayX = $derived(xOfDay(axis, today) + axis.dayWidth / 2);
 
-  /** The box that scrolls. Not reactive: read when something is brought into view. */
-  let scroller: HTMLElement | undefined;
+  /** The box that scrolls. Reactive (raw) so arrow clipping attaches once mounted. */
+  let scroller = $state.raw<HTMLElement | undefined>(undefined);
 
   /** How wide the column of titles is, in pixels. */
   function titles(): number {
@@ -191,12 +157,7 @@
     rem,
   });
 
-  /**
-   * The box, once it is drawn: it starts with today in sight. The column of
-   * cards without a date lies over it: the focus going into the box means
-   * the reader has left the column, which closes so that nothing focused is
-   * under it. For `{@attach}`.
-   */
+  /** Starts with today in sight, closes the undated column on focusin, and wires bar drag. */
   function attachScroller(element: HTMLElement): () => void {
     scroller = element;
     untrack(() => {
@@ -226,10 +187,7 @@
     rem,
   });
 
-  /**
-   * "On a loop": the next bar on a loop; where none is, the cards without a
-   * date, whose list marks those on a loop, and the focus on the first.
-   */
+  /** Focuses the next bar on a loop, or opens the undated list focused on its first loop card. */
   async function showLoop(): Promise<void> {
     if (chart.loopCount > 0) {
       focus.focusNext('loop');
@@ -302,6 +260,28 @@
     const x = (xOfDay(axis, date) + axis.dayWidth / 2) * rem() - scroller.scrollLeft;
     if (x < 0 || x > daysRoom()) showDay(date);
   }
+
+  // ------------------------------------------------ editing a relation
+
+  const relationsEditable = $derived(board.canEdit && chart.dependency !== undefined);
+  const arrowEdit = new ArrowEdit({
+    editable: () => relationsEditable,
+    arrows: () => chart.arrows,
+    hasBar: (cardId) => chart.bars.has(cardId),
+    fallbackBar: () => focus.stop,
+    scroller: () => scroller,
+    rem,
+    closeUndated: () => {
+      undated.open = false;
+    },
+    focusBar: (cardId) => {
+      focus.focusBar(cardId);
+    },
+  });
+  const toggleParent = (cardId: string): void => {
+    arrowEdit.close(cardId);
+    chart.toggleParent(cardId);
+  };
 
   // ------------------------------------------------ cards without a date
 
@@ -387,21 +367,15 @@
                 style:left="{todayX}rem"
               ></div>
             </div>
-            <Arrows arrows={chart.arrows} width={axis.width} rows={chart.rows.length} />
-            <!-- The column of titles goes on under the last row: the lines of the days do not show through it. -->
+            <Arrows
+              arrows={chart.arrows}
+              width={axis.width}
+              rows={chart.rows.length}
+              activeKey={arrowEdit.activeKey}
+            />
             <div aria-hidden="true" class="pointer-events-none absolute inset-0">
               <div class="sticky left-0 h-full w-(--gantt-title) border-r bg-background"></div>
             </div>
-            <!--
-              `role`: a list without bullets is not announced as one everywhere.
-              The rows stand in blocks, and a block that is out of view is not
-              laid out or painted until it comes near (`content-visibility`).
-              Blocks and not single rows: the page looks at every such box on
-              every frame of scrolling, and thousands of them halve the frames.
-              A skipped block is as high as its rows, worked out and not
-              remembered from when it was last drawn: rows change their height
-              with the reader's density, and a block its number of rows.
-            -->
             <ul role="list" aria-label={m.gantt_rows()} class="relative">
               {#each chart.blocks as block, at (at)}
                 <div
@@ -423,6 +397,7 @@
                         onopentitle={focus.openFromTitle}
                         onkeys={focus.barKeys}
                         onfocused={focus.barFocused}
+                        ontoggle={toggleParent}
                         draggable={writable}
                         menu={board.canEdit ? rowMenu : undefined}
                         dragged={dragged?.id === line.id ? dragged : undefined}
@@ -440,6 +415,20 @@
                 </li>
               {/each}
             </ul>
+            <ArrowControls
+              arrows={chart.arrows}
+              width={axis.width}
+              rows={chart.rows.length}
+              editable={relationsEditable}
+              {scroller}
+              selectedKey={arrowEdit.open ? arrowEdit.editing?.key : undefined}
+              hoveredKey={arrowEdit.hovered}
+              focusedKey={arrowEdit.focused}
+              onhover={arrowEdit.setHovered}
+              onfocuskey={arrowEdit.setFocused}
+              onselect={arrowEdit.select}
+              onfocused={arrowEdit.focusedButton}
+            />
           </div>
         </div>
       </div>
@@ -487,6 +476,16 @@
   {sheet}
   onmoved={moved}
   onclosed={() => void pickerClosed()}
+/>
+
+<RelationEditor
+  bind:arrow={arrowEdit.editing}
+  bind:open={arrowEdit.open}
+  anchor={arrowEdit.anchor}
+  {board}
+  dependencyPropertyId={chart.dependency?.id}
+  {sheet}
+  onclosed={arrowEdit.closed}
 />
 
 {#if sheet}

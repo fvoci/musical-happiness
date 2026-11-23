@@ -72,6 +72,7 @@
       if (shown === '') return;
       keeper.reset();
       editing.stop();
+      table.resetCollapsed();
     });
   });
   // After the rows or the columns were drawn anew, one cell is still the Tab stop.
@@ -245,7 +246,8 @@
               onAdd={() => void table.addCard(list)}
             />
           {/if}
-          {#each list.cards as card (card.id)}
+          {#each list.rows as entry (entry.card.id)}
+            {@const card = entry.card}
             {@const editingColumn =
               editing.current?.rowId === card.id ? editing.current.columnId : undefined}
             {@const dragging = rowDrag?.mode === 'pointer' && rowDrag.itemIds.includes(card.id)}
@@ -261,6 +263,10 @@
               {dragging}
               {carried}
               {dropBefore}
+              level={entry.level}
+              hasChildren={entry.hasChildren}
+              collapsed={entry.collapsed}
+              showIndent={table.hasHierarchy}
             />
           {/each}
           {#if !list.collapsed && table.canAddTo(list)}

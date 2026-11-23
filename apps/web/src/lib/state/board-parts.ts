@@ -9,7 +9,7 @@ import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '
 import { propertyBehavior } from '../logic/properties.ts';
 import {
   cardProperty,
-  parseRelationValue,
+  relationCardIds,
   viewGrouping,
   viewQuery,
   type BoardView,
@@ -78,7 +78,7 @@ export async function draftOfCopy(
   const onBoard = new Set(from.cards.map(({ id }) => id));
   const named = templates
     .filter((template) => template.type === 'relation')
-    .flatMap((template) => parseRelationValue(cardProperty(source, template.id)));
+    .flatMap((template) => relationCardIds(cardProperty(source, template.id)));
   if (named.some((id) => !onBoard.has(id))) {
     // Unread, the trash names nothing: the copy then leaves those cards out.
     const trash = await allPages((paging) => backend.deletedCards(from.boardId, paging)).catch(

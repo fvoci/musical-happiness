@@ -43,6 +43,8 @@ export function notificationText(
       return subject.times > 1
         ? m.notifications_comment_times({ who, title, times })
         : m.notifications_comment({ who, title });
+    case 'review_due':
+      return m.notifications_review_due({ title });
     case 'meeting_upcoming':
       return title;
   }

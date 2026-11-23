@@ -8,9 +8,9 @@ import {
   cardProperty,
   isFilterGroup,
   parseDateValue,
-  parseRelationValue,
   parseFilterDate,
   plainPropertyValue,
+  relationCardIds,
   type Card,
   type FilterClause,
   type FilterGroup,
@@ -91,7 +91,7 @@ function valueForClause(
     case 'relation': {
       // A card that is not there is not shown, and does not count.
       const { cardTitle } = context;
-      const ids = parseRelationValue(value).filter((id) => id !== card.id);
+      const ids = relationCardIds(value).filter((id) => id !== card.id);
       return {
         value: cardTitle ? ids.filter((id) => cardTitle(id) !== undefined) : ids,
         dateValue: undefined,

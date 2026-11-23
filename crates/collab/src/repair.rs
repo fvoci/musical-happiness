@@ -1,23 +1,33 @@
 //! Repairing a Y document that the allowlist refuses.
 
+mod judge;
+mod table;
+
 use std::collections::BTreeSet;
 
 use fvoci_model::{BODY_MAX_DEPTH, Body, BodyError};
 use serde_json::{Value, json};
 use yrs::{
-    Array, ArrayRef, Doc, ID, ReadTxn, Transact, TransactionMut, XmlElementRef, XmlFragment as _,
-    XmlFragmentRef,
+    Array, ArrayRef, Doc, ID, IdSet, ReadTxn, Transact, TransactionMut, Xml as _, XmlElementRef,
+    XmlFragment as _, XmlFragmentRef, XmlOut,
 };
 
+use self::judge::{
+    ContentAccum, NodeSummary, is_valid_root_block, judge_element, judge_text_nodes,
+};
+use self::table::{
+    KeptCellMetrics, RowCellMetrics, TABLE_CELL_SHELL_BYTES, TABLE_HEADER_SHELL_BYTES,
+    check_standalone_row_limits, summarize_mended_table,
+};
 use crate::FIELD;
 use crate::block_cache::{
-    ApplyDelta, BlockCache, DocTotals, check_totals, element_id, measure_block_value,
+    ApplyDelta, BlockCache, BlockEntry, BlockSummary, DocTotals, check_totals, element_id,
     project_and_validate_block,
 };
 use crate::mend::{self, CellAt, Mend, SurveyedRow};
 use crate::project::{project, to_body};
-use crate::read::{self, Child, Content};
-use crate::schema::{self, Place};
+use crate::read::{self, Child};
+use crate::schema;
 
 /// What an in-place repair did on a [`crate::BodyDoc`], without materializing the full
 /// [`Body`] JSON tree on the hot path.
@@ -176,16 +186,21 @@ pub(crate) fn repaired_by(doc: &Doc, writer: Option<u64>) -> Result<Repair, Body
 fn deleting(doc: &Doc, writer: Option<u64>) -> Result<Repair, BodyError> {
     let writer = writer.unwrap_or_else(|| writer_for(doc));
     let root = doc.get_or_insert_xml_fragment(FIELD);
-    let found = {
+    let survey = {
         let txn = doc.transact();
-        Survey { txn: &txn }.root(&root)?
+        Survey { txn: &txn }.root_cached(&root, None)?
     };
-    // What would be left is judged whole, for the limits, before anything is deleted.
-    let left = found.content.into_nodes();
-    if !left.is_empty() {
-        Body::parse(json!({"type": "doc", "content": left}))?;
-    }
-    let Changes { cuts, mends } = found.changes;
+    check_totals(DocTotals {
+        blocks: survey.kept_blocks,
+        nodes: survey.kept_nodes,
+        json_bytes: survey.kept_json_bytes,
+        is_empty_doc: survey.only_empty_paragraph,
+    })?;
+    let Changes {
+        cuts,
+        mends,
+        cut_elements: _,
+    } = survey.changes;
     if cuts.iter().map(Cuts::stretches).sum::<usize>() > MAX_STRETCHES {
         return Err(BodyError::InvalidNode {
             path: String::new(),
@@ -234,26 +249,31 @@ fn deleting(doc: &Doc, writer: Option<u64>) -> Result<Repair, BodyError> {
 
 /// Validates `doc` incrementally using `cache` and `delta`, repairing only dirty top-level
 /// blocks (plus any tables with empty text inside rows) when validation fails.
+///
+/// Returns the repair summary and the `IdSet` of items deleted by a deletion-only repair
+/// (empty when no repair ran or when table mends also added items).
 pub(crate) fn validate_or_repair_in_place(
     doc: &Doc,
     cache: &mut BlockCache,
     delta: &ApplyDelta,
-) -> Result<InPlaceRepair, BodyError> {
+) -> Result<(InPlaceRepair, IdSet), BodyError> {
     match cache.apply_delta(doc, delta) {
-        Ok(()) => Ok(InPlaceRepair::none()),
+        Ok(()) => Ok((InPlaceRepair::none(), IdSet::new())),
         Err(dirty) => deleting_with_cache(doc, cache, Some(&dirty)),
     }
 }
 
 /// Validates `doc` block-by-block into a fresh [`BlockCache`], repairing `doc` in place
 /// and populating the cache if `doc` is not yet a valid body.
-pub(crate) fn build_or_repair_cache(doc: &Doc) -> Result<(BlockCache, InPlaceRepair), BodyError> {
+pub(crate) fn build_or_repair_cache(
+    doc: &Doc,
+) -> Result<(BlockCache, InPlaceRepair, IdSet), BodyError> {
     if let Ok(cache) = BlockCache::build(doc) {
-        return Ok((cache, InPlaceRepair::none()));
+        return Ok((cache, InPlaceRepair::none(), IdSet::new()));
     }
     let mut cache = BlockCache::new();
-    let repair = deleting_with_cache(doc, &mut cache, None)?;
-    Ok((cache, repair))
+    let (repair, repair_ds) = deleting_with_cache(doc, &mut cache, None)?;
+    Ok((cache, repair, repair_ds))
 }
 
 /// Repairs `doc` in place while reusing clean entries from `cache` (when `dirty` is
@@ -262,7 +282,7 @@ fn deleting_with_cache(
     doc: &Doc,
     cache: &mut BlockCache,
     dirty: Option<&BTreeSet<ID>>,
-) -> Result<InPlaceRepair, BodyError> {
+) -> Result<(InPlaceRepair, IdSet), BodyError> {
     let writer = writer_for(doc);
     let root = doc.get_or_insert_xml_fragment(FIELD);
     let survey = {
@@ -275,7 +295,11 @@ fn deleting_with_cache(
         json_bytes: survey.kept_json_bytes,
         is_empty_doc: survey.only_empty_paragraph,
     })?;
-    let Changes { cuts, mends } = survey.changes;
+    let Changes {
+        cuts,
+        mends,
+        cut_elements,
+    } = survey.changes;
     if cuts.iter().map(Cuts::stretches).sum::<usize>() > MAX_STRETCHES {
         return Err(BodyError::InvalidNode {
             path: String::new(),
@@ -296,16 +320,23 @@ fn deleting_with_cache(
             &txn,
             &root,
             cache,
-            &survey.surveyed_kept,
+            survey.surveyed_kept,
             &survey.surveyed_removed,
+            &cut_elements,
+            RepairKind::CutsOnly,
         )?;
         let update = (deleted > 0).then(|| txn.encode_update_v1());
+        txn.commit();
+        let repair_ds = txn.delete_set().clone();
         drop(txn);
-        return Ok(InPlaceRepair {
-            deleted,
-            mended: 0,
-            update,
-        });
+        return Ok((
+            InPlaceRepair {
+                deleted,
+                mended: 0,
+                update,
+            },
+            repair_ds,
+        ));
     }
     let mut del_set = {
         let mut txn = doc.transact_mut();
@@ -321,32 +352,63 @@ fn deleting_with_cache(
             &txn,
             &root,
             cache,
-            &survey.surveyed_kept,
+            survey.surveyed_kept,
             &survey.surveyed_removed,
+            &cut_elements,
+            RepairKind::WithMends,
         )?;
     }
-    Ok(InPlaceRepair {
-        deleted,
-        mended,
-        update: Some(update),
-    })
+    Ok((
+        InPlaceRepair {
+            deleted,
+            mended,
+            update: Some(update),
+        },
+        IdSet::new(),
+    ))
 }
 
-/// Updates `cache` for all blocks surveyed during repair and re-verifies root integrity
-/// and whole-document limits against `doc`, mirroring `project(&txn, &root)?`.
+/// Whether an in-place repair performed only cuts or also inserted table-mend cells.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RepairKind {
+    CutsOnly,
+    WithMends,
+}
+
+/// Updates `cache` for all blocks surveyed during repair and re-verifies root and cut
+/// parent integrity and whole-document limits against `doc`, mirroring
+/// `project(&txn, &root)?` without re-projecting clean or non-mended large blocks.
 fn refresh_cache_after_repair<T: ReadTxn>(
     txn: &T,
     root: &XmlFragmentRef,
     cache: &mut BlockCache,
-    kept: &[(ID, XmlElementRef)],
+    kept: Vec<KeptSurveyBlock>,
     removed: &[ID],
+    cut_elements: &[XmlElementRef],
+    kind: RepairKind,
 ) -> Result<(), BodyError> {
     for id in removed {
         cache.remove(id);
     }
-    for (id, element) in kept {
-        let entry = project_and_validate_block(txn, element)?;
-        cache.upsert(*id, entry);
+    for element in cut_elements {
+        // Guard against a cut at index 0 exposing a non-countable `ItemContent::Format`
+        // at an element's start while `len > 0` (mirroring `read::children`), delegating
+        // to `project` to preserve the exact JSON pointer path in `BodyError::InvalidNode`.
+        if element.len(txn) > 0 && element.first_child().is_none() {
+            let _ = project(txn, root)?;
+            return Err(BodyError::InvalidNode {
+                path: String::new(),
+                problem: "holds something that is neither a node nor a text",
+            });
+        }
+    }
+    for block in kept {
+        let entry = if kind == RepairKind::WithMends && block.is_table {
+            project_and_validate_block(txn, &block.element)?
+        } else {
+            block.entry
+        };
+        cache.upsert(block.id, entry);
     }
     let root_len = usize::try_from(root.len(txn)).unwrap_or(usize::MAX);
     if cache.len() != root_len || (root_len > 0 && root.first_child().is_none()) {
@@ -405,16 +467,31 @@ struct Survey<'txn, T> {
     txn: &'txn T,
 }
 
-/// What a survey found below one parent.
+/// What a survey found below one non-table element.
 #[derive(Debug, Default)]
-struct Found {
-    /// The JSON of the children that stay.
-    content: Content,
-    /// What to change, here and below.
+struct ElementSurvey {
+    content: ContentAccum,
     changes: Changes,
 }
 
-/// What [`Survey::root_cached`] collected without materializing clean blocks' JSON trees.
+/// Outcome of surveying one child under a parent.
+#[derive(Debug)]
+enum ChildOutcome {
+    Element(NodeSummary),
+    Text(Vec<judge::TextRun>),
+}
+
+/// A kept top-level block surveyed during repair, with its exact post-repair cache entry.
+#[derive(Debug)]
+struct KeptSurveyBlock {
+    id: ID,
+    element: XmlElementRef,
+    entry: BlockEntry,
+    is_table: bool,
+}
+
+/// What [`Survey::root_cached`] collected without materializing clean or non-table blocks'
+/// JSON trees.
 #[derive(Debug, Default)]
 struct CachedRootSurvey {
     kept_blocks: usize,
@@ -422,7 +499,7 @@ struct CachedRootSurvey {
     kept_json_bytes: u64,
     only_empty_paragraph: bool,
     changes: Changes,
-    surveyed_kept: Vec<(ID, XmlElementRef)>,
+    surveyed_kept: Vec<KeptSurveyBlock>,
     surveyed_removed: Vec<ID>,
 }
 
@@ -432,6 +509,9 @@ struct CachedRootSurvey {
 struct Changes {
     cuts: Vec<Cuts>,
     mends: Vec<Mend>,
+    /// Non-root `XmlElement` parents that had a cut at index 0, checked post-cut for
+    /// exposed non-countable `ItemContent::Format`.
+    cut_elements: Vec<XmlElementRef>,
 }
 
 impl Changes {
@@ -445,79 +525,68 @@ impl Changes {
         }
     }
 
+    /// Notes cuts on a non-root element parent, recording it if index 0 is cut.
+    fn note_element(&mut self, element: &XmlElementRef, indexes: Vec<u32>) {
+        if indexes.first() == Some(&0) {
+            self.cut_elements.push(element.clone());
+        }
+        self.note(element.as_ref(), indexes);
+    }
+
     /// Takes on the changes below a node that stays.
     fn take(&mut self, below: Self) {
         self.cuts.extend(below.cuts);
         self.mends.extend(below.mends);
+        self.cut_elements.extend(below.cut_elements);
     }
 
     /// How many changes of each kind there are, to go back to.
-    fn mark(&self) -> (usize, usize) {
-        (self.cuts.len(), self.mends.len())
+    fn mark(&self) -> (usize, usize, usize) {
+        (self.cuts.len(), self.mends.len(), self.cut_elements.len())
     }
 
     /// Drops what was noted after a mark: the changes below a node that goes.
-    fn rewind(&mut self, (cuts, mends): (usize, usize)) {
+    fn rewind(&mut self, (cuts, mends, cut_elements): (usize, usize, usize)) {
         self.cuts.truncate(cuts);
         self.mends.truncate(mends);
+        self.cut_elements.truncate(cut_elements);
     }
 }
 
-impl<T: ReadTxn> Survey<'_, T> {
-    /// Surveys the document. At the root a child must also be one the document may
-    /// hold: there is no parent to delete in its place.
-    fn root(&self, root: &XmlFragmentRef) -> Result<Found, BodyError> {
-        let Some(children) = read::children(self.txn, root) else {
-            return Err(BodyError::InvalidNode {
-                path: String::new(),
-                problem: "the root holds something that is neither a node nor a text",
-            });
-        };
-        let mut found = Found::default();
-        let mut own = Vec::new();
-        for (index, child) in children.into_iter().enumerate() {
-            // What is noted below this child from here on goes with it if it goes.
-            let noted = found.changes.mark();
-            // A text at the root goes whatever it holds: an editor's binding throws on one.
-            let is_node = !matches!(child, Child::Text(_));
-            let stays = match self.child(child, 2, &mut found.changes)? {
-                // Each was within the limits as the node it is, so this gives no error.
-                Some(nodes)
-                    if is_node
-                        && nodes
-                            .iter()
-                            .all(|node| passes(node, Place::Block) == Ok(true)) =>
-                {
-                    found.content.extend(nodes);
-                    true
-                }
-                _ => false,
-            };
-            if !stays {
-                found.changes.rewind(noted);
-                own.push(index_of(index));
-            }
-        }
-        found.changes.note(root.as_ref(), own);
-        Ok(found)
-    }
+/// What [`Survey::row`] produced for one surviving table row.
+#[derive(Debug)]
+struct RowSurvey {
+    light_row: Value,
+    surveyed_row: SurveyedRow,
+    cell_metrics: Vec<RowCellMetrics>,
+}
 
+impl<T: ReadTxn> Survey<'_, T> {
     /// Surveys the document while skipping clean top-level blocks from `cached` (blocks
-    /// not in `dirty` and without empty text inside a `tableRow`).
+    /// not in `dirty` and without empty text inside a `tableRow`), walking `root`'s
+    /// linked list directly without allocating a `Vec` of all root children.
     fn root_cached(
         &self,
         root: &XmlFragmentRef,
         cached: Option<(&BlockCache, &BTreeSet<ID>)>,
     ) -> Result<CachedRootSurvey, BodyError> {
-        let Some(children) = read::children(self.txn, root) else {
-            return Err(BodyError::InvalidNode {
-                path: String::new(),
-                problem: "the root holds something that is neither a node nor a text",
-            });
-        };
         let mut out = CachedRootSurvey::default();
         let mut own = Vec::new();
-        for (index, child) in children.into_iter().enumerate() {
+        let mut count = 0_u32;
+        let mut next = root.first_child();
+        while let Some(node) = next {
+            next = match &node {
+                XmlOut::Element(element) => element.siblings(self.txn).next(),
+                XmlOut::Text(text) => text.siblings(self.txn).next(),
+                XmlOut::Fragment(_) => None,
+            };
+            let index = count;
+            count = count.saturating_add(1);
+            let child = match node {
+                XmlOut::Element(element) => Child::Element(element),
+                XmlOut::Text(text) => Child::Text(text),
+                XmlOut::Fragment(_) => Child::Other,
+            };
             if let Some((cache, dirty)) = cached
                 && let Child::Element(element) = &child
                 && let Some(id) = element_id(element)
@@ -533,118 +602,172 @@ impl<T: ReadTxn> Survey<'_, T> {
                 out.only_empty_paragraph = out.kept_blocks == 1 && summary.is_empty_paragraph;
                 continue;
             }
-            let noted = out.changes.mark();
-            let elem = match &child {
-                Child::Element(element) => element_id(element).map(|id| (id, element.clone())),
-                Child::Text(_) | Child::Other => None,
-            };
-            let is_node = !matches!(child, Child::Text(_));
-            let stays = match self.child(child, 2, &mut out.changes)? {
-                Some(nodes)
-                    if is_node
-                        && nodes
-                            .iter()
-                            .all(|node| passes(node, Place::Block) == Ok(true)) =>
-                {
-                    for node in &nodes {
-                        let (nodes_count, bytes, is_empty) = measure_block_value(node);
-                        out.kept_blocks += 1;
-                        out.kept_nodes = out.kept_nodes.saturating_add(nodes_count);
-                        out.kept_json_bytes = out.kept_json_bytes.saturating_add(bytes);
-                        out.only_empty_paragraph = out.kept_blocks == 1 && is_empty;
-                    }
-                    true
+            if let Err(err) = self.survey_root_child(index, child, &mut out, &mut own) {
+                // Mirror `read::children` precedence: a corrupt root containing a raw
+                // non-XML item always fails with `InvalidNode` before any child limit error.
+                while let Some(rest) = next {
+                    next = match &rest {
+                        XmlOut::Element(element) => element.siblings(self.txn).next(),
+                        XmlOut::Text(text) => text.siblings(self.txn).next(),
+                        XmlOut::Fragment(_) => None,
+                    };
+                    count = count.saturating_add(1);
                 }
-                _ => false,
-            };
-            if stays {
-                if let Some(pair) = elem {
-                    out.surveyed_kept.push(pair);
+                if count != root.len(self.txn) {
+                    return Err(BodyError::InvalidNode {
+                        path: String::new(),
+                        problem: "the root holds something that is neither a node nor a text",
+                    });
                 }
-            } else {
-                out.changes.rewind(noted);
-                own.push(index_of(index));
-                if let Some((id, _)) = elem {
-                    out.surveyed_removed.push(id);
-                }
+                return Err(err);
             }
+        }
+        if count != root.len(self.txn) {
+            return Err(BodyError::InvalidNode {
+                path: String::new(),
+                problem: "the root holds something that is neither a node nor a text",
+            });
         }
         out.changes.note(root.as_ref(), own);
         Ok(out)
     }
 
+    fn survey_root_child(
+        &self,
+        index: u32,
+        child: Child,
+        out: &mut CachedRootSurvey,
+        own: &mut Vec<u32>,
+    ) -> Result<(), BodyError> {
+        let noted = out.changes.mark();
+        let elem = match &child {
+            Child::Element(element) => element_id(element).map(|id| (id, element.clone())),
+            Child::Text(_) | Child::Other => None,
+        };
+        match self.child(child, 2, &mut out.changes)? {
+            Some(ChildOutcome::Element(summary)) if is_valid_root_block(&summary) => {
+                let nodes = u64::try_from(summary.nodes).unwrap_or(u64::MAX);
+                let bytes = u64::try_from(summary.json_bytes).unwrap_or(u64::MAX);
+                out.kept_blocks += 1;
+                out.kept_nodes = out.kept_nodes.saturating_add(nodes);
+                out.kept_json_bytes = out.kept_json_bytes.saturating_add(bytes);
+                out.only_empty_paragraph = out.kept_blocks == 1 && summary.is_empty_paragraph;
+                if let Some((id, element)) = elem {
+                    let is_table = summary.kind == "table";
+                    out.surveyed_kept.push(KeptSurveyBlock {
+                        id,
+                        element,
+                        entry: BlockEntry {
+                            summary: BlockSummary {
+                                nodes: u32::try_from(summary.nodes).unwrap_or(u32::MAX),
+                                json_bytes: u32::try_from(summary.json_bytes).unwrap_or(u32::MAX),
+                                is_empty_paragraph: summary.is_empty_paragraph,
+                                has_empty_row_text: false,
+                            },
+                            file_ids: summary.file_ids.into_boxed_slice(),
+                        },
+                        is_table,
+                    });
+                }
+            }
+            _ => {
+                out.changes.rewind(noted);
+                own.push(index);
+                if let Some((id, _)) = elem {
+                    out.surveyed_removed.push(id);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Surveys the children of an element, which are at `depth`. `None` if the element
     /// holds something that is neither a node nor a text, and so goes whole.
-    fn element(&self, element: &XmlElementRef, depth: usize) -> Result<Option<Found>, BodyError> {
+    fn element(
+        &self,
+        element: &XmlElementRef,
+        depth: usize,
+    ) -> Result<Option<ElementSurvey>, BodyError> {
         let Some(children) = read::children(self.txn, element) else {
             return Ok(None);
         };
-        let mut found = Found::default();
+        let mut found = ElementSurvey::default();
         let mut own = Vec::new();
         for (index, child) in children.into_iter().enumerate() {
             match self.child(child, depth, &mut found.changes)? {
-                Some(nodes) => found.content.extend(nodes),
+                Some(ChildOutcome::Element(summary)) => found.content.push_element(summary),
+                Some(ChildOutcome::Text(runs)) => found.content.push_text_runs(runs),
                 None => own.push(index_of(index)),
             }
         }
-        found.changes.note(element.as_ref(), own);
+        found.changes.note_element(element, own);
         Ok(Some(found))
     }
 
-    /// Judges a table at `depth`: its rows, each with what it holds, then its grid,
-    /// mended. `None` if it is to be deleted.
+    /// Judges a table at `depth` whole: its rows (with zero-clone cell-content surveys),
+    /// then its grid via [`mend::mend_grid`] and [`fvoci_model::TableGrid`]. `None` if it
+    /// is to be deleted.
     fn table(
         &self,
         table: &XmlElementRef,
         depth: usize,
         changes: &mut Changes,
-    ) -> Result<Option<Vec<Value>>, BodyError> {
+    ) -> Result<Option<NodeSummary>, BodyError> {
         let Some(children) = read::children(self.txn, table) else {
             return Ok(None);
         };
         let mut below = Changes::default();
-        let mut content = Vec::new();
+        let mut light_rows = Vec::new();
         let mut rows = Vec::new();
+        let mut row_metrics = Vec::new();
         let mut own = Vec::new();
+        let mut has_non_row = false;
         for (index, child) in children.into_iter().enumerate() {
             let stays = match child {
                 Child::Element(row) if row.tag().as_ref() == "tableRow" => {
-                    self.row(row, depth + 1, &mut below)?.map(|(json, row)| {
-                        content.push(json);
-                        rows.push(row);
+                    self.row(row, depth + 1, &mut below)?.map(|surveyed| {
+                        light_rows.push(surveyed.light_row);
+                        rows.push(surveyed.surveyed_row);
+                        row_metrics.push(surveyed.cell_metrics);
                     })
                 }
-                other => self
-                    .child(other, depth + 1, &mut below)?
-                    .map(|nodes| content.extend(nodes)),
+                other => match self.child(other, depth + 1, &mut below)? {
+                    Some(ChildOutcome::Text(runs)) if runs.is_empty() => Some(()),
+                    Some(_) => {
+                        has_non_row = true;
+                        Some(())
+                    }
+                    None => None,
+                },
             };
             if stays.is_none() {
                 own.push(index_of(index));
             }
         }
         // Anything but rows that stays makes the table go, as in an editor.
-        if content.len() != rows.len() {
+        if has_non_row || light_rows.is_empty() {
             return Ok(None);
         }
-        below.note(table.as_ref(), own);
-        let node = read::element_node(self.txn, table, content);
-        let (node, mends) = mend::mend_grid(node, &rows)?;
-        if !passes(&node, Place::Block)? {
+        below.note_element(table, own);
+        let light_table = read::element_node(self.txn, table, light_rows);
+        let (mended_table, mends) = mend::mend_grid(light_table, &rows)?;
+        let Some(summary) = summarize_mended_table(&mended_table, &row_metrics)? else {
             return Ok(None);
-        }
+        };
         changes.take(below);
         changes.mends.extend(mends);
-        Ok(Some(vec![node]))
+        Ok(Some(summary))
     }
 
-    /// Judges a row of a table at `depth`: its JSON, with an empty cell where a cell
-    /// that fails was, and where its cells come from. `None` if it is to be deleted.
+    /// Judges a row of a table at `depth`: its stub JSON row for `TableGrid` (with an
+    /// empty cell where a cell that fails was), its `SurveyedRow`, and real cell metrics.
+    /// `None` if the row is to be deleted.
     fn row(
         &self,
         row: XmlElementRef,
         depth: usize,
         changes: &mut Changes,
-    ) -> Result<Option<(Value, SurveyedRow)>, BodyError> {
+    ) -> Result<Option<RowSurvey>, BodyError> {
         if depth > BODY_MAX_DEPTH {
             return Err(BodyError::TooDeep);
         }
@@ -652,78 +775,115 @@ impl<T: ReadTxn> Survey<'_, T> {
             return Ok(None);
         };
         let mut below = Changes::default();
-        let mut content = Vec::new();
+        let mut light_cells = Vec::new();
         let mut cells = Vec::new();
+        let mut cell_metrics = Vec::new();
         let mut own = Vec::new();
+        let mut has_non_cell = false;
         for (index, child) in children.into_iter().enumerate() {
             let cell = match &child {
                 Child::Element(element) if is_cell(element.tag()) => Some(element.clone()),
                 _ => None,
             };
             match (self.child(child, depth + 1, &mut below)?, cell) {
-                (Some(nodes), Some(element)) => {
-                    content.extend(nodes);
+                (Some(ChildOutcome::Element(summary)), Some(element)) => {
+                    let unspanned = if summary.kind == "tableHeader" {
+                        TABLE_HEADER_SHELL_BYTES
+                    } else {
+                        TABLE_CELL_SHELL_BYTES
+                    };
+                    light_cells.push(read::element_node(
+                        self.txn,
+                        &element,
+                        vec![json!({"type": "paragraph"})],
+                    ));
                     cells.push(CellAt::Kept(element));
+                    cell_metrics.push(RowCellMetrics::Kept(KeptCellMetrics {
+                        nodes: summary.nodes,
+                        height: summary.height,
+                        unspanned_shell_bytes: unspanned,
+                        content_suffix_bytes: summary.json_bytes.saturating_sub(unspanned),
+                        file_ids: summary.file_ids,
+                    }));
                 }
                 // A text with nothing in it, which an editor passes over, goes: then
                 // the row's children are its cells, and a cell put in counts among them.
-                (Some(nodes), None) if nodes.is_empty() => own.push(index_of(index)),
-                (Some(nodes), None) => content.extend(nodes),
+                (Some(ChildOutcome::Text(runs)), None) if runs.is_empty() => {
+                    own.push(index_of(index));
+                }
+                (Some(_), None) => has_non_cell = true,
                 (None, Some(element)) => {
                     own.push(index_of(index));
-                    content.push(read::element_node(
+                    let unspanned = if element.tag().as_ref() == "tableHeader" {
+                        TABLE_HEADER_SHELL_BYTES
+                    } else {
+                        TABLE_CELL_SHELL_BYTES
+                    };
+                    light_cells.push(read::element_node(
                         self.txn,
                         &element,
                         vec![json!({"type": "paragraph"})],
                     ));
                     cells.push(CellAt::Put(element));
+                    cell_metrics.push(RowCellMetrics::Put {
+                        unspanned_shell_bytes: unspanned,
+                    });
                 }
                 (None, None) => own.push(index_of(index)),
+                (Some(ChildOutcome::Text(_)), Some(_)) => unreachable!("element cannot yield text"),
             }
         }
         // Anything but cells that stays makes the row go, as in an editor.
-        if content.len() != cells.len() {
+        if has_non_cell {
             return Ok(None);
         }
-        below.note(row.as_ref(), own);
-        let node = read::element_node(self.txn, &row, content);
-        if !passes(&node, Place::TableRow)? {
-            return Ok(None);
-        }
+        // Check standalone row limits in exact `Body::parse` precedence order.
+        check_standalone_row_limits(&cell_metrics)?;
+        below.note_element(&row, own);
+        let light_row = read::element_node(self.txn, &row, light_cells);
         changes.take(below);
-        Ok(Some((
-            node,
-            SurveyedRow {
+        Ok(Some(RowSurvey {
+            light_row,
+            surveyed_row: SurveyedRow {
                 element: row,
                 cells,
             },
-        )))
+            cell_metrics,
+        }))
     }
 
-    /// Judges one child at `depth`: its JSON if it stays (a text may be several nodes,
-    /// or none), `None` if it is to be deleted. The deletions below a child that stays
-    /// are added to `cuts`; those below one that goes are dropped, as they go with it.
+    /// Judges one child at `depth`: its summary if it stays, `None` if it is to be
+    /// deleted. The deletions below a child that stays are added to `changes`; those
+    /// below one that goes are dropped, as they go with it.
     fn child(
         &self,
         child: Child,
         depth: usize,
         changes: &mut Changes,
-    ) -> Result<Option<Vec<Value>>, BodyError> {
+    ) -> Result<Option<ChildOutcome>, BodyError> {
         match child {
             Child::Element(element) => {
                 if depth > BODY_MAX_DEPTH {
                     return Err(BodyError::TooDeep);
                 }
                 if element.tag().as_ref() == "table" {
-                    return self.table(&element, depth, changes);
+                    return self
+                        .table(&element, depth, changes)
+                        .map(|opt| opt.map(ChildOutcome::Element));
                 }
                 let Some(below) = self.element(&element, depth + 1)? else {
                     return Ok(None);
                 };
-                let node = read::element_node(self.txn, &element, below.content.into_nodes());
-                if passes(&node, schema::place(element.tag()))? {
+                let shell = read::element_node(self.txn, &element, Vec::new());
+                let tag = element.tag();
+                if let Some(summary) = judge_element(
+                    tag.as_ref(),
+                    schema::place(tag.as_ref()),
+                    shell,
+                    below.content,
+                )? {
                     changes.take(below.changes);
-                    Ok(Some(vec![node]))
+                    Ok(Some(ChildOutcome::Element(summary)))
                 } else {
                     Ok(None)
                 }
@@ -735,12 +895,7 @@ impl<T: ReadTxn> Survey<'_, T> {
                 if !nodes.is_empty() && depth > BODY_MAX_DEPTH {
                     return Err(BodyError::TooDeep);
                 }
-                for node in &nodes {
-                    if !passes(node, Place::Line)? {
-                        return Ok(None);
-                    }
-                }
-                Ok(Some(nodes))
+                Ok(judge_text_nodes(nodes)?.map(ChildOutcome::Text))
             }
             Child::Other => Ok(None),
         }
@@ -752,73 +907,7 @@ fn index_of(index: usize) -> u32 {
     u32::try_from(index).unwrap_or(u32::MAX)
 }
 
-/// Whether the allowlist takes a node by itself, with what it holds: the node is put
-/// where a node of its kind stands, in a document of nothing else, and that document is
-/// checked. A row or a cell is put in a table whose grid it fills: its cells' spans are
-/// left out, and a row is given one more cell, so that only what it is and holds is
-/// judged; where it falls in its own table is for the table's mending.
-///
-/// # Errors
-///
-/// Returns the error if the node alone is past a limit of size, depth or nodes: that is
-/// no fault of the node's that deleting it would mend.
-fn passes(node: &Value, place: Place) -> Result<bool, BodyError> {
-    let around = |kind: &str, inner: Value| json!({"type": kind, "content": [inner]});
-    let document = match place {
-        Place::Document => node.clone(),
-        Place::Block => around("doc", node.clone()),
-        Place::Line => around("doc", around("paragraph", node.clone())),
-        Place::ListEntry => around("doc", around("bulletList", node.clone())),
-        Place::TaskEntry => around("doc", around("taskList", node.clone())),
-        Place::TableRow => around("doc", around("table", filling_row(node))),
-        Place::TableCell => around(
-            "doc",
-            around("table", around("tableRow", without_spans(node))),
-        ),
-    };
-    match Body::parse(document) {
-        Ok(_) => Ok(true),
-        Err(BodyError::InvalidNode { .. } | BodyError::NotADocument) => Ok(false),
-        Err(
-            limit @ (BodyError::TooLarge
-            | BodyError::TooDeep
-            | BodyError::TooManyNodes
-            | BodyError::TableTooLarge { .. }),
-        ) => Err(limit),
-    }
-}
-
 /// Whether an element of this name is a cell of a table.
 fn is_cell(tag: &str) -> bool {
     matches!(tag, "tableCell" | "tableHeader")
-}
-
-/// A cell without its spans.
-fn without_spans(cell: &Value) -> Value {
-    let mut cell = cell.clone();
-    if let Some(attrs) = cell.get_mut("attrs").and_then(Value::as_object_mut) {
-        attrs.remove("colspan");
-        attrs.remove("rowspan");
-    }
-    cell
-}
-
-/// A row whose cells are without their spans, given an empty cell if it has none: a row
-/// that fills a table of its own, and no wider than it is.
-fn filling_row(row: &Value) -> Value {
-    let mut row = row.clone();
-    if let Some(members) = row.as_object_mut() {
-        let content = members
-            .entry("content")
-            .or_insert_with(|| Value::Array(Vec::new()));
-        if let Some(children) = content.as_array_mut() {
-            for child in children.iter_mut() {
-                *child = without_spans(child);
-            }
-            if children.is_empty() {
-                children.push(mend::empty_cell("tableCell"));
-            }
-        }
-    }
-    row
 }

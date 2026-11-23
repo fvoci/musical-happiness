@@ -21,401 +21,17 @@
 //! triggers that hold it to one organization. The migration after it, of the keys that
 //! name the organization, is PostgreSQL's alone: SQLite's file says why it is empty.
 
+mod inspect;
+mod steps;
+
 use sqlx::SqlSafeStr as _;
 use sqlx::migrate::{MigrateError, Migration, MigrationType, Migrator};
 
-use crate::db::{Dialect, Scope};
+pub(crate) use self::inspect::{SchemaState, may_change, state, ungranted_tables, whereabouts};
+use self::steps::STEPS;
+use crate::db::Dialect;
 use crate::error::StoreError;
 use crate::{Pool, Store};
-
-/// One migration: its version, its name, and its SQL for each database kind.
-struct Step {
-    version: i64,
-    description: &'static str,
-    sqlite: &'static str,
-    postgres: &'static str,
-}
-
-/// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 62] = [
-    Step {
-        version: 1,
-        description: "baseline",
-        sqlite: include_str!("../schema/sqlite/0001_baseline.sql"),
-        postgres: include_str!("../schema/postgres/0001_baseline.sql"),
-    },
-    Step {
-        version: 2,
-        description: "body",
-        sqlite: include_str!("../schema/sqlite/0002_body.sql"),
-        postgres: include_str!("../schema/postgres/0002_body.sql"),
-    },
-    Step {
-        version: 3,
-        description: "file refs",
-        sqlite: include_str!("../schema/sqlite/0003_file_refs.sql"),
-        postgres: include_str!("../schema/postgres/0003_file_refs.sql"),
-    },
-    Step {
-        version: 4,
-        description: "date values",
-        sqlite: include_str!("../schema/sqlite/0004_date_values.sql"),
-        postgres: include_str!("../schema/postgres/0004_date_values.sql"),
-    },
-    Step {
-        version: 5,
-        description: "uploads",
-        sqlite: include_str!("../schema/sqlite/0005_uploads.sql"),
-        postgres: include_str!("../schema/postgres/0005_uploads.sql"),
-    },
-    Step {
-        version: 6,
-        description: "upload path",
-        sqlite: include_str!("../schema/sqlite/0006_upload_path.sql"),
-        postgres: include_str!("../schema/postgres/0006_upload_path.sql"),
-    },
-    Step {
-        version: 7,
-        description: "upload purpose",
-        sqlite: include_str!("../schema/sqlite/0007_upload_purpose.sql"),
-        postgres: include_str!("../schema/postgres/0007_upload_purpose.sql"),
-    },
-    Step {
-        version: 8,
-        description: "content blocks",
-        sqlite: include_str!("../schema/sqlite/0008_content_blocks.sql"),
-        postgres: include_str!("../schema/postgres/0008_content_blocks.sql"),
-    },
-    Step {
-        version: 9,
-        description: "comment versions",
-        sqlite: include_str!("../schema/sqlite/0009_comment_versions.sql"),
-        postgres: include_str!("../schema/postgres/0009_comment_versions.sql"),
-    },
-    Step {
-        version: 10,
-        description: "display name",
-        sqlite: include_str!("../schema/sqlite/0010_display_name.sql"),
-        postgres: include_str!("../schema/postgres/0010_display_name.sql"),
-    },
-    Step {
-        version: 11,
-        description: "deleted boards by team",
-        sqlite: include_str!("../schema/sqlite/0011_deleted_boards_by_team.sql"),
-        postgres: include_str!("../schema/postgres/0011_deleted_boards_by_team.sql"),
-    },
-    Step {
-        version: 12,
-        description: "deleted board places",
-        sqlite: include_str!("../schema/sqlite/0012_deleted_board_places.sql"),
-        postgres: include_str!("../schema/postgres/0012_deleted_board_places.sql"),
-    },
-    Step {
-        version: 13,
-        description: "comments by parent",
-        sqlite: include_str!("../schema/sqlite/0013_comments_by_parent.sql"),
-        postgres: include_str!("../schema/postgres/0013_comments_by_parent.sql"),
-    },
-    Step {
-        version: 14,
-        description: "organizations",
-        sqlite: include_str!("../schema/sqlite/0014_organizations.sql"),
-        postgres: include_str!("../schema/postgres/0014_organizations.sql"),
-    },
-    Step {
-        version: 15,
-        description: "organization keys",
-        sqlite: include_str!("../schema/sqlite/0015_organization_keys.sql"),
-        postgres: include_str!("../schema/postgres/0015_organization_keys.sql"),
-    },
-    Step {
-        version: 16,
-        description: "loose objects",
-        sqlite: include_str!("../schema/sqlite/0016_loose_objects.sql"),
-        postgres: include_str!("../schema/postgres/0016_loose_objects.sql"),
-    },
-    Step {
-        version: 17,
-        description: "workspaces",
-        sqlite: include_str!("../schema/sqlite/0017_workspaces.sql"),
-        postgres: include_str!("../schema/postgres/0017_workspaces.sql"),
-    },
-    Step {
-        version: 18,
-        description: "oidc",
-        sqlite: include_str!("../schema/sqlite/0018_oidc.sql"),
-        postgres: include_str!("../schema/postgres/0018_oidc.sql"),
-    },
-    Step {
-        version: 19,
-        description: "audit log",
-        sqlite: include_str!("../schema/sqlite/0019_audit_log.sql"),
-        postgres: include_str!("../schema/postgres/0019_audit_log.sql"),
-    },
-    // 20 is other work's.
-    Step {
-        version: 21,
-        description: "body docs",
-        sqlite: include_str!("../schema/sqlite/0021_body_docs.sql"),
-        postgres: include_str!("../schema/postgres/0021_body_docs.sql"),
-    },
-    Step {
-        version: 22,
-        description: "invitations",
-        sqlite: include_str!("../schema/sqlite/0022_invitations.sql"),
-        postgres: include_str!("../schema/postgres/0022_invitations.sql"),
-    },
-    Step {
-        version: 23,
-        description: "organization management",
-        sqlite: include_str!("../schema/sqlite/0023_org_management.sql"),
-        postgres: include_str!("../schema/postgres/0023_org_management.sql"),
-    },
-    Step {
-        version: 24,
-        description: "sso",
-        sqlite: include_str!("../schema/sqlite/0024_sso.sql"),
-        postgres: include_str!("../schema/postgres/0024_sso.sql"),
-    },
-    Step {
-        version: 25,
-        description: "password resets",
-        sqlite: include_str!("../schema/sqlite/0025_password_resets.sql"),
-        postgres: include_str!("../schema/postgres/0025_password_resets.sql"),
-    },
-    Step {
-        version: 26,
-        description: "workspace teams",
-        sqlite: include_str!("../schema/sqlite/0026_teams.sql"),
-        postgres: include_str!("../schema/postgres/0026_teams.sql"),
-    },
-    Step {
-        version: 27,
-        description: "audit actors",
-        sqlite: include_str!("../schema/sqlite/0027_audit_actors.sql"),
-        postgres: include_str!("../schema/postgres/0027_audit_actors.sql"),
-    },
-    Step {
-        version: 28,
-        description: "session origin",
-        sqlite: include_str!("../schema/sqlite/0028_session_origin.sql"),
-        postgres: include_str!("../schema/postgres/0028_session_origin.sql"),
-    },
-    Step {
-        version: 29,
-        description: "sign in revision",
-        sqlite: include_str!("../schema/sqlite/0029_sign_in_revision.sql"),
-        postgres: include_str!("../schema/postgres/0029_sign_in_revision.sql"),
-    },
-    Step {
-        version: 30,
-        description: "invitation recipients",
-        sqlite: include_str!("../schema/sqlite/0030_invitation_recipients.sql"),
-        postgres: include_str!("../schema/postgres/0030_invitation_recipients.sql"),
-    },
-    Step {
-        version: 31,
-        description: "provider move",
-        sqlite: include_str!("../schema/sqlite/0031_provider_move.sql"),
-        postgres: include_str!("../schema/postgres/0031_provider_move.sql"),
-    },
-    Step {
-        version: 32,
-        description: "held sign ins",
-        sqlite: include_str!("../schema/sqlite/0032_held_sign_ins.sql"),
-        postgres: include_str!("../schema/postgres/0032_held_sign_ins.sql"),
-    },
-    Step {
-        version: 33,
-        description: "body versions",
-        sqlite: include_str!("../schema/sqlite/0033_body_versions.sql"),
-        postgres: include_str!("../schema/postgres/0033_body_versions.sql"),
-    },
-    // 34 is other work's.
-    Step {
-        version: 35,
-        description: "audit identity",
-        sqlite: include_str!("../schema/sqlite/0035_audit_identity.sql"),
-        postgres: include_str!("../schema/postgres/0035_audit_identity.sql"),
-    },
-    Step {
-        version: 36,
-        description: "board kind",
-        sqlite: include_str!("../schema/sqlite/0036_board_kind.sql"),
-        postgres: include_str!("../schema/postgres/0036_board_kind.sql"),
-    },
-    Step {
-        version: 37,
-        description: "body links",
-        sqlite: include_str!("../schema/sqlite/0037_body_links.sql"),
-        postgres: include_str!("../schema/postgres/0037_body_links.sql"),
-    },
-    Step {
-        version: 38,
-        description: "search outbox",
-        sqlite: include_str!("../schema/sqlite/0038_search_outbox.sql"),
-        postgres: include_str!("../schema/postgres/0038_search_outbox.sql"),
-    },
-    Step {
-        version: 39,
-        description: "signups",
-        sqlite: include_str!("../schema/sqlite/0039_signups.sql"),
-        postgres: include_str!("../schema/postgres/0039_signups.sql"),
-    },
-    Step {
-        version: 40,
-        description: "signup browser",
-        sqlite: include_str!("../schema/sqlite/0040_signup_browser.sql"),
-        postgres: include_str!("../schema/postgres/0040_signup_browser.sql"),
-    },
-    Step {
-        version: 41,
-        description: "containers",
-        sqlite: include_str!("../schema/sqlite/0041_containers.sql"),
-        postgres: include_str!("../schema/postgres/0041_containers.sql"),
-    },
-    Step {
-        version: 42,
-        description: "board blocks",
-        sqlite: include_str!("../schema/sqlite/0042_board_blocks.sql"),
-        postgres: include_str!("../schema/postgres/0042_board_blocks.sql"),
-    },
-    Step {
-        version: 43,
-        description: "account deletion",
-        sqlite: include_str!("../schema/sqlite/0043_account_deletion.sql"),
-        postgres: include_str!("../schema/postgres/0043_account_deletion.sql"),
-    },
-    Step {
-        version: 44,
-        description: "audit identity erasure",
-        sqlite: include_str!("../schema/sqlite/0044_audit_identity_erasure.sql"),
-        postgres: include_str!("../schema/postgres/0044_audit_identity_erasure.sql"),
-    },
-    Step {
-        version: 45,
-        description: "person names",
-        sqlite: include_str!("../schema/sqlite/0045_person_names.sql"),
-        postgres: include_str!("../schema/postgres/0045_person_names.sql"),
-    },
-    Step {
-        version: 46,
-        description: "nameless shown by name",
-        sqlite: include_str!("../schema/sqlite/0046_nameless_shown_by_name.sql"),
-        postgres: include_str!("../schema/postgres/0046_nameless_shown_by_name.sql"),
-    },
-    Step {
-        version: 47,
-        description: "template files",
-        sqlite: include_str!("../schema/sqlite/0047_template_files.sql"),
-        postgres: include_str!("../schema/postgres/0047_template_files.sql"),
-    },
-    Step {
-        version: 48,
-        description: "welcomed accounts",
-        sqlite: include_str!("../schema/sqlite/0048_welcomed_accounts.sql"),
-        postgres: include_str!("../schema/postgres/0048_welcomed_accounts.sql"),
-    },
-    Step {
-        version: 49,
-        description: "file versions",
-        sqlite: include_str!("../schema/sqlite/0049_file_versions.sql"),
-        postgres: include_str!("../schema/postgres/0049_file_versions.sql"),
-    },
-    Step {
-        version: 50,
-        description: "personal organizations",
-        sqlite: include_str!("../schema/sqlite/0050_personal_organizations.sql"),
-        postgres: include_str!("../schema/postgres/0050_personal_organizations.sql"),
-    },
-    Step {
-        version: 51,
-        description: "who made an organization, and nobody but its owner in a space",
-        sqlite: include_str!("../schema/sqlite/0051_organizations_made_by.sql"),
-        postgres: include_str!("../schema/postgres/0051_organizations_made_by.sql"),
-    },
-    Step {
-        version: 52,
-        description: "a session that confirmed its account's password",
-        sqlite: include_str!("../schema/sqlite/0052_session_password_confirmed.sql"),
-        postgres: include_str!("../schema/postgres/0052_session_password_confirmed.sql"),
-    },
-    Step {
-        version: 53,
-        description: "an account's change of address that waits to be confirmed",
-        sqlite: include_str!("../schema/sqlite/0053_email_changes.sql"),
-        postgres: include_str!("../schema/postgres/0053_email_changes.sql"),
-    },
-    Step {
-        version: 54,
-        description: "how each version of a body came to be kept",
-        sqlite: include_str!("../schema/sqlite/0054_body_version_causes.sql"),
-        postgres: include_str!("../schema/postgres/0054_body_version_causes.sql"),
-    },
-    Step {
-        version: 55,
-        description: "diaries",
-        sqlite: include_str!("../schema/sqlite/0055_diaries.sql"),
-        postgres: include_str!("../schema/postgres/0055_diaries.sql"),
-    },
-    Step {
-        version: 56,
-        description: "notifications",
-        sqlite: include_str!("../schema/sqlite/0056_notifications.sql"),
-        postgres: include_str!("../schema/postgres/0056_notifications.sql"),
-    },
-    Step {
-        version: 57,
-        description: "a notification is a line of what happened to one card or page",
-        sqlite: include_str!("../schema/sqlite/0057_notification_lines.sql"),
-        postgres: include_str!("../schema/postgres/0057_notification_lines.sql"),
-    },
-    Step {
-        version: 58,
-        description: "card numbers",
-        sqlite: include_str!("../schema/sqlite/0058_card_numbers.sql"),
-        postgres: include_str!("../schema/postgres/0058_card_numbers.sql"),
-    },
-    Step {
-        version: 59,
-        description: "the link that gives an account its address back, and a locked password",
-        sqlite: include_str!("../schema/sqlite/0059_email_reverts.sql"),
-        postgres: include_str!("../schema/postgres/0059_email_reverts.sql"),
-    },
-    // 60 is unused.
-    Step {
-        version: 61,
-        description: "courses",
-        sqlite: include_str!("../schema/sqlite/0061_courses.sql"),
-        postgres: include_str!("../schema/postgres/0061_courses.sql"),
-    },
-    Step {
-        version: 62,
-        description: "body version bytes",
-        sqlite: include_str!("../schema/sqlite/0062_body_version_bytes.sql"),
-        postgres: include_str!("../schema/postgres/0062_body_version_bytes.sql"),
-    },
-    Step {
-        version: 63,
-        description: "unit progress",
-        sqlite: include_str!("../schema/sqlite/0063_unit_progress.sql"),
-        postgres: include_str!("../schema/postgres/0063_unit_progress.sql"),
-    },
-    Step {
-        version: 64,
-        description: "time entries",
-        sqlite: include_str!("../schema/sqlite/0064_time_entries.sql"),
-        postgres: include_str!("../schema/postgres/0064_time_entries.sql"),
-    },
-    // 65..=67 are other work's.
-    Step {
-        version: 68,
-        description: "course meetings and exams",
-        sqlite: include_str!("../schema/sqlite/0068_course_meetings_and_exams.sql"),
-        postgres: include_str!("../schema/postgres/0068_course_meetings_and_exams.sql"),
-    },
-];
-
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
 /// between them.
 #[cfg(any(test, feature = "test-util"))]
@@ -451,7 +67,19 @@ pub(crate) const BEFORE_UNIT_PROGRESS_VERSION: i64 = 62;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_TIME_ENTRIES_VERSION: i64 = 63;
 
-/// The migration version immediately before course meetings and exams (0068).
+/// The migration before the one that adds `org_member_removed` to `audit_log`.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION: i64 = 64;
+
+/// The migration before course schedules (0066).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_COURSE_SCHEDULES_VERSION: i64 = 65;
+
+/// The migration before unit reviews and notes (0067).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_UNIT_REVIEWS_VERSION: i64 = 66;
+
+/// The migration before course meetings and exams (0068).
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_COURSE_EVENTS_VERSION: i64 = 67;
 
@@ -478,7 +106,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 12] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 45] = [
+pub(crate) const ORG_TABLES: [&str; 48] = [
     "audit_log",
     "blocks",
     "body_docs",
@@ -494,6 +122,7 @@ pub(crate) const ORG_TABLES: [&str; 45] = [
     "containers",
     "course_exams",
     "course_meetings",
+    "course_schedules",
     "deleted_blocks",
     "deleted_containers",
     "diary_days",
@@ -519,18 +148,17 @@ pub(crate) const ORG_TABLES: [&str; 45] = [
     "team_members",
     "teams",
     "time_entries",
+    "unit_notes",
     "unit_progress",
+    "unit_reviews",
     "upload_parts",
     "uploads",
     "workspace_members",
     "workspaces",
 ];
 
-#[path = "schema_inspect.rs"]
-mod inspect;
-
-use inspect::{MIGRATIONS_TABLE, has_record, table_names};
-pub(crate) use inspect::{may_change, ungranted_tables, whereabouts};
+/// The table in which sqlx's migrator records what it applied.
+const MIGRATIONS_TABLE: &str = "_sqlx_migrations";
 
 /// A table of this server's schema, by which a database that has tables but no
 /// migration record is told from an empty one.
@@ -546,7 +174,7 @@ const A_SCHEMA_TABLE: &str = "blocks";
 /// history that differs from this binary's; and
 /// [`StoreError::Database`] if a statement fails.
 pub(crate) async fn migrate(store: &Store, up_to: Option<i64>) -> Result<(), StoreError> {
-    store.with_conn(refuse_unrecorded_schemas).await?;
+    store.with_conn(inspect::refuse_unrecorded_schemas).await?;
 
     let migrator = migrator(store.dialect(), up_to);
     let result = match &store.inner.pool {
@@ -575,70 +203,6 @@ pub(crate) fn latest_version() -> i64 {
     STEPS.last().map_or(0, |step| step.version)
 }
 
-/// Where a database's schema stands against this build's migrations.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SchemaState {
-    /// Every migration of this build is recorded as applied, with this build's text,
-    /// and no other: the database is opened without a statement that changes it.
-    Current,
-    /// Some of this build's migrations are not recorded yet (none, if the database is
-    /// empty); what is recorded is this build's.
-    Behind,
-    /// The record is not this build's: why, as the migrator would say it.
-    Foreign(String),
-}
-
-/// Reads where the database's schema stands, from the record of the migrations.
-///
-/// # Errors
-///
-/// Returns [`StoreError::Schema`] if the record is there but the role may not read it
-/// (it was not granted the tables), and [`StoreError::Database`] if it cannot be read.
-pub(crate) async fn state(store: &Store) -> Result<SchemaState, StoreError> {
-    let migrator = migrator(store.dialect(), None);
-    let known: Vec<(i64, &[u8])> = migrator
-        .iter()
-        .map(|migration| (migration.version, migration.checksum.as_ref()))
-        .collect();
-    store
-        .with_conn(async |scope| {
-            if !has_record(scope).await? {
-                return Ok(SchemaState::Behind);
-            }
-            let sql = scope
-                .sql("SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version");
-            let recorded = scope
-                .fetch_all(sql)
-                .await?
-                .iter()
-                .map(|row| Ok((row.int(0)?, row.bytes(1)?, row.bool(2)?)))
-                .collect::<Result<Vec<_>, StoreError>>()?;
-            for (version, checksum, applied) in &recorded {
-                let reason = match known.iter().find(|(known, _)| known == version) {
-                    None => format!(
-                        "the database holds schema migration {version}, which this server \
-                         does not know: it was last opened by a newer server"
-                    ),
-                    Some((_, known)) if known != checksum => format!(
-                        "schema migration {version} of the database differs from this \
-                         server's: the database was created by a different build"
-                    ),
-                    Some(_) if !applied => {
-                        format!("schema migration {version} failed when it was applied")
-                    }
-                    Some(_) => continue,
-                };
-                return Ok(SchemaState::Foreign(reason));
-            }
-            Ok(if recorded.len() == known.len() {
-                SchemaState::Current
-            } else {
-                SchemaState::Behind
-            })
-        })
-        .await
-}
-
 /// The migrator of every migration, or of those up to a version: a database as an
 /// older server left it, for the tests of what a migration makes of one.
 fn migrator(dialect: Dialect, up_to: Option<i64>) -> Migrator {
@@ -660,20 +224,6 @@ fn migrator(dialect: Dialect, up_to: Option<i64>) -> Migrator {
         })
         .collect();
     Migrator::with_migrations(migrations)
-}
-
-/// Refuses a database that has this server's tables but no record of the migrations
-/// that made them, which the migrator would try to create again.
-async fn refuse_unrecorded_schemas(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    let tables = table_names(scope).await?;
-    let has = |name: &str| tables.iter().any(|table| table == name);
-    if has(A_SCHEMA_TABLE) && !has(MIGRATIONS_TABLE) {
-        return Err(StoreError::Schema(format!(
-            "the database has a {A_SCHEMA_TABLE} table but no record of schema migrations \
-             ({MIGRATIONS_TABLE}); start with an empty database"
-        )));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -862,14 +412,46 @@ mod tests {
         assert_eq!(step.description, "time entries");
     }
 
-    /// Migration 68 is course meetings and exams, following `BEFORE_COURSE_EVENTS_VERSION`.
+    /// The migration right after `BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION` is 65.
+    #[test]
+    fn the_migration_after_before_audit_org_member_removed_is_the_one() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION + 1)
+            .expect("the migration after BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION is in the list");
+        assert_eq!(step.description, "audit org member removed");
+    }
+
+    /// Migration 66 is course schedules, immediately following `BEFORE_COURSE_SCHEDULES_VERSION` (65).
+    #[test]
+    fn migration_66_is_course_schedules() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_COURSE_SCHEDULES_VERSION + 1)
+            .expect("migration 66 is in the list");
+        assert_eq!(step.version, 66);
+        assert_eq!(step.description, "course schedules");
+    }
+
+    /// Migration 67 is unit reviews and notes, immediately following `BEFORE_UNIT_REVIEWS_VERSION` (66).
+    #[test]
+    fn migration_67_is_unit_reviews_and_notes() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_UNIT_REVIEWS_VERSION + 1)
+            .expect("migration 67 is in the list");
+        assert_eq!(step.version, 67);
+        assert_eq!(step.description, "unit reviews and notes");
+    }
+
+    /// Migration 68 is course meetings and exams, immediately following `BEFORE_COURSE_EVENTS_VERSION` (67).
     #[test]
     fn migration_68_is_course_meetings_and_exams() {
         let step = STEPS
             .iter()
-            .find(|step| step.version == 68)
+            .find(|step| step.version == BEFORE_COURSE_EVENTS_VERSION + 1)
             .expect("migration 68 is in the list");
+        assert_eq!(step.version, 68);
         assert_eq!(step.description, "course meetings and exams");
-        assert!(BEFORE_COURSE_EVENTS_VERSION < step.version);
     }
 }

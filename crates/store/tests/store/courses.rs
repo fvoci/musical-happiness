@@ -38,6 +38,7 @@ async fn add_item(
         parent_id: parent_id.to_owned(),
         after: after.map(str::to_owned),
         title: title.to_owned(),
+        ..NewUnit::default()
     };
     store
         .create_unit(course_id, &new, CourseLimits::DEFAULT, user_id)

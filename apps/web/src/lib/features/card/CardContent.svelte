@@ -13,10 +13,11 @@
   open) says so and can be closed.
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { CardFrame } from '$lib/layout/presentation.ts';
+  import { ancestorsOf } from '$lib/logic/card-hierarchy.ts';
   import type { BoardView } from '$lib/logic/wire.ts';
   import {
     whileHere,
@@ -34,9 +35,11 @@
   import CardBody from './CardBody.svelte';
   import CardComments from './CardComments.svelte';
   import CardHeader from './CardHeader.svelte';
+  import CardParentBar from './CardParentBar.svelte';
   import CardProperties from './CardProperties.svelte';
   import CardTitle from './CardTitle.svelte';
   import CommentComposer from './CommentComposer.svelte';
+  import SubcardsSection from './SubcardsSection.svelte';
   import { editorChunk } from './editor-chunk.svelte.ts';
   import { saveStateOf } from './save-state.ts';
   import { keepScroll } from './scroll-keeper.ts';
@@ -50,9 +53,11 @@
     cardHref: (cardId: string) => string;
     onClose: () => void;
     onOpenCard?: (cardId: string) => void;
+    /** Extra actions in the card header (e.g. personal timer), supplied by the app shell. */
+    headerActions?: Snippet<[CardStore]> | undefined;
   }
 
-  let { board, view, card, frame, cardHref, onClose, onOpenCard }: Props = $props();
+  let { board, view, card, frame, cardHref, onClose, onOpenCard, headerActions }: Props = $props();
 
   const references = $derived(bodyReferences(board, card.cardId));
 
@@ -63,6 +68,11 @@
   });
 
   const summary = $derived(card.summary);
+  const hasParent = $derived(
+    summary !== undefined &&
+      !summary.fields.isTemplate &&
+      ancestorsOf(summary.id, board.cardsById).length > 0,
+  );
   const ready = $derived(card.status === 'ready');
   /** A card that starts without a title and a body was just made: the caret goes to its title. */
   const blank = untrack(() => card.summary?.title === '' && !card.summary.hasBody);
@@ -130,6 +140,7 @@
   onDuplicate={() => void duplicate()}
   onVersions={showVersions}
   onDelete={() => void remove()}
+  extraActions={headerActions}
 />
 <BodyVersions bind:open={versionsOpen} reading={versions} container={board} />
 
@@ -165,8 +176,16 @@
         <p class="rounded-md bg-muted px-3 py-2 text-muted-foreground">
           {m['CardDialog.editing-template']()}
         </p>
+      {:else if hasParent}
+        <CardParentBar {board} card={summary} {onOpenCard} />
       {/if}
-      <CardTitle {board} card={summary} autofocus={blank} />
+      <CardTitle {board} card={summary} autofocus={blank}>
+        {#snippet meta()}
+          {#if !summary.fields.isTemplate && !hasParent}
+            <CardParentBar {board} card={summary} {onOpenCard} />
+          {/if}
+        {/snippet}
+      </CardTitle>
       <CardProperties {board} {view} card={summary} {onOpenCard} />
       {#if ready}
         <CardBody
@@ -175,6 +194,9 @@
           {references}
           keep={() => keepVersion(cardVersions(board, card))}
         />
+        {#if !summary.fields.isTemplate}
+          <SubcardsSection {board} card={summary} {onOpenCard} />
+        {/if}
         <CardBacklinks workspace={board.workspace} blockId={card.cardId} />
         <CardAttachments {board} {card} />
         <CardComments {board} {card} {readVersions} />
