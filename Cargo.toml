@@ -31,6 +31,8 @@ base64 = "0.23"
 # already). License: BSD-3-Clause AND MIT.
 brotli = "9"
 bytes = "1"
+# Streaming RFC 4180 CSV reader, for Notion database imports. License: Unlicense OR MIT.
+csv = "1"
 # The pure-Rust DEFLATE backend (miniz_oxide) that `zip` uses. License: MIT OR Apache-2.0.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 futures-util = "0.3"
@@ -57,6 +59,8 @@ ctrlc = { version = "3", features = ["termination"] }
 # The metrics: a registry per server, the Prometheus text format and the process
 # metrics (procfs, Linux). License: Apache-2.0.
 prometheus = { version = "0.14", default-features = false, features = ["process"] }
+# Pure-Rust CommonMark + GFM pull parser, for Trello and Notion imports. License: MIT.
+pulldown-cmark = { version = "0.13", default-features = false }
 object_store = { version = "0.14", default-features = false, features = ["aws"] }
 rcgen = "0.14"
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "multipart", "rustls"] }

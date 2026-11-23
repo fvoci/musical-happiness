@@ -63,43 +63,94 @@ pub(crate) struct ImportOptions {
 }
 
 impl App {
-    /// Imports the archive in the file at `path` into a workspace on behalf of a user. The
-    /// entry point for the import of an upload.
+    /// Imports an archive or external export file (`fvoci`, `trello`, or `notion`) at
+    /// `path` into `workspace_id` on behalf of `modified_by`, returning a structured
+    /// summary of created items, skipped items, and non-fatal warnings.
     ///
     /// # Errors
     ///
-    /// Returns the errors of [`App::import_archive`].
-    pub(crate) async fn import_workspace_archive(
+    /// Returns 404 if `workspace_id` does not exist in this organization or `modified_by`
+    /// is not a non-guest member; 400 or 413 if the input fails security, format, size,
+    /// depth, or allowlist validation; and 500 on storage or database failure. For
+    /// `trello` and `notion`, any error leaves zero containers, blocks, and files stored.
+    pub async fn import_external_archive(
         &self,
         path: &Path,
+        format: ImportFormat,
         workspace_id: &str,
         modified_by: &str,
-    ) -> Result<Imported, AppError> {
+    ) -> Result<ImportSummary, AppError> {
+        let largest_file = u64::try_from(self.limits().largest_file).unwrap_or(0);
+        let limits = BundleLimits::for_largest_file(largest_file);
+        self.import_external_archive_with_limits(path, format, workspace_id, modified_by, limits)
+            .await
+    }
+
+    /// Like [`App::import_external_archive`], with caller-supplied [`BundleLimits`] applied
+    /// to external formats (`trello` and `notion`). Native `fvoci` archives use the
+    /// server's fixed native archive bounds and organization file limit.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`App::import_external_archive`].
+    pub async fn import_external_archive_with_limits(
+        &self,
+        path: &Path,
+        format: ImportFormat,
+        workspace_id: &str,
+        modified_by: &str,
+        limits: BundleLimits,
+    ) -> Result<ImportSummary, AppError> {
+        self.require_import_workspace(workspace_id, modified_by)
+            .await?;
         let options = ImportOptions {
             workspace_id: workspace_id.to_owned(),
             modified_by: modified_by.to_owned(),
             page_limits: self.limits().pages,
         };
-        self.import_archive(path, &options).await
+        match format {
+            ImportFormat::Fvoci => self.import_native_summary(path, &options).await,
+            ImportFormat::Trello => {
+                let staged = trello::convert_trello_file(path, &limits).await?;
+                self.commit_staged_archive(staged, None, &options, &limits)
+                    .await
+            }
+            ImportFormat::Notion => {
+                let temp_root = self.config().tmp_dir();
+                let bundle = bundle::SafeBundle::open(path, &temp_root, limits).await?;
+                let staged = notion::convert_notion_bundle(&bundle, &limits).await?;
+                self.commit_staged_archive(staged, Some(&bundle), &options, &limits)
+                    .await
+            }
+        }
     }
 
-    /// Imports the archive in the file at `path`, of zero or more boards with their
-    /// blocks and files. The archive is read from the file at random, an entry at a time;
-    /// a file entry is unpacked into a file beside it, `path` with the name `entry`, to be
-    /// stored from there.
-    ///
-    /// # Errors
-    ///
-    /// Returns a bad request if the file is not a ZIP, has no `version.json` or one of
-    /// another version, or holds what does not fit together; a 413 for an archive of
-    /// more than 10,000 entries, whose entries unpack to more than 1 GiB together, or
-    /// with a `board.jsonl` of more than 64 MiB or a file larger than `max_file_bytes`; and
-    /// the store's error if a board cannot be stored.
-    pub(crate) async fn import_archive(
+    /// Runs the native fvoci v3 archive import and wraps its outcome in [`ImportSummary`].
+    async fn import_native_summary(
         &self,
         path: &Path,
         options: &ImportOptions,
-    ) -> Result<Imported, AppError> {
+    ) -> Result<ImportSummary, AppError> {
+        let (imported, summary_counts, container_ids) =
+            self.import_archive_detailed(path, options).await?;
+        Ok(ImportSummary {
+            format: ImportFormat::Fvoci,
+            imported: summary_counts,
+            members_left_out: imported.members_left_out,
+            container_ids,
+            ..ImportSummary::default()
+        })
+    }
+
+    /// Imports the native fvoci v3 archive in the file at `path`, of zero or more boards
+    /// with their blocks and files. The archive is read from the file at random, an entry
+    /// at a time; a file entry is unpacked into a file beside it, `path` with the name
+    /// `entry`, to be stored from there.
+    async fn import_archive_detailed(
+        &self,
+        path: &Path,
+        options: &ImportOptions,
+    ) -> Result<(Imported, ImportCounts, Vec<String>), AppError> {
         let zip = open_archive(path).await?;
         let unpacked_file = path.with_file_name("entry");
         // The original's streaming reader rejects a ZIP with no entries as invalid.
@@ -137,23 +188,7 @@ impl App {
                 }
             })?;
         check_version(&version)?;
-        // Every entry is read through once before anything is stored: an entry that is
-        // broken or too large, or all of them unpacking to too much, refuses the archive
-        // while nothing of it is stored yet.
-        let mut unpacked: u64 = 0;
-        for index in 0..zip.len() {
-            let (dir, filename) = entry_name(&zip, index)?;
-            let limit = entry_limit(&dir, &filename, largest_file);
-            unpacked = unpacked.saturating_add(check_entry(&zip, index, limit).await?);
-            if unpacked > MAX_UNPACKED_BYTES {
-                return Err(AppError::too_large(
-                    format_args!(
-                        "the archive's entries unpack to more than {MAX_UNPACKED_BYTES} bytes"
-                    ),
-                    MAX_UNPACKED_BYTES,
-                ));
-            }
-        }
+        check_native_unpacked_budget(&zip, largest_file).await?;
 
         let mut containers = Vec::new();
         for index in 0..zip.len() {
@@ -176,6 +211,7 @@ impl App {
         let mut left_out: HashSet<String> = HashSet::new();
         let StoredContainers {
             by_dir: stored,
+            created_order,
             copies,
             files,
         } = self
@@ -189,9 +225,14 @@ impl App {
         self.point_at_stored_files(&stored, &file_map, &copies, &options.modified_by)
             .await;
         tracing::debug!(containers_imported = stored.len(), "import archive - done");
-        Ok(Imported {
-            members_left_out: left_out.len(),
-        })
+        let (counts, container_ids) = summarize_native_import(&created_order, file_map.len());
+        Ok((
+            Imported {
+                members_left_out: left_out.len(),
+            },
+            counts,
+            container_ids,
+        ))
     }
 
     /// Stores the file entries of the archive (`entries`: the archive, the limit of a
@@ -295,6 +336,9 @@ impl App {
             let container = self
                 .store_archive_container(container, options, left_out)
                 .await?;
+            stored
+                .created_order
+                .push((container.kind, container.id.clone()));
             stored.by_dir.insert(dir, container);
         }
         Ok(stored)
@@ -465,6 +509,8 @@ async fn named_elsewhere(
 struct StoredContainers {
     /// Each board by the directory of the archive it came in.
     by_dir: HashMap<String, Container>,
+    /// Containers created, in creation order (kind and new ID), for deterministic summaries.
+    created_order: Vec<(ContainerKind, String)>,
     /// The new identifier of each block that a body of another board names, by its old
     /// one.
     copies: HashMap<String, String>,
@@ -718,6 +764,48 @@ fn container_blocks(container_id: &str) -> fvoci_store::BlockFilter {
     fvoci_store::BlockFilter::container(container_id)
 }
 
+/// Reads every entry of a native archive once before anything is stored so any broken
+/// or oversized entry, or cumulative unpacked total past [`MAX_UNPACKED_BYTES`], refuses
+/// the archive with nothing stored yet.
+async fn check_native_unpacked_budget(zip: &Archive, largest_file: u64) -> Result<(), AppError> {
+    let mut unpacked: u64 = 0;
+    for index in 0..zip.len() {
+        let (dir, filename) = entry_name(zip, index)?;
+        let limit = entry_limit(&dir, &filename, largest_file);
+        unpacked = unpacked.saturating_add(check_entry(zip, index, limit).await?);
+        if unpacked > MAX_UNPACKED_BYTES {
+            return Err(AppError::too_large(
+                format_args!(
+                    "the archive's entries unpack to more than {MAX_UNPACKED_BYTES} bytes"
+                ),
+                MAX_UNPACKED_BYTES,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Tallies created container counts and identifiers in creation order for a native import.
+fn summarize_native_import(
+    created_order: &[(ContainerKind, String)],
+    file_count: usize,
+) -> (ImportCounts, Vec<String>) {
+    let mut counts = ImportCounts {
+        files: file_count,
+        ..ImportCounts::default()
+    };
+    let mut container_ids = Vec::with_capacity(created_order.len());
+    for (kind, id) in created_order {
+        match kind {
+            ContainerKind::Board => counts.boards += 1,
+            ContainerKind::Wiki => counts.wikis += 1,
+            ContainerKind::Diary | ContainerKind::Course => {}
+        }
+        container_ids.push(id.clone());
+    }
+    (counts, container_ids)
+}
+
 /// Validates an archive's `version.json`.
 fn check_version(bytes: &[u8]) -> Result<(), AppError> {
     let header: ArchiveHeader = serde_json::from_slice(bytes).map_err(|error| {
@@ -779,7 +867,23 @@ fn with_workspace_named(mut data: Value) -> Value {
 }
 
 mod archive;
+mod bundle;
+#[cfg(test)]
+mod external_tests;
+mod markdown;
+mod markdown_nodes;
+mod notion;
+mod notion_csv;
 mod places;
 mod pointing;
+mod staged;
+mod summary;
 #[cfg(test)]
 mod tests;
+mod trello;
+mod trello_wire;
+
+pub use summary::{
+    BundleLimits, ImportCounts, ImportFormat, ImportSummary, ImportWarning, ImportWarningCode,
+    MAX_REPORTED_WARNINGS, ParseImportFormatError,
+};
