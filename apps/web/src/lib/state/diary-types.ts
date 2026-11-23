@@ -18,6 +18,7 @@ import type { DocNode } from '../editor/schema.ts';
 import type { CalendarDate } from '../logic/dates.ts';
 import type { MonthDay } from '../logic/diary-days.ts';
 import type { Container } from '../logic/wire.ts';
+import type { BodyVersions } from './body-versions.ts';
 
 /** How the day was, as its writer marks it. */
 export type Mood = 'great' | 'good' | 'okay' | 'bad' | 'awful';
@@ -73,13 +74,17 @@ export interface DiaryEntryDetail extends DiaryEntry {
 
 /** What an entry is changed to; what is left out stays. */
 export interface EntryPatch extends Partial<DayNotes> {
-  /** A whole new body, sent with `readAt`. */
+  /** A whole new body, sent with `readAt`. Cannot be combined with `appendBody`. */
   body?: DocNode | null;
-  /** The `updateAt` the entry was read at: one changed since is refused (409). */
+  /** Blocks appended after the entry's current body inside one server transaction. */
+  appendBody?: DocNode | null;
+  /** The `updateAt` the entry was read at: one whose body changed since is refused (409). */
   readAt?: number;
 }
 
 export interface Diaries {
+  /** Versions kept of each entry's body (`getDiaryEntryBodyVersions`, `keepDiaryEntryBodyVersion`, etc.). */
+  readonly bodyVersions: BodyVersions;
   /** The diaries of the reader's own space, oldest first; none of the trash. 404 for any other workspace. */
   diaries(workspaceId: string): Promise<Container[]>;
   /**
@@ -102,8 +107,11 @@ export interface Diaries {
   createEntry(diaryId: string, date: CalendarDate): Promise<DiaryEntryDetail>;
   entry(diaryId: string, entryId: string): Promise<DiaryEntryDetail>;
   /**
-   * A mood, weather or place is set as it is sent, whatever was there; a body
-   * only with `readAt`. Weather and place longer than `NOTE_MAX_CHARS` are 400.
+   * A mood, weather or place is set as it is sent, whatever was there; a whole
+   * `body` requires `readAt` (compared against the entry's body change time, so
+   * metadata-only edits do not conflict); `appendBody` appends after whatever
+   * body is stored inside one transaction. Weather and place longer than
+   * `NOTE_MAX_CHARS` are 400.
    * `keepalive`: sent as the page goes, and still sent once it has gone.
    */
   patchEntry(
@@ -112,7 +120,11 @@ export interface Diaries {
     patch: EntryPatch,
     options?: { keepalive?: boolean },
   ): Promise<DiaryEntryDetail>;
-  /** Moves the entry to the diary's trash: its day takes a new entry. */
+  /**
+   * Removes the entry so its day takes a new one: completely empty entries
+   * (no body, mood, weather, or place) are purged directly instead of piling
+   * up in the trash; entries with any content move to the diary's trash.
+   */
   deleteEntry(diaryId: string, entryId: string, options?: { keepalive?: boolean }): Promise<void>;
 }
 

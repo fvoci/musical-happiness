@@ -71,7 +71,10 @@ export class MemoryReferences implements References {
       return { id, kind: 'page', title, icon, containerId, containerKind: 'wiki' };
     if (block.type === 'unit')
       return { id, kind: 'unit', title, icon: '', containerId, containerKind: 'course' };
-    const numbered = block.number === undefined ? {} : { number: block.number };
+    const numbered =
+      block.fields.isTemplate === true || block.number === undefined
+        ? {}
+        : { number: block.number };
     return { id, kind: 'card', title, icon, containerId, containerKind: 'board', ...numbered };
   }
 
@@ -134,7 +137,10 @@ export class MemoryReferences implements References {
     this.#check(workspaceId);
     const card = this.#asker.world
       .blocksOf(boardId)
-      .find((block) => block.type === 'card' && block.number === number);
+      .find(
+        (block) =>
+          block.type === 'card' && block.fields.isTemplate !== true && block.number === number,
+      );
     return this.#shown(card, workspaceId);
   }
 }

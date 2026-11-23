@@ -83,7 +83,7 @@
     /** Whose body it is, for the words it says: a card's, a wiki's page's, a diary's entry's, or a course's unit's. */
     of?: 'card' | 'page' | 'entry' | 'unit';
     /** Shown in place of the body as it was read, until the room's editor is there. */
-    waiting?: Snippet | undefined;
+    waiting?: Snippet<[onSave: () => void]> | undefined;
     /** The room's editor waits while this is true: `waiting` stays. */
     holding?: boolean;
     /** The room's editor was made (for each document). */
@@ -323,7 +323,7 @@
       {/key}
     {/key}
   {:else if waiting}
-    {@render waiting()}
+    {@render waiting(() => void keepNow())}
   {:else}
     <div {@attach caret.watch}>
       <BodyView doc={card.body} {resolveUser} {references} class="text-base">

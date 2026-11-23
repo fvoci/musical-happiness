@@ -105,6 +105,7 @@ impl App {
                 .recheck_access(self, AccessScope::containers(made))
                 .await;
         }
+        super::blocks::hide_inactive_numbers(&mut created.blocks);
         self.announce_created(&created, &members).await;
 
         for container in &created.containers {
@@ -175,7 +176,7 @@ impl App {
         // Whole bodies are written around the documents of bodies edited together.
         let card_ids =
             crate::collab::cards_written_whole(&blocks, &patches.block_ids, &patches.block_patches);
-        let result = if card_ids.is_empty() {
+        let mut result = if card_ids.is_empty() {
             let _structure = self.collab().changing_structure(self).await;
             self.store()
                 .patch_containers_and_blocks(patches, user_id)
@@ -191,6 +192,7 @@ impl App {
                 })
                 .await?
         };
+        super::blocks::hide_inactive_numbers(&mut result.blocks);
 
         let access_changed: Vec<&String> = patches
             .container_ids

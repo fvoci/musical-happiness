@@ -184,10 +184,19 @@ async fn the_cards_of_a_board_are_numbered_from_one_as_they_are_made_and_nothing
 }
 
 #[tokio::test]
-async fn a_block_that_becomes_a_card_takes_the_next_number_and_one_that_stops_loses_its_own() {
+async fn a_card_made_a_template_keeps_its_stored_number_and_restores_it_when_made_a_card_again() {
     let test = common::setup().await;
     let (user_id, _, board_id) = board_of_a_user(&test).await;
-    let card = new_card(&test, &board_id, "card", &user_id).await;
+    let first = new_card(&test, &board_id, "card", &user_id).await;
+    assert_eq!(first.number, Some(1));
+    let mut fresh_template = card(&board_id, "fresh template");
+    fresh_template
+        .fields
+        .insert("isTemplate".to_owned(), Value::Bool(true));
+    test.insert_block(&mut fresh_template, &user_id)
+        .await
+        .expect("the fresh template is stored");
+    assert_eq!(fresh_template.number, None);
     let mut view = block(&board_id, BlockType::View, "view");
     test.insert_block(&mut view, &user_id)
         .await
@@ -195,28 +204,79 @@ async fn a_block_that_becomes_a_card_takes_the_next_number_and_one_that_stops_lo
     assert_eq!(view.number, None);
 
     let to_template = patch_fields("isTemplate", Value::Bool(true));
-    test.patch_block(&card.id, &to_template, &user_id)
+    test.patch_block(&first.id, &to_template, &user_id)
         .await
         .expect("the card becomes a template");
+    let as_template = test.get_block(&first.id).await.expect("stored");
     assert_eq!(
-        number_of(&test, &card.id).await,
-        None,
-        "a template has none"
+        as_template.number,
+        Some(1),
+        "DB blocks.number is preserved while it is a template"
     );
+    assert_eq!(
+        as_template.shown_number(),
+        None,
+        "a template hides its number from clients"
+    );
+    assert_eq!(
+        test.get_card_by_number(&board_id, 1).await.expect("asked"),
+        None,
+        "get_card_by_number excludes templates"
+    );
+
+    // Creating a new card while #1 is a template takes #2 without colliding.
+    let second = new_card(&test, &board_id, "second", &user_id).await;
+    assert_eq!(second.number, Some(2));
+
+    // Duplicating a template that holds a preserved number does not collide:
+    // a copy takes a new number, and a template duplicate takes none.
+    let copied = test
+        .duplicate_block(&board_id, &first.id, &user_id, DuplicateAs::Copy)
+        .await
+        .expect("copy from template");
+    assert_eq!(copied[0].number, Some(3));
+    let dup_template = test
+        .duplicate_block(&board_id, &first.id, &user_id, DuplicateAs::Template)
+        .await
+        .expect("template copy from template");
+    assert_eq!(dup_template[0].number, None);
+
+    // Deleting the template to trash and restoring it preserves its hidden number.
+    test.delete_block(&first.id, &user_id)
+        .await
+        .expect("template deleted");
+    let restored = test
+        .undelete_block(&first.id, &user_id)
+        .await
+        .expect("template restored");
+    assert_eq!(restored.number, Some(1));
+    assert_eq!(restored.shown_number(), None);
     assert_eq!(
         test.get_card_by_number(&board_id, 1).await.expect("asked"),
         None
     );
+
+    // Turning it back into an ordinary card restores #1 without consuming #4.
     let to_card = patch_fields("isTemplate", Value::Bool(false));
-    test.patch_block(&card.id, &to_card, &user_id)
+    test.patch_block(&first.id, &to_card, &user_id)
         .await
-        .expect("the template becomes a card");
+        .expect("the template becomes a card again");
+    assert_eq!(number_of(&test, &first.id).await, Some(1));
     assert_eq!(
-        number_of(&test, &card.id).await,
-        Some(2),
-        "a new one: its number is not given again, also not to it"
+        test.get_card_by_number(&board_id, 1)
+            .await
+            .expect("asked")
+            .map(|found| found.id),
+        Some(first.id.clone())
     );
 
+    // A template that was created without a number takes the next number (#4) when made a card.
+    test.patch_block(&fresh_template.id, &to_card, &user_id)
+        .await
+        .expect("fresh template becomes a card");
+    assert_eq!(number_of(&test, &fresh_template.id).await, Some(4));
+
+    // Non-card blocks still lose their number when changing type away from card.
     let to_type = |block_type| BlockPatch {
         block_type: Some(block_type),
         ..BlockPatch::default()
@@ -224,14 +284,46 @@ async fn a_block_that_becomes_a_card_takes_the_next_number_and_one_that_stops_lo
     test.patch_block(&view.id, &to_type(BlockType::Card), &user_id)
         .await
         .expect("the view becomes a card");
-    assert_eq!(number_of(&test, &view.id).await, Some(3));
+    assert_eq!(number_of(&test, &view.id).await, Some(5));
     test.patch_block(&view.id, &to_type(BlockType::View), &user_id)
         .await
         .expect("and a view again");
     assert_eq!(number_of(&test, &view.id).await, None);
     assert_eq!(
         new_card(&test, &board_id, "next", &user_id).await.number,
-        Some(4)
+        Some(6)
+    );
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn a_board_deleted_with_a_template_holding_a_preserved_number_restores_cleanly() {
+    let test = common::setup().await;
+    let (user_id, _, board_id) = board_of_a_user(&test).await;
+    let first = new_card(&test, &board_id, "first", &user_id).await;
+    let second = new_card(&test, &board_id, "second", &user_id).await;
+    assert_eq!((first.number, second.number), (Some(1), Some(2)));
+
+    let to_template = patch_fields("isTemplate", Value::Bool(true));
+    test.patch_block(&first.id, &to_template, &user_id)
+        .await
+        .expect("first becomes a template");
+    test.delete_container(&board_id, &user_id)
+        .await
+        .expect("board deleted");
+    test.undelete_container(&board_id, &user_id)
+        .await
+        .expect("board restored");
+
+    let to_card = patch_fields("isTemplate", Value::Bool(false));
+    test.patch_block(&first.id, &to_card, &user_id)
+        .await
+        .expect("first becomes a card again");
+    assert_eq!(number_of(&test, &first.id).await, Some(1));
+    assert_eq!(
+        new_card(&test, &board_id, "third", &user_id).await.number,
+        Some(3),
+        "restoring #1 did not consume #3"
     );
     test.teardown().await;
 }

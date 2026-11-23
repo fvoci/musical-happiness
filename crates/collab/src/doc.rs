@@ -6,13 +6,13 @@ use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{Doc, ReadTxn, StateVector, Transact};
 
-use crate::block_cache::BlockCache;
 use crate::build::{from_body, new_doc};
 use crate::project::to_body;
 use crate::repair::{InPlaceRepair, Repair};
-use crate::settle::{SettlePass, rebuild, settle_keeping};
+use crate::settle::{SettlePass, rebuild, replay_tail, settle_keeping};
 use crate::take::{
-    TakeError, TakeInPlaceError, TakenCache, from_state_cached, take_update, take_update_in_place,
+    DocCache, TakeError, TakeInPlaceError, TakenCache, from_state_cached, take_update,
+    take_update_in_place,
 };
 use crate::update::{UpdateError, UpdateLimits, state_of};
 
@@ -24,7 +24,7 @@ use crate::update::{UpdateError, UpdateLimits, state_of};
 #[derive(Debug)]
 pub struct BodyDoc {
     doc: Doc,
-    cache: Option<Box<BlockCache>>,
+    cache: Option<Box<DocCache>>,
 }
 
 /// A document that an in-place update ([`BodyDoc::take_in_place`]) or cached state open
@@ -34,13 +34,15 @@ pub struct BodyDoc {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct TakenInPlace {
-    /// The updated or opened document, with its incremental block cache up to date.
+    /// The updated or opened document, with its incremental caches up to date.
     pub doc: BodyDoc,
     /// What a repair changed to make it a body ([`InPlaceRepair`]).
     pub repair: InPlaceRepair,
-    /// Its whole state ([`BodyDoc::state`]), already encoded.
-    pub state: Vec<u8>,
-    /// The size of its state ([`BodyDoc::state`]), in bytes.
+    /// Its whole state ([`BodyDoc::state`]) when already encoded (always `Some` from
+    /// [`BodyDoc::from_state`] and on fallback/settle passes; `None` when the incremental
+    /// Pass 5–6 cache avoided re-encoding the full document).
+    pub state: Option<Vec<u8>>,
+    /// The exact size of its state ([`BodyDoc::state`]), in bytes.
     pub state_bytes: usize,
     /// How many changes it holds in total.
     pub changes: u64,
@@ -56,6 +58,10 @@ pub struct TakenInPlace {
     /// Whether `doc` must be made again from its body ([`BodyDoc::from_body`]) before
     /// its state is stored or another update is taken ([`crate::Taken::remake`]).
     pub remake: bool,
+    /// Whether the applied update or repair actually mutated the document.
+    pub mutated: bool,
+    /// Placing steps charged to this update (`0` when `limits.placing_steps` is `None`).
+    pub placing_steps: u64,
 }
 
 /// A document that an update, or the reading of a stored state, left.
@@ -162,7 +168,7 @@ impl BodyDoc {
     pub fn new() -> Self {
         Self {
             doc: new_doc(),
-            cache: Some(Box::new(BlockCache::new())),
+            cache: Some(Box::new(DocCache::empty())),
         }
     }
 
@@ -196,23 +202,27 @@ impl BodyDoc {
         take_update(&self.doc, update, limits).map(Changed::from)
     }
 
-    /// Takes a client's update into `self` in place, using `prior_state` and
-    /// `prior_changes` to charge placing steps without copying `self` and projecting
+    /// Takes a client's update into `self` in place, using `prior_changes` and the
+    /// incremental reading cache (or `prior_state` / lazy encoding only when needed)
+    /// to charge placing steps and validate Pass 5–6 without copying `self`, projecting
     /// only the top-level blocks touched by `update`.
     ///
-    /// `prior_state` and `prior_changes` must match `self` (as returned by opening via
-    /// [`BodyDoc::from_state`], [`BodyDoc::from_body`] + [`state_counts`], or the
-    /// preceding [`TakenInPlace`]); passing a stale or underestimated `prior_changes`
-    /// would undercharge `placing_steps`.
+    /// Pass `prior_state = None` when the caller relies on the incremental cache and lazy
+    /// state encoding (avoiding `state_of` on the hot path), or `Some(bytes)` when the
+    /// exact current encoded state is already in hand. `prior_changes` (and `prior_state`
+    /// when `Some`) must match `self` (as returned by [`BodyDoc::from_state`],
+    /// [`BodyDoc::from_body`] + [`state_counts`], or the preceding [`TakenInPlace`]);
+    /// passing a stale or underestimated `prior_changes` would undercharge `placing_steps`.
     ///
     /// # Errors
     ///
     /// Returns [`BodyTakeError::Untouched`] with `self` intact if the update was
     /// refused before mutation, or [`BodyTakeError::Dirty`] if the update was refused
-    /// during or after mutation (callers must rebuild with [`BodyDoc::rebuild`]).
+    /// during or after mutation (callers must rebuild with [`BodyDoc::rebuild`] or
+    /// [`BodyDoc::replay_checkpoint`]).
     pub fn take_in_place(
         self,
-        prior_state: &[u8],
+        prior_state: Option<&[u8]>,
         prior_changes: u64,
         update: &[u8],
         limits: &UpdateLimits,
@@ -248,6 +258,22 @@ impl BodyDoc {
         rebuild(base, since).map(|doc| Self { doc, cache: None })
     }
 
+    /// Decodes a checkpoint `base` state and replays the accepted updates/repairs `since`
+    /// it in a single decode pass without performing canonicalizing re-decodes (callers
+    /// that need settled caches or `READING_STEPS` verification on unsettled tails pass
+    /// the resulting state to [`BodyDoc::from_state`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UpdateError`] if `base` or any entry in `since` cannot be decoded or
+    /// applied.
+    pub fn replay_checkpoint<U: AsRef<[u8]>>(
+        base: &[u8],
+        since: &[U],
+    ) -> Result<Self, UpdateError> {
+        replay_tail(base, since).map(|doc| Self { doc, cache: None })
+    }
+
     /// Re-reads `self`'s encoded `state` and verifies it settles to the same state
     /// ([`crate::same_state`]) within `limits`, run at fold and close instead of on
     /// every live update.
@@ -265,12 +291,20 @@ impl BodyDoc {
     /// Returns [`SettleError`] with `self` intact if `state` cannot be settled within
     /// `limits`.
     pub fn settle(self, state: Vec<u8>, limits: &UpdateLimits) -> Result<SettledDoc, SettleError> {
-        let cache = self.cache;
+        let mut cache = self.cache;
         match settle_keeping(self.doc, state, limits) {
             Ok((settled, pass)) => {
-                let state_bytes = settled.state.len();
+                let state = settled.state.unwrap_or_else(|| state_of(&settled.doc));
+                let state_bytes = state.len();
                 let next_cache = match pass {
-                    SettlePass::Unchanged => cache,
+                    SettlePass::Unchanged => {
+                        if let Some(doc_cache) = cache.as_deref_mut()
+                            && limits.reading_steps.is_some()
+                        {
+                            doc_cache.reading = settled.reading_cache;
+                        }
+                        cache
+                    }
                     SettlePass::Converged => None,
                 };
                 Ok(SettledDoc {
@@ -278,7 +312,7 @@ impl BodyDoc {
                         doc: settled.doc,
                         cache: next_cache,
                     },
-                    state: settled.state,
+                    state,
                     state_bytes,
                     changes: settled.changes,
                     client_changes: settled.client_changes,
@@ -342,7 +376,7 @@ impl BodyDoc {
     #[must_use]
     pub fn file_ids(&self) -> Vec<String> {
         if let Some(cache) = &self.cache {
-            return cache.file_ids_in_order(&self.doc);
+            return cache.blocks.file_ids_in_order(&self.doc);
         }
         to_body(&self.doc)
             .ok()
@@ -386,6 +420,8 @@ impl From<TakenCache> for TakenInPlace {
             reading_steps: taken.reading_steps,
             steps_ahead: taken.steps_ahead,
             remake: taken.remake,
+            mutated: taken.mutated,
+            placing_steps: taken.placing_steps,
         }
     }
 }

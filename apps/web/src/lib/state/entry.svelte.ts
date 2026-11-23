@@ -7,11 +7,11 @@
  * while the entry is made, then put into the room's document once that has
  * arrived (`takeDraft`: the editor of the room appends it, after what another
  * device wrote there meanwhile). A draft the room never took (the room did
- * not open, the page went first) is written as the entry's body instead
- * (`patchEntry`), after the body the entry has (`appended`), with the version
- * it was read at; the draft is this store's until that write is answered
- * (`flushing`: nobody writes in it, and the room's editor waits), and is
- * kept, to be written again, where it was refused.
+ * not open, the page went first) is appended atomically after whatever the
+ * entry holds on the server (`patchEntry` with `appendBody`); the draft is
+ * this store's until that write is answered (`flushing`: nobody writes in it,
+ * and the room's editor waits), and is kept, to be written again, where it
+ * was refused.
  *
  * An entry the reader emptied here, or made here and left blank, and leaves
  * blank with nobody else in its room, is deleted as it is left (`closeBody`,
@@ -46,16 +46,6 @@ export interface EntryHost {
  */
 export function isBlank(entry: DayNotes, blankBody: boolean): boolean {
   return blankBody && entry.mood === null && entry.weather === '' && entry.place === '';
-}
-
-/** A body with what was drafted after it; the draft alone where the body holds nothing. */
-export function appended(body: DocNode | null, draft: DocNode): DocNode {
-  const held = (body?.content ?? []).filter(
-    (node) => node.type !== 'paragraph' || (node.content?.length ?? 0) > 0,
-  );
-  return body && held.length > 0
-    ? { ...body, content: [...(body.content ?? []), ...(draft.content ?? [])] }
-    : draft;
 }
 
 /** The notes of a day nobody marked. */
@@ -409,26 +399,19 @@ export class EntryStore {
     }
   }
 
-  /** The draft after the body the entry has, with `notes`; read again once where it changed meanwhile. */
-  async #writeDraft(
+  /** Appends the draft after whatever the entry holds on the server, with `notes`, in one transaction. */
+  #writeDraft(
     diaries: Diaries,
     entry: DiaryEntryDetail,
     { draft, notes }: { draft: DocNode; notes: Partial<DayNotes> },
     options: { keepalive?: boolean },
   ): Promise<DiaryEntryDetail> {
-    const write = (read: DiaryEntryDetail): Promise<DiaryEntryDetail> =>
-      diaries.patchEntry(
-        this.host.diaryId,
-        read.id,
-        { ...notes, body: appended(read.body, draft), readAt: read.updateAt },
-        options,
-      );
-    try {
-      return await write(entry);
-    } catch (error) {
-      if (!isBackendError(error) || error.status !== 409) throw error;
-      return write(await diaries.entry(this.host.diaryId, entry.id));
-    }
+    return diaries.patchEntry(
+      this.host.diaryId,
+      entry.id,
+      { ...notes, appendBody: draft },
+      options,
+    );
   }
 
   async #delete(entry: DiaryEntryDetail): Promise<void> {
@@ -446,6 +429,11 @@ export class EntryStore {
       // Kept, it keeps what was emptied in it.
       void this.#notes.send();
     }
+  }
+
+  /** Waits until what the reader typed in the body's room has reached it. */
+  async settleBody(): Promise<void> {
+    await this.#bodyDoc?.settle();
   }
 
   retryBody(): void {

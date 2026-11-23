@@ -4,14 +4,15 @@
 //! changed at all.
 
 use fvoci_model::{
-    Block, BlockType, Container, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryEntry, DiaryMaking,
-    DiaryRun, ENTRIES_PER_DIARY, MonthDay, NewDiaryEntry, new_id,
+    Block, BlockType, Container, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryEntry,
+    DiaryEntryPatch, DiaryMaking, DiaryRun, ENTRIES_PER_DIARY, MonthDay, NewDiaryEntry, new_id,
 };
 use fvoci_store::DiaryMade;
 
 use super::App;
 use super::blocks::{ChangeAction, ChangeNotification, log_notification};
 use super::list_page::ListPage;
+use crate::collab::Deletion;
 use crate::error::AppError;
 
 impl App {
@@ -151,6 +152,98 @@ impl App {
         Ok(self.store().get_diary_runs(diary_id).await?)
     }
 
+    /// Changes an entry of `diary_id`, coordinating with its collaborative room when
+    /// `patch` replaces, clears, or appends to the body, and announces the updated
+    /// entry to websocket listeners and webhooks in the background.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error if the diary or entry does not exist, a bad request if
+    /// the patch or combined appended body fails validation or body limits, a conflict
+    /// if `readAt` predates the last body change, or `document_unavailable` if pending
+    /// room edits cannot be flushed first.
+    pub async fn patch_diary_entry(
+        &self,
+        diary_id: &str,
+        entry_id: &str,
+        patch: &DiaryEntryPatch,
+        modified_by: &str,
+        notification: ChangeNotification,
+    ) -> Result<Block, AppError> {
+        let entry = self.diary_entry_of(diary_id, entry_id).await?;
+        let container = self.store().get_container(&entry.container_id).await?;
+        let body_field = if patch.append_body.is_some() {
+            "appendBody"
+        } else {
+            "body"
+        };
+        let patched = if patch.has_body_write() {
+            let (diary_id, entry_id, patch, modified_by) = (
+                diary_id.to_owned(),
+                entry_id.to_owned(),
+                patch.clone(),
+                modified_by.to_owned(),
+            );
+            self.collab()
+                .write_whole(self, vec![entry_id.clone()], async move |app| {
+                    app.store()
+                        .patch_diary_entry(&diary_id, &entry_id, &patch, &modified_by)
+                        .await
+                        .map_err(|error| map_entry_patch_error(error, body_field))
+                })
+                .await?
+        } else {
+            let _structure = self.collab().changing_structure(self).await;
+            self.store()
+                .patch_diary_entry(diary_id, entry_id, patch, modified_by)
+                .await
+                .map_err(|error| map_entry_patch_error(error, body_field))?
+        };
+        self.tell_of_update(&container.workspace_id, &patched, notification);
+        Ok(patched)
+    }
+
+    /// Deletes an entry of `diary_id`: flushes any open collaborative room before
+    /// deciding whether the entry is completely empty (purged without entering the
+    /// trash) or carries content/notes (moved to the diary's trash), closes its room,
+    /// and notifies websocket listeners in the background.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error if the entry does not exist on `diary_id`, or the
+    /// store's error.
+    pub async fn delete_diary_entry(
+        &self,
+        diary_id: &str,
+        entry_id: &str,
+        modified_by: &str,
+        notification: ChangeNotification,
+    ) -> Result<(), AppError> {
+        let entry = self.diary_entry_of(diary_id, entry_id).await?;
+        let container = self.store().get_container(&entry.container_id).await?;
+        let (diary_id, removed, by) = (
+            diary_id.to_owned(),
+            entry_id.to_owned(),
+            modified_by.to_owned(),
+        );
+        self.collab()
+            .remove(self, Deletion::Block(removed.clone()), async move |app| {
+                Ok(app
+                    .store()
+                    .delete_diary_entry(&diary_id, &removed, &by)
+                    .await?)
+            })
+            .await?;
+        log_notification(notification, ChangeAction::Delete, entry_id);
+        let app = self.clone();
+        self.spawn_background(async move {
+            app.ws()
+                .broadcast_block_delete(&container.workspace_id, &entry.id, &entry.container_id)
+                .await;
+        });
+        Ok(())
+    }
+
     /// The diary's entries in the trash, one page of the list ([`ListPage`]).
     ///
     /// # Errors
@@ -211,6 +304,21 @@ impl App {
             app.tell_webhooks(&entry).await;
         });
     }
+}
+
+/// Maps `BodyFileNotOfContainer` to `body_field` (`"body"` or `"appendBody"`).
+fn map_entry_patch_error(error: fvoci_store::StoreError, body_field: &'static str) -> AppError {
+    if matches!(
+        &error,
+        fvoci_store::StoreError::InvalidBlock {
+            source: fvoci_model::BlockError::BodyFileNotOfContainer,
+            ..
+        }
+    ) {
+        return AppError::bad_request(fvoci_model::BlockError::BodyFileNotOfContainer)
+            .with_field(body_field);
+    }
+    AppError::from(error)
 }
 
 /// What a request for the entry of a day was answered with.

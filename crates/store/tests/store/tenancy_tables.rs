@@ -7,9 +7,9 @@ use std::path::Path;
 
 use fvoci_model::{
     AuditAction, BlockType, Category, CompletionChange, Container, ContainerKind, ContainerMember,
-    ContainerType, CourseLimits, LastPositionChange, NewUnit, STUDY_DAYS_WEEKDAYS, StudyDays,
-    SubscriberType, Subscription, UnitProgressChange, Upload, UploadPart, ValidatedCourseSchedule,
-    WorkspaceRole, new_id,
+    ContainerType, CourseLimits, LastPositionChange, NewUnit, NewUnitNote, NewUnitReview,
+    STUDY_DAYS_WEEKDAYS, StudyDays, SubscriberType, Subscription, UnitNoteKind, UnitProgressChange,
+    Upload, UploadPart, ValidatedCourseSchedule, WorkspaceRole, new_id,
 };
 use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
 use fvoci_store::{AuditEntry, DbType, SYSTEM_ORG_ID, SharingChange, Store, Tenant};
@@ -673,6 +673,30 @@ async fn a_course_with_progress(store: &Store, workspace_id: &str, user_id: &str
         )
         .await
         .expect("unit progress is stored");
+    store
+        .schedule_unit_review(
+            &course.id,
+            &unit.id,
+            user_id,
+            &NewUnitReview {
+                scheduled_date: "2026-11-25".to_owned(),
+                interval_days: 1,
+            },
+        )
+        .await
+        .expect("unit review is stored");
+    store
+        .create_unit_note(
+            &course.id,
+            &unit.id,
+            user_id,
+            &NewUnitNote {
+                kind: UnitNoteKind::Question,
+                content: "why does RLS hold?".to_owned(),
+            },
+        )
+        .await
+        .expect("unit note is stored");
     store
         .upsert_course_schedule(
             &course.id,

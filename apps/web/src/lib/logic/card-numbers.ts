@@ -31,6 +31,22 @@ export function cardNumberOf(text: string): number | undefined {
   return number <= HIGHEST_NUMBER ? number : undefined;
 }
 
+/**
+ * The positive card number named by a `#`-prefixed search query (`#12`, or
+ * `#00012` normalized to `12`), matching the server's card-number search rule:
+ * `#` followed solely by ASCII digits whose value is at least 1 and at most
+ * `HIGHEST_NUMBER`. Returns `undefined` for bare digits, zero, mixed text, or
+ * overflow.
+ */
+export function hashCardNumberOf(text: string): number | undefined {
+  const match = /^#(\d+)$/.exec(text.trim());
+  if (!match?.[1]) return undefined;
+  const normalized = match[1].replace(/^0+/, '');
+  if (normalized === '' || normalized.length > 10) return undefined;
+  const number = Number(normalized);
+  return number <= HIGHEST_NUMBER ? number : undefined;
+}
+
 /** How a card's number is shown: `#12`. */
 export function cardNumberText(number: number): string {
   return `#${String(number)}`;

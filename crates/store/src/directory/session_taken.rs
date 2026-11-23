@@ -150,7 +150,7 @@ impl SessionTaken {
 /// What a workspace takes, from what was read of it: its organization's kind, the
 /// provider that organization takes sessions of and no other (empty for none), and
 /// whether the user, who is a member of it, has a password ([`HAS_PASSWORD`]).
-pub(super) fn taken(kind: OrgKind, required_provider: String, password: &str) -> SessionTaken {
+pub(crate) fn taken(kind: OrgKind, required_provider: String, password: &str) -> SessionTaken {
     match kind {
         OrgKind::Personal => SessionTaken::of_space(password),
         OrgKind::Team => {
@@ -230,7 +230,7 @@ pub(crate) async fn memberships_of(
 
 /// The column that says whether the user `u` has a password, and nothing of it: empty
 /// for none.
-pub(super) const HAS_PASSWORD: &str = "CASE WHEN u.password_hash = '' THEN '' ELSE 'set' END";
+pub(crate) const HAS_PASSWORD: &str = "CASE WHEN u.password_hash = '' THEN '' ELSE 'set' END";
 
 #[cfg(test)]
 mod tests {

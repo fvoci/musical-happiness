@@ -240,13 +240,6 @@ impl Content {
         Pushed::New
     }
 
-    /// Adds nodes in order.
-    pub(crate) fn extend(&mut self, nodes: Vec<Value>) {
-        for node in nodes {
-            self.push(node);
-        }
-    }
-
     /// How many nodes there are.
     pub(crate) fn len(&self) -> usize {
         self.nodes.len()

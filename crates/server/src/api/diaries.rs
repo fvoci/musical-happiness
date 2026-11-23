@@ -16,6 +16,7 @@ use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+use super::body::decode_diary_entry_patch;
 use super::contract::params::Page as PageNumber;
 use super::contract::params::{
     DaysFrom, DaysTo, DiaryId, EntryId, MonthDayOfYear, OwnWorkspaceId, PerPage,
@@ -24,8 +25,8 @@ use super::contract::tag;
 use super::paging::paging_params;
 use super::workspace::{InDiary, InWorkspace};
 use super::{
-    ApiResult, created, decode_object, decode_with_document, json_response, no_content,
-    query_param, require_container_permission,
+    ApiResult, created, decode_object, json_response, no_content, query_param,
+    require_container_permission,
 };
 use crate::app::{App, ChangeNotification, EntryAnswer};
 use crate::auth::now_millis;
@@ -366,12 +367,18 @@ async fn handle_get_diary_entry(
 
 /// Change an entry
 ///
-/// Its mood, its weather, its place, or its whole body. A new body is sent with
-/// `readAt`, the `updateAt` of the entry as it was read: 409 if the entry has changed
-/// since, and nothing is changed. Where the body is being edited together (the same
-/// user in two windows), what was typed is written to the entry first, so a writer who
-/// read it before is refused and reads it again. The day of the entry does not change:
-/// the patch has no member for it.
+/// Its mood, its weather, its place, its whole body (`body`), or blocks appended after
+/// its current body (`appendBody`). `body` and `appendBody` cannot be sent together.
+/// A whole-body replacement (`body`) is sent with `readAt`, the `updateAt` of the entry
+/// as it was read: `readAt` is compared against when the entry's body last changed, so
+/// metadata-only patches (`mood`, `weather`, `place`) do not cause 409 conflicts while
+/// any change to the body does. `appendBody` appends inside one server transaction
+/// without requiring `readAt`, refusing (400 at `/appendBody`) if the combined body
+/// exceeds the body limits (`BODY_MAX_BYTES`, `BODY_MAX_NODES`, `BODY_MAX_DEPTH`).
+/// Where the body is being edited together (the same user in two windows), what was
+/// typed is written to the entry first, so a writer who read it before is refused (for
+/// `body`) or appended after the latest text (for `appendBody`). The day of the entry
+/// does not change: the patch has no member for it.
 #[utoipa::path(
     patch,
     path = "/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}",
@@ -395,17 +402,24 @@ async fn handle_patch_diary_entry(
         "access denied to patch entry",
     )
     .await?;
-    let (mut patch, document): (DiaryEntryPatch, _) = decode_with_document(&body)?;
-    patch.body = document;
+    let patch = decode_diary_entry_patch(&body)?;
     patch.check_request()?;
-    ws.app
-        .check_body_files(&diary_id, patch.body.new_body())
-        .await?;
+    if let Some(body) = patch.body.new_body() {
+        ws.app.check_body_files(&diary_id, Some(body)).await?;
+    } else if let Some(extra) = patch.append_body.as_ref()
+        && !ws.app.has_body_files(&diary_id, Some(extra)).await?
+    {
+        return Err(
+            AppError::bad_request(fvoci_model::BlockError::BodyFileNotOfContainer)
+                .with_field("appendBody"),
+        );
+    }
     let patched = ws
         .app
-        .patch_block(
+        .patch_diary_entry(
+            &diary_id,
             &entry.id,
-            &patch.into_block_patch(),
+            &patch,
             user_id,
             ChangeNotification::Send,
         )
@@ -416,9 +430,11 @@ async fn handle_patch_diary_entry(
 
 /// Delete an entry
 ///
-/// The entry goes to the trash of its diary, where it holds no day: the day takes a new
-/// entry. It is restored by `undeleteDiaryEntry`, and gone for good when the trash is
-/// emptied of it, as a card is.
+/// An entry with a body or any note (mood, weather or place) goes to the trash of its
+/// diary, where it holds no day so the day takes a new entry; it is restored by
+/// `undeleteDiaryEntry`, and gone for good when the trash is emptied of it. A completely
+/// empty entry (no body, no mood, no weather and no place) is removed for good without
+/// entering the trash.
 #[utoipa::path(
     delete,
     path = "/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}",
@@ -441,7 +457,7 @@ async fn handle_delete_diary_entry(
     )
     .await?;
     ws.app
-        .delete_block(&entry.id, user_id, ChangeNotification::Send)
+        .delete_diary_entry(&diary_id, &entry.id, user_id, ChangeNotification::Send)
         .await?;
     tracing::debug!(diary_id, entry_id, user_id, "DeleteDiaryEntry");
     Ok(no_content())

@@ -32,17 +32,18 @@ export function checkedBody(
   world: World,
   containerId: string,
   body: DocNode | null,
+  field: 'body' | 'appendBody' = 'body',
 ): DocNode | null {
   if (body === null) return null;
   const problems = validateDoc(body);
-  if (problems.length > 0) fail(400, problems[0] ?? 'invalid body', { field: 'body' });
+  if (problems.length > 0) fail(400, problems[0] ?? 'invalid body', { field });
   if (storedSize(body) > LIMITS.bodyBytes) {
-    fail(400, 'the body is too large', { field: 'body', limit: LIMITS.bodyBytes });
+    fail(400, 'the body is too large', { field, limit: LIMITS.bodyBytes });
   }
   for (const fileId of bodyFileIds(body)) {
     if (world.files.get(fileId)?.containerId !== containerId) {
       fail(400, 'an image or a file block names a file that is not of this board', {
-        field: 'body',
+        field,
       });
     }
   }

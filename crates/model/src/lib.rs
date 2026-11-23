@@ -55,6 +55,7 @@ mod team;
 mod time_entry;
 mod unit;
 mod unit_progress;
+mod unit_review;
 mod upload;
 mod user;
 mod workspace;
@@ -124,16 +125,17 @@ pub use course_schedule::{
     study_dates_in_range, today_in_time_zone,
 };
 pub use date_value::{
-    DateValueError, check_date_value, date_property_ids, day_at, days_between, move_dates,
-    rewrite_previous_date_values,
+    DateValueError, add_days, check_date_value, date_property_ids, day_at, days_between,
+    is_calendar_date, move_dates, rewrite_previous_date_values,
 };
 pub use deleted_item::DeletedItem;
 pub use diary::{
     DAYS_PER_LIST, DIARIES_PER_SPACE, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryEntry,
-    DiaryEntryPatch, DiaryMaking, DiaryRun, ENTRIES_PER_DIARY, ENTRY_DATE_FIELD, ENTRY_DAYS_AHEAD,
-    ENTRY_MOOD_FIELD, ENTRY_NOTE_MAX_CHARS, ENTRY_PLACE_FIELD, ENTRY_WEATHER_FIELD, MonthDay, Mood,
-    MoodChange, NewDiaryEntry, ParseDiaryDateError, ParseMonthDayError, ParseMoodError, entry_date,
-    entry_mood,
+    DiaryEntryPatch, DiaryMaking, DiaryRun, ENTRIES_PER_DIARY, ENTRY_BODY_UPDATED_AT_FIELD,
+    ENTRY_DATE_FIELD, ENTRY_DAYS_AHEAD, ENTRY_MOOD_FIELD, ENTRY_NOTE_MAX_CHARS, ENTRY_PLACE_FIELD,
+    ENTRY_WEATHER_FIELD, MonthDay, Mood, MoodChange, NewDiaryEntry, ParseDiaryDateError,
+    ParseMonthDayError, ParseMoodError, entry_body_updated_at, entry_date, entry_mood,
+    is_empty_entry,
 };
 pub use file_info::{FileInfo, FileKey, is_storage_path};
 pub use file_lease::{FileLease, FileLeaseRequest, HeldFileLease};
@@ -207,6 +209,14 @@ pub use unit::{
 pub use unit_progress::{
     CompletionChange, CourseProgressSummary, LastPositionChange, MemberCourseProgress,
     UNIT_PROGRESS_POSITION_MAX_CHARS, UnitProgress, UnitProgressChange, UnitProgressUpdate,
+};
+pub use unit_review::{
+    COURSE_REVIEW_INTERVALS_PROPERTY, CompleteUnitReview, CompletedUnitReview, CreateUnitNote,
+    DEFAULT_REVIEW_INTERVALS, MAX_REVIEW_INTERVAL_DAYS, MIN_REVIEW_INTERVAL_DAYS, NewUnitNote,
+    NewUnitReview, ParseReviewStatusError, ParseUnitNoteKindError, PatchUnitNote,
+    ReviewStatusFilter, ScheduleUnitReview, TodayReviewItem, UNIT_NOTE_CONTENT_MAX_CHARS, UnitNote,
+    UnitNoteChange, UnitNoteKind, UnitReview, course_review_intervals,
+    suggested_next_interval_days,
 };
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{LoginOrigin, Me, Session, User, UserPreferencesPatch};
