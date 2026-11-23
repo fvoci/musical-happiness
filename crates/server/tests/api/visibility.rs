@@ -897,6 +897,56 @@ fn the_people_of_a_workspace(me: &str) -> Vec<(Method, String, Value)> {
     ]
 }
 
+fn time_entry_requests() -> Vec<(Method, String, Value)> {
+    vec![
+        (
+            Method::PATCH,
+            "/users/me/time/entries/{}".to_owned(),
+            json!({"note": "x"}),
+        ),
+        (
+            Method::DELETE,
+            "/users/me/time/entries/{}".to_owned(),
+            Value::Null,
+        ),
+        (
+            Method::GET,
+            "/users/me/time/entries?blockId={}".to_owned(),
+            Value::Null,
+        ),
+        (
+            Method::GET,
+            "/users/me/time/entries?containerId={}".to_owned(),
+            Value::Null,
+        ),
+        (
+            Method::POST,
+            "/users/me/time/start".to_owned(),
+            json!({"workspaceId": "{}", "kind": "work"}),
+        ),
+        (
+            Method::POST,
+            "/users/me/time/start".to_owned(),
+            json!({"containerId": "{}", "kind": "work"}),
+        ),
+        (
+            Method::POST,
+            "/users/me/time/start".to_owned(),
+            json!({"blockId": "{}", "kind": "work"}),
+        ),
+        (
+            Method::POST,
+            "/users/me/time/entries".to_owned(),
+            json!({"workspaceId": "{}", "kind": "study", "startedAt": 1, "endedAt": 2}),
+        ),
+        (
+            Method::POST,
+            "/users/me/time/entries".to_owned(),
+            json!({"blockId": "{}", "kind": "study", "startedAt": 1, "endedAt": 2}),
+        ),
+    ]
+}
+
 /// Text that is no identifier answers as an identifier of nothing, also where the asker
 /// is allowed everything: on their own board, in their own workspace, about themselves. An
 /// identifier column takes no such text, and no route may let that show: not as a 500,
@@ -1055,6 +1105,7 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
     ];
     requests.extend(the_people_of_a_workspace(me));
     requests.extend(organization_requests(org));
+    requests.extend(time_entry_requests());
 
     let unknown = new_id();
     for (method, path, body) in requests {

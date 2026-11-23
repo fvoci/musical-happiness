@@ -417,9 +417,10 @@ impl Store {
 ///
 /// `meeting_attendance` and `course_meetings` (`presenter_id`, `host_id`) are intentionally
 /// excluded: shared study meeting history stays under the erased user's tombstone identifier.
-const PERSONAL: [(&str, &str); 13] = [
+const PERSONAL: [(&str, &str); 14] = [
     ("notifications", "recipient_id"),
     ("notification_outbox", "recipient_id"),
+    ("time_entries", "user_id"),
     ("user_identities", "user_id"),
     ("email_changes", "user_id"),
     ("email_reverts", "user_id"),
@@ -760,6 +761,13 @@ pub(crate) async fn leave_organization(
     trash::forget_watcher_of_organization(scope, user_id).await?;
     crate::unit_progress::forget_user_in_organization(scope, user_id).await?;
     crate::course_exams::forget_user_in_organization(scope, user_id).await?;
+    // Serialize with concurrent `start_time_entry` / `create_time_entry` (which hold
+    // `users`) so an in-flight timer write cannot insert an orphan after we clear rows.
+    crate::users::hold_user_for_cleanup(scope, user_id).await?;
+    let mut sql = scope.sql("DELETE FROM time_entries WHERE user_id = ");
+    sql.bind(Id(user_id))
+        .push_bind(" AND org_id = ", scope.org()?);
+    scope.execute(sql).await?;
     let mut sql = scope.sql("DELETE FROM organization_members WHERE user_id = ");
     sql.bind(Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?);
@@ -807,6 +815,9 @@ async fn remove_organization(scope: &mut Scope<'_>) -> Result<Purged, StoreError
         removed.records += of_workspace.records;
         removed.files.extend(of_workspace.files);
     }
+    let mut sql = scope.sql("DELETE FROM time_entries WHERE org_id = ");
+    sql.bind(scope.org()?);
+    scope.execute(sql).await?;
     let mut sql = scope.sql("DELETE FROM sessions WHERE login_org_id = ");
     sql.bind(scope.org()?);
     scope.execute(sql).await?;

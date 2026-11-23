@@ -46,6 +46,8 @@ struct Named {
     team: String,
     /// What the member was told: that the founder named them in a card of the board.
     notification: String,
+    /// A running time entry the member started on the card.
+    time_entry: String,
 }
 
 /// What a plain member who is on the board is answered 404 in the first organization
@@ -141,6 +143,7 @@ fn operations() -> Vec<(String, String, String)> {
         | "deleteBoardsAndBlocks"
         | "deleteUpload"
         | "deleteCategory"
+        | "deleteTimeEntry"
         | "removeWorkspaceMember"
         | "removeMember" => 1,
         _ => 0,
@@ -165,6 +168,11 @@ impl Named {
         } else {
             &self.comment
         };
+        let entry_id = if template.starts_with("/api/v1/users/me/time/") {
+            &self.time_entry
+        } else {
+            &self.card
+        };
         template
             .trim_start_matches("/api/v1")
             .replace("{workspaceId}", &self.workspace)
@@ -183,7 +191,7 @@ impl Named {
             // No workspace of an organization has a diary: the board named as one is
             // none, in either organization.
             .replace("{diaryId}", &self.board)
-            .replace("{entryId}", &self.card)
+            .replace("{entryId}", entry_id)
             .replace("{monthDay}", "02-29")
             .replace("{fileId}", &self.file)
             .replace("{uploadId}", &self.upload)
@@ -209,6 +217,17 @@ impl Named {
             "importArchive" => json!({ "uploadId": self.upload }),
             "previewInvitation" => json!({ "token": self.invitation }),
             "patchMe" => json!({ "customName": "a member" }),
+            "startTimeEntry" => {
+                json!({ "workspaceId": self.workspace, "blockId": self.card, "kind": "work" })
+            }
+            "createTimeEntry" => json!({
+                "workspaceId": self.workspace,
+                "blockId": self.unit,
+                "kind": "lecture",
+                "startedAt": 1_000,
+                "endedAt": 2_000,
+            }),
+            "patchTimeEntry" => json!({ "note": "updated" }),
             _ => json!({}),
         }
     }
@@ -334,6 +353,14 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         .await
         .value();
     let team = team_on_board(&founder, &at, &board, &member_id).await;
+    let started_time = member
+        .post(
+            "/users/me/time/start",
+            &json!({"workspaceId": workspace, "blockId": card_id, "kind": "work"}),
+        )
+        .await
+        .value();
+    let time_entry = text(&started_time["entry"], "id");
     plain_member(server, &member_id, &workspace).await;
     Named {
         member,
@@ -360,6 +387,7 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         exam,
         team,
         notification,
+        time_entry,
     }
 }
 
@@ -601,6 +629,53 @@ async fn log_in(server: &TestServer, name: &str) -> Client {
     )
 }
 
+const READ_BY_A_MEMBER: &[&str] = &[
+    "getWorkspace",
+    "getCategories",
+    "getWorkspaceBoards",
+    "searchWorkspaceBoards",
+    "getContainer",
+    "getBlocks",
+    "getCards",
+    "getCard",
+    "getCardByNumber",
+    "getWikis",
+    "getPageTree",
+    "getPage",
+    "getCourses",
+    "getUnitTree",
+    "getUnit",
+    "getMyCourseProgress",
+    "getCourseProgressSummary",
+    "listCourseMeetings",
+    "listCourseExams",
+    "getUnitComments",
+    "getUnitCommentVersions",
+    "getUnitBodyVersions",
+    "getUnitBodyVersion",
+    "getPageComments",
+    "getPageCommentVersions",
+    "getPageBodyVersions",
+    "getPageBodyVersion",
+    "getCardBodyVersions",
+    "getCardBodyVersion",
+    "getUpload",
+    "getSharedContainer",
+    "getSharedCards",
+    "getSharedPageTree",
+    "getSharedPage",
+    "getSharedUnitTree",
+    "getSharedUnit",
+    "getTemplates",
+    "getWorkspaceUsers",
+    "resolveReferences",
+    "getReferencesTo",
+    "searchReferences",
+    "getMyMemberships",
+    "getActiveTimeEntry",
+    "listTimeEntries",
+];
+
 #[tokio::test]
 async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizations() {
     if db_type_of_the_tests() != DbType::Postgres {
@@ -624,50 +699,7 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
     );
     // What a member reads of their workspace and its board is there for them in the
     // second one too.
-    for read in [
-        "getWorkspace",
-        "getCategories",
-        "getWorkspaceBoards",
-        "searchWorkspaceBoards",
-        "getContainer",
-        "getBlocks",
-        "getCards",
-        "getCard",
-        "getCardByNumber",
-        "getWikis",
-        "getPageTree",
-        "getPage",
-        "getCourses",
-        "getUnitTree",
-        "getUnit",
-        "getMyCourseProgress",
-        "getCourseProgressSummary",
-        "listCourseMeetings",
-        "listCourseExams",
-        "getUnitComments",
-        "getUnitCommentVersions",
-        "getUnitBodyVersions",
-        "getUnitBodyVersion",
-        "getPageComments",
-        "getPageCommentVersions",
-        "getPageBodyVersions",
-        "getPageBodyVersion",
-        "getCardBodyVersions",
-        "getCardBodyVersion",
-        "getUpload",
-        "getSharedContainer",
-        "getSharedCards",
-        "getSharedPageTree",
-        "getSharedPage",
-        "getSharedUnitTree",
-        "getSharedUnit",
-        "getTemplates",
-        "getWorkspaceUsers",
-        "resolveReferences",
-        "getReferencesTo",
-        "searchReferences",
-        "getMyMemberships",
-    ] {
+    for &read in READ_BY_A_MEMBER {
         assert_eq!(
             of_second.get(read),
             Some(&200),

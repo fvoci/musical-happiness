@@ -6,11 +6,14 @@ use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{Doc, ReadTxn, StateVector, Transact};
 
+use crate::block_cache::BlockCache;
 use crate::build::{from_body, new_doc};
 use crate::project::to_body;
-use crate::repair::Repair;
-use crate::settle::{rebuild, settle_keeping};
-use crate::take::{TakeError, TakeInPlaceError, from_state, take_update, take_update_in_place};
+use crate::repair::{InPlaceRepair, Repair};
+use crate::settle::{SettlePass, rebuild, settle_keeping};
+use crate::take::{
+    TakeError, TakeInPlaceError, TakenCache, from_state_cached, take_update, take_update_in_place,
+};
 use crate::update::{UpdateError, UpdateLimits, state_of};
 
 /// The Y document of a body. It is made from a stored body or state; callers either
@@ -21,6 +24,38 @@ use crate::update::{UpdateError, UpdateLimits, state_of};
 #[derive(Debug)]
 pub struct BodyDoc {
     doc: Doc,
+    cache: Option<Box<BlockCache>>,
+}
+
+/// A document that an in-place update ([`BodyDoc::take_in_place`]) or cached state open
+/// ([`BodyDoc::from_state`]) left, carrying a lightweight repair summary instead of a
+/// materialized full [`Body`] JSON tree (call [`BodyDoc::body`] when the full JSON
+/// document is needed, and [`BodyDoc::file_ids`] for referenced file IDs).
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct TakenInPlace {
+    /// The updated or opened document, with its incremental block cache up to date.
+    pub doc: BodyDoc,
+    /// What a repair changed to make it a body ([`InPlaceRepair`]).
+    pub repair: InPlaceRepair,
+    /// Its whole state ([`BodyDoc::state`]), already encoded.
+    pub state: Vec<u8>,
+    /// The size of its state ([`BodyDoc::state`]), in bytes.
+    pub state_bytes: usize,
+    /// How many changes it holds in total.
+    pub changes: u64,
+    /// The most changes one of its clients has, deleted ones too
+    /// ([`crate::MAX_CLIENT_CHANGES`]).
+    pub client_changes: u64,
+    /// The steps the Y library takes to read it from its state
+    /// ([`crate::READING_STEPS`]); 0 where the limits had no count of them.
+    pub reading_steps: u64,
+    /// The most steps the library may take to read it once one more client has
+    /// written into it ([`steps_ahead`]); 0 where the limits had no count.
+    pub steps_ahead: u64,
+    /// Whether `doc` must be made again from its body ([`BodyDoc::from_body`]) before
+    /// its state is stored or another update is taken ([`crate::Taken::remake`]).
+    pub remake: bool,
 }
 
 /// A document that an update, or the reading of a stored state, left.
@@ -125,7 +160,10 @@ impl BodyDoc {
     /// The document of a card without a body ([`crate::new_doc`]).
     #[must_use]
     pub fn new() -> Self {
-        Self { doc: new_doc() }
+        Self {
+            doc: new_doc(),
+            cache: Some(Box::new(BlockCache::new())),
+        }
     }
 
     /// The document of a stored body, written by a writer taken at random
@@ -134,16 +172,18 @@ impl BodyDoc {
     pub fn from_body(body: Option<&Body>) -> Self {
         body.map_or_else(Self::new, |body| Self {
             doc: from_body(body),
+            cache: None,
         })
     }
 
-    /// Opens a stored state ([`crate::from_state`]).
+    /// Opens a stored state ([`crate::from_state`]), validating block by block into the
+    /// incremental block cache without holding a whole-document JSON tree at once.
     ///
     /// # Errors
     ///
     /// As [`crate::from_state`].
-    pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Changed, TakeError> {
-        from_state(state, limits).map(Changed::from)
+    pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<TakenInPlace, TakeError> {
+        from_state_cached(state, limits).map(TakenInPlace::from)
     }
 
     /// The document with a client's update ([`crate::take_update`]). This one is as it
@@ -157,12 +197,13 @@ impl BodyDoc {
     }
 
     /// Takes a client's update into `self` in place, using `prior_state` and
-    /// `prior_changes` to charge placing steps without copying `self`.
+    /// `prior_changes` to charge placing steps without copying `self` and projecting
+    /// only the top-level blocks touched by `update`.
     ///
     /// `prior_state` and `prior_changes` must match `self` (as returned by opening via
     /// [`BodyDoc::from_state`], [`BodyDoc::from_body`] + [`state_counts`], or the
-    /// preceding [`Changed`]); passing a stale or underestimated `prior_changes` would
-    /// undercharge `placing_steps`.
+    /// preceding [`TakenInPlace`]); passing a stale or underestimated `prior_changes`
+    /// would undercharge `placing_steps`.
     ///
     /// # Errors
     ///
@@ -175,11 +216,18 @@ impl BodyDoc {
         prior_changes: u64,
         update: &[u8],
         limits: &UpdateLimits,
-    ) -> Result<Changed, BodyTakeError> {
-        match take_update_in_place(self.doc, prior_state, prior_changes, update, limits) {
-            Ok(taken) => Ok(Changed::from(taken)),
-            Err(TakeInPlaceError::Untouched(doc, error)) => Err(BodyTakeError::Untouched {
-                doc: Self { doc },
+    ) -> Result<TakenInPlace, BodyTakeError> {
+        match take_update_in_place(
+            self.doc,
+            self.cache,
+            prior_state,
+            prior_changes,
+            update,
+            limits,
+        ) {
+            Ok(taken) => Ok(TakenInPlace::from(taken)),
+            Err(TakeInPlaceError::Untouched(doc, cache, error)) => Err(BodyTakeError::Untouched {
+                doc: Self { doc, cache },
                 error,
             }),
             Err(TakeInPlaceError::Dirty(error)) => Err(BodyTakeError::Dirty(error)),
@@ -187,8 +235,8 @@ impl BodyDoc {
     }
 
     /// Rebuilds a document from a checkpoint `base` state (as returned by
-    /// [`BodyDoc::from_state`], [`BodyDoc::from_body`], or [`Changed::state`]) and the
-    /// accepted updates and repairs `since` it.
+    /// [`BodyDoc::from_state`], [`BodyDoc::from_body`], or [`TakenInPlace::state`]) and
+    /// the accepted updates and repairs `since` it.
     ///
     /// When `since` is empty, `base` is decoded directly without re-settling.
     ///
@@ -197,7 +245,7 @@ impl BodyDoc {
     /// Returns [`UpdateError`] if `base` or any update in `since` cannot be read or
     /// settled.
     pub fn rebuild<U: AsRef<[u8]>>(base: &[u8], since: &[U]) -> Result<Self, UpdateError> {
-        rebuild(base, since).map(|doc| Self { doc })
+        rebuild(base, since).map(|doc| Self { doc, cache: None })
     }
 
     /// Re-reads `self`'s encoded `state` and verifies it settles to the same state
@@ -205,8 +253,8 @@ impl BodyDoc {
     /// every live update.
     ///
     /// `state` must be the current encoded state of `self` (as returned by
-    /// [`BodyDoc::state`] or the preceding [`Changed::state`]); it is taken by value so
-    /// the buffer can be freed before any second settle pass.
+    /// [`BodyDoc::state`] or the preceding [`TakenInPlace::state`]); it is taken by value
+    /// so the buffer can be freed before any second settle pass.
     ///
     /// On any error (non-deterministic state, limit exceeded, or unreadable state), the
     /// original intact `self` comes back inside [`SettleError::doc`] so callers can
@@ -217,11 +265,19 @@ impl BodyDoc {
     /// Returns [`SettleError`] with `self` intact if `state` cannot be settled within
     /// `limits`.
     pub fn settle(self, state: Vec<u8>, limits: &UpdateLimits) -> Result<SettledDoc, SettleError> {
+        let cache = self.cache;
         match settle_keeping(self.doc, state, limits) {
-            Ok(settled) => {
+            Ok((settled, pass)) => {
                 let state_bytes = settled.state.len();
+                let next_cache = match pass {
+                    SettlePass::Unchanged => cache,
+                    SettlePass::Converged => None,
+                };
                 Ok(SettledDoc {
-                    doc: Self { doc: settled.doc },
+                    doc: Self {
+                        doc: settled.doc,
+                        cache: next_cache,
+                    },
                     state: settled.state,
                     state_bytes,
                     changes: settled.changes,
@@ -231,7 +287,7 @@ impl BodyDoc {
                 })
             }
             Err((doc, error)) => Err(SettleError {
-                doc: Self { doc },
+                doc: Self { doc, cache },
                 error,
             }),
         }
@@ -274,12 +330,54 @@ impl BodyDoc {
     pub fn body(&self) -> Result<Option<Body>, BodyError> {
         to_body(&self.doc)
     }
+
+    /// The stored file names referenced by `image` and `file` blocks in the document,
+    /// deduplicated in exact document order (matching [`Body::file_ids`]).
+    ///
+    /// When the incremental block cache is populated (after [`BodyDoc::new`],
+    /// [`BodyDoc::from_state`], [`BodyDoc::take_in_place`], or an unchanged
+    /// [`BodyDoc::settle`]), reads from the cache in `O(1)` when zero or one block holds
+    /// files without projecting the whole document; otherwise falls back to full
+    /// projection.
+    #[must_use]
+    pub fn file_ids(&self) -> Vec<String> {
+        if let Some(cache) = &self.cache {
+            return cache.file_ids_in_order(&self.doc);
+        }
+        to_body(&self.doc)
+            .ok()
+            .flatten()
+            .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
+            .unwrap_or_default()
+    }
 }
 
 impl From<crate::Taken> for Changed {
     fn from(taken: crate::Taken) -> Self {
         Self {
-            doc: BodyDoc { doc: taken.doc },
+            doc: BodyDoc {
+                doc: taken.doc,
+                cache: None,
+            },
+            repair: taken.repair,
+            state: taken.state,
+            state_bytes: taken.state_bytes,
+            changes: taken.changes,
+            client_changes: taken.client_changes,
+            reading_steps: taken.reading_steps,
+            steps_ahead: taken.steps_ahead,
+            remake: taken.remake,
+        }
+    }
+}
+
+impl From<TakenCache> for TakenInPlace {
+    fn from(taken: TakenCache) -> Self {
+        Self {
+            doc: BodyDoc {
+                doc: taken.doc,
+                cache: Some(taken.cache),
+            },
             repair: taken.repair,
             state: taken.state,
             state_bytes: taken.state_bytes,

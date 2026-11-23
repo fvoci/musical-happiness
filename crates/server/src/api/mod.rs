@@ -53,6 +53,7 @@ mod subscriptions;
 mod system;
 mod teams;
 mod templates;
+mod time_entries;
 mod trash;
 mod unit_comments;
 mod unit_progress;
@@ -168,6 +169,7 @@ fn routes() -> Routes {
         .merge(sharing::routes())
         .merge(subscriptions::routes())
         .merge(templates::routes())
+        .merge(time_entries::routes())
         .merge(uploads::routes())
         .merge(users::routes())
         .merge(workspace::routes());

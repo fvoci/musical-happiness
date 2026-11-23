@@ -85,6 +85,7 @@ mod subscriptions;
 mod teams;
 #[cfg(feature = "test-util")]
 pub mod testing;
+mod time_entries;
 mod trash;
 mod unit_progress;
 mod uploads;
@@ -119,6 +120,7 @@ pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use container_membership::Standing;
 pub use containers::{Joined, MemberChange, PublicContainers};
+pub use containers_and_blocks::{StreamBatch, StreamCreateError};
 pub use course_exams::ExamScoreOutcome;
 pub use course_meetings::{MeetingNotificationPlace, MeetingNotified};
 pub use courses::{UnitRestore, UnitWrite};
@@ -171,6 +173,7 @@ pub use signups::{
     SignupStart, Started,
 };
 pub use subscriptions::WatchedBlock;
+pub use time_entries::{NewStoredTimeEntry, TimeEntryFilter, TimeEntryPatchOutcome, TimeReader};
 pub use trash::{DeletedBlock, DeletedContainer, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
@@ -245,6 +248,16 @@ impl Tenant {
     /// goes back to the pool; and both go to the server with the `BEGIN`, in one
     /// message.
     fn begin_on_postgres(self) -> sqlx::AssertSqlSafe<String> {
+        self.postgres_begin("BEGIN")
+    }
+
+    /// Starts a read-only repeatable-read snapshot on PostgreSQL with the tenant settings
+    /// applied in the same round-trip.
+    fn begin_read_snapshot_on_postgres(self) -> sqlx::AssertSqlSafe<String> {
+        self.postgres_begin("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+    }
+
+    fn postgres_begin(self, begin: &str) -> sqlx::AssertSqlSafe<String> {
         // The identifier is a UUID as this function writes it: nothing of it can end
         // the string it is in.
         let (org, system) = match self {
@@ -253,7 +266,7 @@ impl Tenant {
             Self::System => (String::new(), "on"),
         };
         sqlx::AssertSqlSafe(format!(
-            "BEGIN; SELECT set_config('{ORG_SETTING}', '{org}', true), \
+            "{begin}; SELECT set_config('{ORG_SETTING}', '{org}', true), \
              set_config('{SYSTEM_SETTING}', '{system}', true)"
         ))
     }
@@ -763,6 +776,50 @@ impl Store {
                 }
             }
         }
+    }
+
+    /// Runs a multi-statement read in a single consistent snapshot (`BEGIN DEFERRED` on
+    /// SQLite, `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY` on PostgreSQL) without
+    /// acquiring SQLite's writer lock.
+    async fn read_snapshot<T>(
+        &self,
+        operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        let watch = self.watch(Access::Read);
+        let kept = self.versions_kept();
+        let result = match &self.inner.pool {
+            Pool::Sqlite(pool) => match Watch::acquire(watch.as_ref(), pool).await {
+                Ok(mut conn) => match conn.begin_with("BEGIN DEFERRED").await {
+                    Ok(mut tx) => {
+                        let mut scope = Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept);
+                        let res = operation(&mut scope).await;
+                        drop(tx);
+                        res
+                    }
+                    Err(error) => Err(error.into()),
+                },
+                Err(error) => Err(error.into()),
+            },
+            Pool::Postgres(pool) => match Watch::acquire(watch.as_ref(), pool).await {
+                Ok(mut conn) => match conn
+                    .begin_with(self.tenant.begin_read_snapshot_on_postgres())
+                    .await
+                {
+                    Ok(mut tx) => {
+                        let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept);
+                        let res = operation(&mut scope).await;
+                        drop(tx);
+                        res
+                    }
+                    Err(error) => Err(error.into()),
+                },
+                Err(error) => Err(error.into()),
+            },
+        };
+        if let Some(watch) = watch {
+            watch.finish(Access::Read, &result);
+        }
+        result
     }
 
     /// Runs `operation` in a transaction, committing if it succeeds and rolling back if

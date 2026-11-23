@@ -65,6 +65,24 @@
   const delTitle = $derived(
     deleting?.title || (isChapter ? m.course_chapter_untitled() : m.course_unit_untitled()),
   );
+
+  const completedByUser = $derived.by<Record<string, number>>(() => {
+    const counts: Record<string, number> = {};
+    for (const member of store.progressSummary?.members ?? []) {
+      counts[member.userId] = member.completedUnits;
+    }
+    return counts;
+  });
+
+  function memberProgress(userId: string): string | undefined {
+    const summary = store.progressSummary;
+    const raw = completedByUser[userId];
+    if (!summary || raw === undefined) return undefined;
+    const total = summary.totalUnits;
+    const completed = Math.min(raw, total);
+    const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return m.course_progress_rate({ percent, completed, total });
+  }
 </script>
 
 <MovePageDialog
@@ -122,6 +140,7 @@
     shareable={store}
     membersOnly={!store.canManage}
     readOnly={!store.canManage}
+    {memberProgress}
     linkOf={(readToken: string) =>
       new URL(router.href({ boardId: store.courseId, readToken }), location.href).href}
   />

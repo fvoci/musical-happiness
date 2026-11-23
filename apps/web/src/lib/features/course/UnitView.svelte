@@ -14,6 +14,8 @@
   import { isComposing } from '$lib/keys.ts';
   import type { CourseStore, CourseUnit, UnitStore } from '$lib/state/index.ts';
 
+  import UnitProgressControls from './UnitProgressControls.svelte';
+
   interface Props {
     course: CourseStore;
     store: UnitStore;
@@ -156,6 +158,7 @@
         </div>
       {/if}
     </div>
+    <UnitProgressControls {course} unitId={unit.id} />
   </header>
   {@render body(store)}
 </article>
