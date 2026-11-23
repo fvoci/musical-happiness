@@ -15,6 +15,7 @@
   import type { CourseStore, CourseUnit, UnitStore } from '$lib/state/index.ts';
 
   import UnitProgressControls from './UnitProgressControls.svelte';
+  import UnitScheduleControls from './UnitScheduleControls.svelte';
 
   interface Props {
     course: CourseStore;
@@ -159,6 +160,7 @@
       {/if}
     </div>
     <UnitProgressControls {course} unitId={unit.id} />
+    <UnitScheduleControls {course} {unit} />
   </header>
   {@render body(store)}
 </article>

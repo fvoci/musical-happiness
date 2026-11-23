@@ -53,6 +53,8 @@ export interface Route {
   /** A course of the workspace, in place of a board, and the unit shown. */
   courseId?: string | undefined;
   unitId?: string | undefined;
+  /** The workspace "Today's learning" screen (`/w/<workspace>/learning/today`). */
+  learningToday?: true;
   /**
    * The token of an invitation: the address is the link of one
    * (`/invite/<token>`), and names nothing else.
@@ -156,6 +158,9 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
   if (section === 'courses' && boardId !== undefined && cardId === undefined && w === 'w') {
     return { ...NOWHERE, workspaceId, courseId: boardId, unitId: viewId };
   }
+  if (section === 'learning' && boardId === 'today' && viewId === undefined && w === 'w') {
+    return { ...NOWHERE, workspaceId, learningToday: true };
+  }
   if (
     w !== 'w' ||
     workspaceId === undefined ||
@@ -213,6 +218,7 @@ function settled(route: Partial<Route>): Route {
   }
   const courseId = (workspaceId && route.courseId) || undefined;
   if (courseId) return { ...NOWHERE, workspaceId, courseId, unitId: route.unitId || undefined };
+  if (workspaceId && route.learningToday) return { ...NOWHERE, workspaceId, learningToday: true };
   const boardId = ((workspaceId || readToken) && route.boardId) || undefined;
   const viewId = (boardId && route.viewId) || undefined;
   const cardId = (viewId && route.cardId) || undefined;
@@ -255,6 +261,7 @@ export function routePath(route: Partial<Route>, basePath: string): string {
     year,
     courseId,
     unitId,
+    learningToday,
   } = settled(route);
   if (readToken && boardId) {
     const parts = [boardId, viewId, cardId].filter((part) => part !== undefined);
@@ -262,6 +269,8 @@ export function routePath(route: Partial<Route>, basePath: string): string {
     return `${buildUrl(`/${path}`, basePath)}?r=${encodeURIComponent(readToken)}`;
   }
   if (!workspaceId) return buildUrl('/', basePath);
+  if (learningToday)
+    return buildUrl(`/w/${encodeURIComponent(workspaceId)}/learning/today`, basePath);
   const named = (
     wikiId
       ? [wikiId, pageId]
@@ -324,6 +333,7 @@ export class Router {
         next.year === now.year &&
         next.courseId === now.courseId &&
         next.unitId === now.unitId &&
+        next.learningToday === now.learningToday &&
         next.invitation === now.invitation &&
         next.readToken === now.readToken &&
         next.shared === now.shared &&

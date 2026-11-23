@@ -23,6 +23,7 @@ import {
 import { summaryOfBody } from '../body-summary.ts';
 
 import { withPropertyOrder } from '../../logic/property-order.ts';
+import { isAmountUnit } from '../../logic/course-schedule.ts';
 import type { CalendarDate } from '../../logic/dates.ts';
 import type { CourseUnit } from '../course-types.ts';
 import type { DiaryEntry, Mood } from '../diary-types.ts';
@@ -138,13 +139,23 @@ export function pageOf(block: StoredBlock): WikiPage {
 
 /** A unit or chapter of a course as its outline lists it. */
 export function unitOf(block: StoredBlock): CourseUnit {
+  const kind = block.type === 'chapter' ? 'chapter' : 'unit';
+  const fields = block.fields as {
+    amount?: unknown;
+    amountUnit?: unknown;
+    scheduledDate?: unknown;
+  };
   return {
     id: block.id,
     courseId: block.containerId,
-    kind: block.type === 'chapter' ? 'chapter' : 'unit',
+    kind,
     parentId: block.parentId,
     title: block.title,
     order: orderOf(block),
+    amount: kind === 'unit' && typeof fields.amount === 'number' ? fields.amount : null,
+    amountUnit: kind === 'unit' && isAmountUnit(fields.amountUnit) ? fields.amountUnit : null,
+    scheduledDate:
+      kind === 'unit' && typeof fields.scheduledDate === 'string' ? fields.scheduledDate : null,
     createAt: block.createAt,
     updateAt: block.updateAt,
   };
