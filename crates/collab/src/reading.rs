@@ -53,10 +53,20 @@
 //! sessions that each wrote after the one before is as many steps as one made to be
 //! walked, and as slow ([`crate::READING_STEPS`]).
 
+#[cfg(any(test, feature = "test-util"))]
+mod inspect;
+mod origins;
+
 use std::collections::HashMap;
 
 use crate::placing::{PLACES_PER_STEP, VALUE_PLACES};
 use crate::scan::{self, Change, Content, Id, Parent, Refusal, Walked};
+
+#[cfg(any(test, feature = "test-util"))]
+pub use inspect::List;
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) use inspect::{lists, looked};
+pub(crate) use origins::check_update_origins;
 
 /// How many entries of the stack of waiting changes the library looks through in the
 /// time of a step of its walk: it compares the client of each, at 1.4 ns (8,000 clients
@@ -96,6 +106,30 @@ pub(crate) struct Read {
     pub(crate) ahead: u64,
     /// Where each client's changes end in it, by the lengths counted here.
     pub(crate) ends: Vec<Id>,
+    /// Whether any change in the state used non-YATA origins (e.g. `left == None` before
+    /// a non-head right neighbour, or a right neighbour unreachable from `left` through
+    /// conflicting items), requiring a settle re-read rather than skipping Passes 7–10.
+    pub(crate) needs_settle: bool,
+}
+
+/// Whether [`Replay`] enforces strict origin placement checks alongside counting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OriginPolicy {
+    /// Models raw `yrs` placement without rejecting misplaced origins (used by
+    /// raw-equivalence tests and public step queries).
+    Raw,
+    /// Refuses misplaced origins (`Refusal::Origin`): dangling/non-item neighbours,
+    /// non-type parents, cross-parent or cross-member neighbours, and identical or
+    /// inverted neighbours within the same change/squashable client run.
+    Strict,
+}
+
+/// Whether [`Replay::run`] resolves linked-list conflicts to count reading steps or
+/// only tracks parent/member placement in O(N) time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StepsMode {
+    Count(u64),
+    Skip,
 }
 
 /// Counts the steps the library takes to read `state` into an empty document, exactly
@@ -108,13 +142,30 @@ pub(crate) struct Read {
 /// changes it does not hold, or each other in a ring, which the library would leave
 /// waiting.
 pub(crate) fn count(state: &[u8], stop_past: u64) -> Result<Read, Refusal> {
-    let (walked, mut replay) = Replay::read(state)?;
-    replay.run(stop_past)?;
+    count_with(state, OriginPolicy::Raw, StepsMode::Count(stop_past))
+}
+
+/// As [`count`], also refusing any change whose origins or parent are misplaced
+/// ([`Refusal::Origin`]).
+pub(crate) fn count_strict(state: &[u8], stop_past: u64) -> Result<Read, Refusal> {
+    count_with(state, OriginPolicy::Strict, StepsMode::Count(stop_past))
+}
+
+/// Validates every change's origins and parent in `state` in linear time without
+/// walking conflict lists (for limits with `reading_steps: None`).
+pub(crate) fn check_origins(state: &[u8]) -> Result<Read, Refusal> {
+    count_with(state, OriginPolicy::Strict, StepsMode::Skip)
+}
+
+fn count_with(state: &[u8], origins: OriginPolicy, steps: StepsMode) -> Result<Read, Refusal> {
+    let (walked, mut replay) = Replay::read(state, origins)?;
+    replay.run(steps)?;
     Ok(Read {
         walked,
         steps: replay.steps(),
         ahead: replay.ahead(),
         ends: replay.ends(),
+        needs_settle: replay.needs_settle,
     })
 }
 
@@ -129,8 +180,18 @@ enum Holds {
     Letters,
     /// Values, which are no parent either.
     Values,
-    /// What is one place long, a shared type among it.
+    /// A shared type, which may be a parent.
+    Type,
+    /// What is one place long and is no shared type (bytes, embed, formatting).
     One,
+}
+
+impl Holds {
+    /// Whether `yrs` may squash adjacent items of this content of the same client into
+    /// a single block (exposing the double-split bug if `right_origin <= origin`).
+    fn is_squashable(self) -> bool {
+        matches!(self, Self::Letters | Self::Values | Self::Deleted)
+    }
 }
 
 /// Where a change says it belongs.
@@ -187,6 +248,9 @@ struct Piece {
     /// The marks of the last walk that went past it ([`Replay::mark`]).
     before: u32,
     conflicting: u32,
+    /// Monotonic group ID for pieces of the same wire change or contiguous squashable
+    /// client run, so inverted same-block origins are caught in O(1).
+    group: u32,
 }
 
 /// The changes of one client.
@@ -247,6 +311,9 @@ struct Replay<'bytes> {
     copied: u64,
     /// What the emptied sets had held.
     emptied: u64,
+    origins: OriginPolicy,
+    /// Set when any piece uses non-YATA origins so live takes fall back to a settle pass.
+    needs_settle: bool,
     names: Names<'bytes>,
 }
 
@@ -294,10 +361,8 @@ impl<'bytes> Replay<'bytes> {
         number
     }
 
-    /// Walks a state and keeps of each change what the reading asks, cut at every
-    /// place a change names.
-    fn read(state: &'bytes [u8]) -> Result<(Walked, Self), Refusal> {
-        let mut replay = Self {
+    fn empty(origins: OriginPolicy) -> Self {
+        Self {
             pieces: Vec::new(),
             clients: Vec::new(),
             runs: Vec::new(),
@@ -310,9 +375,29 @@ impl<'bytes> Replay<'bytes> {
             moved: 0,
             copied: 0,
             emptied: 0,
+            origins,
+            needs_settle: false,
             names: Names::default(),
-        };
-        let walked = scan::walk(state, |id, change| replay.keep(id, change))?;
+        }
+    }
+
+    /// Walks a state and keeps of each change what the reading asks, cut at every
+    /// place a change names.
+    fn read(state: &'bytes [u8], origins: OriginPolicy) -> Result<(Walked, Self), Refusal> {
+        let mut replay = Self::empty(origins);
+        let mut self_named = false;
+        let walked = scan::walk(state, |(client, begin), change| {
+            if origins == OriginPolicy::Strict {
+                let len = change.content.length();
+                if len > 0 && scan::names_self(client, begin, begin.saturating_add(len), change) {
+                    self_named = true;
+                }
+            }
+            replay.keep((client, begin), change);
+        })?;
+        if self_named {
+            return Err(Refusal::Origin);
+        }
         // A state begins every client's changes at their beginning.
         if walked.begins.iter().any(|(_, begin)| *begin > 0) {
             return Err(Refusal::Gap);
@@ -333,6 +418,7 @@ impl<'bytes> Replay<'bytes> {
             Content::Deleted(_) => Holds::Deleted,
             Content::Letters(_) => Holds::Letters,
             Content::Values(_) => Holds::Values,
+            Content::Type => Holds::Type,
             Content::One => Holds::One,
         };
         let named = match change.parent {
@@ -362,6 +448,7 @@ impl<'bytes> Replay<'bytes> {
             origin_item: NONE,
             before: 0,
             conflicting: 0,
+            group: 0,
         };
         let number = small(self.pieces.len());
         let run = &mut self.runs[index(piece.client)];
@@ -414,7 +501,7 @@ impl<'bytes> Replay<'bytes> {
             let places = u64::from(piece.end - piece.begin).saturating_mul(match piece.holds {
                 Holds::Letters => 1,
                 Holds::Values => VALUE_PLACES,
-                Holds::Collected | Holds::Deleted | Holds::One => 0,
+                Holds::Collected | Holds::Deleted | Holds::Type | Holds::One => 0,
             });
             let mut rest = piece;
             let here = u64::from(client) << 32;
@@ -445,6 +532,7 @@ impl<'bytes> Replay<'bytes> {
         }
         self.moved_for(client, cuts_of_client, pieces.len());
         self.pieces = pieces;
+        self.assign_groups();
     }
 
     /// Charges the cuts of a client's changes: each moves no more than the pieces the
@@ -519,7 +607,7 @@ impl<'bytes> Replay<'bytes> {
 
     /// Takes the changes as the library takes them (`Update::integrate`), until all
     /// are taken or more than `stop_past` steps are counted.
-    fn run(&mut self, stop_past: u64) -> Result<(), Refusal> {
+    fn run(&mut self, steps: StepsMode) -> Result<(), Refusal> {
         // The clients from the highest identifier down.
         let mut order: Vec<u32> = (0..small(self.runs.len()))
             .filter(|client| !self.runs[index(*client)].is_empty())
@@ -562,8 +650,10 @@ impl<'bytes> Replay<'bytes> {
                 }
                 block = self.next_of(missing).ok_or(Refusal::Gap)?;
             }
-            self.take(block)?;
-            if self.steps() > stop_past {
+            self.take(block, steps)?;
+            if let StepsMode::Count(stop_past) = steps
+                && self.steps() > stop_past
+            {
                 return Ok(());
             }
         }
@@ -655,7 +745,7 @@ impl<'bytes> Replay<'bytes> {
 
     /// Takes a change, by its first piece, as the library takes one that names
     /// nothing the document does not have (`TransactionMut::integrate_item`).
-    fn take(&mut self, first: u32) -> Result<(), Refusal> {
+    fn take(&mut self, first: u32, steps: StepsMode) -> Result<(), Refusal> {
         let mut after = first + 1;
         while self
             .pieces
@@ -669,7 +759,13 @@ impl<'bytes> Replay<'bytes> {
         self.runs[index(change.client)].clock = self.pieces[index(last)].end;
         let origin_item = self.item_at(change.origin);
         let right = self.item_at(change.right_origin);
-        let left = self.left_of(origin_item, right);
+        if self.origins == OriginPolicy::Strict {
+            self.check_piece_origins(&change, origin_item, right)?;
+        }
+        let left = match steps {
+            StepsMode::Count(_) => self.left_of(origin_item, right),
+            StepsMode::Skip => origin_item,
+        };
         let place = if change.holds == Holds::Collected {
             None
         } else {
@@ -681,6 +777,14 @@ impl<'bytes> Replay<'bytes> {
             }
             return Ok(());
         };
+        if steps == StepsMode::Skip {
+            for piece in &mut self.pieces[index(first)..index(after)] {
+                piece.taken = Taken::Item;
+                piece.parent = parent;
+                piece.sub = sub;
+            }
+            return Ok(());
+        }
         let conflict = match (left, right) {
             (None, None) => true,
             (None, Some(right)) => self.pieces[index(right)].left != NONE,
@@ -757,10 +861,10 @@ impl<'bytes> Replay<'bytes> {
             Named::Item(id) => match self.item_at(id) {
                 None => None,
                 Some(parent) => match self.pieces[index(parent)].holds {
-                    Holds::One => Some((parent, change.member)),
+                    Holds::Type => Some((parent, change.member)),
                     Holds::Deleted | Holds::Collected => None,
                     // The library refuses the update.
-                    Holds::Letters | Holds::Values => return Err(Refusal::Unknown),
+                    Holds::Letters | Holds::Values | Holds::One => return Err(Refusal::Unknown),
                 },
             },
             Named::Neighbours => match (left, right) {
@@ -799,6 +903,7 @@ impl<'bytes> Replay<'bytes> {
         let walk = self.mark();
         let mut conflicting = self.mark();
         let (mut held, mut most) = (0_u64, 0_u64);
+        let mut held_break = false;
         while at != NONE && at != right {
             self.walked = self.walked.saturating_add(1);
             held += 1;
@@ -821,15 +926,22 @@ impl<'bytes> Replay<'bytes> {
                 if self.clients[index(piece.client)] < client {
                     true
                 } else if piece.right_origin == change.right_origin {
+                    held_break = true;
                     break;
                 } else {
                     false
                 }
             } else {
                 let Some(named) = self.pieces.get(index(origin_item)) else {
+                    if right != NONE {
+                        self.needs_settle = true;
+                    }
                     break;
                 };
                 if named.before != walk {
+                    if right != NONE {
+                        self.needs_settle = true;
+                    }
                     break;
                 }
                 named.conflicting != conflicting
@@ -842,76 +954,11 @@ impl<'bytes> Replay<'bytes> {
             }
             at = next;
         }
+        if right != NONE && at == NONE && !held_break {
+            self.needs_settle = true;
+        }
         left
     }
-
-    /// The lists as they stand, for the tests that hold them to the library's.
-    #[cfg(any(test, feature = "test-util"))]
-    fn lists(&self) -> Vec<List> {
-        let from = |mut at: u32| {
-            let mut pieces = Vec::new();
-            while let Some(piece) = self.pieces.get(index(at)) {
-                pieces.push((
-                    self.clients[index(piece.client)],
-                    u64::from(piece.begin),
-                    u64::from(piece.end),
-                ));
-                at = piece.right;
-            }
-            pieces
-        };
-        let id_of = |piece: &Piece| (self.clients[index(piece.client)], u64::from(piece.begin));
-        let parent_of = |branch: u32| self.pieces.get(index(branch)).map(id_of);
-        let mut lists: Vec<List> = self
-            .roots
-            .iter()
-            .map(|start| List {
-                parent: None,
-                member: None,
-                pieces: from(*start),
-            })
-            .collect();
-        for (number, piece) in self.pieces.iter().enumerate() {
-            if piece.taken == Taken::Item && piece.start != NONE {
-                lists.push(List {
-                    parent: parent_of(small(number)),
-                    member: None,
-                    pieces: from(piece.start),
-                });
-            }
-        }
-        for ((branch, member), last) in &self.members {
-            let mut first = *last;
-            while self.pieces[index(first)].left != NONE {
-                first = self.pieces[index(first)].left;
-            }
-            let name = self
-                .names
-                .members
-                .iter()
-                .find(|(_, number)| *number == member);
-            lists.push(List {
-                parent: parent_of(*branch),
-                member: name.map(|(name, _)| name.to_vec()),
-                pieces: from(first),
-            });
-        }
-        lists
-    }
-}
-
-/// A list as the reading here leaves it: the children of a parent, or the values a
-/// member of it had.
-#[cfg(any(test, feature = "test-util"))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct List {
-    /// The change that made the parent; `None` for a root.
-    pub parent: Option<Id>,
-    /// The member, for a list of values.
-    pub member: Option<Vec<u8>>,
-    /// The pieces from the first to the last, each as its client and the clocks it
-    /// begins and ends at.
-    pub pieces: Vec<(u64, u64, u64)>,
 }
 
 fn unpack(id: u64) -> (u32, u32) {
@@ -919,23 +966,4 @@ fn unpack(id: u64) -> (u32, u32) {
         u32::try_from(id >> 32).unwrap_or(NONE),
         u32::try_from(id & 0xffff_ffff).unwrap_or(u32::MAX),
     )
-}
-
-/// How many entries of the stack of waiting changes the reading of a state looks
-/// through, counted to the end, with how many changes and clients the state has: no
-/// more than each change once for each client but one ([`Replay::ahead`]).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) fn looked(state: &[u8]) -> Result<(u64, (u64, u64)), Refusal> {
-    let (_, mut replay) = Replay::read(state)?;
-    replay.run(u64::MAX)?;
-    Ok((replay.looked, replay.sizes()))
-}
-
-/// The steps the library takes to read a state, counted to the end, and the lists the
-/// reading here leaves ([`List`]).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) fn lists(state: &[u8]) -> Result<(u64, Vec<List>), Refusal> {
-    let (_, mut replay) = Replay::read(state)?;
-    replay.run(u64::MAX)?;
-    Ok((replay.steps(), replay.lists()))
 }
