@@ -5,11 +5,14 @@ use fvoci_model::{Body, BodyError};
 use thiserror::Error;
 use yrs::{Doc, ReadTxn as _, Transact as _};
 
-use crate::project::to_body;
-use crate::repair::{Repair, repaired};
+use crate::block_cache::BlockCache;
+use crate::project::{json_size_of, to_body};
+use crate::repair::{
+    InPlaceRepair, Repair, build_or_repair_cache, repaired, validate_or_repair_in_place,
+};
 use crate::settle::{from_state_settled, settled_sized};
 use crate::update::{
-    Outcome, Settled, UpdateError, UpdateInPlaceError, UpdateLimits, counted_sized,
+    DeltaMode, Outcome, Settled, UpdateError, UpdateInPlaceError, UpdateLimits, counted_sized,
     with_update_in_place, with_update_sized,
 };
 
@@ -76,11 +79,27 @@ pub enum TakeError {
 
 /// Why [`take_update_in_place`] refused an update.
 pub(crate) enum TakeInPlaceError {
-    /// Refused before `doc` was changed; the untouched document comes back.
-    Untouched(Doc, TakeError),
+    /// Refused before `doc` was changed; the untouched document and cache come back.
+    Untouched(Doc, Option<Box<BlockCache>>, TakeError),
     /// Refused while or after applying the update or repairing; `doc` may have been
     /// changed and was dropped.
     Dirty(TakeError),
+}
+
+/// Result of an in-place or cached-open operation: holds the validated `Doc` and its
+/// synchronized [`BlockCache`] without materializing a full [`Body`] JSON tree.
+#[derive(Debug)]
+pub(crate) struct TakenCache {
+    pub(crate) doc: Doc,
+    pub(crate) cache: Box<BlockCache>,
+    pub(crate) repair: InPlaceRepair,
+    pub(crate) state: Vec<u8>,
+    pub(crate) state_bytes: usize,
+    pub(crate) changes: u64,
+    pub(crate) client_changes: u64,
+    pub(crate) reading_steps: u64,
+    pub(crate) steps_ahead: u64,
+    pub(crate) remake: bool,
 }
 
 /// Takes a client's update into a document, as the server does with every one: the
@@ -138,26 +157,58 @@ pub fn take_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Ta
 }
 
 /// Takes a client's update into `doc` **in place**, without copying `doc` before
-/// applying or before repairing. Callers pass the cached `prior_state` and
-/// `prior_changes` of `doc` and must rebuild `doc` from their checkpoint on
-/// [`TakeInPlaceError::Dirty`].
+/// applying or before repairing, and incrementally updates `cache` for only the dirty
+/// top-level blocks. Callers pass the cached `prior_state` and `prior_changes` of `doc`
+/// and must rebuild `doc` from their checkpoint on [`TakeInPlaceError::Dirty`].
 pub(crate) fn take_update_in_place(
     doc: Doc,
+    cache: Option<Box<BlockCache>>,
     prior_state: &[u8],
     prior_changes: u64,
     update: &[u8],
     limits: &UpdateLimits,
-) -> Result<Taken, TakeInPlaceError> {
-    let with = match with_update_in_place(doc, prior_state, prior_changes, update, limits) {
-        Ok(settled) => settled,
-        Err(UpdateInPlaceError::Untouched(doc, error)) => {
-            return Err(TakeInPlaceError::Untouched(doc, error.into()));
-        }
-        Err(UpdateInPlaceError::Dirty(error)) => {
-            return Err(TakeInPlaceError::Dirty(error.into()));
-        }
+) -> Result<TakenCache, TakeInPlaceError> {
+    let delta_mode = if cache.is_some() {
+        DeltaMode::Capture
+    } else {
+        DeltaMode::Skip
     };
-    to_taken(with, limits, SettleMode::CountOnly).map_err(TakeInPlaceError::Dirty)
+    let with =
+        match with_update_in_place(doc, prior_state, prior_changes, update, limits, delta_mode) {
+            Ok(settled) => settled,
+            Err(UpdateInPlaceError::Untouched(doc, error)) => {
+                return Err(TakeInPlaceError::Untouched(doc, cache, error.into()));
+            }
+            Err(UpdateInPlaceError::Dirty(error)) => {
+                return Err(TakeInPlaceError::Dirty(error.into()));
+            }
+        };
+    to_taken_in_place(with, cache, limits, SettleMode::CountOnly).map_err(TakeInPlaceError::Dirty)
+}
+
+/// Opens a stored state directly into a cached [`TakenCache`] (block-by-block validation,
+/// no whole-document JSON tree held at once).
+pub(crate) fn from_state_cached(
+    state: &[u8],
+    limits: &UpdateLimits,
+) -> Result<TakenCache, TakeError> {
+    let limits = UpdateLimits {
+        update_bytes: state.len(),
+        placing_steps: None,
+        clients: None,
+        client_changes: None,
+        ..*limits
+    };
+    let with = from_state_settled(state, &limits)?;
+    let taken = to_taken_in_place(with, None, &limits, SettleMode::Settle)?;
+    if taken.remake {
+        return Err(UpdateError::TooManyReadingSteps {
+            steps: taken.reading_steps,
+            limit: limits.reading_steps.unwrap_or_default(),
+        }
+        .into());
+    }
+    Ok(taken)
 }
 
 /// Opens the document of a stored state ([`crate::state_of`]), with the same checks
@@ -236,6 +287,83 @@ fn to_taken(with: Settled, limits: &UpdateLimits, mode: SettleMode) -> Result<Ta
     finish_taken(settled, repair, limits)
 }
 
+/// Validates (and repairs if needed) `with.doc` using the incremental [`BlockCache`],
+/// avoiding whole-document projection and JSON tree materialization on the hot path.
+fn to_taken_in_place(
+    mut with: Settled,
+    cache: Option<Box<BlockCache>>,
+    limits: &UpdateLimits,
+    mode: SettleMode,
+) -> Result<TakenCache, TakeError> {
+    let delta = with.delta.take();
+    let (mut cache, repair) = match (cache, delta, with.doc_rebuilt) {
+        (Some(mut cache), Some(delta), false) => {
+            let repair = validate_or_repair_in_place(&with.doc, &mut cache, &delta)?;
+            (cache, repair)
+        }
+        (old_cache, _, _) => {
+            // Drop any prior cache before rebuilding so two caches are never live at once.
+            drop(old_cache);
+            let (cache, repair) = build_or_repair_cache(&with.doc)?;
+            (Box::new(cache), repair)
+        }
+    };
+    let settled = if repair.update.is_some() {
+        if repair.mended > 0
+            && let Some(limit) = limits.clients
+        {
+            let clients = with.doc.transact().state_vector().len();
+            if clients > limit {
+                return Err(UpdateError::TooManyClients { clients, limit }.into());
+            }
+        }
+        let effective_mode = if with.needs_settle {
+            SettleMode::Settle
+        } else {
+            mode
+        };
+        match effective_mode {
+            SettleMode::CountOnly => {
+                let again = counted_sized(with.doc, limits)?;
+                if again.doc_rebuilt {
+                    *cache = BlockCache::build(&again.doc)?;
+                }
+                again
+            }
+            SettleMode::Settle => {
+                // Free the pre-settle cache before re-decoding so peak memory stays minimal.
+                cache.clear();
+                let again = settled_sized(with.doc, limits)?;
+                *cache = BlockCache::build(&again.doc)?;
+                again
+            }
+        }
+    } else {
+        with
+    };
+    if let Some(size) = cache.body_bytes()
+        && size > limits.body_bytes
+    {
+        return Err(TakeError::BodyTooLarge {
+            size,
+            limit: limits.body_bytes,
+        });
+    }
+    let state_bytes = settled.state.len();
+    Ok(TakenCache {
+        doc: settled.doc,
+        cache,
+        repair,
+        state: settled.state,
+        state_bytes,
+        changes: settled.changes,
+        client_changes: settled.client_changes,
+        reading_steps: settled.reading_steps,
+        steps_ahead: settled.steps_ahead,
+        remake: matches!(settled.outcome, Outcome::Remake { .. }),
+    })
+}
+
 /// Checks `repair.body` against [`UpdateLimits::body_bytes`] and builds [`Taken`].
 fn finish_taken(
     settled: Settled,
@@ -267,22 +395,5 @@ fn finish_taken(
 
 /// The size of a body as JSON without whitespace, as its limit is measured.
 pub(crate) fn size_of(body: &Body) -> usize {
-    /// Counts what is written to it.
-    struct Count(usize);
-
-    impl std::io::Write for Count {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0 = self.0.saturating_add(bytes.len());
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    let mut count = Count(0);
-    // Writing JSON to a counter does not fail: a `Value` is always JSON.
-    let _ = serde_json::to_writer(&mut count, body.document());
-    count.0
+    json_size_of(body.document())
 }

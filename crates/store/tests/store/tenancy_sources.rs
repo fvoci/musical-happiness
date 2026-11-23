@@ -24,18 +24,20 @@ pub(crate) fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>
 /// memberships are of several organizations), the changes of the data after a
 /// migration, and the one function of the server that its housekeeping works through;
 /// the revisions of the cached checks, which name it to tell what its writes move;
-/// and what a person was told (`notifications.rs`), which is theirs in whichever
-/// organization it was made: each of its statements names the person, and reads or
-/// marks the rows of nobody else.
+/// what a person was told (`notifications.rs`), which is theirs in whichever
+/// organization it was made; and a person's time entries (`time_entries.rs`), where one
+/// active timer per account spans organizations and every statement names the person and
+/// excludes closed organizations, never touching another user's rows.
 /// Asked by the handle or by the setting of a transaction alike. Anywhere else, a
 /// request would be let past the wall it is there to be held by. (The system
 /// organization, which holds the built-in templates, is an
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 12] = [
+    const ALLOWED: [&str; 13] = [
         "store/src/lib.rs",
         "store/src/notifications.rs",
+        "store/src/time_entries.rs",
         "store/src/account_deletion.rs",
         "store/src/account_erasure.rs",
         "store/src/directory.rs",

@@ -51,6 +51,7 @@ mod sharing;
 mod subscription;
 mod table_grid;
 mod team;
+mod time_entry;
 mod unit;
 mod unit_progress;
 mod upload;
@@ -74,7 +75,10 @@ pub use block::{
     BlockType, CARD_FIELDS_MAX_CHARS, ParseBlockTypeError, PropertyChanges,
     stamp_modification_metadata,
 };
-pub use block_ids::{UnmatchedRelation, generate_block_ids, renew_block_ids};
+pub use block_ids::{
+    UnmatchedRelation, collect_block_references, generate_block_ids, renew_block_ids,
+    rewrite_block_ids,
+};
 pub use body::{
     BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
     BodySummary, TaskCount,
@@ -176,6 +180,12 @@ pub use table_grid::{
     CellFit, Reach, RowFit, TABLE_MAX_COLUMNS, TABLE_MAX_ROWS, TableGrid, TableTooLarge,
 };
 pub use team::{Team, TeamMember, TeamName, team_name, team_name_key};
+pub use time_entry::{
+    ActiveTimeEntry, CreateTimeEntryRequest, MAX_TIME_MILLIS, ParseTimeEntryKindError,
+    ParseTimeTargetKindError, StartTimeEntryRequest, StartedTimeEntry, TIME_ENTRY_NOTE_MAX_CHARS,
+    TimeEntry, TimeEntryKind, TimeEntryKindTotals, TimeEntryList, TimeEntryPatch, TimeEntrySummary,
+    TimeTargetKind,
+};
 pub use unit::{
     CHAPTERS_PER_COURSE, COURSE_DEPTH, CourseLimits, DeletedUnit, NewUnit, NotUnitBlockError,
     UNITS_PER_COURSE, Unit, UnitKind, UnitMove, UnitNode, UnitPatch, sort_units,

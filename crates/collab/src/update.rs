@@ -4,13 +4,22 @@ use std::collections::HashSet;
 
 use thiserror::Error;
 use yrs::updates::decoder::Decode;
-use yrs::{ClientID, Doc, Out, ReadTxn, StateVector, Transact, Update};
+use yrs::{BranchID, ClientID, Doc, ID, Out, ReadTxn, StateVector, Transact, Update};
 
 use crate::FIELD;
+use crate::block_cache::ApplyDelta;
 use crate::placing::{self, Held, Sent};
 use crate::reading;
 use crate::scan::{self, Content, Id, Refusal};
 use crate::settle::{check_ends, read_state, settled_from, settled_sized};
+
+/// Whether [`apply_and_check`] captures an [`ApplyDelta`] for incremental block-cache
+/// updates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeltaMode {
+    Skip,
+    Capture,
+}
 
 /// The sizes an update may have and leave.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -262,9 +271,9 @@ pub(crate) fn copy_of(doc: &Doc, writer: Option<u64>) -> Result<Doc, UpdateError
     crate::settle::doc_of_state(&state_of(doc), writer).map_err(UpdateError::DocumentUnreadable)
 }
 
-/// Risky patterns spotted while scanning an incoming update against the document's state
-/// vector. Both are false on ordinary editor updates, keeping the common path zero-cost.
-#[derive(Debug, Clone, Copy, Default)]
+/// Risky patterns and newly inserted shared-type IDs spotted while scanning an incoming
+/// update against the document's state vector.
+#[derive(Debug, Default)]
 pub(crate) struct ReadFlags {
     /// At least one non-GC item starts before the document's known clock for its client
     /// and extends past it, so `yrs`'s `BlockSet::exclude` trims it in place.
@@ -273,6 +282,8 @@ pub(crate) struct ReadFlags {
     /// same client sharing a `right_origin` that could squash in `commit()`, requiring a
     /// pre-apply linear origin check before handing the update to `yrs`.
     pub(crate) check_origins_before_apply: bool,
+    /// Shared-type (`Content::Type`) IDs newly introduced by this update (`begin >= floor`).
+    pub(crate) new_types: Vec<ID>,
 }
 
 /// Reads the bytes of an update for a document, after the walk that keeps from the
@@ -306,6 +317,11 @@ pub(crate) fn read(doc: &Doc, update: &[u8]) -> Result<(Update, usize, ReadFlags
         let end = begin.saturating_add(len);
         let floor = u64::from(known.get(&ClientID::new(client)));
         if end > floor {
+            if matches!(change.content, Content::Type)
+                && let Ok(clock) = u32::try_from(begin)
+            {
+                flags.new_types.push(ID::new(ClientID::new(client), clock));
+            }
             if scan::names_self(client, begin.max(floor), end, change) {
                 invalid_origin = true;
             }
@@ -426,6 +442,8 @@ pub(crate) fn counted_sized(doc: Doc, limits: &UpdateLimits) -> Result<Settled, 
                 limit,
             },
             needs_settle: read.needs_settle,
+            doc_rebuilt: false,
+            delta: None,
         });
     }
     if read.needs_settle {
@@ -442,28 +460,68 @@ pub(crate) fn counted_sized(doc: Doc, limits: &UpdateLimits) -> Result<Settled, 
         steps_ahead: read.ahead,
         outcome: Outcome::Settled,
         needs_settle: false,
+        doc_rebuilt: false,
+        delta: None,
+    })
+}
+
+/// Applies a decoded `sent` update to `doc`, commits the transaction, and captures its
+/// [`ApplyDelta`] (changed branches, delete set, and newly inserted shared-type IDs) for
+/// incremental block-cache updates.
+pub(crate) fn apply_and_capture(
+    doc: &Doc,
+    sent: Update,
+    new_types: Vec<ID>,
+) -> Result<ApplyDelta, UpdateError> {
+    let mut txn = doc.transact_mut();
+    txn.apply_update(sent)
+        .map_err(|error| UpdateError::Unappliable(error.to_string()))?;
+    txn.commit();
+    let changed_branches = txn
+        .changed_parent_types()
+        .iter()
+        .filter_map(|branch| match branch.id() {
+            BranchID::Nested(id) => Some(id),
+            BranchID::Root(_) => None,
+        })
+        .collect();
+    let delete_set = txn.delete_set().clone();
+    Ok(ApplyDelta {
+        changed_branches,
+        delete_set,
+        new_types,
     })
 }
 
 /// Applies `sent` to `doc` in place, verifies post-apply invariants, and validates the
 /// resulting state (settling immediately only when `flags.partial_overlap` trimmed a block
-/// against existing state).
+/// against existing state). When `delta_mode` is [`DeltaMode::Capture`] and the document
+/// stays in place (not re-decoded by settle), attaches the [`ApplyDelta`] to the returned
+/// [`Settled`].
 fn apply_and_check(
     doc: Doc,
     sent: Update,
     flags: ReadFlags,
     limits: &UpdateLimits,
+    delta_mode: DeltaMode,
 ) -> Result<Settled, UpdateError> {
-    {
+    let delta = if delta_mode == DeltaMode::Capture && !flags.partial_overlap {
+        Some(apply_and_capture(&doc, sent, flags.new_types)?)
+    } else {
         let mut txn = doc.transact_mut();
         txn.apply_update(sent)
             .map_err(|error| UpdateError::Unappliable(error.to_string()))?;
-    }
+        None
+    };
     check_applied(&doc)?;
     if flags.partial_overlap {
         settled_sized(doc, limits)
     } else {
-        counted_sized(doc, limits)
+        let mut settled = counted_sized(doc, limits)?;
+        if !settled.doc_rebuilt {
+            settled.delta = delta;
+        }
+        Ok(settled)
     }
 }
 
@@ -489,6 +547,7 @@ pub(crate) fn with_update_in_place(
     prior_changes: u64,
     update: &[u8],
     limits: &UpdateLimits,
+    delta_mode: DeltaMode,
 ) -> Result<Settled, UpdateInPlaceError> {
     if update.len() > limits.update_bytes {
         return Err(UpdateInPlaceError::Untouched(
@@ -532,7 +591,7 @@ pub(crate) fn with_update_in_place(
             return Err(UpdateInPlaceError::Untouched(doc, origin_refusal(refusal)));
         }
     }
-    apply_and_check(doc, sent, flags, limits).map_err(UpdateInPlaceError::Dirty)
+    apply_and_check(doc, sent, flags, limits, delta_mode).map_err(UpdateInPlaceError::Dirty)
 }
 
 /// The Y document as it would be with a client's update: a copy of `doc` with the
@@ -595,7 +654,7 @@ pub(crate) fn with_update_sized(
         reading::check_update_origins(&state, &known, update).map_err(origin_refusal)?;
     }
     drop(state);
-    apply_and_check(copy, sent, flags, limits)
+    apply_and_check(copy, sent, flags, limits, DeltaMode::Skip)
 }
 
 /// Refuses an update whose deletions of a client go back or overlap. The library walks
@@ -678,6 +737,12 @@ pub(crate) struct Settled {
     pub(crate) steps_ahead: u64,
     pub(crate) outcome: Outcome,
     pub(crate) needs_settle: bool,
+    /// True when `doc` was replaced by a freshly decoded `Doc` during settling (so any
+    /// prior in-place `BlockCache` must be rebuilt from scratch).
+    pub(crate) doc_rebuilt: bool,
+    /// Captured in-place mutation delta when `DeltaMode::Capture` was requested and `doc`
+    /// stayed in place (`!doc_rebuilt`).
+    pub(crate) delta: Option<ApplyDelta>,
 }
 
 /// Refuses a state whose client with the most changes is past

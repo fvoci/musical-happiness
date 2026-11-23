@@ -413,6 +413,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
     a_team_on_board(store, &board, &user_id).await;
     a_course_with_progress(store, &board.workspace_id, &user_id).await;
     told_and_to_be_told(store, &board_id, &user_id).await;
+    a_time_entry(store, &board, &comment.parent_id, &user_id).await;
     // The trash: a card of the live board, and a whole board.
     let mut card = fvoci_model::Block {
         id: new_id(),
@@ -596,6 +597,23 @@ async fn one_organization_does_not_purge_the_trash_of_another() {
     assert!(gone.is_not_found(), "got {gone:?}");
 
     test.teardown().await;
+}
+
+/// A completed time entry of the user on a card of the organization.
+async fn a_time_entry(store: &Store, board: &Container, card_id: &str, user_id: &str) {
+    let entry = fvoci_store::NewStoredTimeEntry {
+        workspace_id: Some(&board.workspace_id),
+        container_id: Some(&board.id),
+        block_id: Some(card_id),
+        target_kind: Some(fvoci_model::TimeTargetKind::Card),
+        target_title: Some("tenancy card"),
+        kind: fvoci_model::TimeEntryKind::Work,
+        note: "tenancy entry",
+    };
+    store
+        .create_time_entry(user_id, &entry, 1000, 2000, 2000)
+        .await
+        .expect("a time entry is stored");
 }
 
 /// Real rows in all three group tables, so every organization wall is exercised.
