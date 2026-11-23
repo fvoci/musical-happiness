@@ -358,7 +358,8 @@ impl Store {
     /// (`notified_at = now`), and inserts one `meeting_upcoming` notification per active
     /// enrolled course member.
     ///
-    /// Runs across all organizations (`Tenant::System`).
+    /// Operates within the handle's tenant scope (called via `App::housekeeping()` to sweep
+    /// every organization).
     ///
     /// # Errors
     ///
@@ -369,56 +370,55 @@ impl Store {
         window_millis: i64,
     ) -> Result<Vec<MeetingNotified>, StoreError> {
         let until = now.saturating_add(window_millis.max(0));
-        self.system()
-            .transaction(async |scope| {
-                let mut claim = scope.sql("UPDATE course_meetings SET notified_at = ");
-                claim
-                    .changing_no_access()
-                    .bind(now)
-                    .push(" WHERE notified_at IS NULL")
-                    .push_bind(" AND starts_at >= ", now)
-                    .push_bind(" AND starts_at <= ", until)
-                    .push(
-                        " AND EXISTS (SELECT 1 FROM containers AS c \
+        self.transaction(async |scope| {
+            let mut claim = scope.sql("UPDATE course_meetings SET notified_at = ");
+            claim
+                .changing_no_access()
+                .bind(now)
+                .push(" WHERE notified_at IS NULL")
+                .push_bind(" AND starts_at >= ", now)
+                .push_bind(" AND starts_at <= ", until)
+                .push(
+                    " AND EXISTS (SELECT 1 FROM containers AS c \
                          JOIN workspaces AS w ON w.id = c.workspace_id \
                          JOIN organizations AS o ON o.id = w.org_id \
                          WHERE c.id = course_meetings.container_id",
+                )
+                .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
+                .push_bind(" AND c.is_template = ", false)
+                .push_bind(" AND w.delete_at = ", 0_i64)
+                .push_bind(" AND o.delete_at = ", 0_i64)
+                .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
+                .push(&scope.same_organization(&[("course_meetings", "c"), ("c", "w")]))
+                .push(") RETURNING id, org_id, container_id");
+            let claimed: Vec<(String, String, String)> = scope
+                .fetch_all(claim)
+                .await?
+                .iter()
+                .map(|row| Ok((row.id(0)?, row.id(1)?, row.id(2)?)))
+                .collect::<Result<_, StoreError>>()?;
+            let mut sent = Vec::new();
+            for (meeting_id, org_id, course_id) in claimed {
+                let members = active_course_member_ids(scope, &course_id, &org_id).await?;
+                for user_id in members {
+                    insert_meeting_notification(
+                        scope,
+                        &org_id,
+                        &user_id,
+                        &meeting_id,
+                        &course_id,
+                        now,
                     )
-                    .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
-                    .push_bind(" AND c.is_template = ", false)
-                    .push_bind(" AND w.delete_at = ", 0_i64)
-                    .push_bind(" AND o.delete_at = ", 0_i64)
-                    .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
-                    .push(&scope.same_organization(&[("course_meetings", "c"), ("c", "w")]))
-                    .push(") RETURNING id, org_id, container_id");
-                let claimed: Vec<(String, String, String)> = scope
-                    .fetch_all(claim)
-                    .await?
-                    .iter()
-                    .map(|row| Ok((row.id(0)?, row.id(1)?, row.id(2)?)))
-                    .collect::<Result<_, StoreError>>()?;
-                let mut sent = Vec::new();
-                for (meeting_id, org_id, course_id) in claimed {
-                    let members = active_course_member_ids(scope, &course_id, &org_id).await?;
-                    for user_id in members {
-                        insert_meeting_notification(
-                            scope,
-                            &org_id,
-                            &user_id,
-                            &meeting_id,
-                            &course_id,
-                            now,
-                        )
-                        .await?;
-                        sent.push(MeetingNotified {
-                            recipient_id: user_id,
-                            org_id: org_id.clone(),
-                        });
-                    }
+                    .await?;
+                    sent.push(MeetingNotified {
+                        recipient_id: user_id,
+                        org_id: org_id.clone(),
+                    });
                 }
-                Ok(sent)
-            })
-            .await
+            }
+            Ok(sent)
+        })
+        .await
     }
 
     /// Resolves live course meetings among `meeting_ids` visible to this org-scoped

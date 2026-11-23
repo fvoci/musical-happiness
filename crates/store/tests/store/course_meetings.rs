@@ -76,6 +76,7 @@ async fn migration_0068_from_previous_version_creates_tables_and_widens_notifica
         .expect("attendance recorded");
 
     let sent = store
+        .system()
         .notify_upcoming_meetings(T0, 24 * 60 * 60 * 1000)
         .await
         .expect("upcoming meeting notification inserted");
@@ -269,23 +270,7 @@ async fn notify_upcoming_meetings_targets_active_members_once_and_skips_others()
     for uid in [&admin, &member, &unjoined, &guest] {
         common::works_in(&test, &test.workspace_id, uid).await;
     }
-    test.execute_unchecked(&format!(
-        "UPDATE workspace_members SET role = '{}' WHERE workspace_id = '{}' AND user_id = '{guest}'",
-        WorkspaceRole::Guest.as_str(),
-        test.workspace_id
-    ))
-    .await
-    .expect("guest role set");
-    let guest_count = test
-        .texts_unchecked(&format!(
-            "SELECT CAST(count(*) AS TEXT) FROM workspace_members \
-             WHERE workspace_id = '{}' AND user_id = '{guest}' AND role = '{}'",
-            test.workspace_id,
-            WorkspaceRole::Guest.as_str()
-        ))
-        .await
-        .expect("guest count");
-    assert_eq!(guest_count, ["1"], "guest must exist in workspace_members");
+    demote_to_guest(&test, &guest).await;
 
     let mut course = Container {
         id: new_id(),
@@ -323,7 +308,8 @@ async fn notify_upcoming_meetings_targets_active_members_once_and_skips_others()
     // Also create a due meeting in admin's personal space: must produce 0 notifications.
     seed_own_space_meeting(&test, &admin).await;
 
-    let sent = test
+    let system = test.system();
+    let sent = system
         .notify_upcoming_meetings(T0, window)
         .await
         .expect("first run");
@@ -333,13 +319,14 @@ async fn notify_upcoming_meetings_targets_active_members_once_and_skips_others()
     expected.sort_unstable();
     assert_eq!(
         recipients, expected,
-        "only active enrolled members notified (no unjoined, no guest, no personal space)"
+        "only active enrolled members notified"
     );
-    assert_eq!(
-        test.notify_upcoming_meetings(T0, window)
+    assert!(
+        system
+            .notify_upcoming_meetings(T0, window)
             .await
-            .expect("second run"),
-        Vec::<fvoci_store::MeetingNotified>::new(),
+            .expect("second run")
+            .is_empty(),
         "zero duplicate notifications"
     );
 
@@ -367,6 +354,19 @@ async fn notify_upcoming_meetings_targets_active_members_once_and_skips_others()
     }
 
     test.teardown().await;
+}
+
+async fn demote_to_guest(test: &TestStore, user_id: &str) {
+    let changed = test
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = '{}' \
+             WHERE workspace_id = '{}' AND user_id = '{user_id}'",
+            WorkspaceRole::Guest.as_str(),
+            test.workspace_id
+        ))
+        .await
+        .expect("guest role set");
+    assert_eq!(changed, 1, "guest must exist in workspace_members");
 }
 
 fn password_reader(user_id: &str) -> fvoci_store::NotificationReader<'_> {
