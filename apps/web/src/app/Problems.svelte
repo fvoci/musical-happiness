@@ -31,6 +31,9 @@
     if (error?.reason === 'page_too_deep' && error.limit) {
       return m.app_problem_page_too_deep({ limit: error.limit });
     }
+    if (error?.reason === 'card_too_deep') {
+      return m.app_problem_card_too_deep({ limit: error.limit ?? 3 });
+    }
     if (error?.reason === 'too_many_pages' && error.limit) {
       return m.app_problem_too_many_pages({ limit: error.limit });
     }

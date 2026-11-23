@@ -7,6 +7,7 @@
  * board store, which shows it at once and can undo it.
  */
 import { tick } from 'svelte';
+import { SvelteSet } from 'svelte/reactivity';
 
 import { copyCardLink } from '$lib/components/card-number/card-link.ts';
 import type { MenuAction } from '$lib/components/menu/actions.ts';
@@ -44,17 +45,15 @@ import { COLUMN_DRAG_MESSAGES, rowDragMessages } from './drag-messages.ts';
 import { GridFocus } from './grid-focus.ts';
 import { isEditableKind, readAsOrder, type RowHost, type TableReader } from './host.ts';
 import { headerMenu, rowMenu } from './menus.ts';
+import {
+  buildTableRowLists,
+  listsHaveHierarchy,
+  previewMovedRowLists,
+  type RowList,
+} from './row-lists.ts';
 import { ScrollKeeper } from './scroll-keeper.ts';
 
-/** The rows between two headings: all of them, or those of one group. */
-export interface RowList {
-  /** Names the list for the row sorter. */
-  id: string;
-  group: BoardGroup | undefined;
-  /** The cards drawn: none while the group is folded. */
-  cards: readonly Card[];
-  collapsed: boolean;
-}
+export type { RowList } from './row-lists.ts';
 
 export interface TableSource {
   board: () => BoardStore;
@@ -65,7 +64,6 @@ export interface TableSource {
   openCard: (cardId: string) => void;
 }
 
-const ALL_ROWS = 'rows';
 const COLUMNS = 'columns';
 const PERSON_KINDS: readonly string[] = ['person', 'createdBy', 'updatedBy'];
 
@@ -81,6 +79,8 @@ export class TableController {
   said = $state('');
   /** The groups a reader who may not change the view has folded, for this visit only. */
   #folded = $state.raw<readonly string[]>([]);
+  /** Parent cards whose sub-cards are currently collapsed in this table view. */
+  readonly #collapsedParents = new SvelteSet<string>();
 
   readonly grid = new GridFocus();
   readonly editing = new CellEditing((at) => this.grid.find(at.rowId, at.columnId));
@@ -228,22 +228,15 @@ export class TableController {
     this.canEdit ? this.#view.fields.collapsedOptionIds : this.#folded,
   );
 
-  /** The rows as lists, as the data has them. */
+  /** The rows as lists, grouped by parent-child hierarchy. */
   readonly lists = $derived.by<RowList[]>(() => {
     const cards = this.#source.cards();
-    if (!this.groupBy) return [{ id: ALL_ROWS, group: undefined, cards, collapsed: false }];
-    const groups = this.#board.groupsOf(this.#view, cards, (property) =>
-      m['BoardComponent.no-property']({ property }),
-    );
-    return groups.visible.map((group) => {
-      const collapsed = this.#collapsed.includes(group.option.id);
-      return {
-        id: `group:${group.option.id}`,
-        group,
-        cards: collapsed ? [] : group.cards,
-        collapsed,
-      };
-    });
+    const groups = this.groupBy
+      ? this.#board.groupsOf(this.#view, cards, (property) =>
+          m['BoardComponent.no-property']({ property }),
+        ).visible
+      : undefined;
+    return buildTableRowLists(cards, groups, this.#collapsed, this.#collapsedParents);
   });
 
   readonly #rowOrder = $derived.by<ListOrder[]>(() =>
@@ -254,13 +247,20 @@ export class TableController {
   readonly shownLists = $derived.by<RowList[]>(() => {
     const drag = this.rows.active;
     if (drag?.mode !== 'keyboard' || !drag.gap) return this.lists;
-    const moved = moveItems(this.#rowOrder, drag.itemIds, drag.gap);
-    const cards = this.#source.cards();
-    return this.lists.map((list, at) => ({
-      ...list,
-      cards: (moved[at]?.items ?? []).flatMap((id) => cards.find((card) => card.id === id) ?? []),
-    }));
+    return previewMovedRowLists(this.lists, this.#rowOrder, drag.itemIds, drag.gap);
   });
+
+  /** Whether any visible row in the table has parent-child nesting. */
+  readonly hasHierarchy = $derived.by(() => listsHaveHierarchy(this.shownLists));
+
+  toggleParent(cardId: string): void {
+    if (this.#collapsedParents.has(cardId)) this.#collapsedParents.delete(cardId);
+    else this.#collapsedParents.add(cardId);
+  }
+
+  resetCollapsed(): void {
+    this.#collapsedParents.clear();
+  }
 
   /** Rows can be moved by hand: the view has no sort, and the reader may change it. */
   readonly canDragRows = $derived.by(
@@ -482,6 +482,9 @@ export class TableController {
     },
     setTitle: (cardId, title) => {
       void table.#board.setCardTitle(cardId, title);
+    },
+    toggleParent: (cardId) => {
+      table.toggleParent(cardId);
     },
     rowActions: (card) =>
       rowMenu({

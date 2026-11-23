@@ -34,9 +34,11 @@
   import CardBody from './CardBody.svelte';
   import CardComments from './CardComments.svelte';
   import CardHeader from './CardHeader.svelte';
+  import CardParentBar from './CardParentBar.svelte';
   import CardProperties from './CardProperties.svelte';
   import CardTitle from './CardTitle.svelte';
   import CommentComposer from './CommentComposer.svelte';
+  import SubcardsSection from './SubcardsSection.svelte';
   import { editorChunk } from './editor-chunk.svelte.ts';
   import { saveStateOf } from './save-state.ts';
   import { keepScroll } from './scroll-keeper.ts';
@@ -165,9 +167,14 @@
         <p class="rounded-md bg-muted px-3 py-2 text-muted-foreground">
           {m['CardDialog.editing-template']()}
         </p>
+      {:else}
+        <CardParentBar {board} card={summary} {onOpenCard} />
       {/if}
       <CardTitle {board} card={summary} autofocus={blank} />
       <CardProperties {board} {view} card={summary} {onOpenCard} />
+      {#if !summary.fields.isTemplate}
+        <SubcardsSection {board} card={summary} {onOpenCard} />
+      {/if}
       {#if ready}
         <CardBody
           container={board}
