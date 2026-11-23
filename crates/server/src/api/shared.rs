@@ -1,28 +1,29 @@
-//! A shared board or wiki as whoever holds its link reads it: `/shared/{containerId}`,
-//! with its read token and no session. A board's link reads its views, cards and
-//! comments; a wiki's its tree and pages, and neither the routes of the other. Both
-//! read their files.
+//! A shared board, wiki or course as whoever holds its link reads it:
+//! `/shared/{containerId}`, with its read token and no session. A board's link reads its
+//! views, cards and comments; a wiki's its tree and pages; a course's its outline and
+//! units; and none reads the routes of another. All three read their files.
 //!
-//! These routes look at nothing of the request but the board, the token and the
+//! These routes look at nothing of the request but the container, the token and the
 //! client's address: a session that comes along is not read, so who is signed in reads
-//! a shared board as anybody else with the link does. What they answer names no user:
-//! who made or changed the board, a block or a card, the values of person properties,
-//! the people of a view's filter, and the mentions of a body are emptied. Nor does it
-//! name anything that is not of the board: a reference in a body keeps its identifier
-//! for a card of the board, or a page of the wiki, and goes out with an empty one for
-//! anything else.
+//! a shared container as anybody else with the link does. What they answer names no user:
+//! who made or changed the container, a block, a card, a page or a unit, the values of
+//! person properties, the people of a view's filter, and the mentions of a body are
+//! emptied. Nor does it name anything that is not of the container: a reference in a
+//! body keeps its identifier for a card of the board, a page of the wiki, or a unit of
+//! the course, and goes out with an empty one for anything else.
 //!
-//! A token that opens nothing, a board that is not shared and a board in the trash
-//! answer alike, 404. Each such answer, and a read that fails before its token is
-//! looked at, counts against the client's address (`App::shared_reads`), so that
-//! tokens cannot be guessed at speed.
+//! A token that opens nothing, a container that is not shared and a container in the
+//! trash answer alike, 404. Each such answer, and a read that fails before its token is
+//! looked at, counts against the client's address (`App::shared_reads`), so that tokens
+//! cannot be guessed at speed.
 
 use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery};
 use axum::http::HeaderMap;
 use axum::http::request::Parts;
 use fvoci_model::{
-    Block, Card, Container, ContainerKind, FileInfo, Page, PageNode, PersonProperties,
+    Block, Card, Container, ContainerKind, FileInfo, Page, PageNode, PersonProperties, Unit,
+    UnitNode,
 };
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -32,7 +33,7 @@ use super::cards::cards_page;
 use super::contract::bodies::Binary;
 use super::contract::params::{
     AllBlocks, BlockTypeFilter, ContainerId, FileId, OneBlockId, Page as PageNumber, PageId,
-    ParentId, PerPage, Preview, SharedReadToken,
+    ParentId, PerPage, Preview, SharedReadToken, UnitId,
 };
 use super::contract::tag;
 use super::files::{container_file_info, serve_container_file};
@@ -56,13 +57,15 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_shared_file_info))
         .routes(routes!(handle_get_shared_page_tree))
         .routes(routes!(handle_get_shared_page))
+        .routes(routes!(handle_get_shared_unit_tree))
+        .routes(routes!(handle_get_shared_unit))
 }
 
-/// The board or wiki a request under `/shared/{containerId}` names, opened by the read token
-/// of the request: the application behind the wall of its own organization, reaching
-/// its kind alone.
+/// The board, wiki or course a request under `/shared/{containerId}` names, opened by the
+/// read token of the request: the application behind the wall of its own organization,
+/// reaching its kind alone.
 ///
-/// Extraction fails with 404 unless the token opens the board, and with 429 for an
+/// Extraction fails with 404 unless the token opens the container, and with 429 for an
 /// address that has had too many such answers of late.
 #[derive(Debug)]
 pub(crate) struct InSharedContainer {
@@ -106,9 +109,10 @@ fn not_shared() -> AppError {
 }
 
 impl InSharedContainer {
-    /// Whether what the link opens is of `kind`: a wiki's link reads no blocks or cards,
-    /// a board's no pages, which are as not there (404) as anything not shared. Every
-    /// route but the board itself and its files asks it.
+    /// Whether what the link opens is of `kind`: a board's link reads only blocks and
+    /// cards, a wiki's only pages, and a course's only units; any other kind's routes
+    /// answer as not there (404). Every route but the container itself and its files
+    /// asks it.
     fn require_kind(&self, kind: ContainerKind) -> Result<(), AppError> {
         if self.app.kinds().holds(kind) {
             Ok(())
@@ -128,9 +132,9 @@ impl InSharedContainer {
     }
 }
 
-/// A shared board or wiki
+/// A shared board, wiki or course
 ///
-/// The board or the wiki (its `kind` says which) whose read token the request has; no
+/// The board, wiki or course (its `kind` says which) whose read token the request has; no
 /// session is needed, and one that comes along is not looked at. Who made it or
 /// changed it last is not told (`createdBy` and `modifiedBy` are empty), nor its
 /// workspace (`workspaceId` is empty). 404 unless the token is its own and it is shared
@@ -143,7 +147,7 @@ impl InSharedContainer {
     tag = tag::SHARING,
     params(ContainerId, SharedReadToken),
     security(()),
-    responses((status = 200, description = "The board or the wiki.", body = Container)),
+    responses((status = 200, description = "The board, wiki or course.", body = Container)),
 )]
 async fn handle_get_shared_container(shared: InSharedContainer) -> ApiResult {
     Ok(json_response(&shared.container().await?))
@@ -152,7 +156,7 @@ async fn handle_get_shared_container(shared: InSharedContainer) -> ApiResult {
 /// The blocks of a shared board
 ///
 /// What `getBlocks` gives of the board, with the same parameters, read with its read
-/// token as `getSharedContainer` is; a wiki's token reads no blocks (404). No block names a
+/// token as `getSharedContainer` is; a wiki's or a course's token reads no blocks (404). No block names a
 /// user: `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in
 /// a body, and so is each user that
 /// the board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)
@@ -197,7 +201,7 @@ async fn handle_get_shared_blocks(
 /// The cards of a shared board
 ///
 /// What `getCards` gives of the board, read with its read token as `getSharedContainer` is;
-/// a wiki's token reads no cards (404).
+/// a wiki's or a course's token reads no cards (404).
 /// No card names a user: `createdBy` and `modifiedBy` are empty, the values of person
 /// properties are emptied, and values of properties the board does not define are left
 /// out. The preview's text has no mentions in it, and its image `getSharedFile` gives.
@@ -226,10 +230,10 @@ async fn handle_get_shared_cards(
     Ok(json_response(&cards))
 }
 
-/// A file of a shared board or wiki
+/// A file of a shared board, wiki or course
 ///
-/// What `getFile` gives of a file of the board or the wiki, read with its read token as
-/// `getSharedContainer` is: a file of another board or wiki is not there.
+/// What `getFile` gives of a file of the board, wiki or course, read with its read token
+/// as `getSharedContainer` is: a file of another container is not there.
 #[utoipa::path(
     get,
     path = "/shared/{containerId}/files/{fileId}",
@@ -250,9 +254,9 @@ async fn handle_get_shared_file(
     serve_container_file(&shared.app, &shared.container_id, &file_id, &headers).await
 }
 
-/// What is known about a file of a shared board or wiki
+/// What is known about a file of a shared board, wiki or course
 ///
-/// What `getFileInfo` gives of a file of the board or the wiki, read with its read
+/// What `getFileInfo` gives of a file of the board, wiki or course, read with its read
 /// token as `getSharedContainer` is.
 #[utoipa::path(
     get,
@@ -276,7 +280,7 @@ async fn handle_get_shared_file_info(
 ///
 /// What `getPageTree` gives of the wiki, read with its read token as `getSharedContainer`
 /// is: every page without its body, naming nobody. By `order` as strings compare by
-/// code unit, then by `id`. A board's token reads no pages (404).
+/// code unit, then by `id`. A board's or a course's token reads no pages (404).
 #[utoipa::path(
     get,
     path = "/shared/{containerId}/pages",
@@ -301,7 +305,7 @@ async fn handle_get_shared_page_tree(shared: InSharedContainer) -> ApiResult {
 /// its `id` if it names a page of this wiki, and has an empty one for anything else: of
 /// what is elsewhere in the workspace nothing is told, nor whether there is anything.
 /// Its comments and its versions are not read by the link. A page of another wiki, one
-/// in the trash, and a board's token are 404.
+/// in the trash, and a board's or a course's token are 404.
 #[utoipa::path(
     get,
     path = "/shared/{containerId}/pages/{pageId}",
@@ -325,4 +329,63 @@ async fn handle_get_shared_page(
     page.hide_people(&PersonProperties::default());
     page.clear_references_but(&shown);
     Ok(json_response(&Page::from(page)))
+}
+
+/// The chapters and units of a shared course
+///
+/// What `getUnitTree` gives of the course, read with its read token as
+/// `getSharedContainer` is: every chapter and unit without its body, naming nobody. By
+/// `order` as strings compare by code unit, then by `id`. A board's or a wiki's token
+/// reads no units (404).
+#[utoipa::path(
+    get,
+    path = "/shared/{containerId}/units",
+    operation_id = "getSharedUnitTree",
+    tag = tag::SHARING,
+    params(ContainerId, SharedReadToken),
+    security(()),
+    responses((status = 200, description = "The chapters and units.", body = Vec<UnitNode>)),
+)]
+async fn handle_get_shared_unit_tree(shared: InSharedContainer) -> ApiResult {
+    shared.require_kind(ContainerKind::Course)?;
+    Ok(json_response(
+        &shared.app.unit_tree(&shared.container_id).await?,
+    ))
+}
+
+/// A unit of a shared course
+///
+/// What `getUnit` gives of a unit of the course, read with its read token as
+/// `getSharedContainer` is. No unit names a user: `createdBy` and `modifiedBy` are
+/// empty, and so is the `userId` of every mention in its body. A reference in the body
+/// keeps its `id` if it names a unit of this course, and has an empty one for anything
+/// else: of what is elsewhere in the workspace nothing is told, nor whether there is
+/// anything. Its comments and its versions are not read by the link. A chapter, a unit
+/// of another course, one in the trash, and a board's or wiki's token are 404.
+#[utoipa::path(
+    get,
+    path = "/shared/{containerId}/units/{unitId}",
+    operation_id = "getSharedUnit",
+    tag = tag::SHARING,
+    params(ContainerId, UnitId, SharedReadToken),
+    security(()),
+    responses((status = 200, description = "The unit.", body = Unit)),
+)]
+async fn handle_get_shared_unit(
+    shared: InSharedContainer,
+    Path((_, unit_id)): Path<(String, String)>,
+) -> ApiResult {
+    shared.require_kind(ContainerKind::Course)?;
+    let mut unit = shared
+        .app
+        .content_unit_of(&shared.container_id, &unit_id)
+        .await?;
+    let shown = shared
+        .app
+        .units_named_on(&shared.container_id, unit.body.as_ref())
+        .await?;
+    // A course has no properties of people: the writers and the mentions are what name one.
+    unit.hide_people(&PersonProperties::default());
+    unit.clear_references_but(&shown);
+    Ok(json_response(&Unit::from(unit)))
 }

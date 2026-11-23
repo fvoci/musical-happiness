@@ -308,7 +308,7 @@ impl FromRequestParts<App> for InShared {
 }
 
 /// A workspace as an operation enters it that reaches publicly linkable or referenceable
-/// containers: boards and wikis. Diaries and courses are not there to it.
+/// containers: boards, wikis and courses. Diaries are never there to it.
 #[derive(Debug)]
 pub(crate) struct InLinked(pub(crate) InWorkspace);
 

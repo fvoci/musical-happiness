@@ -20,7 +20,7 @@ export interface ShownReference {
   title: string;
   /** Its icon; empty for none. */
   icon: string;
-  kind: 'card' | 'page';
+  kind: 'card' | 'page' | 'unit';
   /** The address it opens; none where the app has no screen for it. */
   href?: string;
 }

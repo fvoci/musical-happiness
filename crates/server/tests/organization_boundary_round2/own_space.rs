@@ -57,10 +57,11 @@ struct Space {
     /// of it, whose weather has the word.
     diary: Container,
     entry: Block,
-    /// A course of the space, a chapter and a unit inside it, each naming the secret.
+    /// A course of the space, a chapter and a unit inside it, and a comment on the unit.
     course: Container,
     chapter: Block,
     unit: Block,
+    unit_comment: Block,
     file: String,
     upload_id: String,
     category: String,
@@ -143,6 +144,7 @@ impl Space {
         let comment = a_comment_on(store, &page).await;
         let (diary, entry) = a_diary_of(&owner, store, &workspace.id).await;
         let (course, chapter, unit) = a_course_of(&owner, store, &workspace.id).await;
+        let unit_comment = a_comment_on(store, &unit).await;
         Self {
             owner,
             owner_id,
@@ -158,6 +160,7 @@ impl Space {
             course,
             chapter,
             unit,
+            unit_comment,
             file,
             upload_id: upload.id,
             category,
@@ -175,6 +178,7 @@ impl Space {
             comment: &self.comment,
             entry: Some(&self.entry),
             unit: &self.unit,
+            unit_comment: &self.unit_comment,
             file: &self.file,
             upload_id: &self.upload_id,
             category: &self.category,
@@ -202,6 +206,7 @@ impl Space {
             &self.course.id,
             &self.chapter.id,
             &self.unit.id,
+            &self.unit_comment.id,
             &self.file,
             &self.upload_id,
             &self.category,
@@ -535,7 +540,7 @@ async fn compare_without_a_session(ts: &TestServer, space: &Space, token: &str) 
             ));
         }
     }
-    for suffix in ["", "/blocks", "/cards", "/pages"] {
+    for suffix in ["", "/blocks", "/cards", "/pages", "/units"] {
         let ask = async |container: &str| {
             let path = format!("/shared/{container}{suffix}?readToken={token}");
             anonymous.get(&path).await
@@ -686,14 +691,16 @@ async fn check_reached_by(space: &Space, client: &Client) {
     let read = space.owner.get(&entry).await;
     read.check_ok();
     assert!(read.text().contains(SECRET), "{}", read.text());
-    let named = json!([space.card.id, space.page.id]);
+    let named = json!([space.card.id, space.page.id, space.unit.id]);
     let resolved = space
         .owner
         .post(&format!("{here}/references/resolve"), &named)
         .await;
     resolved.check_ok();
     assert!(
-        resolved.text().contains(SECRET) && resolved.text().contains(&space.card.id),
+        resolved.text().contains(SECRET)
+            && resolved.text().contains(&space.card.id)
+            && resolved.text().contains(&space.unit.id),
         "the owner's references resolve in the space: {}",
         resolved.text()
     );
@@ -1178,6 +1185,34 @@ async fn nothing_of_a_space_is_posted_to_the_operators_webhooks() {
     ts.teardown().await;
 }
 
+/// Shares the board and course of `space` and returns their public read paths plus the
+/// board's token (for websocket subscription).
+async fn shared_space_paths(space: &Space) -> (String, [String; 5]) {
+    let token = space
+        .app
+        .set_sharing(&space.board.id, SharingChange::On, &space.owner_id)
+        .await
+        .expect("the owner shares the board")
+        .token;
+    let course_token = space
+        .app
+        .set_sharing(&space.course.id, SharingChange::On, &space.owner_id)
+        .await
+        .expect("the owner shares the course")
+        .token;
+    let paths = [
+        format!("/shared/{}?readToken={token}", space.board.id),
+        format!("/shared/{}/cards?readToken={token}", space.board.id),
+        format!("/shared/{}?readToken={course_token}", space.course.id),
+        format!("/shared/{}/units?readToken={course_token}", space.course.id),
+        format!(
+            "/shared/{}/units/{}?readToken={course_token}",
+            space.course.id, space.unit.id
+        ),
+    ];
+    (token, paths)
+}
+
 /// While the account of a space waits to be deleted, the public links of the space
 /// open nothing, as links that are not there, and who followed a board by one is
 /// told no more of it; the links open again if the account takes the deletion back.
@@ -1185,17 +1220,17 @@ async fn nothing_of_a_space_is_posted_to_the_operators_webhooks() {
 async fn the_links_of_a_space_are_closed_while_its_account_waits() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let space = Space::of_a_new_member(&ts).await;
-    let token = space
-        .app
-        .set_sharing(&space.board.id, SharingChange::On, &space.owner_id)
-        .await
-        .expect("the owner shares the board")
-        .token;
-    let link = format!("/shared/{}?readToken={token}", space.board.id);
-    let cards = format!("/shared/{}/cards?readToken={token}", space.board.id);
+    let (token, paths) = shared_space_paths(&space).await;
     let nothing = format!("/shared/{UNKNOWN_ID}?readToken={token}");
-    ts.anonymous().get(&link).await.check_ok();
-    ts.anonymous().get(&cards).await.check_ok();
+    for path in &paths {
+        let read = ts.anonymous().get(path).await;
+        read.check_ok();
+        assert!(
+            !read.text().contains(&space.owner_id) && !read.text().contains(&space.workspace.id),
+            "{path} hides owner and workspace IDs: {}",
+            read.text()
+        );
+    }
 
     let mut reader = ts.anonymous().as_browser().connect_websocket().await;
     let follow = json!({
@@ -1243,7 +1278,7 @@ async fn the_links_of_a_space_are_closed_while_its_account_waits() {
         "requesting deletion moves the own space's revision"
     );
     let absent = ts.anonymous().get(&nothing).await;
-    for path in [&link, &cards] {
+    for path in &paths {
         let closed: ApiResponse = ts.anonymous().get(path).await;
         closed.check_not_found();
         assert_eq!(
@@ -1281,8 +1316,9 @@ async fn the_links_of_a_space_are_closed_while_its_account_waits() {
         after_cancel.1, while_waiting.1,
         "cancelling deletion moves the own space's revision again"
     );
-    ts.anonymous().get(&link).await.check_ok();
-    ts.anonymous().get(&cards).await.check_ok();
+    for path in &paths {
+        ts.anonymous().get(path).await.check_ok();
+    }
     ts.teardown().await;
 }
 

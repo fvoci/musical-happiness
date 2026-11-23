@@ -130,7 +130,7 @@ async fn handle_create_course(InCourse(ws): InCourse, body: Bytes) -> ApiResult 
 }
 
 /// What a member of the workspace who may not read the course is refused a unit with.
-const READ_DENIED: &str = "access denied to fetch unit";
+pub(super) const READ_DENIED: &str = "access denied to fetch unit";
 
 /// Returns the unit or chapter of the course for a handler of
 /// `/courses/{courseId}/units/{unitId}`, if the user has the permission on the course.
@@ -144,6 +144,20 @@ async fn unit_with_permission(
     require_container_permission(&ws.app, &ws.session.user_id, course_id, permission, denial)
         .await?;
     ws.app.unit_of(course_id, unit_id).await
+}
+
+/// Returns the unit (not a chapter) of the course for a handler that applies only to units
+/// with bodies (comments, body versions), if the user has the permission on the course.
+pub(super) async fn content_unit_with_permission(
+    ws: &InWorkspace,
+    course_id: &str,
+    unit_id: &str,
+    permission: ContainerPermission,
+    denial: &str,
+) -> Result<Block, AppError> {
+    require_container_permission(&ws.app, &ws.session.user_id, course_id, permission, denial)
+        .await?;
+    ws.app.content_unit_of(course_id, unit_id).await
 }
 
 /// The outline of a course
@@ -426,7 +440,8 @@ async fn handle_get_deleted_units(
 /// `too_many_chapters` (each with the `limit`) if restoring would exceed them. A block
 /// not in this course's trash, or a unit that went with its chapter (it comes back with
 /// that chapter), is 404. The course's listeners are told with `UPDATE_BLOCK` of each
-/// block that came back (a chapter before its units) and each sibling numbered anew.
+/// block that came back (a chapter before its units, and each unit before its comments)
+/// and each sibling numbered anew.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}/undelete",

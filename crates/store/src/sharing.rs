@@ -43,7 +43,7 @@ impl Store {
         user_id: &str,
     ) -> Result<Sharing, StoreError> {
         self.transaction(async |scope| {
-            // Only boards and wikis have public links (t1); diaries and courses do not.
+            // Only boards, wikis and courses have public links; diaries never do.
             if !containers::lock_container_of_kind(scope, container_id)
                 .await?
                 .is_some_and(|kind| fvoci_model::ContainerKinds::LINKED.holds(kind))

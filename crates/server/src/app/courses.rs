@@ -2,7 +2,9 @@
 //! trash of them. A unit or chapter is a block, and is changed and deleted as one
 //! ([`App::patch_block`], [`App::delete_block`]).
 
-use fvoci_model::{Block, CourseLimits, DeletedUnit, NewUnit, Unit, UnitKind, UnitMove, UnitNode};
+use fvoci_model::{
+    Block, BlockType, CourseLimits, DeletedUnit, NewUnit, Unit, UnitKind, UnitMove, UnitNode,
+};
 use fvoci_store::{UnitRestore, UnitWrite};
 
 use super::App;
@@ -33,6 +35,22 @@ impl App {
             Err(error) if error.is_not_found() => Err(AppError::not_found(WHAT)),
             Err(error) => Err(error),
         }
+    }
+
+    /// The unit (not a chapter) of the course, its block read once: a chapter, a block of
+    /// another course, anything else, or one in the trash is not there. For operations
+    /// that only apply to units with bodies (comments, body versions, public unit reads).
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error for anything but a live unit of the course, and the
+    /// store's error if the block cannot be read.
+    pub async fn content_unit_of(&self, course_id: &str, unit_id: &str) -> Result<Block, AppError> {
+        let block = self.unit_of(course_id, unit_id).await?;
+        if block.block_type != BlockType::Unit {
+            return Err(AppError::not_found("unit"));
+        }
+        Ok(block)
     }
 
     /// The chapters and units of the course without their bodies, as their outline lists

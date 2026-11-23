@@ -585,23 +585,24 @@ export interface paths {
          * The notifications of the user
          * @description One page of what the user of the session was told, in every organization the
          *     session opens, the newest first (by `updateAt`): that somebody mentioned them in a
-         *     card, a page or a comment (`mention`), gave them a card (`assignment`), or commented
-         *     on a card or a page they watch (`comment`; one named in that comment is told of the
-         *     mention alone). Nobody is told of their own doing, nor of anything in a user's own
-         *     space, nor of a kind they switched off (`notifyMentions`, `notifyAssignments`,
-         *     `notifyComments` of `patchUserSettings`): what is off is not made at all.
+         *     card, a page, a unit or a comment (`mention`), gave them a card (`assignment`), or
+         *     commented on a card, a page or a unit they watch (`comment`; one named in that comment
+         *     is told of the mention alone). Nobody is told of their own doing, nor of anything in a
+         *     user's own space, nor of a kind they switched off (`notifyMentions`,
+         *     `notifyAssignments`, `notifyComments` of `patchUserSettings`): what is off is not made
+         *     at all.
          *
-         *     Whoever writes a card or a page, is given a card, or comments on either watches it
-         *     (`createSubscription`), until they end that (`deleteSubscription`). What happens to
-         *     one card or page, of one kind, within an hour of the first of it, is one
+         *     Whoever writes a card, a page or a unit, is given a card, or comments on one watches
+         *     it (`createSubscription`), until they end that (`deleteSubscription`). What happens to
+         *     one card, page or unit, of one kind, within an hour of the first of it, is one
          *     notification: `times` and `people` count it, `actorId` and `commentId` say the
          *     latest, and it is unread again. One person makes a hundred new ones for another
          *     within an hour at most; past that, what they do joins only those there.
          *
-         *     A notification is made only for somebody who reads the card or the page at that
+         *     A notification is made only for somebody who reads the card, page or unit at that
          *     time, and each one listed is asked again: its `subject` says what it is about, as
          *     that is now, only where the user reads it now with this session. Where they do not
-         *     (it is in the trash or gone, or they left the board or the workspace) `subject` is
+         *     (it is in the trash or gone, or they left the container or the workspace) `subject` is
          *     `null`, and nothing says what it was about, where or by whom. Such a one is still
          *     listed, and counted while unread.
          *
@@ -1339,8 +1340,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A shared board or wiki
-         * @description The board or the wiki (its `kind` says which) whose read token the request has; no
+         * A shared board, wiki or course
+         * @description The board, wiki or course (its `kind` says which) whose read token the request has; no
          *     session is needed, and one that comes along is not looked at. Who made it or
          *     changed it last is not told (`createdBy` and `modifiedBy` are empty), nor its
          *     workspace (`workspaceId` is empty). 404 unless the token is its own and it is shared
@@ -1366,7 +1367,7 @@ export interface paths {
         /**
          * The blocks of a shared board
          * @description What `getBlocks` gives of the board, with the same parameters, read with its read
-         *     token as `getSharedContainer` is; a wiki's token reads no blocks (404). No block names a
+         *     token as `getSharedContainer` is; a wiki's or a course's token reads no blocks (404). No block names a
          *     user: `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in
          *     a body, and so is each user that
          *     the board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)
@@ -1399,7 +1400,7 @@ export interface paths {
         /**
          * The cards of a shared board
          * @description What `getCards` gives of the board, read with its read token as `getSharedContainer` is;
-         *     a wiki's token reads no cards (404).
+         *     a wiki's or a course's token reads no cards (404).
          *     No card names a user: `createdBy` and `modifiedBy` are empty, the values of person
          *     properties are emptied, and values of properties the board does not define are left
          *     out. The preview's text has no mentions in it, and its image `getSharedFile` gives.
@@ -1423,9 +1424,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A file of a shared board or wiki
-         * @description What `getFile` gives of a file of the board or the wiki, read with its read token as
-         *     `getSharedContainer` is: a file of another board or wiki is not there.
+         * A file of a shared board, wiki or course
+         * @description What `getFile` gives of a file of the board, wiki or course, read with its read token
+         *     as `getSharedContainer` is: a file of another container is not there.
          */
         get: operations["getSharedFile"];
         put?: never;
@@ -1444,8 +1445,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What is known about a file of a shared board or wiki
-         * @description What `getFileInfo` gives of a file of the board or the wiki, read with its read
+         * What is known about a file of a shared board, wiki or course
+         * @description What `getFileInfo` gives of a file of the board, wiki or course, read with its read
          *     token as `getSharedContainer` is.
          */
         get: operations["getSharedFileInfo"];
@@ -1468,7 +1469,7 @@ export interface paths {
          * The pages of a shared wiki
          * @description What `getPageTree` gives of the wiki, read with its read token as `getSharedContainer`
          *     is: every page without its body, naming nobody. By `order` as strings compare by
-         *     code unit, then by `id`. A board's token reads no pages (404).
+         *     code unit, then by `id`. A board's or a course's token reads no pages (404).
          */
         get: operations["getSharedPageTree"];
         put?: never;
@@ -1494,9 +1495,58 @@ export interface paths {
          *     its `id` if it names a page of this wiki, and has an empty one for anything else: of
          *     what is elsewhere in the workspace nothing is told, nor whether there is anything.
          *     Its comments and its versions are not read by the link. A page of another wiki, one
-         *     in the trash, and a board's token are 404.
+         *     in the trash, and a board's or a course's token are 404.
          */
         get: operations["getSharedPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shared/{containerId}/units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The chapters and units of a shared course
+         * @description What `getUnitTree` gives of the course, read with its read token as
+         *     `getSharedContainer` is: every chapter and unit without its body, naming nobody. By
+         *     `order` as strings compare by code unit, then by `id`. A board's or a wiki's token
+         *     reads no units (404).
+         */
+        get: operations["getSharedUnitTree"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shared/{containerId}/units/{unitId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A unit of a shared course
+         * @description What `getUnit` gives of a unit of the course, read with its read token as
+         *     `getSharedContainer` is. No unit names a user: `createdBy` and `modifiedBy` are
+         *     empty, and so is the `userId` of every mention in its body. A reference in the body
+         *     keeps its `id` if it names a unit of this course, and has an empty one for anything
+         *     else: of what is elsewhere in the workspace nothing is told, nor whether there is
+         *     anything. Its comments and its versions are not read by the link. A chapter, a unit
+         *     of another course, one in the trash, and a board's or wiki's token are 404.
+         */
+        get: operations["getSharedUnit"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3529,6 +3579,202 @@ export interface paths {
         patch: operations["patchUnit"];
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/body-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The versions kept of a unit's body
+         * @description As `getPageBodyVersions` gives a page's: the newest first, each with when it was kept
+         *     and who wrote the body up to it, without the bodies (`getUnitBodyVersion`). For who
+         *     reads the course, whatever their role: its members, and of an open course whoever
+         *     works in the workspace. A chapter or a unit in the trash is not there (404); a unit's
+         *     versions are kept while it is in the trash, and go when it is gone for good.
+         */
+        get: operations["getUnitBodyVersions"];
+        put?: never;
+        /**
+         * Keep a unit's body as a version now
+         * @description As `keepPageBodyVersion` keeps a page's: the body the unit has, with what those who
+         *     edit it together typed, by hand; nothing of a body that is its newest version already
+         *     (`unchanged`), nor within a minute of a version kept by hand (`recent`). For editors
+         *     of the course (403 for its other members and for who reads an open course unjoined).
+         *     A chapter or a unit in the trash is not there (404).
+         */
+        post: operations["keepUnitBodyVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/body-versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A version kept of a unit's body
+         * @description The version with its body, as `getUnit` gives a body. For whom `getUnitBodyVersions`
+         *     is for. A chapter, or a number the unit has no version of (or has none of any more),
+         *     is 404.
+         */
+        get: operations["getUnitBodyVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/body-versions/{version}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Go back to a version of a unit's body
+         * @description Writes the body of the version to the unit again, as `restorePageBodyVersion` does to
+         *     a page: those who edit the unit together are sent the body as a new document, the
+         *     body it replaces is kept as a version first, and the body written is the unit's
+         *     newest version, by the caller. A unit that has that body already is left as it is. For
+         *     editors of the course (403 for its other members). A chapter, or a number the unit
+         *     has no version of (or has none of any more), is 404; a version whose body may not be
+         *     stored any more, or names a file (an image, a file block) the course no longer has,
+         *     is 409.
+         */
+        post: operations["restoreUnitBodyVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The comments on a unit
+         * @description Every comment on the unit, oldest first, as blocks of the `type` `comment` whose
+         *     parent is the unit; each says who wrote it (`createdBy`), and one whose text was
+         *     changed when that last happened (`editedAt`). For who reads the course: its members,
+         *     and of an open course whoever works in the workspace. A chapter or a unit in the
+         *     trash is not there (404).
+         */
+        get: operations["getUnitComments"];
+        put?: never;
+        /**
+         * Write a comment on a unit
+         * @description For the course's members from the commenter's role up (whoever reads an open course
+         *     without joining it is refused with 403). The server chooses the identifier, the
+         *     author and the times. Every image of the text shows a file of the course (400
+         *     otherwise), and the text has no file block (400). A chapter takes no comments (404).
+         *     Who reads the course is told with `UPDATE_BLOCK`, as of a comment on a card or page.
+         */
+        post: operations["createUnitComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a comment on a unit
+         * @description The comment goes to the trash, as a comment on a card or page does: by its author
+         *     from the commenter's role up, and the comment of somebody else by the course's admins
+         *     only (403, `access denied to delete other users' comments`). Who reads the course is
+         *     told with `UPDATE_BLOCK` whose `deleteAt` is not 0.
+         */
+        delete: operations["deleteUnitComment"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a comment on a unit
+         * @description Writes a new text over the comment, as a card's or page's comments are changed: by
+         *     its author from the commenter's role up, and the comment of somebody else by the
+         *     course's admins only (403, `access denied to change other users' comments`); an
+         *     editor may not change it. The text it had is kept (`getUnitCommentVersions`), and the
+         *     comment's `editedAt` says when it last changed. The text has no file block (400).
+         */
+        patch: operations["patchUnitComment"];
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/undelete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring a deleted comment on a unit back
+         * @description A comment deleted on its own comes back onto its unit, as `undeletePageComment`
+         *     brings a page's comment back: for its author from the commenter's role up if they
+         *     deleted it themselves, and for the course's admins whoever wrote or deleted it (403,
+         *     `access denied to undelete other users' comments`, and for the author of a comment
+         *     somebody else deleted, `a comment somebody else deleted is brought back by the
+         *     board's admins`). A comment that went to the trash with its unit comes back with the
+         *     unit (`undeleteUnit`), not on its own; that one, one not in the trash, and one of
+         *     another unit are not there (404), nor is any while the unit is in the trash. Who
+         *     reads the course is told with `UPDATE_BLOCK`.
+         */
+        post: operations["undeleteUnitComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a comment on a unit said before
+         * @description The earlier texts of the comment, as `getPageCommentVersions` gives a page's
+         *     comment's: every version but the one it has now, the first one first, with who wrote
+         *     it and when. For who reads the course (as `getUnitComments`), also of a comment in
+         *     the trash while its unit is there: the versions go only when the comment is gone for
+         *     good. A chapter or a unit in the trash is not there (404).
+         */
+        get: operations["getUnitCommentVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/move": {
         parameters: {
             query?: never;
@@ -3578,7 +3824,8 @@ export interface paths {
          *     `too_many_chapters` (each with the `limit`) if restoring would exceed them. A block
          *     not in this course's trash, or a unit that went with its chapter (it comes back with
          *     that chapter), is 404. The course's listeners are told with `UPDATE_BLOCK` of each
-         *     block that came back (a chapter before its units) and each sibling numbered anew.
+         *     block that came back (a chapter before its units, and each unit before its comments)
+         *     and each sibling numbered anew.
          */
         post: operations["undeleteUnit"];
         delete?: never;
@@ -4137,15 +4384,16 @@ export interface paths {
         put?: never;
         /**
          * What references name
-         * @description A body names a card or a page by its identifier alone (the node `reference`), and no
-         *     body, however it is read, says what that is called: this does, for the user who
-         *     asks and as things are now. Of the identifiers of the body, the cards and pages of
-         *     this workspace on a board or a wiki the user reads (as `getCard` and `getPage` ask),
-         *     each once, in the order they were first named.
+         * @description A body names a card, a page or a unit by its identifier alone (the node `reference`),
+         *     and no body, however it is read, says what that is called: this does, for the user who
+         *     asks and as things are now. Of the identifiers of the body, the cards, pages and units
+         *     of this workspace on a board, a wiki or a course the user reads (as `getCard`,
+         *     `getPage` and `getUnit` ask), each once, in the order they were first named.
          *
          *     Whatever else an identifier names is left out, and the answer does not tell why:
          *     nothing at all, something in the trash, something of another workspace or
-         *     organization, a card or a page the user does not read, or a block that is neither.
+         *     organization, a card, a page or a unit the user does not read, or a block that is none
+         *     of those (such as a chapter of a course).
          *     The body names at most 100 identifiers (more is 400, as an entry that has not the
          *     form of an identifier is); an empty list answers an empty list.
          */
@@ -4165,14 +4413,13 @@ export interface paths {
         };
         /**
          * Find what a reference may name
-         * @description The cards and pages of this workspace, on a board or a wiki the user reads, whose
-         *     title has every word of `q` in it, as spaces divide it and whatever the case of the
-         *     letters (of every letter, not only ASCII); `%` and `_` are characters like any
-         *     other. At most 20, the one changed last first; without `q`, the 20 changed last.
-         *     Bodies are not looked into. What is in the trash, what is on a template, and a block
-         *     whose `isTemplate` is `true` (for a card, a template of its board's cards) are never
-         *     found. A `q` of more than 200
-         *     characters is 400.
+         * @description The cards, pages and units of this workspace, on a board, a wiki or a course the user
+         *     reads, whose title has every word of `q` in it, as spaces divide it and whatever the
+         *     case of the letters (of every letter, not only ASCII); `%` and `_` are characters like
+         *     any other. At most 20, the one changed last first; without `q`, the 20 changed last.
+         *     Bodies are not looked into. What is in the trash, what is on a template, a chapter of
+         *     a course, and a block whose `isTemplate` is `true` (for a card, a template of its
+         *     board's cards) are never found. A `q` of more than 200 characters is 400.
          */
         get: operations["searchReferences"];
         put?: never;
@@ -4191,15 +4438,15 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What names a card or a page
-         * @description The cards and pages of this workspace whose body names the block of the path with a
-         *     reference, or which have a comment whose body does, on a board or a wiki the user
-         *     reads; the block itself is never among them. Oldest first. What names it from where the user does not
-         *     read is left out and takes no place in a page: the answer does not say how many
-         *     there are, nor whether there are any.
+         * What names a card, a page or a unit
+         * @description The cards, pages and units of this workspace whose body names the block of the path
+         *     with a reference, or which have a comment whose body does, on a board, a wiki or a
+         *     course the user reads; the block itself is never among them. Oldest first. What names
+         *     it from where the user does not read is left out and takes no place in a page: the
+         *     answer does not say how many there are, nor whether there are any.
          *
-         *     404 unless the block is a card or a page the user reads, as `resolveReferences`
-         *     tells of it: for anything else, as for an identifier of nothing.
+         *     404 unless the block is a card, a page or a unit the user reads, as
+         *     `resolveReferences` tells of it: for anything else, as for an identifier of nothing.
          */
         get: operations["getReferencesTo"];
         put?: never;
@@ -4269,8 +4516,9 @@ export interface paths {
         put?: never;
         /**
          * Subscribe to a block
-         * @description Subscribes the user of the session to a block of a board, or a page of a wiki, they
-         *     may read: whoever writes a card or a page watches it, and may stop and start again. A
+         * @description Subscribes the user of the session to a block of a board, a page of a wiki, or a unit
+         *     of a course they may read: whoever writes a card, a page or a unit watches it, and
+         *     may stop and start again. A chapter of a course takes no subscriptions (404). A
          *     `subscriberId` that is not the user of the session is 403, and a `subscriberType`
          *     other than `user` is 400. The `blockType` is stored as it is sent, and not compared
          *     with the block. Subscribing again is no error: the subscription stays as it was
@@ -6323,22 +6571,22 @@ export interface components {
              */
             wikis?: number;
         };
-        /** @description A card or a page as a reference shows it: what it is called, and where it is. */
+        /** @description A card, a page or a unit as a reference shows it: what it is called, and where it is. */
         LinkedBlock: {
-            /** @description The identifier of the board the card is on, or of the wiki the page is of. */
+            /** @description The identifier of the board, wiki or course it belongs to. */
             containerId: string;
-            /** @description Whether that is a board or a wiki. */
+            /** @description Whether that is a board, a wiki or a course. */
             containerKind: components["schemas"]["ContainerKind"];
             /** @description Its icon, at most one grapheme; empty for none. */
             icon: string;
-            /** @description The identifier of the card or the page. */
+            /** @description The identifier of the card, the page or the unit. */
             id: string;
-            /** @description Whether it is a card or a page. */
+            /** @description Whether it is a card, a page or a unit. */
             kind: components["schemas"]["LinkedKind"];
             /**
              * Format: int32
-             * @description A card's number on its board, as `Card.number` gives it; absent for a page and
-             *     for a template of the board's cards.
+             * @description A card's number on its board, as `Card.number` gives it; absent for a page, a
+             *     unit, and a template of the board's cards.
              */
             number?: number | null;
             /** @description Its title; empty for one without. */
@@ -6371,10 +6619,10 @@ export interface components {
             subject: string;
         };
         /**
-         * @description What a reference may name: a card of a board or a page of a wiki.
+         * @description What a reference may name: a card of a board, a page of a wiki or a unit of a course.
          * @enum {string}
          */
-        LinkedKind: "card" | "page";
+        LinkedKind: "card" | "page" | "unit";
         /** @description What the login page shows: the organization it is for, if it is for one. */
         LoginOptions: {
             /**
@@ -6779,6 +7027,11 @@ export interface components {
             parentId?: string;
             /** @description The title. Left out, empty. */
             title?: string;
+        };
+        /** @description A comment to write on a unit. */
+        NewUnitComment: {
+            /** @description The comment's text, as a unit's body is written; neither empty nor `null`. */
+            body: components["schemas"]["Body"];
         };
         /** @description A file to send in parts. */
         NewUpload: {
@@ -7691,6 +7944,20 @@ export interface components {
              *     change of the unit names.
              */
             updateAt: number;
+        };
+        /**
+         * @description What a comment on a unit is changed to: its text, written over the comment as it was
+         *     read.
+         */
+        UnitCommentPatch: {
+            /** @description The comment's new text, as a unit's body is written; neither empty nor `null`. */
+            body: components["schemas"]["Body"];
+            /**
+             * Format: int64
+             * @description The `updateAt` of the comment as the client read it: if the comment has changed
+             *     since, the patch is refused with 409 and changes nothing.
+             */
+            readAt: number;
         };
         /**
          * @description Whether an entry of a course's outline is a unit (with a body) or a chapter (a
@@ -9762,7 +10029,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The board or the wiki. */
+            /** @description The board, wiki or course. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10008,6 +10275,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSharedUnitTree: {
+        parameters: {
+            query: {
+                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                readToken: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the board, the wiki, the diary or the course. */
+                containerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The chapters and units. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitNode"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSharedUnit: {
+        parameters: {
+            query: {
+                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                readToken: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the board, the wiki, the diary or the course. */
+                containerId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The unit. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unit"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -13012,7 +13351,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is. */
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is. */
                 containerId: string;
             };
             cookie?: never;
@@ -13046,7 +13385,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is. */
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is. */
                 containerId: string;
             };
             cookie?: never;
@@ -13531,6 +13870,384 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Unit"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getUnitBodyVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions, the newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BodyVersion"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    keepUnitBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What became of the body. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeptBodyVersion"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getUnitBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+                /** @description The number of the version of the unit's body, as `getUnitBodyVersions` lists it. */
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BodyVersionContent"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    restoreUnitBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+                /** @description The number of the version of the unit's body, as `getUnitBodyVersions` lists it. */
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The unit as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unit"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getUnitComments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comments, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createUnitComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewUnitComment"];
+            };
+        };
+        responses: {
+            /** @description The comment as it was stored. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteUnitComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+                /** @description The identifier of the comment: a comment on the unit of the path. 404 for a comment on another unit, and for a block that is no comment. */
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comment is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchUnitComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+                /** @description The identifier of the comment: a comment on the unit of the path. 404 for a comment on another unit, and for a block that is no comment. */
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnitCommentPatch"];
+            };
+        };
+        responses: {
+            /** @description The comment as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    undeleteUnitComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+                /** @description The identifier of the comment: a comment on the unit of the path. 404 for a comment on another unit, and for a block that is no comment. */
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comment as it is again. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getUnitCommentVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+                /** @description The identifier of the comment: a comment on the unit of the path. 404 for a comment on another unit, and for a block that is no comment. */
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The earlier versions, the first one first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentVersion"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

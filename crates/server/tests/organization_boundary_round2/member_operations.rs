@@ -25,9 +25,11 @@ struct Named {
     wiki: String,
     page: String,
     comment: String,
-    /// A course for everybody in the workspace, which the member joined, and a unit of it.
+    /// A course for everybody in the workspace, which the member joined, a unit of it, and
+    /// a comment of the founder's on the unit.
     course: String,
     unit: String,
+    course_comment: String,
     file: String,
     upload: String,
     category: String,
@@ -36,6 +38,8 @@ struct Named {
     read_token: String,
     /// The read token of the wiki, which is shared too: the pages of a link are a wiki's.
     wiki_token: String,
+    /// The read token of the course, which is shared too: the units of a link are a course's.
+    course_token: String,
     /// A team of the workspace with a role on the board, which the member is in.
     team: String,
     /// What the member was told: that the founder named them in a card of the board.
@@ -46,7 +50,7 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 45] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 46] = [
     // No workspace of an organization has a diary: a diary is of a user's own space.
     "getDiaries",
     "createDiary",
@@ -92,6 +96,7 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 45] = [
     "undeletePage",
     "undeletePageComment",
     "undeleteUnit",
+    "undeleteUnitComment",
     // The member's subscription is to the card, by its own identifier.
     "deleteSubscription",
     // The upload asked of is done with by then, or was never begun in parts.
@@ -142,11 +147,19 @@ fn operations() -> Vec<(String, String, String)> {
 
 impl Named {
     fn path(&self, template: &str) -> String {
-        // The pages of a link are read by the wiki's link, its other routes by the board's.
+        // The pages of a link are read by the wiki's link, the units by the course's link,
+        // and its other routes by the board's.
         let template = if template.starts_with("/api/v1/shared/{containerId}/pages") {
             template.replacen("{containerId}", &self.wiki, 1)
+        } else if template.starts_with("/api/v1/shared/{containerId}/units") {
+            template.replacen("{containerId}", &self.course, 1)
         } else {
             template.to_owned()
+        };
+        let comment = if template.contains("/courses/") {
+            &self.course_comment
+        } else {
+            &self.comment
         };
         template
             .trim_start_matches("/api/v1")
@@ -158,7 +171,7 @@ impl Named {
             .replace("{blockId}", &self.card)
             .replace("{wikiId}", &self.wiki)
             .replace("{pageId}", &self.page)
-            .replace("{commentId}", &self.comment)
+            .replace("{commentId}", comment)
             .replace("{courseId}", &self.course)
             .replace("{unitId}", &self.unit)
             // No workspace of an organization has a diary: the board named as one is
@@ -185,7 +198,7 @@ impl Named {
     fn body(&self, operation: &str) -> Value {
         match operation {
             "getWorkspaceUsersById" => json!([self.member_id]),
-            "resolveReferences" => json!([self.card, self.page]),
+            "resolveReferences" => json!([self.card, self.page, self.unit]),
             "createBlocks" | "reorderCardProperties" => json!([]),
             "importArchive" => json!({ "uploadId": self.upload }),
             "previewInvitation" => json!({ "token": self.invitation }),
@@ -208,6 +221,8 @@ impl Named {
             );
             let path = if template.starts_with("/api/v1/shared/{containerId}/pages") {
                 format!("{path}?readToken={}", self.wiki_token)
+            } else if template.starts_with("/api/v1/shared/{containerId}/units") {
+                format!("{path}?readToken={}", self.course_token)
             } else if template.starts_with("/api/v1/shared/") {
                 format!("{path}?readToken={}", self.read_token)
             } else {
@@ -235,6 +250,18 @@ async fn write_a_body(founder: &Client, at: &str, card: &Value) {
         .check_ok();
 }
 
+/// Shares `container` under workspace path `at` and returns its read token.
+async fn share_token(founder: &Client, at: &str, container: &str) -> String {
+    let sharing = founder
+        .post(
+            &format!("{at}/containers/{container}/sharing"),
+            &json!({"enabled": true}),
+        )
+        .await
+        .value();
+    text(&sharing, "token")
+}
+
 /// Signs up `name` with an organization of that name, and makes, as its founder, what the sweep
 /// names; then lets a plain member in by a link for members.
 async fn organization(server: &TestServer, name: &str) -> Named {
@@ -259,7 +286,7 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         .await
         .value();
     let (wiki, page, comment) = wiki_with_a_page(&founder, &at, name).await;
-    let (course, unit) = course_with_a_unit(&founder, &at, name).await;
+    let (course, unit, course_comment) = course_with_a_unit(&founder, &at, name).await;
     write_a_body(&founder, &at, &card).await;
     let file = Client::send(
         founder
@@ -272,20 +299,9 @@ async fn organization(server: &TestServer, name: &str) -> Named {
     let token = text(&invitation, "token");
     let member_id = member.me().await.id;
     let categories = member.get(&format!("{at}/categories")).await.value();
-    let sharing = founder
-        .post(
-            &format!("{at}/containers/{board}/sharing"),
-            &json!({"enabled": true}),
-        )
-        .await
-        .value();
-    let wiki_sharing = founder
-        .post(
-            &format!("{at}/containers/{wiki}/sharing"),
-            &json!({"enabled": true}),
-        )
-        .await
-        .value();
+    let read_token = share_token(&founder, &at, &board).await;
+    let wiki_token = share_token(&founder, &at, &wiki).await;
+    let course_token = share_token(&founder, &at, &course).await;
     // On the board, wiki and course, the member asks what their members are asked.
     for joined in [&board, &wiki, &course] {
         member
@@ -317,8 +333,9 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         member_id,
         category: text(&categories[0], "id"),
         card: card_id,
-        read_token: text(&sharing, "token"),
-        wiki_token: text(&wiki_sharing, "token"),
+        read_token,
+        wiki_token,
+        course_token,
         file: text(&file, "fileId"),
         upload: text(&upload, "uploadId"),
         invitation: token,
@@ -331,13 +348,15 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         comment,
         course,
         unit,
+        course_comment,
         team,
         notification,
     }
 }
 
-/// A course of the workspace at `at` for everybody in it, with one unit: both identifiers.
-async fn course_with_a_unit(founder: &Client, at: &str, name: &str) -> (String, String) {
+/// A course of the workspace at `at` for everybody in it, with a unit (two body versions)
+/// and a comment on it: the identifiers of the three.
+async fn course_with_a_unit(founder: &Client, at: &str, name: &str) -> (String, String, String) {
     let course = founder
         .post(
             &format!("{at}/courses"),
@@ -353,7 +372,28 @@ async fn course_with_a_unit(founder: &Client, at: &str, name: &str) -> (String, 
         )
         .await
         .value();
-    (course, text(&unit, "id"))
+    let said = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": format!("{name} unit comment")}]}]});
+    let at_unit = format!("{at}/courses/{course}/units/{}", text(&unit, "id"));
+    let mut read_at = unit["updateAt"].clone();
+    let again = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": format!("{name} unit body again")}]}]});
+    for body in [said.clone(), again] {
+        let written = founder
+            .patch(&at_unit, &json!({"readAt": read_at, "body": body}))
+            .await;
+        written.check_ok();
+        read_at = written.value()["updateAt"].clone();
+    }
+    let unit = text(&unit, "id");
+    let comment = founder
+        .post(
+            &format!("{at}/courses/{course}/units/{unit}/comments"),
+            &json!({ "body": said }),
+        )
+        .await
+        .value();
+    (course, unit, text(&comment, "id"))
 }
 
 /// The founder names the member in a card of the board, which the member reads, and
@@ -567,6 +607,10 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getCourses",
         "getUnitTree",
         "getUnit",
+        "getUnitComments",
+        "getUnitCommentVersions",
+        "getUnitBodyVersions",
+        "getUnitBodyVersion",
         "getPageComments",
         "getPageCommentVersions",
         "getPageBodyVersions",
@@ -578,6 +622,8 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getSharedCards",
         "getSharedPageTree",
         "getSharedPage",
+        "getSharedUnitTree",
+        "getSharedUnit",
         "getTemplates",
         "getWorkspaceUsers",
         "resolveReferences",

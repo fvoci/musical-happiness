@@ -778,7 +778,7 @@ async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
         let response = import(&ts.client, TEST_WORKSPACE_ID, &bytes).await;
         response.check_error(
             StatusCode::BAD_REQUEST,
-            "the parent of a comment is a card of the board or a page of the wiki",
+            "the parent of a comment is a card of the board, a page of the wiki or a unit of the course",
         );
         assert_eq!(boards_of(&ts).await.len(), before, "no board was made");
     }

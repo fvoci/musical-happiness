@@ -56,12 +56,15 @@ parameter!(MemberWorkspaceId: Path "workspaceId", String, True, "The identifier 
 parameter!(BoardId: Path "boardId", String, True, "The identifier of the board.");
 parameter!(ContainerId: Path "containerId", String, True, "The identifier of the board, the wiki, the diary or the course.");
 parameter!(PeopleContainerId: Path "containerId", String, True, "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it.");
-parameter!(LinkedContainerId: Path "containerId", String, True, "The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is.");
+parameter!(LinkedContainerId: Path "containerId", String, True, "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is.");
+parameter!(CopiedContainerId: Path "containerId", String, True, "The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is.");
 parameter!(OwnWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.");
 parameter!(DiaryId: Path "diaryId", String, True, "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.");
 parameter!(EntryId: Path "entryId", String, True, "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.");
 parameter!(CourseId: Path "courseId", String, True, "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.");
 parameter!(UnitId: Path "unitId", String, True, "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.");
+parameter!(UnitCommentId: Path "commentId", String, True, "The identifier of the comment: a comment on the unit of the path. 404 for a comment on another unit, and for a block that is no comment.");
+parameter!(UnitVersionNumber: Path "version", i64, True, "The number of the version of the unit's body, as `getUnitBodyVersions` lists it.");
 parameter!(MonthDayOfYear: Path "monthDay", String, True, "A month and a day without a year, as `11-21`: two digits each. `02-29` is a day of its own, which only leap years have. 400 for anything else.");
 parameter!(EntryVersionNumber: Path "version", i64, True, "The number of the version of the entry's body, as `getDiaryEntryBodyVersions` lists it.");
 parameter!(BlockId: Path "blockId", String, True, "The identifier of the block.");

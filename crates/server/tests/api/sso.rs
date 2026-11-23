@@ -497,6 +497,8 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "getSharedFileInfo",
     "getSharedPage",
     "getSharedPageTree",
+    "getSharedUnit",
+    "getSharedUnitTree",
     "getUserSettings",
     "hello",
     // Leaving an organization is the account's own, as deleting the account takes it
@@ -537,6 +539,9 @@ struct Named {
     org_id: String,
     board: Container,
     card_id: String,
+    course_id: String,
+    unit_id: String,
+    unit_comment_id: String,
     file_id: String,
     upload_id: String,
     user_id: String,
@@ -555,6 +560,10 @@ impl Named {
             .replace("{boardId}", &self.board.id)
             .replace("{cardId}", &self.card_id)
             .replace("{blockId}", &self.card_id)
+            .replace("{courseId}", &self.course_id)
+            .replace("{unitId}", &self.unit_id)
+            .replace("{commentId}", &self.unit_comment_id)
+            .replace("{version}", "1")
             .replace("{fileId}", &self.file_id)
             .replace("{uploadId}", &self.upload_id)
             .replace("{userId}", &self.user_id)
@@ -589,6 +598,7 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
         .await
         .value();
     let card_id = card["id"].as_str().expect("a card").to_owned();
+    let (course_id, unit_id, unit_comment_id) = course_fixtures(&ts.client).await;
     let file = reqwest::multipart::Part::bytes(b"of the organization".to_vec()).file_name("a.txt");
     let uploaded = Client::send(
         ts.client
@@ -619,6 +629,9 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
     Named {
         org_id: org_id.to_owned(),
         card_id,
+        course_id,
+        unit_id,
+        unit_comment_id,
         board,
         file_id,
         upload_id,
@@ -626,6 +639,42 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
         category_id: categories[0]["id"].as_str().expect("a category").to_owned(),
         invitation: ts.member_link().await,
     }
+}
+
+/// Makes an open course with a unit (holding one body version) and a comment on the unit.
+async fn course_fixtures(client: &Client) -> (String, String, String) {
+    let course: Value = client
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/courses"),
+            &json!({ "title": "A course of the organization", "type": "O" }),
+        )
+        .await
+        .value();
+    let course_id = course["id"].as_str().expect("a course").to_owned();
+    let units = format!("/w/{ROOT_WORKSPACE_ID}/courses/{course_id}/units");
+    let unit: Value = client
+        .post(&units, &json!({ "title": "A unit of the organization" }))
+        .await
+        .value();
+    let unit_id = unit["id"].as_str().expect("a unit").to_owned();
+    let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": "unit content"}]}]});
+    client
+        .patch(
+            &format!("{units}/{unit_id}"),
+            &json!({"readAt": unit["updateAt"], "body": body}),
+        )
+        .await
+        .check_ok();
+    let comment: Value = client
+        .post(
+            &format!("{units}/{unit_id}/comments"),
+            &json!({"body": body}),
+        )
+        .await
+        .value();
+    let comment_id = comment["id"].as_str().expect("a comment").to_owned();
+    (course_id, unit_id, comment_id)
 }
 
 /// Every operation of the contract, by its method, its path as written there, and its
@@ -871,6 +920,28 @@ async fn a_public_link_stays_open_and_reads_the_same_for_a_session_that_opens_no
             anonymous.get(&wrong).await.status,
             "{path}: a wrong token is told what anybody's is"
         );
+        let by_workspace = format!("/w/{ROOT_WORKSPACE_ID}{path}");
+        check_sso_required(&ts.client.get(&by_workspace).await, &named.org_id);
+        admin.get(&by_workspace).await.check_ok();
+    }
+    // A shared course link also stays open and reads identically behind the SSO wall,
+    // while its workspace routes remain blocked for a password session.
+    let course = &named.course_id;
+    let course_token = ts.share(course).await;
+    for (under, rest) in [
+        ("containers", String::new()),
+        ("courses", "/units".to_owned()),
+        ("courses", format!("/units/{}", named.unit_id)),
+    ] {
+        let path = format!("/{under}/{course}{rest}");
+        let shared = format!("/shared/{course}{rest}?readToken={course_token}");
+        let as_anybody = anonymous.get(&shared).await;
+        as_anybody.check_ok();
+        for signed_in in [&ts.client, &admin] {
+            let response = signed_in.get(&shared).await;
+            response.check_ok();
+            assert_eq!(response.value(), as_anybody.value(), "{path}");
+        }
         let by_workspace = format!("/w/{ROOT_WORKSPACE_ID}{path}");
         check_sso_required(&ts.client.get(&by_workspace).await, &named.org_id);
         admin.get(&by_workspace).await.check_ok();
