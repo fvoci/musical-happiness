@@ -458,6 +458,49 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/courses/{courseId}/progress/summary",
         "getCourseProgressSummary",
     ),
+    ("GET", "/courses/{courseId}/meetings", "listCourseMeetings"),
+    (
+        "POST",
+        "/courses/{courseId}/meetings",
+        "createCourseMeeting",
+    ),
+    (
+        "PATCH",
+        "/courses/{courseId}/meetings/{meetingId}",
+        "patchCourseMeeting",
+    ),
+    (
+        "DELETE",
+        "/courses/{courseId}/meetings/{meetingId}",
+        "deleteCourseMeeting",
+    ),
+    (
+        "PUT",
+        "/courses/{courseId}/meetings/{meetingId}/attendance/{userId}",
+        "putMeetingAttendance",
+    ),
+    ("GET", "/courses/{courseId}/exams", "listCourseExams"),
+    ("POST", "/courses/{courseId}/exams", "createCourseExam"),
+    (
+        "PATCH",
+        "/courses/{courseId}/exams/{examId}",
+        "patchCourseExam",
+    ),
+    (
+        "DELETE",
+        "/courses/{courseId}/exams/{examId}",
+        "deleteCourseExam",
+    ),
+    (
+        "PUT",
+        "/courses/{courseId}/exams/{examId}/my-score",
+        "putMyExamScore",
+    ),
+    (
+        "DELETE",
+        "/courses/{courseId}/exams/{examId}/my-score",
+        "deleteMyExamScore",
+    ),
     ("GET", "/courses/{courseId}/reviews", "listMyCourseReviews"),
     (
         "POST",
@@ -576,6 +619,17 @@ const REACHED_BY_ITEM: &[&str] = &[
     "getMyCourseProgress",
     "putUnitProgress",
     "getCourseProgressSummary",
+    "listCourseMeetings",
+    "createCourseMeeting",
+    "patchCourseMeeting",
+    "deleteCourseMeeting",
+    "putMeetingAttendance",
+    "listCourseExams",
+    "createCourseExam",
+    "patchCourseExam",
+    "deleteCourseExam",
+    "putMyExamScore",
+    "deleteMyExamScore",
     "listMyCourseReviews",
     "scheduleUnitReview",
     "completeUnitReview",
@@ -1330,6 +1384,8 @@ impl Items<'_> {
             )
             .replace("{courseId}", &pick(&self.unit.container_id, UNKNOWN_ID))
             .replace("{unitId}", &pick(&self.unit.id, UNKNOWN_ID))
+            .replace("{meetingId}", &pick(&self.unit.id, UNKNOWN_ID))
+            .replace("{examId}", &pick(&self.unit.id, UNKNOWN_ID))
             .replace("{reviewId}", UNKNOWN_ID)
             .replace("{noteId}", UNKNOWN_ID)
             .replace("{monthDay}", "02-29")
@@ -1392,6 +1448,14 @@ pub(super) async fn compare_resource_routes(
                 "createCard" => json!({"title": "new card"}),
                 "createUnit" => json!({"title": "new unit"}),
                 "moveUnit" => json!({"parentId": ""}),
+                "createCourseMeeting" => {
+                    json!({"title": "new meeting", "startsAt": 1_800_000_000_000_i64})
+                }
+                "patchCourseMeeting" => json!({"title": "changed meeting"}),
+                "putMeetingAttendance" => json!({"status": "present"}),
+                "createCourseExam" => json!({"title": "new exam", "maxScore": 100.0}),
+                "patchCourseExam" => json!({"title": "changed exam"}),
+                "putMyExamScore" => json!({"score": 90.0}),
                 "patchCard" | "patchContainer" | "patchBlock" | "patchUnit" => {
                     json!({"title": "changed"})
                 }

@@ -14,10 +14,12 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fvoci_model::{Notification, NotificationKind, NotificationSubject, Session};
+use fvoci_model::{
+    ContainerKind, Notification, NotificationKind, NotificationSubject, SearchKind, Session,
+};
 use fvoci_store::{
-    NotificationEvent, NotificationLimits, NotificationPlace, NotificationReader,
-    StoredNotification, Told,
+    MeetingNotificationPlace, NotificationEvent, NotificationLimits, NotificationPlace,
+    NotificationReader, StoredNotification, Told,
 };
 
 use super::sso::Asker;
@@ -25,6 +27,7 @@ use super::{App, ListPage};
 use crate::auth::now_millis;
 use crate::error::{AppError, Reason};
 use crate::metrics::NotificationSettled;
+use crate::permissions::ContainerPermission;
 use crate::scheduler::RecurringTask;
 
 /// An hour, in milliseconds.
@@ -175,6 +178,69 @@ impl App {
         Ok(read)
     }
 
+    /// Where each course meeting among `meeting_ids` is now, for an enrolled course
+    /// member whose session enters its workspace and reads the course.
+    async fn meeting_places_read_by(
+        &self,
+        user_id: &str,
+        entry: Entry<'_>,
+        meeting_ids: &[&str],
+    ) -> Result<Vec<Option<Seen>>, AppError> {
+        let places: HashMap<String, MeetingNotificationPlace> = self
+            .store()
+            .meeting_notification_places(meeting_ids)
+            .await?
+            .into_iter()
+            .map(|place| (place.meeting_id.clone(), place))
+            .collect();
+        let mut entered: HashMap<&str, Option<Self>> = HashMap::new();
+        let mut reads: HashMap<&str, bool> = HashMap::new();
+        let mut read = Vec::with_capacity(meeting_ids.len());
+        for meeting_id in meeting_ids {
+            let Some(place) = places.get(*meeting_id) else {
+                read.push(None);
+                continue;
+            };
+            let workspace_id = place.workspace_id.as_str();
+            if !entered.contains_key(workspace_id) {
+                let app = self.entered_workspace(entry, workspace_id).await?;
+                entered.insert(workspace_id, app);
+            }
+            let Some(app) = entered.get(workspace_id).and_then(Option::as_ref) else {
+                read.push(None);
+                continue;
+            };
+            let container_id = place.container_id.as_str();
+            let reads_it = if let Some(reads_it) = reads.get(container_id) {
+                *reads_it
+            } else {
+                let reads_it = app
+                    .container_access(user_id, container_id)
+                    .await?
+                    .is_some_and(|access| {
+                        access.has_membership()
+                            && access.grant.allows(ContainerPermission::View)
+                            && !access.container.is_template
+                            && access.container.workspace_id == workspace_id
+                    });
+                reads.insert(container_id, reads_it);
+                reads_it
+            };
+            read.push(reads_it.then(|| Seen {
+                place: NotificationPlace {
+                    block_id: place.meeting_id.clone(),
+                    block_kind: SearchKind::Unit,
+                    title: place.title.clone(),
+                    container_id: place.container_id.clone(),
+                    container_kind: ContainerKind::Course,
+                    workspace_id: place.workspace_id.clone(),
+                },
+                comment_id: String::new(),
+            }));
+        }
+        Ok(read)
+    }
+
     /// This handle for what is in the workspace, as `entry` lets its user in; `None`
     /// for a workspace a session does not enter: one its user is no member of, and
     /// one its sign-in does not open.
@@ -220,22 +286,48 @@ impl App {
         let mut places: HashMap<&str, Seen> = HashMap::new();
         let org_ids: HashSet<&str> = stored.iter().map(|told| told.org_id.as_str()).collect();
         for org_id in org_ids {
-            let of_org: Vec<&StoredNotification> =
-                stored.iter().filter(|told| told.org_id == org_id).collect();
-            let named: Vec<Named<'_>> = of_org
+            let org_app = self.in_organization(org_id)?;
+            let of_blocks: Vec<&StoredNotification> = stored
                 .iter()
-                .map(|told| Named {
-                    block_id: &told.block_id,
-                    source_id: &told.source_id,
+                .filter(|told| {
+                    told.org_id == org_id && told.kind != NotificationKind::MeetingUpcoming
                 })
                 .collect();
-            let read = self
-                .in_organization(org_id)?
-                .places_read_by(user_id, Entry::Session(session.into()), &named)
-                .await?;
-            for (told, place) in of_org.into_iter().zip(read) {
-                if let Some(place) = place {
-                    places.insert(told.id.as_str(), place);
+            if !of_blocks.is_empty() {
+                let named: Vec<Named<'_>> = of_blocks
+                    .iter()
+                    .map(|told| Named {
+                        block_id: &told.block_id,
+                        source_id: &told.source_id,
+                    })
+                    .collect();
+                let read = org_app
+                    .places_read_by(user_id, Entry::Session(session.into()), &named)
+                    .await?;
+                for (told, place) in of_blocks.into_iter().zip(read) {
+                    if let Some(place) = place {
+                        places.insert(told.id.as_str(), place);
+                    }
+                }
+            }
+            let of_meetings: Vec<&StoredNotification> = stored
+                .iter()
+                .filter(|told| {
+                    told.org_id == org_id && told.kind == NotificationKind::MeetingUpcoming
+                })
+                .collect();
+            if !of_meetings.is_empty() {
+                let meeting_ids: Vec<&str> = of_meetings
+                    .iter()
+                    .map(|told| told.block_id.as_str())
+                    .collect();
+                let read = org_app
+                    .meeting_places_read_by(user_id, Entry::Session(session.into()), &meeting_ids)
+                    .await?;
+                for (told, place) in of_meetings.into_iter().zip(read) {
+                    if let Some(place) = place {
+                        places.insert(told.id.as_str(), place);
+                    }
                 }
             }
         }

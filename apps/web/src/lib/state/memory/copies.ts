@@ -194,10 +194,11 @@ export function insertCopy(world: World, userId: string, copied: Copied): Contai
         startDate,
         targetDate,
         studyDays: rawSchedule.studyDays,
+        updateAt: now,
       });
     } else {
       dayShift = 0;
-      world.courseSchedules.set(board.id, { ...rawSchedule });
+      world.courseSchedules.set(board.id, { ...rawSchedule, updateAt: now });
     }
   }
   for (const block of blocks) {

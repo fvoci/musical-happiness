@@ -12,8 +12,8 @@ import type { ContainerKind } from '../logic/wire.ts';
 import type { SearchKind } from './content-search.ts';
 import type { Paging } from './trash-reads.ts';
 
-/** What a notification tells of, including personal due-review reminders. */
-export type NotificationKind = NotifySettingKind | 'review_due';
+/** What a notification tells of, including personal due-review and course meeting reminders. */
+export type NotificationKind = NotifySettingKind | 'review_due' | 'meeting_upcoming';
 
 /** What a notification is about, for a reader who reads it now. */
 export interface NotificationSubject {

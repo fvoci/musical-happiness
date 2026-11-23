@@ -85,6 +85,8 @@
     /** The address of the personal "My time" screen, when time tracking is available. */
     timeHref?: string | undefined;
     onOpenTime?: (() => void) | undefined;
+    /** Workspace "Today's learning" entry, when courses are available. */
+    learningToday?: { active: boolean; onOpen: () => void } | undefined;
     /** The address of a board or a wiki, for a link to it. */
     containerHref: (container: ContainerPlace) => string;
     /** The address of a board's or a wiki's public link with its read token. */
@@ -126,6 +128,7 @@
     meTime = false,
     timeHref,
     onOpenTime,
+    learningToday,
     containerHref,
     sharedHref,
     onOpenContainer,
@@ -233,6 +236,16 @@
     sidebar.drawerOpen = false;
   }
 
+  const todayEntry = $derived(
+    learningToday && {
+      active: learningToday.active,
+      onOpen: () => {
+        learningToday.onOpen();
+        sidebar.drawerOpen = false;
+      },
+    },
+  );
+
   /**
    * Opens the settings; a drawer they were asked for from closes first.
    *
@@ -259,36 +272,22 @@
     sidebar.drawerOpen = false;
   }
 
-  /** "Add board" asks: an empty board, or one from a template. */
   let picking = $state(false);
-
-  function addBoard(): void {
+  let namingWiki = $state(false);
+  let namingCourse = $state(false);
+  const addBoard = (): void => {
     picking = true;
-  }
-
-  /**
-   * An empty board with one view (the workspace makes the two together,
-   * because a board without a view has nothing to show), and the page goes
-   * to it.
-   */
+  };
   async function addEmptyBoard(): Promise<void> {
     const made = await whileHere(workspace, () =>
       workspace.createBoard({ title: '' }, m['View.NewBoardTitle'](), m.shell_new_board_status()),
     );
     if (made) openContainer(made);
   }
-
-  /** "New wiki" asks for its name and who finds it. */
-  let namingWiki = $state(false);
-
   async function addWiki(draft: WikiDraft): Promise<void> {
     const made = await whileHere(workspace, () => createWiki(workspace, draft));
     if (made) openContainer(made);
   }
-
-  /** "New course" asks for its name and (in a shared workspace) who finds it. */
-  let namingCourse = $state(false);
-
   async function addCourse(draft: CourseDraft, templateId?: string): Promise<void> {
     const made = await whileHere(workspace, () =>
       templateId
@@ -297,7 +296,6 @@
     );
     if (made) openContainer(made);
   }
-
   async function addBoardFromTemplate(template: Container): Promise<void> {
     const made = await whileHere(workspace, () => workspace.duplicateContainer(template.id));
     if (made) openContainer(made);
@@ -335,6 +333,7 @@
     {meTime}
     {timeHref}
     onOpenTime={onOpenTime ? openTime : undefined}
+    learningToday={todayEntry}
     {containerHref}
     hidden={!layout.strip}
     inert={drawerOut || paneCovered()}
@@ -390,6 +389,7 @@
       {meTime}
       {timeHref}
       onOpenTime={onOpenTime ? openTime : undefined}
+      learningToday={todayEntry}
       {containerHref}
       beside={layout.list === 'beside'}
       onOpenContainer={openContainer}
@@ -413,6 +413,7 @@
       {workspace}
       {containerId}
       {meTime}
+      learningToday={learningToday?.active === true}
       {sharedHref}
       menuButton={layout.menuButton}
       onOpenSidebar={openDrawer}

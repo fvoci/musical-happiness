@@ -47,6 +47,7 @@ mod content_search;
 mod cookies;
 mod course_archives;
 mod course_copies;
+mod course_events_isolation;
 mod course_schedules;
 mod courses;
 mod database_busy;

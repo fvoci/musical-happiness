@@ -11,6 +11,7 @@
   buttons above and below stay.
 -->
 <script lang="ts">
+  import CalendarCheckIcon from '@lucide/svelte/icons/calendar-check';
   import ClockIcon from '@lucide/svelte/icons/clock';
   import PanelLeftOpenIcon from '@lucide/svelte/icons/panel-left-open';
   import PlusIcon from '@lucide/svelte/icons/plus';
@@ -31,6 +32,7 @@
     meTime?: boolean;
     timeHref?: string | undefined;
     onOpenTime?: (() => void) | undefined;
+    learningToday?: { active: boolean; onOpen: () => void } | undefined;
     containerHref: (container: ContainerPlace) => string;
     /** Out of the layout: the list stands beside the board, or the page is compact. */
     hidden: boolean;
@@ -48,6 +50,7 @@
     meTime = false,
     timeHref,
     onOpenTime,
+    learningToday,
     containerHref,
     hidden,
     inert,
@@ -112,6 +115,17 @@
     {/each}
   </ul>
   <div class="my-1 w-8 shrink-0 border-t"></div>
+  {#if learningToday && workspace.info}
+    <IconButton
+      label={m.learning_today_title()}
+      aria-current={learningToday.active ? 'page' : undefined}
+      data-testid="strip-open-learning-today"
+      class={learningToday.active ? 'bg-sidebar-accent ring-1 ring-input-border' : undefined}
+      onclick={learningToday.onOpen}
+    >
+      <CalendarCheckIcon />
+    </IconButton>
+  {/if}
   {#if timeHref && workspace.me?.id}
     <IconButton
       label={m.time_title()}

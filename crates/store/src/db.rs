@@ -42,6 +42,7 @@ pub(crate) fn now_millis() -> i64 {
 pub(crate) enum Param {
     Text(String),
     Int(i64),
+    Float(f64),
     Bool(bool),
     /// JSON text bound to a `json` column (`TEXT` on SQLite).
     Json(String),
@@ -149,6 +150,12 @@ impl From<String> for Param {
 impl From<i64> for Param {
     fn from(value: i64) -> Self {
         Self::Int(value)
+    }
+}
+
+impl From<f64> for Param {
+    fn from(value: f64) -> Self {
+        Self::Float(value)
     }
 }
 
@@ -337,6 +344,7 @@ macro_rules! bind_params {
             query = match param {
                 Param::Text(value) | Param::Json(value) | Param::Jsonb(value) => query.bind(value),
                 Param::Int(value) => query.bind(value),
+                Param::Float(value) => query.bind(value),
                 Param::Bool(value) => query.bind(value),
                 Param::Id(value) => query.bind(value.map($id)),
                 Param::OptJsonb(value) => query.bind(value),
@@ -815,6 +823,24 @@ impl Row {
             Self::Postgres(row) => row.try_get(index)?,
         };
         Ok(value.unwrap_or_default())
+    }
+
+    /// Reads a 64-bit floating-point column (`DOUBLE PRECISION` on PostgreSQL, `REAL` on
+    /// SQLite).
+    pub(crate) fn float(&self, index: usize) -> Result<f64, StoreError> {
+        let value: Option<f64> = match self {
+            Self::Sqlite(row) => row.try_get(index)?,
+            Self::Postgres(row) => row.try_get(index)?,
+        };
+        Ok(value.unwrap_or_default())
+    }
+
+    /// Reads a 64-bit floating-point column that may be `NULL`, as `None`.
+    pub(crate) fn opt_float(&self, index: usize) -> Result<Option<f64>, StoreError> {
+        Ok(match self {
+            Self::Sqlite(row) => row.try_get(index)?,
+            Self::Postgres(row) => row.try_get(index)?,
+        })
     }
 
     /// Reads a column of bytes: `bytea` on PostgreSQL, `BLOB` on SQLite. `NULL` reads

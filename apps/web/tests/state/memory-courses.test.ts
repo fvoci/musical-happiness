@@ -96,6 +96,7 @@ describe('a course in memory', () => {
       startDate: '2026-12-01',
       targetDate: '2026-12-14',
       studyDays: 31,
+      updateAt: 1,
     });
     await courses.putUnitProgress(made.course.id, u1.id, {
       completed: true,
@@ -104,7 +105,7 @@ describe('a course in memory', () => {
 
     // Duplication preserves chapters, units, and shared schedule, never personal progress.
     const dup = await made.backend.duplicateContainer(made.course.id, false, made.workspaceId);
-    expect(made.world.courseSchedules.get(dup.id)).toEqual({
+    expect(made.world.courseSchedules.get(dup.id)).toMatchObject({
       startDate: '2026-12-01',
       targetDate: '2026-12-14',
       studyDays: 31,
@@ -125,7 +126,7 @@ describe('a course in memory', () => {
     expect(summary.imported.courses).toBe(1);
     expect(summary.imported.units).toBe(1);
     const importedId = summary.containerIds[0] ?? '';
-    expect(made.world.courseSchedules.get(importedId)).toEqual({
+    expect(made.world.courseSchedules.get(importedId)).toMatchObject({
       startDate: '2026-12-01',
       targetDate: '2026-12-14',
       studyDays: 31,

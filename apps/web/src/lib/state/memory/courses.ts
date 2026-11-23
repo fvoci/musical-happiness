@@ -10,27 +10,48 @@
  *   whose chapter is gone restores it last at the top.
  */
 import type { DocNode } from '../../editor/schema.ts';
-import { PAGE_TITLE_MAX } from '../../logic/page-tree.ts';
 import { createBoard, type Container } from '../../logic/wire.ts';
 import { BackendError, type DeletedItem, type Paging } from '../backend.ts';
 import type {
   CourseDraft,
   CourseProgressSummary,
   Courses,
+  CourseScheduleUpdate,
+  CourseScheduleView,
   CourseUnit,
   CourseUnitDetail,
+  RedistributeScheduleRequest,
   UnitDraft,
   UnitKind,
   UnitMove,
   UnitPatch,
   UnitProgress,
   UnitProgressUpdate,
+  UnitScheduleUpdate,
+  WorkspaceLearningToday,
 } from '../course-types.ts';
 
 import { checkedWhole } from './bodies.ts';
 import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { fileAsNew } from './categories.ts';
 import { memberRole } from './container-access.ts';
+import {
+  memoryDeleteCourseSchedule,
+  memoryGetCourseSchedule,
+  memoryGetWorkspaceLearningToday,
+  memoryPutCourseSchedule,
+  memoryPutUnitSchedule,
+  memoryRedistributeCourseSchedule,
+  memoryRedistributeMyCourseSchedule,
+} from './course-schedules.ts';
+import {
+  checkedUnitScheduleFields,
+  checkedUnitTitle as checkedTitle,
+  isCourseBlock,
+  memoryUndeleteUnit,
+  patchedUnitScheduleFields,
+  unitDetailOf as detailOf,
+} from './course-unit-fields.ts';
 import { MemoryPageComments, type OnPage } from './page-comments.ts';
 import {
   DEFAULT_COURSE_LIMITS,
@@ -40,7 +61,7 @@ import {
   type Place,
 } from './page-tree.ts';
 import { fail } from './refuse.ts';
-import { commentOf, copy, memberOf, orderOf, scramble, unitOf } from './shapes.ts';
+import { copy, memberOf, orderOf, scramble, unitOf } from './shapes.ts';
 import { checkWorkspace } from './spaces.ts';
 import { deletedUnitsOf, deletion } from './trash.ts';
 import { memoryMyProgress, memoryProgressSummary, memoryPutUnitProgress } from './unit-progress.ts';
@@ -54,24 +75,6 @@ import type { WikiHost } from './wikis.ts';
 import type { StoredBlock, StoredCard, World } from './world.ts';
 
 const isCourse = (board: Container | undefined): board is Container => board?.kind === 'course';
-const isCourseBlock = (block: StoredBlock | undefined): boolean =>
-  block?.type === 'unit' || block?.type === 'chapter';
-
-function detailOf(block: StoredBlock): CourseUnitDetail {
-  return {
-    ...unitOf(block),
-    body: block.type === 'chapter' ? null : copy(block.body ?? null),
-    createdBy: block.createdBy,
-    modifiedBy: block.modifiedBy,
-  };
-}
-
-function checkedTitle(title: string): string {
-  if (Array.from(title).length > PAGE_TITLE_MAX) {
-    fail(400, 'the title is too long', { field: 'title', limit: PAGE_TITLE_MAX });
-  }
-  return title;
-}
 
 export class MemoryCourses extends MemoryPageComments implements Courses {
   readonly #host: WikiHost;
@@ -285,6 +288,7 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
     const title = checkedTitle(draft.title ?? '');
     const parentId = draft.parentId ?? '';
     this.#checkParent(courseId, kind, parentId);
+    const scheduleFields = checkedUnitScheduleFields(kind, draft);
     this.#checkCounts(courseId, kind === 'chapter' ? 1 : 0, kind === 'unit' ? 1 : 0);
     const place = this.#tree(courseId).place(parentId, draft.after);
     const now = this.#world.now();
@@ -298,7 +302,7 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
       schema: 1,
       type: kind,
       title,
-      fields: {},
+      fields: scheduleFields,
       body: null,
       createAt: now,
       updateAt: now,
@@ -318,6 +322,7 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
       fail(400, 'a chapter has no body', { field: 'body' });
     }
     const title = patch.title === undefined ? undefined : checkedTitle(patch.title);
+    const nextFields = patchedUnitScheduleFields(node, patch);
     if (patch.body !== undefined && patch.readAt === undefined) {
       fail(400, 'a body is written with the time it was read', { field: 'readAt' });
     }
@@ -331,6 +336,7 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
     const write = (): void => {
       if (title !== undefined) node.title = title;
       if (body !== undefined) node.body = body;
+      if (nextFields !== undefined) node.fields = nextFields;
       node.updateAt = this.#world.now();
       node.modifiedBy = this.#host.userId;
     };
@@ -387,53 +393,20 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
   async undeleteUnit(courseId: string, unitId: string): Promise<CourseUnitDetail> {
     await this.#enter('undeleteUnit');
     this.#mayWrite(courseId);
-    const world = this.#world;
-    const deleted = world.deletedBlocks.get(unitId);
-    const [top] = deleted?.blocks ?? [];
-    if (deleted?.containerId !== courseId || top?.id !== unitId || !isCourseBlock(top)) {
-      fail(404, 'no such unit in the trash');
-    }
-    const nodes = deleted.blocks.filter(isCourseBlock);
-    this.#checkCounts(
+    return memoryUndeleteUnit({
+      world: this.#world,
+      userId: this.#host.userId,
       courseId,
-      nodes.filter((block) => block.type === 'chapter').length,
-      nodes.filter((block) => block.type === 'unit').length,
-    );
-    const tree = this.#tree(courseId);
-    const livingChapter =
-      top.type === 'unit' &&
-      top.parentId !== '' &&
-      world.blocks.get(top.parentId)?.type === 'chapter' &&
-      world.blocks.get(top.parentId)?.containerId === courseId;
-    const parentId = top.type === 'chapter' ? '' : livingChapter ? top.parentId : '';
-    const order = orderOf(top);
-    const siblings = tree.siblings(parentId);
-    let renumbered: StoredBlock[] = [];
-    if (parentId !== top.parentId) {
-      renumbered = this.#writePlace(top, tree.place('', undefined));
-    } else if (siblings.some((sibling) => sibling.order === order)) {
-      const before = siblings.filter(
-        (sibling) => sibling.order < order || (sibling.order === order && sibling.id < unitId),
-      );
-      renumbered = this.#writePlace(top, tree.place(parentId, before.at(-1)?.id ?? ''));
-    }
-    top.parentId = parentId;
-    world.deletedBlocks.delete(unitId);
-    const now = world.now();
-    for (const block of deleted.blocks) {
-      [block.updateAt, block.modifiedBy] = [now, this.#host.userId];
-      world.blocks.set(block.id, block);
-    }
-    this.#tellUnits(courseId, [...renumbered, ...nodes]);
-    const comments = deleted.blocks.filter((block) => block.type === 'comment');
-    if (comments.length > 0) {
-      world.tellContainer(courseId, {
-        kind: 'blocks',
-        containerId: courseId,
-        blocks: comments.map(commentOf),
-      });
-    }
-    return detailOf(top);
+      unitId,
+      tree: this.#tree(courseId),
+      checkCounts: (chapters, units) => {
+        this.#checkCounts(courseId, chapters, units);
+      },
+      writePlace: (node, place) => this.#writePlace(node, place),
+      tellUnits: (blocks) => {
+        this.#tellUnits(courseId, blocks);
+      },
+    });
   }
 
   async watching(workspaceId: string, subscriberId: string): Promise<string[]> {
@@ -468,5 +441,50 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
   async progressSummary(courseId: string): Promise<CourseProgressSummary> {
     await this.#enter('progressSummary');
     return memoryProgressSummary(this.#world, this.#host.userId, courseId);
+  }
+
+  async schedule(courseId: string): Promise<CourseScheduleView> {
+    await this.#enter('schedule');
+    return memoryGetCourseSchedule(this.#world, this.#host.userId, courseId);
+  }
+
+  async putSchedule(courseId: string, update: CourseScheduleUpdate): Promise<CourseScheduleView> {
+    await this.#enter('putSchedule');
+    return memoryPutCourseSchedule(this.#world, this.#host.userId, courseId, update);
+  }
+
+  async deleteSchedule(courseId: string): Promise<void> {
+    await this.#enter('deleteSchedule');
+    memoryDeleteCourseSchedule(this.#world, this.#host.userId, courseId);
+  }
+
+  async redistributeSchedule(
+    courseId: string,
+    request: RedistributeScheduleRequest,
+  ): Promise<CourseScheduleView> {
+    await this.#enter('redistributeSchedule');
+    return memoryRedistributeCourseSchedule(this.#world, this.#host.userId, courseId, request);
+  }
+
+  async redistributeMySchedule(
+    courseId: string,
+    request: RedistributeScheduleRequest,
+  ): Promise<CourseScheduleView> {
+    await this.#enter('redistributeMySchedule');
+    return memoryRedistributeMyCourseSchedule(this.#world, this.#host.userId, courseId, request);
+  }
+
+  async putUnitSchedule(
+    courseId: string,
+    unitId: string,
+    update: UnitScheduleUpdate,
+  ): Promise<UnitProgress> {
+    await this.#enter('putUnitSchedule');
+    return memoryPutUnitSchedule(this.#world, this.#host.userId, courseId, unitId, update);
+  }
+
+  async learningToday(workspaceId: string): Promise<WorkspaceLearningToday> {
+    await this.#enter('learningToday');
+    return memoryGetWorkspaceLearningToday(this.#world, this.#host.userId, workspaceId);
   }
 }

@@ -180,6 +180,20 @@ export class SharedBackend implements Backend {
     myProgress: nothing,
     putUnitProgress: refused,
     progressSummary: () => Promise.resolve({ totalUnits: 0, members: [] }),
+    schedule: () =>
+      Promise.resolve({
+        schedule: null,
+        today: '1970-01-01',
+        todayCount: 0,
+        overdueCount: 0,
+        units: [],
+      }),
+    putSchedule: refused,
+    deleteSchedule: refused,
+    redistributeSchedule: refused,
+    redistributeMySchedule: refused,
+    putUnitSchedule: refused,
+    learningToday: () => Promise.resolve({ today: '1970-01-01', todayUnits: [], overdueUnits: [] }),
   };
   readonly #http: Http;
   readonly #containerId: string;

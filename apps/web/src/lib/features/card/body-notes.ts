@@ -175,6 +175,7 @@ export function lostNote(why: string, words: BodyWords = CARD_WORDS): string {
   if (why === IMAGE_DROPPED) return words.lostImage();
   if (why === FILE_DROPPED) return words.lostFile();
   if (why === FORMULA_DROPPED) return words.lostFormula();
+  if (why === 'table_too_large') return m.card_body_lost_table_large();
   if (why === 'update_too_large' || why === 'document_too_large') return m.card_body_lost_large();
   return m.card_body_lost();
 }

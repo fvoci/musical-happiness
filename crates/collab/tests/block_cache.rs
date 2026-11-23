@@ -13,7 +13,10 @@ use fvoci_collab::{
     BodyDoc, BodyTakeError, FIELD, TakeError, UpdateLimits, from_state, new_doc, state_counts,
     state_of, take_update,
 };
-use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, Body, BodyError};
+use fvoci_model::{
+    BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, Body, BodyError, TABLE_MAX_COLUMNS,
+    TABLE_MAX_ROWS,
+};
 use serde_json::json;
 use support::random::{self, Random};
 use support::wire::{Change, Content, Parent, Update, value};
@@ -1041,4 +1044,102 @@ fn settle_unchanged_converged_and_failed_preserve_exact_equivalence() {
         "edit after pass-2 converged settle",
     );
     assert_eq!(held_nc.file_ids(), vec!["after-converge.png"]);
+}
+
+/// Verifies an update is refused with `TakeError::Body(BodyError::TableTooLarge)` on both
+/// `take_in_place` and `take_update`, rolls back cleanly, and allows a subsequent valid edit.
+fn assert_table_too_large_and_recovers(
+    initial: &serde_json::Value,
+    bad_update: impl FnOnce(&[u8]) -> Vec<u8>,
+    client_after: u64,
+    label: &str,
+) {
+    let initial_body = body_of(initial);
+    let initial_state = BodyDoc::from_body(Some(&initial_body)).state();
+    let opened = BodyDoc::from_state(&initial_state, &ROOMY).expect("initial table opens");
+    let mut state = opened.state.unwrap_or_else(|| opened.doc.state());
+    let mut changes = opened.changes;
+    let update = bad_update(&state);
+    let ref_err = take_update(
+        &from_state(&state, &ROOMY).expect("ref").doc,
+        &update,
+        &ROOMY,
+    )
+    .expect_err(label);
+    assert!(
+        matches!(ref_err, TakeError::Body(BodyError::TableTooLarge { .. })),
+        "expected TableTooLarge for {label}, got {ref_err:?}"
+    );
+    let held = assert_step_equivalent(opened.doc, &mut state, &mut changes, &update, &ROOMY, label);
+    let valid_after = Editor::join(client_after, &state).append_paragraph("still clean");
+    let _held = assert_step_equivalent(
+        held,
+        &mut state,
+        &mut changes,
+        &valid_after,
+        &ROOMY,
+        &format!("valid edit after {label}"),
+    );
+}
+
+/// Oversized table updates (> `TABLE_MAX_ROWS` rows, > `TABLE_MAX_COLUMNS` columns, or
+/// colspans summing past `TABLE_MAX_COLUMNS`) return `TakeError::Body(BodyError::TableTooLarge)`
+/// identically on `take_in_place` and `take_update`, preserving document and cache invariants.
+#[test]
+fn table_too_large_refuses_in_place_and_matches_take_update() {
+    let cell = json!({"type": "tableCell", "content": [{"type": "paragraph"}]});
+    let row_1 = json!({"type": "tableRow", "content": [&cell]});
+    let max_rows = json!({
+        "type": "doc",
+        "content": [{"type": "table", "content": vec![row_1; usize::from(TABLE_MAX_ROWS)]}],
+    });
+    assert_table_too_large_and_recovers(
+        &max_rows,
+        |state| Editor::join(301, state).add_table_row(1),
+        302,
+        "201st table row",
+    );
+
+    let row_20 = json!({
+        "type": "tableRow",
+        "content": vec![cell.clone(); usize::from(TABLE_MAX_COLUMNS)],
+    });
+    let max_cols = json!({
+        "type": "doc",
+        "content": [{"type": "table", "content": [&row_20, &row_20]}],
+    });
+    assert_table_too_large_and_recovers(
+        &max_cols,
+        |state| Editor::join(303, state).add_table_column(),
+        304,
+        "21st table column",
+    );
+
+    let row_19 = json!({
+        "type": "tableRow",
+        "content": vec![cell; usize::from(TABLE_MAX_COLUMNS) - 1],
+    });
+    let cols_19 = json!({
+        "type": "doc",
+        "content": [{"type": "table", "content": [row_19]}],
+    });
+    assert_table_too_large_and_recovers(
+        &cols_19,
+        |state| {
+            peer_edit(state, 305, |txn, root| {
+                let Some(XmlOut::Element(table)) = root.get(txn, 0) else {
+                    panic!("table");
+                };
+                let Some(XmlOut::Element(row0)) = table.get(txn, 0) else {
+                    panic!("row0");
+                };
+                let Some(XmlOut::Element(cell0)) = row0.get(txn, 0) else {
+                    panic!("cell0");
+                };
+                cell0.insert_attribute(txn, "colspan", 3_i64);
+            })
+        },
+        306,
+        "colspan pushing width past TABLE_MAX_COLUMNS",
+    );
 }

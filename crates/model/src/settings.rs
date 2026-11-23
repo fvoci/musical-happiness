@@ -366,7 +366,7 @@ impl UserSettings {
             crate::NotificationKind::Mention => self.notify_mentions,
             crate::NotificationKind::Assignment => self.notify_assignments,
             crate::NotificationKind::Comment => self.notify_comments,
-            crate::NotificationKind::ReviewDue => true,
+            crate::NotificationKind::ReviewDue | crate::NotificationKind::MeetingUpcoming => true,
         }
     }
 }

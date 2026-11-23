@@ -24,6 +24,7 @@ export interface CourseProgressHost {
   units(): readonly CourseUnit[];
   canTrack(): boolean;
   isClosed(): boolean;
+  onCompletionChanged?: (unitId: string, completed: boolean) => void;
 }
 
 export class CourseProgress {
@@ -90,6 +91,12 @@ export class CourseProgress {
     this.#writeVersion += 1;
     this.#mineReads += 1;
     this.myProgress.clear();
+  }
+
+  applyRow(row: UnitProgress): void {
+    this.#writeVersion += 1;
+    this.#mineReads += 1;
+    this.myProgress.set(row.unitId, row);
   }
 
   of(unitId: string): UnitProgress | undefined {
@@ -170,6 +177,9 @@ export class CourseProgress {
       this.#mineReads += 1;
       this.myProgress.set(saved.unitId, saved);
       this.#reconcileOwnSummary();
+      if (typeof update.completed === 'boolean') {
+        this.#host.onCompletionChanged?.(saved.unitId, saved.completedAt !== null);
+      }
       return true;
     } catch (error) {
       if (!this.#host.isClosed()) this.#host.workspace.report('save', error);

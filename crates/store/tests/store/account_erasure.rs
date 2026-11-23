@@ -3,9 +3,10 @@
 //! has nobody else goes with it, and an erasing that was cut off is taken up again.
 
 use fvoci_model::{
-    AuditAction, Block, BlockType, Category, CompletionChange, Container, ContainerKind,
-    ContainerType, CourseLimits, Credential, LastPositionChange, NameShown, NewUnit, NewUnitNote,
-    NewUnitReview, OrgRole, PersonName, Session, Title, UnitNoteKind, UnitProgressChange, User,
+    AttendanceStatus, AuditAction, Block, BlockType, Category, CompletionChange, Container,
+    ContainerKind, ContainerMember, ContainerType, CourseLimits, Credential, LastPositionChange,
+    NameShown, NewCourseExam, NewCourseMeeting, NewUnit, NewUnitNote, NewUnitReview, OrgRole,
+    PersonName, Session, Title, UnitNoteKind, UnitProgressChange, User, ValidatedMyExamScore,
     WorkspaceRole, new_id,
 };
 use fvoci_store::{
@@ -53,9 +54,10 @@ const OF_THE_PERSON: [&str; 16] = [
 ];
 
 /// Where the identifier of the account [`person`] makes stays once it is erased, with
-/// what the first test writes as it: the row itself, what it made and changed, and the
-/// records about it.
-const KEEPS_THE_IDENTIFIER: [&str; 16] = [
+/// what the first test writes as it: the row itself, what it made and changed, the
+/// records about it, and shared course meeting/attendance history (intentionally
+/// preserved as a tombstone pointing at the erased account).
+const KEEPS_THE_IDENTIFIER: [&str; 19] = [
     "audit_log.actor_id",
     "audit_log.subject_id",
     "blocks.created_by",
@@ -65,11 +67,14 @@ const KEEPS_THE_IDENTIFIER: [&str; 16] = [
     "comment_versions.written_by",
     "containers.created_by",
     "containers.modified_by",
+    "course_meetings.host_id",
+    "course_meetings.presenter_id",
     "deleted_blocks.block",
     "deleted_blocks.deleted_by",
     "deleted_containers.container",
     "deleted_containers.deleted_by",
     "invitations.created_by",
+    "meeting_attendance.user_id",
     "uploads.user_id",
     "users.id",
 ];
@@ -659,6 +664,15 @@ async fn record_course_progress(store: &Store, workspace_id: &str, owner: &str, 
         .expect("a unit is stored")
         .unit;
     store
+        .save_member(&ContainerMember {
+            container_id: course.id.clone(),
+            user_id: learner.to_owned(),
+            scheme_viewer: true,
+            ..ContainerMember::default()
+        })
+        .await
+        .expect("learner enrolled in course");
+    store
         .upsert_unit_progress(
             &course.id,
             &unit.id,
@@ -670,6 +684,7 @@ async fn record_course_progress(store: &Store, workspace_id: &str, owner: &str, 
         )
         .await
         .expect("progress is stored");
+    record_course_meetings_and_exams(store, &course.id, &unit.id, learner).await;
     store
         .schedule_unit_review(
             &course.id,
@@ -694,6 +709,62 @@ async fn record_course_progress(store: &Store, workspace_id: &str, owner: &str, 
         )
         .await
         .expect("note is stored");
+}
+
+/// Seeds shared course meeting/attendance tombstones and personal exam scores for erasure tests.
+async fn record_course_meetings_and_exams(
+    store: &Store,
+    course_id: &str,
+    unit_id: &str,
+    learner: &str,
+) {
+    let meeting = store
+        .create_course_meeting(
+            course_id,
+            &NewCourseMeeting {
+                title: "erasure study".to_owned(),
+                starts_at: T0 + 1000,
+                location: String::new(),
+                unit_ids: vec![unit_id.to_owned()],
+                presenter_id: Some(learner.to_owned()),
+                host_id: Some(learner.to_owned()),
+                notes: String::new(),
+            }
+            .check_request()
+            .expect("valid meeting"),
+        )
+        .await
+        .expect("meeting is stored");
+    store
+        .upsert_meeting_attendance(course_id, &meeting.id, learner, AttendanceStatus::Present)
+        .await
+        .expect("attendance is stored");
+    let exam = store
+        .create_course_exam(
+            course_id,
+            &NewCourseExam {
+                title: "erasure exam".to_owned(),
+                exam_date: Some("2026-12-01".to_owned()),
+                max_score: 100.0,
+                description: String::new(),
+            }
+            .check_request()
+            .expect("valid exam"),
+        )
+        .await
+        .expect("exam is stored");
+    store
+        .upsert_my_exam_score(
+            course_id,
+            &exam.id,
+            learner,
+            &ValidatedMyExamScore {
+                score: 88.0,
+                note: "leaver-shelf".to_owned(),
+            },
+        )
+        .await
+        .expect("exam score is stored");
 }
 
 /// Nothing of the person is in any column of any table once the account is erased;

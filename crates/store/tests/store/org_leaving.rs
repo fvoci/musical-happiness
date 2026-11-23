@@ -4,9 +4,9 @@
 
 use fvoci_model::{
     AuditAction, AuditRecordActor, Block, BlockType, CompletionChange, Container, ContainerKind,
-    ContainerType, CourseLimits, LastPositionChange, NewUnit, NewUnitNote, NewUnitReview, OrgRole,
-    SubscriberType, Subscription, UnitNoteKind, UnitProgressChange, UserOrganization, Workspace,
-    WorkspaceRole, new_id,
+    ContainerMember, ContainerType, CourseLimits, LastPositionChange, NewCourseExam, NewUnit,
+    NewUnitNote, NewUnitReview, OrgRole, SubscriberType, Subscription, UnitNoteKind,
+    UnitProgressChange, UserOrganization, ValidatedMyExamScore, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AuditPlace, DbType, Departure, DepartureRefused, Joining, MemberRemoval, NewLink, Paging,
@@ -84,6 +84,17 @@ async fn course_with_progress(
         .insert_container_with_admin(&mut course, owner)
         .await
         .expect("course stored");
+    if learner != owner {
+        store
+            .save_member(&ContainerMember {
+                container_id: course.id.clone(),
+                user_id: learner.to_owned(),
+                scheme_viewer: true,
+                ..ContainerMember::default()
+            })
+            .await
+            .expect("learner enrolled");
+    }
     let unit = store
         .create_unit(
             &course.id,
@@ -109,6 +120,32 @@ async fn course_with_progress(
         )
         .await
         .expect("progress stored");
+    let exam = store
+        .create_course_exam(
+            &course.id,
+            &NewCourseExam {
+                title: "leaving exam".to_owned(),
+                exam_date: None,
+                max_score: 100.0,
+                description: String::new(),
+            }
+            .check_request()
+            .expect("valid exam"),
+        )
+        .await
+        .expect("exam stored");
+    store
+        .upsert_my_exam_score(
+            &course.id,
+            &exam.id,
+            learner,
+            &ValidatedMyExamScore {
+                score: 91.0,
+                note: position.to_owned(),
+            },
+        )
+        .await
+        .expect("exam score stored");
     store
         .schedule_unit_review(
             &course.id,
@@ -231,6 +268,10 @@ async fn places_of(test: &TestStore, org_id: &str, user_id: &str) -> Vec<String>
         ),
         (
             "unit_progress",
+            format!("user_id = '{user_id}' AND container_id IN ({of_org_boards})"),
+        ),
+        (
+            "exam_scores",
             format!("user_id = '{user_id}' AND container_id IN ({of_org_boards})"),
         ),
         (
@@ -438,6 +479,7 @@ async fn whoever_leaves_has_nothing_left_in_the_organization_but_what_they_wrote
             "team_members: 0",
             "subscriptions: 0",
             "unit_progress: 0",
+            "exam_scores: 0",
             "unit_reviews: 0",
             "unit_notes: 0",
         ]
@@ -750,6 +792,7 @@ async fn an_account_without_a_password_cannot_leave_but_can_be_removed() {
             "team_members: 0",
             "subscriptions: 0",
             "unit_progress: 0",
+            "exam_scores: 0",
             "unit_reviews: 0",
             "unit_notes: 0",
         ]
@@ -815,6 +858,7 @@ async fn an_administrator_removes_a_member_completely_and_records_audit() {
             "team_members: 0",
             "subscriptions: 0",
             "unit_progress: 0",
+            "exam_scores: 0",
             "unit_reviews: 0",
             "unit_notes: 0",
         ]

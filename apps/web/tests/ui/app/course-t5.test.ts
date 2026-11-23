@@ -117,6 +117,8 @@ describe('SharedCourse public reader', () => {
     const myProgress = vi.fn();
     const putUnitProgress = vi.fn();
     const progressSummary = vi.fn();
+    const schedule = vi.fn();
+    const putUnitSchedule = vi.fn();
     const backend = {
       presence: { setPresence, watchPresence: () => () => undefined },
       course: {
@@ -125,6 +127,8 @@ describe('SharedCourse public reader', () => {
         myProgress,
         putUnitProgress,
         progressSummary,
+        schedule,
+        putUnitSchedule,
       },
     } as unknown as Backend;
 
@@ -136,11 +140,13 @@ describe('SharedCourse public reader', () => {
     const tree = screen.getByTestId('shared-unit-tree');
     expect(tree.querySelector('[data-kind="chapter"]')).toHaveTextContent('Chapter 1');
     expect(tree.querySelectorAll('a')).toHaveLength(2);
-    // No comment composer, no versions menu, no watch toggle, no editable textbox, no progress UI/calls.
+    // No comment composer, no versions menu, no watch toggle, no editable textbox, no progress or schedule UI/calls.
     expect(screen.queryByTestId('comment-composer')).toBeNull();
     expect(screen.queryByTestId('unit-menu')).toBeNull();
     expect(screen.queryByTestId('unit-watch-toggle')).toBeNull();
     expect(screen.queryByTestId('course-my-progress')).toBeNull();
+    expect(screen.queryByTestId('course-schedule-panel')).toBeNull();
+    expect(screen.queryByTestId('unit-schedule-controls')).toBeNull();
     expect(screen.queryByTestId('unit-complete-toggle')).toBeNull();
     expect(screen.queryByTestId('unit-last-position')).toBeNull();
     expect(screen.queryByTestId('unit-tree-progress')).toBeNull();
@@ -148,6 +154,8 @@ describe('SharedCourse public reader', () => {
     expect(myProgress).not.toHaveBeenCalled();
     expect(putUnitProgress).not.toHaveBeenCalled();
     expect(progressSummary).not.toHaveBeenCalled();
+    expect(schedule).not.toHaveBeenCalled();
+    expect(putUnitSchedule).not.toHaveBeenCalled();
 
     // Same-course reference is a link; outside reference is unseen (no link).
     const body = screen.getByTestId('unit-body');

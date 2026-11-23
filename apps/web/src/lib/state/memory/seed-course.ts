@@ -219,6 +219,7 @@ function seedBuiltinCourseTemplate(world: World, reader: User): void {
     startDate: '2026-12-01',
     targetDate: '2026-12-14',
     studyDays: 31,
+    updateAt: at,
   });
   const addNode = (
     type: 'chapter' | 'unit',

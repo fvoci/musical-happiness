@@ -63,6 +63,8 @@ parameter!(OwnWorkspaceId: Path "workspaceId", String, True, "The identifier of 
 parameter!(DiaryId: Path "diaryId", String, True, "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.");
 parameter!(EntryId: Path "entryId", String, True, "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.");
 parameter!(CourseId: Path "courseId", String, True, "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.");
+parameter!(MeetingId: Path "meetingId", String, True, "The identifier of the study meeting: a meeting of the course of the path. 404 for one of another course.");
+parameter!(ExamId: Path "examId", String, True, "The identifier of the exam: an exam of the course of the path. 404 for one of another course.");
 parameter!(UnitId: Path "unitId", String, True, "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.");
 parameter!(ReviewId: Path "reviewId", String, True, "The identifier of the personal review in the course of the path. 404 for another user's review or one of another course.");
 parameter!(NoteId: Path "noteId", String, True, "The identifier of the personal note in the course of the path. 404 for another user's note or one of another course.");

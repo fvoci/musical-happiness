@@ -79,6 +79,10 @@ pub(crate) const BEFORE_COURSE_SCHEDULES_VERSION: i64 = 65;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_UNIT_REVIEWS_VERSION: i64 = 66;
 
+/// The migration before course meetings and exams (0068).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_COURSE_EVENTS_VERSION: i64 = 67;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -102,7 +106,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 12] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 44] = [
+pub(crate) const ORG_TABLES: [&str; 48] = [
     "audit_log",
     "blocks",
     "body_docs",
@@ -116,15 +120,19 @@ pub(crate) const ORG_TABLES: [&str; 44] = [
     "container_members",
     "container_teams",
     "containers",
+    "course_exams",
+    "course_meetings",
     "course_schedules",
     "deleted_blocks",
     "deleted_containers",
     "diary_days",
+    "exam_scores",
     "file_info",
     "file_refs",
     "file_versions",
     "invitations",
     "loose_objects",
+    "meeting_attendance",
     "notification_outbox",
     "notifications",
     "oidc_former_providers",
@@ -434,5 +442,16 @@ mod tests {
             .expect("migration 67 is in the list");
         assert_eq!(step.version, 67);
         assert_eq!(step.description, "unit reviews and notes");
+    }
+
+    /// Migration 68 is course meetings and exams, immediately following `BEFORE_COURSE_EVENTS_VERSION` (67).
+    #[test]
+    fn migration_68_is_course_meetings_and_exams() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_COURSE_EVENTS_VERSION + 1)
+            .expect("migration 68 is in the list");
+        assert_eq!(step.version, 68);
+        assert_eq!(step.description, "course meetings and exams");
     }
 }

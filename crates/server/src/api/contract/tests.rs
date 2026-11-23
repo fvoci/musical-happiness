@@ -605,6 +605,14 @@ const ORDERS: &[(&str, &str)] = &[
         "Oldest account first, not in the order of the request",
     ),
     (
+        "listCourseExams",
+        "ordered by `examDate` ascending (exams without a date last), then by `createAt` and `id`",
+    ),
+    (
+        "listCourseMeetings",
+        "ordered by `startsAt` ascending, then by `id`",
+    ),
+    (
         "listMyCourseReviews",
         "Ordered by `scheduledDate` ascending",
     ),

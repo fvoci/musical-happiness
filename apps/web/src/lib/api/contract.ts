@@ -3715,6 +3715,186 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/exams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Exams of a course
+         * @description Returns every exam of the course ordered by `examDate` ascending (exams without a date
+         *     last), then by `createAt` and `id`. Each exam includes `averageScore` and `scoreCount`
+         *     computed solely over active enrolled course members, plus `myScore` containing only the
+         *     caller's own score (or `null` for unjoined readers and callers without a score).
+         *     Another member's individual score or note is never returned under any role.
+         */
+        get: operations["listCourseExams"];
+        put?: never;
+        /**
+         * Create an exam in a course
+         * @description Creates an exam definition on the course. Requires editor permission or above on the
+         *     course (or ownership of a personal-space course).
+         */
+        post: operations["createCourseExam"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/exams/{examId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete an exam in a course
+         * @description Permanently deletes an exam and all personal score rows recorded for it. Requires
+         *     editor permission or above on the course (or ownership of a personal-space course).
+         */
+        delete: operations["deleteCourseExam"];
+        options?: never;
+        head?: never;
+        /**
+         * Update an exam in a course
+         * @description Updates fields of a course exam. Omitted fields are left unchanged; sending `null` for
+         *     `examDate` clears the date. Requires editor permission or above on the course (or
+         *     ownership of a personal-space course).
+         */
+        patch: operations["patchCourseExam"];
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/exams/{examId}/my-score": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Record my score on a course exam
+         * @description Creates or updates the caller's own personal score (`0 <= score <= exam.maxScore`) and
+         *     optional personal note on the exam. Always writes strictly to the authenticated
+         *     caller's row; no other user's score can be targeted or read.
+         *
+         *     Enrolled course members of any role (including viewers, commenters, and invited
+         *     guests) and personal-space owners may record their own score; an unjoined reader of an
+         *     open course is refused with 403. Personal score writes never broadcast over
+         *     websockets, never enter search indexes or archives, and emit no webhooks,
+         *     notifications, or audit logs.
+         */
+        put: operations["putMyExamScore"];
+        post?: never;
+        /**
+         * Delete my score on a course exam
+         * @description Deletes the caller's own personal score on the exam (idempotent if none exists).
+         *     Enrolled course members and personal-space owners may delete their own score; unjoined
+         *     open-course readers are refused with 403.
+         */
+        delete: operations["deleteMyExamScore"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/meetings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Study meetings of a course
+         * @description Returns every study meeting of the course together with its attendance records
+         *     (`attendance`, ordered by `userId`), ordered by `startsAt` ascending, then by `id`.
+         *     Readable by anyone who can view the course (including unjoined workspace members on an
+         *     open course and personal-space owners). Non-course containers and unreadable private
+         *     courses answer 404.
+         */
+        get: operations["listCourseMeetings"];
+        put?: never;
+        /**
+         * Create a study meeting in a course
+         * @description Creates a study meeting on the course. Requires editor permission or above on the
+         *     course (or ownership of a personal-space course); viewers, commenters, and unjoined
+         *     open-course readers are refused with 403. Non-course containers, unreadable private
+         *     courses, and `presenterId`/`hostId` values that are not active enrolled course members
+         *     answer 404.
+         */
+        post: operations["createCourseMeeting"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/meetings/{meetingId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a study meeting in a course
+         * @description Permanently deletes a study meeting and its attendance records. Requires editor
+         *     permission or above on the course (or ownership of a personal-space course).
+         */
+        delete: operations["deleteCourseMeeting"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a study meeting in a course
+         * @description Updates fields of a study meeting. Omitted fields are left unchanged; sending `null`
+         *     for `presenterId` or `hostId` clears that assignment. Requires editor permission or
+         *     above on the course (or ownership of a personal-space course).
+         */
+        patch: operations["patchCourseMeeting"];
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/meetings/{meetingId}/attendance/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Record attendance on a course study meeting
+         * @description Creates or updates `userId`'s attendance status (`present`, `late`, `absent`, or
+         *     `excused`) on the meeting.
+         *
+         *     Permission rules:
+         *     - Course editors, course admins, and personal-space owners may record attendance for
+         *       any active enrolled course member.
+         *     - Any enrolled course member (including viewers, commenters, and invited guests) may
+         *       record their own attendance when `userId` matches the caller.
+         *     - Unjoined open-course readers, and viewers/commenters attempting to modify another
+         *       member's attendance, are refused with 403.
+         *     - Non-course containers, unreadable private courses, unknown meetings, and target
+         *       users who are not active enrolled course members answer 404.
+         */
+        put: operations["putMeetingAttendance"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/courses/{courseId}/my-schedule/redistribute": {
         parameters: {
             query?: never;
@@ -6074,6 +6254,11 @@ export interface components {
          */
         AmountUnit: "minutes" | "pages" | "problems";
         /**
+         * @description A member's attendance status for a course study meeting.
+         * @enum {string}
+         */
+        AttendanceStatus: "present" | "late" | "absent" | "excused";
+        /**
          * @description What a record of the audit log says was done.
          * @enum {string}
          */
@@ -6788,6 +6973,129 @@ export interface components {
             blocks: components["schemas"]["Block"][];
             /** @description The boards. */
             containers: components["schemas"]["Container"][];
+        };
+        /**
+         * @description A course exam with the caller's own score (if any) and aggregate statistics across
+         *     active enrolled course members.
+         */
+        CourseExam: {
+            /**
+             * Format: double
+             * @description Mean score across active enrolled course members who recorded a score; `null` when
+             *     `scoreCount` is 0.
+             */
+            averageScore: number | null;
+            /** @description Identifier of the course container. */
+            containerId: string;
+            /**
+             * Format: int64
+             * @description Creation time in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description Shared exam description, at most 5000 characters; empty if unset. */
+            description: string;
+            /** @description Optional calendar date of the exam (`YYYY-MM-DD`). */
+            examDate: string | null;
+            /** @description Identifier of the exam. */
+            id: string;
+            /**
+             * Format: double
+             * @description Maximum possible score (strictly positive).
+             */
+            maxScore: number;
+            myScore: components["schemas"]["MyExamScore"] | null;
+            /**
+             * Format: int32
+             * @description Number of active enrolled course members who recorded a score.
+             */
+            scoreCount: number;
+            /** @description Exam title, at most 200 characters. */
+            title: string;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
+        /** @description Request body for patching a course exam. */
+        CourseExamPatch: {
+            /** @description Replacement description (at most 5000 characters). */
+            description?: string;
+            /** @description Replacement exam date (`YYYY-MM-DD`); `null` clears it. */
+            examDate?: string | null;
+            /**
+             * Format: double
+             * @description Replacement maximum score (finite number strictly greater than 0).
+             */
+            maxScore?: number;
+            /** @description Replacement title (1–200 characters, no control characters). */
+            title?: string;
+        };
+        /** @description A study meeting belonging to a course, together with its attendance records. */
+        CourseMeeting: {
+            /** @description Attendance records for this meeting, ordered by `userId`. */
+            attendance: components["schemas"]["MeetingAttendance"][];
+            /** @description Identifier of the course container. */
+            containerId: string;
+            /**
+             * Format: int64
+             * @description Creation time in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description Optional identifier of the host. */
+            hostId: string | null;
+            /** @description Identifier of the meeting. */
+            id: string;
+            /** @description Meeting location or URL, at most 500 characters; empty if unset. */
+            location: string;
+            /** @description Shared meeting notes, at most 5000 characters; empty if unset. */
+            notes: string;
+            /**
+             * Format: int64
+             * @description When the upcoming-meeting notification was sent, or `null` if not yet sent.
+             */
+            notifiedAt: number | null;
+            /** @description Optional identifier of the presenter. */
+            presenterId: string | null;
+            /**
+             * Format: int64
+             * @description Scheduled start time in milliseconds since the Unix epoch.
+             */
+            startsAt: number;
+            /** @description Meeting title, at most 200 characters. */
+            title: string;
+            /** @description Identifiers of units covered by this meeting. */
+            unitIds: string[];
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
+        /**
+         * @description Request body for patching a course study meeting.
+         *
+         *     Omitted fields are left unchanged. Sending `null` for `presenterId` or `hostId` clears
+         *     that assignment; sending `null` for non-nullable fields is refused.
+         */
+        CourseMeetingPatch: {
+            /** @description Replacement host identifier; `null` clears it. */
+            hostId?: string | null;
+            /** @description Replacement location or URL (at most 500 characters, no control characters). */
+            location?: string;
+            /** @description Replacement notes (at most 5000 characters). */
+            notes?: string;
+            /** @description Replacement presenter identifier; `null` clears it. */
+            presenterId?: string | null;
+            /**
+             * Format: int64
+             * @description Replacement start time in milliseconds since the Unix epoch.
+             */
+            startsAt?: number;
+            /** @description Replacement title (1–200 characters, no control characters). */
+            title?: string;
+            /** @description Replacement unit identifier list (at most 200 valid identifiers). */
+            unitIds?: string[];
         };
         /** @description Course-wide progress summary across all active members. */
         CourseProgressSummary: {
@@ -7587,6 +7895,23 @@ export interface components {
              */
             pendingEmail?: string | null;
         };
+        /** @description One member's attendance record on a study meeting. */
+        MeetingAttendance: {
+            /** @description Recorded attendance status. */
+            status: components["schemas"]["AttendanceStatus"];
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+            /** @description Identifier of the course member (retained as a tombstone if the account is erased). */
+            userId: string;
+        };
+        /** @description Request body for recording a member's attendance on a course meeting. */
+        MeetingAttendanceUpdate: {
+            /** @description Attendance status (`present`, `late`, `absent`, or `excused`). */
+            status: components["schemas"]["AttendanceStatus"];
+        };
         /**
          * @description Aggregate completion count of one active course member.
          *
@@ -7630,6 +7955,36 @@ export interface components {
          * @enum {string}
          */
         Mood: "great" | "good" | "okay" | "bad" | "awful";
+        /**
+         * @description The calling learner's own personal score on an exam.
+         *
+         *     Intentionally carries no user identifier and is never embedded for any user other than
+         *     the authenticated caller.
+         */
+        MyExamScore: {
+            /** @description Personal reflection note, at most 1000 characters; empty if unset. */
+            note: string;
+            /**
+             * Format: double
+             * @description Score achieved by the caller (`0 <= score <= maxScore`).
+             */
+            score: number;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
+        /** @description Request body for recording or updating the caller's own exam score. */
+        MyExamScoreUpdate: {
+            /** @description Optional personal note (at most 1000 characters). */
+            note?: string;
+            /**
+             * Format: double
+             * @description Caller's score (`0 <= score <= exam.maxScore`).
+             */
+            score: number;
+        };
         /**
          * @description Which name a person is shown by. When it is empty the next one down the list is
          *     taken; the login name is the last.
@@ -7816,6 +8171,40 @@ export interface components {
              *     shared with.
              */
             type: components["schemas"]["ContainerType"];
+        };
+        /** @description Request body for creating a course exam. */
+        NewCourseExam: {
+            /** @description Shared exam description (at most 5000 characters). */
+            description?: string;
+            /** @description Optional calendar date (`YYYY-MM-DD`). */
+            examDate?: string | null;
+            /**
+             * Format: double
+             * @description Maximum possible score (finite number strictly greater than 0).
+             */
+            maxScore: number;
+            /** @description Exam title (required, 1–200 characters, no control characters). */
+            title: string;
+        };
+        /** @description Request body for creating a course study meeting. */
+        NewCourseMeeting: {
+            /** @description Optional host user identifier. */
+            hostId?: string | null;
+            /** @description Meeting location or URL (at most 500 characters, no control characters). */
+            location?: string;
+            /** @description Shared meeting notes (at most 5000 characters). */
+            notes?: string;
+            /** @description Optional presenter user identifier. */
+            presenterId?: string | null;
+            /**
+             * Format: int64
+             * @description Scheduled start time in milliseconds since the Unix epoch (`0..=253402300799999`).
+             */
+            startsAt: number;
+            /** @description Meeting title (required, 1–200 characters, no control characters). */
+            title: string;
+            /** @description Identifiers of units covered by this meeting (at most 200 valid identifiers). */
+            unitIds?: string[];
         };
         /** @description A diary to make. */
         NewDiary: {
@@ -8032,7 +8421,7 @@ export interface components {
          * @description What a notification tells of.
          * @enum {string}
          */
-        NotificationKind: "mention" | "assignment" | "comment" | "review_due";
+        NotificationKind: "mention" | "assignment" | "comment" | "review_due" | "meeting_upcoming";
         /** @description What a notification is about, for a reader who reads it now. */
         NotificationSubject: {
             /**
@@ -15321,6 +15710,414 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Container"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCourseExams: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The exams of the course. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseExam"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCourseExam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewCourseExam"];
+            };
+        };
+        responses: {
+            /** @description The created exam. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseExam"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCourseExam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the exam: an exam of the course of the path. 404 for one of another course. */
+                examId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The exam was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchCourseExam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the exam: an exam of the course of the path. 404 for one of another course. */
+                examId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CourseExamPatch"];
+            };
+        };
+        responses: {
+            /** @description The updated exam. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseExam"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putMyExamScore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the exam: an exam of the course of the path. 404 for one of another course. */
+                examId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MyExamScoreUpdate"];
+            };
+        };
+        responses: {
+            /** @description The caller's saved exam score. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyExamScore"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteMyExamScore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the exam: an exam of the course of the path. 404 for one of another course. */
+                examId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's exam score was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCourseMeetings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The study meetings of the course. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseMeeting"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCourseMeeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewCourseMeeting"];
+            };
+        };
+        responses: {
+            /** @description The created study meeting. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseMeeting"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCourseMeeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the study meeting: a meeting of the course of the path. 404 for one of another course. */
+                meetingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The study meeting was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchCourseMeeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the study meeting: a meeting of the course of the path. 404 for one of another course. */
+                meetingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CourseMeetingPatch"];
+            };
+        };
+        responses: {
+            /** @description The updated study meeting. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseMeeting"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putMeetingAttendance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the study meeting: a meeting of the course of the path. 404 for one of another course. */
+                meetingId: string;
+                /** @description The identifier of the user. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeetingAttendanceUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated attendance record. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingAttendance"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
