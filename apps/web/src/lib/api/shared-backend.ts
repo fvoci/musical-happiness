@@ -91,6 +91,8 @@ export class SharedBackend implements Backend {
   };
   /** Nobody is told anything through a public link. */
   readonly notifications = undefined;
+  /** Personal time tracking is strictly owner-only and never available on public links. */
+  readonly time = undefined;
   /** No search through a public link: the board is all there is to read. */
   readonly search: Backend['search'] = {
     enabled: () => Promise.resolve(false),
@@ -331,6 +333,7 @@ export class SharedBackend implements Backend {
   }
 
   // Nobody is named to the reader, and the place has no sidebar.
+  organizations: Backend['organizations'] = nothing;
   users: Backend['users'] = nothing;
   usersById: Backend['usersById'] = nothing;
   members: Backend['members'] = nothing;

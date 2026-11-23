@@ -248,7 +248,8 @@ test('a copy of a board names its own cards in the relation its Gantt chart read
   await signInOnPage(page, owner);
   await expect(page.getByTestId('card-dialog')).toBeVisible();
   const chip = property(page, 'After').locator('[data-slot="relation-chip"]');
-  await expect(chip).toHaveText(['Lay the floor']);
+  await expect(chip).toHaveText(['Lay the floor SS -2d']);
+  await expect(chip.locator('[data-slot="relation-badge"]')).toHaveText('SS -2d');
   await expect(chip).toHaveAttribute('data-card-id', copiedFloor);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   await api.dispose();

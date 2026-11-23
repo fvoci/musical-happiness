@@ -119,6 +119,15 @@ impl DiaryDate {
     pub fn year(self) -> i16 {
         self.0.year()
     }
+
+    /// Underlying civil date for crate-internal calendar calculations.
+    #[must_use]
+    pub(crate) const fn civil_date(self) -> jiff::civil::Date {
+        self.0
+    }
+
+    /// Unix epoch date (`1970-01-01`), used as an infallible fallback outside years 1..=9999.
+    pub(crate) const UNIX_EPOCH: Self = Self(jiff::civil::date(1970, 1, 1));
 }
 
 impl fmt::Display for DiaryDate {

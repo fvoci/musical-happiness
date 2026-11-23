@@ -114,6 +114,7 @@ impl Outcome {
             | StoreError::BlockNotInDeletedContainers { .. }
             | StoreError::InvalidCategory(_)
             | StoreError::InvalidSubscription(_)
+            | StoreError::Refused(_)
             | StoreError::InvalidId(_)
             | StoreError::Conflict(_)
             | StoreError::NotRestorable { .. }

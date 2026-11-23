@@ -101,6 +101,7 @@ describe('the organization on the server', () => {
       'PATCH /api/v1/org/o/workspaces/w': { body: {} },
       'POST /api/v1/org/o/workspaces/w/join': { body: {} },
       'PUT /api/v1/org/o/members/u/role': { status: 204 },
+      'DELETE /api/v1/org/o/members/u': { status: 204 },
       'PATCH /api/v1/org/o': { body: {} },
       'GET /api/v1/w/w/audit': { body: [] },
     });
@@ -109,6 +110,7 @@ describe('the organization on the server', () => {
     await api.renameWorkspace('o', 'w', 'Product');
     await api.joinWorkspace('o', 'w');
     await api.setRole('o', 'u', 'member');
+    await api.removeMember('o', 'u');
     await api.changeOrganization('o', { publicLinks: false });
     await api.workspaceRecords('w');
     expect(sent.map(({ method, url, body }) => [method, url, body])).toEqual([
@@ -116,6 +118,7 @@ describe('the organization on the server', () => {
       ['PATCH', '/api/v1/org/o/workspaces/w', { name: 'Product' }],
       ['POST', '/api/v1/org/o/workspaces/w/join', undefined],
       ['PUT', '/api/v1/org/o/members/u/role', { role: 'member' }],
+      ['DELETE', '/api/v1/org/o/members/u', undefined],
       ['PATCH', '/api/v1/org/o', { publicLinks: false }],
       ['GET', '/api/v1/w/w/audit?page=0&perPage=200', undefined],
     ]);
@@ -129,8 +132,42 @@ describe('the organization screen', () => {
     expect(refusalOf(refused(409, 'workspace_name_taken'))).toBe('name_taken');
     expect(refusalOf(refused(409, 'default_workspace'))).toBe('default_workspace');
     expect(refusalOf(refused(409, 'last_org_admin'))).toBe('last_org_admin');
+    expect(refusalOf(refused(409, 'cannot_remove_self'))).toBe('cannot_remove_self');
+    expect(refusalOf(refused(409, 'last_instance_admin'))).toBe('last_instance_admin');
+    expect(refusalOf(refused(409, 'sole_org_admin'))).toBe('sole_org_admin');
+    expect(refusalOf(refused(409, 'alone_in_organization'))).toBe('alone_in_organization');
     expect(refusalOf(refused(404))).toBe('not_found');
     expect(refusalOf(new Error('no'))).toBe('failed');
+  });
+
+  it('removes a member, reports 409 refusals, and reloads members on 404', async () => {
+    const empty = { body: [] };
+    const members = [{ userId: 'u1', username: 'ada', displayName: 'Ada', role: 'admin' }];
+    serve({
+      'GET /api/v1/org/o': { body: { id: 'o', name: 'Acme', publicLinks: true } },
+      'GET /api/v1/org/o/workspaces': empty,
+      'GET /api/v1/org/o/members': { body: members },
+      'GET /api/v1/org/o/audit': empty,
+      'DELETE /api/v1/org/o/members/u2': { status: 204 },
+      'DELETE /api/v1/org/o/members/u1': {
+        status: 409,
+        body: { status: 409, reason: 'cannot_remove_self' },
+      },
+      'DELETE /api/v1/org/o/members/gone': { status: 404, body: { status: 404 } },
+    });
+    const evictOrg = vi.fn();
+    const admin = new OrgAdmin(organizations(), 'o', { report: vi.fn(), evictOrg });
+    await admin.load();
+    expect(await admin.removeMember('u2')).toBe(true);
+    expect(admin.refusal).toBeUndefined();
+    expect(evictOrg).toHaveBeenCalledExactlyOnceWith('o');
+
+    expect(await admin.removeMember('u1')).toBe(false);
+    expect(admin.refusal).toBe('cannot_remove_self');
+
+    expect(await admin.removeMember('gone')).toBe(false);
+    expect(admin.refusal).toBe('not_found');
+    expect(admin.members).toHaveLength(1);
   });
 
   it('keeps a refusal to tell, and reads the lists again', async () => {

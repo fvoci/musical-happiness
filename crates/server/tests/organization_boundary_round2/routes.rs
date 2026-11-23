@@ -458,6 +458,29 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/courses/{courseId}/progress/summary",
         "getCourseProgressSummary",
     ),
+    ("GET", "/courses/{courseId}/schedule", "getCourseSchedule"),
+    ("PUT", "/courses/{courseId}/schedule", "putCourseSchedule"),
+    (
+        "DELETE",
+        "/courses/{courseId}/schedule",
+        "deleteCourseSchedule",
+    ),
+    (
+        "POST",
+        "/courses/{courseId}/schedule/redistribute",
+        "redistributeCourseSchedule",
+    ),
+    (
+        "POST",
+        "/courses/{courseId}/my-schedule/redistribute",
+        "redistributeMyCourseSchedule",
+    ),
+    (
+        "PUT",
+        "/courses/{courseId}/units/{unitId}/schedule",
+        "putUnitSchedule",
+    ),
+    ("GET", "/learning/today", "getWorkspaceLearningToday"),
 ];
 
 /// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
@@ -516,6 +539,12 @@ const REACHED_BY_ITEM: &[&str] = &[
     "getMyCourseProgress",
     "putUnitProgress",
     "getCourseProgressSummary",
+    "getCourseSchedule",
+    "putCourseSchedule",
+    "deleteCourseSchedule",
+    "redistributeCourseSchedule",
+    "redistributeMyCourseSchedule",
+    "putUnitSchedule",
     "createBoardsAndBlocks",
     "deleteBoardsAndBlocks",
     "patchBoardsAndBlocks",
@@ -778,6 +807,12 @@ pub(super) async fn compare_workspace_routes(
             // The guest's own sidebar: the default category, with no board here.
             hidden.status == StatusCode::OK
                 && answer(&hidden).1[0]["containerMetadata"] == json!([])
+                && absent.status == StatusCode::NOT_FOUND
+        } else if *operation == "getWorkspaceLearningToday" && asker == Asker::Guest {
+            // A guest not enrolled in any course sees empty today/overdue lists.
+            hidden.status == StatusCode::OK
+                && answer(&hidden).1["todayUnits"] == json!([])
+                && answer(&hidden).1["overdueUnits"] == json!([])
                 && absent.status == StatusCode::NOT_FOUND
         } else if *operation == "getWorkspaceUsers" && asker == Asker::Guest {
             // The people a guest sees: who is on its boards, none here, and itself.

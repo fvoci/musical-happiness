@@ -17,6 +17,7 @@ mod category_containers;
 mod container_copies;
 mod containers;
 mod containers_and_blocks;
+mod course_schedules;
 mod courses;
 mod diaries;
 mod doomed;
@@ -92,6 +93,7 @@ pub use audience::{Audience, Former, UnsaidByLink};
 pub use blocks::ChangeNotification;
 pub use cards::CardPreviews;
 pub use category_containers::DEFAULT_CATEGORY_CONTAINERS;
+pub use course_schedules::CourseEnrollment;
 pub use diaries::EntryAnswer;
 pub use export::ExportedArchive;
 pub(crate) use file_name::check_file_name;
@@ -224,6 +226,9 @@ struct Inner {
     /// Sign-ups held until as many as it counts reach the store (`App::meet_next_signups`).
     #[cfg(feature = "test-util")]
     signups_meet: std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>,
+    /// Optional fixed Unix timestamp in milliseconds for deterministic schedule timezone tests.
+    #[cfg(feature = "test-util")]
+    schedule_now_millis: std::sync::Mutex<Option<i64>>,
 }
 
 /// What `ping` reports about the server.
@@ -353,6 +358,8 @@ impl App {
                 search,
                 #[cfg(feature = "test-util")]
                 signups_meet: std::sync::Mutex::default(),
+                #[cfg(feature = "test-util")]
+                schedule_now_millis: std::sync::Mutex::default(),
             }),
         })
     }
@@ -370,6 +377,35 @@ impl App {
     /// The server configuration.
     pub fn config(&self) -> &Configuration {
         &self.inner.config
+    }
+
+    /// Current Unix timestamp in milliseconds used by course schedule "today" lookups.
+    pub(crate) fn schedule_now_millis(&self) -> i64 {
+        #[cfg(feature = "test-util")]
+        if let Some(fixed) = *self
+            .inner
+            .schedule_now_millis
+            .lock()
+            .expect("schedule clock lock poisoned")
+        {
+            return fixed;
+        }
+        crate::auth::now_millis()
+    }
+
+    /// Overrides the clock used by course schedule "today" calculations in tests.
+    /// Pass `None` to restore the real system clock.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal test clock mutex is poisoned.
+    #[cfg(feature = "test-util")]
+    pub fn set_schedule_now_millis(&self, now: Option<i64>) {
+        *self
+            .inner
+            .schedule_now_millis
+            .lock()
+            .expect("schedule clock lock poisoned") = now;
     }
 
     /// The same server, reaching the rows of `tenant`: of the organization a request

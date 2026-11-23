@@ -30,6 +30,7 @@ import type { ApiPath, Http, RequestOptions } from './http.ts';
 import { ServerNotifications } from './notifications.ts';
 import { ServerPeople } from './people.ts';
 import { ServerReferences } from './references.ts';
+import { ServerTime } from './time.ts';
 import { ServerWikis } from './wikis.ts';
 
 /** A path under a workspace, as the contract writes it after `/api/v1/w/{workspaceId}`. */
@@ -73,6 +74,8 @@ export class ServerRequests extends AccountRequests implements TrashReads {
   readonly emailChange: EmailChange;
   /** What the reader was told, of every workspace. */
   readonly notifications: ServerNotifications;
+  /** Personal time tracking entries and active timer of the signed-in reader. */
+  readonly time: ServerTime;
   /** The workspace the reader is in (`enter`): the paths of its boards are under it. */
   #workspaceId: string | undefined;
   /**
@@ -88,6 +91,7 @@ export class ServerRequests extends AccountRequests implements TrashReads {
     this.people = new ServerPeople(http);
     this.emailChange = new ServerEmailChange(http);
     this.notifications = new ServerNotifications(http);
+    this.time = new ServerTime(http);
     this.bodyVersions = new ServerBodyVersions((path, params, options) =>
       this.inWorkspace(path, params, options),
     );

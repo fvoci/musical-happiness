@@ -65,6 +65,16 @@ describe('reading', () => {
     expect(again.title).toBe('Alpha');
     expect(again.fields.properties[STATUS]).toBe('todo');
   });
+
+  it('lists the shared organizations the user is a member of and hands out copies', async () => {
+    const { world, backend } = setup();
+    expect(await backend.organizations()).toEqual([]);
+    world.organizations.set(backend.userId, [{ id: 'org-1', name: 'Acme', role: 'admin' }]);
+    const listed = await backend.organizations();
+    expect(listed).toEqual([{ id: 'org-1', name: 'Acme', role: 'admin' }]);
+    if (listed[0]) listed[0].name = 'Changed';
+    expect(await backend.organizations()).toEqual([{ id: 'org-1', name: 'Acme', role: 'admin' }]);
+  });
 });
 
 describe('writing a body', () => {

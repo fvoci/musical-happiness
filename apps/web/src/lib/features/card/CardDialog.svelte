@@ -15,7 +15,7 @@
   letting go of it.
 -->
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, untrack, type Snippet } from 'svelte';
 
   import { display } from '$lib/display.svelte.ts';
   import { holdSaveKey } from '$lib/editor/save-key.ts';
@@ -23,7 +23,7 @@
   import { cardFrame } from '$lib/layout/presentation.ts';
   import { page } from '$lib/layout/room.svelte.ts';
   import type { BoardView } from '$lib/logic/wire.ts';
-  import { whileHere, type BoardStore } from '$lib/state/index.ts';
+  import { whileHere, type BoardStore, type CardStore } from '$lib/state/index.ts';
   import * as Dialog from '$lib/ui/dialog/index.js';
 
   import CardContent from './CardContent.svelte';
@@ -40,9 +40,11 @@
     onClose: () => void;
     /** Shows another card in place of this one: the copy "Duplicate" made, a card a relation names. */
     onOpenCard?: (cardId: string) => void;
+    /** Extra actions in the card header (e.g. personal timer), supplied by the app shell. */
+    headerActions?: Snippet<[CardStore]> | undefined;
   }
 
-  let { board, view, cardId, cardHref, onClose, onOpenCard }: Props = $props();
+  let { board, view, cardId, cardHref, onClose, onOpenCard, headerActions }: Props = $props();
 
   // The store's open card follows the address. A card that is left sends
   // what was written in its body as it leaves the body's room.
@@ -174,6 +176,7 @@
           {cardHref}
           onClose={() => void close()}
           onOpenCard={(otherId: string) => void openOther(otherId)}
+          {headerActions}
         />
       {/key}
     {/if}

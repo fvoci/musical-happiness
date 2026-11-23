@@ -715,12 +715,13 @@ pub(crate) async fn membership(
 
 /// Takes back from the user every joining of a workspace of the handle's organization
 /// as the organization's administrator, in use or in the trash, on behalf of
-/// `actor_id`, recording each in its workspace.
+/// `actor`, recording each in its workspace. Returns the workspaces of the joinings, by
+/// identifier.
 pub(crate) async fn revoke_joinings(
     scope: &mut Scope<'_>,
     user_id: &str,
     actor: &AuditActor,
-) -> Result<(), StoreError> {
+) -> Result<Vec<String>, StoreError> {
     end_joinings(scope, user_id, |workspace_id| {
         AuditEntry::by(
             actor,
@@ -730,8 +731,7 @@ pub(crate) async fn revoke_joinings(
         )
         .with_subject(user_id)
     })
-    .await?;
-    Ok(())
+    .await
 }
 
 /// Ends every joining of a workspace of the handle's organization the user made as its

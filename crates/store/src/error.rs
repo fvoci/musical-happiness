@@ -1,7 +1,8 @@
 //! The error type of the store.
 
 use fvoci_model::{
-    BlockError, CategoryError, ContainerError, ContainersAndBlocksError, SubscriptionError,
+    BlockError, CategoryError, ContainerError, ContainersAndBlocksError, Refusals,
+    SubscriptionError,
 };
 use thiserror::Error;
 
@@ -109,6 +110,10 @@ pub enum StoreError {
     /// A subscription failed validation before it was written.
     #[error(transparent)]
     InvalidSubscription(#[from] SubscriptionError),
+
+    /// Request parameters failed domain validation inside a store transaction.
+    #[error(transparent)]
+    Refused(#[from] Refusals),
 
     /// A statement that writes was given text that is not an identifier where it needs
     /// one. The HTTP layer answers it as a bad request.

@@ -12,6 +12,10 @@ use thiserror::Error;
 use crate::JsonMap;
 use crate::body::{Body, BodyChange};
 use crate::card_property::{CardPropertyError, PersonProperties, validate_block_properties};
+use crate::course_schedule::{
+    UNIT_AMOUNT_FIELD, UNIT_AMOUNT_UNIT_FIELD, UNIT_SCHEDULED_DATE_FIELD, is_amount_unit_value,
+    is_unit_amount_value,
+};
 use crate::diary::{
     ENTRY_BODY_UPDATED_AT_FIELD, ENTRY_DATE_FIELD, ENTRY_MOOD_FIELD, ENTRY_PLACE_FIELD,
     ENTRY_WEATHER_FIELD, is_body_updated_at_value, is_date_value, is_mood_value, is_note_value,
@@ -444,9 +448,33 @@ pub enum BlockError {
     },
 }
 
-/// The fields of a unit or chapter whose value has one kind.
-const UNIT_FIELD_KINDS: [FieldKind; 1] =
-    [(PAGE_ORDER_FIELD, "an order the server made", is_order_value)];
+/// The fields of a unit whose value has one kind.
+const UNIT_FIELD_KINDS: [FieldKind; 4] = [
+    (PAGE_ORDER_FIELD, "an order the server made", is_order_value),
+    (
+        UNIT_AMOUNT_FIELD,
+        "an integer from 1 to 100000",
+        is_unit_amount_value,
+    ),
+    (
+        UNIT_AMOUNT_UNIT_FIELD,
+        "one of minutes, pages, or problems",
+        is_amount_unit_value,
+    ),
+    (
+        UNIT_SCHEDULED_DATE_FIELD,
+        "a calendar date as YYYY-MM-DD",
+        is_date_value,
+    ),
+];
+
+/// The fields of a chapter: `order` only; study amount and scheduled date are forbidden.
+const CHAPTER_FIELD_KINDS: [FieldKind; 4] = [
+    (PAGE_ORDER_FIELD, "an order the server made", is_order_value),
+    (UNIT_AMOUNT_FIELD, "absent on a chapter", |_| false),
+    (UNIT_AMOUNT_UNIT_FIELD, "absent on a chapter", |_| false),
+    (UNIT_SCHEDULED_DATE_FIELD, "absent on a chapter", |_| false),
+];
 
 /// The fields of an entry whose value has one kind, as [`CARD_FIELD_KINDS`] has a
 /// card's. Its `date` is there besides, which [`Block::validate`] asks for by itself: an
@@ -680,8 +708,13 @@ impl Block {
                 };
                 return Err(BlockError::InvalidEntryField { field, expected });
             }
-            BlockType::Unit | BlockType::Chapter => {
+            BlockType::Unit => {
                 if let Some((field, expected, _)) = of_another_kind(&UNIT_FIELD_KINDS) {
+                    return Err(BlockError::InvalidUnitField { field, expected });
+                }
+            }
+            BlockType::Chapter => {
+                if let Some((field, expected, _)) = of_another_kind(&CHAPTER_FIELD_KINDS) {
                     return Err(BlockError::InvalidUnitField { field, expected });
                 }
             }

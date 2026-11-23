@@ -46,3 +46,22 @@ export const NoDate: Story = {
     ).toBeVisible();
   },
 };
+export const FourKindsAndLag: Story = {
+  args: { variedRelations: true },
+  play: async ({ canvasElement }) => {
+    await storyElement(canvasElement, '[data-arrow][data-kind="ss"]');
+    await expect(
+      canvasElement.querySelectorAll('[data-arrow][data-kind="fs"]').length,
+    ).toBeGreaterThan(0);
+    await expect(
+      canvasElement.querySelectorAll('[data-arrow][data-kind="ss"]').length,
+    ).toBeGreaterThan(0);
+    await expect(
+      canvasElement.querySelectorAll('[data-arrow][data-kind="ff"]').length,
+    ).toBeGreaterThan(0);
+    await expect(
+      canvasElement.querySelectorAll('[data-arrow][data-kind="sf"]').length,
+    ).toBeGreaterThan(0);
+    await expect(canvasElement.querySelectorAll('[data-arrow-trigger]').length).toBeGreaterThan(0);
+  },
+};

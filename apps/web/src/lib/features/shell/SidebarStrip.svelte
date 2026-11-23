@@ -11,6 +11,7 @@
   buttons above and below stay.
 -->
 <script lang="ts">
+  import ClockIcon from '@lucide/svelte/icons/clock';
   import PanelLeftOpenIcon from '@lucide/svelte/icons/panel-left-open';
   import PlusIcon from '@lucide/svelte/icons/plus';
 
@@ -27,6 +28,9 @@
     workspace: Workspace;
     /** The board or wiki on the page. */
     containerId: string | undefined;
+    meTime?: boolean;
+    timeHref?: string | undefined;
+    onOpenTime?: (() => void) | undefined;
     containerHref: (container: ContainerPlace) => string;
     /** Out of the layout: the list stands beside the board, or the page is compact. */
     hidden: boolean;
@@ -41,6 +45,9 @@
   let {
     workspace,
     containerId,
+    meTime = false,
+    timeHref,
+    onOpenTime,
     containerHref,
     hidden,
     inert,
@@ -105,6 +112,19 @@
     {/each}
   </ul>
   <div class="my-1 w-8 shrink-0 border-t"></div>
+  {#if timeHref && workspace.me?.id}
+    <IconButton
+      label={m.time_title()}
+      aria-current={meTime ? 'page' : undefined}
+      data-testid="strip-open-my-time"
+      class={meTime ? 'bg-sidebar-accent ring-1 ring-input-border' : undefined}
+      onclick={() => {
+        onOpenTime?.();
+      }}
+    >
+      <ClockIcon />
+    </IconButton>
+  {/if}
   <!-- A guest is on the boards they were invited to, and makes none; nobody where none is shown. -->
   {#if workspace.info && !isGuest(workspace)}
     <IconButton label={m.shell_add_board()} data-testid="strip-add-board" onclick={onAddBoard}>

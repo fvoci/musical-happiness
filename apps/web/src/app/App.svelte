@@ -24,8 +24,6 @@
   import { daysLeft } from '$lib/features/account/account-deletion.ts';
   import InvitePage from '$lib/features/account/InvitePage.svelte';
   import SignInPage from '$lib/features/account/SignInPage.svelte';
-  import SsoRequired from '$lib/features/account/SsoRequired.svelte';
-  import OrgPage from '$lib/features/organization/OrgPage.svelte';
   import AppShell, { type PaneTools } from '$lib/features/shell/AppShell.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import {
@@ -47,7 +45,6 @@
   import { userDisplayName } from '$lib/logic/users.ts';
   import type { ContainerPlace } from '$lib/logic/urls.ts';
   import { fileSourceOf } from '$lib/state/file-source.ts';
-  import { OrgAdmin } from '$lib/state/org-admin.svelte.ts';
   import type { Organizations } from '$lib/state/organization.ts';
   import { Button } from '$lib/ui/button/index.js';
 
@@ -62,7 +59,7 @@
     locales,
     shownLanguage,
   } from './locale.ts';
-  import NotFound from './NotFound.svelte';
+  import OrgHost from './OrgHost.svelte';
   import Problems from './Problems.svelte';
   import { keepReturn, resume, takeReturn } from './return-to.ts';
   import { placeRoute, shownContainerId, type Router } from './router.svelte.ts';
@@ -70,9 +67,8 @@
   import AccountSettings from './AccountSettings.svelte';
   import PasswordNoticeHost from './PasswordNoticeHost.svelte';
   import { Administered } from './administered.svelte.ts';
+  import TopBarTools from './TopBarTools.svelte';
   import WorkspacePane from './WorkspacePane.svelte';
-  import NotificationsHost from './NotificationsHost.svelte';
-  import WorkspaceSearch from './WorkspaceSearch.svelte';
 
   let { router }: { router: Router } = $props();
 
@@ -243,16 +239,6 @@
       .map((one) => ({ ...one, href: router.href({ workspaceId: one.id }) })),
   );
 
-  /** The organization the address names; the screen's state is made anew only when it changes. */
-  const orgId = $derived(router.route.orgId);
-  const orgAdmin = $derived(
-    organizations && orgId ? new OrgAdmin(organizations, orgId, workspace) : undefined,
-  );
-  $effect(() => {
-    // Once the reader is signed in: before that the organization is not there for them.
-    if (workspace?.status === 'ready') void orgAdmin?.load();
-  });
-
   /** Starts an organization from the switcher, and goes to its workspace. */
   async function createOrganization(name: string): Promise<void> {
     const [shown, api] = [workspace, organizations];
@@ -266,6 +252,9 @@
 
   const openContainer = (container: ContainerPlace): void => {
     router.openContainer(container);
+  };
+  const openTime = (): void => {
+    router.go({ meTime: true });
   };
 </script>
 
@@ -403,34 +392,15 @@
     </div>
   </main>
 {:else if router.route.orgId}
-  {#if orgAdmin}
-    {@const closedOrgId = orgAdmin.orgId}
-    <OrgPage
-      admin={orgAdmin}
-      onSsoSignIn={() => toProvider(closedOrgId)}
-      locale={workspace.locale}
-      meId={workspace.me?.id}
-      homeHref={router.href({})}
-      workspaceHref={(workspaceId: string) => router.href({ workspaceId })}
-    >
-      {#snippet closed()}
-        <SsoRequired
-          name=""
-          others={openWorkspaces}
-          onContinue={() => toProvider(closedOrgId)}
-          onOpenLinked={() => {
-            router.go({});
-            openLinked();
-          }}
-          onGo={(workspaceId: string) => {
-            router.go({ workspaceId });
-          }}
-        />
-      {/snippet}
-    </OrgPage>
-  {:else}
-    <NotFound {router} />
-  {/if}
+  <OrgHost
+    {workspace}
+    {organizations}
+    orgId={router.route.orgId}
+    {router}
+    {openWorkspaces}
+    onSso={toProvider}
+    onOpenLinked={openLinked}
+  />
 {:else}
   <AppShell
     {workspace}
@@ -443,6 +413,9 @@
       ? (workspaceId: string) => organizations?.workspaceRecords(workspaceId) ?? Promise.resolve([])
       : undefined}
     containerId={shownContainerId(router.route)}
+    meTime={router.route.meTime === true}
+    timeHref={workspace.backend.time ? router.href({ meTime: true }) : undefined}
+    onOpenTime={openTime}
     containerHref={(container: ContainerPlace) => router.href(placeRoute(container))}
     sharedHref={(containerId: string, readToken: string) =>
       router.href({ boardId: containerId, readToken })}
@@ -470,8 +443,13 @@
     }
   >
     {#snippet search(shown: Workspace)}
-      <WorkspaceSearch workspace={shown} {router} />
-      <NotificationsHost workspace={shown} {router} />
+      <TopBarTools
+        workspace={shown}
+        {router}
+        {openWorkspaces}
+        onOpenLinked={openLinked}
+        onSso={(id: string) => toProvider(id)}
+      />
     {/snippet}
     {#snippet children({ workspace: shown, addBoard }: PaneTools)}
       <WorkspacePane

@@ -14,6 +14,7 @@ import type {
   ChangeListener,
   CommentVersion,
   Sharing,
+  UserOrganization,
   WorkspaceInfo,
   User,
 } from '../backend.ts';
@@ -23,6 +24,7 @@ import type { KeptOfCard } from './body-versions.ts';
 import type { StoredNotification } from './notifications.ts';
 import type { ContainerPlace } from './trash.ts';
 import type { UnitProgress } from '../course-types.ts';
+import type { TimeEntry } from '../time-types.ts';
 
 /** A view, card, comment or attachment as the world stores it. */
 export interface StoredBlock extends Block {
@@ -116,6 +118,8 @@ export class World {
   readonly workspaceMembers = new Set<string>();
   /** Each user's own space, by user, once it was asked for. */
   readonly ownSpaces = new Map<string, WorkspaceInfo>();
+  /** Shared organizations each user belongs to, when seeded for tests (`spaces.ts`). */
+  readonly organizations = new Map<string, UserOrganization[]>();
   /** The password of each user that has one (`spaces.ts`): the world signs nobody in by it. */
   readonly passwords = new Map<string, string>();
   readonly users = new Map<string, User>();
@@ -145,6 +149,8 @@ export class World {
   readonly unitWatchers = new Map<string, Map<string, boolean>>();
   /** Personal unit progress rows per user (`userId -> Map<unitId, UnitProgress>`). */
   readonly unitProgress = new Map<string, Map<string, UnitProgress>>();
+  /** Personal time entries, by user (`time.ts`). */
+  readonly timeEntries = new Map<string, TimeEntry[]>();
 
   /**
    * The name of the channel the rooms of the bodies share with the worlds of

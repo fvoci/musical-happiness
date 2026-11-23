@@ -452,6 +452,7 @@ async fn compare_what_is_found(
         format!("/w/{workspace}/wikis"),
         format!("/w/{workspace}/diaries"),
         format!("/w/{workspace}/courses"),
+        format!("/w/{workspace}/learning/today"),
         format!("/w/{workspace}/categories"),
         format!("/w/{workspace}/audit"),
     ];
