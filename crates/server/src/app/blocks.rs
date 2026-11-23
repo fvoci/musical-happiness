@@ -501,12 +501,15 @@ impl App {
         log_notification(ChangeNotification::Send, ChangeAction::Add, block_id);
 
         let app = self.clone();
+        let root_id = block_id.to_owned();
         self.spawn_background(async move {
             for each in &restored {
-                app.ws()
-                    .broadcast_block_change(&container.workspace_id, each)
-                    .await;
-                app.tell_webhooks(each).await;
+                if each.id == root_id || each.block_type == BlockType::Card {
+                    app.ws()
+                        .broadcast_block_change(&container.workspace_id, each)
+                        .await;
+                    app.tell_webhooks(each).await;
+                }
             }
         });
         Ok(block)

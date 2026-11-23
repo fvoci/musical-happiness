@@ -58,6 +58,7 @@
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
       "number": 1,
+      "parentId": "",
       "properties": {
         "p1": "v1"
       },
@@ -85,6 +86,7 @@
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
       "number": 2,
+      "parentId": "",
       "properties": {},
       "tasksDone": 0,
       "tasksTotal": 0,
@@ -153,6 +155,7 @@
         "lastCommentAt": 0,
         "modifiedBy": "<id:2>",
         "number": 1,
+        "parentId": "",
         "properties": {
           "p1": "v1"
         },
@@ -174,6 +177,7 @@
         "lastCommentAt": 0,
         "modifiedBy": "<id:2>",
         "number": 2,
+        "parentId": "",
         "properties": {},
         "tasksDone": 0,
         "tasksTotal": 0,
@@ -201,6 +205,7 @@
         "lastCommentAt": 0,
         "modifiedBy": "<id:2>",
         "number": 1,
+        "parentId": "",
         "properties": {
           "p1": "v1"
         },
@@ -222,6 +227,7 @@
         "lastCommentAt": 0,
         "modifiedBy": "<id:2>",
         "number": 2,
+        "parentId": "",
         "properties": {},
         "tasksDone": 0,
         "tasksTotal": 0,
@@ -286,6 +292,7 @@
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
       "number": 1,
+      "parentId": "",
       "properties": {
         "p1": "v1"
       },
@@ -313,6 +320,7 @@
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
       "number": 1,
+      "parentId": "",
       "properties": {
         "p1": "v1"
       },
@@ -354,6 +362,7 @@
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
       "number": 1,
+      "parentId": "",
       "properties": {
         "p1": "v1",
         "p2": "v2"
@@ -424,6 +433,7 @@
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
       "number": 1,
+      "parentId": "",
       "properties": {
         "p1": "v1",
         "p2": "v2"
@@ -505,6 +515,7 @@
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
       "number": 1,
+      "parentId": "",
       "properties": {
         "p1": "v1",
         "p2": "v2"
