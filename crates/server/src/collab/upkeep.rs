@@ -75,6 +75,7 @@ impl Collab {
             steps_ahead,
             files,
             remake,
+            fold,
         } = answer
         else {
             return Err(unexpected(&answer).into());
@@ -105,6 +106,7 @@ impl Collab {
         open.client_changes = client_changes;
         open.steps_ahead = steps_ahead;
         open.must_remake |= remake;
+        open.wants_fold |= fold;
         user_id.clone_into(&mut open.last_writer);
         open.last_update = now;
         open.first_unwritten.get_or_insert(now);
@@ -221,7 +223,8 @@ impl Collab {
         }
         let long = |slot: &Held| {
             slot.open.as_ref().is_some_and(|open| {
-                !open.must_remake && open.log_end - open.state_seq >= FOLD_AFTER
+                !open.must_remake
+                    && (open.wants_fold || open.log_end - open.state_seq >= FOLD_AFTER)
             })
         };
         // Not by a process that lost the lock of the server, as at closing.
@@ -423,6 +426,7 @@ impl Collab {
         match folded {
             Ok(()) => {
                 open.state_seq = through;
+                open.wants_fold = false;
                 Ok(())
             }
             Err(error @ StoreError::DocumentWritten { .. }) => {
@@ -556,6 +560,7 @@ impl Collab {
         open.client_changes = client_changes;
         open.steps_ahead = steps_ahead;
         open.must_remake = false;
+        open.wants_fold = false;
         open.first_unwritten = None;
         Ok(())
     }

@@ -118,6 +118,7 @@ fn push_element(txn: &mut TransactionMut<'_>, parent: &impl XmlFragment, node: &
 
 /// Puts the element of a node, with all it holds, among the children of a parent at
 /// `index`, as [`from_body`] writes one. `index` is at most the parent's length.
+#[cfg(feature = "test-util")]
 pub(crate) fn insert_node(
     txn: &mut TransactionMut<'_>,
     parent: &XmlElementRef,

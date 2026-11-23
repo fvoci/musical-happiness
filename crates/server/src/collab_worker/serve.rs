@@ -6,8 +6,8 @@ use std::io::{Read, Write};
 use std::time::Duration;
 
 use fvoci_collab::{
-    BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, TakeError, UpdateError,
-    UpdateLimits,
+    BodyDoc, BodyTakeError, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS,
+    TakeError, UpdateError, UpdateLimits, same_state,
 };
 use fvoci_model::{Body, BodyError};
 
@@ -19,6 +19,16 @@ use super::wire::{
 
 /// The largest frame before the limits are known: the one that brings them.
 const CONFIGURE_FRAME_BYTES: u64 = 64;
+
+/// How many accepted updates and repairs a held document may keep in its rollback log
+/// (`Held::since`) before further `Request::Take` updates are refused until a fold
+/// rebases it. Kept above 1,000 so direct worker bursts without folds still pass while
+/// keeping rollback replay bounded.
+const MAX_SINCE_ENTRIES: usize = 2048;
+
+/// How many entries in `Held::since` cause the worker to ask the server for a fold
+/// (`Answer::Taken::fold`), well before [`MAX_SINCE_ENTRIES`] is reached.
+const FOLD_SINCE_ENTRIES: usize = 400;
 
 /// The longest stall a request may ask for.
 #[cfg(feature = "test-util")]
@@ -43,7 +53,7 @@ pub fn serve(input: &mut impl Read, output: &mut impl Write) -> Result<(), Frame
     write_frame(output, &encode_response(&Ok(Answer::Done)), frame_bytes)?;
     while let Some(frame) = read_frame(input, frame_bytes)? {
         let request = Request::decode(&frame).map_err(|_| malformed())?;
-        let response = worker.answer(request);
+        let response = worker.answer(request)?;
         write_frame(output, &encode_response(&response), frame_bytes)?;
     }
     Ok(())
@@ -62,19 +72,52 @@ struct Worker {
     limits: Limits,
     update_limits: UpdateLimits,
     docs: HashMap<DocNumber, Held>,
-    /// The bytes of the states of all of them.
+    /// The bytes of the states and rollback logs (`since`) of all held documents.
     held_bytes: u64,
 }
 
-/// A document, the size of its state, the share it is counted in, and whether it was
-/// left unsettled past [`READING_STEPS`] and must be remade from its body before any
-/// further request other than reading its body or closing it.
+/// A document, its checkpoint (`base`) and accepted updates/repairs since it (`since`)
+/// for exact rollback after a rejected in-place update, its latest state bytes and
+/// change count, the share it is counted in, and whether it was left unsettled past
+/// [`READING_STEPS`] and must be remade from its body before any further request other
+/// than reading its body or closing it.
 #[derive(Debug)]
 struct Held {
     doc: BodyDoc,
+    /// Checkpoint state as of opening, making, or the last rebase (`Request::State` or
+    /// `Retake` rebase). Empty once `must_remake` is set.
+    base: Vec<u8>,
+    /// Accepted updates and repairs applied since `base`, replayed by
+    /// [`BodyDoc::rebuild`] when an in-place update is refused after mutating `doc`.
+    since: Vec<Vec<u8>>,
+    /// Total bytes of every entry in `since`, counted in [`Worker::held_bytes`].
+    since_bytes: u64,
+    /// Latest state bytes when `since` is non-empty; `None` means `base` is the latest
+    /// state (or `must_remake` is set).
+    last_state: Option<Vec<u8>>,
     state_bytes: u64,
+    changes: u64,
     share: Share,
     must_remake: bool,
+}
+
+impl Held {
+    /// Total bytes accounted against [`Worker::held_bytes`] for this document.
+    fn accounted_bytes(&self) -> u64 {
+        self.state_bytes.saturating_add(self.since_bytes)
+    }
+
+    /// Promotes `last_state` into `base`, clears `since` (releasing its backing array),
+    /// and returns the `since_bytes` freed for [`Worker::held_bytes`].
+    fn rebase(&mut self) -> u64 {
+        if let Some(last) = self.last_state.take() {
+            self.base = last;
+        }
+        self.since = Vec::new();
+        let freed = self.since_bytes;
+        self.since_bytes = 0;
+        freed
+    }
 }
 
 impl Worker {
@@ -96,19 +139,30 @@ impl Worker {
         }
     }
 
-    fn answer(&mut self, request: Request) -> Response {
+    /// Hard cap on `Held::since_bytes` for one document before `Take` is refused.
+    fn max_since_bytes(&self) -> u64 {
+        self.limits.state_bytes
+    }
+
+    /// Soft threshold on `Held::since_bytes` that asks the server to fold soon.
+    fn fold_since_bytes(&self) -> u64 {
+        (self.limits.state_bytes / 2).max(1)
+    }
+
+    fn answer(&mut self, request: Request) -> Result<Response, FrameError> {
         match request {
-            Request::Configure(_) => Err(refused(
+            Request::Configure(_) => Ok(Err(refused(
                 Refusal::OutOfOrder,
                 "the worker is configured once",
-            )),
-            Request::Open { doc, source, share } => self.open(doc, source, share),
+            ))),
+            Request::Open { doc, source, share } => Ok(self.open(doc, source, share)),
             Request::Take { doc, update } => self.take(
                 doc,
                 &update,
                 self.update_limits,
                 take_refused,
                 Refusal::OutOfOrder,
+                TakeMode::Live,
             ),
             Request::Retake { doc, update } => self.take(
                 doc,
@@ -116,84 +170,315 @@ impl Worker {
                 self.logged_limits(),
                 logged_refused,
                 Refusal::Unappliable,
+                TakeMode::Retake,
             ),
-            Request::StateVector(doc) => Ok(Answer::Bytes(
-                self.settled_doc(doc, Refusal::OutOfOrder)?.state_vector(),
-            )),
-            Request::Diff { doc, state_vector } => self
-                .settled_doc(doc, Refusal::OutOfOrder)?
-                .diff(&state_vector)
-                .map(Answer::Bytes)
-                .map_err(|error| refused(Refusal::Unreadable, &error.to_string())),
-            Request::State(doc) => Ok(Answer::Bytes(
-                self.settled_doc(doc, Refusal::OutOfOrder)?.state(),
-            )),
-            Request::Body(doc) => {
-                let body = self
-                    .doc(doc)?
-                    .body()
-                    .map_err(|error| refused(Refusal::NoBody, &error.to_string()))?;
-                Ok(Answer::Body(body.map(|body| json_of(&body))))
+            Request::StateVector(doc) => Ok(self
+                .settled_doc(doc, Refusal::OutOfOrder)
+                .map(|body| Answer::Bytes(body.state_vector()))),
+            Request::Diff { doc, state_vector } => {
+                Ok(self.settled_doc(doc, Refusal::OutOfOrder).and_then(|body| {
+                    body.diff(&state_vector)
+                        .map(Answer::Bytes)
+                        .map_err(|error| refused(Refusal::Unreadable, &error.to_string()))
+                }))
             }
+            Request::State(doc) => Ok(self.state_and_rebase(doc)),
+            Request::Body(doc) => Ok(self.doc(doc).and_then(|body| {
+                body.body()
+                    .map(|body| Answer::Body(body.map(|body| json_of(&body))))
+                    .map_err(|error| refused(Refusal::NoBody, &error.to_string()))
+            })),
             Request::Close(doc) => {
                 if let Some(held) = self.docs.remove(&doc) {
-                    self.held_bytes = self.held_bytes.saturating_sub(held.state_bytes);
+                    self.held_bytes = self.held_bytes.saturating_sub(held.accounted_bytes());
                 }
-                Ok(Answer::Done)
+                Ok(Ok(Answer::Done))
             }
             #[cfg(feature = "test-util")]
             Request::Stall(millis) => {
                 std::thread::sleep(Duration::from_millis(millis).min(LONGEST_STALL));
-                Ok(Answer::Done)
+                Ok(Ok(Answer::Done))
             }
         }
     }
 
-    /// Takes an update into a document within `limits`; `refused` is what one that
-    /// is not taken is answered with, and `on_remake` is returned if the held document
-    /// is already unsettled and waiting to be remade from its body.
+    /// Returns the document's current state bytes and rebases its checkpoint to it,
+    /// freeing `Held::since` and reclaiming `since_bytes` from [`Self::held_bytes`].
+    fn state_and_rebase(&mut self, doc: DocNumber) -> Response {
+        let held = self
+            .docs
+            .get_mut(&doc)
+            .ok_or_else(|| refused(Refusal::UnknownDocument, "no document is open under it"))?;
+        if held.must_remake {
+            return Err(refused(
+                Refusal::OutOfOrder,
+                "the document must be made again from its body before another request",
+            ));
+        }
+        let freed = held.rebase();
+        self.held_bytes = self.held_bytes.saturating_sub(freed);
+        Ok(Answer::Bytes(held.base.clone()))
+    }
+
+    /// Takes an update into a document in place within `limits`; `refuse` maps a
+    /// [`TakeError`] to a refusal, and `on_remake` is returned if the held document
+    /// is already unsettled and waiting to be remade from its body. On post-mutation
+    /// refusal (or memory/since-cap overflow), rebuilds the document from its settled
+    /// checkpoint state so its state stays byte-for-byte identical to before the update.
     fn take(
         &mut self,
         doc: DocNumber,
         update: &[u8],
         limits: UpdateLimits,
-        refused: fn(&TakeError) -> Refused,
+        refuse: fn(&TakeError) -> Refused,
         on_remake: Refusal,
-    ) -> Response {
-        let changed = self
-            .settled_doc(doc, on_remake)?
-            .take(update, &limits)
-            .map_err(|error| refused(&error))?;
-        let state_bytes = u64::try_from(changed.state_bytes).unwrap_or(u64::MAX);
-        let clients = count(changed.doc.clients());
-        let client_changes = changed.client_changes;
-        let steps_ahead = changed.steps_ahead;
-        let remake = changed.remake;
-        let files = changed
-            .repair
-            .body
-            .as_ref()
-            .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
-            .unwrap_or_default();
-        let share = self.docs.get(&doc).map_or(Share::Kept, |held| held.share);
-        self.hold(
+        mode: TakeMode,
+    ) -> Result<Response, FrameError> {
+        {
+            let Some(held) = self.docs.get(&doc) else {
+                return Ok(Err(refused(
+                    Refusal::UnknownDocument,
+                    "no document is open under it",
+                )));
+            };
+            if held.must_remake {
+                return Ok(Err(refused(
+                    on_remake,
+                    "the document must be made again from its body before another request",
+                )));
+            }
+        }
+        let held = self.docs.remove(&doc).expect("checked open above");
+        let Held {
+            doc: body_doc,
+            base,
+            since,
+            since_bytes,
+            last_state,
+            state_bytes: old_state_bytes,
+            changes: old_changes,
+            share,
+            must_remake: _,
+        } = held;
+        let checkpoint = Checkpoint {
+            base,
+            since,
+            since_bytes,
+            last_state,
+            state_bytes: old_state_bytes,
+            changes: old_changes,
+            share,
+        };
+        let prior_state = checkpoint.current_state();
+        let changed = match body_doc.take_in_place(prior_state, old_changes, update, &limits) {
+            Ok(changed) => changed,
+            Err(BodyTakeError::Untouched { doc: intact, error }) => {
+                self.docs.insert(doc, checkpoint.into_settled(intact));
+                return Ok(Err(refuse(&error)));
+            }
+            Err(BodyTakeError::Dirty(error)) => {
+                self.restore_after_dirty(doc, checkpoint)?;
+                return Ok(Err(refuse(&error)));
+            }
+        };
+        self.commit_taken(doc, update, mode, checkpoint, changed)
+    }
+
+    /// Commits a successful in-place `Changed` into `self.docs`, checking `since` and
+    /// `held_bytes` budgets and rolling back via [`Self::restore_after_dirty`] if either
+    /// would be exceeded.
+    fn commit_taken(
+        &mut self,
+        doc: DocNumber,
+        update: &[u8],
+        mode: TakeMode,
+        mut checkpoint: Checkpoint,
+        changed: fvoci_collab::Changed,
+    ) -> Result<Response, FrameError> {
+        let base_held = self.held_bytes.saturating_sub(checkpoint.accounted_bytes());
+        if changed.remake {
+            return self.commit_remake(doc, base_held, checkpoint, changed);
+        }
+        let state_bytes = count(changed.state_bytes);
+        let prior_state = checkpoint.current_state();
+        let unchanged = changed.repair.update.is_none()
+            && (changed.state.as_slice() == prior_state
+                || (changed.state.len() == prior_state.len()
+                    && same_state(&changed.state, prior_state)));
+        let mutated = !unchanged;
+        let added_entries = if mutated {
+            1 + usize::from(changed.repair.update.is_some())
+        } else {
+            0
+        };
+        let added_bytes = if mutated {
+            size_of(update).saturating_add(changed.repair.update.as_deref().map_or(0, size_of))
+        } else {
+            0
+        };
+        let next_since_bytes = checkpoint.since_bytes.saturating_add(added_bytes);
+        let next_since_len = checkpoint.since.len().saturating_add(added_entries);
+        let since_over =
+            next_since_bytes > self.max_since_bytes() || next_since_len > MAX_SINCE_ENTRIES;
+        let budget_over = base_held
+            .saturating_add(state_bytes)
+            .saturating_add(next_since_bytes)
+            > self.limits.held_bytes;
+        if mode == TakeMode::Retake && (since_over || budget_over) {
+            return self.commit_retake_rebase(doc, base_held, state_bytes, checkpoint, changed);
+        }
+        if since_over || budget_over {
+            drop(changed);
+            self.restore_after_dirty(doc, checkpoint)?;
+            let message = if since_over {
+                "the document holds as many un-folded updates as it may"
+            } else {
+                "the worker holds as many bytes of documents as it may"
+            };
+            return Ok(Err(refused(Refusal::TooManyDocuments, message)));
+        }
+        let (clients, files) = doc_meta(&changed);
+        let repair = changed.repair.update;
+        if mutated {
+            checkpoint.since.push(update.to_vec());
+            if let Some(repair_bytes) = &repair {
+                checkpoint.since.push(repair_bytes.clone());
+            }
+            checkpoint.since_bytes = next_since_bytes;
+            checkpoint.last_state = Some(changed.state);
+        }
+        self.held_bytes = base_held
+            .saturating_add(state_bytes)
+            .saturating_add(checkpoint.since_bytes);
+        let fold = checkpoint.since_bytes >= self.fold_since_bytes()
+            || checkpoint.since.len() >= FOLD_SINCE_ENTRIES;
+        checkpoint.state_bytes = state_bytes;
+        checkpoint.changes = changed.changes;
+        self.docs.insert(doc, checkpoint.into_settled(changed.doc));
+        Ok(Ok(Answer::Taken {
+            repair,
+            state_bytes,
+            clients,
+            client_changes: changed.client_changes,
+            steps_ahead: changed.steps_ahead,
+            files,
+            remake: false,
+            fold,
+        }))
+    }
+
+    /// Rebases a replayed (`Retake`) document onto `changed.state` when its `since` log
+    /// would overflow its cap or `held_bytes`, rolling back if `state_bytes` alone exceeds
+    /// `held_bytes`.
+    fn commit_retake_rebase(
+        &mut self,
+        doc: DocNumber,
+        base_held: u64,
+        state_bytes: u64,
+        mut checkpoint: Checkpoint,
+        changed: fvoci_collab::Changed,
+    ) -> Result<Response, FrameError> {
+        if base_held.saturating_add(state_bytes) > self.limits.held_bytes {
+            drop(changed);
+            self.restore_after_dirty(doc, checkpoint)?;
+            return Ok(Err(too_many_bytes()));
+        }
+        let (clients, files) = doc_meta(&changed);
+        let repair = changed.repair.update;
+        checkpoint.base = changed.state;
+        checkpoint.since = Vec::new();
+        checkpoint.since_bytes = 0;
+        checkpoint.last_state = None;
+        checkpoint.state_bytes = state_bytes;
+        checkpoint.changes = changed.changes;
+        self.held_bytes = base_held.saturating_add(state_bytes);
+        self.docs.insert(doc, checkpoint.into_settled(changed.doc));
+        Ok(Ok(Answer::Taken {
+            repair,
+            state_bytes,
+            clients,
+            client_changes: changed.client_changes,
+            steps_ahead: changed.steps_ahead,
+            files,
+            remake: false,
+            fold: false,
+        }))
+    }
+
+    /// Commits an unsettled `remake: true` update: checks `held_bytes`, drops `base` and
+    /// `since` (the document only allows `Body` and `Close` until remade), and stores it.
+    fn commit_remake(
+        &mut self,
+        doc: DocNumber,
+        base_held: u64,
+        checkpoint: Checkpoint,
+        changed: fvoci_collab::Changed,
+    ) -> Result<Response, FrameError> {
+        let state_bytes = count(changed.state_bytes);
+        if base_held.saturating_add(state_bytes) > self.limits.held_bytes {
+            drop(changed);
+            self.restore_after_dirty(doc, checkpoint)?;
+            return Ok(Err(too_many_bytes()));
+        }
+        let (clients, files) = doc_meta(&changed);
+        self.held_bytes = base_held.saturating_add(state_bytes);
+        self.docs.insert(
             doc,
             Held {
                 doc: changed.doc,
+                base: Vec::new(),
+                since: Vec::new(),
+                since_bytes: 0,
+                last_state: None,
                 state_bytes,
-                share,
-                must_remake: remake,
+                changes: changed.changes,
+                share: checkpoint.share,
+                must_remake: true,
             },
-        )?;
-        Ok(Answer::Taken {
+        );
+        Ok(Ok(Answer::Taken {
             repair: changed.repair.update,
             state_bytes,
             clients,
-            client_changes,
-            steps_ahead,
+            client_changes: changed.client_changes,
+            steps_ahead: changed.steps_ahead,
             files,
-            remake,
-        })
+            remake: true,
+            fold: false,
+        }))
+    }
+
+    /// Rebuilds a document from its settled checkpoint state after a post-mutation
+    /// refusal and verifies the restored state matches before putting it back in
+    /// `self.docs`.
+    ///
+    /// Restores directly from `checkpoint.current_state()` (already settled and within
+    /// [`READING_STEPS`]) in one decode pass rather than replaying `since`, preventing
+    /// `O(since.len())` timeout amplification on rejected updates and ensuring exact
+    /// agreement with the prior settled state. If restoration ever fails or diverges,
+    /// releases the accounted bytes and fails the worker closed (`Err(FrameError)`) so
+    /// the server cleanly reopens from the store rather than wedging the card.
+    fn restore_after_dirty(
+        &mut self,
+        doc: DocNumber,
+        checkpoint: Checkpoint,
+    ) -> Result<(), FrameError> {
+        let old_accounted = checkpoint.accounted_bytes();
+        let expected = checkpoint.current_state();
+        let rebuilt = BodyDoc::rebuild::<&[u8]>(expected, &[]).map_err(|error| {
+            self.held_bytes = self.held_bytes.saturating_sub(old_accounted);
+            FrameError::Io(std::io::Error::other(format!(
+                "failed to restore document after refusal: {error}"
+            )))
+        })?;
+        if !same_state(&rebuilt.state(), expected) {
+            self.held_bytes = self.held_bytes.saturating_sub(old_accounted);
+            return Err(FrameError::Io(std::io::Error::other(
+                "restored document state diverged from checkpoint",
+            )));
+        }
+        self.docs.insert(doc, checkpoint.into_settled(rebuilt));
+        Ok(())
     }
 
     /// The limits of what the server stored and logged before: an update and a state
@@ -201,8 +486,8 @@ impl Worker {
     /// be, and its changes placed past as many as they are. Its reading is counted
     /// all the same, before the library reads it, and held to what an update may
     /// leave ([`READING_STEPS`]): a stored state past it is refused unread, while a
-    /// logged update past it that needs no repair comes back with `remake` set so the
-    /// server writes its body and makes the document again without losing it.
+    /// logged update past it (repaired in place if needed) comes back with `remake` set
+    /// so the server writes its body and makes the document again without losing it.
     fn logged_limits(&self) -> UpdateLimits {
         let held = usize::try_from(self.limits.held_bytes).unwrap_or(usize::MAX);
         UpdateLimits {
@@ -240,14 +525,14 @@ impl Worker {
         Ok(&held.doc)
     }
 
-    /// Holds `held` under `doc`, in place of what was held there, if the states of all
-    /// the documents stay within [`Limits::held_bytes`].
+    /// Holds `held` under `doc`, in place of what was held there, if the states and
+    /// rollback logs of all held documents stay within [`Limits::held_bytes`].
     fn hold(&mut self, doc: DocNumber, held: Held) -> Result<(), Refused> {
-        let before = self.docs.get(&doc).map_or(0, |held| held.state_bytes);
+        let before = self.docs.get(&doc).map_or(0, Held::accounted_bytes);
         let after = self
             .held_bytes
             .saturating_sub(before)
-            .saturating_add(held.state_bytes);
+            .saturating_add(held.accounted_bytes());
         if after > self.limits.held_bytes {
             return Err(refused(
                 Refusal::TooManyDocuments,
@@ -281,15 +566,18 @@ impl Worker {
                 "the worker holds as many documents of that share as it may",
             ));
         }
-        let (opened, state) = match source {
+        let (opened, base, reply_state, counts) = match source {
             Source::State(stored) => {
                 // What the server stored is opened whatever the limits are now.
                 let changed = BodyDoc::from_state(&stored, &self.logged_limits())
                     .map_err(|error| logged_refused(&error))?;
-                let repaired = changed.repair.update.is_some().then(|| changed.doc.state());
-                let state_bytes = size_of(repaired.as_deref().unwrap_or(&stored));
-                let counts = (changed.client_changes, changed.steps_ahead);
-                (changed.doc, (repaired, state_bytes, counts))
+                let repaired = changed
+                    .repair
+                    .update
+                    .is_some()
+                    .then(|| changed.state.clone());
+                let counts = (changed.changes, changed.client_changes, changed.steps_ahead);
+                (changed.doc, changed.state, repaired, counts)
             }
             Source::Body(json) => {
                 let body = json
@@ -305,37 +593,104 @@ impl Worker {
                         "the document of the body is larger than the limit",
                     ));
                 }
-                let client_changes = fvoci_collab::client_changes(&state)
-                    .map_err(|error| take_refused(&TakeError::Update(error)))?;
                 // A body's own document is read in no steps, and in few once another
-                // client has written into it: counted, not taken for it.
-                let steps_ahead = fvoci_collab::steps_ahead(&state)
+                // client has written into it: counted in one pass, not taken for it.
+                let counted = fvoci_collab::state_counts(&state)
                     .map_err(|error| take_refused(&TakeError::Update(error)))?;
+                let base = state.clone();
                 (
                     made,
-                    (Some(state), state_bytes, (client_changes, steps_ahead)),
+                    base,
+                    Some(state),
+                    (counted.changes, counted.client_changes, counted.steps_ahead),
                 )
             }
         };
-        let (state, state_bytes, (client_changes, steps_ahead)) = state;
+        let (changes, client_changes, steps_ahead) = counts;
+        let state_bytes = size_of(&base);
         let clients = count(opened.clients());
         self.hold(
             doc,
             Held {
                 doc: opened,
+                base,
+                since: Vec::new(),
+                since_bytes: 0,
+                last_state: None,
                 state_bytes,
+                changes,
                 share,
                 must_remake: false,
             },
         )?;
         Ok(Answer::Opened {
-            state,
+            state: reply_state,
             state_bytes,
             clients,
             client_changes,
             steps_ahead,
         })
     }
+}
+
+/// Whether a `take` is a live client update or a replay of a logged update.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TakeMode {
+    Live,
+    Retake,
+}
+
+/// The saved fields of a [`Held`] document while its [`BodyDoc`] is taken in place.
+struct Checkpoint {
+    base: Vec<u8>,
+    since: Vec<Vec<u8>>,
+    since_bytes: u64,
+    last_state: Option<Vec<u8>>,
+    state_bytes: u64,
+    changes: u64,
+    share: Share,
+}
+
+impl Checkpoint {
+    fn current_state(&self) -> &[u8] {
+        self.last_state.as_deref().unwrap_or(&self.base)
+    }
+
+    fn accounted_bytes(&self) -> u64 {
+        self.state_bytes.saturating_add(self.since_bytes)
+    }
+
+    fn into_settled(self, doc: BodyDoc) -> Held {
+        Held {
+            doc,
+            base: self.base,
+            since: self.since,
+            since_bytes: self.since_bytes,
+            last_state: self.last_state,
+            state_bytes: self.state_bytes,
+            changes: self.changes,
+            share: self.share,
+            must_remake: false,
+        }
+    }
+}
+
+fn doc_meta(changed: &fvoci_collab::Changed) -> (u64, Vec<String>) {
+    let clients = count(changed.doc.clients());
+    let files = changed
+        .repair
+        .body
+        .as_ref()
+        .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
+        .unwrap_or_default();
+    (clients, files)
+}
+
+fn too_many_bytes() -> Refused {
+    refused(
+        Refusal::TooManyDocuments,
+        "the worker holds as many bytes of documents as it may",
+    )
 }
 
 fn size_of(bytes: &[u8]) -> u64 {
@@ -404,194 +759,4 @@ fn logged_refused(error: &TakeError) -> Refused {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::frame::read_frame;
-    use super::super::wire::decode_response;
-    use super::*;
-
-    const LIMITS: Limits = Limits {
-        update_bytes: 1024,
-        state_bytes: 4096,
-        body_bytes: 4096,
-        documents: 1,
-        held_bytes: 1 << 20,
-    };
-
-    /// The answers of a worker to `requests`, the configuration of [`LIMITS`] first.
-    fn answers(requests: &[Request]) -> Vec<Response> {
-        let mut input = Vec::new();
-        write_frame(&mut input, &Request::Configure(LIMITS).encode(), 64).expect("written");
-        for request in requests {
-            write_frame(&mut input, &request.encode(), 1 << 20).expect("written");
-        }
-        let mut output = Vec::new();
-        serve(&mut input.as_slice(), &mut output).expect("served");
-        let mut output = output.as_slice();
-        let configured = read_frame(&mut output, 1 << 20).expect("an answer");
-        assert_eq!(
-            configured.map(|frame| decode_response(&frame)),
-            Some(Ok(Ok(Answer::Done))),
-            "the configuration is answered"
-        );
-        let mut answers = Vec::new();
-        while let Some(frame) = read_frame(&mut output, 1 << 20).expect("an answer") {
-            answers.push(decode_response(&frame).expect("an answer"));
-        }
-        answers
-    }
-
-    #[test]
-    fn a_document_opens_once_and_within_the_number_of_documents() {
-        let body = br#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"x"}]}]}"#;
-        let got = answers(&[
-            Request::Open {
-                doc: 1,
-                source: Source::Body(Some(body.to_vec())),
-                share: Share::Kept,
-            },
-            Request::Open {
-                doc: 1,
-                source: Source::Body(None),
-                share: Share::Kept,
-            },
-            Request::Open {
-                doc: 2,
-                source: Source::Body(None),
-                share: Share::Kept,
-            },
-            Request::Body(1),
-            Request::Close(1),
-            Request::Body(1),
-        ]);
-        assert!(matches!(got[0], Ok(Answer::Opened { state: Some(_), .. })));
-        let refusal = |index: usize| got[index].as_ref().map_err(|refused| refused.refusal).err();
-        assert_eq!(refusal(1), Some(Refusal::UnknownDocument), "open already");
-        assert_eq!(refusal(2), Some(Refusal::TooManyDocuments), "one at a time");
-        let Ok(Answer::Body(Some(json))) = &got[3] else {
-            panic!("its body: {:?}", got[3]);
-        };
-        let json: serde_json::Value = serde_json::from_slice(json).expect("JSON");
-        let sent: serde_json::Value = serde_json::from_slice(body).expect("JSON");
-        assert_eq!(json, sent, "its body");
-        assert_eq!(refusal(5), Some(Refusal::UnknownDocument), "closed");
-    }
-
-    #[test]
-    fn a_worker_that_holds_as_many_documents_as_it_may_opens_some_aside() {
-        let open = |doc: DocNumber, share: Share| Request::Open {
-            doc,
-            source: Source::Body(None),
-            share,
-        };
-        let aside: Vec<DocNumber> = (10..).take(ASIDE_DOCUMENTS + 1).collect();
-        let mut requests = vec![open(1, Share::Kept)];
-        requests.extend(aside.iter().map(|doc| open(*doc, Share::Aside)));
-        requests.extend([
-            Request::Close(10),
-            open(30, Share::Aside),
-            open(2, Share::Kept),
-        ]);
-        let got = answers(&requests);
-        let refused = |index: usize| got[index].as_ref().map_err(|refused| refused.refusal).err();
-        let last = ASIDE_DOCUMENTS;
-        assert!((0..=last).all(|index| refused(index).is_none()), "{got:?}");
-        assert_eq!(
-            refused(last + 1),
-            Some(Refusal::TooManyDocuments),
-            "past the share aside"
-        );
-        assert_eq!(refused(last + 3), None, "one closed aside makes room aside");
-        assert_eq!(
-            refused(last + 4),
-            Some(Refusal::TooManyDocuments),
-            "none kept past the limit"
-        );
-    }
-
-    #[test]
-    fn documents_aside_leave_the_kept_share_alone() {
-        let open = |doc: DocNumber, share: Share| Request::Open {
-            doc,
-            source: Source::Body(None),
-            share,
-        };
-        let mut requests: Vec<Request> = (10..)
-            .take(ASIDE_DOCUMENTS)
-            .map(|doc| open(doc, Share::Aside))
-            .collect();
-        requests.push(open(1, Share::Kept));
-        let got = answers(&requests);
-        assert!(got.iter().all(Result::is_ok), "{got:?}");
-    }
-
-    #[test]
-    fn a_worker_that_is_sent_no_configuration_first_ends() {
-        let mut input = Vec::new();
-        write_frame(&mut input, &Request::State(1).encode(), 64).expect("written");
-        assert!(serve(&mut input.as_slice(), &mut Vec::new()).is_err());
-        assert!(
-            serve(&mut [].as_slice(), &mut Vec::new()).is_ok(),
-            "a pipe closed at once"
-        );
-    }
-
-    #[test]
-    fn a_document_marked_for_remake_allows_only_body_and_close() {
-        let mut worker = Worker::new(LIMITS);
-        let opened = worker.answer(Request::Open {
-            doc: 1,
-            source: Source::Body(None),
-            share: Share::Kept,
-        });
-        assert!(
-            matches!(opened, Ok(Answer::Opened { .. })),
-            "opened: {opened:?}"
-        );
-        worker.docs.get_mut(&1).expect("held").must_remake = true;
-
-        let refusal = |response: Response| response.err().map(|refused| refused.refusal);
-        assert_eq!(
-            refusal(worker.answer(Request::Take {
-                doc: 1,
-                update: Vec::new(),
-            })),
-            Some(Refusal::OutOfOrder),
-            "Take is blocked until remade"
-        );
-        assert_eq!(
-            refusal(worker.answer(Request::Retake {
-                doc: 1,
-                update: Vec::new(),
-            })),
-            Some(Refusal::Unappliable),
-            "Retake is refused cleanly so replay falls back to the card"
-        );
-        assert_eq!(
-            refusal(worker.answer(Request::State(1))),
-            Some(Refusal::OutOfOrder),
-            "State is blocked so unsettled state cannot be folded"
-        );
-        assert_eq!(
-            refusal(worker.answer(Request::StateVector(1))),
-            Some(Refusal::OutOfOrder),
-            "StateVector is blocked until remade"
-        );
-        assert_eq!(
-            refusal(worker.answer(Request::Diff {
-                doc: 1,
-                state_vector: vec![0],
-            })),
-            Some(Refusal::OutOfOrder),
-            "Diff is blocked until remade"
-        );
-        assert!(
-            matches!(worker.answer(Request::Body(1)), Ok(Answer::Body(None))),
-            "Body is allowed for projection"
-        );
-        assert_eq!(
-            worker.answer(Request::Close(1)),
-            Ok(Answer::Done),
-            "Close is allowed for remake or forget"
-        );
-    }
-}
+mod tests;

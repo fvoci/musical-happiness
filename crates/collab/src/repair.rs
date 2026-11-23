@@ -9,7 +9,6 @@ use crate::mend::{self, CellAt, Mend, SurveyedRow};
 use crate::project::{project, to_body};
 use crate::read::{self, Child, Content};
 use crate::schema::{self, Place};
-use crate::update::copy_of;
 
 /// What a repair did.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,8 +27,8 @@ pub struct Repair {
     pub body: Option<Body>,
 }
 
-/// Repairs a Y document: deletes from a copy of it what keeps it from being a body,
-/// and gives the body that is left.
+/// Repairs a Y document in place: deletes from it what keeps it from being a body,
+/// mends any broken table grid, and gives the body that is left.
 ///
 /// Two edits that are each valid can merge into a document that is not: two people each
 /// delete one of the last two entries of a list, and a list without entries is left.
@@ -56,29 +55,29 @@ pub struct Repair {
 /// an editor's binding throws. And a node that holds letters or values where its
 /// children belong, which an editor passes over, is deleted whole.
 ///
-/// The deletions are made on a copy of the document, which comes back with what the
-/// repair did; no copy if the document is a body already. `doc` is not changed. What the
-/// repair writes is written as a client named by the document ([`writer_for`]): the
-/// same document is repaired into the same changes. A server that opens a document
-/// takes its logged updates again, each followed by the repair logged after it; the
-/// update is repaired as it was, and the logged repair then adds nothing, where one
-/// written as a new client would have added its cells to the first's.
+/// The deletions and table mends are applied directly to `doc` without copying it;
+/// nothing is changed if `doc` is a body already or if surveying and validating what
+/// would be left returns an error. What the repair writes is written as a client named
+/// by the document ([`writer_for`]): the same document is repaired into the same
+/// changes. A server that opens a document takes its logged updates again, each
+/// followed by the repair logged after it; the update is repaired as it was, and the
+/// logged repair then adds nothing, where one written as a new client would have added
+/// its cells to the first's.
 ///
 /// # Errors
 ///
-/// Nothing is deleted when an error is returned.
+/// Nothing is deleted when an error is returned before mutations begin.
 ///
 /// Returns [`BodyError::TooLarge`], [`BodyError::TooDeep`], [`BodyError::TooManyNodes`] or
 /// [`BodyError::TableTooLarge`] if what would be left is past a limit, or a node that is
 /// judged is past one by itself: deleting what fails is not meant to bring a document
 /// under a limit. Returns [`BodyError::InvalidNode`] with an empty path if the root
-/// itself holds letters or values (there is no node to delete in their place), if
+/// itself holds letters or values (there is no node to delete in their place) or if
 /// more than a thousand separate stretches of children would have to be deleted (a
 /// repair is for what a merge of edits leaves, and each stretch costs a walk through
-/// its parent), or if the document cannot be copied, which nothing this crate takes
-/// leaves it unable to be. Any other error means the document would still be refused
-/// with the deletions.
-pub(crate) fn repaired(doc: &Doc) -> Result<(Repair, Option<Doc>), BodyError> {
+/// its parent). Any other error means the document would still be refused with the
+/// deletions.
+pub(crate) fn repaired(doc: &Doc) -> Result<Repair, BodyError> {
     repaired_by(doc, None)
 }
 
@@ -120,35 +119,31 @@ fn writer_for(doc: &Doc) -> u64 {
 /// # Errors
 ///
 /// As [`repaired`].
-pub(crate) fn repaired_by(
-    doc: &Doc,
-    writer: Option<u64>,
-) -> Result<(Repair, Option<Doc>), BodyError> {
+pub(crate) fn repaired_by(doc: &Doc, writer: Option<u64>) -> Result<Repair, BodyError> {
     if let Ok(body) = to_body(doc) {
-        let repair = Repair {
+        return Ok(Repair {
             deleted: 0,
             mended: 0,
             update: None,
             body,
-        };
-        return Ok((repair, None));
+        });
     }
-    let (repair, copy) = deleting(doc, writer)?;
-    Ok((repair, Some(copy)))
+    deleting(doc, writer)
 }
 
-/// Repairs a copy of a document that is no body, and gives what the repair did with the
-/// repaired copy. `doc` is not changed.
+/// Repairs `doc` in place when it is no body, after surveying and validating what would
+/// be left before mutating anything.
 ///
 /// # Errors
 ///
 /// As [`repaired`].
-fn deleting(doc: &Doc, writer: Option<u64>) -> Result<(Repair, Doc), BodyError> {
+fn deleting(doc: &Doc, writer: Option<u64>) -> Result<Repair, BodyError> {
     let writer = writer.unwrap_or_else(|| writer_for(doc));
-    let copy = copy_of(doc, Some(writer)).map_err(|_| uncopied())?;
-    let root = copy.get_or_insert_xml_fragment(FIELD);
-    let mut txn = copy.transact_mut();
-    let found = Survey { txn: &txn }.root(&root)?;
+    let root = doc.get_or_insert_xml_fragment(FIELD);
+    let found = {
+        let txn = doc.transact();
+        Survey { txn: &txn }.root(&root)?
+    };
     // What would be left is judged whole, for the limits, before anything is deleted.
     let left = found.content.into_nodes();
     if !left.is_empty() {
@@ -161,33 +156,44 @@ fn deleting(doc: &Doc, writer: Option<u64>) -> Result<(Repair, Doc), BodyError> 
             problem: "more separate parts of the document fail than a repair deletes",
         });
     }
+    if !mends.is_empty() {
+        mend::check_mends(doc, writer, &mends)?;
+    }
     let deleted = cuts.iter().map(|cuts| cuts.indexes.len()).sum();
     let mended = mends.iter().map(Mend::cells).sum();
-    for cuts in &cuts {
-        cuts.make(&mut txn);
+    if mends.is_empty() {
+        let mut txn = doc.transact_mut();
+        for cuts in &cuts {
+            cuts.make(&mut txn);
+        }
+        let body = project(&txn, &root)?;
+        let update = (deleted > 0).then(|| txn.encode_update_v1());
+        drop(txn);
+        return Ok(Repair {
+            deleted,
+            mended: 0,
+            update,
+            body,
+        });
     }
-    // After the deletions, which leave every index a mend counts.
-    for mend in &mends {
-        mend.make(&mut txn);
-    }
-    let body = project(&txn, &root)?;
-    let update = (deleted > 0 || mended > 0).then(|| txn.encode_update_v1());
-    drop(txn);
-    let repair = Repair {
+    let mut del_set = {
+        let mut txn = doc.transact_mut();
+        for cuts in &cuts {
+            cuts.make(&mut txn);
+        }
+        txn.delete_set().clone()
+    };
+    let update = mend::apply_mends(doc, writer, &mends, &mut del_set)?;
+    let body = {
+        let txn = doc.transact();
+        project(&txn, &root)?
+    };
+    Ok(Repair {
         deleted,
         mended,
-        update,
+        update: Some(update),
         body,
-    };
-    Ok((repair, copy))
-}
-
-/// The refusal of a document that cannot be copied to be repaired.
-fn uncopied() -> BodyError {
-    BodyError::InvalidNode {
-        path: String::new(),
-        problem: "the document cannot be read again to be repaired",
-    }
+    })
 }
 
 /// How many stretches of neighbouring children a repair deletes at most. The library
@@ -425,7 +431,7 @@ impl<T: ReadTxn> Survey<'_, T> {
                         &element,
                         vec![json!({"type": "paragraph"})],
                     ));
-                    cells.push(CellAt::Put);
+                    cells.push(CellAt::Put(element));
                 }
                 (None, None) => own.push(index_of(index)),
             }

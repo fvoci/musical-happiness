@@ -100,7 +100,7 @@ pub(super) const MOST_STATE_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// The least `collab_worker_memory_bytes`: [`UPDATE_MEMORY_BYTES`] and a document of
 /// the least `collab_state_bytes`.
-pub(super) const LEAST_WORKER_MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
+pub(super) const LEAST_WORKER_MEMORY_BYTES: u64 = 768 * 1024 * 1024;
 
 /// The least `collab_frames_per_second`: a connection comes into a room (which
 /// counts as five) and writes at once.
@@ -137,21 +137,23 @@ pub(super) const MOST_VERSION_MINUTES: u32 = 24 * 60;
 pub(super) const MEMORY_PER_STATE_BYTE: u64 = 32;
 
 /// The memory of a worker that is kept free of the documents it holds, for the one
-/// update it takes at a time: an update makes a copy of its document, reads the copy
-/// again from its state, and a repair does both once more. It goes with the changes of
-/// the document: for a body of 50,000 nodes that is 187 MB above the document (39 MB
-/// for 4 MiB of text), and for the body that takes the most (of the bodies measured:
-/// letters of five marks in turn with formulas, a state of 5.9 MB held in 103 MB) 380
-/// MB for a letter typed and 721 MB to repair an update. Every body is so taken, by a
-/// worker that holds as many documents as it counts room for; the executable and what
-/// the allocator keeps come on top.
+/// update it takes at a time: an update is applied and repaired in place on the held
+/// document, and the held document is dropped before reading the settled state back so
+/// at most one `yrs::Doc` is live at once. Peak memory above the held document goes with
+/// projection and validation of the body: for a body of 50,000 nodes that is 73 MB for a
+/// letter typed and 110 MB to repair an update (19 MB / 25 MB for 4 MiB of text), and
+/// for the body that takes the most (of the bodies measured: letters of five marks in
+/// turn with formulas, a state of 5.9 MB held in 103 MB) 286 MB for a letter typed and
+/// 428 MB to repair an update. Every body is so taken, by a worker that holds as many
+/// documents as it counts room for (including un-folded rollback updates in `since`);
+/// the executable and what the allocator keeps come on top.
 ///
-/// A state grown by what was deleted from it takes more than its body: 414 MB to repair
-/// an update for one of 5.8 MB of deleted nodes, 788 MB for one of 6 MB of deleted
-/// texts. That is not counted, as [`MEMORY_PER_STATE_BYTE`] does not count it: the
-/// worker that runs out of memory for it is started again, and the sender of the update
-/// it was taking is held back for a little while (`collab::senders`).
-pub(super) const UPDATE_MEMORY_BYTES: u64 = 768 * 1024 * 1024;
+/// A state grown by what was deleted from it can still take more if its allocator
+/// fragments under adversarial input, which is not counted, as [`MEMORY_PER_STATE_BYTE`]
+/// does not count it: the worker that runs out of memory for it is started again, and
+/// the sender of the update it was taking is held back for a little while
+/// (`collab::senders`).
+pub(super) const UPDATE_MEMORY_BYTES: u64 = 512 * 1024 * 1024;
 
 impl Default for CollabSettings {
     fn default() -> Self {
@@ -176,9 +178,10 @@ impl Default for CollabSettings {
 }
 
 impl CollabSettings {
-    /// The bytes of the states of all its documents a worker may hold together: what
-    /// of its memory is not kept for the update it takes (768 MiB), divided by what a
-    /// byte of a state takes in memory (32). 24 MiB with the memory of the default.
+    /// The bytes of the states (and un-folded rollback updates) of all its documents a
+    /// worker may hold together: what of its memory is not kept for the update it takes
+    /// (512 MiB), divided by what a byte of a state takes in memory (32). 32 MiB with
+    /// the memory of the default.
     #[must_use]
     pub fn held_bytes(&self) -> u64 {
         self.collab_worker_memory_bytes
@@ -344,7 +347,7 @@ mod tests {
     #[test]
     fn the_memory_of_a_worker_has_room_for_a_document_at_its_limit() {
         let defaults = CollabSettings::default();
-        assert_eq!(defaults.held_bytes(), 24 * 1024 * 1024);
+        assert_eq!(defaults.held_bytes(), 32 * 1024 * 1024);
         let with = |state: u64, memory: u64| CollabSettings {
             collab_state_bytes: state,
             collab_worker_memory_bytes: memory,

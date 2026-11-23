@@ -240,3 +240,44 @@ async fn the_log_of_a_room_that_stays_open_does_not_grow() {
     );
     th.teardown().await;
 }
+
+/// When updates are large enough that the worker's rollback log (`since`) reaches half
+/// of `collab_state_bytes` well before `FOLD_AFTER` updates, the worker asks the server
+/// to fold (`Answer::Taken::fold`) and the server folds early so `since` stays bounded.
+#[tokio::test]
+async fn large_updates_trigger_fold_before_fold_after_count() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    let (editor, epoch) = joined(collab, &e.app, &e.card_id, 101).await;
+    // Default `collab_state_bytes` is 8 MiB, so `fold_since_bytes` is 4 MiB.
+    // Sending ~55 KiB updates crosses 4 MiB in ~75 updates, well below FOLD_AFTER (200),
+    // while deleting the previous paragraph keeps the live body small.
+    let payload = "a".repeat(55 * 1024);
+    let mut folded_early = false;
+    for n in 1..150_usize {
+        let update = editor.append_paragraph(&payload);
+        collab
+            .take(&e.app, &e.card_id, epoch, &e.user1, &update)
+            .await
+            .expect("taken");
+        let (state_seq, log_end, _, rows) = stored(&e).await;
+        if state_seq > 0 && log_end < FOLD_AFTER {
+            assert_eq!(rows, 0, "early fold cleared log rows at step {n}");
+            assert_eq!(state_seq, log_end, "state caught up to log_end");
+            folded_early = true;
+            break;
+        }
+        // Keep the live body small so body_bytes (4 MiB) is not hit before since_bytes (4 MiB).
+        let del = editor.delete_last();
+        collab
+            .take(&e.app, &e.card_id, epoch, &e.user1, &del)
+            .await
+            .expect("deleted");
+    }
+    assert!(
+        folded_early,
+        "worker fold signal triggered a server fold before FOLD_AFTER ({FOLD_AFTER}) updates"
+    );
+    th.teardown().await;
+}
