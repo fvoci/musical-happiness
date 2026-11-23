@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use fvoci_collab::{
     BodyDoc, BodyTakeError, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS,
-    TakeError, UpdateError, UpdateLimits, same_state,
+    SettleError, TakeError, UpdateError, UpdateLimits, same_state,
 };
 use fvoci_model::{Body, BodyError};
 
@@ -99,6 +99,12 @@ struct Held {
     changes: u64,
     share: Share,
     must_remake: bool,
+    /// Whether the current state (`base` when `last_state` is `None`) has already been
+    /// verified by a settle re-read (`same_state`). True on open/make and after
+    /// `Request::State` settles; cleared by mutating `Take`/`Retake`.
+    settled: bool,
+    #[cfg(feature = "test-util")]
+    fail_next_settle: bool,
 }
 
 impl Held {
@@ -173,10 +179,10 @@ impl Worker {
                 TakeMode::Retake,
             ),
             Request::StateVector(doc) => Ok(self
-                .settled_doc(doc, Refusal::OutOfOrder)
+                .usable_doc(doc, Refusal::OutOfOrder)
                 .map(|body| Answer::Bytes(body.state_vector()))),
             Request::Diff { doc, state_vector } => {
-                Ok(self.settled_doc(doc, Refusal::OutOfOrder).and_then(|body| {
+                Ok(self.usable_doc(doc, Refusal::OutOfOrder).and_then(|body| {
                     body.diff(&state_vector)
                         .map(Answer::Bytes)
                         .map_err(|error| refused(Refusal::Unreadable, &error.to_string()))
@@ -199,32 +205,166 @@ impl Worker {
                 std::thread::sleep(Duration::from_millis(millis).min(LONGEST_STALL));
                 Ok(Ok(Answer::Done))
             }
+            #[cfg(feature = "test-util")]
+            Request::FailNextSettle(doc) => Ok(self.fail_next_settle(doc)),
         }
     }
 
-    /// Returns the document's current state bytes and rebases its checkpoint to it,
-    /// freeing `Held::since` and reclaiming `since_bytes` from [`Self::held_bytes`].
-    fn state_and_rebase(&mut self, doc: DocNumber) -> Response {
+    #[cfg(feature = "test-util")]
+    fn fail_next_settle(&mut self, doc: DocNumber) -> Response {
         let held = self
             .docs
             .get_mut(&doc)
             .ok_or_else(|| refused(Refusal::UnknownDocument, "no document is open under it"))?;
-        if held.must_remake {
-            return Err(refused(
-                Refusal::OutOfOrder,
-                "the document must be made again from its body before another request",
-            ));
+        held.fail_next_settle = true;
+        Ok(Answer::Done)
+    }
+
+    /// Limits used when settling an unsettled document on `Request::State` or during
+    /// non-canonical `Dirty` rollback: allows logged/larger states within `held_bytes`
+    /// while preserving `reading_steps` and strict origin checks.
+    fn settle_limits(&self) -> UpdateLimits {
+        UpdateLimits {
+            reading_steps: self.update_limits.reading_steps,
+            ..self.logged_limits()
         }
-        let freed = held.rebase();
-        self.held_bytes = self.held_bytes.saturating_sub(freed);
-        Ok(Answer::Bytes(held.base.clone()))
+    }
+
+    /// Transitions a document whose settle check failed into `must_remake` mode while
+    /// keeping `doc_body` intact for `Request::Body` and reclaiming `since_bytes`.
+    fn mark_unsettled_for_remake(
+        &mut self,
+        doc: DocNumber,
+        doc_body: BodyDoc,
+        old_state_bytes: u64,
+        old_changes: u64,
+        share: Share,
+        base_held: u64,
+    ) {
+        self.held_bytes = base_held.saturating_add(old_state_bytes);
+        self.docs.insert(
+            doc,
+            Held {
+                doc: doc_body,
+                base: Vec::new(),
+                since: Vec::new(),
+                since_bytes: 0,
+                last_state: None,
+                state_bytes: old_state_bytes,
+                changes: old_changes,
+                share,
+                must_remake: true,
+                settled: false,
+                #[cfg(feature = "test-util")]
+                fail_next_settle: false,
+            },
+        );
+    }
+
+    /// Settles (if unsettled) and returns the document's current canonical state bytes,
+    /// rebasing its checkpoint and reclaiming `since_bytes` from [`Self::held_bytes`].
+    ///
+    /// If settling fails or would overflow `held_bytes`, keeps the live document intact
+    /// in `must_remake` mode and returns [`Answer::Remake`] so the server projects its
+    /// body and remakes it into a fresh 0-step document without losing updates.
+    fn state_and_rebase(&mut self, doc: DocNumber) -> Response {
+        let force_fail = {
+            let held = self
+                .docs
+                .get_mut(&doc)
+                .ok_or_else(|| refused(Refusal::UnknownDocument, "no document is open under it"))?;
+            if held.must_remake {
+                return Err(refused(
+                    Refusal::OutOfOrder,
+                    "the document must be made again from its body before another request",
+                ));
+            }
+            #[cfg(feature = "test-util")]
+            let force_fail = {
+                let fail = held.fail_next_settle;
+                held.fail_next_settle = false;
+                fail
+            };
+            #[cfg(not(feature = "test-util"))]
+            let force_fail = false;
+            if held.settled && !force_fail {
+                let freed = held.rebase();
+                self.held_bytes = self.held_bytes.saturating_sub(freed);
+                return Ok(Answer::Bytes(held.base.clone()));
+            }
+            force_fail
+        };
+        let held = self.docs.remove(&doc).expect("checked open above");
+        let base_held = self.held_bytes.saturating_sub(held.accounted_bytes());
+        let old_state_bytes = held.state_bytes;
+        let old_changes = held.changes;
+        let share = held.share;
+        if force_fail {
+            self.mark_unsettled_for_remake(
+                doc,
+                held.doc,
+                old_state_bytes,
+                old_changes,
+                share,
+                base_held,
+            );
+            return Ok(Answer::Remake);
+        }
+        let state_to_settle = held.last_state.unwrap_or(held.base);
+        match held.doc.settle(state_to_settle, &self.settle_limits()) {
+            Ok(settled) => {
+                let new_state_bytes = count(settled.state_bytes);
+                if base_held.saturating_add(new_state_bytes) > self.limits.held_bytes {
+                    self.mark_unsettled_for_remake(
+                        doc,
+                        settled.doc,
+                        old_state_bytes,
+                        old_changes,
+                        share,
+                        base_held,
+                    );
+                    return Ok(Answer::Remake);
+                }
+                self.held_bytes = base_held.saturating_add(new_state_bytes);
+                let reply = settled.state.clone();
+                self.docs.insert(
+                    doc,
+                    Held {
+                        doc: settled.doc,
+                        base: settled.state,
+                        since: Vec::new(),
+                        since_bytes: 0,
+                        last_state: None,
+                        state_bytes: new_state_bytes,
+                        changes: settled.changes,
+                        share,
+                        must_remake: false,
+                        settled: true,
+                        #[cfg(feature = "test-util")]
+                        fail_next_settle: false,
+                    },
+                );
+                Ok(Answer::Bytes(reply))
+            }
+            Err(SettleError { doc: intact, .. }) => {
+                self.mark_unsettled_for_remake(
+                    doc,
+                    intact,
+                    old_state_bytes,
+                    old_changes,
+                    share,
+                    base_held,
+                );
+                Ok(Answer::Remake)
+            }
+        }
     }
 
     /// Takes an update into a document in place within `limits`; `refuse` maps a
-    /// [`TakeError`] to a refusal, and `on_remake` is returned if the held document
-    /// is already unsettled and waiting to be remade from its body. On post-mutation
-    /// refusal (or memory/since-cap overflow), rebuilds the document from its settled
-    /// checkpoint state so its state stays byte-for-byte identical to before the update.
+    /// [`TakeError`] to a refusal, and `on_remake` is returned if the held document is
+    /// waiting to be remade from its body. On post-mutation refusal (or memory/since-cap
+    /// overflow), restores the document in O(1) from its checkpoint state (settling a
+    /// non-canonical unsettled checkpoint if needed).
     fn take(
         &mut self,
         doc: DocNumber,
@@ -259,6 +399,9 @@ impl Worker {
             changes: old_changes,
             share,
             must_remake: _,
+            settled,
+            #[cfg(feature = "test-util")]
+            fail_next_settle,
         } = held;
         let checkpoint = Checkpoint {
             base,
@@ -268,12 +411,15 @@ impl Worker {
             state_bytes: old_state_bytes,
             changes: old_changes,
             share,
+            settled,
+            #[cfg(feature = "test-util")]
+            fail_next_settle,
         };
         let prior_state = checkpoint.current_state();
         let changed = match body_doc.take_in_place(prior_state, old_changes, update, &limits) {
             Ok(changed) => changed,
             Err(BodyTakeError::Untouched { doc: intact, error }) => {
-                self.docs.insert(doc, checkpoint.into_settled(intact));
+                self.docs.insert(doc, checkpoint.into_held(intact));
                 return Ok(Err(refuse(&error)));
             }
             Err(BodyTakeError::Dirty(error)) => {
@@ -346,6 +492,7 @@ impl Worker {
             }
             checkpoint.since_bytes = next_since_bytes;
             checkpoint.last_state = Some(changed.state);
+            checkpoint.settled = false;
         }
         self.held_bytes = base_held
             .saturating_add(state_bytes)
@@ -354,7 +501,7 @@ impl Worker {
             || checkpoint.since.len() >= FOLD_SINCE_ENTRIES;
         checkpoint.state_bytes = state_bytes;
         checkpoint.changes = changed.changes;
-        self.docs.insert(doc, checkpoint.into_settled(changed.doc));
+        self.docs.insert(doc, checkpoint.into_held(changed.doc));
         Ok(Ok(Answer::Taken {
             repair,
             state_bytes,
@@ -391,8 +538,9 @@ impl Worker {
         checkpoint.last_state = None;
         checkpoint.state_bytes = state_bytes;
         checkpoint.changes = changed.changes;
+        checkpoint.settled = false;
         self.held_bytes = base_held.saturating_add(state_bytes);
-        self.docs.insert(doc, checkpoint.into_settled(changed.doc));
+        self.docs.insert(doc, checkpoint.into_held(changed.doc));
         Ok(Ok(Answer::Taken {
             repair,
             state_bytes,
@@ -434,6 +582,9 @@ impl Worker {
                 changes: changed.changes,
                 share: checkpoint.share,
                 must_remake: true,
+                settled: false,
+                #[cfg(feature = "test-util")]
+                fail_next_settle: false,
             },
         );
         Ok(Ok(Answer::Taken {
@@ -448,36 +599,81 @@ impl Worker {
         }))
     }
 
-    /// Rebuilds a document from its settled checkpoint state after a post-mutation
-    /// refusal and verifies the restored state matches before putting it back in
-    /// `self.docs`.
+    /// Rebuilds a document from `checkpoint.current_state()` after a post-mutation
+    /// refusal in O(1) decode work rather than replaying `since`, preventing
+    /// `O(since.len())` timeout amplification on rejected updates.
     ///
-    /// Restores directly from `checkpoint.current_state()` (already settled and within
-    /// [`READING_STEPS`]) in one decode pass rather than replaying `since`, preventing
-    /// `O(since.len())` timeout amplification on rejected updates and ensuring exact
-    /// agreement with the prior settled state. If restoration ever fails or diverges,
-    /// releases the accounted bytes and fails the worker closed (`Err(FrameError)`) so
-    /// the server cleanly reopens from the store rather than wedging the card.
+    /// When `checkpoint` was unsettled and `yrs` squashes adjacent blocks on read-back
+    /// (`!same_state` on pass 1), runs a single `BodyDoc::settle` pass to converge to its
+    /// canonical settled state while staying within `held_bytes`. If restoration fails,
+    /// still diverges, or overflows `held_bytes`, releases the accounted bytes and fails
+    /// the worker closed (`Err(FrameError)`) so the server cleanly reopens from the store.
     fn restore_after_dirty(
         &mut self,
         doc: DocNumber,
         checkpoint: Checkpoint,
     ) -> Result<(), FrameError> {
         let old_accounted = checkpoint.accounted_bytes();
+        let base_held = self.held_bytes.saturating_sub(old_accounted);
         let expected = checkpoint.current_state();
         let rebuilt = BodyDoc::rebuild::<&[u8]>(expected, &[]).map_err(|error| {
-            self.held_bytes = self.held_bytes.saturating_sub(old_accounted);
+            self.held_bytes = base_held;
             FrameError::Io(std::io::Error::other(format!(
                 "failed to restore document after refusal: {error}"
             )))
         })?;
-        if !same_state(&rebuilt.state(), expected) {
-            self.held_bytes = self.held_bytes.saturating_sub(old_accounted);
+        let rebuilt_state = rebuilt.state();
+        if same_state(&rebuilt_state, expected) {
+            self.docs.insert(doc, checkpoint.into_held(rebuilt));
+            return Ok(());
+        }
+        if checkpoint.settled {
+            self.held_bytes = base_held;
             return Err(FrameError::Io(std::io::Error::other(
-                "restored document state diverged from checkpoint",
+                "restored document state diverged from settled checkpoint",
             )));
         }
-        self.docs.insert(doc, checkpoint.into_settled(rebuilt));
+        // Drop `rebuilt` before settling so two full `Doc` instances are not held at once
+        // on a path that exits the worker on any error.
+        drop(rebuilt);
+        let settled =
+            BodyDoc::from_state(&rebuilt_state, &self.settle_limits()).map_err(|error| {
+                self.held_bytes = base_held;
+                FrameError::Io(std::io::Error::other(format!(
+                    "restored unsettled document state failed to settle: {error}"
+                )))
+            })?;
+        if settled.repair.update.is_some() {
+            self.held_bytes = base_held;
+            return Err(FrameError::Io(std::io::Error::other(
+                "restored unsettled document required repair during settle",
+            )));
+        }
+        let new_state_bytes = count(settled.state_bytes);
+        if base_held.saturating_add(new_state_bytes) > self.limits.held_bytes {
+            self.held_bytes = base_held;
+            return Err(FrameError::Io(std::io::Error::other(
+                "restored document state exceeded worker held_bytes budget",
+            )));
+        }
+        self.held_bytes = base_held.saturating_add(new_state_bytes);
+        self.docs.insert(
+            doc,
+            Held {
+                doc: settled.doc,
+                base: settled.state,
+                since: Vec::new(),
+                since_bytes: 0,
+                last_state: None,
+                state_bytes: new_state_bytes,
+                changes: settled.changes,
+                share: checkpoint.share,
+                must_remake: false,
+                settled: true,
+                #[cfg(feature = "test-util")]
+                fail_next_settle: checkpoint.fail_next_settle,
+            },
+        );
         Ok(())
     }
 
@@ -508,10 +704,12 @@ impl Worker {
             .ok_or_else(|| refused(Refusal::UnknownDocument, "no document is open under it"))
     }
 
-    /// Returns a held document only if it is settled (not waiting to be remade from
-    /// its body), refusing with `on_remake` otherwise so an unsettled state past
-    /// [`READING_STEPS`] is never handed back to `yrs` or stored.
-    fn settled_doc(&self, doc: DocNumber, on_remake: Refusal) -> Result<&BodyDoc, Refused> {
+    /// Returns a held document only if it is not waiting to be remade from its body
+    /// (`!held.must_remake`), refusing with `on_remake` otherwise so a document past
+    /// [`READING_STEPS`] or with a failed settle check is not served for diffs or state
+    /// vectors. Documents with `held.settled == false` remain usable for normal live
+    /// requests until settled at fold/close.
+    fn usable_doc(&self, doc: DocNumber, on_remake: Refusal) -> Result<&BodyDoc, Refused> {
         let held = self
             .docs
             .get(&doc)
@@ -621,6 +819,9 @@ impl Worker {
                 changes,
                 share,
                 must_remake: false,
+                settled: true,
+                #[cfg(feature = "test-util")]
+                fail_next_settle: false,
             },
         )?;
         Ok(Answer::Opened {
@@ -649,6 +850,9 @@ struct Checkpoint {
     state_bytes: u64,
     changes: u64,
     share: Share,
+    settled: bool,
+    #[cfg(feature = "test-util")]
+    fail_next_settle: bool,
 }
 
 impl Checkpoint {
@@ -660,7 +864,7 @@ impl Checkpoint {
         self.state_bytes.saturating_add(self.since_bytes)
     }
 
-    fn into_settled(self, doc: BodyDoc) -> Held {
+    fn into_held(self, doc: BodyDoc) -> Held {
         Held {
             doc,
             base: self.base,
@@ -671,6 +875,9 @@ impl Checkpoint {
             changes: self.changes,
             share: self.share,
             must_remake: false,
+            settled: self.settled,
+            #[cfg(feature = "test-util")]
+            fail_next_settle: self.fail_next_settle,
         }
     }
 }

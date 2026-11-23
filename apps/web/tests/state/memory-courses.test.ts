@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { pageTree } from '$lib/logic/page-tree.ts';
-import { BackendError, type CourseUnit } from '$lib/state/index.ts';
+import { BackendError, isOwnSpace, type CourseUnit } from '$lib/state/index.ts';
 
 import { setup, text } from './support.ts';
 
@@ -242,5 +242,165 @@ describe('a course in memory', () => {
     expect(await shape({ ...made, course: imported ?? made.course })).toEqual([
       ['Intro', ['Start']],
     ]);
+  });
+
+  it('supports unit comments, versions, conflict checks, and rejects chapters and unjoined writes', async () => {
+    const made = await aCourse(setup(), 'O');
+    const courses = made.backend.course;
+    const ch = await courses.createUnit(made.course.id, { kind: 'chapter', title: 'Ch 1' });
+    const u = await courses.createUnit(made.course.id, {
+      kind: 'unit',
+      title: 'Lesson 1',
+      parentId: ch.id,
+    });
+
+    // Chapters refuse comments.
+    expect((await rejection(courses.comments(made.course.id, ch.id))).status).toBe(404);
+    expect((await rejection(courses.createComment(made.course.id, ch.id, text('hi')))).status).toBe(
+      404,
+    );
+
+    // Comment CRUD + edit history + stale readAt conflict + undo restore.
+    const c1 = await courses.createComment(made.course.id, u.id, text('First note'));
+    expect((await courses.comments(made.course.id, u.id)).map((c) => c.id)).toEqual([c1.id]);
+
+    // Unjoined workspace member reads comments (200) but cannot write (403).
+    expect((await made.other.course.comments(made.course.id, u.id)).map((c) => c.id)).toEqual([
+      c1.id,
+    ]);
+    expect(
+      (await rejection(made.other.course.createComment(made.course.id, u.id, text('blocked'))))
+        .status,
+    ).toBe(403);
+
+    const edited = await courses.patchComment(made.course.id, u.id, c1.id, {
+      body: text('Edited note'),
+      readAt: c1.updateAt,
+    });
+    expect(edited.editedAt).toBeGreaterThan(0);
+    expect(
+      (
+        await rejection(
+          courses.patchComment(made.course.id, u.id, c1.id, {
+            body: text('Stale'),
+            readAt: c1.updateAt,
+          }),
+        )
+      ).status,
+    ).toBe(409);
+
+    const versions = await courses.commentVersions(made.course.id, u.id, c1.id);
+    expect(versions).toHaveLength(1);
+
+    await courses.deleteComment(made.course.id, u.id, c1.id);
+    expect(await courses.comments(made.course.id, u.id)).toEqual([]);
+    const restored = await courses.restoreComment(made.course.id, u.id, c1.id);
+    expect(restored.id).toBe(c1.id);
+    expect((await courses.comments(made.course.id, u.id)).map((c) => c.id)).toEqual([c1.id]);
+  });
+
+  it('keeps and restores unit body versions and rejects chapters', async () => {
+    const made = await aCourse();
+    const courses = made.backend.course;
+    const ch = await courses.createUnit(made.course.id, { kind: 'chapter', title: 'Ch 1' });
+    const u = await courses.createUnit(made.course.id, {
+      kind: 'unit',
+      title: 'Lesson 1',
+      parentId: ch.id,
+    });
+
+    expect((await rejection(courses.bodyVersions.list(made.course.id, ch.id))).status).toBe(404);
+    expect((await rejection(courses.bodyVersions.keep(made.course.id, ch.id))).status).toBe(404);
+
+    const v1 = await courses.patchUnit(made.course.id, u.id, {
+      body: text('Draft one'),
+      readAt: u.updateAt,
+    });
+    await courses.patchUnit(made.course.id, u.id, {
+      body: text('Draft two'),
+      readAt: v1.updateAt,
+    });
+    const list = await courses.bodyVersions.list(made.course.id, u.id);
+    expect(list.length).toBeGreaterThanOrEqual(2);
+    const oldest = list.at(-1);
+    if (!oldest) throw new Error('expected version');
+    const content = await courses.bodyVersions.read(made.course.id, u.id, oldest.version);
+    expect(content.body).toEqual(text('Draft one'));
+
+    await courses.bodyVersions.restore(made.course.id, u.id, oldest.version);
+    expect((await courses.unit(made.course.id, u.id)).body).toEqual(text('Draft one'));
+  });
+
+  it('resolves, searches, and backlinks units while excluding chapters, and allows course sharing', async () => {
+    const made = await aCourse(setup(), 'O');
+    const courses = made.backend.course;
+    const ch = await courses.createUnit(made.course.id, { kind: 'chapter', title: 'Chapter One' });
+    const u1 = await courses.createUnit(made.course.id, {
+      kind: 'unit',
+      title: 'Calculus Intro',
+      parentId: ch.id,
+    });
+    const u2 = await courses.createUnit(made.course.id, {
+      kind: 'unit',
+      title: 'Limits',
+      parentId: ch.id,
+    });
+    await courses.patchUnit(made.course.id, u1.id, {
+      body: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'reference', attrs: { id: u2.id } }],
+          },
+        ],
+      },
+      readAt: u1.updateAt,
+    });
+
+    const resolved = await made.backend.references.resolve(made.workspaceId, [ch.id, u1.id, u2.id]);
+    expect(resolved.map((r) => [r.id, r.kind, r.containerKind])).toEqual([
+      [u1.id, 'unit', 'course'],
+      [u2.id, 'unit', 'course'],
+    ]);
+    const searched = await made.backend.references.search(made.workspaceId, 'Calculus');
+    expect(searched.map((r) => r.id)).toContain(u1.id);
+    expect(searched.some((r) => r.id === ch.id)).toBe(false);
+    const backlinks = await made.backend.references.to(made.workspaceId, u2.id);
+    expect(backlinks.map((r) => r.id)).toEqual([u1.id]);
+
+    // Watch / unwatch and notifications for shared workspace courses; own-space courses emit none.
+    const me = await made.backend.me();
+    expect(await courses.watching(made.workspaceId, me.id)).toContain(u1.id);
+    expect((await rejection(courses.watchUnit(made.workspaceId, ch.id, me.id))).status).toBe(404);
+    await courses.unwatchUnit(made.workspaceId, u1.id, me.id);
+    expect(await courses.watching(made.workspaceId, me.id)).not.toContain(u1.id);
+    await courses.watchUnit(made.workspaceId, u1.id, me.id);
+    expect(await courses.watching(made.workspaceId, me.id)).toContain(u1.id);
+
+    await made.backend.addMember(made.course.id, made.other.userId, 'commenter');
+    await made.other.course.createComment(made.course.id, u1.id, text('Question on unit'));
+    const notes = await made.backend.notifications.list();
+    expect(notes[0]?.subject).toMatchObject({
+      kind: 'comment',
+      containerId: made.course.id,
+      containerKind: 'course',
+      blockId: u1.id,
+      blockKind: 'unit',
+    });
+
+    // Public sharing enabled for workspace course (and diary remains 404).
+    const shared = await made.backend.setSharing(made.course.id, { enabled: true });
+    expect(shared.enabled).toBe(true);
+    expect(shared.token).not.toBe('');
+
+    const spaces = await made.backend.workspaces();
+    const ownSpace = spaces.find(isOwnSpace);
+    if (!ownSpace) throw new Error('expected own space');
+    const ownCourse = await courses.createCourse(ownSpace.id, { title: 'My Course', type: 'P' });
+    const ownShared = await made.backend.setSharing(ownCourse.id, { enabled: true });
+    expect(ownShared.enabled).toBe(true);
+    const diary = await made.backend.diary.createDiary(ownSpace.id, { title: 'Diary' });
+    expect((await rejection(made.backend.sharing(diary.id))).status).toBe(404);
   });
 });

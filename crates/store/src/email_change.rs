@@ -371,8 +371,9 @@ async fn set_email(
     password_reset::end_links_of_user(scope, user_id).await
 }
 
-/// Makes `new_email` the address of the account, which nobody else has: the caller
-/// asked under the claim on the names.
+/// Makes `new_email` the address of the account, which nobody else has — or clears it
+/// when `new_email` is empty (permitted for multiple accounts by the partial unique
+/// index `WHERE email <> ''`): the caller asked under the claim on the names.
 pub(crate) async fn set_address(
     scope: &mut Scope<'_>,
     user_id: &str,

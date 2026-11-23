@@ -25,8 +25,10 @@ import type {
 } from '../course-types.ts';
 
 import { checkedWhole } from './bodies.ts';
+import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { fileAsNew } from './categories.ts';
-import { memberRole } from './container-access.ts';
+import { memberRole, reads } from './container-access.ts';
+import { MemoryPageComments, type OnPage } from './page-comments.ts';
 import {
   DEFAULT_COURSE_LIMITS,
   PageTree,
@@ -35,11 +37,11 @@ import {
   type Place,
 } from './page-tree.ts';
 import { fail } from './refuse.ts';
-import { copy, memberOf, orderOf, scramble, unitOf } from './shapes.ts';
+import { commentOf, copy, memberOf, orderOf, scramble, unitOf } from './shapes.ts';
 import { checkWorkspace } from './spaces.ts';
 import { deletedUnitsOf, deletion } from './trash.ts';
 import type { WikiHost } from './wikis.ts';
-import type { StoredBlock, World } from './world.ts';
+import type { StoredBlock, StoredCard, World } from './world.ts';
 
 const isCourse = (board: Container | undefined): board is Container => board?.kind === 'course';
 const isCourseBlock = (block: StoredBlock | undefined): boolean =>
@@ -61,18 +63,63 @@ function checkedTitle(title: string): string {
   return title;
 }
 
-export class MemoryCourses implements Courses {
+export class MemoryCourses extends MemoryPageComments implements Courses {
   readonly #host: WikiHost;
   readonly #failures = new Map<keyof Courses, BackendError>();
   /** The limits a memory course is held to; a test may lower them to reach them. */
   limits: CourseLimits = DEFAULT_COURSE_LIMITS;
+  #bodyVersions: MemoryBodyVersions | undefined;
 
   constructor(host: WikiHost) {
+    super();
     this.#host = host;
   }
 
   get #world(): World {
     return this.#host.world;
+  }
+
+  get bodyVersions(): MemoryBodyVersions {
+    this.#bodyVersions ??= new MemoryBodyVersions(
+      this.#world,
+      this.#host.userId,
+      () => this.#enter('bodyVersions'),
+      'unit',
+    );
+    return this.#bodyVersions;
+  }
+
+  protected enter(method: keyof Courses): Promise<void> {
+    return this.#enter(method);
+  }
+
+  protected on(courseId: string, unitId: string): OnPage {
+    return {
+      world: this.#world,
+      userId: this.#host.userId,
+      wikiId: courseId,
+      pageId: unitId,
+      containerKind: 'course',
+      blockType: 'unit',
+    };
+  }
+
+  override async createComment(courseId: string, unitId: string, body: DocNode) {
+    const comment = await super.createComment(courseId, unitId, body);
+    const course = this.#world.containers.get(courseId);
+    if (course?.workspaceId === this.#world.workspace.id) {
+      this.#setWatch(this.#host.userId, unitId, true);
+    }
+    return comment;
+  }
+
+  #setWatch(userId: string, unitId: string, watching: boolean): void {
+    let byUnit = this.#world.unitWatchers.get(userId);
+    if (!byUnit) {
+      byUnit = new Map();
+      this.#world.unitWatchers.set(userId, byUnit);
+    }
+    byUnit.set(unitId, watching);
   }
 
   /** Makes the next call of `method` reject with `error`, once. */
@@ -279,10 +326,14 @@ export class MemoryCourses implements Courses {
     if (patch.readAt !== undefined && patch.readAt !== node.updateAt) {
       throw new BackendError(409, { detail: 'the unit changed since it was read' });
     }
-    if (title !== undefined) node.title = title;
-    if (body !== undefined) node.body = body;
-    node.updateAt = this.#world.now();
-    node.modifiedBy = this.#host.userId;
+    const write = (): void => {
+      if (title !== undefined) node.title = title;
+      if (body !== undefined) node.body = body;
+      node.updateAt = this.#world.now();
+      node.modifiedBy = this.#host.userId;
+    };
+    if (body === undefined) write();
+    else writtenWhole(this.#world, node as StoredCard, body, this.#host.userId, write);
     if (body !== undefined) this.#world.bodyWritten?.(unitId);
     this.#tellUnits(courseId, [node]);
     return detailOf(node);
@@ -372,6 +423,67 @@ export class MemoryCourses implements Courses {
       world.blocks.set(block.id, block);
     }
     this.#tellUnits(courseId, [...renumbered, ...nodes]);
+    const comments = deleted.blocks.filter((block) => block.type === 'comment');
+    if (comments.length > 0) {
+      world.tellContainer(courseId, {
+        kind: 'blocks',
+        containerId: courseId,
+        blocks: comments.map(commentOf),
+      });
+    }
     return detailOf(top);
+  }
+
+  async watching(workspaceId: string, subscriberId: string): Promise<string[]> {
+    await this.#enter('watching');
+    checkWorkspace(this.#world, this.#host.userId, workspaceId);
+    if (subscriberId !== this.#host.userId) fail(404, 'no such subscriber');
+    const explicit = this.#world.unitWatchers.get(subscriberId);
+    const ids: string[] = [];
+    for (const block of this.#world.blocks.values()) {
+      if (block.type !== 'unit') continue;
+      const container = this.#world.containers.get(block.containerId);
+      if (
+        container?.workspaceId !== workspaceId ||
+        !reads(this.#world, subscriberId, container.id)
+      ) {
+        continue;
+      }
+      const override = explicit?.get(block.id);
+      if (override === false) continue;
+      const auto =
+        workspaceId === this.#world.workspace.id &&
+        (block.createdBy === subscriberId ||
+          this.#world
+            .childrenOf(block.id)
+            .some((child) => child.type === 'comment' && child.createdBy === subscriberId));
+      if (override === true || auto) ids.push(block.id);
+    }
+    return ids;
+  }
+
+  async watchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void> {
+    await this.#enter('watchUnit');
+    checkWorkspace(this.#world, this.#host.userId, workspaceId);
+    if (subscriberId !== this.#host.userId) {
+      fail(403, 'a user subscribes for themselves only', { field: 'subscriberId' });
+    }
+    const block = this.#world.blocks.get(unitId);
+    if (
+      !block ||
+      this.#world.containers.get(block.containerId)?.workspaceId !== workspaceId ||
+      !reads(this.#world, this.#host.userId, block.containerId)
+    ) {
+      fail(404, 'no such block');
+    }
+    if (block.type !== 'unit') fail(404, 'no such block');
+    this.#setWatch(subscriberId, unitId, true);
+  }
+
+  async unwatchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void> {
+    await this.#enter('unwatchUnit');
+    checkWorkspace(this.#world, this.#host.userId, workspaceId);
+    if (subscriberId !== this.#host.userId) fail(404, 'no such subscription');
+    this.#setWatch(subscriberId, unitId, false);
   }
 }

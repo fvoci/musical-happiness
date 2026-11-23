@@ -69,7 +69,8 @@ impl LoginOutcome {
 pub(crate) enum ResetMailDrop {
     /// `mail_reset_queue` messages were already waiting or being delivered.
     QueueFull,
-    /// The account was sent `mail_reset_per_account_hour` messages within the hour.
+    /// The email address reached `mail_reset_per_account_hour` requests within the hour
+    /// (counted before account lookup so metrics do not distinguish absent addresses).
     AccountLimit,
 }
 
@@ -142,10 +143,11 @@ impl AccountMetrics {
         let reset_mail_dropped = IntCounterVec::new(
             Opts::new(
                 "password_reset_mail_dropped_total",
-                "How many password recovery messages to an account were not sent, by \
+                "How many password recovery requests were dropped before lookup, by \
                  reason: queue_full (mail_reset_queue messages were already waiting or \
-                 being delivered), account_limit (the account was sent \
-                 mail_reset_per_account_hour messages within the hour). The request was \
+                 being delivered), account_limit (the email address reached \
+                 mail_reset_per_account_hour requests within the hour, counted for \
+                 existing, passwordless and absent addresses alike). The request was \
                  answered as any other, and nothing was locked.",
             )
             .namespace(PREFIX),

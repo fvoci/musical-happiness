@@ -9,8 +9,9 @@ use yrs::{Doc, ReadTxn, StateVector, Transact};
 use crate::build::{from_body, new_doc};
 use crate::project::to_body;
 use crate::repair::Repair;
+use crate::settle::{rebuild, settle_keeping};
 use crate::take::{TakeError, TakeInPlaceError, from_state, take_update, take_update_in_place};
-use crate::update::{UpdateError, UpdateLimits, rebuild, state_of};
+use crate::update::{UpdateError, UpdateLimits, state_of};
 
 /// The Y document of a body. It is made from a stored body or state; callers either
 /// take updates on a copy ([`BodyDoc::take`]) or consume it in place
@@ -66,6 +67,40 @@ pub enum BodyTakeError {
     /// caller must rebuild from its checkpoint with [`BodyDoc::rebuild`].
     #[error(transparent)]
     Dirty(#[from] TakeError),
+}
+
+/// A document verified to read back deterministically to the same state
+/// ([`BodyDoc::settle`]), with its canonical state bytes and counts.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct SettledDoc {
+    /// The settled document.
+    pub doc: BodyDoc,
+    /// Its canonical whole state ([`BodyDoc::state`]), verified to round-trip via
+    /// [`crate::same_state`].
+    pub state: Vec<u8>,
+    /// The size of `state`, in bytes.
+    pub state_bytes: usize,
+    /// How many changes it holds in total.
+    pub changes: u64,
+    /// The most changes one of its clients has, deleted ones too.
+    pub client_changes: u64,
+    /// The steps the Y library takes to read `state`.
+    pub reading_steps: u64,
+    /// The most steps the library may take once one more client has written into it.
+    pub steps_ahead: u64,
+}
+
+/// Why [`BodyDoc::settle`] could not settle a document, returning the intact live
+/// document so the caller can project its body and remake it without losing edits.
+#[derive(Debug, thiserror::Error)]
+#[error("{error}")]
+pub struct SettleError {
+    /// The intact live document whose body still holds every accepted edit.
+    pub doc: BodyDoc,
+    /// Why settling failed.
+    #[source]
+    pub error: UpdateError,
 }
 
 /// Counts read from a document's state in one pass ([`state_counts`]).
@@ -151,10 +186,9 @@ impl BodyDoc {
         }
     }
 
-    /// Rebuilds a settled document from a settled checkpoint `base` state (as returned by
+    /// Rebuilds a document from a checkpoint `base` state (as returned by
     /// [`BodyDoc::from_state`], [`BodyDoc::from_body`], or [`Changed::state`]) and the
-    /// accepted updates and repairs `since` it, restoring a state byte-for-byte identical
-    /// to the settled document before a rejected in-place update.
+    /// accepted updates and repairs `since` it.
     ///
     /// When `since` is empty, `base` is decoded directly without re-settling.
     ///
@@ -164,6 +198,43 @@ impl BodyDoc {
     /// settled.
     pub fn rebuild<U: AsRef<[u8]>>(base: &[u8], since: &[U]) -> Result<Self, UpdateError> {
         rebuild(base, since).map(|doc| Self { doc })
+    }
+
+    /// Re-reads `self`'s encoded `state` and verifies it settles to the same state
+    /// ([`crate::same_state`]) within `limits`, run at fold and close instead of on
+    /// every live update.
+    ///
+    /// `state` must be the current encoded state of `self` (as returned by
+    /// [`BodyDoc::state`] or the preceding [`Changed::state`]); it is taken by value so
+    /// the buffer can be freed before any second settle pass.
+    ///
+    /// On any error (non-deterministic state, limit exceeded, or unreadable state), the
+    /// original intact `self` comes back inside [`SettleError::doc`] so callers can
+    /// project its body and remake a fresh 0-step document without losing edits.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SettleError`] with `self` intact if `state` cannot be settled within
+    /// `limits`.
+    pub fn settle(self, state: Vec<u8>, limits: &UpdateLimits) -> Result<SettledDoc, SettleError> {
+        match settle_keeping(self.doc, state, limits) {
+            Ok(settled) => {
+                let state_bytes = settled.state.len();
+                Ok(SettledDoc {
+                    doc: Self { doc: settled.doc },
+                    state: settled.state,
+                    state_bytes,
+                    changes: settled.changes,
+                    client_changes: settled.client_changes,
+                    reading_steps: settled.reading_steps,
+                    steps_ahead: settled.steps_ahead,
+                })
+            }
+            Err((doc, error)) => Err(SettleError {
+                doc: Self { doc },
+                error,
+            }),
+        }
     }
 
     /// The whole document as a version 1 update, as it is stored ([`crate::state_of`]).

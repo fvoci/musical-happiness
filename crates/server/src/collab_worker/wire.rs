@@ -120,6 +120,11 @@ pub enum Request {
     /// long. Built with the feature `test-util` only.
     #[cfg(feature = "test-util")]
     Stall(u64),
+    /// Forces the next `Request::State` settle check for `doc` to fail and return
+    /// [`Answer::Remake`], for tests of lossless settle-failure recovery. Built with the
+    /// feature `test-util` only.
+    #[cfg(feature = "test-util")]
+    FailNextSettle(DocNumber),
 }
 
 /// What the worker answers a request it did.
@@ -171,6 +176,10 @@ pub enum Answer {
     Bytes(Vec<u8>),
     /// The JSON of a body; `None` for no body.
     Body(Option<Vec<u8>>),
+    /// Returned by [`Request::State`] when settling an unsettled document fails: the live
+    /// document is kept intact for [`Request::Body`] and [`Request::Close`] only, and the
+    /// server must write its body and remake it from that without losing updates.
+    Remake,
 }
 
 /// Why the worker refused a request. The document is as it was.
@@ -277,6 +286,10 @@ impl Request {
             Self::Stall(millis) => {
                 out.tag(9).number(*millis);
             }
+            #[cfg(feature = "test-util")]
+            Self::FailNextSettle(doc) => {
+                out.tag(11).number(*doc);
+            }
         }
         out.0
     }
@@ -328,6 +341,8 @@ impl Request {
             8 => Self::Close(input.number()?),
             #[cfg(feature = "test-util")]
             9 => Self::Stall(input.number()?),
+            #[cfg(feature = "test-util")]
+            11 => Self::FailNextSettle(input.number()?),
             _ => return Err(input.malformed()),
         };
         input.end()?;
@@ -439,6 +454,9 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
         Ok(Answer::Body(body)) => {
             out.tag(5).optional(body.as_deref());
         }
+        Ok(Answer::Remake) => {
+            out.tag(6);
+        }
         Err(refused) => {
             out.tag(REFUSED)
                 .tag(refused.refusal.byte())
@@ -476,6 +494,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, Malformed> {
         }),
         4 => Ok(Answer::Bytes(input.bytes()?)),
         5 => Ok(Answer::Body(input.optional()?)),
+        6 => Ok(Answer::Remake),
         REFUSED => {
             let refusal = Refusal::of_byte(input.tag()?).ok_or_else(|| input.malformed())?;
             let message = String::from_utf8_lossy(&input.bytes()?).into_owned();
@@ -649,6 +668,8 @@ mod tests {
             Request::State(4),
             Request::Body(5),
             Request::Close(6),
+            #[cfg(feature = "test-util")]
+            Request::FailNextSettle(7),
         ];
         for request in requests {
             assert_eq!(
@@ -700,6 +721,7 @@ mod tests {
             Ok(Answer::Bytes(vec![4, 5])),
             Ok(Answer::Body(Some(b"{}".to_vec()))),
             Ok(Answer::Body(None)),
+            Ok(Answer::Remake),
         ];
         responses.extend(Refusal::ALL.iter().map(|refusal| {
             Err(Refused {

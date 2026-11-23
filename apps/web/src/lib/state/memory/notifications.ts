@@ -47,7 +47,14 @@ export interface StoredNotification {
 export function noteComment(world: World, comment: StoredBlock): void {
   const on = world.blocks.get(comment.parentId);
   const container = world.containers.get(comment.containerId);
-  if ((on?.type !== 'card' && on?.type !== 'page') || !container || container.isTemplate) return;
+  if (
+    (on?.type !== 'card' && on?.type !== 'page' && on?.type !== 'unit') ||
+    !container ||
+    container.isTemplate ||
+    container.workspaceId !== world.workspace.id
+  ) {
+    return;
+  }
   const now = comment.createAt;
   const told: string[] = [];
   for (const recipientId of watchersOf(world, on)) {
@@ -98,6 +105,11 @@ function watchersOf(world: World, block: StoredBlock): Set<string> {
     for (const one of Array.isArray(value) ? value : [value]) {
       if (typeof one === 'string' && one !== '') watchers.add(one);
     }
+  }
+  for (const [userId, byBlock] of world.unitWatchers) {
+    const explicit = byBlock.get(block.id);
+    if (explicit === true) watchers.add(userId);
+    else if (explicit === false) watchers.delete(userId);
   }
   return watchers;
 }
@@ -175,9 +187,14 @@ export class MemoryNotifications implements Notifications {
       people: one.doers.length,
       workspaceId: container.workspaceId,
       containerId: container.id,
-      containerKind: container.kind === 'wiki' ? ('wiki' as const) : ('board' as const),
+      containerKind: container.kind ?? 'board',
       blockId: block.id,
-      blockKind: block.type === 'page' ? ('page' as const) : ('card' as const),
+      blockKind:
+        block.type === 'page'
+          ? ('page' as const)
+          : block.type === 'unit'
+            ? ('unit' as const)
+            : ('card' as const),
       title: block.title,
       commentId: comment?.parentId === block.id ? comment.id : '',
     };

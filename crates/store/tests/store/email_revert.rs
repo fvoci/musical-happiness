@@ -3,11 +3,13 @@
 //! it that is used, and the erasing of the account; while it stands its address is the
 //! account's; and using it ends the account's sessions and locks its password.
 
+use std::time::Duration;
+
 use fvoci_model::{Session, User, new_id};
 use fvoci_store::{
-    ConfirmedPassword, DeletionAsking, EMAIL_REVERT_LIFETIME_MILLIS, EmailReverted, Erasing,
-    ErasureStart, Identity, SIGNUP_LIFETIME_MILLIS, Signup, SignupStart, Store, StoreError, Taken,
-    Unlinked,
+    CarryOver, ConfirmedPassword, DeletionAsking, EMAIL_REVERT_LIFETIME_MILLIS, EmailReverted,
+    Erasing, ErasureStart, HeldSignIn, Identity, LinkingSession, SIGNUP_LIFETIME_MILLIS, Signup,
+    SignupStart, Store, StoreError, StoredProvider, Taken, Unlinked,
 };
 
 use crate::common;
@@ -129,6 +131,7 @@ async fn a_link_gives_the_address_before_back_once_and_ends_what_was_the_account
             username: ada.username.clone(),
             before: "ada@new.example.test".to_owned(),
             restored: Some(ada.email.clone()),
+            unlinked_identities: 0,
         })
     );
     let now = user(store, &ada.id).await;
@@ -377,16 +380,40 @@ async fn while_a_link_stands_nobody_else_takes_its_address() {
 }
 
 /// An address somebody else has by then (as data from before, or a race the claim on
-/// the names did not see) is not given back; what else the link does, it does.
+/// the names did not see) is not given back; instead the account's email address is
+/// cleared so the address set after the change cannot recover it, and any pending
+/// change, sessions, and reset links go too — even when other accounts already have an
+/// empty address.
 #[tokio::test]
-async fn an_address_somebody_else_has_is_not_given_back_and_the_rest_is_done() {
+async fn an_address_somebody_else_has_clears_the_accounts_email_and_the_rest_is_done() {
     let test = common::setup().await;
     let store = &test.store;
     account(store, "first").await;
     let ada = account(store, "ada").await;
     let bob = account(store, "bob").await;
+    let empty = account(store, "empty").await;
+    test.execute_unchecked(&format!(
+        "UPDATE users SET email = '' WHERE id = '{}'",
+        empty.id
+    ))
+    .await
+    .expect("another account with no email");
     session(store, &ada.id, "ada's session").await;
     moved(store, &ada.id, "ada@new.example.test", "back", T0).await;
+    assert!(
+        store
+            .ask_email_change(&ada.id, HASH, "ada@third.example.test", T0 + 1)
+            .await
+            .expect("asked"),
+        "pending change is stored"
+    );
+    assert!(
+        store
+            .create_password_reset(&ada.id, "ada@new.example.test", "reset", T0 + 1)
+            .await
+            .expect("a reset credential"),
+        "reset credential is stored"
+    );
     test.execute_unchecked(&format!(
         "UPDATE users SET email = '{}' WHERE id = '{}'",
         ada.email, bob.id
@@ -394,12 +421,319 @@ async fn an_address_somebody_else_has_is_not_given_back_and_the_rest_is_done() {
     .await
     .expect("planted");
 
-    let reverted = revert(store, "back", T0 + 1).await.expect("used");
+    let reverted = revert(store, "back", T0 + 2).await.expect("used");
     assert_eq!(reverted.restored, None);
     let now = user(store, &ada.id).await;
-    assert_eq!(now.email, "ada@new.example.test", "the account keeps it");
+    assert_eq!(now.email, "", "the account's email address is cleared");
+    assert!(
+        store
+            .account_by_email("ada@new.example.test")
+            .await
+            .is_err(),
+        "the previous address no longer finds the account"
+    );
+    assert_eq!(
+        store.email_change_of(&ada.id, T0 + 3).await.expect("read"),
+        None,
+        "any pending change is discarded"
+    );
+    assert_eq!(
+        store
+            .consume_password_reset("reset", "a hash", T0 + 3)
+            .await
+            .expect("tried"),
+        None,
+        "reset links end"
+    );
     assert!(now.password_is_locked());
-    assert!(store.get_session("ada's session", T0 + 2, 0).await.is_err());
+    assert!(store.get_session("ada's session", T0 + 3, 0).await.is_err());
+    test.teardown().await;
+}
+
+/// Reverting removes SSO identities linked strictly after the revert link's `create_at`
+/// (`create_at > link.create_at`) and keeps those linked at or before it
+/// (`create_at <= link.create_at`).
+#[tokio::test]
+async fn identities_linked_after_the_revert_link_are_removed_and_earlier_ones_stay() {
+    let test = common::setup().await;
+    let store = &test.store;
+    account(store, "first").await;
+    let ada = account(store, "ada").await;
+    let bob = account(store, "bob").await;
+    let issuer = "https://idp.example.test";
+    let identity = |subject| Identity { issuer, subject };
+
+    store
+        .add_identity_at(&ada.id, identity("before"), &ada.email, T0 - 1)
+        .await
+        .expect("before");
+    store
+        .add_identity_at(&ada.id, identity("at-boundary"), &ada.email, T0)
+        .await
+        .expect("at boundary");
+    moved(store, &ada.id, "ada@new.example.test", "back", T0).await;
+    store
+        .add_identity_at(&ada.id, identity("after"), "ada@new.example.test", T0 + 1)
+        .await
+        .expect("after");
+    store
+        .add_identity_at(&bob.id, identity("bobs"), &bob.email, T0 + 1)
+        .await
+        .expect("bob's");
+
+    let reverted = revert(store, "back", T0 + 2).await.expect("reverted");
+    assert_eq!(
+        reverted.unlinked_identities, 1,
+        "one later identity removed"
+    );
+
+    let left: Vec<String> = store
+        .identities_of_user(&ada.id)
+        .await
+        .expect("read")
+        .into_iter()
+        .map(|tied| tied.subject)
+        .collect();
+    assert_eq!(
+        left,
+        ["before", "at-boundary"],
+        "identities linked at or before link.create_at stay; strictly later ones go"
+    );
+    assert_eq!(
+        store.identities_of_user(&bob.id).await.expect("read").len(),
+        1,
+        "another account's identities are untouched"
+    );
+    test.teardown().await;
+}
+
+fn oidc_provider(issuer: &str) -> StoredProvider {
+    StoredProvider {
+        id: String::new(),
+        org_id: String::new(),
+        issuer: issuer.to_owned(),
+        client_id: "fvoci".to_owned(),
+        sealed_client_secret: String::new(),
+        auto_join: true,
+        enabled: true,
+        create_at: 0,
+        update_at: 0,
+        sso_required: false,
+        revision: 0,
+    }
+}
+
+/// Identities linked through `finish_oidc_link` after an email change in the very same
+/// millisecond — even after rapid changes that bumped `email_reverts.create_at` — still
+/// receive `create_at > link.create_at` and are removed when the link is used.
+#[tokio::test]
+async fn a_same_millisecond_oidc_link_after_a_change_is_removed_on_revert() {
+    let test = common::setup().await;
+    let store = &test.store;
+    account(store, "first").await;
+    let issuer = "https://idp.example.test";
+    let provider = store
+        .put_oidc_provider(&oidc_provider(issuer))
+        .await
+        .expect("provider");
+    let cy = account(store, "cy").await;
+    let cy_session = session(store, &cy.id, "cy's session").await;
+    let link_at = |now: i64| LinkingSession {
+        session_id: &cy_session.id,
+        token_digest: "cy's session",
+        now,
+        idle_since: 0,
+    };
+    let identity = |subject| Identity { issuer, subject };
+    assert!(
+        store
+            .finish_oidc_link(&provider.id, link_at(T0), identity("cy-owner"), &cy.email)
+            .await
+            .expect("linked")
+            .is_ok(),
+        "owner identity linked before change"
+    );
+    moved(store, &cy.id, "cy-b@example.test", "cy-to-a", T0).await;
+    moved(store, &cy.id, "cy-c@example.test", "cy-to-b", T0).await;
+    assert!(
+        store
+            .finish_oidc_link(
+                &provider.id,
+                link_at(T0),
+                identity("cy-attacker"),
+                "cy-c@example.test",
+            )
+            .await
+            .expect("linked")
+            .is_ok(),
+        "attacker identity linked after change"
+    );
+    // Reverting `cy-to-b` (which bumped to T0 + 1) still removes `cy-attacker`.
+    let reverted = revert(store, "cy-to-b", T0 + 5).await.expect("reverted");
+    assert_eq!(reverted.unlinked_identities, 1, "attacker identity removed");
+    let left: Vec<String> = store
+        .identities_of_user(&cy.id)
+        .await
+        .expect("read")
+        .into_iter()
+        .map(|tied| tied.subject)
+        .collect();
+    assert_eq!(left, ["cy-owner"]);
+    test.teardown().await;
+}
+
+/// Even when an email change carries an earlier timestamp than an identity already tied
+/// to the account (lock contention or clock step-back), `email_revert::insert` clamps
+/// the revert link's `create_at` to at least that identity's `create_at` so pre-existing
+/// identities stay and any identity linked afterward is still bumped past it and removed.
+#[tokio::test]
+async fn an_identity_linked_before_a_stale_change_timestamp_stays_and_a_later_one_goes() {
+    let test = common::setup().await;
+    let store = &test.store;
+    account(store, "first").await;
+    let issuer = "https://idp.example.test";
+    let provider = store
+        .put_oidc_provider(&oidc_provider(issuer))
+        .await
+        .expect("provider");
+    let ada = account(store, "ada").await;
+    let ada_session = session(store, &ada.id, "ada's session").await;
+    let identity = |subject| Identity { issuer, subject };
+    // Pre-existing identity stamped ahead of the change's `now` (`T0 + 5` > `T0`).
+    store
+        .add_identity_at(&ada.id, identity("owner-ahead"), &ada.email, T0 + 5)
+        .await
+        .expect("pre-existing identity");
+    moved(store, &ada.id, "ada@new.example.test", "back", T0).await;
+    let link = LinkingSession {
+        session_id: &ada_session.id,
+        token_digest: "ada's session",
+        now: T0,
+        idle_since: 0,
+    };
+    assert!(
+        store
+            .finish_oidc_link(
+                &provider.id,
+                link,
+                identity("attacker-after"),
+                "ada@new.example.test",
+            )
+            .await
+            .expect("linked")
+            .is_ok(),
+        "identity linked after change"
+    );
+
+    let reverted = revert(store, "back", T0 + 10).await.expect("reverted");
+    assert_eq!(reverted.unlinked_identities, 1, "only later identity goes");
+    let left: Vec<String> = store
+        .identities_of_user(&ada.id)
+        .await
+        .expect("read")
+        .into_iter()
+        .map(|tied| tied.subject)
+        .collect();
+    assert_eq!(left, ["owner-ahead"]);
+    test.teardown().await;
+}
+
+/// An identity tied via `finish_oidc_carry_over` (`tie_unless_taken`) at the same
+/// millisecond as an email change is bumped past the revert link and removed on revert,
+/// while the former identity tied earlier stays.
+#[tokio::test]
+async fn a_same_millisecond_carried_over_identity_after_a_change_is_removed_on_revert() {
+    let test = common::setup().await;
+    let store = &test.store;
+    account(store, "first").await;
+    let old_issuer = "https://old-idp.example.test";
+    let new_issuer = "https://new-idp.example.test";
+    let actor = new_id();
+    let old = store
+        .put_oidc_provider_as_read(&oidc_provider(old_issuer), None, &actor, Duration::ZERO)
+        .await
+        .expect("asked")
+        .expect("stored");
+    let new = store
+        .put_oidc_provider_as_read(
+            &oidc_provider(new_issuer),
+            Some(&old),
+            &actor,
+            Duration::from_hours(24),
+        )
+        .await
+        .expect("asked")
+        .expect("stored");
+    let ada = account(store, "ada").await;
+    let former = Identity {
+        issuer: old_issuer,
+        subject: "ada-old",
+    };
+    let now = i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("after epoch")
+            .as_millis(),
+    )
+    .expect("millis");
+    store
+        .add_identity_at(&ada.id, former, &ada.email, now - 10)
+        .await
+        .expect("former identity");
+    moved(store, &ada.id, "ada@new.example.test", "back", now).await;
+
+    let held = HeldSignIn {
+        held_hash: "held-carry-digest".to_owned(),
+        org_id: new.org_id.clone(),
+        provider_id: new.id.clone(),
+        revision: new.revision,
+        issuer: new_issuer.to_owned(),
+        subject: "ada-carried".to_owned(),
+        email: "ada@new.example.test".to_owned(),
+        email_unverified: false,
+        name: "Ada".to_owned(),
+        preferred_username: "ada".to_owned(),
+        create_at: now,
+        expires_at: now + 60_000,
+    };
+    assert!(
+        store.hold_oidc_sign_in(&held).await.expect("hold"),
+        "sign-in held"
+    );
+    let mut carry_session = Session {
+        id: new_id(),
+        created_at: now,
+        expires_at: now + 60_000,
+        ..Session::default()
+    };
+    let carry = CarryOver {
+        provider_id: &new.id,
+        held_hash: &held.held_hash,
+        former,
+        now,
+    };
+    assert!(
+        store
+            .finish_oidc_carry_over(carry, &mut carry_session, "carried-session")
+            .await
+            .expect("carry over")
+            .is_ok(),
+        "carried over at the same millisecond"
+    );
+
+    let reverted = revert(store, "back", now + 1).await.expect("reverted");
+    assert_eq!(
+        reverted.unlinked_identities, 1,
+        "carried-over identity removed"
+    );
+    let left: Vec<String> = store
+        .identities_of_user(&ada.id)
+        .await
+        .expect("read")
+        .into_iter()
+        .map(|tied| tied.subject)
+        .collect();
+    assert_eq!(left, ["ada-old"]);
     test.teardown().await;
 }
 

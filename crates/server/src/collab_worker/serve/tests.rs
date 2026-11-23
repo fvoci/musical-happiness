@@ -761,3 +761,237 @@ fn corrupted_checkpoint_fails_worker_closed_instead_of_wedging_doc() {
     assert_eq!(worker.held_bytes, 0, "accounted bytes released");
     assert_eq!(worker.docs.len(), 0, "document removed before exit");
 }
+
+/// `Request::State` settles an unsettled held document (`settled: false -> true`),
+/// rebases `since`, and fast-paths subsequent `Request::State` calls once settled.
+#[test]
+fn state_settles_unsettled_doc_and_fast_paths_settled_doc() {
+    let mut worker = Worker::new(Limits {
+        update_bytes: 4096,
+        state_bytes: 16 * 1024,
+        body_bytes: 16 * 1024,
+        documents: 2,
+        held_bytes: 1 << 20,
+    });
+    let Ok(Answer::Opened {
+        state: Some(initial_state),
+        ..
+    }) = ask(
+        &mut worker,
+        Request::Open {
+            doc: 1,
+            source: Source::Body(None),
+            share: Share::Kept,
+        },
+    )
+    else {
+        panic!("opened");
+    };
+    assert!(
+        worker.docs.get(&1).expect("held").settled,
+        "settled on open"
+    );
+
+    let editor = fvoci_collab::testing::Editor::join(601, &initial_state);
+    let u1 = editor.append_paragraph("hello settle");
+    assert!(ask(&mut worker, Request::Take { doc: 1, update: u1 }).is_ok());
+    assert!(
+        !worker.docs.get(&1).expect("held").settled,
+        "mutating Take clears settled"
+    );
+
+    let Ok(Answer::Bytes(s1)) = ask(&mut worker, Request::State(1)) else {
+        panic!("settled state");
+    };
+    let held = worker.docs.get(&1).expect("held");
+    assert!(held.settled, "Request::State marks doc settled");
+    assert_eq!(held.since_bytes, 0);
+    assert_eq!(worker.held_bytes, size_of(&s1));
+
+    // Second Request::State takes the settled fast path and returns the same state.
+    let Ok(Answer::Bytes(s2)) = ask(&mut worker, Request::State(1)) else {
+        panic!("fast-path state");
+    };
+    assert_eq!(s2, s1);
+    assert!(worker.docs.get(&1).expect("held").settled);
+}
+
+/// When settling fails during `Request::State` (either via real reading-steps overflow or
+/// `Request::FailNextSettle`), the worker returns `Answer::Remake`, reclaims `since_bytes`,
+/// keeps `held.doc` intact for `Request::Body`, and blocks mutating/state requests until
+/// `Close`.
+#[test]
+fn state_settle_failure_returns_remake_preserves_body_and_reclaims_since_bytes() {
+    let mut worker = Worker::new(Limits {
+        update_bytes: 4096,
+        state_bytes: 16 * 1024,
+        body_bytes: 16 * 1024,
+        documents: 2,
+        held_bytes: 1 << 20,
+    });
+
+    // Case 1: Real settle failure via `reading_steps: Some(0)` on a 1-step document.
+    assert!(matches!(
+        ask(
+            &mut worker,
+            Request::Open {
+                doc: 1,
+                source: Source::Body(None),
+                share: Share::Kept,
+            }
+        ),
+        Ok(Answer::Opened { .. })
+    ));
+    let step_update = one_step_update();
+    assert!(
+        ask(
+            &mut worker,
+            Request::Take {
+                doc: 1,
+                update: step_update,
+            }
+        )
+        .is_ok()
+    );
+    let expected_body = ask(&mut worker, Request::Body(1)).expect("body before settle");
+    let state_bytes_before = worker.docs.get(&1).expect("held").state_bytes;
+    assert!(worker.docs.get(&1).expect("held").since_bytes > 0);
+
+    worker.update_limits.reading_steps = Some(0);
+    assert_eq!(
+        ask(&mut worker, Request::State(1)),
+        Ok(Answer::Remake),
+        "real settle failure returns Answer::Remake"
+    );
+    let held = worker.docs.get(&1).expect("held");
+    assert!(held.must_remake, "marked for remake");
+    assert_eq!(held.since_bytes, 0, "since_bytes reclaimed");
+    assert_eq!(worker.held_bytes, state_bytes_before);
+    assert_eq!(
+        ask(&mut worker, Request::Body(1)).expect("body preserved"),
+        expected_body,
+        "live doc body preserved without loss"
+    );
+    assert_eq!(
+        ask(&mut worker, Request::State(1)).err().map(|r| r.refusal),
+        Some(Refusal::OutOfOrder),
+        "State blocked after must_remake"
+    );
+    assert_eq!(ask(&mut worker, Request::Close(1)), Ok(Answer::Done));
+    assert_eq!(worker.held_bytes, 0);
+
+    // Case 2: Forced settle failure via `Request::FailNextSettle` (test-util hook).
+    #[cfg(feature = "test-util")]
+    {
+        worker.update_limits.reading_steps = Some(READING_STEPS);
+        let Ok(Answer::Opened {
+            state: Some(initial),
+            ..
+        }) = ask(
+            &mut worker,
+            Request::Open {
+                doc: 2,
+                source: Source::Body(None),
+                share: Share::Kept,
+            },
+        )
+        else {
+            panic!("opened doc 2");
+        };
+        let editor = fvoci_collab::testing::Editor::join(602, &initial);
+        let u1 = editor.append_paragraph("never lost");
+        assert!(ask(&mut worker, Request::Take { doc: 2, update: u1 }).is_ok());
+        let expected_body2 = ask(&mut worker, Request::Body(2)).expect("body 2");
+        let state_bytes_2 = worker.docs.get(&2).expect("held").state_bytes;
+
+        assert_eq!(
+            ask(&mut worker, Request::FailNextSettle(2)),
+            Ok(Answer::Done)
+        );
+        assert_eq!(ask(&mut worker, Request::State(2)), Ok(Answer::Remake));
+        assert_eq!(worker.held_bytes, state_bytes_2);
+        assert_eq!(
+            ask(&mut worker, Request::Body(2)).expect("body 2 preserved"),
+            expected_body2
+        );
+        assert_eq!(ask(&mut worker, Request::Close(2)), Ok(Answer::Done));
+        assert_eq!(worker.held_bytes, 0);
+    }
+}
+
+/// A `Dirty` refusal after an unsettled non-canonical update (two adjacent text blocks
+/// that `yrs` squashes on 1st read-back) settles cleanly in O(1) without killing the
+/// worker or replaying `since`, and preserves the exact body and `held_bytes`.
+#[test]
+fn dirty_refusal_restores_non_canonical_unsettled_state_in_o1() {
+    let mut worker = Worker::new(Limits {
+        update_bytes: 4096,
+        state_bytes: 16 * 1024,
+        body_bytes: 16 * 1024,
+        documents: 1,
+        held_bytes: 1 << 20,
+    });
+    assert!(matches!(
+        ask(
+            &mut worker,
+            Request::Open {
+                doc: 1,
+                source: Source::Body(None),
+                share: Share::Kept,
+            }
+        ),
+        Ok(Answer::Opened { .. })
+    ));
+
+    // Two separate adjacent text items of client 7: `take_in_place` skips settle re-read
+    // so `last_state` stays non-canonical until read-back squashes `"ab"` + `"cd"`.
+    let mut non_canonical = Vec::new();
+    // 1 run, 4 changes, client 7, clock 0
+    non_canonical.extend_from_slice(&[1, 4, 7, 0]);
+    // (7, 0) paragraph under root "default"
+    non_canonical.extend_from_slice(b"\x07\x01\x07default\x03\x09paragraph");
+    // (7, 1) xml_text under (7, 0)
+    non_canonical.extend_from_slice(&[0x07, 0, 7, 0, 6]);
+    // (7, 2..4) "ab" under (7, 1)
+    non_canonical.extend_from_slice(&[0x04, 0, 7, 1, 2, b'a', b'b']);
+    // (7, 4..6) "cd" after (7, 3)
+    non_canonical.extend_from_slice(&[0x84, 7, 3, 2, b'c', b'd']);
+    // 0 deletions
+    non_canonical.push(0);
+
+    assert!(
+        ask(
+            &mut worker,
+            Request::Take {
+                doc: 1,
+                update: non_canonical,
+            }
+        )
+        .is_ok()
+    );
+    let expected_body = ask(&mut worker, Request::Body(1)).expect("body");
+    let current_state = worker.docs.get(&1).expect("held").doc.state();
+    let editor = fvoci_collab::testing::Editor::join(701, &current_state);
+
+    // Trigger a Dirty refusal (`body_bytes` tight): worker settles the non-canonical
+    // `last_state` in O(1) without dying or losing `"abcd"`.
+    worker.update_limits.body_bytes = 5;
+    let rejected = editor.append_paragraph("rejected update");
+    let err = ask(
+        &mut worker,
+        Request::Take {
+            doc: 1,
+            update: rejected,
+        },
+    )
+    .expect_err("body_bytes refused");
+    assert_eq!(err.refusal, Refusal::BodyTooLarge);
+    assert_eq!(
+        ask(&mut worker, Request::Body(1)).expect("body preserved"),
+        expected_body
+    );
+    let held = worker.docs.get(&1).expect("held");
+    assert_eq!(worker.held_bytes, held.accounted_bytes());
+    assert_eq!(ask(&mut worker, Request::Close(1)), Ok(Answer::Done));
+    assert_eq!(worker.held_bytes, 0);
+}

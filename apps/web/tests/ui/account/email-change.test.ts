@@ -185,6 +185,22 @@ describe("the account's address in the settings", () => {
     );
   });
 
+  it('tells an account with an address on a mailing server that a revert link lasts 7 days, and omits it otherwise', async () => {
+    const { rerender } = section();
+    const hint = screen.getByTestId('email-change-revert-hint');
+    expect(hint).toHaveTextContent(
+      'After a change, a link mailed to your previous address lets you take it back for 7 days.',
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Change address' }));
+    expect(screen.getByTestId('email-change-revert-hint')).toBeInTheDocument();
+    await rerender({ mails: false });
+    expect(screen.queryByTestId('email-change-revert-hint')).toBeNull();
+    await rerender({ mails: true, email: '' });
+    expect(screen.queryByTestId('email-change-revert-hint')).toBeNull();
+    await rerender({ mails: true, email: OLD, hasPassword: false });
+    expect(screen.queryByTestId('email-change-revert-hint')).toBeNull();
+  });
+
   it('offers no form to an account without a password, and says what comes first', () => {
     section({ hasPassword: false, email: '' });
     expect(screen.getByTestId('email-change-address')).toHaveTextContent('No address');

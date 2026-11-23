@@ -371,13 +371,16 @@ pub(crate) async fn tie_unless_taken(
     identity: Identity<'_>,
     tying: Tying<'_>,
 ) -> Result<Tied, StoreError> {
+    // Later than any revert link of the account, also one made in the same millisecond:
+    // reverting a change made before this tie always removes it.
+    let created = crate::email_revert::after_latest(scope, tying.user_id, tying.now).await?;
     let mut sql = scope
         .sql("INSERT INTO user_identities (issuer, subject, user_id, email, create_at) VALUES (");
     sql.bind(identity.issuer)
         .push_bind(", ", identity.subject)
         .push_bind(", ", Id(tying.user_id))
         .push_bind(", ", tying.email)
-        .push_bind(", ", tying.now)
+        .push_bind(", ", created)
         .push(") ON CONFLICT (issuer, subject) DO NOTHING");
     if scope.execute(sql).await? > 0 {
         return Ok(Tied::Newly);

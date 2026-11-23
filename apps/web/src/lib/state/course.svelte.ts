@@ -23,6 +23,7 @@ import {
 } from './backend.ts';
 import { containerOfWorkspace, roleOf } from './board-parts.ts';
 import { ContainerPresence } from './board-presence.svelte.ts';
+import { isCommentBlock } from './changes.ts';
 import { CourseWrites } from './course-writes.ts';
 import { MemberWrites } from './member-writes.ts';
 import { orderMembers } from './order.ts';
@@ -229,8 +230,14 @@ export class CourseStore implements TreeSource<CourseUnit> {
       case 'units':
         for (const unit of change.units) this.#receive(unit);
         break;
+      case 'blocks':
+        for (const block of change.blocks) {
+          if (isCommentBlock(block)) this.openUnit?.comments.receive(block);
+        }
+        break;
       case 'blocksDeleted':
         this.#writes.forget(change.blockIds, 'others');
+        this.openUnit?.comments.forget(change.blockIds);
         break;
       case 'members':
         if (change.containerId !== this.courseId) break;

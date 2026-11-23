@@ -188,3 +188,16 @@ fn a_taken_document_opens_to_the_same_body_each_time() {
         }
     }
 }
+
+/// Found by `review_bytes_explore` at seeds 29343 and 37207: non-YATA right origins
+/// (`left = None` before an item that itself has a left origin) can flip formatting
+/// order between live apply and reload or oscillate block squashing across reloads.
+/// Both must either be refused cleanly or leave an identical body after repair and
+/// reopen.
+#[test]
+fn non_yata_right_origins_do_not_diverge_or_oscillate() {
+    for seed in [29_343, 37_207] {
+        let (failure, _) = session(seed, 14);
+        assert!(failure.is_none(), "seed {seed}: {failure:?}");
+    }
+}

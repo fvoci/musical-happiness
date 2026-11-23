@@ -12,7 +12,6 @@
  */
 import type { DocNode } from '../../editor/schema.ts';
 import type { BodyWrite, Comment, CommentVersion } from '../backend.ts';
-import type { Wikis } from '../wiki-types.ts';
 
 import { memberRole } from './container-access.ts';
 import { checkedComment } from './bodies.ts';
@@ -29,34 +28,41 @@ import { commentOf, scramble } from './shapes.ts';
 import { deletion } from './trash.ts';
 import type { StoredBlock, World } from './world.ts';
 
-/** Who asks, in which world, about the comments of which page. */
+/** Who asks, in which world, about the comments of which page or unit. */
 export interface OnPage {
   readonly world: World;
   readonly userId: string;
   readonly wikiId: string;
   readonly pageId: string;
+  readonly containerKind?: 'wiki' | 'course';
+  readonly blockType?: 'page' | 'unit';
 }
 
+const containerKindOf = (on: OnPage): 'wiki' | 'course' => on.containerKind ?? 'wiki';
+const blockTypeOf = (on: OnPage): 'page' | 'unit' => on.blockType ?? 'page';
+
 /**
- * The role on the wiki, which is to be one to comment with; refused (403) for
+ * The role on the wiki or course, which is to be one to comment with; refused (403) for
  * a reader, in the server's words: `denial` for a change of a comment.
  */
 function commenterRole(
   on: OnPage,
-  denial = 'access denied to comment on the page',
+  denial = `access denied to comment on the ${blockTypeOf(on)}`,
 ): 'admin' | 'editor' | 'commenter' {
-  const role = memberRole(on.world, on.userId, on.wikiId, 'wiki');
+  const role = memberRole(on.world, on.userId, on.wikiId, containerKindOf(on));
   if (role === 'viewer') fail(403, denial);
   return role;
 }
 
 /** What the server refuses a reader's change of a comment with. */
-const CHANGES_DENIED = 'access denied to change the comments of the page';
+const changesDenied = (on: OnPage): string =>
+  `access denied to change the comments of the ${blockTypeOf(on)}`;
 
-/** The page, a page of the wiki and not in the trash: 404 otherwise. */
+/** The page or unit, of the container and not in the trash: 404 otherwise. */
 function pageOn(on: OnPage): StoredBlock {
+  const kind = blockTypeOf(on);
   const page = on.world.blocks.get(on.pageId);
-  if (page?.type !== 'page' || page.containerId !== on.wikiId) fail(404, 'no such page');
+  if (page?.type !== kind || page.containerId !== on.wikiId) fail(404, `no such ${kind}`);
   return page;
 }
 
@@ -78,7 +84,7 @@ function tell(on: OnPage, comment: StoredBlock): void {
 }
 
 export function commentsOf(on: OnPage): Comment[] {
-  memberRole(on.world, on.userId, on.wikiId, 'wiki');
+  memberRole(on.world, on.userId, on.wikiId, containerKindOf(on));
   pageOn(on);
   const comments = on.world.childrenOf(on.pageId).filter((block) => block.type === 'comment');
   // In no order to count on, as every list of this backend: the screens sort them.
@@ -113,7 +119,7 @@ export function createComment(on: OnPage, body: DocNode): Comment {
 }
 
 export function patchComment(on: OnPage, commentId: string, write: BodyWrite): Comment {
-  const role = commenterRole(on, CHANGES_DENIED);
+  const role = commenterRole(on, changesDenied(on));
   pageOn(on);
   const comment = commentOn(on, commentId);
   if (!mayChangeComment(role, comment.createdBy === on.userId)) {
@@ -132,7 +138,7 @@ export function patchComment(on: OnPage, commentId: string, write: BodyWrite): C
 }
 
 export function deleteComment(on: OnPage, commentId: string): void {
-  const role = commenterRole(on, CHANGES_DENIED);
+  const role = commenterRole(on, changesDenied(on));
   pageOn(on);
   const comment = commentOn(on, commentId);
   if (!mayDeleteComment(role, comment.createdBy === on.userId)) {
@@ -153,7 +159,7 @@ export function deleteComment(on: OnPage, commentId: string): void {
 
 /** A comment deleted on its own, brought back onto its page, which is to be there. */
 export function restoreComment(on: OnPage, commentId: string): Comment {
-  const role = commenterRole(on, CHANGES_DENIED);
+  const role = commenterRole(on, changesDenied(on));
   pageOn(on);
   const deleted = on.world.deletedBlocks.get(commentId);
   const [comment] = deleted?.blocks ?? [];
@@ -179,9 +185,9 @@ export function restoreComment(on: OnPage, commentId: string): Comment {
   return commentOf(comment);
 }
 
-/** Also of a comment deleted on its own, whose page is there: as the server keeps them. */
+/** Also of a comment deleted on its own, whose page or unit is there: as the server keeps them. */
 export function versionsOf(on: OnPage, commentId: string): CommentVersion[] {
-  memberRole(on.world, on.userId, on.wikiId, 'wiki');
+  memberRole(on.world, on.userId, on.wikiId, containerKindOf(on));
   pageOn(on);
   const deleted = on.world.deletedBlocks.get(commentId)?.blocks[0];
   const comment = on.world.blocks.get(commentId) ?? deleted;
@@ -189,12 +195,20 @@ export function versionsOf(on: OnPage, commentId: string): CommentVersion[] {
   return earlierVersions(on.world.commentVersions.get(commentId) ?? []);
 }
 
+type CommentMethod =
+  | 'comments'
+  | 'createComment'
+  | 'patchComment'
+  | 'deleteComment'
+  | 'restoreComment'
+  | 'commentVersions';
+
 /**
- * The comments of `Wikis` in memory: what `MemoryWikis` is besides its pages,
- * each call waiting as the backend's do (`enter`) and asked as its user (`on`).
+ * The comments of `Wikis` or `Courses` in memory: each call waiting as the
+ * backend's do (`enter`) and asked as its user (`on`).
  */
 export abstract class MemoryPageComments {
-  protected abstract enter(method: keyof Wikis): Promise<void>;
+  protected abstract enter(method: CommentMethod): Promise<void>;
   protected abstract on(wikiId: string, pageId: string): OnPage;
 
   async comments(wikiId: string, pageId: string): Promise<Comment[]> {

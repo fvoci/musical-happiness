@@ -96,7 +96,10 @@ pub use export::ExportedArchive;
 pub(crate) use file_name::check_file_name;
 pub(crate) use files::FILE;
 pub use housekeeping::WorkspacesPurged;
-pub use import::Imported;
+pub use import::{
+    BundleLimits, ImportCounts, ImportFormat, ImportSummary, ImportWarning, ImportWarningCode,
+    Imported, MAX_REPORTED_WARNINGS, ParseImportFormatError,
+};
 pub use invitations::{Accepting, Admission, Inviting};
 pub use limits::OrgLimits;
 pub use list_page::{DEFAULT_PER_PAGE, ListPage, MAX_PER_PAGE};
@@ -260,6 +263,7 @@ impl App {
         let metrics = store_metrics::set_up(&config, &store)?;
         store.set_comment_versions_kept(config.max_comment_versions);
         store.set_body_versions_kept(config.collab.collab_body_versions);
+        store.set_body_versions_max_bytes(config.collab.body_versions_max_bytes);
         store.set_file_versions_kept(config.max_file_versions);
         // The authenticator reads what is no organization's (sessions), and asks the
         // directory whose a shared board is: it is given no organization to reach.
