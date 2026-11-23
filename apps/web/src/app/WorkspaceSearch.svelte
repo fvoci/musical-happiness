@@ -9,11 +9,12 @@
   server that does not answer, or cannot hold its index, answers each search
   503, which the dialog says.
 
-  Where a board is shown, a card's number (`#12`, `12`) finds that board's
-  card first (`numbered-search.ts`). A card opens over the view of its board
-  that is shown, or else over the board's first view; a page at its wiki's
-  address (`places.ts`). The name of the board or wiki of a hit is the one
-  the sidebar knows, none where it does not.
+  `#12` finds `#12` cards across every readable board in the workspace, and
+  where a board is shown, that board's card (`#12`, `12`) comes first
+  (`numbered-search.ts`). A card opens over the view of its board that is
+  shown, or else over the board's first view; a page at its wiki's address
+  (`places.ts`). The name of the board or wiki of a hit is the one the
+  sidebar knows, or else the title the search returned.
 -->
 <script lang="ts">
   import { tick } from 'svelte';
@@ -155,7 +156,11 @@
 
   function containerOf(hit: SearchHit): string {
     const container = workspace.containers.find((one) => one.id === hit.containerId);
-    return container ? shownTitle(container) : '';
+    if (container) return shownTitle(container);
+    if (hit.containerTitle !== undefined) {
+      return shownTitle({ title: hit.containerTitle, kind: hit.containerKind });
+    }
+    return '';
   }
 </script>
 

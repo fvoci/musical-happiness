@@ -23,6 +23,8 @@ mod comment_version;
 mod container;
 mod container_teams;
 mod containers_and_blocks;
+mod course_exam;
+mod course_meeting;
 mod course_schedule;
 mod date_value;
 mod deleted_item;
@@ -55,6 +57,7 @@ mod team;
 mod time_entry;
 mod unit;
 mod unit_progress;
+mod unit_review;
 mod upload;
 mod user;
 mod workspace;
@@ -111,6 +114,17 @@ pub use containers_and_blocks::{
     PatchContainersAndBlocks, Renewed, generate_containers_and_blocks_ids,
     renew_containers_and_blocks_ids, renew_containers_and_blocks_ids_told,
 };
+pub use course_exam::{
+    COURSE_EXAM_DESCRIPTION_MAX_CHARS, COURSE_EXAM_MAX_SCORE_LIMIT, COURSE_EXAM_TITLE_MAX_CHARS,
+    CourseExam, CourseExamChange, CourseExamPatch, EXAM_SCORE_NOTE_MAX_CHARS, ExamDateChange,
+    MyExamScore, MyExamScoreUpdate, NewCourseExam, ValidatedMyExamScore, ValidatedNewExam,
+};
+pub use course_meeting::{
+    AttendanceStatus, COURSE_MEETING_LOCATION_MAX_CHARS, COURSE_MEETING_MAX_UNITS,
+    COURSE_MEETING_NOTES_MAX_CHARS, COURSE_MEETING_TITLE_MAX_CHARS, CourseMeeting,
+    CourseMeetingChange, CourseMeetingPatch, MeetingAttendance, MeetingAttendanceUpdate,
+    NewCourseMeeting, OptionalIdChange, UnknownAttendanceStatus, ValidatedNewMeeting,
+};
 pub use course_schedule::{
     AmountUnit, CourseOutlineNodes, CourseSchedule, CourseScheduleUpdate, CourseScheduleView,
     FieldChange, LearningTodayItem, MAX_SCHEDULE_SPAN_DAYS, ParseAmountUnitError, RedistributePlan,
@@ -123,16 +137,17 @@ pub use course_schedule::{
     study_dates_in_range, today_in_time_zone,
 };
 pub use date_value::{
-    DateValueError, check_date_value, date_property_ids, day_at, days_between, move_dates,
-    rewrite_previous_date_values,
+    DateValueError, add_days, check_date_value, date_property_ids, day_at, days_between,
+    is_calendar_date, move_dates, rewrite_previous_date_values,
 };
 pub use deleted_item::DeletedItem;
 pub use diary::{
     DAYS_PER_LIST, DIARIES_PER_SPACE, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryEntry,
-    DiaryEntryPatch, DiaryMaking, DiaryRun, ENTRIES_PER_DIARY, ENTRY_DATE_FIELD, ENTRY_DAYS_AHEAD,
-    ENTRY_MOOD_FIELD, ENTRY_NOTE_MAX_CHARS, ENTRY_PLACE_FIELD, ENTRY_WEATHER_FIELD, MonthDay, Mood,
-    MoodChange, NewDiaryEntry, ParseDiaryDateError, ParseMonthDayError, ParseMoodError, entry_date,
-    entry_mood,
+    DiaryEntryPatch, DiaryMaking, DiaryRun, ENTRIES_PER_DIARY, ENTRY_BODY_UPDATED_AT_FIELD,
+    ENTRY_DATE_FIELD, ENTRY_DAYS_AHEAD, ENTRY_MOOD_FIELD, ENTRY_NOTE_MAX_CHARS, ENTRY_PLACE_FIELD,
+    ENTRY_WEATHER_FIELD, MonthDay, Mood, MoodChange, NewDiaryEntry, ParseDiaryDateError,
+    ParseMonthDayError, ParseMoodError, entry_body_updated_at, entry_date, entry_mood,
+    is_empty_entry,
 };
 pub use file_info::{FileInfo, FileKey, is_storage_path};
 pub use file_lease::{FileLease, FileLeaseRequest, HeldFileLease};
@@ -206,6 +221,14 @@ pub use unit::{
 pub use unit_progress::{
     CompletionChange, CourseProgressSummary, LastPositionChange, MemberCourseProgress,
     UNIT_PROGRESS_POSITION_MAX_CHARS, UnitProgress, UnitProgressChange, UnitProgressUpdate,
+};
+pub use unit_review::{
+    COURSE_REVIEW_INTERVALS_PROPERTY, CompleteUnitReview, CompletedUnitReview, CreateUnitNote,
+    DEFAULT_REVIEW_INTERVALS, MAX_REVIEW_INTERVAL_DAYS, MIN_REVIEW_INTERVAL_DAYS, NewUnitNote,
+    NewUnitReview, ParseReviewStatusError, ParseUnitNoteKindError, PatchUnitNote,
+    ReviewStatusFilter, ScheduleUnitReview, TodayReviewItem, UNIT_NOTE_CONTENT_MAX_CHARS, UnitNote,
+    UnitNoteChange, UnitNoteKind, UnitReview, course_review_intervals,
+    suggested_next_interval_days,
 };
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{LoginOrigin, Me, Session, User, UserPreferencesPatch};

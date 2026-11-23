@@ -179,14 +179,17 @@ function readContentOrder(value: unknown): ContentOrder {
 
 export function createCard(source?: Block): Card {
   const fields = source?.fields ?? {};
+  const isTemplate = Boolean(fields.isTemplate);
+  const base = createBlock(source);
+  if (isTemplate) delete base.number;
   return {
-    ...createBlock(source),
+    ...base,
     type: 'card',
     fields: {
       icon: (fields.icon as string | undefined) || '',
       properties: { ...(fields.properties as Record<string, PropertyValue> | undefined) },
       contentOrder: readContentOrder(fields.contentOrder),
-      isTemplate: Boolean(fields.isTemplate),
+      isTemplate,
     },
   };
 }

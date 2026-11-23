@@ -8,7 +8,7 @@ use fvoci_store::{PublicContainers, SearchDocument};
 
 use super::client::ClientError;
 use super::database::MAX_BOUND_CONTAINERS;
-use super::query::{Containers, Scope};
+use super::query::{Containers, MatchBy, Scope, card_number_query};
 use super::{Engine, Way, document};
 use crate::app::App;
 use crate::error::{AppError, Reason};
@@ -71,6 +71,15 @@ impl Asked {
             kind,
             limit,
         })
+    }
+
+    /// If the query is `#12` (or `#0012` normalized to `12`) and the requested kind
+    /// admits cards (`None` or `Some(SearchKind::Card)`), returns that positive number.
+    pub(super) fn card_number(&self) -> Option<u32> {
+        if self.kind.is_some_and(|kind| kind != SearchKind::Card) {
+            return None;
+        }
+        card_number_query(&self.text)
     }
 }
 
@@ -156,6 +165,7 @@ impl App {
             user_id,
             workspace_id,
             kind: asked.kind,
+            number: asked.card_number(),
             theirs: &theirs,
             reads: HashMap::new(),
             answered: HashSet::new(),
@@ -197,6 +207,10 @@ impl App {
             containers: pages.containers,
             kind: asked.kind,
         };
+        let match_by = match check.number {
+            Some(number) => MatchBy::CardNumber(number),
+            None => MatchBy::Text(&asked.text),
+        };
         let size = pages.size;
         let mut found = Vec::new();
         let mut from = 0;
@@ -204,14 +218,19 @@ impl App {
             let left = pages.by.saturating_duration_since(Instant::now());
             let hits = engine
                 .client
-                .search(&scope, &asked.text, from, size, left)
+                .search(&scope, match_by, from, size, left)
                 .await
                 .map_err(|error| search_failed(engine, &error))?;
             let more_may_match = hits.len() == size;
             let kept = self.check_hits(check, hits, |hit| &hit.id).await?;
             found.extend(kept.into_iter().map(|(hit, document)| {
-                let current = hit.digest == document::digest(&document.title, &document.text);
-                let snippet = if current { hit.snippet } else { Vec::new() };
+                let snippet = if matches!(match_by, MatchBy::CardNumber(_)) {
+                    Vec::new()
+                } else if hit.digest == document::digest(&document.title, &document.text) {
+                    hit.snippet
+                } else {
+                    Vec::new()
+                };
                 found_hit(document, snippet)
             }));
             from += size;
@@ -260,6 +279,9 @@ impl App {
             // costs the same as what it does not.
             if document.workspace_id != check.workspace_id
                 || check.kind.is_some_and(|kind| kind != document.kind)
+                || check.number.is_some_and(|number| {
+                    document.kind != SearchKind::Card || document.number != Some(number)
+                })
                 || !check.theirs.contains(&document.container_id)
                 || !check.answered.insert(document.id.clone())
             {
@@ -295,6 +317,7 @@ pub(super) fn found_hit(document: SearchDocument, snippet: Vec<SnippetPart>) -> 
         kind: document.kind,
         container_id: document.container_id,
         container_kind: document.container_kind,
+        container_title: document.container_title,
         title: document.title,
         number: document.number,
         snippet,
@@ -317,6 +340,8 @@ pub(super) struct Check<'a> {
     user_id: &'a str,
     pub(super) workspace_id: &'a str,
     kind: Option<SearchKind>,
+    /// The exact card number being matched, if any (`#12`).
+    pub(super) number: Option<u32>,
     /// The boards and wikis of the workspace the user has a role on, and its open
     /// wikis for who works there.
     theirs: &'a HashSet<String>,

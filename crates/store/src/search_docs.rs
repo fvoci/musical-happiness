@@ -27,19 +27,21 @@ pub struct SearchDocument {
     pub container_id: String,
     /// What its container is. No document says so: the search asks the database.
     pub container_kind: ContainerKind,
+    /// The title of its container; empty if untitled. No document says so: read from the database.
+    pub container_title: String,
     /// What it is.
     pub kind: SearchKind,
     /// Its title.
     pub title: String,
     /// The plain text of its body; empty without one.
     pub text: String,
-    /// A card's number on its board; `None` for a page. No document says it either.
+    /// A card's number on its board; `None` for a page, entry or unit.
     pub number: Option<u32>,
 }
 
 /// The columns of a document, of the blocks `b`, their boards `bo` and the boards'
 /// workspaces `w`.
-const DOCUMENT_COLUMNS: &str = "b.id, w.org_id, bo.workspace_id, b.container_id, b.title, COALESCE(b.body_text, ''), b.type, bo.kind, b.number";
+const DOCUMENT_COLUMNS: &str = "b.id, w.org_id, bo.workspace_id, b.container_id, b.title, COALESCE(b.body_text, ''), b.type, bo.kind, b.number, bo.title";
 
 /// Starts the statement that reads `columns` of the blocks that have a document, with
 /// their boards `bo` and workspaces `w`: the cards and the pages of the boards and
@@ -139,15 +141,21 @@ fn document_from_row(row: &Row) -> Result<SearchDocument, StoreError> {
         column: "type",
         reason: format!("a document of a block of type {block_type}"),
     })?;
+    let number = if kind == SearchKind::Card {
+        crate::card_numbers::number_from_row(row, 8)?
+    } else {
+        None
+    };
     Ok(SearchDocument {
         id: row.id(0)?,
         org_id: row.id(1)?,
         workspace_id: row.id(2)?,
         container_id: row.id(3)?,
         container_kind: crate::container_kinds::kind_from_text(&row.text(7)?)?,
+        container_title: row.text(9)?,
         kind,
         title: row.text(4)?,
         text: row.text(5)?,
-        number: crate::card_numbers::number_from_row(row, 8)?,
+        number,
     })
 }

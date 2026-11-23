@@ -21,18 +21,18 @@ import {
   type Paging,
   type UnitDraft,
 } from './backend.ts';
-import type { CourseProgressSummary, UnitProgress } from './course-types.ts';
+import type { CourseProgressSummary, ScheduledUnit, UnitProgress } from './course-types.ts';
 import { containerOfWorkspace, roleOf } from './board-parts.ts';
 import { ContainerPresence } from './board-presence.svelte.ts';
 import { isCommentBlock } from './changes.ts';
 import { CourseProgress } from './course-progress.svelte.ts';
+import { CourseScheduleState } from './course-schedule.svelte.ts';
 import { CourseWrites } from './course-writes.ts';
 import { MemberWrites } from './member-writes.ts';
 import { orderMembers } from './order.ts';
 import type { TreeSource } from './tree-source.ts';
 import { UnitStore } from './unit.svelte.ts';
 import { memberId } from './user-names.ts';
-import { unlessGone } from './wiki-parts.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
 
@@ -84,6 +84,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
 
   readonly presence: ContainerPresence;
   readonly progress: CourseProgress;
+  readonly schedule: CourseScheduleState;
   readonly #writes: CourseWrites;
   readonly #people = new MemberWrites(this);
 
@@ -98,6 +99,29 @@ export class CourseStore implements TreeSource<CourseUnit> {
       units: () => this.units,
       canTrack: () => this.canTrackProgress,
       isClosed: () => this.#closed,
+      onCompletionChanged: (unitId, completed) => {
+        this.schedule.reconcileCompletion(unitId, completed);
+      },
+    });
+    this.schedule = new CourseScheduleState({
+      courseId,
+      workspace,
+      courses: () => this.#courses,
+      canEdit: () => this.canEdit,
+      canTrack: () => this.canTrackProgress,
+      isClosed: () => this.#closed,
+      takeUnit: (unit) => {
+        this.#receive(unit);
+      },
+      applyProgress: (row) => {
+        this.progress.applyRow(row);
+      },
+      refreshMine: () => {
+        void this.progress.refreshMine();
+      },
+      syncUnitDates: (units) => {
+        this.#syncUnitDates(units);
+      },
     });
     this.#writes = new CourseWrites({
       courseId,
@@ -144,6 +168,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
     const reading = this.#readings;
     const membersTold = this.#people.told;
     const progressMark = this.progress.writeVersion;
+    const scheduleMark = this.schedule.writeVersion;
     try {
       this.#stopWatching?.();
       this.#stopWatching = this.workspace.backend.watchContainer(this.courseId, (change) => {
@@ -151,12 +176,13 @@ export class CourseStore implements TreeSource<CourseUnit> {
       });
       const backend = this.workspace.backend;
       const workspaceId = this.workspace.info?.id;
-      const [course, units, members, progress, summary] = await Promise.all([
+      const [course, units, members, progress, summary, schedule] = await Promise.all([
         containerOfWorkspace(backend, this.courseId, workspaceId, 'course'),
         this.#courses.units(this.courseId),
         backend.members(this.courseId),
         this.#courses.myProgress(this.courseId, workspaceId),
         this.#courses.progressSummary(this.courseId, workspaceId),
+        this.#courses.schedule(this.courseId, workspaceId),
       ]);
       if (this.#closed || reading !== this.#readings) return;
       void this.workspace.learnUsers(members.map(memberId), { members: true });
@@ -165,6 +191,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
       this.#writes.remember(this.units);
       if (membersTold === this.#people.told) this.members = members;
       this.progress.take(progress, summary, progressMark);
+      this.schedule.take(schedule, scheduleMark);
       this.status = 'ready';
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
@@ -246,6 +273,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
         break;
       case 'units':
         for (const unit of change.units) this.#receive(unit);
+        void this.schedule.refresh();
         break;
       case 'blocks':
         for (const block of change.blocks) {
@@ -255,6 +283,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
       case 'blocksDeleted':
         this.#writes.forget(change.blockIds, 'others');
         this.openUnit?.comments.forget(change.blockIds);
+        void this.schedule.refresh();
         break;
       case 'members':
         if (change.containerId !== this.courseId) break;
@@ -262,6 +291,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
         this.members = change.members;
         if (this.workspace.me && !change.members.some((m) => m.userId === this.workspace.me?.id)) {
           this.progress.clearMine();
+          this.schedule.clearMine();
           if (this.course?.type !== 'O') this.workspace.evictContainer(this.courseId);
         }
         void this.workspace.learnUsers(change.members.map(memberId), { members: true });
@@ -297,19 +327,22 @@ export class CourseStore implements TreeSource<CourseUnit> {
     const mark = this.#writes.forgettings;
     const membersTold = this.#people.told;
     const progressMark = this.progress.writeVersion;
+    const scheduleMark = this.schedule.writeVersion;
     try {
       const workspaceId = this.workspace.info?.id;
-      const [course, units, members, progress, summary] = await Promise.all([
+      const [course, units, members, progress, summary, schedule] = await Promise.all([
         this.workspace.backend.container(this.courseId),
         this.#courses.units(this.courseId),
         this.workspace.backend.members(this.courseId),
         this.#courses.myProgress(this.courseId, workspaceId),
         this.#courses.progressSummary(this.courseId, workspaceId),
+        this.#courses.schedule(this.courseId, workspaceId),
       ]);
       if (this.#isClosed() || reading !== this.#readings) return;
       this.#takeCourse(course);
       if (membersTold === this.#people.told) this.members = members;
       this.progress.take(progress, summary, progressMark);
+      this.schedule.take(schedule, scheduleMark);
       const shown = this.openUnit;
       const title = (shown && this.unit(shown.unitId)?.title) ?? '';
       const read = this.#writes.admitted(units, mark);
@@ -362,33 +395,8 @@ export class CourseStore implements TreeSource<CourseUnit> {
     return this.#writes.restoreUnit(unitId);
   }
 
-  /** Changes the title of a chapter or unit: shown at once, undone as one step. */
-  async changeUnitTitle(unitId: string, title: string): Promise<void> {
-    const before = this.unit(unitId);
-    if (!before || before.title === title) return;
-    const previous = before.title;
-    try {
-      await this.workspace.undo.perform(
-        () => unlessGone(() => this.#writeTitle(unitId, title, previous)),
-        () => unlessGone(() => this.#writeTitle(unitId, previous, title)),
-        'changeUnitTitle',
-      );
-    } catch (error) {
-      this.workspace.report('save', error);
-    }
-  }
-
-  async #writeTitle(unitId: string, title: string, back: string): Promise<void> {
-    const show = (next: string): void => {
-      this.units = this.units.map((unit) => (unit.id === unitId ? { ...unit, title: next } : unit));
-    };
-    show(title);
-    try {
-      this.#receive(await this.#courses.patchUnit(this.courseId, unitId, { title }));
-    } catch (error) {
-      show(back);
-      throw error;
-    }
+  changeUnitTitle(unitId: string, title: string): Promise<void> {
+    return this.#writes.changeUnitTitle(unitId, title);
   }
 
   async changeCourse(
@@ -460,24 +468,28 @@ export class CourseStore implements TreeSource<CourseUnit> {
     return this.#people.remove(userId);
   }
 
-  // ------------------------------------------------------------ progress
+  #syncUnitDates(scheduled: readonly ScheduledUnit[]): void {
+    const byId: Record<string, ScheduledUnit | undefined> = Object.fromEntries(
+      scheduled.map((item) => [item.unitId, item]),
+    );
+    this.units = this.units.map((unit) => {
+      const next = byId[unit.id];
+      return next ? { ...unit, scheduledDate: next.scheduledDate } : unit;
+    });
+  }
 
   get myProgress(): ReadonlyMap<string, UnitProgress> {
     return this.progress.myProgress;
   }
-
   get progressSummary(): CourseProgressSummary | null {
     return this.progress.progressSummary;
   }
-
   toggleUnitComplete(unitId: string): Promise<boolean> {
     return this.progress.toggleComplete(unitId);
   }
-
   setUnitLastPosition(unitId: string, position: string | null): Promise<boolean> {
     return this.progress.setLastPosition(unitId, position);
   }
-
   refreshProgressSummary(): Promise<void> {
     return this.progress.refreshSummary();
   }

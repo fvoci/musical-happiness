@@ -244,9 +244,20 @@ async fn a_table_that_does_not_fill_its_grid_or_is_past_a_limit_is_refused() {
         .await;
     let short = table(None, &[&["a", "b"], &["c"]]);
     let wide = table(None, &[&["x"; 21]]);
-    for (grid, reason) in [
-        (short, "spans past the table or over another"),
-        (wide, "more than 200 rows or more than 20 columns"),
+    let tall_rows: Vec<&[&str]> = vec![&["x"]; usize::from(fvoci_model::TABLE_MAX_ROWS) + 1];
+    let tall = table(None, &tall_rows);
+    for (grid, reason, problem_reason) in [
+        (short, "spans past the table or over another", None),
+        (
+            wide,
+            "more than 200 rows or more than 20 columns",
+            Some("table_too_large"),
+        ),
+        (
+            tall,
+            "more than 200 rows or more than 20 columns",
+            Some("table_too_large"),
+        ),
     ] {
         let body = json!({"type": "doc", "content": [line("before"), grid]});
         let refused = th
@@ -265,6 +276,12 @@ async fn a_table_that_does_not_fill_its_grid_or_is_past_a_limit_is_refused() {
         );
         assert!(
             refused.error_message().contains(reason),
+            "{}",
+            refused.text()
+        );
+        assert_eq!(
+            refused.value()["reason"].as_str(),
+            problem_reason,
             "{}",
             refused.text()
         );
@@ -356,7 +373,7 @@ async fn a_table_at_its_limit_is_mended_and_a_column_past_it_is_refused() {
     let editor = Editor::join(103, &reopened.state);
     assert_eq!(
         editor.body().map(|body| body.document().clone()),
-        Some(mended),
+        Some(mended.clone()),
         "the row is given the cell it lacks"
     );
 
@@ -370,10 +387,18 @@ async fn a_table_at_its_limit_is_mended_and_a_column_past_it_is_refused() {
         )
         .await
         .expect_err("a twenty-first column");
-    assert_eq!(refused.status(), 413, "{refused}");
+    assert_eq!(refused.status(), 400, "{refused}");
     assert_eq!(
         refused.reason().map(fvoci_server::error::Reason::as_str),
-        Some("document_too_large")
+        Some("table_too_large")
+    );
+    let after = collab.open(&e.app, &e.card_id).await.expect("reopened");
+    assert_eq!(
+        Editor::join(104, &after.state)
+            .body()
+            .map(|body| body.document().clone()),
+        Some(mended),
+        "refused 21st column leaves the document unpolluted"
     );
     th.teardown().await;
 }

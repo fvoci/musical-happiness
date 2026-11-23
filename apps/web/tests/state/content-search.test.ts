@@ -193,6 +193,89 @@ describe('the search in memory', () => {
     });
     await expect(backend.search.find('w', { query: 'kangaroo' })).resolves.toHaveLength(2);
   });
+
+  it('finds `#12` and `#0012` cards across readable boards with containerTitle, excluding templates and private boards', async () => {
+    const made = world();
+    made.containers.set('second', {
+      ...createBoard(),
+      id: 'second',
+      workspaceId: 'w',
+      title: 'Roadmap',
+    });
+    made.members.set('second', [memberOf('second', 'reader', 'editor')]);
+    const c1 = made.blocks.get('found');
+    const c2 = made.blocks.get('secret');
+    const c3 = made.blocks.get('unjoined');
+    const c4 = made.blocks.get('in-template');
+    const c5 = made.blocks.get('card-template');
+    if (!c1 || !c2 || !c3 || !c4 || !c5) throw new Error('missing seed cards');
+    c1.number = 12;
+    c2.number = 12;
+    c3.number = 12;
+    c4.number = 12;
+    // Preserved number on a card template must stay excluded from `#12` search.
+    c5.number = 12;
+    made.blocks.set('second-12', {
+      ...createCard(block('second-12', 'second', 'Ship milestone', NOW + 1000)),
+      number: 12,
+      body: text('Other board card'),
+    });
+    made.blocks.set('mixed', {
+      ...createCard(block('mixed', 'mine', 'Check #12abc issue')),
+      number: 99,
+    });
+
+    const backend = new MemoryBackend(made, 'reader');
+    const hits = await backend.search.find('w', { query: '#12' });
+    expect(hits).toEqual([
+      {
+        id: 'second-12',
+        kind: 'card',
+        containerId: 'second',
+        containerKind: 'board',
+        containerTitle: 'Roadmap',
+        title: 'Ship milestone',
+        number: 12,
+        snippet: [],
+      },
+      {
+        id: 'found',
+        kind: 'card',
+        containerId: 'mine',
+        containerKind: 'board',
+        containerTitle: 'Board mine',
+        title: 'Release plan',
+        number: 12,
+        snippet: [],
+      },
+    ]);
+
+    // Leading zeros normalize to `#12`.
+    expect(ids(await backend.search.find('w', { query: '  #0012 ' }))).toEqual([
+      'second-12',
+      'found',
+    ]);
+    // Filtering by kind=page runs ordinary text search (never returning cards, still finding pages mentioning `#12`).
+    made.containers.set('notes-wiki', {
+      ...createBoard(),
+      id: 'notes-wiki',
+      workspaceId: 'w',
+      title: 'Notes',
+      type: 'O',
+      kind: 'wiki',
+    });
+    made.members.set('notes-wiki', [memberOf('notes-wiki', 'reader', 'editor')]);
+    made.blocks.set('page-12', {
+      ...block('page-12', 'notes-wiki', 'Sprint notes'),
+      type: 'page',
+      body: text('See #12 details'),
+    });
+    expect(ids(await backend.search.find('w', { query: '#12', kind: 'page' }))).toEqual([
+      'page-12',
+    ]);
+    // Mixed non-digits fall back to normal text search.
+    expect(ids(await backend.search.find('w', { query: '#12abc' }))).toEqual(['mixed']);
+  });
 });
 
 describe('the snippet of a body', () => {
@@ -252,7 +335,9 @@ describe('the search on the server', () => {
       kind: 'card',
       containerId: 'b',
       containerKind: 'board',
+      containerTitle: 'Board B',
       title: 'Title',
+      number: 12,
       snippet: [{ text: '<b>', matched: true }],
     };
     const asked = serve({ '/api/v1/w/w1/search': [hit] });

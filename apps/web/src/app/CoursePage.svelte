@@ -18,8 +18,10 @@
   import { unitVersions, VersionsReading } from '$lib/features/card/body-versions.svelte.ts';
   import CourseJoin from '$lib/features/course/CourseJoin.svelte';
   import CourseProgressBar from '$lib/features/course/CourseProgressBar.svelte';
+  import CourseSchedulePanel from '$lib/features/course/CourseSchedulePanel.svelte';
   import CourseScreen from '$lib/features/course/CourseScreen.svelte';
   import UnitMenu from '$lib/features/course/UnitMenu.svelte';
+  import UnitTreeScheduleBadge from '$lib/features/course/UnitTreeScheduleBadge.svelte';
   import OutlineButton from '$lib/features/wiki/OutlineButton.svelte';
   import OutlineColumns from '$lib/features/wiki/OutlineColumns.svelte';
   import { PageOutline } from '$lib/features/wiki/page-outline.svelte.ts';
@@ -332,6 +334,7 @@
       >
         {#snippet progress()}
           <CourseProgressBar course={store} />
+          <CourseSchedulePanel course={store} />
         {/snippet}
         {#snippet tree({ closeDrawer }: { closeDrawer: (restoreFocus?: boolean) => void })}
           <PageTree
@@ -383,6 +386,9 @@
                   >{done ? m.course_unit_completed() : m.course_unit_incomplete()}</span
                 >
               {/if}
+            {/snippet}
+            {#snippet itemTrailing(item: CourseUnit)}
+              <UnitTreeScheduleBadge course={store} unit={item} />
             {/snippet}
             {#snippet headerActions()}
               <div class="flex shrink-0 items-center gap-1">

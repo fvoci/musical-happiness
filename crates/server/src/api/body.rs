@@ -3,7 +3,7 @@
 //! A body that is not the JSON a route expects is a bad request (400), whatever is wrong
 //! with it: not JSON at all, the wrong type, `null`, a member of the wrong type.
 
-use fvoci_model::{BlockPatch, Body, BodyChange, BodyError, JsonMap};
+use fvoci_model::{BlockPatch, Body, BodyChange, BodyError, DiaryEntryPatch, JsonMap};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
@@ -79,13 +79,7 @@ pub(crate) fn objects_mut<'v>(
 /// document that is refused, where it is one node (the first; a document may have
 /// thousands), else the document.
 fn body_refused(error: BodyError) -> AppError {
-    let pointer = match &error {
-        BodyError::InvalidNode { path, .. } | BodyError::TableTooLarge { path } => {
-            format!("/body{path}")
-        }
-        _ => "/body".to_owned(),
-    };
-    AppError::bad_request(error).with_pointer(pointer)
+    AppError::from_body_error("body", error)
 }
 
 /// The JSON Pointer to the block at `index` of a request: empty if the request body is
@@ -196,6 +190,38 @@ pub(crate) fn decode_with_document<T: DeserializeOwned>(
         Some(value) => BodyChange::parse(value).map_err(body_refused)?,
     };
     Ok((decoded, change))
+}
+
+/// Decodes a [`DiaryEntryPatch`] request body, checking `body` (at `/body`) and
+/// `appendBody` (at `/appendBody`) separately and refusing requests that send both keys
+/// in the same patch.
+///
+/// # Errors
+///
+/// Returns a bad request if the body is not a JSON object with valid patch fields, if
+/// both `body` and `appendBody` are present, or if either document fails body checks.
+pub(crate) fn decode_diary_entry_patch(body: &[u8]) -> Result<DiaryEntryPatch, AppError> {
+    let (mut patch, (document, appended)): (DiaryEntryPatch, (Option<Value>, Option<Value>)) =
+        decode_object_with(body, |members| {
+            (members.remove("body"), members.remove("appendBody"))
+        })?;
+    if document.is_some() && appended.is_some() {
+        return Err(AppError::bad_request(
+            "`body` and `appendBody` cannot be sent in the same patch",
+        )
+        .with_field("appendBody"));
+    }
+    patch.body = match document {
+        None => BodyChange::Keep,
+        Some(value) => BodyChange::parse(value).map_err(body_refused)?,
+    };
+    patch.append_body = match appended {
+        None => None,
+        Some(value) => {
+            Body::parse(value).map_err(|error| AppError::from_body_error("appendBody", error))?
+        }
+    };
+    Ok(patch)
 }
 
 #[cfg(test)]

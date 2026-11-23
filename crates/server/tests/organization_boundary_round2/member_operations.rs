@@ -30,6 +30,11 @@ struct Named {
     course: String,
     unit: String,
     course_comment: String,
+    meeting: String,
+    exam: String,
+    /// Personal review and study note the member created on `unit`.
+    review: String,
+    note: String,
     file: String,
     upload: String,
     category: String,
@@ -52,7 +57,7 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 47] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 48] = [
     // No workspace of an organization has a diary: a diary is of a user's own space.
     "getDiaries",
     "createDiary",
@@ -66,6 +71,7 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 47] = [
     "getDeletedDiaryEntries",
     "undeleteDiaryEntry",
     "getDiaryEntryBodyVersions",
+    "keepDiaryEntryBodyVersion",
     "getDiaryEntryBodyVersion",
     "restoreDiaryEntryBodyVersion",
     // The organization's own routes are its administrators'.
@@ -137,6 +143,10 @@ fn operations() -> Vec<(String, String, String)> {
         | "deleteBlock"
         | "deletePage"
         | "deleteUnit"
+        | "deleteCourseMeeting"
+        | "deleteCourseExam"
+        | "deleteUnitReview"
+        | "deleteUnitNote"
         | "deleteCourseSchedule"
         | "deleteBoardsAndBlocks"
         | "deleteUpload"
@@ -184,6 +194,10 @@ impl Named {
             .replace("{commentId}", comment)
             .replace("{courseId}", &self.course)
             .replace("{unitId}", &self.unit)
+            .replace("{meetingId}", &self.meeting)
+            .replace("{examId}", &self.exam)
+            .replace("{reviewId}", &self.review)
+            .replace("{noteId}", &self.note)
             // No workspace of an organization has a diary: the board named as one is
             // none, in either organization.
             .replace("{diaryId}", &self.board)
@@ -213,6 +227,7 @@ impl Named {
             "importArchive" => json!({ "uploadId": self.upload }),
             "previewInvitation" => json!({ "token": self.invitation }),
             "patchMe" => json!({ "customName": "a member" }),
+            "patchUnitNote" => json!({ "content": "updated note" }),
             "startTimeEntry" => {
                 json!({ "workspaceId": self.workspace, "blockId": self.card, "kind": "work" })
             }
@@ -307,7 +322,8 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         .await
         .value();
     let (wiki, page, comment) = wiki_with_a_page(&founder, &at, name).await;
-    let (course, unit, course_comment) = course_with_a_unit(&founder, &at, name).await;
+    let (course, unit, course_comment, meeting, exam) =
+        course_with_a_unit(&founder, &at, name).await;
     write_a_body(&founder, &at, &card).await;
     let file = Client::send(
         founder
@@ -330,8 +346,52 @@ async fn organization(server: &TestServer, name: &str) -> Named {
             .await
             .check_ok();
     }
+    let (review, note) = member_review_and_note(&member, &at, &course, &unit).await;
     let notification = told_of_a_mention(server, &founder, &member, &at, &board).await;
     let card_id = text(&card, "id");
+    let (upload, time_entry) =
+        member_card_activity(&member, &at, &workspace, &board, &card_id, &member_id).await;
+    let team = team_on_board(&founder, &at, &board, &member_id).await;
+    plain_member(server, &member_id, &workspace).await;
+    Named {
+        member,
+        member_id,
+        category: text(&categories[0], "id"),
+        card: card_id,
+        read_token,
+        wiki_token,
+        course_token,
+        file: text(&file, "fileId"),
+        upload,
+        invitation: token,
+        invitation_id: text(&invitation, "id"),
+        org,
+        workspace,
+        board,
+        wiki,
+        page,
+        comment,
+        course,
+        unit,
+        course_comment,
+        meeting,
+        exam,
+        review,
+        note,
+        team,
+        notification,
+        time_entry,
+    }
+}
+
+async fn member_card_activity(
+    member: &Client,
+    at: &str,
+    workspace: &str,
+    board: &str,
+    card_id: &str,
+    member_id: &str,
+) -> (String, String) {
     member
         .post(
             &format!("{at}/subscriptions"),
@@ -347,7 +407,6 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         )
         .await
         .value();
-    let team = team_on_board(&founder, &at, &board, &member_id).await;
     let started_time = member
         .post(
             "/users/me/time/start",
@@ -355,38 +414,19 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         )
         .await
         .value();
-    let time_entry = text(&started_time["entry"], "id");
-    plain_member(server, &member_id, &workspace).await;
-    Named {
-        member,
-        member_id,
-        category: text(&categories[0], "id"),
-        card: card_id,
-        read_token,
-        wiki_token,
-        course_token,
-        file: text(&file, "fileId"),
-        upload: text(&upload, "uploadId"),
-        invitation: token,
-        invitation_id: text(&invitation, "id"),
-        org,
-        workspace,
-        board,
-        wiki,
-        page,
-        comment,
-        course,
-        unit,
-        course_comment,
-        team,
-        notification,
-        time_entry,
-    }
+    (
+        text(&upload, "uploadId"),
+        text(&started_time["entry"], "id"),
+    )
 }
 
-/// A course of the workspace at `at` for everybody in it, with a unit (two body versions)
-/// and a comment on it: the identifiers of the three.
-async fn course_with_a_unit(founder: &Client, at: &str, name: &str) -> (String, String, String) {
+/// A course of the workspace at `at` for everybody in it, with a unit (two body versions),
+/// a comment on it, a meeting, and an exam.
+async fn course_with_a_unit(
+    founder: &Client,
+    at: &str,
+    name: &str,
+) -> (String, String, String, String, String) {
     let course = founder
         .post(
             &format!("{at}/courses"),
@@ -423,7 +463,51 @@ async fn course_with_a_unit(founder: &Client, at: &str, name: &str) -> (String, 
         )
         .await
         .value();
-    (course, unit, text(&comment, "id"))
+    let meeting = founder
+        .post(
+            &format!("{at}/courses/{course}/meetings"),
+            &json!({"title": format!("{name} meeting"), "startsAt": 1_800_000_000_000_i64}),
+        )
+        .await
+        .value();
+    let exam = founder
+        .post(
+            &format!("{at}/courses/{course}/exams"),
+            &json!({"title": format!("{name} exam"), "maxScore": 100.0}),
+        )
+        .await
+        .value();
+    (
+        course,
+        unit,
+        text(&comment, "id"),
+        text(&meeting, "id"),
+        text(&exam, "id"),
+    )
+}
+
+/// Schedules one personal review and creates one personal note for `member` on `unit`.
+async fn member_review_and_note(
+    member: &Client,
+    at: &str,
+    course: &str,
+    unit: &str,
+) -> (String, String) {
+    let review = member
+        .post(
+            &format!("{at}/courses/{course}/units/{unit}/reviews"),
+            &json!({"intervalDays": 3}),
+        )
+        .await
+        .value();
+    let note = member
+        .post(
+            &format!("{at}/courses/{course}/units/{unit}/notes"),
+            &json!({"kind": "question", "content": "personal note"}),
+        )
+        .await
+        .value();
+    (text(&review, "id"), text(&note, "id"))
 }
 
 /// The founder names the member in a card of the board, which the member reads, and
@@ -617,6 +701,11 @@ const MEMBER_READ_OPERATIONS: &[&str] = &[
     "getUnit",
     "getMyCourseProgress",
     "getCourseProgressSummary",
+    "listCourseMeetings",
+    "listCourseExams",
+    "listMyCourseReviews",
+    "listMyUnitNotes",
+    "getWorkspaceTodayReviews",
     "getCourseSchedule",
     "getWorkspaceLearningToday",
     "getUnitComments",

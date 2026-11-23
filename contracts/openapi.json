@@ -240,6 +240,16 @@
         ],
         "type": "string"
       },
+      "AttendanceStatus": {
+        "description": "A member's attendance status for a course study meeting.",
+        "enum": [
+          "present",
+          "late",
+          "absent",
+          "excused"
+        ],
+        "type": "string"
+      },
       "AuditAction": {
         "description": "What a record of the audit log says was done.",
         "enum": [
@@ -775,7 +785,7 @@
             "type": "string"
           },
           "number": {
-            "description": "The card's number on its board, as `#12` names it: from 1, one more for each card\nmade on the board, never given again, also once the card is gone. A card keeps it\nwhile it is one; a copy and an import are new cards with new numbers, and a card\nthat comes back from the trash has its own. `null` for a template of the board's\ncards (`isTemplate`): a card made a template loses its number, and takes the next\none if it is made a card again. The server gives it: what a request sends here is\nignored, whatever it is.",
+            "description": "The card's number on its board, as `#12` names it: from 1, one more for each card\nmade on the board, never given again, also once the card is gone. A card keeps it\nwhile it is one; a copy and an import are new cards with new numbers, and a card\nthat comes back from the trash has its own. `null` for a template of the board's\ncards (`isTemplate`): a card made a template hides its number while keeping it\nstored, and regains its old number without consuming a new one if made a card\nagain; a template created without a number takes the next number when made a card.\nThe server gives it: what a request sends here is ignored, whatever it is.",
             "format": "int32",
             "minimum": 1,
             "type": [
@@ -1193,6 +1203,52 @@
         ],
         "type": "object"
       },
+      "CompleteUnitReview": {
+        "additionalProperties": false,
+        "description": "Request body for completing a personal review.\n\nSend `{}` (or an empty body) to complete the review without scheduling another, or\ninclude `scheduleNextIntervalDays` (`1..=3650`) to schedule the follow-up review in\nthe same transaction.",
+        "properties": {
+          "scheduleNextIntervalDays": {
+            "description": "Optional interval in days (`1..=3650`) for scheduling the next review atomically.",
+            "format": "int32",
+            "maximum": 3650,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "CompletedUnitReview": {
+        "description": "Response returned when completing a personal review.",
+        "properties": {
+          "nextReview": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UnitReview",
+                "description": "The newly scheduled follow-up review when `scheduleNextIntervalDays` was supplied;\notherwise `null`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review": {
+            "$ref": "#/components/schemas/UnitReview",
+            "description": "The completed review record."
+          },
+          "suggestedNextIntervalDays": {
+            "description": "Suggested next review interval in days based on the completed review's interval\nand the course's interval sequence.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nextReview",
+          "review",
+          "suggestedNextIntervalDays"
+        ],
+        "type": "object"
+      },
       "ConfirmEmailChange": {
         "properties": {
           "token": {
@@ -1539,6 +1595,252 @@
         ],
         "type": "object"
       },
+      "CourseExam": {
+        "description": "A course exam with the caller's own score (if any) and aggregate statistics across\nactive enrolled course members.",
+        "properties": {
+          "averageScore": {
+            "description": "Mean score across active enrolled course members who recorded a score; `null` when\n`scoreCount` is 0.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "containerId": {
+            "description": "Identifier of the course container.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Shared exam description, at most 5000 characters; empty if unset.",
+            "type": "string"
+          },
+          "examDate": {
+            "description": "Optional calendar date of the exam (`YYYY-MM-DD`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Identifier of the exam.",
+            "type": "string"
+          },
+          "maxScore": {
+            "description": "Maximum possible score (strictly positive).",
+            "format": "double",
+            "type": "number"
+          },
+          "myScore": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MyExamScore",
+                "description": "The caller's own score row, or `null` if none (never another member's score)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scoreCount": {
+            "description": "Number of active enrolled course members who recorded a score.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "title": {
+            "description": "Exam title, at most 200 characters.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "averageScore",
+          "containerId",
+          "createAt",
+          "description",
+          "examDate",
+          "id",
+          "maxScore",
+          "myScore",
+          "scoreCount",
+          "title",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "CourseExamPatch": {
+        "additionalProperties": false,
+        "description": "Request body for patching a course exam.",
+        "properties": {
+          "description": {
+            "description": "Replacement description (at most 5000 characters).",
+            "type": "string"
+          },
+          "examDate": {
+            "description": "Replacement exam date (`YYYY-MM-DD`); `null` clears it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "maxScore": {
+            "description": "Replacement maximum score (finite number strictly greater than 0).",
+            "format": "double",
+            "type": "number"
+          },
+          "title": {
+            "description": "Replacement title (1–200 characters, no control characters).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "CourseMeeting": {
+        "description": "A study meeting belonging to a course, together with its attendance records.",
+        "properties": {
+          "attendance": {
+            "description": "Attendance records for this meeting, ordered by `userId`.",
+            "items": {
+              "$ref": "#/components/schemas/MeetingAttendance"
+            },
+            "type": "array"
+          },
+          "containerId": {
+            "description": "Identifier of the course container.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "hostId": {
+            "description": "Optional identifier of the host.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Identifier of the meeting.",
+            "type": "string"
+          },
+          "location": {
+            "description": "Meeting location or URL, at most 500 characters; empty if unset.",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Shared meeting notes, at most 5000 characters; empty if unset.",
+            "type": "string"
+          },
+          "notifiedAt": {
+            "description": "When the upcoming-meeting notification was sent, or `null` if not yet sent.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "presenterId": {
+            "description": "Optional identifier of the presenter.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startsAt": {
+            "description": "Scheduled start time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Meeting title, at most 200 characters.",
+            "type": "string"
+          },
+          "unitIds": {
+            "description": "Identifiers of units covered by this meeting.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "attendance",
+          "containerId",
+          "createAt",
+          "hostId",
+          "id",
+          "location",
+          "notes",
+          "notifiedAt",
+          "presenterId",
+          "startsAt",
+          "title",
+          "unitIds",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "CourseMeetingPatch": {
+        "additionalProperties": false,
+        "description": "Request body for patching a course study meeting.\n\nOmitted fields are left unchanged. Sending `null` for `presenterId` or `hostId` clears\nthat assignment; sending `null` for non-nullable fields is refused.",
+        "properties": {
+          "hostId": {
+            "description": "Replacement host identifier; `null` clears it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "location": {
+            "description": "Replacement location or URL (at most 500 characters, no control characters).",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Replacement notes (at most 5000 characters).",
+            "type": "string"
+          },
+          "presenterId": {
+            "description": "Replacement presenter identifier; `null` clears it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startsAt": {
+            "description": "Replacement start time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Replacement title (1–200 characters, no control characters).",
+            "type": "string"
+          },
+          "unitIds": {
+            "description": "Replacement unit identifier list (at most 200 valid identifiers).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "CourseProgressSummary": {
         "description": "Course-wide progress summary across all active members.",
         "properties": {
@@ -1720,6 +2022,25 @@
           "kind",
           "startedAt",
           "endedAt"
+        ],
+        "type": "object"
+      },
+      "CreateUnitNote": {
+        "additionalProperties": false,
+        "description": "Request body for creating a personal note on a course unit.",
+        "properties": {
+          "content": {
+            "description": "Note content (trimmed non-empty, at most 10,000 characters).",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UnitNoteKind",
+            "description": "Category of the note (`question`, `mistake`, or `review`)."
+          }
+        },
+        "required": [
+          "kind",
+          "content"
         ],
         "type": "object"
       },
@@ -2090,11 +2411,22 @@
         "additionalProperties": false,
         "description": "A change of an entry. Absent members leave the entry as it is. Its day does not\nchange.",
         "properties": {
+          "appendBody": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "A document whose blocks are appended after the entry's current body inside one\nserver transaction without replacing what is already there. Cannot be sent\ntogether with `body`. `null` or an empty document appends nothing. Refused (400)\nif the combined body exceeds the body limits (`BODY_MAX_BYTES`,\n`BODY_MAX_NODES`, `BODY_MAX_DEPTH`). Does not require `readAt`; if `readAt` is\nalso sent, it is checked against the entry's body timestamp before appending."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "body": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The new body; `null` takes the body away. Sent only with `readAt`."
+                "description": "The new body; `null` takes the body away. Sent only with `readAt`, and not\ntogether with `appendBody`."
               },
               {
                 "type": "null"
@@ -2120,7 +2452,7 @@
             ]
           },
           "readAt": {
-            "description": "The `updateAt` of the entry as the client read it: if the entry has changed\nsince, the patch is refused with 409 and changes nothing. Needed with `body`,\nand checked whenever it is sent.",
+            "description": "The `updateAt` of the entry as the client read it: checked against when the\nentry's body last changed, so metadata-only patches (`mood`, `weather`, `place`)\ndo not cause 409 conflicts while any change to the body does. Needed with `body`,\nand checked whenever it is sent.",
             "format": "int64",
             "type": [
               "integer",
@@ -3117,6 +3449,44 @@
         ],
         "description": "The user of a session, as their own account is answered to them: the user, and what\nnobody else is told of the account."
       },
+      "MeetingAttendance": {
+        "description": "One member's attendance record on a study meeting.",
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/AttendanceStatus",
+            "description": "Recorded attendance status."
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "userId": {
+            "description": "Identifier of the course member (retained as a tombstone if the account is erased).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "updateAt",
+          "userId"
+        ],
+        "type": "object"
+      },
+      "MeetingAttendanceUpdate": {
+        "additionalProperties": false,
+        "description": "Request body for recording a member's attendance on a course meeting.",
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/AttendanceStatus",
+            "description": "Attendance status (`present`, `late`, `absent`, or `excused`)."
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
       "MemberCourseProgress": {
         "description": "Aggregate completion count of one active course member.\n\nIntentionally omits unit identifiers, completion timestamps, planned dates, and last\npositions so personal learning details are never disclosed to other members.",
         "properties": {
@@ -3178,6 +3548,50 @@
           "awful"
         ],
         "type": "string"
+      },
+      "MyExamScore": {
+        "description": "The calling learner's own personal score on an exam.\n\nIntentionally carries no user identifier and is never embedded for any user other than\nthe authenticated caller.",
+        "properties": {
+          "note": {
+            "description": "Personal reflection note, at most 1000 characters; empty if unset.",
+            "type": "string"
+          },
+          "score": {
+            "description": "Score achieved by the caller (`0 <= score <= maxScore`).",
+            "format": "double",
+            "type": "number"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "note",
+          "score",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "MyExamScoreUpdate": {
+        "additionalProperties": false,
+        "description": "Request body for recording or updating the caller's own exam score.",
+        "properties": {
+          "note": {
+            "description": "Optional personal note (at most 1000 characters).",
+            "type": "string"
+          },
+          "score": {
+            "description": "Caller's score (`0 <= score <= exam.maxScore`).",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "score"
+        ],
+        "type": "object"
       },
       "NameShown": {
         "description": "Which name a person is shown by. When it is empty the next one down the list is\ntaken; the login name is the last.",
@@ -3459,6 +3873,86 @@
         },
         "required": [
           "type"
+        ],
+        "type": "object"
+      },
+      "NewCourseExam": {
+        "additionalProperties": false,
+        "description": "Request body for creating a course exam.",
+        "properties": {
+          "description": {
+            "description": "Shared exam description (at most 5000 characters).",
+            "type": "string"
+          },
+          "examDate": {
+            "description": "Optional calendar date (`YYYY-MM-DD`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "maxScore": {
+            "description": "Maximum possible score (finite number strictly greater than 0).",
+            "format": "double",
+            "type": "number"
+          },
+          "title": {
+            "description": "Exam title (required, 1–200 characters, no control characters).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "maxScore"
+        ],
+        "type": "object"
+      },
+      "NewCourseMeeting": {
+        "additionalProperties": false,
+        "description": "Request body for creating a course study meeting.",
+        "properties": {
+          "hostId": {
+            "description": "Optional host user identifier.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "location": {
+            "description": "Meeting location or URL (at most 500 characters, no control characters).",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Shared meeting notes (at most 5000 characters).",
+            "type": "string"
+          },
+          "presenterId": {
+            "description": "Optional presenter user identifier.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startsAt": {
+            "description": "Scheduled start time in milliseconds since the Unix epoch (`0..=253402300799999`).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Meeting title (required, 1–200 characters, no control characters).",
+            "type": "string"
+          },
+          "unitIds": {
+            "description": "Identifiers of units covered by this meeting (at most 200 valid identifiers).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "title",
+          "startsAt"
         ],
         "type": "object"
       },
@@ -3845,7 +4339,9 @@
         "enum": [
           "mention",
           "assignment",
-          "comment"
+          "comment",
+          "review_due",
+          "meeting_upcoming"
         ],
         "type": "string"
       },
@@ -4577,6 +5073,21 @@
         ],
         "type": "object"
       },
+      "PatchUnitNote": {
+        "additionalProperties": false,
+        "description": "Request body for updating a personal note on a course unit.\n\nOmitted fields leave the stored value unchanged; `null` is refused.",
+        "properties": {
+          "content": {
+            "description": "Replacement note content (trimmed non-empty, at most 10,000 characters); omit to\nkeep unchanged.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UnitNoteKind",
+            "description": "Replacement note category; omit to keep unchanged."
+          }
+        },
+        "type": "object"
+      },
       "PersonName": {
         "description": "A person's name, every part of which may be empty.",
         "properties": {
@@ -4934,6 +5445,11 @@
             "reason": "document_too_large",
             "title": "Document too large",
             "type": "/problems/document-too-large"
+          },
+          {
+            "reason": "table_too_large",
+            "title": "Table too large",
+            "type": "/problems/table-too-large"
           },
           {
             "reason": "too_many_documents",
@@ -5440,6 +5956,24 @@
         },
         "type": "object"
       },
+      "ScheduleUnitReview": {
+        "additionalProperties": false,
+        "description": "Request body for scheduling a personal review on a course unit.\n\nProvide `intervalDays` (`1..=3650`), `scheduledDate` (`YYYY-MM-DD`), or both. When\nonly `intervalDays` is sent, `scheduledDate` is computed as `today + intervalDays` in\nthe learner's configured time zone (or UTC). When only `scheduledDate` is sent,\n`intervalDays` is derived from the number of days from `today` clamped to `1..=3650`.",
+        "properties": {
+          "intervalDays": {
+            "description": "Review interval in days (`1..=3650`).",
+            "format": "int32",
+            "maximum": 3650,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "scheduledDate": {
+            "description": "Target calendar date (`YYYY-MM-DD`).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ScheduledUnit": {
         "description": "One live unit of a course with its shared schedule, caller's personal override,\neffective date, and completion/overdue status.",
         "properties": {
@@ -5531,6 +6065,10 @@
             "$ref": "#/components/schemas/ContainerKind",
             "description": "What its container is: a board, a wiki, a diary or a course."
           },
+          "containerTitle": {
+            "description": "The title of the board, wiki, diary or course the match is in; empty if untitled.",
+            "type": "string"
+          },
           "id": {
             "description": "The identifier of the card, the page, the entry or the unit.",
             "type": "string"
@@ -5563,6 +6101,7 @@
         "required": [
           "containerId",
           "containerKind",
+          "containerTitle",
           "id",
           "kind",
           "snippet",
@@ -6226,6 +6765,70 @@
         ],
         "type": "string"
       },
+      "TodayReviewItem": {
+        "description": "One pending review due today or overdue for the caller in a workspace.",
+        "properties": {
+          "containerId": {
+            "description": "Identifier of the course container.",
+            "type": "string"
+          },
+          "courseTitle": {
+            "description": "Current title of the course.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier of this review.",
+            "type": "string"
+          },
+          "intervalDays": {
+            "description": "Review interval in days (`1..=3650`).",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "overdueDays": {
+            "description": "Number of days overdue (`0` when due today).",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "scheduledDate": {
+            "description": "Scheduled calendar date (`YYYY-MM-DD`).",
+            "type": "string"
+          },
+          "unitId": {
+            "description": "Identifier of the unit block.",
+            "type": "string"
+          },
+          "unitTitle": {
+            "description": "Current title of the unit.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "containerId",
+          "courseTitle",
+          "createAt",
+          "id",
+          "intervalDays",
+          "overdueDays",
+          "scheduledDate",
+          "unitId",
+          "unitTitle",
+          "updateAt"
+        ],
+        "type": "object"
+      },
       "Unit": {
         "description": "A unit or chapter of a course.",
         "properties": {
@@ -6451,6 +7054,60 @@
         ],
         "type": "object"
       },
+      "UnitNote": {
+        "description": "One personal question, mistake, or review note on a course unit.",
+        "properties": {
+          "containerId": {
+            "description": "Identifier of the course container.",
+            "type": "string"
+          },
+          "content": {
+            "description": "Trimmed note content, 1..=10,000 characters.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier of this note.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UnitNoteKind",
+            "description": "Category of the note (`question`, `mistake`, or `review`)."
+          },
+          "unitId": {
+            "description": "Identifier of the unit block.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "containerId",
+          "content",
+          "createAt",
+          "id",
+          "kind",
+          "unitId",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "UnitNoteKind": {
+        "description": "Category of a learner's personal note on a unit.",
+        "enum": [
+          "question",
+          "mistake",
+          "review"
+        ],
+        "type": "string"
+      },
       "UnitPatch": {
         "additionalProperties": false,
         "description": "What a unit or chapter is changed to. Absent members stay as they are. Where the\nnode stands in the course does not change here (`moveUnit`).",
@@ -6537,6 +7194,15 @@
               "null"
             ]
           },
+          "suggestedNextIntervalDays": {
+            "description": "Suggested next spaced-repetition review interval in days when the unit is\ncompleted; omitted when incomplete.",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "unitId": {
             "description": "Identifier of the unit block.",
             "type": "string"
@@ -6572,6 +7238,62 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "UnitReview": {
+        "description": "One personal spaced-repetition review scheduled for a unit.",
+        "properties": {
+          "completedAt": {
+            "description": "Completion time in milliseconds since the Unix epoch; `null` while pending.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "containerId": {
+            "description": "Identifier of the course container.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier of this review.",
+            "type": "string"
+          },
+          "intervalDays": {
+            "description": "Review interval in days (`1..=3650`).",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "scheduledDate": {
+            "description": "Scheduled calendar date (`YYYY-MM-DD`).",
+            "type": "string"
+          },
+          "unitId": {
+            "description": "Identifier of the unit block.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "completedAt",
+          "containerId",
+          "createAt",
+          "id",
+          "intervalDays",
+          "scheduledDate",
+          "unitId",
+          "updateAt"
+        ],
         "type": "object"
       },
       "UnitScheduleUpdate": {
@@ -7156,7 +7878,7 @@
     }
   },
   "info": {
-    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its `readToken`, and look at no session that comes along.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401. A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` in bytes.\n\nAny request may be answered 503 with the reason `database_busy`: the database did not take one of its statements in time (another write held the file, or no connection to it was to be had). That statement did nothing and may be taken a moment later. A request of one step may be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done before stays done, and sent again it is answered as its operation says.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## The user's own space\n\nEvery account has a space of its own from the moment it is made, however it was made: an organization of the `kind` `personal` with the account as its only member and one workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, the trash, export and import, and sharing by a public link (`setSharing`) work in it as anywhere. It has no name (a client calls it by the reader's language) and takes none.\n\nWhat it has not is other people, and anybody to administer it. Its identifier is 404 for every operation under `/org/{orgId}` (the organization and its settings, its members, its workspaces, joining one as an administrator, its audit log, its provider of sign-ins), for its owner as for anybody else, and no answer of those operations names it. Under its workspace these are 404, as for a workspace that is not there: `createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, `setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is under it) and on the teams of a board or a wiki (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page (`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is moved to or from another organization but by export and import, and no reference reaches into it from outside or out of it. What changes in it is told to nobody else: the server's operator is posted no block of it (`block_change_webhooks`), and it is in no audit log anybody but its owner reads.\n\nAn account that was made by a sign-in through an organization's provider has no password (`hasPassword` of `getMe`), and until it has one its space is reached by any session of the account. It is given one by `setPassword`, so that its person reaches the space when they are no longer in that organization. Once the account has a password, the space takes only sessions that have shown it: one made with it (`login`), and one made through a provider that gave it since (`confirmPassword`). A provider is an organization's, and whoever holds it could make a session of the account. To a session made through a provider that has not given the password, the routes under the space's `/w/{workspaceId}` then answer 401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space with `passwordRequired` true, `getMyMemberships` leaves its boards out, `getAccountDeletion` names it without what is in it, and the websocket follows nothing of it for such a session (`contracts/websocket.md`). The session stays and opens what it opened of the organizations.\n\nThere are two ways in from there. `confirmPassword` keeps the session: it gives the password once, and from then until it ends the session opens the space beside what it opened before, so that somebody whose organization takes only sessions made through its provider (`sso_required`) goes between that organization and the space without signing in again. Signing in with the password (`login`) opens the space too, in a new session, which such an organization then asks to sign in through its provider again. What a session confirmed opens the account's own space and nothing else: not what is another account's, and nothing of an organization that takes only sessions made through a provider other than the session's own. It goes with the session: a change of the password (`changePassword`, a reset, the operator's) ends the account's other sessions, as it always did, and what they confirmed with them. What is shared from the space by a public link is read without a session, and is not closed so.\n\nIt goes with its account: `getAccountDeletion` names it among `organizations` always, and while the account waits to be deleted it is closed with the account: what is shared from it by a public link answers 404 as a link that is not there, and answers again if the deletion is cancelled.\n\n## Bodies edited together\n\nWhile people edit a card's body together the server holds it as a Y document. What it refuses of an editor has the reason `update_refused`, `update_out_of_step`, `update_too_large` or `document_too_large`; `too_many_documents` and `document_unavailable` say that it cannot take the document for now. A write of a card's whole body here (a patch of the card or of blocks, a card stored again) first writes to the card what its editors typed: a `readAt` from before that is refused with 409, and if it cannot be written the write is refused with `document_unavailable`. The editors themselves speak to the server over the websocket, whose messages name the same reasons (`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, `too_many_documents_joined`, `document_full`, `too_many_connections_joined` and `too_many_frames` come only there. The page of each kind says when it comes. `search_not_configured` comes from none of these operations: only from the reindex of the administration socket, on a server configured without a search server (a search there searches its database).\n\n## Request bodies\n\nA request schema lists the members a request is for. A member that is not required may be left out. `null` is a value only of a member whose schema allows it, and is then none; `null` for any other member is refused with 400, as a value of another type is. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings` and `patchMe` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setSharing` refuses a `token`.",
+    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its `readToken`, and look at no session that comes along.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401. A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` in bytes.\n\nAny request may be answered 503 with the reason `database_busy`: the database did not take one of its statements in time (another write held the file, or no connection to it was to be had). That statement did nothing and may be taken a moment later. A request of one step may be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done before stays done, and sent again it is answered as its operation says.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## The user's own space\n\nEvery account has a space of its own from the moment it is made, however it was made: an organization of the `kind` `personal` with the account as its only member and one workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, the trash, export and import, and sharing by a public link (`setSharing`) work in it as anywhere. It has no name (a client calls it by the reader's language) and takes none.\n\nWhat it has not is other people, and anybody to administer it. Its identifier is 404 for every operation under `/org/{orgId}` (the organization and its settings, its members, its workspaces, joining one as an administrator, its audit log, its provider of sign-ins), for its owner as for anybody else, and no answer of those operations names it. Under its workspace these are 404, as for a workspace that is not there: `createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, `setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is under it) and on the teams of a board or a wiki (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page (`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is moved to or from another organization but by export and import, and no reference reaches into it from outside or out of it. What changes in it is told to nobody else: the server's operator is posted no block of it (`block_change_webhooks`), and it is in no audit log anybody but its owner reads.\n\nAn account that was made by a sign-in through an organization's provider has no password (`hasPassword` of `getMe`), and until it has one its space is reached by any session of the account. It is given one by `setPassword`, so that its person reaches the space when they are no longer in that organization. Once the account has a password, the space takes only sessions that have shown it: one made with it (`login`), and one made through a provider that gave it since (`confirmPassword`). A provider is an organization's, and whoever holds it could make a session of the account. To a session made through a provider that has not given the password, the routes under the space's `/w/{workspaceId}` then answer 401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space with `passwordRequired` true, `getMyMemberships` leaves its boards out, `getAccountDeletion` names it without what is in it, and the websocket follows nothing of it for such a session (`contracts/websocket.md`). The session stays and opens what it opened of the organizations.\n\nThere are two ways in from there. `confirmPassword` keeps the session: it gives the password once, and from then until it ends the session opens the space beside what it opened before, so that somebody whose organization takes only sessions made through its provider (`sso_required`) goes between that organization and the space without signing in again. Signing in with the password (`login`) opens the space too, in a new session, which such an organization then asks to sign in through its provider again. What a session confirmed opens the account's own space and nothing else: not what is another account's, and nothing of an organization that takes only sessions made through a provider other than the session's own. It goes with the session: a change of the password (`changePassword`, a reset, the operator's) ends the account's other sessions, as it always did, and what they confirmed with them. What is shared from the space by a public link is read without a session, and is not closed so.\n\nIt goes with its account: `getAccountDeletion` names it among `organizations` always, and while the account waits to be deleted it is closed with the account: what is shared from it by a public link answers 404 as a link that is not there, and answers again if the deletion is cancelled.\n\n## Bodies edited together\n\nWhile people edit a card's body together the server holds it as a Y document. What it refuses of an editor has the reason `update_refused`, `update_out_of_step`, `update_too_large`, `document_too_large` or `table_too_large` (`table_too_large` also comes from writing a body whole over HTTP when a table has more than 200 rows or more than 20 columns); `too_many_documents` and `document_unavailable` say that it cannot take the document for now. A write of a card's whole body here (a patch of the card or of blocks, a card stored again) first writes to the card what its editors typed: a `readAt` from before that is refused with 409, and if it cannot be written the write is refused with `document_unavailable`. The editors themselves speak to the server over the websocket, whose messages name the same reasons (`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, `too_many_documents_joined`, `document_full`, `too_many_connections_joined` and `too_many_frames` come only there. The page of each kind says when it comes. `search_not_configured` comes from none of these operations: only from the reindex of the administration socket, on a server configured without a search server (a search there searches its database).\n\n## Request bodies\n\nA request schema lists the members a request is for. A member that is not required may be left out. `null` is a value only of a member whose schema allows it, and is then none; `null` for any other member is refused with 400, as a value of another type is. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings` and `patchMe` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setSharing` refuses a `token`.",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -11648,7 +12370,7 @@
     },
     "/api/v1/w/{workspaceId}/archive/import": {
       "post": {
-        "description": "Makes the boards and wikis of an archive in the workspace, with the user as their\nadmin. The members the archive names for a board become members of it with the roles\nthey had, where they are in the workspace. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, one that has ended, and one for another workspace are\n404; an upload of a file is 400. A workspace the user is not in is 404 before the\nbody is read. For users of the workspace who are not guests, at the import as when\nthe upload was opened: a user who may not import any more is refused, and the upload\nis thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB (or a single JSONL line over 6 MiB) or a file larger\nthan `maxFileBytes` is 413 with the `limit` passed, and nothing of it is stored; for the\nentry or line that is too large the reason is `archive_entry_too_large`. The blocks that show files are\npointed at the board's new copies of them, the images and file blocks of bodies\nincluded. A file the board's line lists under `missingFiles` is not stored, even when\nthe archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy\ndoes. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the\ncomments on them with it. What a write would refuse of an archive's boards, wikis\nand blocks is 400 before any of them is stored, with the message the write has: a\nblock of a type of the other kind (a page on a board, a card on a wiki), a page\nbelow anything but a page of its wiki or below a page the archive does not have,\npages that are each other's parents, a comment on anything but a card or page, a\nwiki that is a template, and a wiki deeper or with more pages than the\norganization's limits allow (400 with the reason `page_too_deep` or\n`too_many_pages`).\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay. The members of a board who are not in the workspace are left\nout of it, a guest of the workspace keeps no role above editor; the answer says how\nmany users were left out, not who.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.\n\nOptional `format` selects `\"fvoci\"` (default, `.boardarchive`/`.zip`), `\"trello\"`\n(`.json`), or `\"notion\"` (`.zip`). External formats commit all boards, wikis, blocks,\nand bundled local files atomically: any validation, limit, or storage failure leaves\nnothing stored. Returns a structured `ImportSummary` with counts, newly created\ncontainer identifiers, native `membersLeftOut`, and bounded `skipped` / `warnings`.",
+        "description": "Makes the boards and wikis of an archive in the workspace, with the user as their\nadmin. The members the archive names for a board become members of it with the roles\nthey had, where they are in the workspace. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, one that has ended, and one for another workspace are\n404; an upload of a file is 400. A workspace the user is not in is 404 before the\nbody is read. For users of the workspace who are not guests, at the import as when\nthe upload was opened: a user who may not import any more is refused, and the upload\nis thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB (or a single JSONL line over 6 MiB) or a file larger\nthan `maxFileBytes` is 413 with the `limit` passed, and nothing of it is stored; for the\nentry or line that is too large the reason is `archive_entry_too_large`. The blocks that show files are\npointed at the board's new copies of them, the images and file blocks of bodies\nincluded. A file the board's line lists under `missingFiles` is not stored, even when\nthe archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy\ndoes. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the\ncomments on them with it. What a write would refuse of an archive's boards, wikis\nand blocks is 400 before any of them is stored, with the message the write has: a\nblock of a type of the other kind (a page on a board, a card on a wiki), a page\nbelow anything but a page of its wiki or below a page the archive does not have,\npages that are each other's parents, a comment on anything but a card or page, a\nwiki that is a template, and a wiki deeper or with more pages than the\norganization's limits allow (400 with the reason `page_too_deep` or\n`too_many_pages`).\n\nThe containers, blocks, memberships and files of the archive are committed all or\nnone: if any container or file fails, all staged files are removed and nothing is\nstored. The members of a board who are not in the workspace are left out of it, a\nguest of the workspace keeps no role above editor; the answer says how many users\nwere left out, not who.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.\n\nOptional `format` selects `\"fvoci\"` (default, `.boardarchive`/`.zip`), `\"trello\"`\n(`.json`), or `\"notion\"` (`.zip`). External formats commit all boards, wikis, blocks,\nand bundled local files atomically: any validation, limit, or storage failure leaves\nnothing stored. Returns a structured `ImportSummary` with counts, newly created\ncontainer identifiers, native `membersLeftOut`, and bounded `skipped` / `warnings`.",
         "operationId": "importArchive",
         "parameters": [
           {
@@ -15803,6 +16525,685 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/exams": {
+      "get": {
+        "description": "Returns every exam of the course ordered by `examDate` ascending (exams without a date\nlast), then by `createAt` and `id`. Each exam includes `averageScore` and `scoreCount`\ncomputed solely over active enrolled course members, plus `myScore` containing only the\ncaller's own score (or `null` for unjoined readers and callers without a score).\nAnother member's individual score or note is never returned under any role.",
+        "operationId": "listCourseExams",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CourseExam"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The exams of the course."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Exams of a course",
+        "tags": [
+          "courses"
+        ]
+      },
+      "post": {
+        "description": "Creates an exam definition on the course. Requires editor permission or above on the\ncourse (or ownership of a personal-space course).",
+        "operationId": "createCourseExam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewCourseExam"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseExam"
+                }
+              }
+            },
+            "description": "The created exam."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Create an exam in a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/exams/{examId}": {
+      "delete": {
+        "description": "Permanently deletes an exam and all personal score rows recorded for it. Requires\neditor permission or above on the course (or ownership of a personal-space course).",
+        "operationId": "deleteCourseExam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the exam: an exam of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "examId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The exam was deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete an exam in a course",
+        "tags": [
+          "courses"
+        ]
+      },
+      "patch": {
+        "description": "Updates fields of a course exam. Omitted fields are left unchanged; sending `null` for\n`examDate` clears the date. Requires editor permission or above on the course (or\nownership of a personal-space course).",
+        "operationId": "patchCourseExam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the exam: an exam of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "examId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CourseExamPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseExam"
+                }
+              }
+            },
+            "description": "The updated exam."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Update an exam in a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/exams/{examId}/my-score": {
+      "delete": {
+        "description": "Deletes the caller's own personal score on the exam (idempotent if none exists).\nEnrolled course members and personal-space owners may delete their own score; unjoined\nopen-course readers are refused with 403.",
+        "operationId": "deleteMyExamScore",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the exam: an exam of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "examId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The caller's exam score was deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete my score on a course exam",
+        "tags": [
+          "courses"
+        ]
+      },
+      "put": {
+        "description": "Creates or updates the caller's own personal score (`0 <= score <= exam.maxScore`) and\noptional personal note on the exam. Always writes strictly to the authenticated\ncaller's row; no other user's score can be targeted or read.\n\nEnrolled course members of any role (including viewers, commenters, and invited\nguests) and personal-space owners may record their own score; an unjoined reader of an\nopen course is refused with 403. Personal score writes never broadcast over\nwebsockets, never enter search indexes or archives, and emit no webhooks,\nnotifications, or audit logs.",
+        "operationId": "putMyExamScore",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the exam: an exam of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "examId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MyExamScoreUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyExamScore"
+                }
+              }
+            },
+            "description": "The caller's saved exam score."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Record my score on a course exam",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/meetings": {
+      "get": {
+        "description": "Returns every study meeting of the course together with its attendance records\n(`attendance`, ordered by `userId`), ordered by `startsAt` ascending, then by `id`.\nReadable by anyone who can view the course (including unjoined workspace members on an\nopen course and personal-space owners). Non-course containers and unreadable private\ncourses answer 404.",
+        "operationId": "listCourseMeetings",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CourseMeeting"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The study meetings of the course."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Study meetings of a course",
+        "tags": [
+          "courses"
+        ]
+      },
+      "post": {
+        "description": "Creates a study meeting on the course. Requires editor permission or above on the\ncourse (or ownership of a personal-space course); viewers, commenters, and unjoined\nopen-course readers are refused with 403. Non-course containers, unreadable private\ncourses, and `presenterId`/`hostId` values that are not active enrolled course members\nanswer 404.",
+        "operationId": "createCourseMeeting",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewCourseMeeting"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseMeeting"
+                }
+              }
+            },
+            "description": "The created study meeting."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Create a study meeting in a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/meetings/{meetingId}": {
+      "delete": {
+        "description": "Permanently deletes a study meeting and its attendance records. Requires editor\npermission or above on the course (or ownership of a personal-space course).",
+        "operationId": "deleteCourseMeeting",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the study meeting: a meeting of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "meetingId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The study meeting was deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete a study meeting in a course",
+        "tags": [
+          "courses"
+        ]
+      },
+      "patch": {
+        "description": "Updates fields of a study meeting. Omitted fields are left unchanged; sending `null`\nfor `presenterId` or `hostId` clears that assignment. Requires editor permission or\nabove on the course (or ownership of a personal-space course).",
+        "operationId": "patchCourseMeeting",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the study meeting: a meeting of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "meetingId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CourseMeetingPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseMeeting"
+                }
+              }
+            },
+            "description": "The updated study meeting."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Update a study meeting in a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/meetings/{meetingId}/attendance/{userId}": {
+      "put": {
+        "description": "Creates or updates `userId`'s attendance status (`present`, `late`, `absent`, or\n`excused`) on the meeting.\n\nPermission rules:\n- Course editors, course admins, and personal-space owners may record attendance for\n  any active enrolled course member.\n- Any enrolled course member (including viewers, commenters, and invited guests) may\n  record their own attendance when `userId` matches the caller.\n- Unjoined open-course readers, and viewers/commenters attempting to modify another\n  member's attendance, are refused with 403.\n- Non-course containers, unreadable private courses, unknown meetings, and target\n  users who are not active enrolled course members answer 404.",
+        "operationId": "putMeetingAttendance",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the study meeting: a meeting of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "meetingId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the user.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeetingAttendanceUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingAttendance"
+                }
+              }
+            },
+            "description": "The updated attendance record."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Record attendance on a course study meeting",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/courses/{courseId}/my-schedule/redistribute": {
       "post": {
         "description": "Explicitly redistributes only the caller's incomplete live units in outline tree order\nfrom `fromDate` (default: caller's today in their configured `timeZone`) to\n`targetDate` (default: course's saved `targetDate`) across `studyDays` (default:\ncourse's saved `studyDays`), updating only the caller's own `unit_progress.plannedDate`\nrows. Completed units and shared unit `scheduledDate` values are untouched. Available\nto any enrolled course member (including viewers and invited guests) and\npersonal-space owners; unjoined readers of an open course are refused with 403.\nPersonal redistributions never broadcast over websockets, never enter search indexes\nor archives, and emit no webhooks or audit logs.",
@@ -15860,6 +17261,129 @@
           }
         },
         "summary": "Redistribute my personal schedule in a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/notes/{noteId}": {
+      "delete": {
+        "description": "Deletes one of the caller's personal notes in the course. Another user's note\nidentifier or a missing note answers 404.",
+        "operationId": "deleteUnitNote",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the personal note in the course of the path. 404 for another user's note or one of another course.",
+            "in": "path",
+            "name": "noteId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The personal note is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete a personal note",
+        "tags": [
+          "courses"
+        ]
+      },
+      "patch": {
+        "description": "Updates the `kind` and/or `content` of one of the caller's personal notes in the\ncourse. Another user's note identifier, a note on a trashed unit, or a non-course\ncontainer answers 404.",
+        "operationId": "patchUnitNote",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the personal note in the course of the path. 404 for another user's note or one of another course.",
+            "in": "path",
+            "name": "noteId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchUnitNote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitNote"
+                }
+              }
+            },
+            "description": "The updated personal note."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Update a personal note",
         "tags": [
           "courses"
         ]
@@ -15967,6 +17491,204 @@
           }
         },
         "summary": "Progress summary of a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/reviews": {
+      "get": {
+        "description": "Returns the caller's own spaced-repetition reviews for live units of the course.\nOrdered by `scheduledDate` ascending, then `createAt` ascending, then `id` ascending.\nOptional query filters: `status` (`pending`, `completed`, or `all`) and `unitId`.\nUnjoined readers of an open course receive an empty array `[]`. Other users' reviews\nare never returned. Non-course containers and unreadable private courses answer 404.",
+        "operationId": "listMyCourseReviews",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter course reviews by completion state: `pending`, `completed`, or `all` (also when left out). Anything else is 400.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Narrows the course review list to reviews for this unit.",
+            "in": "query",
+            "name": "unitId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UnitReview"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The caller's personal reviews in the course."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "My scheduled reviews in a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/reviews/{reviewId}": {
+      "delete": {
+        "description": "Deletes one of the caller's personal reviews in the course. Another user's review\nidentifier or a missing review answers 404.",
+        "operationId": "deleteUnitReview",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the personal review in the course of the path. 404 for another user's review or one of another course.",
+            "in": "path",
+            "name": "reviewId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The personal review is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Cancel or delete a personal review",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/reviews/{reviewId}/complete": {
+      "post": {
+        "description": "Marks the caller's review as completed (idempotently preserving an existing\n`completedAt`) and returns `suggestedNextIntervalDays` calculated from the review's\ninterval and the course's interval sequence (default `[1, 3, 7, 14, 30]`). Optionally\npass `scheduleNextIntervalDays` (`1..=3650`) to schedule the follow-up review in the\nsame transaction. Another user's review identifier, a review on a trashed unit, or a\nnon-course container answers 404.",
+        "operationId": "completeUnitReview",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the personal review in the course of the path. 404 for another user's review or one of another course.",
+            "in": "path",
+            "name": "reviewId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteUnitReview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletedUnitReview"
+                }
+              }
+            },
+            "description": "The completed review and suggested next interval."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Complete a personal review",
         "tags": [
           "courses"
         ]
@@ -17317,6 +19039,148 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/notes": {
+      "get": {
+        "description": "Returns the caller's own question, mistake, and review notes on a live unit of the\ncourse. Ordered by `createAt` descending, then `id` descending. Optional query filter\n`kind` (`question`, `mistake`, or `review`). Unjoined readers of an open course\nreceive an empty array `[]` for live units. Chapters, trashed units, and non-course\ncontainers answer 404.",
+        "operationId": "listMyUnitNotes",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter unit notes by category: `question`, `mistake`, or `review`. Left out, every category. Anything else is 400.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UnitNote"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The caller's personal notes on the unit."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "My personal notes on a unit",
+        "tags": [
+          "courses"
+        ]
+      },
+      "post": {
+        "description": "Creates a personal question, mistake, or review note for the caller on a live unit of\nthe course. Content is trimmed and must contain between 1 and 10,000 characters.\nEnrolled course members (including viewers and invited guests) and personal-space\nowners may record notes; unjoined readers of an open course are refused with 403.\nChapters, trashed units, and non-course containers answer 404.",
+        "operationId": "createUnitNote",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUnitNote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitNote"
+                }
+              }
+            },
+            "description": "The created personal note."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Create a personal note on a unit",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/progress": {
       "put": {
         "description": "Creates or updates the caller's own progress row on a live unit of the course.\nEnrolled members of any role (viewer, commenter, editor, admin, including invited\nguests) and personal-space owners may record their own progress; an unjoined reader\nof an open course is refused with 403 until they join the course.\n\nSetting `completed: true` is idempotent and preserves an existing `completedAt`\ntimestamp. Setting `completed: false` clears `completedAt` to `null`. Omitting\n`completed` or `lastPosition` preserves the existing value; sending `lastPosition:\nnull` clears it. Personal progress writes never broadcast over websockets, never\nenter search indexes or archives, and emit no webhooks or audit logs. Chapters,\ntrashed units, units of another course, and non-course containers answer 404.",
@@ -17383,6 +19247,77 @@
           }
         },
         "summary": "Record my progress on a unit",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/reviews": {
+      "post": {
+        "description": "Creates a personal spaced-repetition review for the caller on a live unit of the\ncourse. Provide `intervalDays` (`1..=3650`), `scheduledDate` (`YYYY-MM-DD`), or both.\nEnrolled course members (including viewers and invited guests) and personal-space\nowners may schedule reviews; an unjoined reader of an open course is refused with 403.\nChapters, trashed units, units of another course, and non-course containers answer 404.",
+        "operationId": "scheduleUnitReview",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleUnitReview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitReview"
+                }
+              }
+            },
+            "description": "The scheduled personal review."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Schedule a personal review for a unit",
         "tags": [
           "courses"
         ]
@@ -17838,7 +19773,7 @@
     },
     "/api/v1/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}": {
       "delete": {
-        "description": "The entry goes to the trash of its diary, where it holds no day: the day takes a new\nentry. It is restored by `undeleteDiaryEntry`, and gone for good when the trash is\nemptied of it, as a card is.",
+        "description": "An entry with a body or any note (mood, weather or place) goes to the trash of its\ndiary, where it holds no day so the day takes a new entry; it is restored by\n`undeleteDiaryEntry`, and gone for good when the trash is emptied of it. A completely\nempty entry (no body, no mood, no weather and no place) is removed for good without\nentering the trash.",
         "operationId": "deleteDiaryEntry",
         "parameters": [
           {
@@ -17949,7 +19884,7 @@
         ]
       },
       "patch": {
-        "description": "Its mood, its weather, its place, or its whole body. A new body is sent with\n`readAt`, the `updateAt` of the entry as it was read: 409 if the entry has changed\nsince, and nothing is changed. Where the body is being edited together (the same\nuser in two windows), what was typed is written to the entry first, so a writer who\nread it before is refused and reads it again. The day of the entry does not change:\nthe patch has no member for it.",
+        "description": "Its mood, its weather, its place, its whole body (`body`), or blocks appended after\nits current body (`appendBody`). `body` and `appendBody` cannot be sent together.\nA whole-body replacement (`body`) is sent with `readAt`, the `updateAt` of the entry\nas it was read: `readAt` is compared against when the entry's body last changed, so\nmetadata-only patches (`mood`, `weather`, `place`) do not cause 409 conflicts while\nany change to the body does. `appendBody` appends inside one server transaction\nwithout requiring `readAt`, refusing (400 at `/appendBody`) if the combined body\nexceeds the body limits (`BODY_MAX_BYTES`, `BODY_MAX_NODES`, `BODY_MAX_DEPTH`).\nWhere the body is being edited together (the same user in two windows), what was\ntyped is written to the entry first, so a writer who read it before is refused (for\n`body`) or appended after the latest text (for `appendBody`). The day of the entry\ndoes not change: the patch has no member for it.",
         "operationId": "patchDiaryEntry",
         "parameters": [
           {
@@ -18077,6 +20012,65 @@
           }
         },
         "summary": "The versions of an entry's body",
+        "tags": [
+          "diaries"
+        ]
+      },
+      "post": {
+        "description": "As `keepCardBodyVersion` keeps a card's: the body the entry has, with what those who\nedit it together typed, by hand; nothing of a body that is its newest version already\n(`unchanged`), nor within a minute of a version kept by hand (`recent`). An entry in\nthe trash is not there (404).",
+        "operationId": "keepDiaryEntryBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.",
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptBodyVersion"
+                }
+              }
+            },
+            "description": "What became of the body."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Keep an entry's body as a version now",
         "tags": [
           "diaries"
         ]
@@ -18659,6 +20653,52 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/learning/reviews/today": {
+      "get": {
+        "description": "Returns the caller's own pending reviews whose `scheduledDate` is on or before today\n(in the caller's configured time zone, or UTC) across all live courses of the\nworkspace in which the caller is an active member. Ordered by `scheduledDate`\nascending, then `createAt` ascending, then `id` ascending. Other users' reviews are\nnever returned.",
+        "operationId": "getWorkspaceTodayReviews",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TodayReviewItem"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The caller's pending reviews due today or overdue."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "My reviews due today in a workspace",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/learning/today": {
       "get": {
         "description": "Returns the caller's incomplete units due today (`effectiveDate == today`) and\noverdue (`effectiveDate < today`) across all live courses in this workspace that the\ncaller is enrolled in (direct membership or inherited group role), evaluated in the\ncaller's configured `timeZone` (UTC when set to `auto`). `todayUnits` are ordered by\ncourse creation order (`createAt`, `courseId`) and then outline order within each\ncourse; `overdueUnits` are ordered by `effectiveDate` ascending (oldest first), then\ncourse creation order, then outline order. Never includes private courses the caller\nis not enrolled in (even for workspace or organization admins) and never reads\nanother user's personal `plannedDate` or completion status.",
@@ -19096,7 +21136,7 @@
     },
     "/api/v1/w/{workspaceId}/search": {
       "get": {
-        "description": "The cards of the boards, the pages of the wikis and the units of the courses of the\nworkspace that the user has a role on, their own or a team's, the pages of its open\nwikis and the units of its open courses for who works there (an open board they have\nnot joined is not searched), and, in the workspace of the user's own space, the\nentries of its diaries, whose title and body together hold every word of `q`. The\ntitle of an entry is its day (`2026-11-21`). Chapters, comments, property values and\nattached files are not searched, and neither are templates. How words match depends\non the server: with a search server, Korean is matched by its words, whatever\nparticles and endings they carry, and a compound by its parts too (\"환불 규정\" finds\n\"환불규정을\"); without one, each word (what is between white space) is in the title\nor the body as it is written there, ASCII letters in either case (\"환불\" finds\n\"환불규정을\", \"배포하다\" does not find \"배포합니다\"). Each hit is the card, the page,\nthe entry or the unit as it is now: its `kind`, its `title`, the container it is in\n(`containerId`, and `containerKind`, by which a client tells their addresses apart),\nand `snippet`, a piece of its body in stretches of plain text, those that matched\nmarked; the snippet is empty for a body that changed a moment ago, or has nothing to\nshow. The best match first (without a search server: those whose title holds every\nword, then the most recently changed). Nothing says how many match in all: fewer than\n`limit` means that no more of what the user reads matches (for a user with a role on\nmore containers than a search names, 1,000 with a search server and 10,000 without:\namong the 10,000 best matches of the workspace).\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). While the search\nserver does not answer, where it cannot hold its index, or where a search takes more\nthan three seconds, the answer is 503 with the reason `search_unavailable`: nothing\nelse of the server waits for it, and the database does not stand in for a search\nserver.",
+        "description": "The cards of the boards, the pages of the wikis and the units of the courses of the\nworkspace that the user has a role on, their own or a team's, the pages of its open\nwikis and the units of its open courses for who works there (an open board they have\nnot joined is not searched), and, in the workspace of the user's own space, the\nentries of its diaries, whose title and body together hold every word of `q`. When\n`q` is `#` followed only by ASCII digits (such as `#12`, or `#00012` normalized to\n`12`) and `kind` is omitted or `card`, it matches non-template cards across every\nreadable board of the workspace whose `number` equals that positive integer; any\nother text (including non-digits mixed in) or other `kind` runs ordinary word search. The\ntitle of an entry is its day (`2026-11-21`). Chapters, comments, property values and\nattached files are not searched, and neither are templates. How words match depends\non the server: with a search server, Korean is matched by its words, whatever\nparticles and endings they carry, and a compound by its parts too (\"환불 규정\" finds\n\"환불규정을\"); without one, each word (what is between white space) is in the title\nor the body as it is written there, ASCII letters in either case (\"환불\" finds\n\"환불규정을\", \"배포하다\" does not find \"배포합니다\"). Each hit is the card, the page,\nthe entry or the unit as it is now: its `kind`, its `title`, the container it is in\n(`containerId`, `containerKind`, and `containerTitle`, by which a client tells their\naddresses and names apart),\nand `snippet`, a piece of its body in stretches of plain text, those that matched\nmarked; the snippet is empty for a body that changed a moment ago, or has nothing to\nshow. The best match first (without a search server: those whose title holds every\nword, then the most recently changed). Nothing says how many match in all: fewer than\n`limit` means that no more of what the user reads matches (for a user with a role on\nmore containers than a search names, 1,000 with a search server and 10,000 without:\namong the 10,000 best matches of the workspace).\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). While the search\nserver does not answer, where it cannot hold its index, or where a search takes more\nthan three seconds, the answer is 503 with the reason `search_unavailable`: nothing\nelse of the server waits for it, and the database does not stand in for a search\nserver.",
         "operationId": "searchWorkspaceContent",
         "parameters": [
           {
@@ -19109,7 +21149,7 @@
             }
           },
           {
-            "description": "The words to find, at most 200 characters. Without it nothing is found.",
+            "description": "The words to find, or `#12` (`#00012` normalized to `12`) to match cards by their number across readable boards, at most 200 characters. Without it nothing is found.",
             "in": "query",
             "name": "q",
             "required": false,

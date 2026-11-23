@@ -1207,3 +1207,89 @@ fn open_source_body_returns_counted_state_and_takes_immediately() {
     .expect_err("unreadable stored body refused");
     assert_eq!(err.refusal, Refusal::Unreadable);
 }
+
+/// A table update past `TABLE_MAX_ROWS` (201 rows) or `TABLE_MAX_COLUMNS` (21 columns) is
+/// refused with `Refusal::TableTooLarge` (not `Refusal::BodyTooLarge`), rolls back cleanly
+/// with `held_bytes` intact, and lets subsequent valid edits succeed.
+#[test]
+fn oversized_table_update_returns_table_too_large_and_preserves_document() {
+    let mut worker = Worker::new(Limits {
+        update_bytes: 64 * 1024,
+        state_bytes: 2 * 1024 * 1024,
+        body_bytes: 2 * 1024 * 1024,
+        documents: 2,
+        held_bytes: 8 * 1024 * 1024,
+    });
+    let cell = serde_json::json!({"type": "tableCell", "content": [{"type": "paragraph"}]});
+    let row_1 = serde_json::json!({"type": "tableRow", "content": [&cell]});
+    let max_rows_body = serde_json::to_vec(&serde_json::json!({
+        "type": "doc",
+        "content": [{"type": "table", "content": vec![row_1; usize::from(fvoci_model::TABLE_MAX_ROWS)]}],
+    }))
+    .expect("JSON");
+    let row_20 = serde_json::json!({
+        "type": "tableRow",
+        "content": vec![cell; usize::from(fvoci_model::TABLE_MAX_COLUMNS)],
+    });
+    let max_cols_body = serde_json::to_vec(&serde_json::json!({
+        "type": "doc",
+        "content": [{"type": "table", "content": [&row_20, &row_20]}],
+    }))
+    .expect("JSON");
+
+    for (doc_id, body, add_row) in [(1_u64, max_rows_body, true), (2_u64, max_cols_body, false)] {
+        let Ok(Answer::Opened {
+            state: Some(initial),
+            ..
+        }) = ask(
+            &mut worker,
+            Request::Open {
+                doc: doc_id,
+                source: Source::Body(Some(body)),
+                share: Share::Kept,
+            },
+        )
+        else {
+            panic!("opened doc {doc_id}");
+        };
+        let expected_body = ask(&mut worker, Request::Body(doc_id)).expect("body before");
+        let expected_held = worker.held_bytes;
+        let editor = fvoci_collab::testing::Editor::join(900 + doc_id, &initial);
+        let rejected = if add_row {
+            editor.add_table_row(1)
+        } else {
+            editor.add_table_column()
+        };
+        let err = ask(
+            &mut worker,
+            Request::Take {
+                doc: doc_id,
+                update: rejected,
+            },
+        )
+        .expect_err("oversized table refused");
+        assert_eq!(err.refusal, Refusal::TableTooLarge, "doc {doc_id}");
+        assert_eq!(
+            ask(&mut worker, Request::Body(doc_id)).expect("body preserved"),
+            expected_body
+        );
+        assert_eq!(worker.held_bytes, expected_held);
+
+        let clean = fvoci_collab::testing::Editor::join(910 + doc_id, &initial)
+            .append_paragraph("after refusal");
+        assert!(
+            ask(
+                &mut worker,
+                Request::Take {
+                    doc: doc_id,
+                    update: clean,
+                }
+            )
+            .is_ok(),
+            "valid update after TableTooLarge succeeds"
+        );
+    }
+    assert_eq!(ask(&mut worker, Request::Close(1)), Ok(Answer::Done));
+    assert_eq!(ask(&mut worker, Request::Close(2)), Ok(Answer::Done));
+    assert_eq!(worker.held_bytes, 0);
+}

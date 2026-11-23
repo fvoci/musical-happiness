@@ -184,12 +184,8 @@ pub(super) fn take_refused(error: &TakeError) -> Refused {
             | UpdateError::TooManyChanges { .. },
         ) => Refusal::DocumentTooLarge,
         TakeError::Update(UpdateError::TooManyReadingSteps { .. }) => Refusal::TooManySteps,
-        TakeError::Body(
-            BodyError::TooLarge
-            | BodyError::TooManyNodes
-            | BodyError::TooDeep
-            | BodyError::TableTooLarge { .. },
-        )
+        TakeError::Body(BodyError::TableTooLarge { .. }) => Refusal::TableTooLarge,
+        TakeError::Body(BodyError::TooLarge | BodyError::TooManyNodes | BodyError::TooDeep)
         | TakeError::BodyTooLarge { .. } => Refusal::BodyTooLarge,
         TakeError::Body(_) => Refusal::NoBody,
         // What cannot be applied, and what would be placed past too much of the

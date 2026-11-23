@@ -30,10 +30,16 @@ pub(super) fn refused(refused: &Refused, limits: &Limits) -> AppError {
         )
         .with_reason(Reason::DocumentTooLarge),
         Refusal::BodyTooLarge => AppError::too_large(
-            "with the update the body would be past the limits of a body (its size, its nodes, its depth, the rows and columns of a table)",
+            "with the update the body would be past the limits of a body (its size, its nodes, its depth)",
             limits.body_bytes,
         )
         .with_reason(Reason::DocumentTooLarge),
+        Refusal::TableTooLarge => AppError::bad_request(format_args!(
+            "with the update a table would have more than {} rows or more than {} columns",
+            fvoci_model::TABLE_MAX_ROWS,
+            fvoci_model::TABLE_MAX_COLUMNS,
+        ))
+        .with_reason(Reason::TableTooLarge),
         Refusal::TooManyDocuments => {
             AppError::service_unavailable("the server holds as many documents as it may")
                 .with_reason(Reason::TooManyDocuments)

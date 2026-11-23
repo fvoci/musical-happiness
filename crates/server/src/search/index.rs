@@ -14,8 +14,9 @@ use serde_json::{Value, json};
 /// of which blocks have a document (2: the pages of wikis beside the cards; 3: the
 /// highlighter reads a whole body; 4: no card that is a template of its board; 5:
 /// documents are written with versions of their own, kept in `sent`, and removals are
-/// remembered longer; 6: the highlighter reads a body of 4 MiB).
-pub(crate) const VERSION: i64 = 6;
+/// remembered longer; 6: the highlighter reads a body of 4 MiB; 7: a card's number on
+/// its board, `number`).
+pub(crate) const VERSION: i64 = 7;
 
 /// How long the search server remembers the version of a document it removed: a put
 /// of a lower version that lands within that time is refused, and one that lands later
@@ -85,6 +86,8 @@ pub(crate) fn definition() -> Value {
                 "workspaceId": {"type": "keyword"},
                 "containerId": {"type": "keyword"},
                 "kind": {"type": "keyword"},
+                // A card's board-local number (`#12`); absent for pages, entries and units.
+                "number": {"type": "long"},
                 // Of the title and the text as they were indexed: kept, not searched.
                 "digest": {"type": "keyword", "index": false, "doc_values": false},
                 // The version the document was written with: its highest is where a

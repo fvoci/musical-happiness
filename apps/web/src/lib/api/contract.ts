@@ -2328,10 +2328,11 @@ export interface paths {
          *     organization's limits allow (400 with the reason `page_too_deep` or
          *     `too_many_pages`).
          *
-         *     The boards are made one after the other, not all or none: when one of them fails,
-         *     those before it stay. The members of a board who are not in the workspace are left
-         *     out of it, a guest of the workspace keeps no role above editor; the answer says how
-         *     many users were left out, not who.
+         *     The containers, blocks, memberships and files of the archive are committed all or
+         *     none: if any container or file fails, all staged files are removed and nothing is
+         *     stored. The members of a board who are not in the workspace are left out of it, a
+         *     guest of the workspace keeps no role above editor; the answer says how many users
+         *     were left out, not who.
          *
          *     A user runs one import at a time, and the server as many as its setting
          *     `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
@@ -3704,6 +3705,186 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/exams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Exams of a course
+         * @description Returns every exam of the course ordered by `examDate` ascending (exams without a date
+         *     last), then by `createAt` and `id`. Each exam includes `averageScore` and `scoreCount`
+         *     computed solely over active enrolled course members, plus `myScore` containing only the
+         *     caller's own score (or `null` for unjoined readers and callers without a score).
+         *     Another member's individual score or note is never returned under any role.
+         */
+        get: operations["listCourseExams"];
+        put?: never;
+        /**
+         * Create an exam in a course
+         * @description Creates an exam definition on the course. Requires editor permission or above on the
+         *     course (or ownership of a personal-space course).
+         */
+        post: operations["createCourseExam"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/exams/{examId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete an exam in a course
+         * @description Permanently deletes an exam and all personal score rows recorded for it. Requires
+         *     editor permission or above on the course (or ownership of a personal-space course).
+         */
+        delete: operations["deleteCourseExam"];
+        options?: never;
+        head?: never;
+        /**
+         * Update an exam in a course
+         * @description Updates fields of a course exam. Omitted fields are left unchanged; sending `null` for
+         *     `examDate` clears the date. Requires editor permission or above on the course (or
+         *     ownership of a personal-space course).
+         */
+        patch: operations["patchCourseExam"];
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/exams/{examId}/my-score": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Record my score on a course exam
+         * @description Creates or updates the caller's own personal score (`0 <= score <= exam.maxScore`) and
+         *     optional personal note on the exam. Always writes strictly to the authenticated
+         *     caller's row; no other user's score can be targeted or read.
+         *
+         *     Enrolled course members of any role (including viewers, commenters, and invited
+         *     guests) and personal-space owners may record their own score; an unjoined reader of an
+         *     open course is refused with 403. Personal score writes never broadcast over
+         *     websockets, never enter search indexes or archives, and emit no webhooks,
+         *     notifications, or audit logs.
+         */
+        put: operations["putMyExamScore"];
+        post?: never;
+        /**
+         * Delete my score on a course exam
+         * @description Deletes the caller's own personal score on the exam (idempotent if none exists).
+         *     Enrolled course members and personal-space owners may delete their own score; unjoined
+         *     open-course readers are refused with 403.
+         */
+        delete: operations["deleteMyExamScore"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/meetings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Study meetings of a course
+         * @description Returns every study meeting of the course together with its attendance records
+         *     (`attendance`, ordered by `userId`), ordered by `startsAt` ascending, then by `id`.
+         *     Readable by anyone who can view the course (including unjoined workspace members on an
+         *     open course and personal-space owners). Non-course containers and unreadable private
+         *     courses answer 404.
+         */
+        get: operations["listCourseMeetings"];
+        put?: never;
+        /**
+         * Create a study meeting in a course
+         * @description Creates a study meeting on the course. Requires editor permission or above on the
+         *     course (or ownership of a personal-space course); viewers, commenters, and unjoined
+         *     open-course readers are refused with 403. Non-course containers, unreadable private
+         *     courses, and `presenterId`/`hostId` values that are not active enrolled course members
+         *     answer 404.
+         */
+        post: operations["createCourseMeeting"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/meetings/{meetingId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a study meeting in a course
+         * @description Permanently deletes a study meeting and its attendance records. Requires editor
+         *     permission or above on the course (or ownership of a personal-space course).
+         */
+        delete: operations["deleteCourseMeeting"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a study meeting in a course
+         * @description Updates fields of a study meeting. Omitted fields are left unchanged; sending `null`
+         *     for `presenterId` or `hostId` clears that assignment. Requires editor permission or
+         *     above on the course (or ownership of a personal-space course).
+         */
+        patch: operations["patchCourseMeeting"];
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/meetings/{meetingId}/attendance/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Record attendance on a course study meeting
+         * @description Creates or updates `userId`'s attendance status (`present`, `late`, `absent`, or
+         *     `excused`) on the meeting.
+         *
+         *     Permission rules:
+         *     - Course editors, course admins, and personal-space owners may record attendance for
+         *       any active enrolled course member.
+         *     - Any enrolled course member (including viewers, commenters, and invited guests) may
+         *       record their own attendance when `userId` matches the caller.
+         *     - Unjoined open-course readers, and viewers/commenters attempting to modify another
+         *       member's attendance, are refused with 403.
+         *     - Non-course containers, unreadable private courses, unknown meetings, and target
+         *       users who are not active enrolled course members answer 404.
+         */
+        put: operations["putMeetingAttendance"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/courses/{courseId}/my-schedule/redistribute": {
         parameters: {
             query?: never;
@@ -3730,6 +3911,33 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/notes/{noteId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a personal note
+         * @description Deletes one of the caller's personal notes in the course. Another user's note
+         *     identifier or a missing note answers 404.
+         */
+        delete: operations["deleteUnitNote"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a personal note
+         * @description Updates the `kind` and/or `content` of one of the caller's personal notes in the
+         *     course. Another user's note identifier, a note on a trashed unit, or a non-course
+         *     container answers 404.
+         */
+        patch: operations["patchUnitNote"];
         trace?: never;
     };
     "/api/v1/w/{workspaceId}/courses/{courseId}/progress": {
@@ -3776,6 +3984,76 @@ export interface paths {
         get: operations["getCourseProgressSummary"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My scheduled reviews in a course
+         * @description Returns the caller's own spaced-repetition reviews for live units of the course.
+         *     Ordered by `scheduledDate` ascending, then `createAt` ascending, then `id` ascending.
+         *     Optional query filters: `status` (`pending`, `completed`, or `all`) and `unitId`.
+         *     Unjoined readers of an open course receive an empty array `[]`. Other users' reviews
+         *     are never returned. Non-course containers and unreadable private courses answer 404.
+         */
+        get: operations["listMyCourseReviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/reviews/{reviewId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Cancel or delete a personal review
+         * @description Deletes one of the caller's personal reviews in the course. Another user's review
+         *     identifier or a missing review answers 404.
+         */
+        delete: operations["deleteUnitReview"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/reviews/{reviewId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete a personal review
+         * @description Marks the caller's review as completed (idempotently preserving an existing
+         *     `completedAt`) and returns `suggestedNextIntervalDays` calculated from the review's
+         *     interval and the course's interval sequence (default `[1, 3, 7, 14, 30]`). Optionally
+         *     pass `scheduleNextIntervalDays` (`1..=3650`) to schedule the follow-up review in the
+         *     same transaction. Another user's review identifier, a review on a trashed unit, or a
+         *     non-course container answers 404.
+         */
+        post: operations["completeUnitReview"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4188,6 +4466,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My personal notes on a unit
+         * @description Returns the caller's own question, mistake, and review notes on a live unit of the
+         *     course. Ordered by `createAt` descending, then `id` descending. Optional query filter
+         *     `kind` (`question`, `mistake`, or `review`). Unjoined readers of an open course
+         *     receive an empty array `[]` for live units. Chapters, trashed units, and non-course
+         *     containers answer 404.
+         */
+        get: operations["listMyUnitNotes"];
+        put?: never;
+        /**
+         * Create a personal note on a unit
+         * @description Creates a personal question, mistake, or review note for the caller on a live unit of
+         *     the course. Content is trimmed and must contain between 1 and 10,000 characters.
+         *     Enrolled course members (including viewers and invited guests) and personal-space
+         *     owners may record notes; unjoined readers of an open course are refused with 403.
+         *     Chapters, trashed units, and non-course containers answer 404.
+         */
+        post: operations["createUnitNote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/progress": {
         parameters: {
             query?: never;
@@ -4212,6 +4522,30 @@ export interface paths {
          */
         put: operations["putUnitProgress"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Schedule a personal review for a unit
+         * @description Creates a personal spaced-repetition review for the caller on a live unit of the
+         *     course. Provide `intervalDays` (`1..=3650`), `scheduledDate` (`YYYY-MM-DD`), or both.
+         *     Enrolled course members (including viewers and invited guests) and personal-space
+         *     owners may schedule reviews; an unjoined reader of an open course is refused with 403.
+         *     Chapters, trashed units, units of another course, and non-course containers answer 404.
+         */
+        post: operations["scheduleUnitReview"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4406,21 +4740,29 @@ export interface paths {
         post?: never;
         /**
          * Delete an entry
-         * @description The entry goes to the trash of its diary, where it holds no day: the day takes a new
-         *     entry. It is restored by `undeleteDiaryEntry`, and gone for good when the trash is
-         *     emptied of it, as a card is.
+         * @description An entry with a body or any note (mood, weather or place) goes to the trash of its
+         *     diary, where it holds no day so the day takes a new entry; it is restored by
+         *     `undeleteDiaryEntry`, and gone for good when the trash is emptied of it. A completely
+         *     empty entry (no body, no mood, no weather and no place) is removed for good without
+         *     entering the trash.
          */
         delete: operations["deleteDiaryEntry"];
         options?: never;
         head?: never;
         /**
          * Change an entry
-         * @description Its mood, its weather, its place, or its whole body. A new body is sent with
-         *     `readAt`, the `updateAt` of the entry as it was read: 409 if the entry has changed
-         *     since, and nothing is changed. Where the body is being edited together (the same
-         *     user in two windows), what was typed is written to the entry first, so a writer who
-         *     read it before is refused and reads it again. The day of the entry does not change:
-         *     the patch has no member for it.
+         * @description Its mood, its weather, its place, its whole body (`body`), or blocks appended after
+         *     its current body (`appendBody`). `body` and `appendBody` cannot be sent together.
+         *     A whole-body replacement (`body`) is sent with `readAt`, the `updateAt` of the entry
+         *     as it was read: `readAt` is compared against when the entry's body last changed, so
+         *     metadata-only patches (`mood`, `weather`, `place`) do not cause 409 conflicts while
+         *     any change to the body does. `appendBody` appends inside one server transaction
+         *     without requiring `readAt`, refusing (400 at `/appendBody`) if the combined body
+         *     exceeds the body limits (`BODY_MAX_BYTES`, `BODY_MAX_NODES`, `BODY_MAX_DEPTH`).
+         *     Where the body is being edited together (the same user in two windows), what was
+         *     typed is written to the entry first, so a writer who read it before is refused (for
+         *     `body`) or appended after the latest text (for `appendBody`). The day of the entry
+         *     does not change: the patch has no member for it.
          */
         patch: operations["patchDiaryEntry"];
         trace?: never;
@@ -4439,7 +4781,14 @@ export interface paths {
          */
         get: operations["getDiaryEntryBodyVersions"];
         put?: never;
-        post?: never;
+        /**
+         * Keep an entry's body as a version now
+         * @description As `keepCardBodyVersion` keeps a card's: the body the entry has, with what those who
+         *     edit it together typed, by hand; nothing of a body that is its newest version already
+         *     (`unchanged`), nor within a minute of a version kept by hand (`recent`). An entry in
+         *     the trash is not there (404).
+         */
+        post: operations["keepDiaryEntryBodyVersion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4705,6 +5054,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/learning/reviews/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My reviews due today in a workspace
+         * @description Returns the caller's own pending reviews whose `scheduledDate` is on or before today
+         *     (in the caller's configured time zone, or UTC) across all live courses of the
+         *     workspace in which the caller is an active member. Ordered by `scheduledDate`
+         *     ascending, then `createAt` ascending, then `id` ascending. Other users' reviews are
+         *     never returned.
+         */
+        get: operations["getWorkspaceTodayReviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/learning/today": {
         parameters: {
             query?: never;
@@ -4938,7 +5311,11 @@ export interface paths {
          *     workspace that the user has a role on, their own or a team's, the pages of its open
          *     wikis and the units of its open courses for who works there (an open board they have
          *     not joined is not searched), and, in the workspace of the user's own space, the
-         *     entries of its diaries, whose title and body together hold every word of `q`. The
+         *     entries of its diaries, whose title and body together hold every word of `q`. When
+         *     `q` is `#` followed only by ASCII digits (such as `#12`, or `#00012` normalized to
+         *     `12`) and `kind` is omitted or `card`, it matches non-template cards across every
+         *     readable board of the workspace whose `number` equals that positive integer; any
+         *     other text (including non-digits mixed in) or other `kind` runs ordinary word search. The
          *     title of an entry is its day (`2026-11-21`). Chapters, comments, property values and
          *     attached files are not searched, and neither are templates. How words match depends
          *     on the server: with a search server, Korean is matched by its words, whatever
@@ -4947,7 +5324,8 @@ export interface paths {
          *     or the body as it is written there, ASCII letters in either case ("환불" finds
          *     "환불규정을", "배포하다" does not find "배포합니다"). Each hit is the card, the page,
          *     the entry or the unit as it is now: its `kind`, its `title`, the container it is in
-         *     (`containerId`, and `containerKind`, by which a client tells their addresses apart),
+         *     (`containerId`, `containerKind`, and `containerTitle`, by which a client tells their
+         *     addresses and names apart),
          *     and `snippet`, a piece of its body in stretches of plain text, those that matched
          *     marked; the snippet is empty for a body that changed a moment ago, or has nothing to
          *     show. The best match first (without a search server: those whose title holds every
@@ -5866,6 +6244,11 @@ export interface components {
          */
         AmountUnit: "minutes" | "pages" | "problems";
         /**
+         * @description A member's attendance status for a course study meeting.
+         * @enum {string}
+         */
+        AttendanceStatus: "present" | "late" | "absent" | "excused";
+        /**
          * @description What a record of the audit log says was done.
          * @enum {string}
          */
@@ -6154,9 +6537,10 @@ export interface components {
              *     made on the board, never given again, also once the card is gone. A card keeps it
              *     while it is one; a copy and an import are new cards with new numbers, and a card
              *     that comes back from the trash has its own. `null` for a template of the board's
-             *     cards (`isTemplate`): a card made a template loses its number, and takes the next
-             *     one if it is made a card again. The server gives it: what a request sends here is
-             *     ignored, whatever it is.
+             *     cards (`isTemplate`): a card made a template hides its number while keeping it
+             *     stored, and regains its old number without consuming a new one if made a card
+             *     again; a template created without a number takes the next number when made a card.
+             *     The server gives it: what a request sends here is ignored, whatever it is.
              */
             number: number | null;
             /**
@@ -6392,6 +6776,32 @@ export interface components {
             /** @description The secret from the confirmation link's fragment. */
             token: string;
         };
+        /**
+         * @description Request body for completing a personal review.
+         *
+         *     Send `{}` (or an empty body) to complete the review without scheduling another, or
+         *     include `scheduleNextIntervalDays` (`1..=3650`) to schedule the follow-up review in
+         *     the same transaction.
+         */
+        CompleteUnitReview: {
+            /**
+             * Format: int32
+             * @description Optional interval in days (`1..=3650`) for scheduling the next review atomically.
+             */
+            scheduleNextIntervalDays?: number;
+        };
+        /** @description Response returned when completing a personal review. */
+        CompletedUnitReview: {
+            nextReview: components["schemas"]["UnitReview"] | null;
+            /** @description The completed review record. */
+            review: components["schemas"]["UnitReview"];
+            /**
+             * Format: int32
+             * @description Suggested next review interval in days based on the completed review's interval
+             *     and the course's interval sequence.
+             */
+            suggestedNextIntervalDays: number;
+        };
         ConfirmEmailChange: {
             /** @description The secret from the confirmation link's fragment. */
             token: string;
@@ -6554,6 +6964,129 @@ export interface components {
             /** @description The boards. */
             containers: components["schemas"]["Container"][];
         };
+        /**
+         * @description A course exam with the caller's own score (if any) and aggregate statistics across
+         *     active enrolled course members.
+         */
+        CourseExam: {
+            /**
+             * Format: double
+             * @description Mean score across active enrolled course members who recorded a score; `null` when
+             *     `scoreCount` is 0.
+             */
+            averageScore: number | null;
+            /** @description Identifier of the course container. */
+            containerId: string;
+            /**
+             * Format: int64
+             * @description Creation time in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description Shared exam description, at most 5000 characters; empty if unset. */
+            description: string;
+            /** @description Optional calendar date of the exam (`YYYY-MM-DD`). */
+            examDate: string | null;
+            /** @description Identifier of the exam. */
+            id: string;
+            /**
+             * Format: double
+             * @description Maximum possible score (strictly positive).
+             */
+            maxScore: number;
+            myScore: components["schemas"]["MyExamScore"] | null;
+            /**
+             * Format: int32
+             * @description Number of active enrolled course members who recorded a score.
+             */
+            scoreCount: number;
+            /** @description Exam title, at most 200 characters. */
+            title: string;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
+        /** @description Request body for patching a course exam. */
+        CourseExamPatch: {
+            /** @description Replacement description (at most 5000 characters). */
+            description?: string;
+            /** @description Replacement exam date (`YYYY-MM-DD`); `null` clears it. */
+            examDate?: string | null;
+            /**
+             * Format: double
+             * @description Replacement maximum score (finite number strictly greater than 0).
+             */
+            maxScore?: number;
+            /** @description Replacement title (1–200 characters, no control characters). */
+            title?: string;
+        };
+        /** @description A study meeting belonging to a course, together with its attendance records. */
+        CourseMeeting: {
+            /** @description Attendance records for this meeting, ordered by `userId`. */
+            attendance: components["schemas"]["MeetingAttendance"][];
+            /** @description Identifier of the course container. */
+            containerId: string;
+            /**
+             * Format: int64
+             * @description Creation time in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description Optional identifier of the host. */
+            hostId: string | null;
+            /** @description Identifier of the meeting. */
+            id: string;
+            /** @description Meeting location or URL, at most 500 characters; empty if unset. */
+            location: string;
+            /** @description Shared meeting notes, at most 5000 characters; empty if unset. */
+            notes: string;
+            /**
+             * Format: int64
+             * @description When the upcoming-meeting notification was sent, or `null` if not yet sent.
+             */
+            notifiedAt: number | null;
+            /** @description Optional identifier of the presenter. */
+            presenterId: string | null;
+            /**
+             * Format: int64
+             * @description Scheduled start time in milliseconds since the Unix epoch.
+             */
+            startsAt: number;
+            /** @description Meeting title, at most 200 characters. */
+            title: string;
+            /** @description Identifiers of units covered by this meeting. */
+            unitIds: string[];
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
+        /**
+         * @description Request body for patching a course study meeting.
+         *
+         *     Omitted fields are left unchanged. Sending `null` for `presenterId` or `hostId` clears
+         *     that assignment; sending `null` for non-nullable fields is refused.
+         */
+        CourseMeetingPatch: {
+            /** @description Replacement host identifier; `null` clears it. */
+            hostId?: string | null;
+            /** @description Replacement location or URL (at most 500 characters, no control characters). */
+            location?: string;
+            /** @description Replacement notes (at most 5000 characters). */
+            notes?: string;
+            /** @description Replacement presenter identifier; `null` clears it. */
+            presenterId?: string | null;
+            /**
+             * Format: int64
+             * @description Replacement start time in milliseconds since the Unix epoch.
+             */
+            startsAt?: number;
+            /** @description Replacement title (1–200 characters, no control characters). */
+            title?: string;
+            /** @description Replacement unit identifier list (at most 200 valid identifiers). */
+            unitIds?: string[];
+        };
         /** @description Course-wide progress summary across all active members. */
         CourseProgressSummary: {
             /** @description Per-member completion counts for active course members, ordered by `userId`. */
@@ -6642,6 +7175,13 @@ export interface components {
             startedAt: number;
             /** @description Optional workspace identifier of the target. */
             workspaceId?: string | null;
+        };
+        /** @description Request body for creating a personal note on a course unit. */
+        CreateUnitNote: {
+            /** @description Note content (trimmed non-empty, at most 10,000 characters). */
+            content: string;
+            /** @description Category of the note (`question`, `mistake`, or `review`). */
+            kind: components["schemas"]["UnitNoteKind"];
         };
         /**
          * @description A degree or a professional qualification written after a person's name.
@@ -6821,14 +7361,16 @@ export interface components {
          *     change.
          */
         DiaryEntryPatch: {
+            appendBody?: components["schemas"]["Body"] | null;
             body?: components["schemas"]["Body"] | null;
             mood?: components["schemas"]["Mood"] | null;
             /** @description The new place, at most 100 characters; empty for none. */
             place?: string | null;
             /**
              * Format: int64
-             * @description The `updateAt` of the entry as the client read it: if the entry has changed
-             *     since, the patch is refused with 409 and changes nothing. Needed with `body`,
+             * @description The `updateAt` of the entry as the client read it: checked against when the
+             *     entry's body last changed, so metadata-only patches (`mood`, `weather`, `place`)
+             *     do not cause 409 conflicts while any change to the body does. Needed with `body`,
              *     and checked whenever it is sent.
              */
             readAt?: number | null;
@@ -7339,6 +7881,23 @@ export interface components {
              */
             pendingEmail?: string | null;
         };
+        /** @description One member's attendance record on a study meeting. */
+        MeetingAttendance: {
+            /** @description Recorded attendance status. */
+            status: components["schemas"]["AttendanceStatus"];
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+            /** @description Identifier of the course member (retained as a tombstone if the account is erased). */
+            userId: string;
+        };
+        /** @description Request body for recording a member's attendance on a course meeting. */
+        MeetingAttendanceUpdate: {
+            /** @description Attendance status (`present`, `late`, `absent`, or `excused`). */
+            status: components["schemas"]["AttendanceStatus"];
+        };
         /**
          * @description Aggregate completion count of one active course member.
          *
@@ -7382,6 +7941,36 @@ export interface components {
          * @enum {string}
          */
         Mood: "great" | "good" | "okay" | "bad" | "awful";
+        /**
+         * @description The calling learner's own personal score on an exam.
+         *
+         *     Intentionally carries no user identifier and is never embedded for any user other than
+         *     the authenticated caller.
+         */
+        MyExamScore: {
+            /** @description Personal reflection note, at most 1000 characters; empty if unset. */
+            note: string;
+            /**
+             * Format: double
+             * @description Score achieved by the caller (`0 <= score <= maxScore`).
+             */
+            score: number;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
+        /** @description Request body for recording or updating the caller's own exam score. */
+        MyExamScoreUpdate: {
+            /** @description Optional personal note (at most 1000 characters). */
+            note?: string;
+            /**
+             * Format: double
+             * @description Caller's score (`0 <= score <= exam.maxScore`).
+             */
+            score: number;
+        };
         /**
          * @description Which name a person is shown by. When it is empty the next one down the list is
          *     taken; the login name is the last.
@@ -7568,6 +8157,40 @@ export interface components {
              *     shared with.
              */
             type: components["schemas"]["ContainerType"];
+        };
+        /** @description Request body for creating a course exam. */
+        NewCourseExam: {
+            /** @description Shared exam description (at most 5000 characters). */
+            description?: string;
+            /** @description Optional calendar date (`YYYY-MM-DD`). */
+            examDate?: string | null;
+            /**
+             * Format: double
+             * @description Maximum possible score (finite number strictly greater than 0).
+             */
+            maxScore: number;
+            /** @description Exam title (required, 1–200 characters, no control characters). */
+            title: string;
+        };
+        /** @description Request body for creating a course study meeting. */
+        NewCourseMeeting: {
+            /** @description Optional host user identifier. */
+            hostId?: string | null;
+            /** @description Meeting location or URL (at most 500 characters, no control characters). */
+            location?: string;
+            /** @description Shared meeting notes (at most 5000 characters). */
+            notes?: string;
+            /** @description Optional presenter user identifier. */
+            presenterId?: string | null;
+            /**
+             * Format: int64
+             * @description Scheduled start time in milliseconds since the Unix epoch (`0..=253402300799999`).
+             */
+            startsAt: number;
+            /** @description Meeting title (required, 1–200 characters, no control characters). */
+            title: string;
+            /** @description Identifiers of units covered by this meeting (at most 200 valid identifiers). */
+            unitIds?: string[];
         };
         /** @description A diary to make. */
         NewDiary: {
@@ -7784,7 +8407,7 @@ export interface components {
          * @description What a notification tells of.
          * @enum {string}
          */
-        NotificationKind: "mention" | "assignment" | "comment";
+        NotificationKind: "mention" | "assignment" | "comment" | "review_due" | "meeting_upcoming";
         /** @description What a notification is about, for a reader who reads it now. */
         NotificationSubject: {
             /**
@@ -8189,6 +8812,20 @@ export interface components {
             /** @description The board patches, one per board identifier. */
             containerPatches: components["schemas"]["ContainerPatch"][];
         };
+        /**
+         * @description Request body for updating a personal note on a course unit.
+         *
+         *     Omitted fields leave the stored value unchanged; `null` is refused.
+         */
+        PatchUnitNote: {
+            /**
+             * @description Replacement note content (trimmed non-empty, at most 10,000 characters); omit to
+             *     keep unchanged.
+             */
+            content?: string;
+            /** @description Replacement note category; omit to keep unchanged. */
+            kind?: components["schemas"]["UnitNoteKind"];
+        };
         /** @description A person's name, every part of which may be empty. */
         PersonName: {
             /**
@@ -8416,6 +9053,23 @@ export interface components {
             email?: string | null;
         };
         /**
+         * @description Request body for scheduling a personal review on a course unit.
+         *
+         *     Provide `intervalDays` (`1..=3650`), `scheduledDate` (`YYYY-MM-DD`), or both. When
+         *     only `intervalDays` is sent, `scheduledDate` is computed as `today + intervalDays` in
+         *     the learner's configured time zone (or UTC). When only `scheduledDate` is sent,
+         *     `intervalDays` is derived from the number of days from `today` clamped to `1..=3650`.
+         */
+        ScheduleUnitReview: {
+            /**
+             * Format: int32
+             * @description Review interval in days (`1..=3650`).
+             */
+            intervalDays?: number;
+            /** @description Target calendar date (`YYYY-MM-DD`). */
+            scheduledDate?: string;
+        };
+        /**
          * @description One live unit of a course with its shared schedule, caller's personal override,
          *     effective date, and completion/overdue status.
          */
@@ -8452,6 +9106,8 @@ export interface components {
             containerId: string;
             /** @description What its container is: a board, a wiki, a diary or a course. */
             containerKind: components["schemas"]["ContainerKind"];
+            /** @description The title of the board, wiki, diary or course the match is in; empty if untitled. */
+            containerTitle: string;
             /** @description The identifier of the card, the page, the entry or the unit. */
             id: string;
             /** @description What it is. */
@@ -8792,6 +9448,41 @@ export interface components {
          * @enum {string}
          */
         Title: "dr" | "prof";
+        /** @description One pending review due today or overdue for the caller in a workspace. */
+        TodayReviewItem: {
+            /** @description Identifier of the course container. */
+            containerId: string;
+            /** @description Current title of the course. */
+            courseTitle: string;
+            /**
+             * Format: int64
+             * @description Creation time in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description Unique identifier of this review. */
+            id: string;
+            /**
+             * Format: int32
+             * @description Review interval in days (`1..=3650`).
+             */
+            intervalDays: number;
+            /**
+             * Format: int32
+             * @description Number of days overdue (`0` when due today).
+             */
+            overdueDays: number;
+            /** @description Scheduled calendar date (`YYYY-MM-DD`). */
+            scheduledDate: string;
+            /** @description Identifier of the unit block. */
+            unitId: string;
+            /** @description Current title of the unit. */
+            unitTitle: string;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
         /** @description A unit or chapter of a course. */
         Unit: {
             /**
@@ -8915,6 +9606,34 @@ export interface components {
              */
             updateAt: number;
         };
+        /** @description One personal question, mistake, or review note on a course unit. */
+        UnitNote: {
+            /** @description Identifier of the course container. */
+            containerId: string;
+            /** @description Trimmed note content, 1..=10,000 characters. */
+            content: string;
+            /**
+             * Format: int64
+             * @description Creation time in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description Unique identifier of this note. */
+            id: string;
+            /** @description Category of the note (`question`, `mistake`, or `review`). */
+            kind: components["schemas"]["UnitNoteKind"];
+            /** @description Identifier of the unit block. */
+            unitId: string;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
+        /**
+         * @description Category of a learner's personal note on a unit.
+         * @enum {string}
+         */
+        UnitNoteKind: "question" | "mistake" | "review";
         /**
          * @description What a unit or chapter is changed to. Absent members stay as they are. Where the
          *     node stands in the course does not change here (`moveUnit`).
@@ -8954,6 +9673,12 @@ export interface components {
             lastPosition: string | null;
             /** @description Optional personal target date (`YYYY-MM-DD`), reserved for personal scheduling. */
             plannedDate: string | null;
+            /**
+             * Format: int32
+             * @description Suggested next spaced-repetition review interval in days when the unit is
+             *     completed; omitted when incomplete.
+             */
+            suggestedNextIntervalDays?: number | null;
             /** @description Identifier of the unit block. */
             unitId: string;
             /**
@@ -8980,6 +9705,37 @@ export interface components {
              *     Omit to keep unchanged, or send `null` to clear.
              */
             lastPosition?: string | null;
+        };
+        /** @description One personal spaced-repetition review scheduled for a unit. */
+        UnitReview: {
+            /**
+             * Format: int64
+             * @description Completion time in milliseconds since the Unix epoch; `null` while pending.
+             */
+            completedAt: number | null;
+            /** @description Identifier of the course container. */
+            containerId: string;
+            /**
+             * Format: int64
+             * @description Creation time in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description Unique identifier of this review. */
+            id: string;
+            /**
+             * Format: int32
+             * @description Review interval in days (`1..=3650`).
+             */
+            intervalDays: number;
+            /** @description Scheduled calendar date (`YYYY-MM-DD`). */
+            scheduledDate: string;
+            /** @description Identifier of the unit block. */
+            unitId: string;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
         };
         /**
          * @description Request body for setting or clearing the caller's personal planned date on a unit.
@@ -14953,6 +15709,414 @@ export interface operations {
             };
         };
     };
+    listCourseExams: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The exams of the course. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseExam"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCourseExam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewCourseExam"];
+            };
+        };
+        responses: {
+            /** @description The created exam. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseExam"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCourseExam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the exam: an exam of the course of the path. 404 for one of another course. */
+                examId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The exam was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchCourseExam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the exam: an exam of the course of the path. 404 for one of another course. */
+                examId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CourseExamPatch"];
+            };
+        };
+        responses: {
+            /** @description The updated exam. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseExam"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putMyExamScore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the exam: an exam of the course of the path. 404 for one of another course. */
+                examId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MyExamScoreUpdate"];
+            };
+        };
+        responses: {
+            /** @description The caller's saved exam score. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyExamScore"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteMyExamScore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the exam: an exam of the course of the path. 404 for one of another course. */
+                examId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's exam score was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCourseMeetings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The study meetings of the course. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseMeeting"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCourseMeeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewCourseMeeting"];
+            };
+        };
+        responses: {
+            /** @description The created study meeting. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseMeeting"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCourseMeeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the study meeting: a meeting of the course of the path. 404 for one of another course. */
+                meetingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The study meeting was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchCourseMeeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the study meeting: a meeting of the course of the path. 404 for one of another course. */
+                meetingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CourseMeetingPatch"];
+            };
+        };
+        responses: {
+            /** @description The updated study meeting. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseMeeting"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putMeetingAttendance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the study meeting: a meeting of the course of the path. 404 for one of another course. */
+                meetingId: string;
+                /** @description The identifier of the user. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeetingAttendanceUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated attendance record. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingAttendance"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     redistributeMyCourseSchedule: {
         parameters: {
             query?: never;
@@ -14978,6 +16142,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CourseScheduleView"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteUnitNote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the personal note in the course of the path. 404 for another user's note or one of another course. */
+                noteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The personal note is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchUnitNote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the personal note in the course of the path. 404 for another user's note or one of another course. */
+                noteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchUnitNote"];
+            };
+        };
+        responses: {
+            /** @description The updated personal note. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitNote"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -15046,6 +16284,119 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CourseProgressSummary"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listMyCourseReviews: {
+        parameters: {
+            query?: {
+                /** @description Filter course reviews by completion state: `pending`, `completed`, or `all` (also when left out). Anything else is 400. */
+                status?: string;
+                /** @description Narrows the course review list to reviews for this unit. */
+                unitId?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's personal reviews in the course. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitReview"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteUnitReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the personal review in the course of the path. 404 for another user's review or one of another course. */
+                reviewId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The personal review is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    completeUnitReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the personal review in the course of the path. 404 for another user's review or one of another course. */
+                reviewId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteUnitReview"];
+            };
+        };
+        responses: {
+            /** @description The completed review and suggested next interval. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompletedUnitReview"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -15840,6 +17191,85 @@ export interface operations {
             };
         };
     };
+    listMyUnitNotes: {
+        parameters: {
+            query?: {
+                /** @description Filter unit notes by category: `question`, `mistake`, or `review`. Left out, every category. Anything else is 400. */
+                kind?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's personal notes on the unit. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitNote"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createUnitNote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUnitNote"];
+            };
+        };
+        responses: {
+            /** @description The created personal note. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitNote"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     putUnitProgress: {
         parameters: {
             query?: never;
@@ -15867,6 +17297,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnitProgress"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    scheduleUnitReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleUnitReview"];
+            };
+        };
+        responses: {
+            /** @description The scheduled personal review. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitReview"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -16301,6 +17771,42 @@ export interface operations {
             };
         };
     };
+    keepDiaryEntryBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of. */
+                workspaceId: string;
+                /** @description The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is. */
+                diaryId: string;
+                /** @description The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary. */
+                entryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What became of the body. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeptBodyVersion"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getDiaryEntryBodyVersion: {
         parameters: {
             query?: never;
@@ -16656,6 +18162,38 @@ export interface operations {
             };
         };
     };
+    getWorkspaceTodayReviews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's pending reviews due today or overdue. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodayReviewItem"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getWorkspaceLearningToday: {
         parameters: {
             query?: never;
@@ -16938,7 +18476,7 @@ export interface operations {
     searchWorkspaceContent: {
         parameters: {
             query?: {
-                /** @description The words to find, at most 200 characters. Without it nothing is found. */
+                /** @description The words to find, or `#12` (`#00012` normalized to `12`) to match cards by their number across readable boards, at most 200 characters. Without it nothing is found. */
                 q?: string;
                 /** @description The kind of thing to find: `card`, `page`, `entry` or `unit`. Left out, every kind. Anything else is 400. */
                 kind?: string;

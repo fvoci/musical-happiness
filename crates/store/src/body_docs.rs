@@ -658,3 +658,15 @@ pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), Stor
     scope.execute(sql).await?;
     Ok(())
 }
+
+/// Whether `block_id` has collaborative updates in `body_docs` that have not yet been
+/// projected into `blocks.body` (`projected_seq < log_end`).
+pub(crate) async fn has_unwritten_body(
+    scope: &mut Scope<'_>,
+    block_id: &str,
+) -> Result<bool, StoreError> {
+    let mut sql =
+        scope.sql("SELECT 1 FROM body_docs WHERE projected_seq < log_end AND block_id = ");
+    sql.bind(Id(block_id));
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}

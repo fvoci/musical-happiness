@@ -59,7 +59,7 @@ import { roleOn } from './comments.ts';
 import { bodyFileIds, changeOf, LIMITS } from './shapes.ts';
 import { MemoryCarets } from './room-carets.ts';
 import type { Room, RoomUser, Seat, TabMessage } from './room-seats.ts';
-import { bodyOf, documentOf, lackedBy, sameBody, tabKey } from './room-docs.ts';
+import { bodyOf, documentOf, lackedBy, readBodyOf, sameBody, tabKey } from './room-docs.ts';
 import { mendTables } from './table-mend.ts';
 import type { StoredCard, World } from './world.ts';
 
@@ -358,17 +358,16 @@ export class MemoryRooms {
       return 'update_out_of_step';
     }
     // An empty body is null, a body: only what is none is mended.
-    const read = bodyOf(probe);
-    const body = read === undefined && mendTables(probe) ? bodyOf(probe) : read;
-    if (body === undefined) return 'update_refused';
+    const read = readBodyOf(probe);
+    const checked = !read.ok && mendTables(probe) ? readBodyOf(probe) : read;
+    if (!checked.ok) return checked.reason;
+    const { body } = checked;
     if (body === null) return undefined;
     if (storedSize(body) > LIMITS.bodyBytes) return 'document_too_large';
     // An image or a file block names a file of this board or wiki, or none.
     const files = this.#world.files;
-    if (bodyFileIds(body).some((fileId) => files.get(fileId)?.containerId !== room.containerId)) {
-      return 'update_refused';
-    }
-    return undefined;
+    const badFile = bodyFileIds(body).some((id) => files.get(id)?.containerId !== room.containerId);
+    return badFile ? 'update_refused' : undefined;
   }
 
   /** An update the room took goes to every seat in it but the one it came from. */
@@ -415,7 +414,7 @@ export class MemoryRooms {
     if (!card || body === undefined) return;
     if (sameBody(body, card.body ?? null)) return;
     card.body = body;
-    card.updateAt = this.#world.now();
+    card.updateAt = card.bodyUpdatedAt = this.#world.now();
     card.modifiedBy = room.lastWriter ?? card.modifiedBy;
     this.#world.tellContainer(room.containerId, changeOf(room.containerId, card));
     roomWrote(this.#world, card);

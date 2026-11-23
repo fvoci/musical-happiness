@@ -184,12 +184,22 @@ describe('the backend of a course’s public link', () => {
       () => courses.watchUnit('shared', 'u1', ''),
       () => courses.unwatchUnit('shared', 'u1', ''),
       () => courses.putUnitProgress('c1', 'u1', { completed: true }),
+      () =>
+        courses.putSchedule('c1', {
+          startDate: '2026-05-01',
+          targetDate: '2026-05-10',
+          studyDays: 31,
+        }),
+      () => courses.deleteSchedule('c1'),
+      () => courses.redistributeSchedule('c1', {}),
+      () => courses.redistributeMySchedule('c1', {}),
+      () => courses.putUnitSchedule('c1', 'u1', { plannedDate: '2026-05-02' }),
     ]) {
       await expect(write()).rejects.toSatisfy(isBackendError);
     }
   });
 
-  it('reads no comments, versions, subscriptions, or progress of a unit, asking the server nothing', async () => {
+  it('reads no comments, versions, subscriptions, progress, or schedules of a unit, asking the server nothing', async () => {
     const sent = serve([]);
     const courses = new SharedBackend('', 'c1', 't').course;
     expect([
@@ -199,7 +209,18 @@ describe('the backend of a course’s public link', () => {
       await courses.watching('shared', ''),
       await courses.myProgress('c1'),
       await courses.progressSummary('c1'),
-    ]).toEqual([[], [], [], [], [], { totalUnits: 0, members: [] }]);
+      await courses.schedule('c1'),
+      await courses.learningToday('shared'),
+    ]).toEqual([
+      [],
+      [],
+      [],
+      [],
+      [],
+      { totalUnits: 0, members: [] },
+      { schedule: null, today: '1970-01-01', todayCount: 0, overdueCount: 0, units: [] },
+      { today: '1970-01-01', todayUnits: [], overdueUnits: [] },
+    ]);
     expect(sent).toEqual([]);
     for (const write of [
       () => courses.createComment('c1', 'u1', { type: 'doc', content: [] }),

@@ -845,3 +845,61 @@ async fn the_days_of_a_diary_stay_in_its_space() {
     assert_eq!((count(&ones).await, count(&others).await), (1, 2));
     test.teardown().await;
 }
+
+/// An entry whose projected `blocks.body` and notes are still empty, but whose
+/// collaborative `body_docs` log holds unwritten updates (`projected_seq < log_end`),
+/// must move to the trash rather than being purged directly so those updates are never
+/// lost if flushing fails before deletion.
+#[tokio::test]
+async fn an_empty_entry_with_an_unwritten_body_doc_goes_to_trash_instead_of_being_purged() {
+    let test = common::setup().await;
+    let (user_id, own, _, diary_id) = writer(&test, "unflushed").await;
+    let entry = written(&own, &diary_id, "2024-09-10", &user_id).await;
+
+    own.create_body_doc(&entry.id, b"initial-state", b"empty-digest")
+        .await
+        .expect("create body doc");
+    let as_read = own
+        .get_body_doc(&entry.id)
+        .await
+        .expect("read body doc")
+        .expect("body doc exists")
+        .as_read();
+    own.append_body_updates(
+        &entry.id,
+        &[(b"unflushed-edit", &user_id)],
+        as_read,
+        &[],
+        &[user_id.as_str()],
+        fvoci_store::BodyBefore::Leave,
+    )
+    .await
+    .expect("append unwritten update");
+
+    assert!(
+        own.delete_diary_entry(&diary_id, &entry.id, &user_id)
+            .await
+            .expect("delete entry"),
+        "entry deleted"
+    );
+    let trash = own
+        .get_deleted_diary_entries(&diary_id, None)
+        .await
+        .expect("read trash");
+    assert_eq!(trash.len(), 1, "unwritten body_docs entry must go to trash");
+    assert_eq!(trash[0].id, entry.id);
+
+    own.undelete_diary_entry(&diary_id, &entry.id, ENTRIES_PER_DIARY, &user_id)
+        .await
+        .expect("undelete entry");
+    let doc = own
+        .get_body_doc(&entry.id)
+        .await
+        .expect("read body doc after undelete")
+        .expect("body doc preserved across trash and undelete");
+    assert_eq!(doc.log_end, 1);
+    assert_eq!(doc.projected_seq, 0);
+    assert_eq!(doc.updates.len(), 1);
+    assert_eq!(doc.updates[0].bytes, b"unflushed-edit");
+    test.teardown().await;
+}

@@ -23,13 +23,15 @@ import { reads } from './container-access.ts';
 import type { KeptOfCard } from './body-versions.ts';
 import type { StoredNotification } from './notifications.ts';
 import type { ContainerPlace } from './trash.ts';
-import type { UnitProgress } from '../course-types.ts';
+import type { CourseSchedule, UnitProgress } from '../course-types.ts';
 import type { TimeEntry } from '../time-types.ts';
 
 /** A view, card, comment or attachment as the world stores it. */
 export interface StoredBlock extends Block {
   /** Cards and comments: their text. */
   body?: DocNode | null;
+  /** Diary entries: when the body last changed, so metadata-only edits do not stale body `readAt`. */
+  bodyUpdatedAt?: number;
   /** Comments whose text was changed: when that last happened. */
   editedAt?: number;
   /** Attachments. */
@@ -147,6 +149,8 @@ export class World {
   readonly unitWatchers = new Map<string, Map<string, boolean>>();
   /** Personal unit progress rows per user (`userId -> Map<unitId, UnitProgress>`). */
   readonly unitProgress = new Map<string, Map<string, UnitProgress>>();
+  /** Saved shared course schedules keyed by `courseId` (survive course soft-delete/restore). */
+  readonly courseSchedules = new Map<string, CourseSchedule>();
   /** Personal time entries, by user (`time.ts`). */
   readonly timeEntries = new Map<string, TimeEntry[]>();
 

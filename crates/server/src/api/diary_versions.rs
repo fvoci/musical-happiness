@@ -3,7 +3,7 @@
 //! under the entry's own address.
 
 use axum::extract::Path;
-use fvoci_model::{BodyVersion, BodyVersionContent, DiaryEntry};
+use fvoci_model::{BodyVersion, BodyVersionContent, DiaryEntry, KeptBodyVersion};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -18,7 +18,10 @@ use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
-        .routes(routes!(handle_get_diary_entry_body_versions))
+        .routes(routes!(
+            handle_get_diary_entry_body_versions,
+            handle_keep_diary_entry_body_version
+        ))
         .routes(routes!(handle_get_diary_entry_body_version))
         .routes(routes!(handle_restore_diary_entry_body_version))
 }
@@ -49,6 +52,38 @@ async fn handle_get_diary_entry_body_versions(
     .await?;
     let versions = ws.app.body_versions(&entry.id).await?;
     Ok(json_response(&versions))
+}
+
+/// Keep an entry's body as a version now
+///
+/// As `keepCardBodyVersion` keeps a card's: the body the entry has, with what those who
+/// edit it together typed, by hand; nothing of a body that is its newest version already
+/// (`unchanged`), nor within a minute of a version kept by hand (`recent`). An entry in
+/// the trash is not there (404).
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}/body-versions",
+    operation_id = "keepDiaryEntryBodyVersion",
+    tag = tag::DIARIES,
+    params(OwnWorkspaceId, DiaryId, EntryId),
+    responses((status = 200, description = "What became of the body.", body = KeptBodyVersion)),
+)]
+async fn handle_keep_diary_entry_body_version(
+    InDiary(ws): InDiary,
+    Path((_, diary_id, entry_id)): Path<(String, String, String)>,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    let entry = entry_with_permission(
+        &ws,
+        &diary_id,
+        &entry_id,
+        ContainerPermission::ManageCards,
+        "access denied to keep a version of the entry's body",
+    )
+    .await?;
+    let kept = ws.app.keep_body_version_now(&entry.id).await?;
+    tracing::debug!(diary_id, entry_id, user_id, outcome = ?kept.outcome, "KeepDiaryEntryBodyVersion");
+    Ok(json_response(&kept))
 }
 
 /// A version of an entry's body
