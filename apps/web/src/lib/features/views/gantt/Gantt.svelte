@@ -32,9 +32,8 @@
   (a column at the right, or a sheet on a compact page).
 
   The zoom is the view's (`ganttZoom`), stored where the reader may change
-  the view and kept while the view is shown where not. Where the chart is scrolled to
-  is the state of the screen only: another view, or a new load, starts with
-  today in sight.
+  the view and kept while the view is shown where not. Scroll position is
+  screen-only: another view or a new load starts with today in sight.
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
@@ -423,6 +422,7 @@
                         onopentitle={focus.openFromTitle}
                         onkeys={focus.barKeys}
                         onfocused={focus.barFocused}
+                        ontoggle={chart.toggleParent}
                         draggable={writable}
                         menu={board.canEdit ? rowMenu : undefined}
                         dragged={dragged?.id === line.id ? dragged : undefined}

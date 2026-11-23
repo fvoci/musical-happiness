@@ -10,13 +10,14 @@
  * kind on a board with many values is many writes.
  */
 import type { OptionCallbacks } from '$lib/components/properties/index.ts';
-import type {
-  Container,
-  BoardView,
-  PropertyOption,
-  PropertyTemplate,
-  PropertyType,
-  PropertyValue,
+import {
+  isRelationLinksValue,
+  type BoardView,
+  type Container,
+  type PropertyOption,
+  type PropertyTemplate,
+  type PropertyType,
+  type PropertyValue,
 } from '$lib/logic/wire.ts';
 import type { BoardStore } from '$lib/state/index.ts';
 
@@ -100,8 +101,12 @@ export async function renameProperty(
  */
 function fitsKind(value: PropertyValue | undefined, type: PropertyType | undefined): boolean {
   const isDate = typeof value === 'object' && !Array.isArray(value);
-  if (type === 'relation') return Array.isArray(value);
-  return type === 'date' ? isDate : !isDate;
+  const isRelationLinks = isRelationLinksValue(value);
+  if (type === 'relation') {
+    return Array.isArray(value) && (value.length === 0 || isRelationLinks);
+  }
+  if (type === 'date') return isDate;
+  return !isDate && !isRelationLinks;
 }
 
 /**

@@ -15,6 +15,7 @@ use thiserror::Error;
 use crate::JsonMap;
 use crate::date_value::{DateValueError, check_date_value};
 use crate::refusal::{RefusalReason, Refusals};
+use crate::relation::{RELATION_PROPERTY_TYPE, RelationLinkError, parse_relation_link};
 
 /// The `type` of a property definition whose values are date values.
 pub const DATE_PROPERTY_TYPE: &str = "date";
@@ -32,9 +33,9 @@ pub enum CardPropertyError {
     #[error("card properties must be an object of property values")]
     ValuesNotObject,
     /// A property value is neither a string, nor a list of strings, nor a date value,
-    /// nor `null`.
+    /// nor a list of relation links, nor `null`.
     #[error(
-        "the value of card property {id:?} must be a string, a list of strings or a date value"
+        "the value of card property {id:?} must be a string, a list of strings, a date value or a list of relation links"
     )]
     InvalidValue {
         /// The identifier of the property.
@@ -48,6 +49,14 @@ pub enum CardPropertyError {
         /// What is wrong with it.
         reason: DateValueError,
     },
+    /// A property value is a list containing an invalid relation link object.
+    #[error("the relation link of card property {id:?} is refused: {reason}")]
+    InvalidRelationLink {
+        /// The identifier of the property.
+        id: String,
+        /// What is wrong with it.
+        reason: RelationLinkError,
+    },
     /// The value of a date property is not a date value.
     #[error("card property {id:?} is a date: its value is a date value or null")]
     NotADateValue {
@@ -57,6 +66,14 @@ pub enum CardPropertyError {
     /// A date value is the value of a property that is no date.
     #[error("card property {id:?} is not a date property, so its value cannot be a date value")]
     DateValueOfOtherProperty {
+        /// The identifier of the property.
+        id: String,
+    },
+    /// A list of relation links is the value of a property that is no card relation.
+    #[error(
+        "card property {id:?} is not a relation property, so its value cannot be a list of relation links"
+    )]
+    RelationValueOfOtherProperty {
         /// The identifier of the property.
         id: String,
     },
@@ -107,22 +124,34 @@ pub fn validate_card_property_values(values: &JsonMap) -> Result<(), CardPropert
 
 /// Checks the value of one property of a card.
 fn check_property_value(id: &str, value: &Value) -> Result<(), CardPropertyError> {
-    let valid = match value {
-        Value::Null | Value::String(_) => true,
-        Value::Array(items) => items.iter().all(Value::is_string),
+    match value {
+        Value::Null | Value::String(_) => Ok(()),
+        Value::Array(items) => {
+            if items.iter().all(Value::is_string) {
+                return Ok(());
+            }
+            if items.iter().all(Value::is_object) {
+                for item in items {
+                    parse_relation_link(item).map_err(|reason| {
+                        CardPropertyError::InvalidRelationLink {
+                            id: id.to_owned(),
+                            reason,
+                        }
+                    })?;
+                }
+                return Ok(());
+            }
+            Err(CardPropertyError::InvalidValue { id: id.to_owned() })
+        }
         Value::Object(date) => {
             check_date_value(date).map_err(|reason| CardPropertyError::InvalidDateValue {
                 id: id.to_owned(),
                 reason,
-            })?;
-            true
+            })
         }
-        Value::Bool(_) | Value::Number(_) => false,
-    };
-    if valid {
-        Ok(())
-    } else {
-        Err(CardPropertyError::InvalidValue { id: id.to_owned() })
+        Value::Bool(_) | Value::Number(_) => {
+            Err(CardPropertyError::InvalidValue { id: id.to_owned() })
+        }
     }
 }
 
@@ -147,60 +176,77 @@ pub(crate) fn check_card_property_values<'v>(
 }
 
 /// Checks that the date values of a card are the values of its board's date properties,
-/// and that a date property has a date value or `null`. A value of a property the board
-/// does not define is no date value.
+/// that a date property has a date value or `null`, and that a list of relation link
+/// objects is only the value of a relation property. A value of a property the board
+/// does not define is neither a date value nor a relation link list.
 ///
 /// # Errors
 ///
-/// Returns [`CardPropertyError::NotADateValue`] or
-/// [`CardPropertyError::DateValueOfOtherProperty`] for the first value in the wrong
+/// Returns [`CardPropertyError::NotADateValue`],
+/// [`CardPropertyError::DateValueOfOtherProperty`], or
+/// [`CardPropertyError::RelationValueOfOtherProperty`] for the first value in the wrong
 /// place.
 pub fn validate_card_property_kinds(
     values: &JsonMap,
     definitions: &[JsonMap],
 ) -> Result<(), CardPropertyError> {
     for (id, value) in values {
-        if fits_kind(id, value, definitions) {
+        if is_date_property(id, definitions) {
+            if !matches!(value, Value::Null | Value::Object(_)) {
+                return Err(CardPropertyError::NotADateValue { id: id.clone() });
+            }
             continue;
         }
-        return Err(if value.is_object() {
-            CardPropertyError::DateValueOfOtherProperty { id: id.clone() }
-        } else {
-            CardPropertyError::NotADateValue { id: id.clone() }
-        });
+        if value.is_object() {
+            return Err(CardPropertyError::DateValueOfOtherProperty { id: id.clone() });
+        }
+        if is_relation_links_array(value) && !is_relation_property(id, definitions) {
+            return Err(CardPropertyError::RelationValueOfOtherProperty { id: id.clone() });
+        }
     }
     Ok(())
 }
 
 /// Whether a property is one of the board's date properties.
 fn is_date_property(id: &str, definitions: &[JsonMap]) -> bool {
+    is_property_of_type(id, DATE_PROPERTY_TYPE, definitions)
+}
+
+/// Whether a property is one of the board's relation properties.
+fn is_relation_property(id: &str, definitions: &[JsonMap]) -> bool {
+    is_property_of_type(id, RELATION_PROPERTY_TYPE, definitions)
+}
+
+fn is_property_of_type(id: &str, property_type: &str, definitions: &[JsonMap]) -> bool {
     definitions.iter().any(|definition| {
         definition.get("id").and_then(Value::as_str) == Some(id)
-            && definition.get("type").and_then(Value::as_str) == Some(DATE_PROPERTY_TYPE)
+            && definition.get("type").and_then(Value::as_str) == Some(property_type)
     })
 }
 
-/// Whether a value fits the kind of its property: a date property holds a date value
-/// or `null`, any other property no date value.
-fn fits_kind(id: &str, value: &Value, definitions: &[JsonMap]) -> bool {
-    matches!(
-        (is_date_property(id, definitions), value),
-        (true, Value::Null | Value::Object(_))
-            | (false, Value::Null | Value::String(_) | Value::Array(_))
-    )
+/// Whether a value is a non-empty list of relation link objects.
+fn is_relation_links_array(value: &Value) -> bool {
+    value
+        .as_array()
+        .is_some_and(|items| !items.is_empty() && items.iter().all(Value::is_object))
 }
 
 /// Sets to `null` the values that no longer fit the kind of their property: those of a
-/// property that became or stopped being a date, or that the board no longer defines
-/// while holding a date value. For what is copied from stored cards, which may be older
-/// than a change of the definitions. Returns how many were cleared.
+/// property that became or stopped being a date, stopped being a relation, or that the
+/// board no longer defines while holding a date or relation link value. For what is
+/// copied from stored cards, which may be older than a change of the definitions.
+/// Returns how many were cleared.
 pub fn clear_values_of_another_kind(values: &mut JsonMap, definitions: &[JsonMap]) -> usize {
     let mut cleared = 0;
     for (id, value) in values.iter_mut() {
-        // A value of the other kind; a malformed one is left to be refused.
+        // A value of another kind; a malformed one is left to be refused.
         let other_kind = match value {
             Value::Object(_) => !is_date_property(id, definitions),
-            Value::String(_) | Value::Array(_) => is_date_property(id, definitions),
+            Value::String(_) => is_date_property(id, definitions),
+            Value::Array(_) => {
+                is_date_property(id, definitions)
+                    || (is_relation_links_array(value) && !is_relation_property(id, definitions))
+            }
             Value::Null | Value::Bool(_) | Value::Number(_) => false,
         };
         if other_kind {
@@ -671,6 +717,51 @@ mod tests {
                 "{values}"
             );
         }
+    }
+
+    #[test]
+    fn relation_links_validate_shape_and_belong_to_relation_properties_only() {
+        let valid = object(json!({
+            "rel": [{"card": "c1"}, {"card": "c2", "kind": "ss", "lagDays": -3}],
+        }));
+        assert_eq!(validate_card_property_values(&valid), Ok(()));
+        assert_eq!(
+            validate_card_property_values(&object(json!({"rel": [{"card": "c1", "kind": "bad"}]}))),
+            Err(CardPropertyError::InvalidRelationLink {
+                id: "rel".to_owned(),
+                reason: RelationLinkError::InvalidKind,
+            })
+        );
+        assert_eq!(
+            validate_card_property_values(&object(json!({"rel": ["a", {"card": "c1"}]}))),
+            Err(CardPropertyError::InvalidValue {
+                id: "rel".to_owned(),
+            })
+        );
+        let definitions = [
+            object(json!({"id": "rel", "type": "relation"})),
+            object(json!({"id": "note", "type": "text"})),
+        ];
+        assert_eq!(validate_card_property_kinds(&valid, &definitions), Ok(()));
+        assert_eq!(
+            validate_card_property_kinds(
+                &object(json!({"note": [{"card": "c1", "kind": "fs", "lagDays": 0}]})),
+                &definitions,
+            ),
+            Err(CardPropertyError::RelationValueOfOtherProperty {
+                id: "note".to_owned(),
+            })
+        );
+        let mut stale = object(json!({
+            "note": [{"card": "c1", "kind": "ss", "lagDays": 2}],
+            "rel": [{"card": "c2", "kind": "ff", "lagDays": -1}],
+        }));
+        assert_eq!(clear_values_of_another_kind(&mut stale, &definitions), 1);
+        assert_eq!(stale["note"], Value::Null);
+        assert_eq!(
+            stale["rel"],
+            json!([{"card": "c2", "kind": "ff", "lagDays": -1}])
+        );
     }
 
     #[test]

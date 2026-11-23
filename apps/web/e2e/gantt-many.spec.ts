@@ -53,7 +53,7 @@ async function openMany(page: Page, info: TestInfo): Promise<number> {
         title: `Task ${String(at + 1)}`,
         properties: {
           [due.id]: { from: day(from), to: day(from + (at % 9)) },
-          ...(before ? { after: [before] } : {}),
+          ...(before ? { after: [{ card: before, kind: 'fs', lagDays: 0 }] } : {}),
         },
       });
       before = made.id;

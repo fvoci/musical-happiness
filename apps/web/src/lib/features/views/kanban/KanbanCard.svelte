@@ -75,6 +75,8 @@
 
   const uid = $props.id();
   const badges = $derived(badgesOf(card));
+  const subcards = $derived(face.hierarchy?.progressOf(card.id));
+  const parentHint = $derived(face.hierarchy?.parentOf(card));
   const menuLabel = $derived(
     m.kanban_card_menu({ title: card.title || m['KanbanCard.untitled']() }),
   );
@@ -140,6 +142,9 @@
       hasBody={badges.hasBody}
       tasksTotal={badges.tasksTotal}
       tasksDone={badges.tasksDone}
+      subcardsTotal={subcards?.total ?? 0}
+      subcardsDone={subcards?.done ?? 0}
+      {parentHint}
       titleId="{uid}-title"
       locale={face.locale}
       regional={face.regional}

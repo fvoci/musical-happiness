@@ -556,9 +556,12 @@ fn describe_relation(reason: Reason) -> Option<&'static str> {
     Some(match reason {
         Reason::RelationNotAList => {
             "Status 400. The value of a card relation property (of the `type` `relation`) is \
-             `null` or a list of identifiers of cards of the board. `errors` names where the \
-             request has the card's values (a block's `fields` or `updatedFields`, a card's \
-             `properties` or `updatedProperties`); the words name the property."
+             `null` or a list of relation link objects (`{\"card\", \"kind\", \"lagDays\"}`); \
+             a string, a legacy list of card identifier strings, or another non-link list is \
+             refused here (malformed link objects fail request validation with \
+             `/problems/bad-request`). `errors` names where the request has the card's values \
+             (a block's `fields` or `updatedFields`, a card's `properties` or \
+             `updatedProperties`); the words name the property."
         }
         Reason::RelationToItself => {
             "Status 400. A card relation names its own card. `errors` as for \
