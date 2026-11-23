@@ -77,6 +77,52 @@ export interface UnitPatch {
   readAt?: number;
 }
 
+/** Maximum length in Unicode scalar values of `UnitProgress.lastPosition`. */
+export const UNIT_PROGRESS_POSITION_MAX_CHARS = 256;
+
+/** Returns `true` if `raw` contains any Unicode C0, DEL, or C1 control character. */
+export function hasControlChars(raw: string): boolean {
+  for (const ch of raw) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
+  }
+  return false;
+}
+
+/** One learner's personal progress on a single unit. */
+export interface UnitProgress {
+  unitId: string;
+  /** Completion time in milliseconds since Unix epoch; `null` if incomplete. */
+  completedAt: number | null;
+  /** Optional personal target date (`YYYY-MM-DD`), reserved for L3 scheduling. */
+  plannedDate: string | null;
+  /** Optional last read or watched position string, at most 256 Unicode scalar values. */
+  lastPosition: string | null;
+  /** Last modification time in milliseconds since Unix epoch. */
+  updateAt: number;
+}
+
+/**
+ * Partial update for the caller's personal progress on a unit.
+ * Omitted fields keep their stored value; never pass `completed: null`.
+ */
+export interface UnitProgressUpdate {
+  completed?: boolean;
+  lastPosition?: string | null;
+}
+
+/** Aggregate completion count of one active course member. */
+export interface MemberCourseProgress {
+  userId: string;
+  completedUnits: number;
+}
+
+/** Course-wide completion summary across all active course members. */
+export interface CourseProgressSummary {
+  totalUnits: number;
+  members: MemberCourseProgress[];
+}
+
 export interface Courses {
   /** The courses of the workspace the reader can see (member or open). */
   courses(workspaceId: string): Promise<Container[]>;
@@ -125,6 +171,19 @@ export interface Courses {
   watchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void>;
   /** Unsubscribes the user from notifications on a unit. */
   unwatchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void>;
+
+  // Personal unit progress & course summary (never called on public links).
+  /** The caller's own progress rows for live units of the course, ordered by `unitId`. */
+  myProgress(courseId: string, workspaceId?: string): Promise<UnitProgress[]>;
+  /** Creates or updates the caller's progress on a live unit (chapters/trashed 404; unjoined 403). */
+  putUnitProgress(
+    courseId: string,
+    unitId: string,
+    update: UnitProgressUpdate,
+    workspaceId?: string,
+  ): Promise<UnitProgress>;
+  /** Aggregate completion counts for active course members, ordered by `userId`. */
+  progressSummary(courseId: string, workspaceId?: string): Promise<CourseProgressSummary>;
 }
 
 /** Where a backend keeps its courses. One by a public link reads only its course's outline and units. */

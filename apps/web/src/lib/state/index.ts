@@ -94,15 +94,20 @@ export { UnitStore } from './unit.svelte.ts';
 export type { UnitComments } from './unit-comments.svelte.ts';
 export { createCourse } from './course-parts.ts';
 export { shownCourse } from './shown-course.svelte.ts';
+export { hasControlChars, UNIT_PROGRESS_POSITION_MAX_CHARS } from './course-types.ts';
 export type {
   CourseDraft,
+  CourseProgressSummary,
   Courses,
   CourseUnit,
   CourseUnitDetail,
+  MemberCourseProgress,
   UnitDraft,
   UnitKind,
   UnitMove,
   UnitPatch,
+  UnitProgress,
+  UnitProgressUpdate,
 } from './course-types.ts';
 export type { PresenceSource, TreeItem, TreeSource } from './tree-source.ts';
 export {

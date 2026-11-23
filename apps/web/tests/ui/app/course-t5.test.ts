@@ -114,11 +114,17 @@ describe('SharedCourse public reader', () => {
       },
     };
     const setPresence = vi.fn();
+    const myProgress = vi.fn();
+    const putUnitProgress = vi.fn();
+    const progressSummary = vi.fn();
     const backend = {
       presence: { setPresence, watchPresence: () => () => undefined },
       course: {
         units: vi.fn().mockResolvedValue(units),
         unit: vi.fn().mockImplementation((_c: string, id: string) => Promise.resolve(details[id])),
+        myProgress,
+        putUnitProgress,
+        progressSummary,
       },
     } as unknown as Backend;
 
@@ -130,11 +136,18 @@ describe('SharedCourse public reader', () => {
     const tree = screen.getByTestId('shared-unit-tree');
     expect(tree.querySelector('[data-kind="chapter"]')).toHaveTextContent('Chapter 1');
     expect(tree.querySelectorAll('a')).toHaveLength(2);
-    // No comment composer, no versions menu, no watch toggle, no editable textbox.
+    // No comment composer, no versions menu, no watch toggle, no editable textbox, no progress UI/calls.
     expect(screen.queryByTestId('comment-composer')).toBeNull();
     expect(screen.queryByTestId('unit-menu')).toBeNull();
     expect(screen.queryByTestId('unit-watch-toggle')).toBeNull();
+    expect(screen.queryByTestId('course-my-progress')).toBeNull();
+    expect(screen.queryByTestId('unit-complete-toggle')).toBeNull();
+    expect(screen.queryByTestId('unit-last-position')).toBeNull();
+    expect(screen.queryByTestId('unit-tree-progress')).toBeNull();
     expect(screen.queryByRole('textbox')).toBeNull();
+    expect(myProgress).not.toHaveBeenCalled();
+    expect(putUnitProgress).not.toHaveBeenCalled();
+    expect(progressSummary).not.toHaveBeenCalled();
 
     // Same-course reference is a link; outside reference is unseen (no link).
     const body = screen.getByTestId('unit-body');

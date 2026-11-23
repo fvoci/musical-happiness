@@ -10,10 +10,14 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
 
+  import CircleIcon from '@lucide/svelte/icons/circle';
+  import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
+
   import { holdSaveKey } from '$lib/editor/save-key.ts';
   import BodyVersions from '$lib/features/card/BodyVersions.svelte';
   import { unitVersions, VersionsReading } from '$lib/features/card/body-versions.svelte.ts';
   import CourseJoin from '$lib/features/course/CourseJoin.svelte';
+  import CourseProgressBar from '$lib/features/course/CourseProgressBar.svelte';
   import CourseScreen from '$lib/features/course/CourseScreen.svelte';
   import UnitMenu from '$lib/features/course/UnitMenu.svelte';
   import OutlineButton from '$lib/features/wiki/OutlineButton.svelte';
@@ -318,12 +322,16 @@
         }}
         onShare={() => {
           sharing = true;
+          void store.refreshProgressSummary();
         }}
         showBar={outline.mode === 'button' || (reading && outline.where === 'button')}
         stickyBar={outline.mode === 'button'}
         scrollAttach={outline.follow}
         barAttach={outline.bar}
       >
+        {#snippet progress()}
+          <CourseProgressBar course={store} />
+        {/snippet}
         {#snippet tree({ closeDrawer }: { closeDrawer: (restoreFocus?: boolean) => void })}
           <PageTree
             wiki={store}
@@ -357,6 +365,24 @@
             testId="unit-tree"
             busy={creating}
           >
+            {#snippet itemLeading(item: CourseUnit)}
+              {#if store.canTrackProgress && item.kind === 'unit'}
+                {@const done = store.progress.isCompleted(item.id)}
+                <span
+                  class={['shrink-0', done ? 'text-primary' : 'text-muted-foreground/40']}
+                  data-testid="unit-tree-progress"
+                  data-completed={done ? 'true' : 'false'}
+                  aria-hidden="true"
+                >
+                  {#if done}<CircleCheckIcon class="size-3.5" />{:else}<CircleIcon
+                      class="size-3.5"
+                    />{/if}
+                </span>
+                <span class="sr-only"
+                  >{done ? m.course_unit_completed() : m.course_unit_incomplete()}</span
+                >
+              {/if}
+            {/snippet}
             {#snippet headerActions()}
               <div class="flex shrink-0 items-center gap-1">
                 <Button
