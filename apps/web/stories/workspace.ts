@@ -16,6 +16,7 @@ export interface WorkspaceExample {
   managed?: boolean;
   cycle?: boolean;
   late?: boolean;
+  variedRelations?: boolean;
 }
 
 export function exampleWorkspace({
@@ -25,6 +26,7 @@ export function exampleWorkspace({
   managed = false,
   cycle = false,
   late = false,
+  variedRelations = false,
 }: WorkspaceExample = {}) {
   const world = new World(() => STORY_NOW);
   world.workspace = {
@@ -102,7 +104,7 @@ export function exampleWorkspace({
     },
   });
   world.blocks.set(view.id, view);
-  seedCards(world, count, cycle, late);
+  seedCards(world, count, cycle, late, variedRelations);
   const backend = new MemoryBackend(world, 'example-reader');
   const workspace = new Workspace({ backend, locale: getLocale });
   return { world, backend, workspace };
@@ -113,19 +115,44 @@ export async function loadWorkspace(example: ReturnType<typeof exampleWorkspace>
   await example.workspace.openBoard('example-board');
 }
 
-function seedCards(world: World, count: number, cycle: boolean, late: boolean): void {
+const VARIED_LINKS = [
+  ['fs', 1],
+  ['ss', 2],
+  ['ff', -1],
+  ['sf', 1],
+] as const;
+
+function seedCards(
+  world: World,
+  count: number,
+  cycle: boolean,
+  late: boolean,
+  variedRelations: boolean,
+): void {
+  let previousDated: string | undefined;
+  let variedIndex = 0;
   for (let index = 1; index <= count; index += 1) {
     const card = exampleCard(index);
     if (index === 1) card.title += ' — Long example / 긴 예시'.repeat(5);
     card.fields.properties.status = index % 3 === 0 ? 'done' : 'todo';
-    if (index % 5 !== 0) {
+    const dated = index % 5 !== 0;
+    if (dated) {
       const day = late && index === 2 ? 5 : 4 + ((index - 1) % 8) * 3;
       card.fields.properties.due = {
         from: `2026-11-${String(day).padStart(2, '0')}`,
         to: `2026-11-${String(day + 2).padStart(2, '0')}`,
       };
     }
-    if (index > 1) card.fields.properties.before = [relationLink(`example-card-${index - 1}`)];
+    if (variedRelations) {
+      if (dated && previousDated !== undefined) {
+        const [kind, lagDays] = VARIED_LINKS[variedIndex % VARIED_LINKS.length] ?? ['fs', 0];
+        card.fields.properties.before = [relationLink(previousDated, kind, lagDays)];
+        variedIndex += 1;
+      }
+    } else if (index > 1) {
+      card.fields.properties.before = [relationLink(`example-card-${index - 1}`)];
+    }
+    if (dated) previousDated = card.id;
     if (cycle && index === 1 && count >= 3) {
       card.fields.properties.before = [relationLink('example-card-3')];
     }

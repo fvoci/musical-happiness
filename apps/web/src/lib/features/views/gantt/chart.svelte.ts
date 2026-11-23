@@ -5,6 +5,7 @@
  */
 import { SvelteSet } from 'svelte/reactivity';
 
+import { barLateSentences } from '$lib/components/properties/relation-labels.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
 import { displayProperty } from '$lib/logic/calendar.ts';
 import {
@@ -13,12 +14,9 @@ import {
   type HierarchicalRow,
 } from '$lib/logic/card-hierarchy.ts';
 import type { CalendarDate } from '$lib/logic/dates.ts';
-import type { Days } from '$lib/logic/dependencies.ts';
+import type { Days, RelationEdge } from '$lib/logic/dependencies.ts';
 import type { BoardGroup } from '$lib/logic/group.ts';
 import {
-  arrowHead,
-  arrowPath,
-  arrowsOf,
   axisOf,
   barsOf,
   cardsBefore,
@@ -42,8 +40,11 @@ import type { BoardStore } from '$lib/state/index.ts';
 
 import { Placed } from '../calendar/placed.ts';
 
+import { buildArrowLines, type ArrowLine } from './arrow-lines.ts';
 import { Kept } from './kept.ts';
 import { daysLabel } from './names.ts';
+
+export type { ArrowLine };
 
 export interface ChartSource {
   board: () => BoardStore;
@@ -105,17 +106,6 @@ export interface GroupLine {
 }
 
 export type ChartLine = CardLine | GroupLine;
-
-/** An arrow as drawn: its ends, its marks, and its line and head as SVG paths. */
-export interface ArrowLine {
-  key: string;
-  from: string;
-  to: string;
-  late: boolean;
-  loop: boolean;
-  path: string;
-  head: string;
-}
 
 /** How many rows stand in one block of the list (Gantt.svelte). */
 const BLOCK = 25;
@@ -289,21 +279,28 @@ export class GanttChart {
   /** One arrow for each edge. */
   readonly arrows = $derived.by<ArrowLine[]>(() =>
     this.#keptArrows.keep(
-      arrowsOf(this.relations, this.bars, this.axis.width).map((arrow) => ({
-        key: edgeKey(arrow),
-        from: arrow.from,
-        to: arrow.to,
-        late: arrow.late,
-        loop: arrow.loop,
-        path: arrowPath(arrow.points),
-        head: arrowHead(arrow.points),
-      })),
+      buildArrowLines(this.relations, this.bars, this.axis.width, (cardId) => {
+        const card = this.placed.card(cardId);
+        return card ? this.placed.title(card) : '';
+      }),
       (arrow) => arrow.key,
     ),
   );
 
   /** For each card, the cards it comes after, in the order of its value. */
   readonly #before = $derived.by(() => cardsBefore(this.relations.edges));
+
+  /** For each card, the edges pointing into it, in edge order. */
+  readonly #edgesByTo = $derived.by(() => {
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- rebuilt per derivation, never mutated later
+    const byTo = new Map<string, RelationEdge[]>();
+    for (const edge of this.relations.edges) {
+      const list = byTo.get(edge.to);
+      if (list) list.push(edge);
+      else byTo.set(edge.to, [edge]);
+    }
+    return byTo;
+  });
 
   readonly #listFormat = $derived.by(
     () => new Intl.ListFormat(this.#board.workspace.locale, { type: 'conjunction' }),
@@ -355,10 +352,10 @@ export class GanttChart {
     return name;
   }
 
-  /** The cards that `cardId` comes after and starts too early for. */
-  #lateBefore(cardId: string): string[] {
-    const before = this.#before.get(cardId) ?? [];
-    return before.filter((from) => this.relations.late.has(edgeKey({ from, to: cardId })));
+  /** The edges pointing into `cardId` whose dates are out of order. */
+  #lateEdges(cardId: string): RelationEdge[] {
+    const incoming = this.#edgesByTo.get(cardId) ?? [];
+    return incoming.filter((edge) => this.relations.late.has(edgeKey(edge)));
   }
 
   /**
@@ -368,11 +365,18 @@ export class GanttChart {
    */
   #name(card: Card): string {
     const before = this.#before.get(card.id);
-    const late = this.#lateBefore(card.id);
+    const late = barLateSentences(
+      this.#lateEdges(card.id),
+      (id) => {
+        const found = this.placed.card(id);
+        return found ? this.placed.title(found) : undefined;
+      },
+      (titles) => this.#listFormat.format(titles),
+    );
     const name = this.#titleAndDays(card);
     const group = this.#groupOf.get(card.id);
     const more = [
-      late.length > 0 ? m.gantt_bar_late({ cards: this.#listed(late) }) : undefined,
+      ...late,
       this.relations.loopCards.has(card.id) ? m.gantt_bar_loop() : undefined,
       group === undefined ? undefined : m.gantt_bar_group({ group }),
     ].filter((part) => part !== undefined);
@@ -416,7 +420,7 @@ export class GanttChart {
           title: this.placed.title(card),
           ...(card.number === undefined ? {} : { number: card.number }),
           name: this.#name(card),
-          late: this.#lateBefore(row.id).length > 0,
+          late: this.#lateEdges(row.id).length > 0,
           loop: this.relations.loopCards.has(row.id),
           level: meta?.level ?? 0,
           hasChildren: meta?.hasChildren ?? false,

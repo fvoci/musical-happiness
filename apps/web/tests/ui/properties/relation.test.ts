@@ -166,6 +166,41 @@ describe('a relation property, opened', () => {
     ]);
   });
 
+  it('shows non-default kind/lag badges on chips and edits them inline without touching hidden links', async () => {
+    const existing = [relationLink('card-gone', 'sf', 4), relationLink('card-2', 'ss', 2)];
+    const { container, onChange } = mount('relation', existing, {
+      cards: CARDS,
+      onOpenCard: vi.fn(),
+    });
+    expect(container.querySelector('[data-slot="relation-badge"]')).toHaveTextContent('SS +2d');
+    expect(
+      screen.getByRole('button', { name: 'Open Design the form, SS +2d' }),
+    ).toBeInTheDocument();
+
+    await fireEvent.click(button());
+    const kindSelect = screen.getByLabelText('Relation type for Design the form');
+    await fireEvent.change(kindSelect, { target: { value: 'ff' } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      relationLink('card-gone', 'sf', 4),
+      relationLink('card-2', 'ff', 2),
+    ]);
+
+    const lagInput = screen.getByLabelText('Lag days for Design the form');
+    await fireEvent.input(lagInput, { target: { value: '-1' } });
+    await fireEvent.change(lagInput, { target: { value: '-1' } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      relationLink('card-gone', 'sf', 4),
+      relationLink('card-2', 'ss', -1),
+    ]);
+
+    // Pressing Escape reverts dirty input instead of committing it on blur.
+    onChange.mockClear();
+    await fireEvent.input(lagInput, { target: { value: '99' } });
+    await fireEvent.keyDown(lagInput, { key: 'Escape' });
+    await fireEvent.blur(lagInput);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('takes out a card with the button next to its title, and Backspace takes the last', async () => {
     const { onChange } = mount('relation', links('card-2', 'card-3'), { cards: CARDS });
     await fireEvent.click(button());
