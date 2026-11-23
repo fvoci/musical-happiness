@@ -118,6 +118,7 @@ pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use container_membership::Standing;
 pub use containers::{Joined, MemberChange, PublicContainers};
+pub use containers_and_blocks::{StreamBatch, StreamCreateError};
 pub use courses::{UnitRestore, UnitWrite};
 pub use db::Dialect;
 pub use diaries::{DiaryMade, EntryMade};

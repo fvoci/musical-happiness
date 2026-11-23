@@ -9,7 +9,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use bytes::Bytes;
-use tokio::fs;
 
 use super::{MAX_ENTRIES, MAX_JSONL_BYTES, MAX_VERSION_BYTES};
 use crate::error::{AppError, Reason};
@@ -223,15 +222,6 @@ pub(super) async fn unpack_entry(
     })
     .await
     .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))?
-}
-
-/// Removes an unpacked entry once it is stored, or failed to be.
-pub(super) async fn remove_unpacked(path: &Path) {
-    match fs::remove_file(path).await {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => tracing::error!(%error, "an unpacked archive entry could not be removed"),
-    }
 }
 
 /// Reads an archive entry through without keeping it, as [`read_entry`] would read it:
