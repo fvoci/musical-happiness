@@ -23,16 +23,23 @@
 <script lang="ts">
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import RepeatIcon from '@lucide/svelte/icons/repeat';
-  import XIcon from '@lucide/svelte/icons/x';
 
   import PickList from '$lib/components/pick-list/PickList.svelte';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
+  import { relationBadge } from '$lib/components/properties/relation-labels.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import {
+    updateRelationLink,
+    type RelationKind,
+    type RelationLink,
+  } from '$lib/logic/relations.ts';
   import { foldCase } from '$lib/logic/text.ts';
-  import { RELATION_LIMIT, relationLink, type Card, type RelationLink } from '$lib/logic/wire.ts';
+  import { RELATION_LIMIT, relationLink, type Card } from '$lib/logic/wire.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { cn } from '$lib/utils.js';
+
+  import RelationLinkItem from './RelationLinkItem.svelte';
 
   interface Props {
     /** The name of the property. */
@@ -91,12 +98,16 @@
   const untitled = (card: Card | undefined): string => card?.title || m['KanbanCard.untitled']();
   const titleOf = (id: string): string => untitled(cards.get(id));
 
-  /** The picked cards that are there, in the order they were picked; never the card itself. */
-  const shown = $derived([
-    ...new Set(
-      links.filter((link) => link.card !== cardId && cards.has(link.card)).map((link) => link.card),
+  /** The picked links whose cards are there, each card once in order; never the card itself. */
+  const shownLinks = $derived(
+    links.filter(
+      (link, at, all) =>
+        link.card !== cardId &&
+        cards.has(link.card) &&
+        all.findIndex((other) => other.card === link.card) === at,
     ),
-  ]);
+  );
+  const shown = $derived(shownLinks.map((link) => link.card));
   /** The named cards that are not there (deleted), each once: written back as they are. */
   const hidden = $derived([
     ...new Set(
@@ -208,6 +219,17 @@
     );
   }
 
+  function updateLink(
+    targetCardId: string,
+    patch: { kind?: RelationKind; lagDays?: number },
+  ): void {
+    const cleaned = links.filter(
+      (link, at, all) =>
+        link.card !== cardId && all.findIndex((other) => other.card === link.card) === at,
+    );
+    onChange?.(updateRelationLink(cleaned, targetCardId, patch));
+  }
+
   function pick(card: Card): void {
     if (shown.includes(card.id)) write(shown.filter((id) => id !== card.id));
     else if (!full && !excluded?.has(card.id)) write([...shown, card.id]);
@@ -228,7 +250,9 @@
 {/snippet}
 
 {#snippet chips()}
-  {#each shown as id (id)}
+  {#each shownLinks as link (link.card)}
+    {@const id = link.card}
+    {@const badge = relationBadge(link.kind, link.lagDays)}
     {#if onOpenCard}
       <button
         type="button"
@@ -239,12 +263,21 @@
         class={cn(chipClass, 'underline-offset-2 hover:underline focus-visible:underline')}
         data-loop={onLoop(id) ? '' : undefined}
         aria-label={m.property_relation_open({ title: titleOf(id) }) +
+          (badge !== '' ? `, ${badge}` : '') +
           (onLoop(id) ? `, ${m.property_relation_in_loop()}` : '')}
         onclick={() => {
           onOpenCard(id);
         }}
       >
         <span class="truncate">{titleOf(id)}</span>
+        {#if badge !== ''}
+          <span
+            data-slot="relation-badge"
+            class="shrink-0 rounded-sm bg-background/70 px-1 text-[0.6875rem] font-medium text-muted-foreground tabular-nums"
+          >
+            {badge}
+          </span>
+        {/if}
         {@render loopMark(id)}
       </button>
     {:else}
@@ -255,6 +288,14 @@
         class={chipClass}
       >
         <span class="truncate">{titleOf(id)}</span>
+        {#if badge !== ''}
+          <span
+            data-slot="relation-badge"
+            class="shrink-0 rounded-sm bg-background/70 px-1 text-[0.6875rem] font-medium text-muted-foreground tabular-nums"
+          >
+            {badge}
+          </span>
+        {/if}
         {@render loopMark(id)}
         {#if onLoop(id)}<span class="sr-only">{m.property_relation_in_loop()}</span>{/if}
       </span>
@@ -297,27 +338,23 @@
       {/snippet}
 
       <div class="flex flex-col gap-1" bind:this={editor}>
-        {#if shown.length > 0}
+        {#if shownLinks.length > 0}
           <ul
-            class="m-0 flex list-none flex-wrap gap-1 p-1"
+            class="m-0 flex list-none flex-col gap-1 p-1"
             aria-label={m.property_relation_picked()}
           >
-            {#each shown as id (id)}
-              <li class={cn(chipClass, 'pr-0.5')}>
-                <span class="truncate">{titleOf(id)}</span>
-                {@render loopMark(id)}
-                {#if onLoop(id)}<span class="sr-only">{m.property_relation_in_loop()}</span>{/if}
-                <button
-                  type="button"
-                  class="relative inline-flex size-5 shrink-0 items-center justify-center rounded-sm group-data-[presentation=sheet]/surface:size-8 group-data-[presentation=sheet]/surface:after:absolute group-data-[presentation=sheet]/surface:after:-inset-1.5 hover:bg-foreground/10"
-                  aria-label={m.property_option_remove({ name: titleOf(id) })}
-                  onclick={() => {
-                    write(shown.filter((other) => other !== id));
-                  }}
-                >
-                  <XIcon class="size-3.5" aria-hidden="true" />
-                </button>
-              </li>
+            {#each shownLinks as link (link.card)}
+              <RelationLinkItem
+                {link}
+                title={titleOf(link.card)}
+                inLoop={onLoop(link.card)}
+                onUpdate={(patch: { kind?: RelationKind; lagDays?: number }) => {
+                  updateLink(link.card, patch);
+                }}
+                onRemove={() => {
+                  write(shown.filter((other) => other !== link.card));
+                }}
+              />
             {/each}
           </ul>
         {/if}
