@@ -20,11 +20,14 @@
   import { untrack } from 'svelte';
 
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
+  import BodyVersions from '$lib/features/card/BodyVersions.svelte';
+  import { entryVersions, VersionsReading } from '$lib/features/card/body-versions.svelte.ts';
   import EntryBody from '$lib/features/card/EntryBody.svelte';
   import DayHeader from '$lib/features/diary/DayHeader.svelte';
   import DiaryNameDialog from '$lib/features/diary/DiaryNameDialog.svelte';
   import { DeviceToday } from '$lib/features/diary/today.svelte.ts';
   import YearCell from '$lib/features/diary/YearCell.svelte';
+  import { holdSaveKey } from '$lib/editor/save-key.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
   import {
@@ -171,6 +174,17 @@
 
   let renaming = $state(false);
   let deleting = $state(false);
+  const openEntry = $derived(open ? diary?.entries.find((one) => one.date === open) : undefined);
+  /** The versions of the open entry, read anew each time their dialog opens; resets when the open entry changes. */
+  let versions = $derived<{
+    entryId: string | undefined;
+    reading: VersionsReading | undefined;
+    open: boolean;
+  }>({
+    entryId: openEntry?.id,
+    reading: undefined,
+    open: false,
+  });
   const title = $derived(diary?.diary?.title || m.diary_untitled());
 
   async function rename(store: DiaryStore, name: string): Promise<void> {
@@ -197,7 +211,11 @@
   }
 </script>
 
+<!-- An open day shown, the keys that keep a version of its body save no page anywhere on it. -->
 <svelte:window
+  onkeydown={(event: KeyboardEvent) => {
+    if (open) holdSaveKey(event);
+  }}
   onpagehide={(event: PageTransitionEvent) => {
     diary?.leave(event.persisted);
   }}
@@ -261,6 +279,15 @@
                   openDate(date);
                   pressed = date;
                 }}
+                onVersions={() => {
+                  const dayStore = store.day(date);
+                  if (!dayStore.entry) return;
+                  versions = {
+                    entryId: dayStore.entry.id,
+                    reading: new VersionsReading(entryVersions(dayStore)),
+                    open: true,
+                  };
+                }}
                 {body}
               />
             </div>
@@ -282,6 +309,20 @@
       {/if}
     </div>
   </div>
+  <!-- Another day or entry shown, the dialog of the one before goes with it. -->
+  {#if versions.reading}
+    <BodyVersions
+      bind:open={
+        () => versions.open,
+        (next: boolean) => {
+          versions = { ...versions, open: next };
+        }
+      }
+      reading={versions.reading}
+      container={{ workspace, canEdit: true }}
+      of="entry"
+    />
+  {/if}
   <DiaryNameDialog
     bind:open={renaming}
     initial={store.diary?.title ?? ''}

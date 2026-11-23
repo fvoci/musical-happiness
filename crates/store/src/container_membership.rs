@@ -179,7 +179,7 @@ impl Store {
     }
 }
 
-async fn add_member(
+pub(crate) async fn add_member(
     scope: &mut Scope<'_>,
     member: &ContainerMember,
 ) -> Result<Option<ContainerMember>, StoreError> {

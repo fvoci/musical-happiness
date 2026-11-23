@@ -17,8 +17,8 @@ use crate::course_schedule::{
     is_unit_amount_value,
 };
 use crate::diary::{
-    ENTRY_DATE_FIELD, ENTRY_MOOD_FIELD, ENTRY_PLACE_FIELD, ENTRY_WEATHER_FIELD, is_date_value,
-    is_mood_value, is_note_value,
+    ENTRY_BODY_UPDATED_AT_FIELD, ENTRY_DATE_FIELD, ENTRY_MOOD_FIELD, ENTRY_PLACE_FIELD,
+    ENTRY_WEATHER_FIELD, is_body_updated_at_value, is_date_value, is_mood_value, is_note_value,
 };
 use crate::page::{PAGE_ICON_FIELD, PAGE_ORDER_FIELD, is_order_value};
 use crate::relation::RelationError;
@@ -479,7 +479,7 @@ const CHAPTER_FIELD_KINDS: [FieldKind; 4] = [
 /// The fields of an entry whose value has one kind, as [`CARD_FIELD_KINDS`] has a
 /// card's. Its `date` is there besides, which [`Block::validate`] asks for by itself: an
 /// entry is not without it.
-const ENTRY_FIELD_KINDS: [FieldKind; 4] = [
+const ENTRY_FIELD_KINDS: [FieldKind; 5] = [
     (ENTRY_DATE_FIELD, "a day, as `2026-11-21`", is_date_value),
     (ENTRY_MOOD_FIELD, "a mood", is_mood_value),
     (
@@ -491,6 +491,11 @@ const ENTRY_FIELD_KINDS: [FieldKind; 4] = [
         ENTRY_PLACE_FIELD,
         "a text of at most 100 characters",
         is_note_value,
+    ),
+    (
+        ENTRY_BODY_UPDATED_AT_FIELD,
+        "a time in milliseconds",
+        is_body_updated_at_value,
     ),
 ];
 

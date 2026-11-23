@@ -21,6 +21,7 @@ import {
   type Mood,
 } from '../state/diary-types.ts';
 
+import { ServerEntryVersions } from './body-versions.ts';
 import { bodyOf, containerOf, wireBody, type Schemas } from './convert.ts';
 import type { WikiRequest } from './wikis.ts';
 
@@ -63,6 +64,9 @@ export function entryOfBlock(block: Schemas['Block']): DiaryEntry {
 function entryPatchOf(patch: EntryPatch): Schemas['DiaryEntryPatch'] {
   return {
     ...(patch.body === undefined ? {} : { body: patch.body && wireBody(patch.body) }),
+    ...(patch.appendBody === undefined
+      ? {}
+      : { appendBody: patch.appendBody && wireBody(patch.appendBody) }),
     ...(patch.readAt === undefined ? {} : { readAt: patch.readAt }),
     ...(patch.mood === undefined ? {} : { mood: patch.mood }),
     ...(patch.weather === undefined ? {} : { weather: patch.weather }),
@@ -71,6 +75,7 @@ function entryPatchOf(patch: EntryPatch): Schemas['DiaryEntryPatch'] {
 }
 
 export class ServerDiaries implements Diaries {
+  readonly bodyVersions: ServerEntryVersions;
   /** A request under the workspace of the diary `params.diaryId` names (`WikiRequest`'s way). */
   readonly #request: WikiRequest;
   /** Keeps the workspace of each diary read, for the paths under it. */
@@ -79,6 +84,9 @@ export class ServerDiaries implements Diaries {
   constructor(request: WikiRequest, learn: (diaries: readonly Schemas['Container'][]) => void) {
     this.#request = request;
     this.#learn = learn;
+    this.bodyVersions = new ServerEntryVersions((path, params, options) =>
+      this.#request(path, params, options),
+    );
   }
 
   async diaries(workspaceId: string): Promise<Container[]> {

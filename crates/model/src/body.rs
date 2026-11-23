@@ -258,6 +258,36 @@ impl Body {
         rename_in(&mut self.document, &rename);
         (!is_empty_document(&self.document)).then_some(self)
     }
+
+    /// Appends the top-level blocks of `extra` after those of `existing` (or returns
+    /// `extra` when `existing` is `None`) and checks the combined document against the
+    /// body limits ([`BODY_MAX_BYTES`], [`BODY_MAX_DEPTH`], [`BODY_MAX_NODES`]) and
+    /// allowlist.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`BodyError`] if either document has no `content` array or the combined
+    /// document exceeds the body limits.
+    pub fn append_to(existing: Option<&Self>, mut extra: Self) -> Result<Self, BodyError> {
+        let Some(existing) = existing else {
+            return Ok(extra);
+        };
+        let mut content = existing
+            .document
+            .get("content")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or(BodyError::NotADocument)?;
+        let extra_content = extra
+            .document
+            .get_mut("content")
+            .and_then(Value::as_array_mut)
+            .map(std::mem::take)
+            .ok_or(BodyError::NotADocument)?;
+        content.extend(extra_content);
+        let merged = serde_json::json!({ "type": "doc", "content": content });
+        Self::parse(merged)?.ok_or(BodyError::NotADocument)
+    }
 }
 
 /// The kind of node that is a picture of a file.
@@ -837,5 +867,49 @@ mod tests {
         assert_eq!(body.first_image_file_id(), Some("in-a-list.png"));
         let none = Body::from_stored(json!({"type": "doc", "content": [paragraph("text")]}));
         assert_eq!(none.first_image_file_id(), None);
+    }
+
+    #[test]
+    fn appending_bodies_merges_blocks_and_enforces_size_and_node_limits() {
+        let first = Body::parse(document(&[paragraph("one")]))
+            .expect("valid")
+            .expect("non-empty");
+        let second = Body::parse(document(&[paragraph("two")]))
+            .expect("valid")
+            .expect("non-empty");
+
+        assert_eq!(
+            Body::append_to(None, second.clone()).expect("append to empty"),
+            second
+        );
+        let merged = Body::append_to(Some(&first), second).expect("merged");
+        assert_eq!(
+            merged.document(),
+            &document(&[paragraph("one"), paragraph("two")])
+        );
+
+        // Exceeding BODY_MAX_NODES across existing + extra is refused.
+        let half = BODY_MAX_NODES / 2;
+        let left = Body::parse(document(&vec![json!({"type": "horizontalRule"}); half]))
+            .expect("valid")
+            .expect("non-empty");
+        let right = Body::parse(document(&vec![json!({"type": "horizontalRule"}); half]))
+            .expect("valid")
+            .expect("non-empty");
+        assert_eq!(
+            Body::append_to(Some(&left), right),
+            Err(BodyError::TooManyNodes)
+        );
+
+        // Exceeding BODY_MAX_BYTES across existing + extra is refused.
+        let big = Body::parse(document(&[paragraph(
+            &"a".repeat(BODY_MAX_BYTES / 2 + 1024),
+        )]))
+        .expect("valid")
+        .expect("non-empty");
+        assert_eq!(
+            Body::append_to(Some(&big), big.clone()),
+            Err(BodyError::TooLarge)
+        );
     }
 }
