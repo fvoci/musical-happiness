@@ -25,14 +25,17 @@
     tabs: readonly Tab[];
     /** The place of the tab whose panel is in view. */
     current: number;
+    /** Whether the strip is shown; a hidden strip must not force layout with `offsetLeft`. */
+    visible?: boolean;
     onShow: (at: number) => void;
   }
 
-  let { tabs, current, onShow }: Props = $props();
+  let { tabs, current, visible = true, onShow }: Props = $props();
 
   let strip = $state<HTMLElement | null>(null);
 
   $effect(() => {
+    if (!visible) return;
     const tab = strip?.children[current];
     if (!strip || !(tab instanceof HTMLElement)) return;
     const left = tab.offsetLeft - 8;

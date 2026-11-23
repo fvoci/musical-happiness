@@ -10,7 +10,7 @@ import { playwrightWorkers } from './tools/test-cpus.ts';
  */
 const PORT = Number(process.env.FVOCI_SPIKES_PORT ?? 18320);
 /** The spikes measured on a phone's screen only. */
-const PHONE_ONLY = /spikes\/kanban-scroll\/[^/]+\.spec\.ts$/;
+const PHONE_ONLY = /spikes[\\/]kanban-scroll[\\/][^\\/]+\.spec\.ts$/;
 /** An iPhone's screen of 390 by 844 points. */
 const PHONE = {
   viewport: { width: 390, height: 844 },

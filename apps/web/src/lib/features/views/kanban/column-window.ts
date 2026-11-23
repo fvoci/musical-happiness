@@ -62,11 +62,15 @@ export function cardsBetween(
   tops: readonly number[],
   from: number,
   to: number,
+  gap = -1,
+  gapHeight = 0,
 ): { first: number; end: number } {
   const count = tops.length - 1;
+  const extra = gap >= 0 ? gapHeight + CARD_GAP : 0;
+  const shift = (at: number): number => (extra > 0 && at >= gap ? extra : 0);
   // The first card whose bottom is below `from`, and the first whose top is at `to` or below.
-  const first = search(count, (at) => (tops[at + 1] ?? 0) - CARD_GAP > from);
-  const end = search(count, (at) => (tops[at] ?? 0) >= to);
+  const first = search(count, (at) => (tops[at + 1] ?? 0) - CARD_GAP + shift(at) > from);
+  const end = search(count, (at) => (tops[at] ?? 0) + shift(at) >= to);
   return { first, end: Math.max(first, end) };
 }
 
@@ -194,18 +198,33 @@ function edge(piece: Piece | undefined, key: 'start' | 'end'): Piece {
  */
 export class CardHeights {
   readonly #measured = new SvelteMap<string, number>();
-  readonly #ids = new WeakMap<Element, string>();
+  readonly #ids = new Map<Element, string>();
   readonly #guess: (cardId: string) => number | undefined;
+  readonly #onScroll: ((scrollTop: number) => void) | undefined;
   #observer: ResizeObserver | undefined;
   #list: HTMLElement | undefined;
 
-  /** `guess`: how high a card not measured yet is taken to be. */
-  constructor(guess: (cardId: string) => number | undefined) {
+  /** `guess`: how high a card not measured yet is taken to be; `onScroll`: called after anchoring shifts scrollTop. */
+  constructor(
+    guess: (cardId: string) => number | undefined,
+    onScroll?: (scrollTop: number) => void,
+  ) {
     this.#guess = guess;
+    this.#onScroll = onScroll;
   }
 
   get(cardId: string): number | undefined {
     return this.#measured.get(cardId);
+  }
+
+  /** Drops recorded heights when cards change shape (different visible properties or view). */
+  clear(): void {
+    this.#measured.clear();
+    if (!this.#observer) return;
+    for (const element of this.#ids.keys()) {
+      this.#observer.unobserve(element);
+      this.#observer.observe(element);
+    }
   }
 
   /** Follows the list the cards are in, for its scroll. */
@@ -214,6 +233,7 @@ export class CardHeights {
     return () => {
       this.#observer?.disconnect();
       this.#observer = undefined;
+      this.#ids.clear();
       this.#list = undefined;
     };
   };
@@ -244,6 +264,9 @@ export class CardHeights {
         shift += height - before;
       }
     }
-    if (this.#list && shift !== 0) this.#list.scrollTop += shift;
+    if (this.#list && shift !== 0) {
+      this.#list.scrollTop += shift;
+      this.#onScroll?.(this.#list.scrollTop);
+    }
   };
 }
