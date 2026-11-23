@@ -431,6 +431,13 @@ async fn concurrent_start_and_leave_organization_leave_no_orphan_timer() {
     let test = common::setup().await;
     let keeper = common::user(&test, "race_keeper").await;
     let leaver = common::user(&test, "race_leaver").await;
+    test.system()
+        .execute_unchecked(&format!(
+            "UPDATE users SET password_hash = '$argon2id$v=19$m=19456,t=2,p=1$test$test' \
+             WHERE id = '{leaver}'"
+        ))
+        .await
+        .expect("leaver password");
     test.execute_unchecked(&format!(
         "UPDATE organization_members SET role = '{}' WHERE user_id = '{keeper}' \
          AND org_id = '{}'",
@@ -634,6 +641,13 @@ async fn org_leaving_and_account_erasure_clean_up_time_entries() {
 async fn seed_leaver_entries(test: &TestStore) -> (String, String, String) {
     let keeper = common::user(test, "keeper").await;
     let leaver = common::user(test, "leaver").await;
+    test.system()
+        .execute_unchecked(&format!(
+            "UPDATE users SET password_hash = '$argon2id$v=19$m=19456,t=2,p=1$test$test' \
+             WHERE id = '{leaver}'"
+        ))
+        .await
+        .expect("leaver password");
     test.execute_unchecked(&format!(
         "UPDATE organization_members SET role = '{}' WHERE user_id = '{keeper}' \
          AND org_id = '{}'",
