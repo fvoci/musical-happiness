@@ -95,7 +95,10 @@ pub use export::ExportedArchive;
 pub(crate) use file_name::check_file_name;
 pub(crate) use files::FILE;
 pub use housekeeping::WorkspacesPurged;
-pub use import::Imported;
+pub use import::{
+    BundleLimits, ImportCounts, ImportFormat, ImportSummary, ImportWarning, ImportWarningCode,
+    Imported, MAX_REPORTED_WARNINGS, ParseImportFormatError,
+};
 pub use invitations::{Accepting, Admission, Inviting};
 pub use limits::OrgLimits;
 pub use list_page::{DEFAULT_PER_PAGE, ListPage, MAX_PER_PAGE};

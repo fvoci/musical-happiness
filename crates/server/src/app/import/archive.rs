@@ -6,6 +6,7 @@ use std::borrow::Cow;
 use std::io::{self, Read, Seek, SeekFrom, Write as _};
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use bytes::Bytes;
 use tokio::fs;
@@ -29,6 +30,40 @@ pub(super) struct SharedFile {
     file: Arc<std::fs::File>,
     len: u64,
     position: u64,
+    /// Cumulative raw bytes read through this handle (and its clones), used by the
+    /// external bundle reader to verify actual compressed bytes read rather than trusting
+    /// spoofable ZIP `compressed_size` headers.
+    bytes_read: Arc<AtomicU64>,
+}
+
+impl SharedFile {
+    /// Creates a position-independent reader over `file` of `len` bytes starting at offset 0.
+    pub(super) fn new(file: Arc<std::fs::File>, len: u64) -> Self {
+        Self {
+            file,
+            len,
+            position: 0,
+            bytes_read: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Resets this handle's read position back to the start of the file.
+    pub(super) fn rewind_start(&mut self) {
+        self.position = 0;
+    }
+
+    /// Returns an independent clone with a fresh per-reader byte counter sharing the
+    /// underlying open file descriptor.
+    pub(super) fn with_fresh_counter(&self) -> (Self, Arc<AtomicU64>) {
+        let counter = Arc::new(AtomicU64::new(0));
+        let cloned = Self {
+            file: Arc::clone(&self.file),
+            len: self.len,
+            position: self.position,
+            bytes_read: Arc::clone(&counter),
+        };
+        (cloned, counter)
+    }
 }
 
 impl Read for SharedFile {
@@ -39,9 +74,9 @@ impl Read for SharedFile {
         let read = std::os::windows::fs::FileExt::seek_read(&*self.file, buf, self.position)?;
         #[cfg(not(any(unix, windows)))]
         compile_error!("an archive is read at positions, which unix and windows have");
-        self.position = self
-            .position
-            .saturating_add(u64::try_from(read).unwrap_or(u64::MAX));
+        let read_u64 = u64::try_from(read).unwrap_or(u64::MAX);
+        self.position = self.position.saturating_add(read_u64);
+        self.bytes_read.fetch_add(read_u64, Ordering::Relaxed);
         Ok(read)
     }
 }
@@ -72,11 +107,7 @@ pub(super) async fn open_archive(path: &Path) -> Result<Archive, AppError> {
             .metadata()
             .map_err(|error| AppError::internal(format_args!("cannot read the archive: {error}")))?
             .len();
-        let mut file = SharedFile {
-            file: Arc::new(file),
-            len,
-            position: 0,
-        };
+        let mut file = SharedFile::new(Arc::new(file), len);
         // Counted before the directory is read, as reading it holds every entry in memory.
         // Every entry the reader keeps begins with the central header's signature, so it
         // keeps at most as many entries as signatures, whatever the end records say. The

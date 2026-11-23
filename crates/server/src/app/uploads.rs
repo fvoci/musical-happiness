@@ -646,6 +646,25 @@ impl App {
     /// it is); a conflict if it is being completed or thrown away already; and the
     /// errors of the import, with the upload thrown away.
     pub async fn import_upload(&self, upload: &Upload) -> Result<Imported, AppError> {
+        let summary = self
+            .import_upload_with_format(upload, super::ImportFormat::Fvoci)
+            .await?;
+        Ok(Imported {
+            members_left_out: summary.members_left_out,
+        })
+    }
+
+    /// Imports an upload in parts as `format` (`fvoci`, `trello`, or `notion`) into its
+    /// workspace as its user, throwing the upload away once all parts are present.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`App::import_upload`] and [`App::import_external_archive`].
+    pub async fn import_upload_with_format(
+        &self,
+        upload: &Upload,
+        format: super::ImportFormat,
+    ) -> Result<super::ImportSummary, AppError> {
         if upload.purpose != UploadPurpose::Import {
             return Err(AppError::bad_request(
                 "the upload is of a file; complete it with completeUpload",
@@ -685,8 +704,13 @@ impl App {
         drop(turn);
         let imported = match joined {
             Ok(()) => {
-                self.import_workspace_archive(&archive, &upload.workspace_id, &upload.user_id)
-                    .await
+                self.import_external_archive(
+                    &archive,
+                    format,
+                    &upload.workspace_id,
+                    &upload.user_id,
+                )
+                .await
             }
             Err(error) => Err(error),
         };
