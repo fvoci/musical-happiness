@@ -1896,21 +1896,19 @@ impl FullBoard {
             .collect()
     }
 
-    /// The board is not shared and nobody subscribes to its blocks.
-    async fn assert_sharing_and_subscriptions_are_gone(&self, store: &Store) {
-        let error = store
-            .get_sharing(&self.board.id)
+    /// The board is not shared and the subscribers to its card match `want`.
+    async fn assert_sharing_gone_and_watchers(&self, store: &Store, want: &[&str]) {
+        let err = store.get_sharing(&self.board.id).await.expect_err("none");
+        assert!(err.is_not_found(), "got {err:?}");
+        let subs = store
+            .get_subscribers_for_block(&self.card_id)
             .await
-            .expect_err("the board is not shared");
-        assert!(error.is_not_found(), "got {error:?}");
-
-        let subscribed = subscribed_block_ids(store, &self.editor_id).await;
-        assert!(subscribed.is_empty(), "got {subscribed:?}");
-        let subscribers = store
-            .get_subscribers_count_for_block(&self.card_id)
-            .await
-            .expect("the subscribers are counted");
-        assert_eq!(subscribers, 0, "nobody subscribes to the card");
+            .expect("subs");
+        let mut got: Vec<&str> = subs.iter().map(|s| s.subscriber_id.as_str()).collect();
+        let mut expected = want.to_vec();
+        got.sort_unstable();
+        expected.sort_unstable();
+        assert_eq!(got, expected, "card watchers");
     }
 }
 
@@ -2031,7 +2029,7 @@ async fn delete_container_ends_sharing_category_filing_and_subscriptions() {
         .await
         .expect("the board is deleted");
 
-    full.assert_sharing_and_subscriptions_are_gone(&test).await;
+    full.assert_sharing_gone_and_watchers(&test, &[]).await;
     assert_eq!(
         full.filed_by_editor(&test).await,
         Vec::<String>::new(),
@@ -2121,10 +2119,10 @@ async fn undelete_container_brings_back_the_board_its_blocks_files_and_members()
     test.teardown().await;
 }
 
-/// The places in the sidebars come back with the board (user decision 2026-11-11 14:25
-/// KST); its sharing and the subscriptions to its blocks do not.
+/// The places in the sidebars and the subscriptions to its blocks come back with the board;
+/// its sharing does not.
 #[tokio::test]
-async fn undelete_container_brings_back_category_filing_but_not_sharing_or_subscriptions() {
+async fn undelete_container_brings_back_category_filing_and_subscriptions_but_not_sharing() {
     let test = common::setup().await;
     let full = FullBoard::store(&test).await;
 
@@ -2138,7 +2136,8 @@ async fn undelete_container_brings_back_category_filing_but_not_sharing_or_subsc
     test.get_block(&full.card_id)
         .await
         .expect("the card is back");
-    full.assert_sharing_and_subscriptions_are_gone(&test).await;
+    full.assert_sharing_gone_and_watchers(&test, &[&full.admin_id, &full.editor_id])
+        .await;
     assert_eq!(
         full.filed_by_editor(&test).await,
         std::slice::from_ref(&full.board.id),

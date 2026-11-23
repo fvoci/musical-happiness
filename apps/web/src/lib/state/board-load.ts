@@ -74,6 +74,23 @@ export async function handleBoardLoadFailure(
   host.workspace.report('load', error);
 }
 
+/** Handles a failed board refresh: reports 401, evicts on 403/404, and updates active state. */
+export async function handleBoardRefreshFailure(
+  host: BoardFailureHost,
+  error: unknown,
+  isCurrent: () => boolean,
+): Promise<void> {
+  if (isBackendError(error) && error.status === 401) {
+    host.workspace.report('load', error);
+    return;
+  }
+  const accessLost = isBackendError(error) && (error.status === 403 || error.status === 404);
+  if (accessLost) host.workspace.evictContainer(host.boardId);
+  if (!isCurrent()) return;
+  if (accessLost) await handleBoardLoadFailure(host, error);
+  else host.workspace.report('load', error);
+}
+
 export async function readBoard(workspace: Workspace, boardId: string) {
   const backend = workspace.backend;
   const visit = workspace.info;

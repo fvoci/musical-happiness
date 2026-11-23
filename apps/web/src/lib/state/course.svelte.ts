@@ -146,11 +146,15 @@ export class CourseStore implements TreeSource<CourseUnit> {
       void this.workspace.learnUsers(members.map(memberId), { members: true });
       this.#takeCourse(course);
       this.units = units;
+      this.#writes.remember(this.units);
       if (membersTold === this.#people.told) this.members = members;
       this.status = 'ready';
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
+      this.openUnit?.close();
+      this.openUnit = undefined;
       if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+        this.workspace.evictContainer(this.courseId);
         this.missing = true;
       } else this.workspace.report('load', error);
       this.status = 'failed';
@@ -163,8 +167,12 @@ export class CourseStore implements TreeSource<CourseUnit> {
     try {
       await this.workspace.backend.joinContainer(this.courseId);
     } catch (error) {
-      if (isBackendError(error) && error.status === 404) this.missing = true;
-      else this.workspace.report('save', error);
+      if (isBackendError(error) && error.status === 404) {
+        this.openUnit?.close();
+        this.openUnit = undefined;
+        this.workspace.evictContainer(this.courseId);
+        [this.missing, this.status] = [true, 'failed'];
+      } else this.workspace.report('save', error);
       return false;
     } finally {
       this.joining = false;
@@ -212,7 +220,12 @@ export class CourseStore implements TreeSource<CourseUnit> {
       case 'containerDeleted':
         if (change.containerId !== this.courseId) break;
         if (this.course?.type === 'O' && !this.#closed) void this.load();
-        else [this.missing, this.status] = [true, 'failed'];
+        else {
+          this.workspace.evictContainer(this.courseId);
+          this.openUnit?.close();
+          this.openUnit = undefined;
+          [this.missing, this.status] = [true, 'failed'];
+        }
         break;
       case 'units':
         for (const unit of change.units) this.#receive(unit);
@@ -230,6 +243,13 @@ export class CourseStore implements TreeSource<CourseUnit> {
         if (change.containerId !== this.courseId) break;
         this.#people.told += 1;
         this.members = change.members;
+        if (
+          this.course?.type !== 'O' &&
+          this.workspace.me &&
+          !change.members.some((m) => m.userId === this.workspace.me?.id)
+        ) {
+          this.workspace.evictContainer(this.courseId);
+        }
         void this.workspace.learnUsers(change.members.map(memberId), { members: true });
         break;
       case 'resync':
@@ -279,7 +299,12 @@ export class CourseStore implements TreeSource<CourseUnit> {
       } else if (shown) void shown.refresh();
     } catch (error) {
       if (this.#isClosed() || reading !== this.#readings) return;
+      if (isBackendError(error) && error.status === 401) {
+        this.workspace.report('load', error);
+        return;
+      }
       if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+        this.workspace.evictContainer(this.courseId);
         void this.load();
       }
     }

@@ -4,9 +4,11 @@
 //!
 //! A write notes the users its body mentions that the body before did not, the users a
 //! person property of a card takes that it did not hold, and, of a new comment, the
-//! watchers of the card or the page it is on. Whoever writes a card or a page, is given
-//! a card, or comments on either watches it from then on, until they stop. A row of the
-//! list says who may be told, never that they are (`notification_outbox.rs`).
+//! watchers of the card or the page it is on. Whoever writes a card or a page, or
+//! comments on either, watches it from then on, until they stop; who is given a card
+//! comes to watch it when the server works off that row, if they read the card then
+//! ([`Store::watch_given`]). A row of the list says who may be told, never that they
+//! are (`notification_outbox.rs`).
 
 use std::collections::BTreeSet;
 
@@ -15,9 +17,10 @@ use fvoci_model::{
 };
 use serde_json::Value;
 
+use crate::Store;
 use crate::body_docs;
 use crate::containers;
-use crate::db::{Dialect, Id, OptId, Scope, Sql};
+use crate::db::{Dialect, Id, Noting, OptId, Scope, Sql};
 use crate::error::StoreError;
 
 /// How many identifiers one statement binds.
@@ -43,6 +46,10 @@ pub(crate) enum Telling {
         /// The last update the body of the block held before this write.
         since: i64,
     },
+    /// Nobody, as its writer asked: what it writes was said before (a copy the web
+    /// makes, a change taken back or made again). Who writes a new card, page or
+    /// comment watches it all the same; nobody else comes to.
+    Quiet,
     /// Nobody: a copy, a card or a board made from a template, what comes back from
     /// the trash or from an archive. Nobody comes to watch anything by it either.
     Nobody,
@@ -51,19 +58,18 @@ pub(crate) enum Telling {
 impl Telling {
     /// The people a write names, as its writer's doing, unless the scope tells nobody.
     pub(crate) fn of(scope: &Scope<'_>) -> Self {
-        if scope.tells_nobody() {
-            Self::Nobody
-        } else {
-            Self::Written
+        match scope.notes() {
+            Noting::Named => Self::Written,
+            Noting::Quietly => Self::Quiet,
+            Noting::Nobody => Self::Nobody,
         }
     }
 
     /// As [`Telling::of`], for a body written from its document.
     pub(crate) fn of_typed(scope: &Scope<'_>, since: i64) -> Self {
-        if scope.tells_nobody() {
-            Self::Nobody
-        } else {
-            Self::Typed { since }
+        match Self::of(scope) {
+            Self::Written => Self::Typed { since },
+            telling => telling,
         }
     }
 }
@@ -87,7 +93,9 @@ fn assigned_before<'b>(before: Option<&'b Block>, definitions: &[JsonMap]) -> BT
 /// A comment is about the card, page or unit it is on; a card that is a template of its
 /// board tells nobody, and neither does anything else that is no card, page, unit or
 /// comment (a chapter and a diary entry tell nobody). Who writes a new card, page, unit
-/// or comment, and who is given a card, watches it.
+/// or comment watches it, quietly too; who gives a card to themselves watches it. Who is
+/// given a card by somebody else comes to watch it as they are told of it
+/// ([`Store::watch_given`]): only if they read it then.
 pub(crate) async fn note_named(
     scope: &mut Scope<'_>,
     block: &Block,
@@ -104,6 +112,18 @@ pub(crate) async fn note_named(
         _ => return Ok(()),
     };
     if block.fields.get("isTemplate") == Some(&Value::Bool(true)) {
+        return Ok(());
+    }
+    if matches!(telling, Telling::Quiet) {
+        if before.is_none() {
+            let event = Noted {
+                block,
+                about,
+                writer,
+                typed: &[],
+            };
+            event.watch(scope, &[writer]).await?;
+        }
         return Ok(());
     }
     let mentioned_before: BTreeSet<&str> = before
@@ -162,8 +182,11 @@ pub(crate) async fn note_named(
     event
         .note(scope, NotificationKind::Assignment, &assigned)
         .await?;
-    let given: Vec<&str> = assigned.into_iter().take(MOST_NAMED_BY_A_WRITE).collect();
-    event.watch(scope, &given).await
+    // Nobody is told of their own doing, and so nothing else makes them watch it.
+    if assigned.contains(&writer) {
+        event.watch(scope, &[writer]).await?;
+    }
+    Ok(())
 }
 
 /// Whether `bytes` hold `word` somewhere. An update of a document holds the text of
@@ -229,7 +252,7 @@ impl Noted<'_> {
         sql
     }
 
-    /// Narrows a statement of [`Noted::noting`] or [`Noted::watch`] to what is noted
+    /// Narrows a statement of [`Noted::noting`] to what is noted
     /// at all: a board or a wiki that is no template, of an organization people work
     /// in together (in the space of one account nobody else reads anything), for users
     /// that are accounts (one that was erased is none).
@@ -309,40 +332,62 @@ impl Noted<'_> {
     }
 
     /// Makes `users` watchers of the card or the page the write is about, where they
-    /// are not already; those that would note nothing ([`Noted::push_noted`]) are
-    /// made none.
+    /// are not already ([`watch`]).
     async fn watch(&self, scope: &mut Scope<'_>, users: &[&str]) -> Result<(), StoreError> {
-        let users: Vec<&str> = users
-            .iter()
-            .copied()
-            .filter(|user| fvoci_model::is_id(user))
-            .collect();
-        let now = crate::db::now_millis();
-        let postgres = scope.dialect() == Dialect::Postgres;
-        for batch in users.chunks(BATCH) {
-            let mut sql = scope.sql(if postgres {
-                "INSERT INTO subscriptions (org_id, block_type, block_id, subscriber_type, \
-                 subscriber_id, notified_at, create_at) SELECT b.org_id, b.type, b.id, "
-            } else {
-                "INSERT INTO subscriptions (block_type, block_id, subscriber_type, \
-                 subscriber_id, notified_at, create_at) SELECT b.type, b.id, "
-            });
-            sql.bind(SubscriberType::User.as_str())
-                .push_bind(", u.id, ", now)
-                .push_bind(", ", now)
-                .push(" FROM blocks AS b JOIN containers AS bo ON bo.id = b.container_id")
-                .push(&scope.same_organization(&[("bo", "b")]))
-                .push(" JOIN workspaces AS w ON w.id = bo.workspace_id")
-                .push(&scope.same_organization(&[("w", "bo")]))
-                .push(" JOIN organizations AS o ON o.id = w.org_id")
-                .push(" JOIN users AS u ON u.id IN (")
-                .bind_list(batch.iter().map(|user| Id(user)))
-                .push(")");
-            self.push_noted(&mut sql);
-            sql.push_bind(" AND b.id = ", Id(self.about))
-                .push(" ORDER BY u.id ON CONFLICT (block_id, subscriber_id) DO NOTHING");
-            scope.execute(sql).await?;
-        }
-        Ok(())
+        watch(scope, self.about, users).await
+    }
+}
+
+/// Makes `users` watchers of `block_id`, where they are not already: on a board or a
+/// wiki that is no template, of an organization people work in together, for users
+/// that are accounts, as [`Noted::push_noted`] narrows what is noted.
+async fn watch(scope: &mut Scope<'_>, block_id: &str, users: &[&str]) -> Result<(), StoreError> {
+    let users: Vec<&str> = users
+        .iter()
+        .copied()
+        .filter(|user| fvoci_model::is_id(user))
+        .collect();
+    let now = crate::db::now_millis();
+    let postgres = scope.dialect() == Dialect::Postgres;
+    for batch in users.chunks(BATCH) {
+        let mut sql = scope.sql(if postgres {
+            "INSERT INTO subscriptions (org_id, block_type, block_id, subscriber_type, \
+             subscriber_id, notified_at, create_at) SELECT b.org_id, b.type, b.id, "
+        } else {
+            "INSERT INTO subscriptions (block_type, block_id, subscriber_type, \
+             subscriber_id, notified_at, create_at) SELECT b.type, b.id, "
+        });
+        sql.bind(SubscriberType::User.as_str())
+            .push_bind(", u.id, ", now)
+            .push_bind(", ", now)
+            .push(" FROM blocks AS b JOIN containers AS bo ON bo.id = b.container_id")
+            .push(&scope.same_organization(&[("bo", "b")]))
+            .push(" JOIN workspaces AS w ON w.id = bo.workspace_id")
+            .push(&scope.same_organization(&[("w", "bo")]))
+            .push(" JOIN organizations AS o ON o.id = w.org_id")
+            .push(" JOIN users AS u ON u.id IN (")
+            .bind_list(batch.iter().map(|user| Id(user)))
+            .push(")")
+            .push_bind(" WHERE u.erased_at = 0 AND b.id = ", Id(block_id))
+            .push_bind(" AND bo.is_template = ", false)
+            .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
+            .push(" ORDER BY u.id ON CONFLICT (block_id, subscriber_id) DO NOTHING");
+        scope.execute(sql).await?;
+    }
+    Ok(())
+}
+
+impl Store {
+    /// Makes a user who was given a card a watcher of it, where they are not already:
+    /// for the server that tells them of it, once it found that they read the card.
+    /// Nothing is made of a card of a template, of one's own space, for an erased user
+    /// or of a card that is gone.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn watch_given(&self, block_id: &str, user_id: &str) -> Result<(), StoreError> {
+        self.with_conn(async |scope| watch(scope, block_id, &[user_id]).await)
+            .await
     }
 }

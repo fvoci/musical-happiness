@@ -162,6 +162,7 @@ pub use signups::{
     Confirmed, Proof, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS, Signup, SignupLookup,
     SignupStart, Started,
 };
+pub use subscriptions::WatchedBlock;
 pub use trash::{DeletedBlock, DeletedContainer, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
@@ -275,7 +276,7 @@ pub struct PoolStatus {
 pub struct Store {
     inner: Arc<Inner>,
     tenant: Tenant,
-    /// Whom what this handle writes notes to be told ([`Store::telling_nobody`]).
+    /// Whom what this handle writes notes to be told ([`Store::telling_nobody`], [`Store::quietly`]).
     noting: db::Noting,
 }
 
@@ -493,12 +494,24 @@ impl Store {
     }
 
     /// A handle to the same database whose writes of blocks note nothing to tell
-    /// anybody: for a write that is not its writer's own words (a version of a body
-    /// brought back), and for one whose writer asked for that.
+    /// anybody, and make nobody watch anything: for a write that is not its writer's
+    /// own words (a version of a body brought back).
     #[must_use]
     pub fn telling_nobody(&self) -> Self {
         Self {
             noting: db::Noting::Nobody,
+            ..self.clone()
+        }
+    }
+
+    /// A handle to the same database whose writes of blocks note nothing to tell
+    /// anybody, as their writer asked (`disableNotify`): what is written was said
+    /// before, a copy or a change taken back or made again. Who writes a card, a page
+    /// or a comment watches it all the same, as any writer does; nobody else comes to.
+    #[must_use]
+    pub fn quietly(&self) -> Self {
+        Self {
+            noting: db::Noting::Quietly,
             ..self.clone()
         }
     }

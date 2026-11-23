@@ -200,7 +200,7 @@ async fn handle_delete_subscription(
     responses((status = 200, description = "The subscriptions.", body = Vec<Subscription>)),
 )]
 async fn handle_get_subscriptions(
-    ws: InWorkspace,
+    InLinked(ws): InLinked,
     Path((_, subscriber_id)): Path<(String, String)>,
 ) -> ApiResult {
     if ws.session.user_id != subscriber_id {

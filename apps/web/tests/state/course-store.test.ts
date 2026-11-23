@@ -4,11 +4,18 @@
  * follows live updates from others, undoes creation/rename/move/delete, and
  * rejects non-course container IDs.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { pageRows } from '$lib/logic/page-tree.ts';
 import { keepVersion, unitVersions } from '$lib/features/card/body-versions.svelte.ts';
-import { CourseStore, referenceTitles, Workspace, type CourseUnit } from '$lib/state/index.ts';
+import {
+  BackendError,
+  CourseStore,
+  referenceTitles,
+  Workspace,
+  type Change,
+  type CourseUnit,
+} from '$lib/state/index.ts';
 
 import { settle, setup, text } from './support.ts';
 
@@ -190,6 +197,130 @@ describe('an open course', () => {
     await settle();
     expect(titlesStore.of(u.id)?.title).toBe('Unit A Renamed');
 
+    made.store.close();
+  });
+
+  it('closes and clears the open unit when the course is deleted or access is revoked, and opens a fresh store on recovery', async () => {
+    const made = await openCourse('P');
+    await made.backend.addMember(made.courseId, made.other.userId, 'editor');
+    const unit = await made.backend.course.createUnit(made.courseId, {
+      kind: 'unit',
+      title: 'Lesson 1',
+    });
+
+    const otherWorkspace = new Workspace({ backend: made.other, locale: () => 'en' });
+    await otherWorkspace.load();
+    const store = new CourseStore(otherWorkspace, made.courseId);
+    await store.load();
+    const firstOpen = store.showUnit(unit.id);
+    await settle();
+    expect(firstOpen?.status).toBe('ready');
+
+    // A containerDeleted event on a private course marks it missing and drops openUnit.
+    await made.backend.deleteContainer(made.courseId);
+    await settle();
+    expect(store.missing).toBe(true);
+    expect(store.openUnit).toBeUndefined();
+
+    // Restoring the course and reloading creates a fresh UnitStore instead of reusing the stale one.
+    await made.backend.restoreContainer(made.courseId);
+    await store.load();
+    expect(store.missing).toBe(false);
+    const secondOpen = store.showUnit(unit.id);
+    await settle();
+    expect(secondOpen).toBeDefined();
+    expect(secondOpen).not.toBe(firstOpen);
+    expect(secondOpen?.status).toBe('ready');
+
+    // A 404/403 on reload (e.g., member removed) also marks missing and clears openUnit.
+    await made.backend.removeMember(made.courseId, made.other.userId);
+    await store.load();
+    expect(store.missing).toBe(true);
+    expect(store.openUnit).toBeUndefined();
+
+    store.close();
+    made.store.close();
+  });
+
+  it('reports 401 session expiry on course resync and unit refresh', async () => {
+    const made = setup();
+    let emit: ((change: Change) => void) | undefined;
+    const origWatch = made.backend.watchContainer.bind(made.backend);
+    made.backend.watchContainer = (id, listener) => {
+      const stop = origWatch(id, listener);
+      emit = listener;
+      return stop;
+    };
+    await made.workspace.load();
+    const course = await made.backend.course.createCourse(made.world.workspace.id, {
+      title: 'Session Check',
+      type: 'P',
+    });
+    const unit = await made.backend.course.createUnit(course.id, {
+      kind: 'unit',
+      title: 'Unit 1',
+    });
+    const store = new CourseStore(made.workspace, course.id);
+    await store.load();
+    const open = store.showUnit(unit.id);
+    await settle();
+    expect(open?.status).toBe('ready');
+
+    // 401 during UnitStore.refresh() reports session expiration to Workspace.
+    made.backend.course.unit = () => Promise.reject(new BackendError(401, { detail: 'expired' }));
+    await open?.refresh();
+    expect(made.workspace.status).toBe('signedOut');
+
+    // Reset workspace status and verify 401 during CourseStore resync also reports it.
+    made.workspace.status = 'ready';
+    made.backend.container = () => Promise.reject(new BackendError(401, { detail: 'expired' }));
+    emit?.({ kind: 'resync' });
+    await settle();
+    expect(made.workspace.status).toBe('signedOut');
+
+    // A late 401 from resync after store.close() must not sign out the workspace.
+    made.workspace.status = 'ready';
+    let rejectLate: ((reason?: unknown) => void) | undefined;
+    made.backend.container = () =>
+      new Promise((_, reject) => {
+        rejectLate = reject;
+      });
+    emit?.({ kind: 'resync' });
+    store.close();
+    rejectLate?.(new BackendError(401, { detail: 'late' }));
+    await settle();
+    expect(made.workspace.status).toBe('ready');
+  });
+
+  it('does not evict an open course when a member is removed, and tears down openUnit on join 404', async () => {
+    const made = await openCourse('O');
+    await made.backend.addMember(made.courseId, made.other.userId, 'editor');
+    const unit = await made.backend.course.createUnit(made.courseId, {
+      kind: 'unit',
+      title: 'Open Unit',
+    });
+
+    const otherWorkspace = new Workspace({ backend: made.other, locale: () => 'en' });
+    await otherWorkspace.load();
+    const evictSpy = vi.spyOn(otherWorkspace, 'evictContainer');
+    const store = new CourseStore(otherWorkspace, made.courseId);
+    await store.load();
+    store.showUnit(unit.id);
+    await settle();
+
+    // Removing the member from an open course keeps it readable (joinable) without eviction.
+    await made.backend.removeMember(made.courseId, made.other.userId);
+    await settle();
+    expect(store.joinable).toBe(true);
+    expect(evictSpy).not.toHaveBeenCalled();
+
+    // If the course disappears before join() finishes, join() evicts and tears down openUnit.
+    made.other.joinContainer = () => Promise.reject(new BackendError(404, { detail: 'gone' }));
+    expect(await store.join()).toBe(false);
+    expect([store.missing, store.status, store.openUnit]).toEqual([true, 'failed', undefined]);
+    expect(evictSpy).toHaveBeenCalledWith(made.courseId);
+
+    store.close();
     made.store.close();
   });
 });

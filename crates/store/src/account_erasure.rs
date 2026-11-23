@@ -750,6 +750,7 @@ pub(crate) async fn leave_organization(
         .bind(scope.org()?)
         .push(")");
     scope.execute(sql).await?;
+    trash::forget_watcher_of_organization(scope, user_id).await?;
     let mut sql = scope.sql("DELETE FROM organization_members WHERE user_id = ");
     sql.bind(Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?);

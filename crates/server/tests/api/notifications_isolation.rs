@@ -222,8 +222,8 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
     }
     assert_eq!(held_by(&th, UNKNOWN_ID).await, 0, "nobody");
 
-    // An open board is theirs to join, and not read until they do; an open wiki is
-    // read by whoever works in the workspace.
+    // An open board is theirs to join, and told of as theirs to read; an open wiki
+    // is read by whoever works in the workspace.
     let open = board_with_owner(&th, ContainerType::Open).await;
     card_with(&th.client, &open.id, &mentioning(&[&no_role, &other_guest])).await;
     let open_names = mentioning(&[&no_role, &other_guest, &elsewhere, &of_another_org, &ghost]);
@@ -231,8 +231,8 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
     tend_notifications(&th.app).await;
     assert_eq!(
         held_by(&th, &no_role).await,
-        1,
-        "of the page of the open wiki, not of the card of the open board"
+        2,
+        "of the page of the open wiki, and of the card of the open board"
     );
     assert_eq!(held_by(&th, &other_guest).await, 0, "a guest reads neither");
     for (who, user) in [

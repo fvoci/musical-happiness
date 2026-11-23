@@ -3,6 +3,7 @@
  * workspace shown, a member's role, the flags of a role, adding a member,
  * the place of a drop, the card a copy is made as.
  */
+import { cardsOfView } from '../logic/card-list.ts';
 import { valuesOfCopy } from '../logic/dependencies.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
 import { propertyBehavior } from '../logic/properties.ts';
@@ -10,6 +11,7 @@ import {
   cardProperty,
   parseRelationValue,
   viewGrouping,
+  viewQuery,
   type BoardView,
   type Container,
   type ContainerKind,
@@ -20,7 +22,7 @@ import {
   type PropertyValue,
 } from '../logic/wire.ts';
 
-import type { Backend, ContainerRole, CardDraft } from './backend.ts';
+import type { Backend, ContainerRole, CardDraft, CardSummary } from './backend.ts';
 import { allPages } from './page-reads.ts';
 import { BackendError } from './problems.ts';
 
@@ -129,6 +131,19 @@ export function roleFlags(
   };
 }
 
+/** A card with one property set to `value`, or cleared when empty. */
+export function withCardProperty(
+  card: CardSummary,
+  propertyId: string,
+  value: PropertyValue | undefined,
+): Card {
+  const empty = value === undefined || value === '' || (Array.isArray(value) && !value.length);
+  const properties = empty
+    ? Object.fromEntries(Object.entries(card.fields.properties).filter(([id]) => id !== propertyId))
+    : { ...card.fields.properties, [propertyId]: value };
+  return { ...card, fields: { ...card.fields, properties } };
+}
+
 /** Where dropped cards go: a column (by the value of the grouping property) and a place in it. */
 export interface CardDrop {
   viewId: string;
@@ -151,20 +166,6 @@ export interface CardDrop {
    * column (`placeAmongAll`). Left out: `index` counts every card.
    */
   shown?: readonly string[];
-}
-
-/** Returns `card` with `propertyId` set to `value`, or deleted when `value` is empty. */
-export function withCardProperty(
-  card: Card,
-  propertyId: string,
-  value: PropertyValue | undefined,
-): Card {
-  const properties = { ...card.fields.properties };
-  const empty = value === undefined || value === '' || (Array.isArray(value) && !value.length);
-  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- the value of a property is removed by its id
-  if (empty) delete properties[propertyId];
-  else properties[propertyId] = value;
-  return { ...card, fields: { ...card.fields, properties } };
 }
 
 /** The property a view groups its cards by, falling back to the first groupable property on boards. */
@@ -192,5 +193,37 @@ export function groupsOfView(
     grouping.hiddenOptionIds,
     groupingPropertyOf(properties, view),
     noValueLabel,
+  );
+}
+
+/** What a board view needs from a board store to filter and order its cards. */
+export interface BoardCardsSource {
+  readonly realCards: readonly CardSummary[];
+  readonly board: Container | undefined;
+  readonly cardsById: ReadonlyMap<string, CardSummary>;
+  readonly workspace: {
+    userName(userId: string): string | undefined;
+    readonly locale: string;
+    readonly regional: { readonly timeZone: string };
+  };
+}
+
+/** The cards a view shows, in its order, for a search text. */
+export function cardsOfBoardView(
+  source: BoardCardsSource,
+  view: BoardView,
+  searchText = '',
+): Card[] {
+  return cardsOfView(
+    source.realCards,
+    source.board?.cardProperties ?? [],
+    viewQuery(view),
+    searchText,
+    {
+      usernameOf: (userId) => source.workspace.userName(userId),
+      locale: source.workspace.locale,
+      timeZone: source.workspace.regional.timeZone,
+      cardTitle: (cardId) => source.cardsById.get(cardId)?.title,
+    },
   );
 }

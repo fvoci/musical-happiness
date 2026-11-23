@@ -157,8 +157,12 @@ export class UnitStore {
       this.#shown = true;
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
-      if (isBackendError(error) && (error.status === 404 || error.status === 403)) this.gone();
-      else if (first) {
+      if (isBackendError(error) && error.status === 401) {
+        if (first) this.status = 'failed';
+        this.course.workspace.report('load', error);
+      } else if (isBackendError(error) && (error.status === 404 || error.status === 403)) {
+        this.gone();
+      } else if (first) {
         this.status = 'failed';
         this.course.workspace.report('load', error);
       }

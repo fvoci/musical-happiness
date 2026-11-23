@@ -40,6 +40,7 @@ import {
   type CardDraft,
   type CardPatch,
   type CardSummary,
+  type CardTelling,
   type Category,
   type CategoryDraft,
   type CategoryPatch,
@@ -100,6 +101,8 @@ import {
   deletion,
   mayManageCards,
   placesOf,
+  subtreeOf,
+  takeBlockBack,
   takeContainerBack,
 } from './trash.ts';
 import type { StoredBlock, StoredCard, StoredView, World } from './world.ts';
@@ -736,7 +739,13 @@ export class MemoryBackend implements Backend {
     return this.#commented(summaryOf(block as StoredCard));
   }
 
-  async patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
+  /** Tells nobody of a change of a card, quiet or not: only comments are told here. */
+  async patchCard(
+    boardId: string,
+    cardId: string,
+    patch: CardPatch,
+    _telling?: CardTelling,
+  ): Promise<CardSummary> {
     await this.#enter('patchCard');
     const before = this.#block(boardId, cardId, 'card') as StoredCard;
     const card = applyCardPatch(before, patch);
@@ -848,12 +857,7 @@ export class MemoryBackend implements Backend {
     await this.#enter('deleteBlock');
     const block = this.#block(boardId, blockId);
     // Everything under it goes along, at every depth.
-    const gone: StoredBlock[] = [];
-    const collect = (parent: StoredBlock): void => {
-      gone.push(parent);
-      for (const child of this.world.childrenOf(parent.id)) collect(child);
-    };
-    collect(block);
+    const gone = subtreeOf(this.world, block);
     const entry = { containerId: boardId, blocks: gone, ...deletion(this) };
     if (block.type === 'comment' && !mayRemoveComments(this.#roleOn(boardId), this.userId, entry)) {
       fail(403, "access denied to delete other users' comments");
@@ -869,27 +873,17 @@ export class MemoryBackend implements Backend {
 
   async restoreBlock(boardId: string, blockId: string): Promise<void> {
     await this.#enter('restoreBlock');
-    const deleted = this.world.deletedBlocks.get(blockId);
-    if (deleted?.containerId !== boardId) fail(404, 'no such block in the trash');
-    // A comment at the top of the deletion comes back by the comment's rule, anything else by an editor's.
-    const top = deleted.blocks[0];
-    const card = top?.type !== 'comment';
-    if (card) mayManageCards(this.world, this.userId, boardId, 'access denied to undelete block');
-    else if (!mayRemoveComments(this.#memberRole(boardId), this.userId, deleted))
-      fail(403, "access denied to undelete other users' comments");
-    const parent = top?.parentId;
-    // A block comes back only under a living parent, or with none.
-    if (parent && !this.world.blocks.has(parent)) {
-      fail(404, 'the parent of the block is gone');
-    }
-    this.#container(boardId);
-    this.world.deletedBlocks.delete(blockId);
-    for (const block of deleted.blocks) {
-      // As the server: whoever restores is the last to change each block, now.
-      this.#touch(block);
-      this.world.blocks.set(block.id, block);
-    }
-    this.#tellBlocks(boardId, deleted.blocks);
+    const restored = takeBlockBack(
+      this.world,
+      this.userId,
+      boardId,
+      blockId,
+      () => this.#memberRole(boardId),
+      () => {
+        this.#container(boardId);
+      },
+    );
+    this.#tellBlocks(boardId, restored);
   }
 
   async deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]> {

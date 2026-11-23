@@ -2,8 +2,10 @@
 //! the working off of whom a change may be told to.
 //!
 //! A notification is made, and listed, only for somebody who reads what it is about
-//! at that moment ([`App::places_read_by`]): once when the list of the store is worked
-//! off ([`tend`]), and again each time its reader lists it ([`App::notifications`]).
+//! at that moment, or may join its open board to read it ([`App::places_read_by`]):
+//! once when the list of the store is worked off ([`tend`]), and again each time its
+//! reader lists it ([`App::notifications`]). Who is given a card comes to watch it
+//! then, if they read it ([`settle`]).
 //! What they do not read then, because it is gone, in the trash, another's now or
 //! behind a sign-in their session does not open, is listed as something they cannot
 //! see: no title, no place, no name. Nobody is told of what they switched off
@@ -12,7 +14,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fvoci_model::{Notification, NotificationSubject, Session};
+use fvoci_model::{Notification, NotificationKind, NotificationSubject, Session};
 use fvoci_store::{
     NotificationEvent, NotificationLimits, NotificationPlace, NotificationReader,
     StoredNotification, Told,
@@ -97,8 +99,10 @@ impl App {
     ///
     /// What is read is a card that is no template of its board, or a page, that is
     /// not in the trash, on a board or in a wiki that is no template, in a workspace
-    /// the user enters (`entry`), which the user reads there ([`App::container_access`],
-    /// asked once a container). Where it happened in a comment, [`Seen::comment_id`]
+    /// the user enters (`entry`), which the user reads there, or may join to read
+    /// (`Grant::reads_on_joining`: an open board of their workspace they did not join,
+    /// whose title and way to join they are shown), as [`App::container_access`] says,
+    /// asked once a container. Where it happened in a comment, [`Seen::comment_id`]
     /// says whether that is there, on that card or page.
     async fn places_read_by(
         &self,
@@ -150,7 +154,7 @@ impl App {
                     .container_access(user_id, container_id)
                     .await?
                     .is_some_and(|access| {
-                        access.grant.reads()
+                        access.grant.reads_on_joining()
                             && !access.container.is_template
                             && access.container.workspace_id == workspace_id
                     });
@@ -358,17 +362,9 @@ fn retry_at(now: i64, attempts: i64) -> i64 {
     now.saturating_add(wait)
 }
 
-/// Whether the person of `event` is told of it: somebody else did it, the person did
-/// not switch its kind off, and reads now what it happened in. `app` reaches every
-/// organization.
-async fn tells(app: &App, event: &NotificationEvent) -> Result<bool, AppError> {
-    if event.actor_id == event.recipient_id {
-        return Ok(false);
-    }
-    let settings = app.store().get_user_settings(&event.recipient_id).await?;
-    if !settings.notifies(event.kind) {
-        return Ok(false);
-    }
+/// Whether the person of `event` reads now what it happened in, as anybody they may
+/// come with later ([`Entry::Standing`]). `app` reaches every organization.
+async fn reads_it(app: &App, event: &NotificationEvent) -> Result<bool, AppError> {
     let named = Named {
         block_id: &event.block_id,
         source_id: &event.source_id,
@@ -382,11 +378,30 @@ async fn tells(app: &App, event: &NotificationEvent) -> Result<bool, AppError> {
         .is_some_and(|seen| seen.holds(&named)))
 }
 
-/// Works off one row of the list: the person is told if they are to be ([`tells`]),
-/// and the row is dropped otherwise. Each connection of theirs is told of what it
-/// sees change.
+/// Whether the person of `event`, who reads what it happened in, is told of it:
+/// somebody else did it, and the person did not switch its kind off.
+async fn tells(app: &App, event: &NotificationEvent) -> Result<bool, AppError> {
+    if event.actor_id == event.recipient_id {
+        return Ok(false);
+    }
+    let settings = app.store().get_user_settings(&event.recipient_id).await?;
+    Ok(settings.notifies(event.kind))
+}
+
+/// Works off one row of the list: the person is told if they read what it is about
+/// ([`reads_it`]) and are to be told ([`tells`]), and the row is dropped otherwise.
+/// Who reads a card they were given watches it from then on, told of it or not: nobody
+/// comes to watch, or to know the identifier of, what they do not read. Each
+/// connection of theirs is told of what it sees change.
 async fn settle(app: &App, event: &NotificationEvent) -> Result<(), AppError> {
-    let settled = if tells(app, event).await? {
+    let reads = reads_it(app, event).await?;
+    if reads && event.kind == NotificationKind::Assignment {
+        app.in_organization(&event.org_id)?
+            .store()
+            .watch_given(&event.block_id, &event.recipient_id)
+            .await?;
+    }
+    let settled = if reads && tells(app, event).await? {
         match app.store().tell_of(event, now_millis(), LIMITS).await? {
             Told::Made(_) => Some(NotificationSettled::Made),
             Told::Joined(_) => Some(NotificationSettled::Joined),
