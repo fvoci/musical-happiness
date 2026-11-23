@@ -14,23 +14,22 @@
 <script lang="ts">
   import ArrowRightLeftIcon from '@lucide/svelte/icons/arrow-right-left';
   import CopyIcon from '@lucide/svelte/icons/copy';
-  import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import LinkIcon from '@lucide/svelte/icons/link';
   import SquareCheckIcon from '@lucide/svelte/icons/square-check';
   import TrashIcon from '@lucide/svelte/icons/trash-2';
   import { onDestroy } from 'svelte';
 
   import { copyCardLink } from '$lib/components/card-number/card-link.ts';
-  import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Card } from '$lib/logic/wire.ts';
   import type { BoardStore } from '$lib/state/index.ts';
 
-  import type { MoveTarget } from './kanban.ts';
+  import { CARD_MENU_BUTTON, type MoveTarget } from './kanban.ts';
 
   interface Props {
+    open?: boolean;
     board: BoardStore;
     card: Card;
     /** The address of the card, for "Copy link". */
@@ -49,6 +48,7 @@
   }
 
   let {
+    open = $bindable(false),
     board,
     card,
     href,
@@ -59,13 +59,14 @@
     onSelect,
   }: Props = $props();
 
-  let open = $state(false);
+  let moveMenuMade = $state(false);
   let moving = $state(false);
   let copied = $state(false);
   let holder = $state<HTMLElement | null>(null);
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
   const title = $derived(card.title || m['KanbanCard.untitled']());
+  const label = $derived(m.kanban_card_menu({ title }));
   const targets = $derived(targetIds ?? [card.id]);
   const many = $derived(targets.length > 1 ? String(targets.length) : undefined);
 
@@ -119,7 +120,10 @@
         icon: ArrowRightLeftIcon,
         hint: many,
         // The first menu closes, and gives the focus back, before the second opens.
-        run: () => setTimeout(() => (moving = true), 0),
+        run: () => {
+          moveMenuMade = true;
+          setTimeout(() => (moving = true), 0);
+        },
       });
     }
     list.push({
@@ -160,19 +164,24 @@
 </script>
 
 <span bind:this={holder} class="relative block">
-  <ActionMenu bind:open title={m.kanban_card_menu({ title })} {actions}>
+  <ActionMenu bind:open title={label} {actions}>
     {#snippet trigger(props: Record<string, unknown>)}
-      <IconButton
+      <button
         {...props}
-        label={m.kanban_card_menu({ title })}
+        type="button"
+        aria-label={label}
+        title={label}
         data-card-menu={card.id}
-        class="text-muted-foreground can-hover:opacity-0 can-hover:group-focus-within/card:opacity-100 can-hover:group-hover/card:opacity-100 can-hover:focus-visible:opacity-100 can-hover:aria-expanded:opacity-100"
+        class={CARD_MENU_BUTTON}
       >
-        <EllipsisIcon aria-hidden="true" />
-      </IconButton>
+        <svg class="size-4" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <circle cx="3" cy="8" r="1.25" /><circle cx="8" cy="8" r="1.25" />
+          <circle cx="13" cy="8" r="1.25" />
+        </svg>
+      </button>
     {/snippet}
   </ActionMenu>
-  {#if moveActions.length > 1}
+  {#if moveMenuMade && moveActions.length > 1}
     <ActionMenu
       bind:open={moving}
       title={m.kanban_move_to_column()}

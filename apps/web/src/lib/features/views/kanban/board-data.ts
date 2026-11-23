@@ -27,9 +27,11 @@ export interface FaceContext {
   users: readonly PropertyUser[];
 }
 
+const NO_TEMPLATES: readonly PropertyTemplate[] = [];
+
 export function faceContextOf(board: BoardStore, view: BoardView): FaceContext {
   return {
-    templates: board.board?.cardProperties ?? [],
+    templates: board.board?.cardProperties ?? NO_TEMPLATES,
     visiblePropertyIds: view.fields.visiblePropertyIds,
     locale: board.workspace.locale,
     regional: board.workspace.regional,

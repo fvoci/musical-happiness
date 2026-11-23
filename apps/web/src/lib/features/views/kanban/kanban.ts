@@ -68,6 +68,13 @@ export function listsAfterDrop(
 /** What a press on a card asks for: the card opened, taken into the selection, or the range up to it. */
 export type Activation = 'open' | 'toggle' | 'range';
 
+/**
+ * The "…" button of a card on a board or in a gallery: a plain element with
+ * the ghost icon button's classes instead of a component wrapper per card.
+ */
+export const CARD_MENU_BUTTON =
+  'inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-all outline-none select-none hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-expanded:bg-muted aria-expanded:text-foreground roomy:size-touch can-hover:opacity-0 can-hover:group-focus-within/card:opacity-100 can-hover:group-hover/card:opacity-100 can-hover:focus-visible:opacity-100 can-hover:aria-expanded:opacity-100';
+
 /** A column a card can be moved to from its menu. */
 export interface MoveTarget {
   optionId: string;
