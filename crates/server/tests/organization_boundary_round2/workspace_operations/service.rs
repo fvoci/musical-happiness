@@ -55,6 +55,54 @@ async fn notifications(case: &mut Case, server: &TestServer) {
     case.run("readNotifications", &[], json!({})).await;
 }
 
+/// The founder starts, stops, edits, manually logs, lists, and deletes personal time
+/// entries in their organization's workspace.
+async fn time_entries(case: &mut Case) {
+    case.run("getActiveTimeEntry", &[], json!({})).await;
+    let started = case
+        .run(
+            "startTimeEntry",
+            &[],
+            json!({
+                "workspaceId": case.workspace,
+                "kind": "work",
+                "note": format!("{} timer", case.label),
+            }),
+        )
+        .await
+        .value();
+    let started_id = case.remember(&started["entry"], "id");
+    case.run("stopTimeEntry", &[], json!({})).await;
+    case.run(
+        "patchTimeEntry",
+        &[("entryId", &started_id)],
+        json!({
+            "startedAt": 1_000,
+            "endedAt": 4_000,
+            "note": format!("{} patched", case.label),
+        }),
+    )
+    .await;
+    let manual = case
+        .run(
+            "createTimeEntry",
+            &[],
+            json!({
+                "workspaceId": case.workspace,
+                "kind": "study",
+                "startedAt": 5_000,
+                "endedAt": 10_000,
+                "note": format!("{} manual", case.label),
+            }),
+        )
+        .await
+        .value();
+    let manual_id = case.remember(&manual, "id");
+    case.present("listTimeEntries", &[], &manual_id).await;
+    case.run("deleteTimeEntry", &[("entryId", &manual_id)], json!({}))
+        .await;
+}
+
 pub(super) async fn exercise(
     case: &mut Case,
     server: &TestServer,
@@ -67,6 +115,7 @@ pub(super) async fn exercise(
     account(case).await;
     organization(case).await;
     notifications(case, server).await;
+    time_entries(case).await;
     shared::exercise(case).await;
     shared::exercise_wiki(case).await;
     shared::exercise_course(case).await;

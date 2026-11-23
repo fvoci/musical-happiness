@@ -21,9 +21,11 @@ import {
   type Paging,
   type UnitDraft,
 } from './backend.ts';
+import type { CourseProgressSummary, UnitProgress } from './course-types.ts';
 import { containerOfWorkspace, roleOf } from './board-parts.ts';
 import { ContainerPresence } from './board-presence.svelte.ts';
 import { isCommentBlock } from './changes.ts';
+import { CourseProgress } from './course-progress.svelte.ts';
 import { CourseWrites } from './course-writes.ts';
 import { MemberWrites } from './member-writes.ts';
 import { orderMembers } from './order.ts';
@@ -74,12 +76,14 @@ export class CourseStore implements TreeSource<CourseUnit> {
   readonly joinable = $derived(
     this.status === 'ready' && this.course?.type === 'O' && this.role === '',
   );
+  readonly canTrackProgress = $derived(this.status === 'ready' && this.role !== '');
 
   #stopWatching: (() => void) | undefined;
   #closed = false;
   #readings = 0;
 
   readonly presence: ContainerPresence;
+  readonly progress: CourseProgress;
   readonly #writes: CourseWrites;
   readonly #people = new MemberWrites(this);
 
@@ -87,6 +91,14 @@ export class CourseStore implements TreeSource<CourseUnit> {
     this.workspace = workspace;
     this.courseId = courseId;
     this.presence = new ContainerPresence({ workspace, containerId: courseId });
+    this.progress = new CourseProgress({
+      courseId,
+      workspace,
+      courses: () => this.#courses,
+      units: () => this.units,
+      canTrack: () => this.canTrackProgress,
+      isClosed: () => this.#closed,
+    });
     this.#writes = new CourseWrites({
       courseId,
       workspace,
@@ -131,16 +143,20 @@ export class CourseStore implements TreeSource<CourseUnit> {
     this.#readings += 1;
     const reading = this.#readings;
     const membersTold = this.#people.told;
+    const progressMark = this.progress.writeVersion;
     try {
       this.#stopWatching?.();
       this.#stopWatching = this.workspace.backend.watchContainer(this.courseId, (change) => {
         this.#apply(change);
       });
       const backend = this.workspace.backend;
-      const [course, units, members] = await Promise.all([
-        containerOfWorkspace(backend, this.courseId, this.workspace.info?.id, 'course'),
+      const workspaceId = this.workspace.info?.id;
+      const [course, units, members, progress, summary] = await Promise.all([
+        containerOfWorkspace(backend, this.courseId, workspaceId, 'course'),
         this.#courses.units(this.courseId),
         backend.members(this.courseId),
+        this.#courses.myProgress(this.courseId, workspaceId),
+        this.#courses.progressSummary(this.courseId, workspaceId),
       ]);
       if (this.#closed || reading !== this.#readings) return;
       void this.workspace.learnUsers(members.map(memberId), { members: true });
@@ -148,6 +164,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
       this.units = units;
       this.#writes.remember(this.units);
       if (membersTold === this.#people.told) this.members = members;
+      this.progress.take(progress, summary, progressMark);
       this.status = 'ready';
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
@@ -243,12 +260,9 @@ export class CourseStore implements TreeSource<CourseUnit> {
         if (change.containerId !== this.courseId) break;
         this.#people.told += 1;
         this.members = change.members;
-        if (
-          this.course?.type !== 'O' &&
-          this.workspace.me &&
-          !change.members.some((m) => m.userId === this.workspace.me?.id)
-        ) {
-          this.workspace.evictContainer(this.courseId);
+        if (this.workspace.me && !change.members.some((m) => m.userId === this.workspace.me?.id)) {
+          this.progress.clearMine();
+          if (this.course?.type !== 'O') this.workspace.evictContainer(this.courseId);
         }
         void this.workspace.learnUsers(change.members.map(memberId), { members: true });
         break;
@@ -266,7 +280,9 @@ export class CourseStore implements TreeSource<CourseUnit> {
 
   #takeUnit(unit: CourseUnit): void {
     if (unit.courseId !== this.courseId || !this.#writes.admits(unit)) return;
+    const isNew = unit.kind === 'unit' && !this.units.some((existing) => existing.id === unit.id);
     this.units = take(this.units, unit);
+    if (isNew && this.canTrackProgress) void this.progress.refreshMine();
     const shown = this.openUnit;
     if (shown?.unitId !== unit.id) return;
     if (shown.missing) void shown.load();
@@ -280,15 +296,20 @@ export class CourseStore implements TreeSource<CourseUnit> {
     const before = this.units.map((unit) => unit.id);
     const mark = this.#writes.forgettings;
     const membersTold = this.#people.told;
+    const progressMark = this.progress.writeVersion;
     try {
-      const [course, units, members] = await Promise.all([
+      const workspaceId = this.workspace.info?.id;
+      const [course, units, members, progress, summary] = await Promise.all([
         this.workspace.backend.container(this.courseId),
         this.#courses.units(this.courseId),
         this.workspace.backend.members(this.courseId),
+        this.#courses.myProgress(this.courseId, workspaceId),
+        this.#courses.progressSummary(this.courseId, workspaceId),
       ]);
       if (this.#isClosed() || reading !== this.#readings) return;
       this.#takeCourse(course);
       if (membersTold === this.#people.told) this.members = members;
+      this.progress.take(progress, summary, progressMark);
       const shown = this.openUnit;
       const title = (shown && this.unit(shown.unitId)?.title) ?? '';
       const read = this.#writes.admitted(units, mark);
@@ -437,5 +458,27 @@ export class CourseStore implements TreeSource<CourseUnit> {
 
   removeMember(userId: string): Promise<void> {
     return this.#people.remove(userId);
+  }
+
+  // ------------------------------------------------------------ progress
+
+  get myProgress(): ReadonlyMap<string, UnitProgress> {
+    return this.progress.myProgress;
+  }
+
+  get progressSummary(): CourseProgressSummary | null {
+    return this.progress.progressSummary;
+  }
+
+  toggleUnitComplete(unitId: string): Promise<boolean> {
+    return this.progress.toggleComplete(unitId);
+  }
+
+  setUnitLastPosition(unitId: string, position: string | null): Promise<boolean> {
+    return this.progress.setLastPosition(unitId, position);
+  }
+
+  refreshProgressSummary(): Promise<void> {
+    return this.progress.refreshSummary();
   }
 }

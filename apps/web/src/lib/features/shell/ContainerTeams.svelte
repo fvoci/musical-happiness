@@ -21,9 +21,10 @@
     shareable: Shareable;
     teams: Teams;
     readOnly?: boolean;
+    memberProgress?: ((userId: string) => string | undefined) | undefined;
   }
 
-  let { workspace, shareable, teams, readOnly = false }: Props = $props();
+  let { workspace, shareable, teams, readOnly = false, memberProgress }: Props = $props();
   const words = $derived(shareWords(shareable.container?.kind));
   const id = $props.id();
   const place = $derived(workspace.info?.id);
@@ -117,7 +118,20 @@
             </summary>
             <ul class="grid grid-cols-1 gap-1 pb-1 pl-6 text-sm">
               {#each item.team.members as person (person.userId)}
-                <li class="break-words" translate="no">{person.displayName || person.username}</li>
+                {@const progress = memberProgress?.(person.userId)}
+                <li class="flex items-baseline justify-between gap-2">
+                  <span class="min-w-0 break-words" translate="no">
+                    {person.displayName || person.username}
+                  </span>
+                  {#if progress}
+                    <span
+                      class="shrink-0 text-xs text-muted-foreground tabular-nums"
+                      data-testid="team-member-course-progress"
+                    >
+                      {progress}
+                    </span>
+                  {/if}
+                </li>
               {/each}
             </ul>
           </details>
