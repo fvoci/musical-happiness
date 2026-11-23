@@ -63,6 +63,7 @@ impl Collab {
             client_changes,
             steps_ahead,
             files,
+            remake,
         } = answer
         else {
             return Err(unexpected(&answer).into());
@@ -74,8 +75,56 @@ impl Collab {
             self.forget(slot).await;
             return Err(super::refusals::out_of_step().into());
         }
+        let seqs = self
+            .log_taken(
+                app,
+                card_id,
+                slot,
+                user_id,
+                update,
+                repair.as_deref(),
+                &files,
+            )
+            .await?;
+        let open = slot.open.as_mut().expect("the document is open");
+        let now = Instant::now();
+        open.log_end = seqs.last().copied().unwrap_or(open.log_end);
+        open.state_bytes = state_bytes;
+        open.clients = clients;
+        open.client_changes = client_changes;
+        open.steps_ahead = steps_ahead;
+        open.must_remake |= remake;
+        user_id.clone_into(&mut open.last_writer);
+        open.last_update = now;
+        open.first_unwritten.get_or_insert(now);
+        self.schedule_write(app, card_id, open);
+        self.updated_by(slot, user_id);
+        let remade = self.keep_up(app, card_id, slot).await;
+        Ok(Taken {
+            seq: seqs.first().copied().unwrap_or_default(),
+            repair,
+            remade,
+        })
+    }
+
+    /// Logs an update that the worker took, with its repair if any, noting its writer
+    /// for versions and holding any new files it names.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the taken update, its optional repair and files, on the held slot"
+    )]
+    async fn log_taken(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        user_id: &str,
+        update: &[u8],
+        repair: Option<&[u8]>,
+        files: &[String],
+    ) -> Result<Vec<i64>, Unanswered> {
         let mut entries: Vec<(&[u8], &str)> = vec![(update, user_id)];
-        if let Some(repair) = &repair {
+        if let Some(repair) = repair {
             entries.push((repair, ""));
         }
         // Put down as having written since the newest version, unless they are: a
@@ -93,7 +142,7 @@ impl Collab {
         self.paused_before_log().await;
         let logged = app
             .store()
-            .append_body_updates(card_id, &entries, as_read, &files, new_editors, body_before)
+            .append_body_updates(card_id, &entries, as_read, files, new_editors, body_before)
             .await;
         let seqs = match logged {
             Ok(seqs) => seqs,
@@ -103,24 +152,7 @@ impl Collab {
             // The store kept the body the card held, by those put down before.
             super::versions::kept(slot);
         }
-        let open = slot.open.as_mut().expect("the document is open");
-        let now = Instant::now();
-        open.log_end = seqs.last().copied().unwrap_or(open.log_end);
-        open.state_bytes = state_bytes;
-        open.clients = clients;
-        open.client_changes = client_changes;
-        open.steps_ahead = steps_ahead;
-        user_id.clone_into(&mut open.last_writer);
-        open.last_update = now;
-        open.first_unwritten.get_or_insert(now);
-        self.schedule_write(app, card_id, open);
-        self.updated_by(slot, user_id);
-        let remade = self.keep_up(app, card_id, slot).await;
-        Ok(Taken {
-            seq: seqs.first().copied().unwrap_or_default(),
-            repair,
-            remade,
-        })
+        Ok(seqs)
     }
 
     /// Opens again, as it is stored and at once, a document that holds an update its
@@ -174,9 +206,9 @@ impl Collab {
             return true;
         }
         let long = |slot: &Held| {
-            slot.open
-                .as_ref()
-                .is_some_and(|open| open.log_end - open.state_seq >= FOLD_AFTER)
+            slot.open.as_ref().is_some_and(|open| {
+                !open.must_remake && open.log_end - open.state_seq >= FOLD_AFTER
+            })
         };
         // Not by a process that lost the lock of the server, as at closing.
         if !app.holds_server_lock() || !long(slot) {
@@ -233,15 +265,22 @@ impl Collab {
 
     /// Makes the document again from its body and tells the room, unless that failed
     /// a little before (it is tried again after [`REMAKE_RETRY`]); whether it was made
-    /// again. A document that could not be made again is closed: the store holds it.
+    /// again. A document that must be remade ([`OpenDoc::must_remake`]) is never kept
+    /// open or folded if the remake cannot run or fails: it is closed (`forget`), and
+    /// its logged updates stay in the store for the next opening or recovery.
     pub(super) async fn remake_and_tell(&self, app: &App, card_id: &str, slot: &mut Held) -> bool {
+        let must_remake = slot.open.as_ref().is_some_and(|open| open.must_remake);
         // A process that lost the lock of the server would be refused by `remake_from`;
         // it does not try, and so logs no failure.
         if !app.holds_server_lock()
-            || slot
-                .remake_failed_at
-                .is_some_and(|at| at.elapsed() < REMAKE_RETRY)
+            || (!must_remake
+                && slot
+                    .remake_failed_at
+                    .is_some_and(|at| at.elapsed() < REMAKE_RETRY))
         {
+            if must_remake {
+                self.forget(slot).await;
+            }
             return false;
         }
         match self.remake(app, card_id, slot).await {
@@ -256,6 +295,9 @@ impl Collab {
             }
             Err(error) => {
                 tracing::error!(%error, card_id, "cannot make a document that grew large again");
+                if must_remake {
+                    self.forget(slot).await;
+                }
                 slot.remake_failed_at = Some(Instant::now());
                 false
             }
@@ -290,7 +332,7 @@ impl Collab {
             && slot
                 .open
                 .as_ref()
-                .is_some_and(|open| open.state_seq < open.log_end)
+                .is_some_and(|open| !open.must_remake && open.state_seq < open.log_end)
             && let Err(error) = self.fold(app, card_id, slot).await
         {
             tracing::error!(%error, card_id, "cannot fold a document's log into its state as it closes");
@@ -301,6 +343,9 @@ impl Collab {
     /// wrote since it was read here is closed: its numbers are the store's no more,
     /// and it is read again when it is next asked for.
     async fn fold(&self, app: &App, card_id: &str, slot: &mut Held) -> Result<(), AppError> {
+        if slot.open.as_ref().is_some_and(|open| open.must_remake) {
+            return Ok(());
+        }
         let state = bytes(self.ask(app, card_id, slot, Request::State).await?)?;
         let open = slot.open.as_mut().expect("the document is open");
         let through = open.log_end;
@@ -337,6 +382,7 @@ impl Collab {
         if self.write_or_replace(app, card_id, slot).await? {
             return Ok(true);
         }
+        self.version_if_due(app, card_id, slot).await;
         let body = app.store().get_block(card_id).await?.body;
         self.remake_held(app, card_id, slot, body.as_ref()).await?;
         Ok(false)
@@ -442,6 +488,7 @@ impl Collab {
         open.clients = 1;
         open.client_changes = client_changes;
         open.steps_ahead = steps_ahead;
+        open.must_remake = false;
         open.first_unwritten = None;
         Ok(())
     }

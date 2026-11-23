@@ -1,18 +1,26 @@
 //! Documents made slow to read: changes that each walk a long list every time the Y
-//! library reads the document from its state. An update that leaves one is refused
-//! and the document made again from its body, as one near the steps it may take is,
-//! and one stored before the steps were counted is opened without ending a worker.
+//! library reads the document from its state. An update that leaves a valid body past
+//! the steps it may take to read is logged, written to the card, and the document made
+//! again from that body so the update is kept (only one that also needs a repair is
+//! refused), as one near the steps it may take is, and one stored before the steps
+//! were counted is opened without ending a worker.
+
+use std::time::Duration;
 
 use fvoci_collab::testing::Editor;
 use fvoci_collab::{BodyDoc, READING_STEPS, UpdateLimits, reading_steps};
+use fvoci_model::ContainerType;
 use fvoci_server::collab::DocChange;
 use fvoci_server::error::{AppError, Reason};
 use fvoci_store::BodyBefore;
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use crate::collab::{Editing, body_of, card, editing, joined, paragraphs};
+use crate::body_versions::versions;
+use crate::collab::{Editing, body_of, card, editing, editing_app, joined, paragraphs};
 use crate::collab_written_past::stored;
-use crate::common::{Setup, TestServer};
+use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
+use crate::notifications::{board_with_owner, card_with, kinds, told};
+use crate::rooms::{Peer, give};
 
 /// The client that types the list, and the one whose changes walk it.
 const TYPIST: u64 = 7;
@@ -169,14 +177,14 @@ async fn a_document_that_takes_many_steps_to_read_is_made_again_from_its_body() 
     th.teardown().await;
 }
 
-/// An update that would leave a document past the steps it may take to read is
-/// refused, and the document, which was under three quarters of them, is made again
-/// from its body all the same: the update may be what an editor wrote, whose client
-/// is read before many others its changes wait for, and would be refused again. The
-/// room is told, the body is what it was, and an editor that loads it again goes on.
-/// A document that is as its body made it is not made again for such an update.
+/// An update that leaves a valid body past the steps a document may take to read is
+/// taken, logged, written to its card, and the document made again from that body so
+/// the update is kept (whether on a freshly made document or an edited one). An update
+/// past the steps that also needs a repair is still refused (`document_too_large`),
+/// without remaking a freshly made document, and remaking an edited one without the
+/// refused update.
 #[tokio::test]
-async fn a_document_whose_update_is_refused_for_its_steps_is_made_again_from_its_body() {
+async fn a_document_whose_update_is_past_its_steps_is_taken_and_made_again_from_its_body() {
     const CHILDREN: u64 = 10_000;
     let past = READING_STEPS / CHILDREN + 5;
     let th = roomy().await;
@@ -194,23 +202,33 @@ async fn a_document_whose_update_is_refused_for_its_steps_is_made_again_from_its
             .await
     };
 
-    // As its body made it: the list and what walks it, in one update.
-    let both = update_of(&[walkers(0, past, CHILDREN), typing(CHILDREN)]);
-    let refused = take(loaded.epoch, both)
+    // Past the steps with a repair on a freshly made document: still refused, not remade.
+    let mut bad_walkers = walkers(0, past, CHILDREN);
+    bad_walkers.count += 1;
+    bad_walkers.changes.push(0x87);
+    number(&mut bad_walkers.changes, TYPIST);
+    number(&mut bad_walkers.changes, CHILDREN - 1);
+    bad_walkers
+        .changes
+        .extend_from_slice(b"\x03\x12nothing-a-body-has");
+    let both_bad = update_of(&[bad_walkers, typing(CHILDREN)]);
+    let refused = take(loaded.epoch, both_bad)
         .await
-        .expect_err("past the steps a document may take");
-    assert_eq!(reason_of(&refused), Some("document_too_large"));
+        .expect_err("past the steps with a repair");
+    assert_eq!(
+        reason_of(&refused),
+        Some("document_too_large"),
+        "repair past steps is refused"
+    );
     assert_eq!(stored(&e).await.epoch, loaded.epoch, "not made again");
     assert!(!told(), "the room is told nothing");
 
-    let typed = take(loaded.epoch, typed_in_order(CHILDREN))
+    // Past the steps with a valid body on a freshly made document: accepted and remade.
+    let both = update_of(&[walkers(0, past, CHILDREN), typing(CHILDREN)]);
+    let taken = take(loaded.epoch, both)
         .await
-        .expect("typed");
-    assert!(!typed.remade, "a list typed in order takes no steps");
-    let refused = take(loaded.epoch, walking(0, past, CHILDREN))
-        .await
-        .expect_err("past the steps a document may take");
-    assert_eq!(reason_of(&refused), Some("document_too_large"));
+        .expect("past the steps without repair is taken");
+    assert!(taken.remade, "made again with the update");
     assert!(told(), "the room is told");
     let made = stored(&e).await;
     assert_eq!(made.epoch, loaded.epoch + 1, "made again");
@@ -220,10 +238,18 @@ async fn a_document_whose_update_is_refused_for_its_steps_is_made_again_from_its
         "a body's own document"
     );
     let (again, again_epoch) = joined(collab, &e.app, &e.card_id, 102).await;
-    assert_eq!(again_epoch, made.epoch);
+    assert_eq!(again_epoch, made.epoch, "rejoined at the remade epoch");
     let body = again.body().map(|body| body.document().clone());
-    assert_eq!(paragraphs_of(body.as_ref()), 10_001, "without the update");
-    assert_eq!(body_of(&card(&th.client, &e.card_id).await), body);
+    assert_eq!(
+        paragraphs_of(body.as_ref()),
+        10_001,
+        "the update's paragraphs are kept"
+    );
+    assert_eq!(
+        body_of(&card(&th.client, &e.card_id).await),
+        body,
+        "the card holds the remade body"
+    );
     let on = take(again_epoch, again.append_paragraph("on"))
         .await
         .expect("an editor that loaded it again goes on");
@@ -404,11 +430,11 @@ async fn a_stored_document_past_the_steps_it_may_take_is_made_again_from_its_car
     th.teardown().await;
 }
 
-/// Updates that were logged before the steps of a reading were counted, and together
-/// leave a document past the steps it may take to read, are not taken again as the document is
-/// opened: it is made again from its card's body, and the worker runs on.
+/// Updates that were logged and together leave a valid body past the steps it may take
+/// to read are replayed with `must_remake` set, written to the card, and the document
+/// made again from that body without losing the logged tail; the worker runs on.
 #[tokio::test]
-async fn logged_updates_that_leave_a_document_past_its_steps_are_not_taken_again() {
+async fn logged_updates_that_leave_a_document_past_its_steps_are_kept_and_made_again() {
     let th = roomy().await;
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
@@ -445,13 +471,279 @@ async fn logged_updates_that_leave_a_document_past_its_steps_are_not_taken_again
         Some(worker),
         "the worker runs on"
     );
+    let body = again.body().map(|body| body.document().clone());
     assert_eq!(
-        again.body().map(|body| body.document().clone()),
-        Some(paragraphs(&["first"])),
-        "the card's body"
+        paragraphs_of(body.as_ref()),
+        20_001,
+        "all logged updates are kept"
     );
+    assert_eq!(body_of(&card(&th.client, &e.card_id).await), body);
     let made = stored(&e).await;
     assert_eq!(made.epoch, before.epoch + 1, "made again");
-    assert_eq!(made.updates.len(), 0, "the log is dropped");
+    assert_eq!(made.updates.len(), 0, "the log is cleared by remake");
+    assert_eq!(reading_steps(&made.state, u64::MAX).expect("a state"), 0);
+    th.teardown().await;
+}
+
+/// Builds an update that takes a freshly typed list of `children` paragraphs past
+/// `READING_STEPS` while also inserting a paragraph mentioning `mentioned_user` (so
+/// the update carries both a visible change and a mention, with no repair needed).
+fn walking_with_mention(children: u64, mentioned_user: &str) -> Vec<u8> {
+    let past = READING_STEPS / children + 5;
+    let mut run = walkers(0, past, children);
+    // Append a paragraph after the last typed paragraph, containing a mention of `mentioned_user`.
+    let paragraph_clock = past;
+    run.changes.push(0x87);
+    number(&mut run.changes, TYPIST);
+    number(&mut run.changes, children - 1);
+    run.changes.extend_from_slice(b"\x03\x09paragraph");
+    // Mention element inside that paragraph (parent = (WALKER, paragraph_clock)).
+    let mention_clock = past + 1;
+    run.changes.push(0x07);
+    run.changes.push(0x00);
+    number(&mut run.changes, WALKER);
+    number(&mut run.changes, paragraph_clock);
+    run.changes.extend_from_slice(b"\x03\x07mention");
+    // Attribute `userId = mentioned_user` on the mention element (content Any = 8, key = 0x20).
+    run.changes.push(0x28);
+    run.changes.push(0x00);
+    number(&mut run.changes, WALKER);
+    number(&mut run.changes, mention_clock);
+    number(&mut run.changes, 6);
+    run.changes.extend_from_slice(b"userId");
+    // 1 Any value: string (tag 119) + length + UTF-8 bytes.
+    number(&mut run.changes, 1);
+    run.changes.push(119);
+    number(
+        &mut run.changes,
+        u64::try_from(mentioned_user.len()).expect("fits"),
+    );
+    run.changes.extend_from_slice(mentioned_user.as_bytes());
+    run.count += 3;
+    update_of(&[run])
+}
+
+/// An update past `READING_STEPS` sent over a room WebSocket: the sender gets
+/// `DOC_ACK`, both peers in the room get `DOC_RESET` of the next epoch with the update
+/// in the remade document, the card body and a saved version hold the update, and a
+/// mention in that update (as well as one typed earlier by another editor) still
+/// notifies its recipient with the right actor.
+#[tokio::test]
+async fn an_update_past_reading_steps_in_a_room_acks_resets_keeps_body_version_and_mentions() {
+    const LIST: u64 = 10_000;
+    let th = roomy().await;
+    let (a, b) = (th.client.me().await, th.client2.me().await);
+    let c = th.add_user("third").await;
+    let c_id = c.me().await.id;
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    for user in [&b.id, &c_id] {
+        give(&th, &board.id, user, "editor").await;
+    }
+    let initial = card_with(&th.client, &board.id, &paragraphs(&["kept"])).await;
+    let mut one = Peer::connect(&th.client, 101).await;
+    let mut two = Peer::connect(&th.client2, 102).await;
+    one.joined(TEST_WORKSPACE_ID, &initial.id).await;
+    two.joined(TEST_WORKSPACE_ID, &initial.id).await;
+
+    // Typed list plus an unprojected mention of C by B, then A sends an update past
+    // `READING_STEPS` that also mentions B.
+    one.send_update(&typed_in_order(LIST)).await;
+    let first_ack = one.text("DOC_ACK").await;
+    assert_eq!(first_ack["epoch"], json!(1), "{first_ack}");
+    two.settle().await;
+    let b_mentions_c = two.editor().append_mention(&c_id);
+    two.send_update(&b_mentions_c).await;
+    two.text("DOC_ACK").await;
+    one.settle().await;
+
+    let heavy = walking_with_mention(LIST, &b.id);
+    one.send_update(&heavy).await;
+    let ack = one.text("DOC_ACK").await;
+    assert_eq!(ack["doc"], json!(one.doc), "{ack}");
+    assert_eq!(ack["epoch"], json!(1), "{ack}");
+    assert!(ack["seq"].as_i64().is_some_and(|seq| seq >= 3), "{ack}");
+
+    for peer in [&mut one, &mut two] {
+        let reset = peer.text("DOC_RESET").await;
+        assert_eq!(
+            reset,
+            json!({"action": "DOC_RESET", "doc": peer.doc, "epoch": 2}),
+            "room peer receives DOC_RESET for the remade epoch"
+        );
+        peer.settle().await;
+        assert_eq!(peer.epoch, 2, "peer synced to epoch 2");
+        let body = peer.body().expect("remade body");
+        assert_eq!(
+            paragraphs_of(Some(&body)),
+            usize::try_from(LIST).expect("fits") + 3,
+            "kept + typed list + B's mention + A's heavy mention"
+        );
+    }
+
+    let remade_body = one.body().expect("body");
+    assert_eq!(
+        body_of(&card(&th.client, &initial.id).await),
+        Some(remade_body.clone()),
+        "card body matches the remade document"
+    );
+
+    // Mentions from both the earlier unprojected update (B -> C) and the remake-triggering
+    // update (A -> B) are delivered with the right actors.
+    let b_told = told(&th, &th.client2).await;
+    assert_eq!(kinds(&b_told), (vec!["mention"], 0), "{b_told:?}");
+    assert_eq!(
+        b_told[0].subject.as_ref().expect("seen").actor_id,
+        a.id,
+        "A mentioned B in the update that triggered remake"
+    );
+    let c_told = told(&th, &c).await;
+    assert_eq!(kinds(&c_told), (vec!["mention"], 0), "{c_told:?}");
+    assert_eq!(
+        c_told[0].subject.as_ref().expect("seen").actor_id,
+        b.id,
+        "B mentioned C before A's remake-triggering update"
+    );
+
+    // Leaving the room keeps a version holding the update.
+    one.leave().await;
+    two.leave().await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let newest_version = loop {
+        let kept = versions(&th.client, &initial.id).await;
+        if let Some(newest) = kept.first()
+            && newest["editors"]
+                .as_array()
+                .is_some_and(|editors| editors.iter().any(|editor| editor == &json!(a.id)))
+        {
+            break newest["version"].as_i64().expect("version number");
+        }
+        assert!(tokio::time::Instant::now() < deadline, "version not kept");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let version_body: Value = th
+        .client
+        .get(&format!(
+            "{TEST_WS}/cards/{}/body-versions/{newest_version}",
+            initial.id
+        ))
+        .await
+        .ok_json();
+    assert_eq!(
+        version_body["body"], remade_body,
+        "version holds the update"
+    );
+    th.teardown().await;
+}
+
+/// Stopping the server at `paused_before_projection` (after logging an update past
+/// `READING_STEPS` and before writing its body to the card) and starting it again
+/// recovers the update without losing the tail, writes it to the card, remakes the
+/// document to 0 reading steps, and delivers its mention notification.
+#[tokio::test]
+async fn closing_at_paused_before_projection_keeps_an_update_past_reading_steps() {
+    const LIST: u64 = 10_000;
+    let th = roomy().await;
+    let (a, b) = (th.client.me().await, th.client2.me().await);
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &b.id, "editor").await;
+    let created = card_with(&th.client, &board.id, &paragraphs(&["kept"])).await;
+    let card_id = created.id.clone();
+    let app = Editing {
+        card_id: card_id.clone(),
+        ..editing_app(&th).await
+    }
+    .app;
+    let collab = app.collab().clone();
+    let loaded = collab.open(&app, &card_id).await.expect("opened");
+    collab
+        .take(&app, &card_id, loaded.epoch, &a.id, &typed_in_order(LIST))
+        .await
+        .expect("typed");
+
+    // Pause the projection inside the remake that follows logging the heavy update.
+    let (waiting, go) = collab.pause_next_projection();
+    let heavy = walking_with_mention(LIST, &b.id);
+    let taking = tokio::spawn({
+        let (collab, app, card_id, user_id) =
+            (collab.clone(), app.clone(), card_id.clone(), a.id.clone());
+        async move {
+            collab
+                .take(&app, &card_id, loaded.epoch, &user_id, &heavy)
+                .await
+        }
+    });
+    waiting.notified().await;
+
+    // The update is logged, and the card does not hold it yet.
+    assert_eq!(
+        paragraphs_of(body_of(&card(&th.client, &card_id).await).as_ref()),
+        1,
+        "card has not been projected yet"
+    );
+    let logged = app
+        .store()
+        .get_body_doc(&card_id)
+        .await
+        .expect("read")
+        .expect("doc");
+    assert_eq!(logged.projected_seq, 0, "projection has not committed");
+    assert_eq!(logged.log_end, 2, "both updates are logged");
+    assert_eq!(logged.updates.len(), 2, "two updates in log");
+
+    // Simulate crash at paused_before_projection: close the store so the paused
+    // projection cannot commit, wake it so its slot releases, and start a fresh server.
+    let th = th
+        .killed_and_started_again(async |old_app| {
+            old_app.store().close().await;
+            go.notify_one();
+            let _ = taking.await;
+        })
+        .await;
+
+    let expected_paragraphs = usize::try_from(LIST).expect("fits") + 2;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while paragraphs_of(body_of(&card(&th.client, &card_id).await).as_ref()) != expected_paragraphs
+    {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "recovered card body did not include the update"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let restarted = Editing {
+        card_id: card_id.clone(),
+        ..editing_app(&th).await
+    };
+    let (again, again_epoch) = joined(restarted.app.collab(), &restarted.app, &card_id, 202).await;
+    let body = again.body().map(|body| body.document().clone());
+    assert_eq!(
+        paragraphs_of(body.as_ref()),
+        expected_paragraphs,
+        "recovered document kept all paragraphs"
+    );
+    assert_eq!(
+        body_of(&card(&th.client, &card_id).await),
+        body,
+        "card body matches recovered document"
+    );
+    let made = stored(&restarted).await;
+    assert_eq!(made.epoch, loaded.epoch + 1, "remade cleanly on recovery");
+    assert_eq!(again_epoch, made.epoch, "rejoined at recovered epoch");
+    assert_eq!(made.updates.len(), 0, "log cleared after recovery remake");
+    assert_eq!(
+        reading_steps(&made.state, u64::MAX).expect("a state"),
+        0,
+        "recovered document has 0 reading steps"
+    );
+
+    // Mention from the logged heavy update survived the crash and recovery.
+    let b_told = told(&th, &th.client2).await;
+    assert_eq!(kinds(&b_told), (vec!["mention"], 0), "{b_told:?}");
+    assert_eq!(
+        b_told[0].subject.as_ref().expect("seen").actor_id,
+        a.id,
+        "recovered mention credits A"
+    );
     th.teardown().await;
 }

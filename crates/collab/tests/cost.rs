@@ -815,6 +815,9 @@ fn accumulated() {
             let taken = take_update(&doc, &update, &limits);
             let take = start.elapsed();
             let outcome = match taken {
+                Ok(taken) if taken.remake => {
+                    format!("taken (remake, {} steps)", taken.reading_steps)
+                }
                 Ok(taken) => {
                     doc = taken.doc;
                     clock += most;
@@ -876,7 +879,99 @@ fn at_its_steps() {
         let Ok(taken) = take_update(&doc, &four(clock), &LIMITS) else {
             break;
         };
+        if taken.remake {
+            break;
+        }
         doc = taken.doc;
         clock += 4;
     }
+}
+
+/// Measures the T3 accept-and-remake path in ms: the 1b-2 2,047-session document with
+/// 415 paragraphs deleted and then 600 paragraphs deleted (taken with `remake: true`,
+/// plus remaking via `from_body`), and the `before_the_last` walking update on a
+/// 49,998-paragraph document.
+#[test]
+#[ignore = "a measurement, run by name in a release build"]
+fn remake_past_steps() {
+    const SESSIONS: u64 = 2_047;
+    const READ_FIRST: u64 = 3_000;
+    let hundred = "ab".repeat(50);
+    let mut runs = Vec::with_capacity(usize::try_from(SESSIONS).expect("fits"));
+    for session in 0..SESSIONS {
+        let client = SESSIONS - session;
+        let paragraph = if session == 0 {
+            Change::under(Parent::body(), Content::element("paragraph"))
+        } else {
+            Change::after((client + 1, 102), Content::element("paragraph"))
+        };
+        let xml_text = Change::under(Parent::Change((client, 0)), Content::xml_text());
+        let letters = Change::under(Parent::Change((client, 1)), Content::text(&hundred));
+        let tail = Change::after((client, 0), Content::element("paragraph"));
+        runs.push(support::wire::Run {
+            client,
+            clock: 0,
+            changes: vec![paragraph, xml_text, letters, tail],
+        });
+    }
+    let state = Update {
+        runs,
+        deleted: Vec::new(),
+    }
+    .bytes();
+    let stored_limits = UpdateLimits {
+        placing_steps: None,
+        clients: None,
+        client_changes: None,
+        ..LIMITS
+    };
+    let doc = from_state(&state, &stored_limits).expect("opened").doc;
+    let deletes = |from: u64, count: u64, runs: Vec<support::wire::Run>| {
+        let deleted = (from..from + count)
+            .map(|session| {
+                let client = SESSIONS - session;
+                let stretches = (0..49_u64).map(|odd| (3 + odd * 2, 1)).collect();
+                (client, stretches)
+            })
+            .collect();
+        Update { runs, deleted }.bytes()
+    };
+    let read_first = vec![support::wire::Run {
+        client: READ_FIRST,
+        clock: 0,
+        changes: vec![Change::after((1, 102), Content::element("paragraph"))],
+    }];
+    let first = deletes(0, 415, read_first);
+    let after_first = take_update(&doc, &first, &LIMITS).expect("first taken");
+    assert!(!after_first.remake, "first stays within reading steps");
+    let second = deletes(415, 600, Vec::new());
+
+    let (take_t3, taken) =
+        timed(|| take_update(&after_first.doc, &second, &LIMITS).expect("taken"));
+    assert!(taken.remake, "second triggers remake");
+    let body = taken.repair.body.expect("body");
+    let (remake_body, _) = timed(|| from_body(&body));
+    let (take_and_remake, _) = timed(|| {
+        let taken = take_update(&after_first.doc, &second, &LIMITS).expect("taken");
+        assert!(taken.remake, "second triggers remake");
+        from_body(taken.repair.body.as_ref().expect("body"))
+    });
+
+    let typed = typed_in_order(usize::try_from(LIST).expect("fits"));
+    let (_, walkers) = most_before_the_last(&typed, 0);
+    let (walk_take, walk_taken) = timed(|| take_update(&typed, &walkers, &LIMITS).expect("taken"));
+    assert!(walk_taken.remake, "walkers trigger remake");
+    let (walk_remake, _) = timed(|| from_body(walk_taken.repair.body.as_ref().expect("body")));
+    let (walk_total, _) = timed(|| {
+        let taken = take_update(&typed, &walkers, &LIMITS).expect("taken");
+        assert!(taken.remake, "walkers trigger remake");
+        from_body(taken.repair.body.as_ref().expect("body"))
+    });
+
+    println!("| case | take_update (remake) ms | from_body ms | take + from_body ms |");
+    println!("| --- | --- | --- | --- |");
+    println!(
+        "| 1b-2 (2047 sessions, 415+600 del) | {take_t3} | {remake_body} | {take_and_remake} |"
+    );
+    println!("| 49,998 paras + walkers | {walk_take} | {walk_remake} | {walk_total} |");
 }

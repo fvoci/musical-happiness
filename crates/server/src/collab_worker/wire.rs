@@ -158,6 +158,11 @@ pub enum Answer {
         /// The files the images and file blocks of its body name now, by their stored
         /// names.
         files: Vec<String>,
+        /// Whether reading the document's state would take more steps than it may
+        /// ([`fvoci_collab::READING_STEPS`]), so it was not read back from its state
+        /// and must be made again from its body before its state is stored or another
+        /// update is taken.
+        remake: bool,
     },
     /// Bytes: a state vector, a diff or a state.
     Bytes(Vec<u8>),
@@ -412,6 +417,7 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
             client_changes,
             steps_ahead,
             files,
+            remake,
         }) => {
             out.tag(3)
                 .optional(repair.as_deref())
@@ -419,7 +425,8 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
                 .number(*clients)
                 .number(*client_changes)
                 .number(*steps_ahead)
-                .names(files);
+                .names(files)
+                .tag(u8::from(*remake));
         }
         Ok(Answer::Bytes(bytes)) => {
             out.tag(4).bytes(bytes);
@@ -459,6 +466,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, Malformed> {
             client_changes: input.number()?,
             steps_ahead: input.number()?,
             files: input.names()?,
+            remake: input.flag()?,
         }),
         4 => Ok(Answer::Bytes(input.bytes()?)),
         5 => Ok(Answer::Body(input.optional()?)),
@@ -537,6 +545,14 @@ impl<'frame> Reader<'frame> {
 
     fn tag(&mut self) -> Result<u8, Malformed> {
         Ok(self.take(1)?[0])
+    }
+
+    fn flag(&mut self) -> Result<bool, Malformed> {
+        match self.tag()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(self.malformed()),
+        }
     }
 
     fn number(&mut self) -> Result<u64, Malformed> {
@@ -662,6 +678,7 @@ mod tests {
                 client_changes: 600_000,
                 steps_ahead: 800_000,
                 files: Vec::new(),
+                remake: false,
             }),
             Ok(Answer::Taken {
                 repair: Some(vec![6]),
@@ -670,6 +687,7 @@ mod tests {
                 client_changes: 1,
                 steps_ahead: 0,
                 files: vec!["7a.png".to_owned(), "7b.png".to_owned()],
+                remake: true,
             }),
             Ok(Answer::Bytes(vec![4, 5])),
             Ok(Answer::Body(Some(b"{}".to_vec()))),
@@ -706,5 +724,16 @@ mod tests {
         let mut long = Request::State(1).encode();
         long.push(0);
         assert!(Request::decode(&long).is_err(), "a byte after the end");
+        let mut bad_remake = encode_response(&Ok(Answer::Taken {
+            repair: None,
+            state_bytes: 1,
+            clients: 1,
+            client_changes: 1,
+            steps_ahead: 0,
+            files: Vec::new(),
+            remake: false,
+        }));
+        *bad_remake.last_mut().expect("flag byte") = 2;
+        assert!(decode_response(&bad_remake).is_err(), "flag past 0 or 1");
     }
 }

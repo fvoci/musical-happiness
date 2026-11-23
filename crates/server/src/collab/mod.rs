@@ -707,6 +707,9 @@ impl Collab {
                     collab.open_aside(app, card_id, slot).await?;
                 }
                 let written = collab.write_now(app, card_id, slot).await;
+                if written.is_ok() && slot.open.as_ref().is_some_and(|open| open.must_remake) {
+                    collab.remake_and_tell(app, card_id, slot).await;
+                }
                 collab.fold_as_it_closes(app, card_id, slot).await;
                 if !held_by_a_room {
                     collab.forget(slot).await;

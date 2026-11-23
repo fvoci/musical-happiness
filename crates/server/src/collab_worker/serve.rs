@@ -151,6 +151,7 @@ impl Worker {
         let clients = count(changed.doc.clients());
         let client_changes = changed.client_changes;
         let steps_ahead = changed.steps_ahead;
+        let remake = changed.remake;
         let files = changed
             .repair
             .body
@@ -166,6 +167,7 @@ impl Worker {
             client_changes,
             steps_ahead,
             files,
+            remake,
         })
     }
 
@@ -173,9 +175,9 @@ impl Worker {
     /// as large as the worker's memory for documents, a body as large as a body may
     /// be, and its changes placed past as many as they are. Its reading is counted
     /// all the same, before the library reads it, and held to what an update may
-    /// leave ([`READING_STEPS`]): every update taken since readings are counted left
-    /// a document within it, and a state stored before may take longer to read than
-    /// this worker has.
+    /// leave ([`READING_STEPS`]): a stored state past it is refused unread, while a
+    /// logged update past it that needs no repair comes back with `remake` set so the
+    /// server writes its body and makes the document again without losing it.
     fn logged_limits(&self) -> UpdateLimits {
         let held = usize::try_from(self.limits.held_bytes).unwrap_or(usize::MAX);
         UpdateLimits {
