@@ -14,7 +14,7 @@ use utoipa_axum::routes;
 
 use super::contract::bodies::NewBoard;
 use super::contract::params::{
-    AcceptLanguage, AsTemplate, BoardId, ContainerId, LinkedContainerId, MemberWorkspaceId,
+    AcceptLanguage, AsTemplate, BoardId, ContainerId, CopiedContainerId, MemberWorkspaceId,
     ToWorkspace,
 };
 use super::contract::tag;
@@ -357,7 +357,7 @@ async fn handle_delete_container(
     path = "/w/{workspaceId}/containers/{containerId}/duplicate",
     operation_id = "duplicateContainer",
     tag = tag::CONTAINERS,
-    params(MemberWorkspaceId, LinkedContainerId, AsTemplate, ToWorkspace, AcceptLanguage),
+    params(MemberWorkspaceId, CopiedContainerId, AsTemplate, ToWorkspace, AcceptLanguage),
     responses((
         status = 201,
         description = "The copy: one board and its blocks. The blocks are in the order of the original's, oldest first.",

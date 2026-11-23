@@ -51,13 +51,22 @@ describe('the menu of a container of the sidebar', () => {
       'hide: Hide diary',
       'delete: Delete diary',
     ]);
+    expect(menuOf('course')).toEqual([
+      'export: Export the course',
+      'hide: Hide course',
+      'delete: Delete course',
+    ]);
   });
 
-  it('names a diary as a diary, also one without a title', () => {
+  it('names a diary and a course as their kinds, also without a title', () => {
     expect(shownTitle({ kind: 'diary', title: '' })).toBe('Diary');
     expect(shownTitle({ kind: 'diary', title: 'Days' })).toBe('Days');
     expect(namedAs('diary', 'Days')).toBe('Days, diary');
     expect(namedAs('board', 'Days')).toBeUndefined();
     expect(menuNamed('diary', 'Days')).toBe('Menu of the diary Days');
+    expect(shownTitle({ kind: 'course', title: '' })).toBe('(Untitled course)');
+    expect(shownTitle({ kind: 'course', title: 'Onboarding' })).toBe('Onboarding');
+    expect(namedAs('course', 'Onboarding')).toBe('Onboarding, course');
+    expect(menuNamed('course', 'Onboarding')).toBe('Menu of the course Onboarding');
   });
 });

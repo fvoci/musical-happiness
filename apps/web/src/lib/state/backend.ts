@@ -43,6 +43,7 @@ import type { Category, CategoryDraft, CategoryPatch } from './category-types.ts
 import type { NotificationsOfBackend } from './notification-types.ts';
 import type { WikisOfBackend } from './wiki-types.ts';
 import type { DiariesOfBackend } from './diary-types.ts';
+import type { CoursesOfBackend } from './course-types.ts';
 import type { WorkspaceInfo } from './workspace-types.ts';
 
 export type {
@@ -66,6 +67,7 @@ export { isCardBlock, isViewBlock, type Change, type ChangeListener } from './ch
 export type * from './category-types.ts';
 export type * from './wiki-types.ts';
 export type * from './diary-types.ts';
+export type * from './course-types.ts';
 export { isOwnSpace, type OrgKind, type WorkspaceInfo } from './workspace-types.ts';
 
 /** What an import did beyond making the archive's boards. */
@@ -271,6 +273,7 @@ export interface Backend
     OfBodies,
     WikisOfBackend,
     DiariesOfBackend,
+    CoursesOfBackend,
     ContentSearchOfBackend,
     NotificationsOfBackend,
     VersionsOfFiles {

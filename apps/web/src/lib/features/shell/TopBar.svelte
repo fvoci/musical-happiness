@@ -43,6 +43,7 @@
   import {
     cardTrash,
     isOwnSpace,
+    shownCourse,
     shownWiki,
     type Trash,
     type Workspace,
@@ -104,14 +105,19 @@
     const shown = shownWiki(workspace).current;
     return shown?.wikiId === containerId ? shown : undefined;
   });
-  /** The board or wiki as it is read where it is open, else as the list has it. */
-  const container = $derived(store?.board ?? wiki?.wiki ?? listed);
+  /** The open course, where the page is one: its admins change its description. */
+  const course = $derived.by(() => {
+    const shown = shownCourse(workspace).current;
+    return shown?.courseId === containerId ? shown : undefined;
+  });
+  /** The container as it is read where it is open, else as the list has it. */
+  const container = $derived(store?.board ?? wiki?.wiki ?? course?.course ?? listed);
   /** Sharing is for the board's admins; a template is shared as it is made, never joined. */
   const canShare = $derived(store?.canShare === true && store.board?.isTemplate !== true);
   /** The trash of cards is for the board's editors, as the server has it. */
   const canRestoreCards = $derived(store?.canEdit === true);
 
-  /** Changes the description, for whoever may: a board's editors, a wiki's admins. */
+  /** Changes the description, for whoever may: a board's editors, a wiki's or course's admins. */
   const describe = $derived.by(() => {
     if (store?.canEdit) {
       const board = store;
@@ -124,6 +130,10 @@
     if (wiki?.canManage) {
       const open = wiki;
       return (description: string) => void open.changeWiki({ description });
+    }
+    if (course?.canManage) {
+      const open = course;
+      return (description: string) => void open.changeCourse({ description });
     }
     return undefined;
   });

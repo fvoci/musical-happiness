@@ -53,6 +53,8 @@ mod system;
 mod teams;
 mod templates;
 mod trash;
+mod unit_comments;
+mod unit_versions;
 mod uploads;
 mod users;
 mod wikis;
@@ -135,6 +137,8 @@ fn routes() -> Routes {
         .merge(diaries::routes())
         .merge(diary_versions::routes())
         .merge(courses::routes())
+        .merge(unit_comments::routes())
+        .merge(unit_versions::routes())
         .merge(boards_and_blocks::routes())
         .merge(cards::routes())
         .merge(trash::routes())

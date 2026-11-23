@@ -26,7 +26,7 @@ export function exportAction(
       board: m.shell_export_board,
       wiki: m.shell_export_wiki,
       diary: m.shell_export_diary,
-      course: m.shell_export_board,
+      course: m.shell_export_course,
     }[container.kind ?? 'board'](),
     icon: DownloadIcon,
     separated,

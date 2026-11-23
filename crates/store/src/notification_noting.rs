@@ -90,11 +90,12 @@ fn assigned_before<'b>(before: Option<&'b Block>, definitions: &[JsonMap]) -> BT
 /// `before` is the block as it was stored, `None` for a new one. A new comment notes
 /// the watchers of what it is on, but for those it names: they are told of that.
 ///
-/// A comment is about the card or the page it is on; a card that is a template of its
-/// board tells nobody, and neither does anything else that is no card, page or comment.
-/// Who writes a new card, page or comment watches it, quietly too; who gives a card to
-/// themselves watches it. Who is given it by somebody else comes to watch it as they
-/// are told of it ([`Store::watch_given`]): only if they read it then.
+/// A comment is about the card, page or unit it is on; a card that is a template of its
+/// board tells nobody, and neither does anything else that is no card, page, unit or
+/// comment (a chapter and a diary entry tell nobody). Who writes a new card, page, unit
+/// or comment watches it, quietly too; who gives a card to themselves watches it. Who is
+/// given a card by somebody else comes to watch it as they are told of it
+/// ([`Store::watch_given`]): only if they read it then.
 pub(crate) async fn note_named(
     scope: &mut Scope<'_>,
     block: &Block,
@@ -106,7 +107,7 @@ pub(crate) async fn note_named(
         return Ok(());
     }
     let about = match block.block_type {
-        BlockType::Card | BlockType::Page => block.id.as_str(),
+        BlockType::Card | BlockType::Page | BlockType::Unit => block.id.as_str(),
         BlockType::Comment => block.parent_id.as_str(),
         _ => return Ok(()),
     };

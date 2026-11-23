@@ -100,6 +100,25 @@ export const ENTRY_WORDS: BodyWords = {
   lostFormula: m.diary_body_lost_formula,
 };
 
+export const UNIT_WORDS: BodyWords = {
+  label: m.course_unit_body,
+  placeholder: m.course_unit_body_placeholder,
+  empty: m.course_unit_body_empty,
+  readEmpty: m.course_unit_body_empty,
+  invalid: m.course_body_invalid,
+  joining: m.course_body_joining,
+  receiving: m.course_body_receiving,
+  offline: m.course_body_offline,
+  readOnly: m.course_body_read_only,
+  gone: m.course_body_gone,
+  unavailable: m.course_body_unavailable,
+  notOpened: m.course_body_not_opened,
+  lostReset: m.course_body_lost_reset,
+  lostImage: m.course_body_lost_image,
+  lostFile: m.course_body_lost_file,
+  lostFormula: m.course_body_lost_formula,
+};
+
 /** How long joining or receiving lasts before it is said, in milliseconds. */
 export const LATE_NOTE = 1000;
 

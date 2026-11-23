@@ -327,36 +327,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
   });
 
   // One attachment, on the first card of the first board.
-  const firstCard = [...world.blocks.values()].find((block) => block.type === 'card');
-  if (firstCard) {
-    const notes = new Blob(['Notes from the kick-off.\n'], { type: 'text/plain' });
-    const fileId = world.newId();
-    world.files.set(fileId, {
-      fileId,
-      containerId: firstCard.containerId,
-      name: 'kick-off-notes.txt',
-      size: notes.size,
-      contentType: 'text/plain',
-      blob: notes,
-    });
-    const made = world.now();
-    const id = world.newId();
-    world.blocks.set(id, {
-      id,
-      containerId: firstCard.containerId,
-      parentId: firstCard.id,
-      createdBy: reader.id,
-      modifiedBy: reader.id,
-      schema: 1,
-      type: 'attachment',
-      title: 'kick-off-notes.txt',
-      fields: {},
-      createAt: made,
-      updateAt: made,
-      deleteAt: 0,
-      file: { fileId, name: 'kick-off-notes.txt', size: notes.size, contentType: 'text/plain' },
-    });
-  }
+  seedAttachment(world, reader);
 
   const filed = new Set(SIDEBAR.flatMap((category) => category.keys));
   const categories: Category[] = SIDEBAR.map((category, index) => {
@@ -379,9 +350,127 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       updateAt: at,
     };
   });
+  if (templates.length > 1) seedCourse(world, reader, users, categories);
   world.categories.set(reader.id, categories);
 
   // From here on the world lives in real time.
   world.useClock(Date.now);
   return { world: numberedWorld(world), readerId: reader.id };
+}
+
+/** Seeds one sample attachment on the first card of the first board. */
+function seedAttachment(world: World, reader: User): void {
+  const firstCard = [...world.blocks.values()].find((block) => block.type === 'card');
+  if (!firstCard) return;
+  const notes = new Blob(['Notes from the kick-off.\n'], { type: 'text/plain' });
+  const fileId = world.newId();
+  world.files.set(fileId, {
+    fileId,
+    containerId: firstCard.containerId,
+    name: 'kick-off-notes.txt',
+    size: notes.size,
+    contentType: 'text/plain',
+    blob: notes,
+  });
+  const made = world.now();
+  const id = world.newId();
+  world.blocks.set(id, {
+    id,
+    containerId: firstCard.containerId,
+    parentId: firstCard.id,
+    createdBy: reader.id,
+    modifiedBy: reader.id,
+    schema: 1,
+    type: 'attachment',
+    title: 'kick-off-notes.txt',
+    fields: {},
+    createAt: made,
+    updateAt: made,
+    deleteAt: 0,
+    file: { fileId, name: 'kick-off-notes.txt', size: notes.size, contentType: 'text/plain' },
+  });
+}
+
+/** Seeds one sample course with chapters and units into the default category. */
+function seedCourse(
+  world: World,
+  reader: User,
+  users: readonly User[],
+  categories: Category[],
+): void {
+  const courseId = world.newId();
+  const at = world.now();
+  const course: Container = {
+    ...createBoard(),
+    id: courseId,
+    workspaceId: world.workspace.id,
+    kind: 'course',
+    createdBy: reader.id,
+    modifiedBy: reader.id,
+    type: 'O',
+    minimumRole: 'editor',
+    title: 'Workspace Onboarding',
+    description: 'A guided course for getting started with the workspace.',
+    icon: '',
+    cardProperties: [],
+    createAt: at,
+    updateAt: at,
+  };
+  world.containers.set(courseId, course);
+  world.members.set(
+    courseId,
+    users
+      .slice(0, 3)
+      .map((user, index) => memberOf(courseId, user.id, index === 0 ? 'admin' : 'editor')),
+  );
+  const addNode = (
+    type: 'chapter' | 'unit',
+    parentId: string,
+    title: string,
+    order: string,
+    body?: string,
+  ): string => {
+    const id = world.newId();
+    const made = world.now();
+    world.blocks.set(id, {
+      id,
+      containerId: courseId,
+      parentId,
+      createdBy: reader.id,
+      modifiedBy: reader.id,
+      schema: 1,
+      type,
+      title,
+      fields: { order },
+      body: type === 'unit' && body ? paragraph(body) : null,
+      createAt: made,
+      updateAt: made,
+      deleteAt: 0,
+    });
+    return id;
+  };
+  const ch1 = addNode('chapter', '', 'Getting started', 'V');
+  addNode(
+    'unit',
+    ch1,
+    'Workspace overview',
+    'V',
+    'Welcome to the workspace. Explore boards, wikis, and courses here.',
+  );
+  addNode(
+    'unit',
+    ch1,
+    'Organizing your work',
+    'W',
+    'Group items into categories and keep outlines tidy.',
+  );
+  const ch2 = addNode('chapter', '', 'Working together', 'W');
+  addNode(
+    'unit',
+    ch2,
+    'Collaborating in real time',
+    'V',
+    'Edit unit bodies together and see live presence.',
+  );
+  categories.find((category) => category.type === 'system')?.containerIds.push(courseId);
 }

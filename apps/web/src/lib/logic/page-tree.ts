@@ -131,5 +131,23 @@ export function firstPage<P extends PlacedPage>(pages: readonly P[]): P | undefi
   return pageTree(pages)[0]?.page;
 }
 
+/**
+ * The first unit of a course's outline in display order (depth-first, skipping
+ * title-only chapters). Returns undefined when the course has no units yet.
+ */
+export function firstUnit<P extends PlacedPage & { kind?: 'chapter' | 'unit' }>(
+  nodes: readonly P[],
+): P | undefined {
+  const find = (branch: readonly PageTreeNode<P>[]): P | undefined => {
+    for (const node of branch) {
+      if (node.page.kind !== 'chapter') return node.page;
+      const inside = find(node.children);
+      if (inside) return inside;
+    }
+    return undefined;
+  };
+  return find(pageTree(nodes));
+}
+
 /** The most characters of a page's title, as the server takes a block's (`BLOCK_TITLE_MAX_CHARS`). */
 export const PAGE_TITLE_MAX = 16_383;

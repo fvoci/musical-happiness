@@ -42,3 +42,10 @@ export interface WorkspaceInfo {
  */
 export const isOwnSpace = (workspace: WorkspaceInfo | undefined): boolean =>
   workspace?.kind === 'personal';
+
+/** `signedOut`: nobody is signed in (401); `leaving`: the account waits to be deleted (its session opens only taking that back). */
+export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut' | 'leaving';
+
+/** What failed in the workspace, as a key the shell has a message for. */
+export type ProblemAction =
+  'load' | 'save' | 'undo' | 'export' | 'import' | 'movePage' | 'moveUnit';

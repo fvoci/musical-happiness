@@ -149,7 +149,11 @@
       // wiki shown has them. A file block that cannot be saved says why, as an attachment does.
       const files = fileSourceOf(
         backend,
-        () => router.route.wikiId ?? router.route.diaryId ?? made.board?.boardId,
+        () =>
+          router.route.wikiId ??
+          router.route.diaryId ??
+          router.route.courseId ??
+          made.board?.boardId,
         (error) => {
           made.report('load', error);
         },

@@ -137,12 +137,85 @@ async fn courses(case: &mut Case) {
     case.present("getUnitTree", at, &unit).await;
     let of_unit = &[("courseId", course.as_str()), ("unitId", unit.as_str())];
     case.present("getUnit", of_unit, &unit).await;
+    let told = case
+        .run("resolveReferences", &[], json!([unit]))
+        .await
+        .value();
+    assert_eq!(told[0]["id"], unit, "unit reference resolves");
+    case.present("searchReferences", &[], &unit).await;
+    case.run("getReferencesTo", &[("blockId", unit.as_str())], json!({}))
+        .await;
     case.run("patchUnit", of_unit, json!({"title": "changed unit"}))
         .await;
+    unit_comments(case, &course, &unit).await;
+    unit_versions(case, &course, &unit).await;
     case.run("moveUnit", of_unit, json!({"parentId": ""})).await;
     case.run("deleteUnit", of_unit, json!({})).await;
     case.present("getDeletedUnits", at, &unit).await;
     case.run("undeleteUnit", of_unit, json!({})).await;
+}
+
+/// The versions of the unit's body: two written, listed, the older read and gone back
+/// to, and kept by hand.
+async fn unit_versions(case: &mut Case, course: &str, unit: &str) {
+    let of_unit = &[("courseId", course), ("unitId", unit)];
+    for said in ["first", "second"] {
+        let read = case.present("getUnit", of_unit, unit).await.value();
+        let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+            {"type": "text", "text": format!("secret {} {said} unit body", case.label)}]}]});
+        case.run(
+            "patchUnit",
+            of_unit,
+            json!({"readAt": read["updateAt"], "body": body}),
+        )
+        .await;
+    }
+    let listed = case
+        .run("getUnitBodyVersions", of_unit, json!({}))
+        .await
+        .value();
+    let version = listed[1]["version"]
+        .as_i64()
+        .expect("an older unit version")
+        .to_string();
+    let of_version = &[
+        ("courseId", course),
+        ("unitId", unit),
+        ("version", version.as_str()),
+    ];
+    case.run("getUnitBodyVersion", of_version, json!({})).await;
+    case.run("restoreUnitBodyVersion", of_version, json!({}))
+        .await;
+    case.run("keepUnitBodyVersion", of_unit, json!({})).await;
+}
+
+/// A comment on the unit: written, listed, changed, its versions read, deleted and
+/// brought back.
+async fn unit_comments(case: &mut Case, course: &str, unit: &str) {
+    let of_unit = &[("courseId", course), ("unitId", unit)];
+    let said = |text: String| {
+        json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+            {"type": "text", "text": text}]}]})
+    };
+    let body = said(format!("secret {} unit comment", case.label));
+    let made = case
+        .run("createUnitComment", of_unit, json!({ "body": body }))
+        .await
+        .value();
+    let comment = case.remember(&made, "id");
+    case.present("getUnitComments", of_unit, &comment).await;
+    let of_comment = &[
+        ("courseId", course),
+        ("unitId", unit),
+        ("commentId", comment.as_str()),
+    ];
+    let change =
+        json!({"body": said("changed unit comment".to_owned()), "readAt": made["updateAt"]});
+    case.run("patchUnitComment", of_comment, change).await;
+    case.run("getUnitCommentVersions", of_comment, json!({}))
+        .await;
+    case.run("deleteUnitComment", of_comment, json!({})).await;
+    case.run("undeleteUnitComment", of_comment, json!({})).await;
 }
 
 /// Pages of the wiki, one below the other: made, listed, read, changed, moved,

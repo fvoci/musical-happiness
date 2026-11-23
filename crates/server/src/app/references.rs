@@ -196,6 +196,23 @@ impl App {
         self.named_on(wiki_id, BlockType::Page, bodies).await
     }
 
+    /// The units of the course among what the bodies name: all that whoever reads the
+    /// course by its link is shown of the references of its units, as
+    /// [`App::pages_named_on`] is of a wiki's. A reference to a chapter, a card, a page,
+    /// a unit of another course, what is in the trash or nothing goes out without its
+    /// identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the units cannot be read; nothing is sent then.
+    pub async fn units_named_on(
+        &self,
+        course_id: &str,
+        bodies: impl IntoIterator<Item = &Body>,
+    ) -> Result<HashSet<String>, AppError> {
+        self.named_on(course_id, BlockType::Unit, bodies).await
+    }
+
     /// The blocks of the type on the board among what the bodies name.
     async fn named_on(
         &self,

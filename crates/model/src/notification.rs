@@ -24,11 +24,11 @@ use crate::{ContainerKind, SearchKind};
 )]
 #[serde(rename_all = "lowercase")]
 pub enum NotificationKind {
-    /// A body, of a card, a page or a comment, names the person.
+    /// A body, of a card, a page, a unit or a comment, names the person.
     Mention,
     /// A person property of a card took the person.
     Assignment,
-    /// A card or a page the person watches has a new comment.
+    /// A card, a page or a unit the person watches has a new comment.
     Comment,
 }
 

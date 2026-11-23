@@ -26,14 +26,16 @@ try {
       `lengths: ${problems.length} differences between the code and ${EXCEPTIONS}. ` +
         'Over a limit or ceiling: shorten the code or split it; where a split would make it ' +
         'worse, raise or add its line by hand to the length above, with the evidence in the ' +
-        'commit body (see tools/lint/lengths.ts). A ceiling above the code goes down to it.',
+        'commit body (see tools/lint/lengths.ts). Remove lines whose file or function is gone. ' +
+        '`pnpm run lengths:measure` is only for tightening the list or once after a merge, ' +
+        'never to make a check pass.',
     );
     process.exit(1);
   }
   const files = measured.filter((length) => length.kind === 'file').length;
   console.log(
     `lengths: ${files} files within ${MAX_FILE_LINES} lines and ${measured.length - files} functions ` +
-      `within ${MAX_FUNCTION_LINES}, or at their listed ceiling`,
+      `within ${MAX_FUNCTION_LINES}, or within their listed ceiling`,
   );
 } catch (error) {
   console.error(`lengths: ${error instanceof Error ? error.message : String(error)}`);

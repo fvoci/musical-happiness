@@ -5,20 +5,28 @@
 -->
 <script lang="ts">
   import Avatar from '$lib/components/avatar/Avatar.svelte';
-  import type { WikiStore } from '$lib/state/index.ts';
+  import type { PresenceSource } from '$lib/state/index.ts';
 
   import { nameOf, viewersLabel, viewersOf } from './page-viewers.ts';
 
   let {
     wiki,
     pageId,
+    of = 'page',
     large = false,
     id,
     class: className,
-  }: { wiki: WikiStore; pageId: string; large?: boolean; id?: string; class?: string } = $props();
+  }: {
+    wiki: PresenceSource;
+    pageId: string;
+    of?: 'page' | 'unit';
+    large?: boolean;
+    id?: string;
+    class?: string;
+  } = $props();
 
   const people = $derived(viewersOf(wiki, pageId));
-  const label = $derived(viewersLabel(wiki, people));
+  const label = $derived(viewersLabel(wiki, people, of));
 </script>
 
 {#if people.length > 0}

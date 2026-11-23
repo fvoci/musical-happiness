@@ -1,6 +1,6 @@
-//! Where a comment may be: on a card of its board or a page of its wiki, with nothing
-//! below it (contract B1; [`BlockType::takes_comments`]). Every block that is written is
-//! checked here by [`check`].
+//! Where a comment may be: on a card of its board, a page of its wiki, or a unit of
+//! its course, with nothing below it (contract B1; [`BlockType::takes_comments`]).
+//! Every block that is written is checked here by [`check`].
 
 use fvoci_model::{Block, BlockError, BlockType};
 

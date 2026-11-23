@@ -24,15 +24,16 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 
 /// What references name
 ///
-/// A body names a card or a page by its identifier alone (the node `reference`), and no
-/// body, however it is read, says what that is called: this does, for the user who
-/// asks and as things are now. Of the identifiers of the body, the cards and pages of
-/// this workspace on a board or a wiki the user reads (as `getCard` and `getPage` ask),
-/// each once, in the order they were first named.
+/// A body names a card, a page or a unit by its identifier alone (the node `reference`),
+/// and no body, however it is read, says what that is called: this does, for the user who
+/// asks and as things are now. Of the identifiers of the body, the cards, pages and units
+/// of this workspace on a board, a wiki or a course the user reads (as `getCard`,
+/// `getPage` and `getUnit` ask), each once, in the order they were first named.
 ///
 /// Whatever else an identifier names is left out, and the answer does not tell why:
 /// nothing at all, something in the trash, something of another workspace or
-/// organization, a card or a page the user does not read, or a block that is neither.
+/// organization, a card, a page or a unit the user does not read, or a block that is none
+/// of those (such as a chapter of a course).
 /// The body names at most 100 identifiers (more is 400, as an entry that has not the
 /// form of an identifier is); an empty list answers an empty list.
 #[utoipa::path(
@@ -50,16 +51,16 @@ async fn handle_resolve_references(InLinked(ws): InLinked, body: Bytes) -> ApiRe
     Ok(json_response(&linked))
 }
 
-/// What names a card or a page
+/// What names a card, a page or a unit
 ///
-/// The cards and pages of this workspace whose body names the block of the path with a
-/// reference, or which have a comment whose body does, on a board or a wiki the user
-/// reads; the block itself is never among them. Oldest first. What names it from where the user does not
-/// read is left out and takes no place in a page: the answer does not say how many
-/// there are, nor whether there are any.
+/// The cards, pages and units of this workspace whose body names the block of the path
+/// with a reference, or which have a comment whose body does, on a board, a wiki or a
+/// course the user reads; the block itself is never among them. Oldest first. What names
+/// it from where the user does not read is left out and takes no place in a page: the
+/// answer does not say how many there are, nor whether there are any.
 ///
-/// 404 unless the block is a card or a page the user reads, as `resolveReferences`
-/// tells of it: for anything else, as for an identifier of nothing.
+/// 404 unless the block is a card, a page or a unit the user reads, as
+/// `resolveReferences` tells of it: for anything else, as for an identifier of nothing.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/references/to/{blockId}",
@@ -88,14 +89,13 @@ async fn handle_get_references_to(
 
 /// Find what a reference may name
 ///
-/// The cards and pages of this workspace, on a board or a wiki the user reads, whose
-/// title has every word of `q` in it, as spaces divide it and whatever the case of the
-/// letters (of every letter, not only ASCII); `%` and `_` are characters like any
-/// other. At most 20, the one changed last first; without `q`, the 20 changed last.
-/// Bodies are not looked into. What is in the trash, what is on a template, and a block
-/// whose `isTemplate` is `true` (for a card, a template of its board's cards) are never
-/// found. A `q` of more than 200
-/// characters is 400.
+/// The cards, pages and units of this workspace, on a board, a wiki or a course the user
+/// reads, whose title has every word of `q` in it, as spaces divide it and whatever the
+/// case of the letters (of every letter, not only ASCII); `%` and `_` are characters like
+/// any other. At most 20, the one changed last first; without `q`, the 20 changed last.
+/// Bodies are not looked into. What is in the trash, what is on a template, a chapter of
+/// a course, and a block whose `isTemplate` is `true` (for a card, a template of its
+/// board's cards) are never found. A `q` of more than 200 characters is 400.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/references/search",

@@ -342,7 +342,7 @@ mod tests {
         assert_eq!(chapter, BlockType::Chapter);
         assert_eq!(String::from(unit.clone()), "unit");
         assert_eq!(String::from(chapter.clone()), "chapter");
-        assert!(unit.has_body() && unit.has_room() && !unit.is_current() && !unit.takes_comments());
+        assert!(unit.has_body() && unit.has_room() && !unit.is_current() && unit.takes_comments());
         assert!(
             !chapter.has_body()
                 && !chapter.has_room()

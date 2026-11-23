@@ -207,16 +207,9 @@ async fn nobody_watches_or_is_listed_what_they_do_not_read() {
     th.teardown().await;
 }
 
-/// Course units are outside linked board/wiki subscriptions and notifications: subscribing
-/// through the API is refused as not found, a subscription written directly to the store
-/// is not listed, and mentioning a worker in a unit sends no notification.
-#[tokio::test]
-async fn a_course_unit_is_neither_subscribable_nor_listed() {
-    let th = Setup::native().start().await.init_basic().await;
-    let worker = th.add_user("learner").await;
-    let worker_id = worker.me().await.id;
-    let course = th
-        .client
+/// Creates an open course with one chapter and one unit, returning `(course_id, unit_id, update_at)`.
+async fn open_course_unit(client: &Client) -> (String, String, i64) {
+    let course = client
         .post(
             &format!("{TEST_WS}/courses"),
             &json!({"type": "O", "title": "Open course"}),
@@ -224,10 +217,10 @@ async fn a_course_unit_is_neither_subscribable_nor_listed() {
         .await;
     course.check_created();
     let course_id = course.value()["id"].as_str().expect("course id").to_owned();
-    let chapter = th
-        .client
+    let units = format!("{TEST_WS}/courses/{course_id}/units");
+    let chapter = client
         .post(
-            &format!("{TEST_WS}/courses/{course_id}/units"),
+            &units,
             &json!({"kind": "chapter", "parentId": "", "title": "Ch 1"}),
         )
         .await;
@@ -236,53 +229,91 @@ async fn a_course_unit_is_neither_subscribable_nor_listed() {
         .as_str()
         .expect("chapter id")
         .to_owned();
-    let unit = th
-        .client
+    let unit = client
         .post(
-            &format!("{TEST_WS}/courses/{course_id}/units"),
+            &units,
             &json!({"kind": "unit", "parentId": chapter_id, "title": "Unit 1"}),
         )
         .await;
     unit.check_created();
-    let unit_id = unit.value()["id"].as_str().expect("unit id").to_owned();
-    let read_at = unit.value()["updateAt"].as_i64().expect("updateAt");
+    let v = unit.value();
+    (
+        course_id,
+        v["id"].as_str().expect("unit id").to_owned(),
+        v["updateAt"].as_i64().expect("updateAt"),
+    )
+}
+
+/// An open course unit notifies an unjoined workspace worker and lets them subscribe,
+/// while a guest of the workspace is neither notified nor listed even for a direct
+/// store subscription; closing the course to invited-only hides the worker's
+/// subscription and notification subjects.
+#[tokio::test]
+async fn open_course_unit_respects_worker_guest_and_private_isolation() {
+    let th = Setup::native().start().await.init_basic().await;
+    let worker = th.add_user("learner").await;
+    let worker_id = worker.me().await.id;
+    let guest = th.add_user("course_guest").await;
+    let guest_id = guest.me().await.id;
+    set_role(&th, &guest_id, "guest").await;
+    let (course_id, unit_id, read_at) = open_course_unit(&th.client).await;
 
     th.client
         .patch(
             &format!("{TEST_WS}/courses/{course_id}/units/{unit_id}"),
-            &json!({"readAt": read_at, "body": mentioning(&[&worker_id])}),
+            &json!({"readAt": read_at, "body": mentioning(&[&worker_id, &guest_id])}),
         )
         .await
         .check_ok();
-    assert_eq!(told(&th, &worker).await, [], "course units do not notify");
+    assert_eq!(kinds(&told(&th, &worker).await), (vec!["mention"], 0));
+    assert_eq!(
+        told(&th, &guest).await,
+        [],
+        "a guest may not join an open course"
+    );
 
-    let refused = worker
-        .post(
-            &format!("{TEST_WS}/subscriptions"),
-            &json!({
-                "blockType": "unit",
-                "blockId": unit_id,
-                "subscriberType": "user",
-                "subscriberId": worker_id,
-            }),
-        )
+    let sub_body = |who: &str| json!({"blockType": "unit", "blockId": unit_id, "subscriberType": "user", "subscriberId": who});
+    worker
+        .post(&format!("{TEST_WS}/subscriptions"), &sub_body(&worker_id))
+        .await
+        .check_created();
+    assert_eq!(watched(&worker).await, std::slice::from_ref(&unit_id));
+
+    let guest_sub = guest
+        .post(&format!("{TEST_WS}/subscriptions"), &sub_body(&guest_id))
         .await;
-    assert_eq!(refused.status, StatusCode::NOT_FOUND, "{}", refused.text());
-
+    assert_eq!(
+        guest_sub.status,
+        StatusCode::NOT_FOUND,
+        "{}",
+        guest_sub.text()
+    );
     th.app
         .store()
         .create_subscription(Subscription {
             block_type: BlockType::Unit,
-            block_id: unit_id,
+            block_id: unit_id.clone(),
             subscriber_type: SubscriberType::User,
-            subscriber_id: worker_id,
+            subscriber_id: guest_id,
             notified_at: 0,
             create_at: 0,
             delete_at: 0,
         })
         .await
         .expect("direct subscription");
-    assert_eq!(watched(&worker).await, Vec::<String>::new(), "not listed");
+    assert_eq!(
+        watched(&guest).await,
+        Vec::<String>::new(),
+        "guest not listed"
+    );
+
+    make(&th, &course_id, "P").await;
+    assert_eq!(
+        watched(&worker).await,
+        Vec::<String>::new(),
+        "hidden when closed"
+    );
+    assert_eq!(kinds(&told(&th, &worker).await), (vec![], 1));
     th.teardown().await;
 }
 

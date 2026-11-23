@@ -76,6 +76,7 @@ import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
 import { MemoryWikis } from './wikis.ts';
 import { MemoryDiaries } from './diaries.ts';
+import { MemoryCourses } from './courses.ts';
 import { checkDiariesComing } from './diary-places.ts';
 import { MemoryCategories, fileAsNew } from './categories.ts';
 import { checkWorkspace, confirmPassword, workersOf, workspacesOf } from './spaces.ts';
@@ -85,7 +86,7 @@ import { MemoryFileVersions } from './file-versions.ts';
 import { readableBlob, readableFile, storeUpload } from './files.ts';
 import { userFound, usersAmong, usersNamed } from './users.ts';
 import { changeName, keepSettings, settingsOf } from './account.ts';
-import { archiveLines, archiveOf, blockOfLine } from './archive.ts';
+import { archiveOf, exportableContainers, readArchive } from './archive.ts';
 import { checkedBody, checkedComment, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, MemoryReferences } from './references.ts';
 import { numberBlock } from './card-numbers.ts';
@@ -130,6 +131,7 @@ export class MemoryBackend implements Backend {
   readonly presence: MemoryPresence;
   readonly wiki = new MemoryWikis(this);
   readonly diary = new MemoryDiaries(this);
+  readonly course = new MemoryCourses(this);
   readonly bodyVersions: MemoryBodyVersions;
   readonly search: MemoryContentSearch;
   readonly references = new MemoryReferences(this, () => this.#enter('references'));
@@ -183,18 +185,26 @@ export class MemoryBackend implements Backend {
     }
   }
 
-  /** Of `kind` where it is asked; `shared`: a board or a wiki, which have members and links. */
-  #container(containerId: string, kind: ContainerKind | 'any' | 'shared' = 'any'): Container {
+  /** Of `kind` where asked; `shared`: board/wiki/course; `linked`: board/wiki only. */
+  #container(
+    containerId: string,
+    kind: ContainerKind | 'any' | 'shared' | 'linked' = 'any',
+  ): Container {
     const board = this.world.containers.get(containerId);
     const found = board?.kind ?? 'board';
-    const shared = kind === 'shared' && found !== 'diary';
-    return board && (kind === 'any' || shared || found === kind) ? board : fail(404, 'no board');
+    const ok =
+      kind === 'any' ||
+      (kind === 'shared' && found !== 'diary') ||
+      (kind === 'linked' && found !== 'diary' && found !== 'course') ||
+      found === kind;
+    return board && ok ? board : fail(404, 'no board');
   }
 
   #block(boardId: string, blockId: string, type?: StoredBlock['type']): StoredBlock {
     const block = this.world.blocks.get(blockId);
-    // A page and an entry are reached by routes of their own, not a board's.
-    const own = block?.containerId === boardId && block.type !== 'page' && block.type !== 'entry';
+    // Pages, entries, units and chapters are reached by routes of their own, not a board's.
+    const own =
+      block?.containerId === boardId && !['page', 'entry', 'unit', 'chapter'].includes(block.type);
     if (!block || !own || (type && block.type !== type)) fail(404, `no such ${type ?? 'block'}`);
     return block;
   }
@@ -439,11 +449,11 @@ export class MemoryBackend implements Backend {
     ].map(copy);
   }
 
-  /** Into `to`, as the server's `toWorkspace`; no diary, nor across spaces but by export. */
+  /** Into `to`, as the server's `toWorkspace`; no diary or course, nor across spaces but by export. */
   async duplicateContainer(id: string, asTemplate: boolean, to: string): Promise<Container> {
     await this.#enterWorkspace('duplicateContainer', to);
     const source = this.#container(id);
-    if (source.kind === 'diary') fail(404, 'no board');
+    if (source.kind === 'diary' || source.kind === 'course') fail(404, 'no board');
     if (source.kind === 'wiki' && asTemplate) fail(400, 'a wiki is no template');
     if (source.isBuiltin !== true && source.workspaceId !== to) fail(404, 'no board');
     return this.#copyContainer(source, asTemplate, to);
@@ -498,36 +508,26 @@ export class MemoryBackend implements Backend {
   async exportWorkspace(workspaceId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     await this.#enter('exportWorkspace', options?.signal);
     checkWorkspace(this.world, this.userId, workspaceId);
-    // As the server: the reader's boards and wikis, and the workspace's open ones.
-    const boards = [...this.world.containers.values()].filter(
-      (board) =>
-        board.workspaceId === workspaceId &&
-        !board.isTemplate &&
-        (board.type === 'O' || this.#memberIds(board.id).includes(this.userId)),
+    return archiveOf(
+      this.world,
+      exportableContainers(this.world, workspaceId, this.userId),
+      options,
     );
-    return archiveOf(this.world, boards, options);
   }
 
   async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
     await this.#enter('importArchive', options?.signal);
     checkWorkspace(this.world, this.userId, workspaceId);
-    const lines = await archiveLines(file);
+    const { containers, blocks } = await readArchive(file);
     options?.onProgress?.({ sentBytes: file.size, totalBytes: file.size });
-    const boards = lines
-      .filter((line) => line.type === 'board')
-      .map((line) => line.data as Container);
-    const blocks = lines
-      .filter((line) => line.type === 'block')
-      .map((line) => blockOfLine(line.data));
-    checkDiariesComing(this.world, this.userId, workspaceId, { containers: boards, blocks });
-    for (const board of boards) {
+    checkDiariesComing(this.world, this.userId, workspaceId, { containers, blocks });
+    for (const board of containers) {
       this.#insertContainer(
         board,
-        blocks.filter((block) => block.containerId === board.id),
+        blocks.filter((b) => b.containerId === board.id),
         workspaceId,
       );
     }
-    // Its archives carry no members: nobody is left out.
     return { membersLeftOut: 0 };
   }
 
@@ -604,13 +604,13 @@ export class MemoryBackend implements Backend {
 
   async sharing(id: string): Promise<Sharing> {
     await this.#enter('sharing');
-    this.#container(id, 'shared');
+    this.#container(id, 'linked');
     return copy(this.world.sharing.get(id) ?? { enabled: false, token: '' });
   }
 
   async setSharing(id: string, change: SharingChange): Promise<Sharing> {
     await this.#enter('setSharing');
-    this.#container(id, 'shared');
+    this.#container(id, 'linked');
     const before = this.world.sharing.get(id);
     const token =
       !before?.token || change.regenerate ? this.world.newId().replaceAll('-', '') : before.token;

@@ -102,8 +102,9 @@ impl SubscriptionRequest {
 
 /// Subscribe to a block
 ///
-/// Subscribes the user of the session to a block of a board, or a page of a wiki, they
-/// may read: whoever writes a card or a page watches it, and may stop and start again. A
+/// Subscribes the user of the session to a block of a board, a page of a wiki, or a unit
+/// of a course they may read: whoever writes a card, a page or a unit watches it, and
+/// may stop and start again. A chapter of a course takes no subscriptions (404). A
 /// `subscriberId` that is not the user of the session is 403, and a `subscriberType`
 /// other than `user` is 400. The `blockType` is stored as it is sent, and not compared
 /// with the block. Subscribing again is no error: the subscription stays as it was
@@ -124,8 +125,8 @@ async fn handle_create_subscription(InLinked(ws): InLinked, body: Bytes) -> ApiR
             AppError::forbidden("a user subscribes for themselves only").with_field("subscriberId")
         );
     }
-    // The request names a block and no board or wiki: a block of one the user may not
-    // read does not exist for them.
+    // The request names a block and no container: check authorization before inspecting
+    // the block type so an unauthorized caller cannot distinguish a chapter from a unit.
     let block = ws.app.block(&subscription.block_id).await?;
     require_permission_through(
         &ws.app,
@@ -136,6 +137,9 @@ async fn handle_create_subscription(InLinked(ws): InLinked, body: Bytes) -> ApiR
         "block",
     )
     .await?;
+    if block.block_type == BlockType::Chapter {
+        return Err(AppError::not_found("block"));
+    }
 
     let subscription = ws.app.create_subscription(subscription).await?;
     tracing::debug!(

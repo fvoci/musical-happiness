@@ -48,6 +48,9 @@ export interface Route {
   monthDay?: string | undefined;
   /** An optional year of that day to expand on arrival (`?year=YYYY`). */
   year?: string | undefined;
+  /** A course of the workspace, in place of a board, and the unit shown. */
+  courseId?: string | undefined;
+  unitId?: string | undefined;
   /**
    * The token of an invitation: the address is the link of one
    * (`/invite/<token>`), and names nothing else.
@@ -145,6 +148,9 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
       ...(year ? { year } : {}),
     };
   }
+  if (section === 'courses' && boardId !== undefined && cardId === undefined && w === 'w') {
+    return { ...NOWHERE, workspaceId, courseId: boardId, unitId: viewId };
+  }
   if (
     w !== 'w' ||
     workspaceId === undefined ||
@@ -199,6 +205,8 @@ function settled(route: Partial<Route>): Route {
     const year = monthDay ? diaryYear(route.year) : undefined;
     return { ...NOWHERE, workspaceId, diaryId, monthDay, ...(year ? { year } : {}) };
   }
+  const courseId = (workspaceId && route.courseId) || undefined;
+  if (courseId) return { ...NOWHERE, workspaceId, courseId, unitId: route.unitId || undefined };
   const boardId = ((workspaceId || readToken) && route.boardId) || undefined;
   const viewId = (boardId && route.viewId) || undefined;
   const cardId = (viewId && route.cardId) || undefined;
@@ -215,12 +223,13 @@ export function placeRoute(container: ContainerPlace): Partial<Route> {
   const { workspaceId, id } = container;
   if (container.kind === 'wiki') return { workspaceId, wikiId: id };
   if (container.kind === 'diary') return { workspaceId, diaryId: id };
+  if (container.kind === 'course') return { workspaceId, courseId: id };
   return { workspaceId, boardId: id };
 }
 
-/** The board, wiki or diary a route shows. */
+/** The board, wiki, diary or course a route shows. */
 export function shownContainerId(route: Route): string | undefined {
-  return route.boardId ?? route.wikiId ?? route.diaryId;
+  return route.boardId ?? route.wikiId ?? route.diaryId ?? route.courseId;
 }
 
 /** The address of a route, from the root of the site. */
@@ -237,6 +246,8 @@ export function routePath(route: Partial<Route>, basePath: string): string {
     diaryId,
     monthDay,
     year,
+    courseId,
+    unitId,
   } = settled(route);
   if (readToken && boardId) {
     const parts = [boardId, viewId, cardId].filter((part) => part !== undefined);
@@ -245,9 +256,15 @@ export function routePath(route: Partial<Route>, basePath: string): string {
   }
   if (!workspaceId) return buildUrl('/', basePath);
   const named = (
-    wikiId ? [wikiId, pageId] : diaryId ? [diaryId, monthDay] : [boardId, viewId, cardId]
+    wikiId
+      ? [wikiId, pageId]
+      : diaryId
+        ? [diaryId, monthDay]
+        : courseId
+          ? [courseId, unitId]
+          : [boardId, viewId, cardId]
   ).filter((part) => part !== undefined);
-  const section = wikiId ? 'wikis' : diaryId ? 'diaries' : 'boards';
+  const section = wikiId ? 'wikis' : diaryId ? 'diaries' : courseId ? 'courses' : 'boards';
   const path = [
     'w',
     encodeURIComponent(workspaceId),
@@ -297,6 +314,8 @@ export class Router {
         next.diaryId === now.diaryId &&
         next.monthDay === now.monthDay &&
         next.year === now.year &&
+        next.courseId === now.courseId &&
+        next.unitId === now.unitId &&
         next.invitation === now.invitation &&
         next.readToken === now.readToken &&
         next.shared === now.shared &&
@@ -391,6 +410,12 @@ export class Router {
   openDay(monthDay: string, options: { replace?: boolean } = {}): void {
     const { workspaceId, diaryId } = this.route;
     if (diaryId) this.go({ workspaceId, diaryId, monthDay }, options);
+  }
+
+  /** Shows a unit of the course shown. `replace`: in place of the address there. */
+  openUnit(unitId: string | undefined, options: { replace?: boolean } = {}): void {
+    const { workspaceId, courseId } = this.route;
+    if (courseId) this.go({ workspaceId, courseId, unitId }, options);
   }
 
   openView(viewId: string): void {

@@ -195,7 +195,7 @@ export class MemoryRooms {
 
   #card(containerId: string, cardId: string): StoredCard | undefined {
     const block = this.#world.blocks.get(cardId);
-    const bodied = block && ['card', 'page', 'entry'].includes(block.type);
+    const bodied = block && ['card', 'page', 'entry', 'unit'].includes(block.type);
     return bodied && block.containerId === containerId ? (block as StoredCard) : undefined;
   }
 

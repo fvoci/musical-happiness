@@ -1,10 +1,12 @@
 # Rust files and functions that are over the limit of their length (xtask/src/lengths.rs),
-# each with the number of lines it has: its ceiling.
+# each with an upper-bound line count (`<=`): its ceiling.
 #
-# Written by `cargo xtask measure`. `cargo xtask check` fails when the code is longer
-# than its ceiling, when something not listed is over the limit, and when the code got
-# shorter, until the number here is lowered (or the line removed, once the code is
-# within the limit).
+# Written by `cargo xtask measure`. `cargo xtask check` enforces each ceiling as an upper
+# bound (`<=`): it fails when the code is longer than its ceiling, when something not
+# listed is over the limit, when a listed file or function is missing from the code, or
+# when a listed ceiling is at or below the limit. Code that shrinks below its ceiling
+# still passes; run `cargo xtask measure` when tightening ceilings and dropping unneeded
+# lines.
 #
 # By hand a line is lowered, removed, or moved with its code to the file or name the
 # code went to; a moved line is not an added one.
@@ -13,9 +15,10 @@
 # commit that brings the code which needs it, to the length the check printed, and with
 # the evidence in that commit's body that a split would make the code worse: what the
 # added code is, the seam, and its cost (xtask/src/lengths.rs). Whoever merges reads
-# every raised or added line here against that evidence. `cargo xtask measure` is run
-# once after work that was measured apart is merged, not to make a check pass; what it
-# raises or adds there is held to the same rule, in the body of the merge commit.
+# every raised or added line here against that evidence. `cargo xtask measure` is for
+# tightening the list or once after work that was measured apart is merged, never to make
+# a check pass; what it raises or adds there is held to the same rule, in the body of the
+# merge commit.
 #
 # file <lines> <path>
 # function <lines> <path> <name>

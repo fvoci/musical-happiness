@@ -10,7 +10,7 @@ import type { Route } from './router.svelte.ts';
 export function acceptedRoute(accepted: AcceptedInvitation): Partial<Route> {
   const { workspaceId, containerId, containerKind } = accepted;
   if (!containerId) return { workspaceId };
-  return containerKind === 'wiki'
-    ? { workspaceId, wikiId: containerId }
-    : { workspaceId, boardId: containerId };
+  if (containerKind === 'wiki') return { workspaceId, wikiId: containerId };
+  if (containerKind === 'course') return { workspaceId, courseId: containerId };
+  return { workspaceId, boardId: containerId };
 }

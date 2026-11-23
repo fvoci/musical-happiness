@@ -1,33 +1,19 @@
 <!--
-  The pages of a wiki as a tree (`role="tree"`), and making pages: one more
-  at the top of the wiki, one below a page, one right after a page.
+  The pages of a wiki or the chapters and units of a course as a tree
+  (`role="tree"`), and making nodes.
 
-  One page of the tree is in the tab order at a time (the page shown, or the
-  last one moved to); the keys go as a tree's do: up and down to the page
-  above and below, right to open a page or go to its first child, left to fold
-  it or go to its parent, Home and End to the first and the last, Enter to
-  show the page. The menu of a page opens from its button, or from the
-  keyboard with Shift+F10 or the menu key. A page's children show while it is
-  open; what is open is the reader's (`tree-open.svelte.ts`).
-
-  An editor moves a page with the pages below it: dragged (`tree-drag.svelte.ts`),
-  with Alt (⌥ on a Mac) and the arrows (up and down among its siblings, right
-  into the page above it, left out to its parent's level), or from its menu
-  (up, down, and "Move…", which opens the choice of a place).
+  One item of the tree is in the tab order at a time (the shown page/unit, or
+  the last one moved to); keyboard navigation follows the ARIA tree pattern.
+  Editors can drag nodes (`tree-drag.svelte.ts`), move with Alt+Arrow keys
+  (respecting `rules`, such as course depth-2 and chapter-only parenting), or
+  use the row menu.
 -->
-<script lang="ts">
-  import { tick } from 'svelte';
+<script lang="ts" generics="P extends TreeItem">
+  import { tick, type Snippet } from 'svelte';
 
-  import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
-  import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-  import CopyIcon from '@lucide/svelte/icons/copy';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
-  import FilePlusIcon from '@lucide/svelte/icons/file-plus';
-  import FolderInputIcon from '@lucide/svelte/icons/folder-input';
-  import ListPlusIcon from '@lucide/svelte/icons/list-plus';
   import PlusIcon from '@lucide/svelte/icons/plus';
-  import Trash2Icon from '@lucide/svelte/icons/trash-2';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
@@ -35,33 +21,44 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { isApplePlatform } from '$lib/keys.ts';
   import { fingerPointer } from '$lib/layout/room.svelte.ts';
-  import { stepped, type MoveStep, type PagePlace } from '$lib/logic/page-moves.ts';
+  import { stepped, type MoveStep, type PagePlace, type TreeRules } from '$lib/logic/page-moves.ts';
   import { pageRows, type PageRow } from '$lib/logic/page-tree.ts';
-  import type { PageDraft, WikiPage, WikiStore } from '$lib/state/index.ts';
+  import type { PageDraft, TreeItem, TreeSource } from '$lib/state/index.ts';
 
   import { viewersOf } from './page-viewers.ts';
   import PageViewers from './PageViewers.svelte';
+  import { buildTreeActions, WIKI_TREE_LABELS, type TreeLabels } from './tree-actions.ts';
   import { TreeDrag } from './tree-drag.svelte.ts';
   import type { TreeOpen } from './tree-open.svelte.ts';
 
   interface Props {
-    wiki: WikiStore;
-    /** The page shown. */
+    wiki: TreeSource<P>;
+    /** The page or unit currently shown. */
     currentId: string | undefined;
     open: TreeOpen;
     pageHref: (pageId: string) => string;
     onOpenPage: (pageId: string) => void;
-    /** Makes a page as the draft says, and shows it. */
+    /** Makes a page or unit as the draft says, and shows it. */
     onCreate: (draft: PageDraft) => void;
-    /** Asks to delete a page; left out where pages are not deleted here. */
-    onDelete?: ((page: WikiPage) => void) | undefined;
-    /** Moves a page with the pages below it; left out where pages are not moved here. */
+    /** Asks to rename a chapter (courses only). */
+    onRename?: ((page: P) => void) | undefined;
+    /** Asks to delete a node; omitted where deletion is unavailable. */
+    onDelete?: ((page: P) => void) | undefined;
+    /** Moves a node with its descendants; omitted where moving is unavailable. */
     onMove?: ((pageId: string, to: PagePlace) => Promise<unknown>) | undefined;
-    /** Asks where to move a page ("Move…"). */
-    onMoveTo?: ((page: WikiPage) => void) | undefined;
-    /** Copies a page with the pages below it, giving the copy's title (none: refused); left out where pages are not copied here. */
-    onDuplicate?: ((page: WikiPage) => Promise<string | undefined>) | undefined;
-    /** A page is being made: no other is asked for meanwhile. */
+    /** Asks where to move a node ("Move…"). */
+    onMoveTo?: ((page: P) => void) | undefined;
+    /** Copies a page with its descendants (wikis only). */
+    onDuplicate?: ((page: P) => Promise<string | undefined>) | undefined;
+    /** Placement rules (e.g. course depth-2 and chapter-only parenting). */
+    rules?: TreeRules<P> | undefined;
+    /** Wordings; defaults to wiki pages. */
+    labels?: TreeLabels | undefined;
+    /** Optional header actions replacing the default "+" button (e.g. "+ Unit" and "+ Chapter"). */
+    headerActions?: Snippet | undefined;
+    /** Root `data-testid`; defaults to `page-tree` for wikis. */
+    testId?: string;
+    /** A creation is under way: no other is asked for meanwhile. */
     busy?: boolean;
   }
 
@@ -72,46 +69,43 @@
     pageHref,
     onOpenPage,
     onCreate,
+    onRename,
     onDelete,
     onMove,
     onMoveTo,
     onDuplicate,
+    rules,
+    labels = WIKI_TREE_LABELS,
+    headerActions,
+    testId = 'page-tree',
     busy = false,
   }: Props = $props();
 
-  /** The steps of Alt (⌥) and an arrow. */
   const ALT_STEPS: Partial<Record<string, MoveStep>> = {
     ArrowUp: 'up',
     ArrowDown: 'down',
     ArrowRight: 'in',
     ArrowLeft: 'out',
   };
-  /** How the menu writes the key held with an arrow: ⌥ on Apple's systems. */
   const alt = isApplePlatform() ? '⌥' : 'Alt+';
-  /** The keys are shown where there is likely a keyboard: not with a finger for a pointer. */
   const keys = $derived(!fingerPointer.current);
-  /** Said after a page is moved with the keys. */
   let said = $state('');
 
   const uid = $props.id();
   const rows = $derived(pageRows(wiki.tree, (pageId) => open.has(pageId)));
-  /**
-   * The page that holds the tree's place in the tab order: the page shown,
-   * or the one the reader moved to since it was shown.
-   */
   let moved = $derived<string | undefined>(currentId);
   const active = $derived(
     [moved, currentId, rows[0]?.page.id].find(
       (pageId) => pageId !== undefined && rows.some((row) => row.page.id === pageId),
     ),
   );
-  /** The page whose menu is open. */
   let menuOf = $state<string | undefined>(undefined);
   const mayMove = $derived(wiki.canEdit && onMove !== undefined);
-  const drag = new TreeDrag({
+  const drag = new TreeDrag<P>({
     rows: () => rows,
     pages: () => wiki.pages,
     enabled: () => mayMove,
+    rules: () => rules,
     unfold: (pageId) => {
       open.set([pageId]);
     },
@@ -119,24 +113,24 @@
       void onMove?.(pageId, to);
     },
   });
+
+  const titleOf = (page: P): string => page.title || labels.untitled(page);
+  const rowId = (pageId: string): string => `${uid}-${pageId}`;
   const draggedTitle = $derived.by(() => {
     const page = wiki.page(drag.dragged);
     return page ? titleOf(page) : '';
   });
 
-  /** Moves the page a step (Alt and an arrow, or its menu); false where the step goes nowhere. */
+  /** Moves a node a step (Alt+Arrow or menu); false when the step goes nowhere. */
   function moveBy(pageId: string, step: MoveStep): boolean {
-    const to = stepped(wiki.pages, pageId, step);
+    const to = stepped(wiki.pages, pageId, step, rules);
     if (!onMove || !to) return false;
-    // Into the page above: its pages show, the page moved among them.
     if (to.parentId !== '') open.set([to.parentId]);
     const at = rows.findIndex((row) => row.page.id === pageId);
     const moving = onMove(pageId, to);
     void focusOn(pageId);
-    // The answer may move its row again, which drops the focus; where the reader took it is theirs.
     void moving.then(() => {
       const row = rows.find((one) => one.page.id === pageId);
-      // Gone (somebody else deleted it, which the app tells): the row now in its place.
       const here = row ? pageId : (rows[at] ?? rows.at(-1))?.page.id;
       if (document.activeElement === document.body) void focusOn(here);
       if (row) {
@@ -151,9 +145,6 @@
     return true;
   }
 
-  const titleOf = (page: WikiPage): string => page.title || m.wiki_page_untitled();
-  const rowId = (pageId: string): string => `${uid}-${pageId}`;
-
   async function focusOn(pageId: string | undefined): Promise<void> {
     if (pageId === undefined) return;
     moved = pageId;
@@ -162,7 +153,6 @@
   }
 
   function onkeydown(event: KeyboardEvent): void {
-    // The keys of the tree are its items'; a button inside an item keeps its own.
     if (event.defaultPrevented || !(event.target instanceof HTMLElement)) return;
     if (event.target.getAttribute('role') !== 'treeitem') return;
     const at = rows.findIndex((row) => row.page.id === active);
@@ -175,7 +165,7 @@
       return;
     }
     if (event.altKey || event.ctrlKey || event.metaKey) return;
-    const step = (to: PageRow<WikiPage> | undefined): void => {
+    const step = (to: PageRow<P> | undefined): void => {
       event.preventDefault();
       void focusOn(to?.page.id);
     };
@@ -214,7 +204,11 @@
         break;
       case 'Enter':
         event.preventDefault();
-        onOpenPage(row.page.id);
+        if (row.page.kind === 'chapter') {
+          if (row.hasChildren) open.set([row.page.id], !row.open);
+        } else {
+          onOpenPage(row.page.id);
+        }
         break;
       default:
         break;
@@ -230,110 +224,58 @@
     onOpenPage(pageId);
   }
 
-  function actionsOf(row: PageRow<WikiPage>): MenuAction[] {
-    const actions: MenuAction[] = [
-      {
-        id: 'add-child',
-        label: m.wiki_add_child(),
-        icon: ListPlusIcon,
-        run: () => {
-          open.set([row.page.id]);
-          onCreate({ parentId: row.page.id });
-        },
+  function actionsOf(row: PageRow<P>): MenuAction[] {
+    return buildTreeActions({
+      row,
+      labels,
+      rules,
+      canEdit: wiki.canEdit,
+      mayMove,
+      keys,
+      alt,
+      unfold: (id) => {
+        open.set([id]);
       },
-      {
-        id: 'add-after',
-        label: m.wiki_add_after(),
-        icon: FilePlusIcon,
-        run: () => {
-          onCreate({ parentId: row.parentId ?? '', after: row.page.id });
-        },
+      onCreate,
+      onRename,
+      onMoveBy: (id, step) => {
+        moveBy(id, step);
       },
-    ];
-    if (mayMove) {
-      const pageId = row.page.id;
-      actions.push(
-        {
-          id: 'move-up',
-          label: m.wiki_move_up(),
-          icon: ArrowUpIcon,
-          ...(keys ? { hint: `${alt}↑` } : {}),
-          separated: true,
-          disabled: row.position === 1,
-          run: () => moveBy(pageId, 'up'),
-        },
-        {
-          id: 'move-down',
-          label: m.wiki_move_down(),
-          icon: ArrowDownIcon,
-          ...(keys ? { hint: `${alt}↓` } : {}),
-          disabled: row.position === row.siblings,
-          run: () => moveBy(pageId, 'down'),
-        },
-      );
-    }
-    if (mayMove && onMoveTo) {
-      const ask = onMoveTo;
-      actions.push({
-        id: 'move',
-        label: m.wiki_move_page(),
-        icon: FolderInputIcon,
-        run: () => {
-          ask(row.page);
-        },
-      });
-    }
-    if (wiki.canEdit && onDuplicate) {
-      const copy = onDuplicate;
-      actions.push({
-        id: 'duplicate',
-        label: m.wiki_duplicate_page(),
-        icon: CopyIcon,
-        run: () => {
-          void copy(row.page).then((title) => {
-            if (title !== undefined) said = m.wiki_page_copied({ title });
-          });
-        },
-      });
-    }
-    if (onDelete) {
-      const remove = onDelete;
-      actions.push({
-        id: 'delete',
-        label: m.wiki_delete_page(),
-        icon: Trash2Icon,
-        destructive: true,
-        separated: true,
-        run: () => {
-          remove(row.page);
-        },
-      });
-    }
-    return actions;
+      onMoveTo,
+      onDuplicate,
+      onCopied: (title) => {
+        said = m.wiki_page_copied({ title });
+      },
+      onDelete,
+    });
   }
 </script>
 
 <div
   class="flex min-h-0 flex-1 flex-col"
-  data-testid="page-tree"
+  data-testid={testId}
   data-settling={wiki.settling ? '' : undefined}
 >
   <div class="flex shrink-0 items-center gap-1 px-3 pt-3 pb-1">
     <h2 id="{uid}-title" class="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
-      {m.wiki_pages()}
+      {labels.heading()}
     </h2>
     {#if wiki.canEdit}
-      <IconButton
-        label={m.wiki_new_page()}
-        data-testid="new-page"
-        disabled={busy}
-        class="text-muted-foreground"
-        onclick={() => {
-          onCreate({});
-        }}
-      >
-        <PlusIcon />
-      </IconButton>
+      {#if headerActions}
+        {@render headerActions()}
+      {:else}
+        <IconButton
+          label={m.wiki_new_page()}
+          data-testid="new-page"
+          disabled={busy}
+          class="text-muted-foreground"
+          onclick={() => {
+            onCreate({});
+          }}
+        >
+          <PlusIcon />
+        </IconButton>
+      {/if}
     {/if}
   </div>
   {#if rows.length > 0}
@@ -350,12 +292,13 @@
       {#each rows as row (row.page.id)}
         {@const page = row.page}
         {@const title = titleOf(page)}
+        {@const isChapter = page.kind === 'chapter'}
         {@const mark = drag.mark?.pageId === page.id ? drag.mark : undefined}
         <li
           id={rowId(page.id)}
           role="treeitem"
           aria-label={title}
-          aria-describedby={viewersOf(wiki, page.id).length > 0
+          aria-describedby={!isChapter && viewersOf(wiki, page.id).length > 0
             ? `${rowId(page.id)}-viewers`
             : undefined}
           aria-level={row.depth + 1}
@@ -365,13 +308,13 @@
           aria-selected={page.id === currentId}
           tabindex={page.id === active ? 0 : -1}
           data-page={page.id}
+          data-kind={page.kind}
           data-drop={mark?.zone}
           aria-keyshortcuts={mayMove
             ? 'Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight'
             : undefined}
           class={[
             'group/page relative rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            // A finger rests on a row to drag it: no callout of the link, and no selection.
             mayMove && 'select-none [-webkit-touch-callout:none]',
             drag.dragged === page.id && 'opacity-50',
           ]}
@@ -382,6 +325,7 @@
           <div
             class={[
               'flex min-h-8 items-center gap-1 rounded-md pr-9 hover:bg-muted roomy:min-h-touch roomy:pr-12',
+              isChapter && 'font-semibold text-foreground',
               page.id === currentId && 'bg-muted font-medium',
               mark?.zone === 'inside' && 'bg-primary/10 ring-2 ring-primary ring-inset',
             ]}
@@ -402,30 +346,59 @@
                   aria-hidden="true"
                 />
               </button>
+            {:else if isChapter}
+              <span
+                class="grid size-6 shrink-0 place-items-center text-muted-foreground/50 roomy:size-9"
+                aria-hidden="true"
+              >
+                <ChevronRightIcon class="size-4" />
+              </span>
             {:else}
               <span class="size-6 shrink-0 roomy:size-9" aria-hidden="true"></span>
             {/if}
-            <a
-              href={pageHref(page.id)}
-              tabindex="-1"
-              draggable="false"
-              class="flex min-w-0 flex-1 items-center gap-1.5 self-stretch py-1"
-              onclick={(event: MouseEvent) => {
-                onclick(event, page.id);
-              }}
-            >
-              {#if page.icon}
-                <span class="shrink-0" aria-hidden="true" data-testid="tree-icon">{page.icon}</span>
-              {/if}
-              <span class={['min-w-0 truncate', !page.title && 'text-muted-foreground']}>
-                {title}
-              </span>
-            </a>
-            <!-- Said with the row (its description): the row's name hides what is inside it. -->
-            <PageViewers {wiki} pageId={page.id} id="{rowId(page.id)}-viewers" />
+            {#if isChapter}
+              <button
+                type="button"
+                tabindex="-1"
+                data-drag-handle
+                class="flex min-w-0 flex-1 items-center gap-1.5 self-stretch py-1 text-left"
+                onclick={() => {
+                  moved = page.id;
+                  if (row.hasChildren) open.set([page.id], !row.open);
+                }}
+              >
+                <span class={['min-w-0 truncate text-sm', !page.title && 'text-muted-foreground']}>
+                  {title}
+                </span>
+              </button>
+            {:else}
+              <a
+                href={pageHref(page.id)}
+                tabindex="-1"
+                draggable="false"
+                class="flex min-w-0 flex-1 items-center gap-1.5 self-stretch py-1"
+                onclick={(event: MouseEvent) => {
+                  onclick(event, page.id);
+                }}
+              >
+                {#if page.icon}
+                  <span class="shrink-0" aria-hidden="true" data-testid="tree-icon"
+                    >{page.icon}</span
+                  >
+                {/if}
+                <span class={['min-w-0 truncate', !page.title && 'text-muted-foreground']}>
+                  {title}
+                </span>
+              </a>
+              <PageViewers
+                {wiki}
+                pageId={page.id}
+                of={labels.viewersOf ?? 'page'}
+                id="{rowId(page.id)}-viewers"
+              />
+            {/if}
           </div>
           {#if mark && mark.zone !== 'inside'}
-            <!-- Where the page goes: a line between two rows, as deep as it would be. -->
             <div
               class={[
                 'pointer-events-none absolute right-1 h-0.5 rounded-full bg-primary',
@@ -442,7 +415,6 @@
                 () => menuOf === page.id,
                 (shown: boolean) => {
                   menuOf = shown ? page.id : undefined;
-                  // Closed, the menu gives the focus back to its page, where the keys of the tree are.
                   if (!shown) void focusOn(page.id);
                 }
               }
@@ -453,7 +425,7 @@
                 <IconButton
                   {...props}
                   tabindex={-1}
-                  label={m.wiki_page_menu({ title })}
+                  label={labels.menuLabel(page, title)}
                   class="absolute top-0 right-0 text-muted-foreground can-hover:opacity-0 can-hover:group-focus-within/page:opacity-100 can-hover:group-hover/page:opacity-100 can-hover:aria-expanded:opacity-100"
                 >
                   <EllipsisIcon />
@@ -467,7 +439,6 @@
   {/if}
   <p class="sr-only" aria-live="polite">{said}</p>
   {#if drag.dragged && drag.at}
-    <!-- The page dragged, with the pointer. -->
     <div
       class="pointer-events-none fixed z-50 max-w-64 truncate rounded-md border bg-popover px-2 py-1 text-sm shadow-md"
       style:left="{drag.at.x + 12}px"

@@ -1,0 +1,139 @@
+<!--
+  A unit of a course: its title, who else is on it now (`viewers`), and its
+  body (`body`). Mirrors `PageView.svelte` without an icon picker (units have
+  no icon field on the server).
+-->
+<script lang="ts">
+  import { onDestroy, untrack, type Snippet } from 'svelte';
+
+  import { autosize } from '$lib/components/autosize.ts';
+  import { m } from '$lib/i18n/paraglide/messages.js';
+  import { isComposing } from '$lib/keys.ts';
+  import type { CourseStore, CourseUnit, UnitStore } from '$lib/state/index.ts';
+
+  interface Props {
+    course: CourseStore;
+    store: UnitStore;
+    unit: CourseUnit;
+    /** Start with the caret in the title: for a unit that was just made. */
+    autofocus?: boolean;
+    /** Live viewers badge, supplied by the app shell. */
+    viewers?: Snippet | undefined;
+    body: Snippet<[UnitStore]>;
+  }
+
+  let { course, store, unit, autofocus = false, viewers, body }: Props = $props();
+
+  const PAUSE = 800;
+
+  const editable = $derived(course.canEdit);
+
+  let field = $state<HTMLTextAreaElement>();
+  let draft = $state(untrack(() => unit.title));
+  let editing = $state(false);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let unsaved: string | undefined;
+
+  $effect(() => {
+    const stored = unit.title;
+    if (!untrack(() => editing)) draft = stored;
+  });
+
+  function save(): void {
+    clearTimeout(timer);
+    timer = undefined;
+    if (unsaved === undefined) return;
+    const title = unsaved.trim();
+    unsaved = undefined;
+    if (title !== unit.title) void course.changeUnitTitle(store.unitId, title);
+  }
+
+  function oninput(event: Event & { currentTarget: HTMLTextAreaElement }): void {
+    draft = event.currentTarget.value.replace(/\s*[\r\n]+\s*/g, ' ');
+    unsaved = draft;
+    clearTimeout(timer);
+    timer = setTimeout(save, PAUSE);
+  }
+
+  function onkeydown(event: KeyboardEvent): void {
+    if (isComposing(event)) return;
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      field?.blur();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      clearTimeout(timer);
+      unsaved = undefined;
+      draft = unit.title;
+      field?.blur();
+    }
+  }
+
+  function onblur(): void {
+    editing = false;
+    const typed = unsaved !== undefined;
+    save();
+    draft = typed ? draft.trim() : unit.title;
+  }
+
+  $effect(() => {
+    const target = field;
+    if (autofocus && editable && target)
+      untrack(() => {
+        target.focus();
+      });
+  });
+
+  onDestroy(save);
+
+  const TITLE = 'w-full min-w-0 text-2xl font-semibold tracking-tight @columns/pane:text-3xl';
+</script>
+
+<article
+  class="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6 @columns/pane:px-8"
+  aria-label={unit.title || m.course_unit_untitled()}
+  data-testid="unit-view"
+  data-unit={unit.id}
+>
+  <header class="flex flex-col items-start gap-2" data-testid="unit-heading">
+    <div class="flex w-full items-start gap-2">
+      <div class="min-w-0 flex-1">
+        {#if editable}
+          <textarea
+            bind:this={field}
+            bind:value={draft}
+            rows="1"
+            data-testid="unit-title"
+            aria-label={m.course_unit_title()}
+            placeholder={m.course_unit_untitled()}
+            autocomplete="off"
+            enterkeyhint="done"
+            class={[
+              TITLE,
+              'field-sizing-content resize-none overflow-hidden rounded-md bg-transparent placeholder:text-muted-foreground roomy:min-h-touch',
+            ]}
+            onfocus={() => {
+              editing = true;
+            }}
+            {oninput}
+            {onkeydown}
+            {onblur}
+            {@attach autosize(() => draft)}></textarea>
+        {:else}
+          <h1
+            class={[TITLE, unit.title === '' && 'text-muted-foreground']}
+            data-testid="unit-title"
+          >
+            {unit.title || m.course_unit_untitled()}
+          </h1>
+        {/if}
+      </div>
+      {#if viewers}
+        <div class="shrink-0 pt-1">
+          {@render viewers()}
+        </div>
+      {/if}
+    </div>
+  </header>
+  {@render body(store)}
+</article>

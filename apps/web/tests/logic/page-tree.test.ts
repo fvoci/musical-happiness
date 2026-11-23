@@ -4,12 +4,14 @@ import {
   ancestorsOf,
   comparePlaces,
   firstPage,
+  firstUnit,
   pageRows,
   pageTree,
   withDescendants,
   type PlacedPage,
   type PageTreeNode,
 } from '../../src/lib/logic/page-tree.ts';
+import { allowsUnder, courseTreeRules, stepped } from '../../src/lib/logic/page-moves.ts';
 
 const page = (id: string, parentId = '', order = 'V'): PlacedPage => ({ id, parentId, order });
 
@@ -102,5 +104,59 @@ describe('the tree of a wiki', () => {
     const first = firstPage([page('z', '', 'W'), page('y', 'z', 'A'), page('x', '', 'X')]);
     expect(first?.id).toBe('z');
     expect(firstPage<PlacedPage>([])).toBeUndefined();
+  });
+});
+
+describe('the two-level tree of a course', () => {
+  interface Node extends PlacedPage {
+    kind: 'chapter' | 'unit';
+  }
+  const node = (id: string, kind: 'chapter' | 'unit', parentId = '', order = 'V'): Node => ({
+    id,
+    kind,
+    parentId,
+    order,
+  });
+  const rules = courseTreeRules<Node>();
+
+  it('picks the first unit in tree order, skipping chapters', () => {
+    const nodes = [
+      node('ch1', 'chapter', '', 'V'),
+      node('u2', 'unit', 'ch1', 'W'),
+      node('u1', 'unit', 'ch1', 'V'),
+      node('u3', 'unit', '', 'X'),
+    ];
+    expect(firstUnit(nodes)?.id).toBe('u1');
+    expect(firstUnit([node('ch1', 'chapter', '', 'V')])).toBeUndefined();
+  });
+
+  it('enforces chapter-only parenting and top-only chapters for moves', () => {
+    const nodes = [
+      node('ch1', 'chapter', '', 'V'),
+      node('u1', 'unit', 'ch1', 'V'),
+      node('ch2', 'chapter', '', 'W'),
+      node('u2', 'unit', '', 'X'),
+      node('u3', 'unit', '', 'Y'),
+    ];
+    const [ch1, , ch2, u2, u3] = nodes;
+    if (!ch1 || !ch2 || !u2 || !u3) throw new Error('missing nodes');
+    // Chapters stay at the top level only.
+    expect(allowsUnder(nodes, ch1, undefined, rules)).toBe(true);
+    expect(allowsUnder(nodes, ch1, ch2, rules)).toBe(false);
+    expect(allowsUnder(nodes, ch1, u2, rules)).toBe(false);
+    // Units go at the top or under a chapter, never under another unit.
+    expect(allowsUnder(nodes, u2, undefined, rules)).toBe(true);
+    expect(allowsUnder(nodes, u2, ch1, rules)).toBe(true);
+    expect(allowsUnder(nodes, u2, u3, rules)).toBe(false);
+
+    // Alt+Right on a unit directly after a chapter moves into that chapter;
+    // Alt+Right on a unit after another unit or on a chapter is a no-op.
+    expect(stepped(nodes, 'u2', 'in', rules)).toEqual({ parentId: 'ch2' });
+    expect(stepped(nodes, 'u3', 'in', rules)).toBeUndefined();
+    expect(stepped(nodes, 'ch2', 'in', rules)).toBeUndefined();
+    // Alt+Left moves a unit out of its chapter right after the chapter.
+    expect(stepped(nodes, 'u1', 'out', rules)).toEqual({ parentId: '', after: 'ch1' });
+    // Alt+Up / Alt+Down still reorder chapters at the top level.
+    expect(stepped(nodes, 'ch2', 'up', rules)).toEqual({ parentId: '', after: '' });
   });
 });

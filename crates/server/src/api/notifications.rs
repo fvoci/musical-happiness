@@ -25,23 +25,24 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 ///
 /// One page of what the user of the session was told, in every organization the
 /// session opens, the newest first (by `updateAt`): that somebody mentioned them in a
-/// card, a page or a comment (`mention`), gave them a card (`assignment`), or commented
-/// on a card or a page they watch (`comment`; one named in that comment is told of the
-/// mention alone). Nobody is told of their own doing, nor of anything in a user's own
-/// space, nor of a kind they switched off (`notifyMentions`, `notifyAssignments`,
-/// `notifyComments` of `patchUserSettings`): what is off is not made at all.
+/// card, a page, a unit or a comment (`mention`), gave them a card (`assignment`), or
+/// commented on a card, a page or a unit they watch (`comment`; one named in that comment
+/// is told of the mention alone). Nobody is told of their own doing, nor of anything in a
+/// user's own space, nor of a kind they switched off (`notifyMentions`,
+/// `notifyAssignments`, `notifyComments` of `patchUserSettings`): what is off is not made
+/// at all.
 ///
-/// Whoever writes a card or a page, is given a card, or comments on either watches it
-/// (`createSubscription`), until they end that (`deleteSubscription`). What happens to
-/// one card or page, of one kind, within an hour of the first of it, is one
+/// Whoever writes a card, a page or a unit, is given a card, or comments on one watches
+/// it (`createSubscription`), until they end that (`deleteSubscription`). What happens to
+/// one card, page or unit, of one kind, within an hour of the first of it, is one
 /// notification: `times` and `people` count it, `actorId` and `commentId` say the
 /// latest, and it is unread again. One person makes a hundred new ones for another
 /// within an hour at most; past that, what they do joins only those there.
 ///
-/// A notification is made only for somebody who reads the card or the page at that
+/// A notification is made only for somebody who reads the card, page or unit at that
 /// time, and each one listed is asked again: its `subject` says what it is about, as
 /// that is now, only where the user reads it now with this session. Where they do not
-/// (it is in the trash or gone, or they left the board or the workspace) `subject` is
+/// (it is in the trash or gone, or they left the container or the workspace) `subject` is
 /// `null`, and nothing says what it was about, where or by whom. Such a one is still
 /// listed, and counted while unread.
 ///
