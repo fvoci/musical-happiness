@@ -1,9 +1,10 @@
 /**
- * What the PowerPoint worker (`pptx-worker.ts`) does with a file: unpacks
- * the archive the frame wrote (`pptx-unpack.ts`), sorts and measures its
- * parts (`pptx-parts.ts`), holds them to the ceilings (`pptx-ceilings.ts`)
- * and answers with the parts the frame's renderer is to draw. In
- * development, where the worker is not built, the frame does the same.
+ * What the PowerPoint worker (`pptx-worker.ts`) does with a file: checks and
+ * repacks the ZIP archive (`zip-guard.ts`), unpacks the repacked parts
+ * (`pptx-unpack.ts`), sorts and measures them (`pptx-parts.ts`), holds them to
+ * the ceilings (`pptx-ceilings.ts`) and answers with the parts the frame's
+ * renderer is to draw. In development, where the worker is not built, the
+ * frame does the same.
  */
 import { checkCeilings } from './pptx-ceilings.ts';
 import { sortParts } from './pptx-parts.ts';
@@ -11,6 +12,7 @@ import type { FromPptxWorker, PptxFailure } from './pptx-protocol.ts';
 import { unpack } from './pptx-unpack.ts';
 import { UnreadableFile } from './renderer.ts';
 import { TooMuch } from './worker-xml.ts';
+import { repack } from './zip-guard.ts';
 
 function failure(error: unknown): FromPptxWorker {
   // A string or a call stack past the engine's limits is a presentation too large too.
@@ -26,7 +28,7 @@ function failure(error: unknown): FromPptxWorker {
 /** Reads the archive into the parts the renderer takes, or says why not. */
 export async function readPresentation(bytes: ArrayBuffer): Promise<FromPptxWorker> {
   try {
-    const sorted = sortParts(await unpack(bytes));
+    const sorted = sortParts(await unpack(await repack(bytes)));
     // Not a presentation the renderer can draw a slide of.
     if (sorted.parts.presentation === '' || sorted.parts.slides.size === 0) {
       throw new UnreadableFile();

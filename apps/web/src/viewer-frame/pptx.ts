@@ -4,10 +4,10 @@
  * The renderer draws a slide as HTML and SVG, and fits text to its boxes by
  * measuring it in the page's layout: it cannot draw in a worker, as the
  * Word renderer does. So the work is split. The PowerPoint worker
- * (`pptx-worker.ts`) unpacks the archive the frame wrote of only the parts
- * it counted (`zip-guard.ts`), reads every part, leaves out what is not
- * drawn and holds the rest to ceilings (`pptx-ceilings.ts`): a presentation
- * past one is refused as too large before anything is drawn. Here, on the
+ * (`pptx-worker.ts`) checks and repacks the archive of only the parts it
+ * counted (`zip-guard.ts`), unpacks it, reads every part, leaves out what is
+ * not drawn and holds the rest to ceilings (`pptx-ceilings.ts`): a
+ * presentation past one is refused as too large before anything is drawn. Here, on the
  * frame's thread (which the app shares), the renderer builds its model of
  * the parts the worker answered with and draws the slides in view one at a
  * time, the thread given back between them (`pptx-view.ts`); the viewer's
