@@ -9,11 +9,11 @@ use fvoci_model::{
 };
 
 use crate::Store;
-use crate::blocks::{self, BlockFilter, CopyChanges, CopyTitles, DuplicateAs};
+use crate::blocks::{self, BlockFilter, CopyChanges, CopyTitles, DuplicateAs, Written};
 use crate::body_versions::BodyWrite;
 use crate::card_values;
 use crate::containers;
-use crate::db::{Dialect, Scope};
+use crate::db::{Dialect, Scope, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
 use crate::file_refs::NewBodyFiles;
@@ -23,6 +23,42 @@ use crate::notification_noting::Telling;
 use crate::org_admin;
 use crate::trash;
 use crate::workspace_membership;
+
+/// Message sent from a streaming block producer into
+/// [`Store::create_containers_and_blocks_streamed`].
+///
+/// The producer must send [`StreamBatch::Done`] once all batches have been emitted; if the
+/// channel closes without [`StreamBatch::Done`] (e.g., because the producer task panicked),
+/// the transaction rolls back and returns [`StreamCreateError::Incomplete`].
+#[derive(Debug)]
+pub enum StreamBatch<E> {
+    /// A batch of blocks to validate and insert in this transaction.
+    Batch(Vec<fvoci_model::Block>),
+    /// Clean end-of-stream marker allowing the transaction to commit.
+    Done,
+    /// Producer failure; causes an immediate rollback and returns [`StreamCreateError::Producer`].
+    Err(E),
+}
+
+/// Failure returned by [`Store::create_containers_and_blocks_streamed`].
+#[derive(Debug, thiserror::Error)]
+pub enum StreamCreateError<E> {
+    /// The database transaction or block validation failed.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+    /// The caller's batch producer returned an error; the transaction was rolled back.
+    #[error("{0}")]
+    Producer(E),
+    /// The producer channel closed before sending [`StreamBatch::Done`]; the transaction
+    /// was rolled back.
+    #[error("block stream ended before signaling completion")]
+    Incomplete,
+}
+
+enum StreamAbort<E> {
+    Producer(E),
+    Incomplete,
+}
 
 /// The key of the PostgreSQL advisory lock that the replacement of the built-in
 /// templates holds. Any number that the migrator's lock does not use.
@@ -116,6 +152,104 @@ impl Store {
             create_containers_and_blocks(scope, containers_and_blocks, user_id, new_files).await
         })
         .await
+    }
+
+    /// Atomically inserts `containers` and streams block batches from `batches` inside
+    /// a single database transaction without holding all blocks in memory at once.
+    ///
+    /// Every block receives the same creation timestamp so ordering by creation time and
+    /// identifier remains deterministic. Cross-batch card relation references are verified
+    /// after [`StreamBatch::Done`] before committing. Any store error, producer error, or
+    /// premature channel close rolls back the entire transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamCreateError::Store`] if inserting a container or block fails,
+    /// [`StreamCreateError::Producer`] if `batches` yields [`StreamBatch::Err`], or
+    /// [`StreamCreateError::Incomplete`] if `batches` closes before [`StreamBatch::Done`].
+    pub async fn create_containers_and_blocks_streamed<E>(
+        &self,
+        containers: &mut [Container],
+        user_id: &str,
+        new_files: NewBodyFiles,
+        mut batches: tokio::sync::mpsc::Receiver<StreamBatch<E>>,
+    ) -> Result<(), StreamCreateError<E>>
+    where
+        E: Send,
+    {
+        let mut abort: Option<StreamAbort<E>> = None;
+        let outcome = self
+            .transaction(async |scope| {
+                for container in containers.iter_mut() {
+                    containers::insert_container(scope, container, user_id).await?;
+                }
+                containers::lock_containers(
+                    scope,
+                    containers.iter().map(|container| container.id.as_str()),
+                )
+                .await?;
+                let now = now_millis();
+                let mut named = Vec::new();
+                let mut finished = false;
+                while let Some(next) = batches.recv().await {
+                    let mut batch = match next {
+                        StreamBatch::Batch(batch) => batch,
+                        StreamBatch::Done => {
+                            finished = true;
+                            break;
+                        }
+                        StreamBatch::Err(error) => {
+                            // Store the caller's error and return a sentinel `StoreError`
+                            // so `Store::transaction` rolls back; the match below replaces
+                            // this sentinel with `StreamCreateError::Producer(error)`.
+                            abort = Some(StreamAbort::Producer(error));
+                            return Err(StoreError::NoRows);
+                        }
+                    };
+                    if batch.is_empty() {
+                        continue;
+                    }
+                    for block in &batch {
+                        block
+                            .validate()
+                            .map_err(|source| StoreError::InvalidBlock {
+                                id: block.id.clone(),
+                                source,
+                            })?;
+                    }
+                    for index in blocks::parents_first(&batch) {
+                        let block = &mut batch[index];
+                        named.extend(
+                            blocks::insert_block_at(
+                                scope,
+                                block,
+                                user_id,
+                                Some(now),
+                                Written {
+                                    new_files,
+                                    body_write: BodyWrite::Whole,
+                                    telling: Telling::Nobody,
+                                },
+                            )
+                            .await?,
+                        );
+                    }
+                }
+                if !finished {
+                    abort = Some(StreamAbort::Incomplete);
+                    return Err(StoreError::NoRows);
+                }
+                card_values::check_named_cards(scope, &named).await
+            })
+            .await;
+        match outcome {
+            Ok(()) => Ok(()),
+            Err(store_error) => match abort {
+                Some(StreamAbort::Producer(error)) => Err(StreamCreateError::Producer(error)),
+                Some(StreamAbort::Incomplete) => Err(StreamCreateError::Incomplete),
+                None => Err(StreamCreateError::Store(store_error)),
+            },
+        }
     }
 
     /// Does what [`Store::create_containers_and_blocks`] does and makes the creator of each

@@ -26,7 +26,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use fvoci_collab::testing::{
-    changes_of, charged, placing_steps, projected, size_of, to_body, with_update,
+    CacheProbe, CacheValidation, changes_of, charged, placing_steps, to_body, with_update,
 };
 use fvoci_collab::{
     BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, UpdateLimits,
@@ -176,14 +176,13 @@ impl Passes {
 /// re-reads run only at open, fold, and close.
 fn take_by_passes(
     doc: Doc,
+    mut probe: CacheProbe,
     prior_state: &[u8],
     prior_changes: u64,
     update: &[u8],
-) -> (Passes, Vec<u8>, Option<Body>) {
-    use yrs::updates::decoder::Decode as _;
+) -> (Passes, Vec<u8>, Option<Body>, Vec<String>) {
     let mut passes = Passes::default();
     let take = Paid::InTheTake;
-    let decode = |state: &[u8]| yrs::Update::decode_v1(state).expect("an update");
     passes.time(
         "4a. the update read and charged (update::read, placing::charge)",
         take,
@@ -194,11 +193,9 @@ fn take_by_passes(
     let cheap = charged(&doc, prior_state, prior_changes, update, u64::MAX).expect("charged")
         <= PLACING_STEPS;
     // Decoded already in the take, by `update::read`.
-    let sent = decode(update);
-    passes.time("4b. the update applied in place", take, || {
-        doc.transact_mut()
-            .apply_update(sent)
-            .expect("the update applies");
+    let prepared = CacheProbe::prepare_update(&doc, update).expect("the update reads");
+    let applied = passes.time("4b. the update applied in place (+ delta)", take, || {
+        CacheProbe::apply_prepared(&doc, prepared).expect("the update applies")
     });
     let state = passes.time("5. state_of the document", take, || state_of(&doc));
     let read_steps = passes.time("6. reading::count", take, || {
@@ -208,25 +205,24 @@ fn take_by_passes(
         read_steps <= READING_STEPS,
         "read within its steps: {read_steps}"
     );
-    let json = passes.time("11. projection", take, || projected(&doc).expect("a body"));
-    let body = passes.time("12. Body::parse", take, || {
-        json.map(|json| Body::parse(json).expect("a body").expect("not empty"))
+    passes.time("11–13. incremental block validate & size", take, || {
+        let CacheValidation::Valid(bytes) = probe.validate(&doc, &applied) else {
+            panic!("incremental block validation succeeds");
+        };
+        bytes
     });
-    passes.time("13. size_of", take, || body.as_ref().map(size_of));
-    passes.time("14. file_ids", Paid::ByTheWorker, || {
-        body.as_ref().map(|body| {
-            body.file_ids()
-                .into_iter()
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        })
+    let files = passes.time("14. file_ids (cached)", Paid::ByTheWorker, || {
+        probe.file_ids(&doc)
     });
-    passes.time("Request::Body: to_body and JSON", Paid::ByTheWorker, || {
-        to_body(&doc)
-            .expect("a body")
-            .map(|body| serde_json::to_vec(body.document()).expect("JSON"))
+    let body = passes.time("Request::Body: to_body and JSON", Paid::ByTheWorker, || {
+        let body = to_body(&doc).expect("a body");
+        if let Some(body) = &body {
+            black_box(serde_json::to_vec(body.document()).expect("JSON"));
+        }
+        body
     });
     passes.time("held document dropped", Paid::ByTheWorker, || {
+        drop(probe);
         drop(doc);
     });
     passes.0.push((
@@ -238,7 +234,7 @@ fn take_by_passes(
         Paid::Told,
         Duration::ZERO,
     ));
-    (passes, state, body)
+    (passes, state, body, files)
 }
 
 /// How long each pass of an ordinary in-place take takes, for the shapes of [`PASSED`]:
@@ -274,9 +270,10 @@ fn passes() {
             };
             let by_passes = || {
                 let fresh = from_state(&state, &LIMITS).expect("opened").doc;
-                take_by_passes(fresh, &state, changes, &update)
+                let probe = CacheProbe::build(&fresh).expect("cached");
+                take_by_passes(fresh, probe, &state, changes, &update)
             };
-            let ((took, taken), (passes, got_state, body)) = if round % 2 == 0 {
+            let ((took, taken), (passes, got_state, body, files)) = if round % 2 == 0 {
                 let by_passes = by_passes();
                 (whole(), by_passes)
             } else {
@@ -291,7 +288,16 @@ fn passes() {
                 got_state == taken.state,
                 "{name}: the passes leave its state"
             );
-            assert_eq!(body, taken.repair.body, "{name}: the passes leave its body");
+            assert_eq!(
+                body,
+                taken.doc.body().expect("a body"),
+                "{name}: the passes leave its body"
+            );
+            assert_eq!(
+                files,
+                taken.doc.file_ids(),
+                "{name}: the passes leave its file_ids"
+            );
             drop((taken, with));
             wholes.push((took, with_update, passes.in_the_take()));
             rounds.push(passes);

@@ -3,6 +3,7 @@
 //! The handlers read their parameters themselves; these types only say, in a handler's
 //! `params(...)`, which ones it reads.
 
+use fvoci_model::TimeEntryKind;
 use utoipa::openapi::path::{Parameter, ParameterBuilder, ParameterIn};
 use utoipa::openapi::schema::{KnownFormat, ObjectBuilder, Schema, SchemaFormat, Type};
 use utoipa::openapi::{RefOr, Required};
@@ -85,6 +86,7 @@ parameter!(UserId: Path "userId", String, True, "The identifier of the user.");
 parameter!(InvitationId: Path "invitationId", String, True, "The identifier of the invitation, as making it and the list answer it. It is not the link's token.");
 parameter!(FileId: Path "fileId", String, True, "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.");
 parameter!(NotificationId: Path "notificationId", String, True, "The identifier of the notification: one of the user of the session.");
+parameter!(TimeEntryId: Path "entryId", String, True, "The identifier of the time entry: one of the user of the session.");
 parameter!(SubscriberId: Path "subscriberId", String, True, "The identifier of the subscriber: the user of the session.");
 parameter!(UploadId: Path "uploadId", String, True, "The identifier of the upload, as opening it answered. Only the user who opened it may use it.");
 parameter!(PartNumber: Path "partNumber", i64, True, "The number of the part, from 1 to the `partCount` of the upload.");
@@ -131,3 +133,8 @@ parameter!(ReviewStatus: Query "status", String, False, "Filter course reviews b
 parameter!(ReviewUnitId: Query "unitId", String, False, "Narrows the course review list to reviews for this unit.");
 parameter!(NoteKind: Query "kind", String, False, "Filter unit notes by category: `question`, `mistake`, or `review`. Left out, every category. Anything else is 400.");
 parameter!(UserSearch: Query "search", String, False, "Narrows the list to users whose name has this text in it. In the text `%` stands for any text and `_` for any one character. Whether the case of letters counts depends on the database the server runs on.");
+parameter!(TimeFrom: Query "from", i64, False, "Inclusive lower bound on `startedAt`, in milliseconds since the Unix epoch.");
+parameter!(TimeTo: Query "to", i64, False, "Inclusive upper bound on `startedAt`, in milliseconds since the Unix epoch. Must be greater than or equal to `from` when both are given.");
+parameter!(TimeKind: Query "kind", TimeEntryKind, False, "Narrows the list to entries of this kind: `lecture`, `study`, `work` or `other`. Anything else is 400.");
+parameter!(TimeBlockId: Query "blockId", String, False, "Narrows the list to entries linked to this card or unit identifier.");
+parameter!(TimeContainerId: Query "containerId", String, False, "Narrows the list to entries linked to this board or course identifier.");

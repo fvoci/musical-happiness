@@ -684,6 +684,10 @@ impl App {
                 return Err(error);
             }
         };
+        if let Err(error) = format.validate_upload(&upload.name, upload.size) {
+            self.discard_in_turn(upload).await;
+            return Err(error);
+        }
         // Moved aside, as for a completion: the session's directory goes with it, the
         // archive stays until it is imported. A server that stops meanwhile leaves a
         // directory that is no session's, which the start-up sweep removes.

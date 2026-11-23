@@ -1,12 +1,13 @@
 //! Regenerating the identifiers of a tree of blocks.
 
 use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasher;
 
 use serde_json::Value;
 
 use crate::block::{Block, BlockType};
 use crate::id::new_id;
-use crate::relation::{RELATION_LIMIT, RelationProperties};
+use crate::relation::{RELATION_LIMIT, RelationProperties, relation_link_card};
 
 /// What becomes of an identifier in a card relation value that names no card among the
 /// blocks whose identifiers are renewed ([`renew_block_ids`]).
@@ -89,43 +90,132 @@ pub(crate) fn renew_block_ids_told(
 
     rename_all_relations(blocks, relations, &renamed, &card_boards, unmatched);
 
+    for (block, new) in blocks.iter_mut().zip(new_ids) {
+        rewrite_block_non_relation_ids(block, new, &renamed);
+    }
+    renamed.retain(|old, _| told(old));
+    renamed
+}
+
+/// Collects every non-empty block identifier that `block` references (its board, its
+/// parent, its `cardOrder`/`contentOrder`/`defaultTemplateId` fields, its card relation
+/// values under `relations`, and references inside its body) into `out`.
+///
+/// Matches [`renew_block_ids`]: when `contentOrder` is present and not a JSON array,
+/// collection stops before inspecting `defaultTemplateId` (matching original Go behavior).
+pub fn collect_block_references<S: BuildHasher>(
+    block: &Block,
+    relations: &RelationProperties,
+    out: &mut HashSet<String, S>,
+) {
+    let mut insert = |id: &str| {
+        if !id.is_empty() {
+            out.insert(id.to_owned());
+        }
+    };
+    for id in related_ids(block, relations) {
+        insert(id);
+    }
+    insert(&block.container_id);
+    insert(&block.parent_id);
+    if let Some(body) = &block.body {
+        for id in body.reference_ids() {
+            insert(id);
+        }
+    }
+    if let Some(Value::Array(items)) = block.fields.get("cardOrder") {
+        for id in order_ids(items) {
+            insert(id);
+        }
+    }
+    if let Some(content_order) = block.fields.get("contentOrder") {
+        let Some(items) = content_order.as_array() else {
+            return;
+        };
+        for id in order_ids(items) {
+            insert(id);
+        }
+    }
+    if let Some(Value::String(template_id)) = block.fields.get("defaultTemplateId") {
+        insert(template_id);
+    }
+}
+
+/// Rewrites `block`'s identifier and every reference it carries using precomputed
+/// mappings (`renamed` for referenced block IDs and `card_boards` mapping old card IDs
+/// to their new board IDs), matching [`renew_block_ids`] one block at a time.
+pub fn rewrite_block_ids<S1: BuildHasher, S2: BuildHasher>(
+    block: &mut Block,
+    new_block_id: String,
+    renamed: &HashMap<String, String, S1>,
+    card_boards: &HashMap<String, String, S2>,
+    relations: &RelationProperties,
+    unmatched: UnmatchedRelation,
+) {
+    rename_block_relations(block, relations, renamed, card_boards, unmatched);
+    rewrite_block_non_relation_ids(block, new_block_id, renamed);
+}
+
+fn rename_block_relations<S1: BuildHasher, S2: BuildHasher>(
+    block: &mut Block,
+    relations: &RelationProperties,
+    renamed: &HashMap<String, String, S1>,
+    card_boards: &HashMap<String, String, S2>,
+    unmatched: UnmatchedRelation,
+) {
+    let keep_at_most = match unmatched {
+        UnmatchedRelation::Kept => usize::MAX,
+        UnmatchedRelation::Dropped => RELATION_LIMIT,
+    };
+    let container_id = block.container_id.clone();
+    let rename_rel = |id: &str| match (renamed.get(id), unmatched) {
+        (Some(new), UnmatchedRelation::Kept) => Some(new.clone()),
+        (Some(new), UnmatchedRelation::Dropped) if card_boards.get(id) == Some(&container_id) => {
+            Some(new.clone())
+        }
+        (None, UnmatchedRelation::Kept) => Some(id.to_owned()),
+        (_, UnmatchedRelation::Dropped) => None,
+    };
+    rename_relations(block, relations, rename_rel, keep_at_most);
+}
+
+fn rewrite_block_non_relation_ids<S: BuildHasher>(
+    block: &mut Block,
+    new_block_id: String,
+    renamed: &HashMap<String, String, S>,
+) {
     let renamed_or_same = |id: &mut String| {
         if let Some(new) = renamed.get(id.as_str()) {
             id.clone_from(new);
         }
     };
+    block.id = new_block_id;
+    renamed_or_same(&mut block.container_id);
+    renamed_or_same(&mut block.parent_id);
 
-    for (block, new) in blocks.iter_mut().zip(new_ids) {
-        block.id = new;
-        renamed_or_same(&mut block.container_id);
-        renamed_or_same(&mut block.parent_id);
-
-        for field in ["contentOrder", "cardOrder"] {
-            if let Some(Value::Array(items)) = block.fields.get_mut(field) {
-                for item in items {
-                    match item {
-                        Value::String(id) => renamed_or_same(id),
-                        Value::Array(column) => {
-                            for cell in column {
-                                if let Value::String(id) = cell {
-                                    renamed_or_same(id);
-                                }
+    for field in ["contentOrder", "cardOrder"] {
+        if let Some(Value::Array(items)) = block.fields.get_mut(field) {
+            for item in items {
+                match item {
+                    Value::String(id) => renamed_or_same(id),
+                    Value::Array(column) => {
+                        for cell in column {
+                            if let Value::String(id) = cell {
+                                renamed_or_same(id);
                             }
                         }
-                        _ => {}
                     }
+                    _ => {}
                 }
             }
         }
-        if let Some(Value::String(template_id)) = block.fields.get_mut("defaultTemplateId") {
-            renamed_or_same(template_id);
-        }
-        if let Some(body) = block.body.as_mut() {
-            body.rename_references(|id| renamed.get(id).cloned());
-        }
     }
-    renamed.retain(|old, _| told(old));
-    renamed
+    if let Some(Value::String(template_id)) = block.fields.get_mut("defaultTemplateId") {
+        renamed_or_same(template_id);
+    }
+    if let Some(body) = block.body.as_mut() {
+        body.rename_references(|id| renamed.get(id).cloned());
+    }
 }
 
 /// What the blocks refer to by identifier ([`generate_block_ids`]): boards, parents,
@@ -176,23 +266,8 @@ fn rename_all_relations(
     card_boards: &HashMap<String, String>,
     unmatched: UnmatchedRelation,
 ) {
-    let keep_at_most = match unmatched {
-        UnmatchedRelation::Kept => usize::MAX,
-        UnmatchedRelation::Dropped => RELATION_LIMIT,
-    };
     for block in blocks.iter_mut() {
-        let container_id = block.container_id.clone();
-        let rename = |id: &str| match (renamed.get(id), unmatched) {
-            (Some(new), UnmatchedRelation::Kept) => Some(new.clone()),
-            (Some(new), UnmatchedRelation::Dropped)
-                if card_boards.get(id) == Some(&container_id) =>
-            {
-                Some(new.clone())
-            }
-            (None, UnmatchedRelation::Kept) => Some(id.to_owned()),
-            (_, UnmatchedRelation::Dropped) => None,
-        };
-        rename_relations(block, relations, rename, keep_at_most);
+        rename_block_relations(block, relations, renamed, card_boards, unmatched);
     }
 }
 
@@ -211,13 +286,14 @@ fn related_ids<'b>(block: &'b Block, relations: &RelationProperties) -> Vec<&'b 
         .iter()
         .filter_map(|property| values.get(property).and_then(Value::as_array))
         .flatten()
-        .filter_map(Value::as_str)
+        .filter_map(relation_link_card)
         .collect()
 }
 
-/// Puts in each relation value of a card, for each identifier in it, what `rename` gives
-/// for it, and leaves the identifiers it gives nothing for out. Other items stay; of all,
-/// the first `keep_at_most`.
+/// Puts in each relation value of a card, for each relation link in it, what `rename`
+/// gives for its `card` identifier (preserving `kind` and `lagDays`), and leaves out
+/// links for which `rename` gives nothing. Other items stay; of all, the first
+/// `keep_at_most`.
 fn rename_relations(
     block: &mut Block,
     relations: &RelationProperties,
@@ -238,7 +314,10 @@ fn rename_relations(
             continue;
         };
         items.retain_mut(|item| {
-            let Value::String(id) = item else {
+            let Some(object) = item.as_object_mut() else {
+                return true;
+            };
+            let Some(Value::String(id)) = object.get_mut("card") else {
                 return true;
             };
             match rename(id) {

@@ -20,14 +20,10 @@
 <script lang="ts">
   import { untrack } from 'svelte';
 
-  import CheckIcon from '@lucide/svelte/icons/check';
-  import CopyIcon from '@lucide/svelte/icons/copy';
-  import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import XIcon from '@lucide/svelte/icons/x';
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
-  import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import PersonProfile from '$lib/components/person/PersonProfile.svelte';
   import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
@@ -36,13 +32,11 @@
   import { page } from '$lib/layout/room.svelte.ts';
   import { userDisplayName } from '$lib/logic/users.ts';
   import {
-    isBackendError,
     isGuest,
     isOwnSpace,
     peopleOf,
     type ContainerRole,
     type Shareable,
-    type Sharing,
     type User,
     type Workspace,
   } from '$lib/state/index.ts';
@@ -51,10 +45,11 @@
   import { Input } from '$lib/ui/input/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
 
-  import GuestInvite from './GuestInvite.svelte';
   import ContainerTeams from './ContainerTeams.svelte';
+  import GuestInvite from './GuestInvite.svelte';
   import { ROLE_ORDER, roleOfMember } from './share-logic.ts';
   import { shareWords } from './share-words.ts';
+  import SharePublicLink from './SharePublicLink.svelte';
 
   interface Props {
     open: boolean;
@@ -72,6 +67,8 @@
     readOnly?: boolean;
     /** The section the dialog begins at, if not the top. */
     at?: 'members';
+    /** Optional aggregate progress rate label for a course member (courses only). */
+    memberProgress?: ((userId: string) => string | undefined) | undefined;
   }
 
   let {
@@ -82,6 +79,7 @@
     membersOnly = false,
     readOnly = false,
     at,
+    memberProgress,
   }: Props = $props();
 
   const workspaceName = $derived(nameOfWorkspace(workspace.info, m.shell_workspace_unnamed));
@@ -149,45 +147,7 @@
     if (reading === searches) found = answer;
   }
 
-  // ---------------------------------------------------------- public link
-
-  let sharing = $state.raw<Sharing | undefined>(undefined);
-  /** The server does not allow public links (403). */
-  let sharingOff = $state(false);
-  let sharingBusy = $state(false);
-  let copied = $state(false);
-  /** Made anew when a change of the link is refused: the switch shows the link as it is again. */
-  let switchVersion = $state(0);
-  /** Asking before a new link stops the old one. */
-  let confirmOpen = $state(false);
-
-  const link = $derived(sharing?.enabled && sharing.token ? linkOf(sharing.token) : '');
-
-  async function readSharing(): Promise<void> {
-    sharing = undefined;
-    sharingOff = false;
-    try {
-      sharing = await workspace.backend.sharing(shareable.containerId);
-    } catch (error) {
-      workspace.report('load', error);
-    }
-  }
-
-  async function changeSharing(enabled: boolean, regenerate = false): Promise<void> {
-    if (sharingBusy) return;
-    sharingBusy = true;
-    copied = false;
-    try {
-      sharing = await workspace.backend.setSharing(shareable.containerId, { enabled, regenerate });
-    } catch (error) {
-      if (isBackendError(error) && error.reason === 'sharing_disabled') sharingOff = true;
-      else workspace.report('save', error);
-      switchVersion += 1;
-    } finally {
-      sharingBusy = false;
-    }
-  }
-
+  let openVersion = $state(0);
   let membersHeading = $state<HTMLElement | null>(null);
 
   /** Opened at the members: the focus goes to their heading, which is scrolled to. */
@@ -203,7 +163,7 @@
     untrack(() => {
       query = '';
       found = [];
-      if (!membersOnly) void readSharing();
+      if (!membersOnly) openVersion += 1;
     });
   }
 
@@ -216,16 +176,6 @@
   async function removeMember(userId: string): Promise<void> {
     searchField?.focus();
     await shareable.removeMember(userId);
-  }
-
-  async function copyLink(): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(link);
-      copied = true;
-    } catch {
-      // No clipboard (an insecure page, or denied): the field can still be selected.
-      copied = false;
-    }
   }
 </script>
 
@@ -322,6 +272,7 @@
               {@const mine = member.userId === workspace.me?.id}
               {@const memberRole = roleOfMember(member)}
               {@const person = workspace.user(member.userId)}
+              {@const progress = memberProgress?.(member.userId)}
               <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch" data-member={name}>
                 <Avatar {name} colorKey={member.userId} locale={workspace.locale} decorative />
                 <span class="flex min-w-0 flex-1 items-baseline gap-1">
@@ -339,6 +290,14 @@
                       {m['ShareBoard.userPermissionsYouText']()}</span
                     >{/if}
                 </span>
+                {#if progress}
+                  <span
+                    class="shrink-0 text-xs text-muted-foreground tabular-nums"
+                    data-testid="member-course-progress"
+                  >
+                    {progress}
+                  </span>
+                {/if}
                 {#if readOnly}
                   <span class="shrink-0 text-muted-foreground" data-testid="share-member-role">
                     {memberRole === 'none' ? m.share_role_none() : ROLE_LABELS[memberRole]()}
@@ -421,73 +380,25 @@
       {/if}
 
       {#if access?.people.teams && !linkOnly && !isGuest(workspace)}
-        <ContainerTeams {workspace} {shareable} teams={access.people.teams} {readOnly} />
+        <ContainerTeams
+          {workspace}
+          {shareable}
+          teams={access.people.teams}
+          {readOnly}
+          {memberProgress}
+        />
       {/if}
 
       <!-- The public link. -->
       {#if !membersOnly}
-        <section
-          class={['grid gap-2', !linkOnly && 'border-t pt-4']}
-          aria-labelledby="{uid}-public"
-          data-testid="share-public-section"
-        >
-          <h3 id="{uid}-public" class="font-medium">{m['ShareBoard.PublishTitle']()}</h3>
-          <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
-            <span class="min-w-0 flex-1 text-muted-foreground">
-              {m['ShareBoard.PublishDescription']()}
-            </span>
-            {#key switchVersion}
-              <Switch
-                checked={sharing?.enabled ?? false}
-                disabled={!sharing || sharingBusy || sharingOff}
-                data-testid="share-public"
-                onCheckedChange={(checked: boolean) => void changeSharing(checked)}
-              />
-            {/key}
-          </label>
-          {#if sharingOff}
-            <p class="text-muted-foreground" role="status">{m.share_public_off()}</p>
-          {/if}
-          {#if link}
-            <div class="flex items-center gap-1">
-              <Input
-                readonly
-                value={link}
-                aria-label={m.share_public_link()}
-                data-testid="share-link"
-                class="min-w-0 flex-1 roomy:h-touch"
-                onfocus={(event: FocusEvent) => {
-                  (event.currentTarget as HTMLInputElement).select();
-                }}
-              />
-              <IconButton
-                label={copied ? m['ShareBoard.copiedLink']() : m['ShareBoard.copyLink']()}
-                onclick={() => void copyLink()}
-              >
-                {#if copied}<CheckIcon />{:else}<CopyIcon />{/if}
-              </IconButton>
-              <IconButton
-                label={m['ShareBoard.regenerate']()}
-                disabled={sharingBusy}
-                data-testid="share-regenerate"
-                onclick={() => {
-                  confirmOpen = true;
-                }}
-              >
-                <RefreshCwIcon />
-              </IconButton>
-            </div>
-          {/if}
-        </section>
+        <SharePublicLink
+          {workspace}
+          containerId={shareable.containerId}
+          {linkOf}
+          {linkOnly}
+          {openVersion}
+        />
       {/if}
     </div>
   </Dialog.Content>
 </Dialog.Root>
-
-<ConfirmDialog
-  bind:open={confirmOpen}
-  title={m['ShareBoard.regenerate']()}
-  description={m['ShareBoard.confirmRegenerateToken']()}
-  confirmLabel={m['ShareBoard.regenerate']()}
-  onConfirm={() => void changeSharing(true, true)}
-/>

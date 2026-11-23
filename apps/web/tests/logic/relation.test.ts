@@ -13,7 +13,12 @@ import { searchFilterCards } from '$lib/logic/search.ts';
 import { sortCards } from '$lib/logic/sort.ts';
 import {
   createCard,
+  parseRelationLink,
   parseRelationValue,
+  RELATION_LAG_MAX,
+  RELATION_LAG_MIN,
+  relationCardIds,
+  relationLink,
   setCardProperty,
   type Card,
   type FilterCondition,
@@ -40,14 +45,58 @@ const TITLES = new Map([
 const cardTitle = (id: string): string | undefined => TITLES.get(id);
 
 describe('the stored value', () => {
-  it('reads a list of card identifiers, each once, in order', () => {
-    expect(parseRelationValue(['b', 'a', 'b', ''])).toEqual(['b', 'a']);
+  it('reads a list of relation links, normalized, each card once, in order', () => {
+    const raw = [
+      { card: 'b', kind: 'ss', lagDays: -2 },
+      { card: 'a' } as unknown as ReturnType<typeof relationLink>,
+      { card: 'b', kind: 'ff', lagDays: 4 },
+      { card: '' } as unknown as ReturnType<typeof relationLink>,
+    ];
+    expect(parseRelationValue(raw)).toEqual([
+      relationLink('b', 'ss', -2),
+      relationLink('a', 'fs', 0),
+    ]);
+    expect(relationCardIds(raw)).toEqual(['b', 'a']);
+    for (const [kind, lag] of [
+      ['fs', RELATION_LAG_MIN],
+      ['ss', -1],
+      ['ff', 0],
+      ['sf', RELATION_LAG_MAX],
+    ] as const) {
+      expect(parseRelationLink({ card: 'a', kind, lagDays: lag })).toEqual({
+        card: 'a',
+        kind,
+        lagDays: lag,
+      });
+    }
   });
 
-  it('reads anything that is not a list as naming no card', () => {
+  it('rejects legacy string arrays, invalid kinds, out-of-range lags, and unknown fields', () => {
+    expect(parseRelationValue(['a', 'b'])).toEqual([]);
     expect(parseRelationValue('a')).toEqual([]);
     expect(parseRelationValue({ from: '2026-01-01' })).toEqual([]);
     expect(parseRelationValue(undefined)).toEqual([]);
+    for (const bad of [
+      'a',
+      {},
+      { card: '' },
+      { card: 'a', kind: 'FS' },
+      { card: 'a', kind: 'bad' },
+      { card: 'a', kind: null },
+      { card: 'a', lagDays: RELATION_LAG_MIN - 1 },
+      { card: 'a', lagDays: RELATION_LAG_MAX + 1 },
+      { card: 'a', lagDays: 1.5 },
+      { card: 'a', lagDays: '0' },
+      { card: 'a', lagDays: null },
+      { card: 'a', extra: 1 },
+    ]) {
+      expect(parseRelationLink(bad)).toBeUndefined();
+    }
+    expect(parseRelationLink({ card: 'a', lagDays: -0 })).toEqual({
+      card: 'a',
+      kind: 'fs',
+      lagDays: 0,
+    });
   });
 });
 
@@ -69,31 +118,36 @@ describe('what the kind can do', () => {
         card('x', 'X', value),
         { timeZone: 'UTC', cardTitle },
       );
-    expect(met('isNotEmpty', ['a'])).toBe(true);
-    expect(met('isEmpty', ['a'])).toBe(false);
+    expect(met('isNotEmpty', [relationLink('a')])).toBe(true);
+    expect(met('isEmpty', [relationLink('a')])).toBe(false);
     expect(met('isEmpty')).toBe(true);
     // Only a deleted card, or the card itself: as good as empty.
-    expect(met('isEmpty', ['gone'])).toBe(true);
-    expect(met('isEmpty', ['x'])).toBe(true);
-    expect(met('isNotEmpty', ['gone'])).toBe(false);
+    expect(met('isEmpty', [relationLink('gone')])).toBe(true);
+    expect(met('isEmpty', [relationLink('x')])).toBe(true);
+    expect(met('isNotEmpty', [relationLink('gone')])).toBe(false);
   });
 
   it('shows the titles of the cards that are there, for export', () => {
-    const shown = behavior.displayValue(['c', 'gone', 'x', 'a'], card('x', 'X'), RELATION, {
-      locale: 'en',
-      timeZone: 'UTC',
-      cardTitle,
-    });
+    const shown = behavior.displayValue(
+      [relationLink('c', 'ss', 1), relationLink('gone'), relationLink('x'), relationLink('a')],
+      card('x', 'X'),
+      RELATION,
+      {
+        locale: 'en',
+        timeZone: 'UTC',
+        cardTitle,
+      },
+    );
     expect(shown).toEqual(['Charlie', 'Alpha']);
   });
 
   it('sorts by the titles of the cards named; a card naming none, or only deleted ones, goes last', () => {
     const cards = [
-      card('1', 'one', ['c']),
-      card('2', 'two', ['gone']),
-      card('3', 'three', ['a', 'c']),
+      card('1', 'one', [relationLink('c')]),
+      card('2', 'two', [relationLink('gone')]),
+      card('3', 'three', [relationLink('a'), relationLink('c')]),
       card('4', 'four'),
-      card('5', 'five', ['b']),
+      card('5', 'five', [relationLink('b')]),
     ];
     const sorted = (reversed: boolean): string[] =>
       sortCards(cards, {
@@ -109,7 +163,7 @@ describe('what the kind can do', () => {
   });
 
   it('is not searched: its value is identifiers', () => {
-    const cards = [card('1', 'one', ['bravo'])];
+    const cards = [card('1', 'one', [relationLink('bravo')])];
     expect(searchFilterCards(cards, [RELATION], 'bravo')).toEqual([]);
   });
 });
@@ -125,7 +179,9 @@ describe('a change of kind', () => {
 
   it('from a relation removes its values, whatever the new kind', () => {
     for (const type of ['text', 'multiSelect', 'multiPerson', 'date'] as const) {
-      const plan = planTypeChange(RELATION, type, [card('1', 'one', ['a', 'b'])]);
+      const plan = planTypeChange(RELATION, type, [
+        card('1', 'one', [relationLink('a'), relationLink('b')]),
+      ]);
       expect(plan.lost).toBe(1);
       expect([...plan.values]).toEqual([['1', undefined]]);
     }

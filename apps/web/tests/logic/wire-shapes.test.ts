@@ -151,6 +151,7 @@ describe('the stored value of a date property', () => {
     expect(plainPropertyValue({ from: 'soon' })).toBeUndefined();
     expect(plainPropertyValue('text')).toBe('text');
     expect(plainPropertyValue(['a', 'b'])).toEqual(['a', 'b']);
+    expect(plainPropertyValue([{ card: 'a', kind: 'fs', lagDays: 0 }])).toBeUndefined();
     expect(plainPropertyValue(undefined)).toBeUndefined();
   });
 

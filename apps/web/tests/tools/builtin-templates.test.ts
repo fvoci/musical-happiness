@@ -334,8 +334,11 @@ describe('the built-in templates', () => {
             expect(optionsOf(id).includes(option), `${where} / ${card.title}`).toBe(true);
           }
           if (property?.type === 'relation') {
-            for (const other of parseRelationValue(value)) {
-              expect(cardIds.has(other), `${where} / ${card.title}`).toBe(true);
+            expect(Array.isArray(value), `${where} / ${card.title}`).toBe(true);
+            const links = parseRelationValue(value);
+            expect(value, `${where} / ${card.title}`).toEqual(links);
+            for (const link of links) {
+              expect(cardIds.has(link.card), `${where} / ${card.title}`).toBe(true);
             }
           }
         }

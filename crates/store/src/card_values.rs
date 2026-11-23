@@ -11,8 +11,8 @@ use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
     Block, BlockError, BlockType, JsonMap, RELATION_LIMIT, RelationError, RelationProblem,
-    check_relation_value, relation_property_ids, tidy_copied_relations,
-    validate_card_property_kinds,
+    check_relation_value, relation_link_card, relation_links_to_value, relation_property_ids,
+    tidy_copied_relations, validate_card_property_kinds,
 };
 use serde_json::Value;
 
@@ -49,7 +49,7 @@ pub(crate) struct NamedCards {
 /// Returns [`StoreError::InvalidBlock`] for the first value that is refused.
 pub(crate) async fn check_written(
     scope: &mut Scope<'_>,
-    block: &Block,
+    block: &mut Block,
     existing: Option<&Block>,
 ) -> Result<Vec<NamedCards>, StoreError> {
     let Some(Value::Object(values)) = block.fields.get("properties") else {
@@ -74,12 +74,12 @@ pub(crate) async fn check_written(
     let Some(board) = containers::find_container(scope, &block.container_id).await? else {
         return Ok(Vec::new());
     };
-    let invalid = |source: BlockError| StoreError::InvalidBlock {
-        id: block.id.clone(),
+    let invalid = |id: &str, source: BlockError| StoreError::InvalidBlock {
+        id: id.to_owned(),
         source,
     };
     validate_card_property_kinds(&written, &board.card_properties)
-        .map_err(|error| invalid(error.into()))?;
+        .map_err(|error| invalid(&block.id, error.into()))?;
     // A relation is a card's: a value another block holds names nothing, and a copy
     // leaves it as it is.
     if block.block_type != BlockType::Card {
@@ -87,6 +87,7 @@ pub(crate) async fn check_written(
     }
     let relations = relation_property_ids(&board.card_properties);
     let mut named = Vec::new();
+    let mut normalized = Vec::new();
     for (property, value) in &written {
         if !relations.contains(property.as_str()) {
             continue;
@@ -94,14 +95,18 @@ pub(crate) async fn check_written(
         let had: HashSet<&str> = before
             .and_then(|before| before.get(property))
             .and_then(Value::as_array)
-            .map(|items| items.iter().filter_map(Value::as_str).collect())
+            .map(|items| items.iter().filter_map(relation_link_card).collect())
             .unwrap_or_default();
-        let ids = check_relation_value(&block.id, property, value, &had)
-            .map_err(|error| invalid(error.into()))?;
-        let ids: Vec<String> = ids
+        let Some(links) = check_relation_value(&block.id, property, value, &had)
+            .map_err(|error| invalid(&block.id, error.into()))?
+        else {
+            continue;
+        };
+        normalized.push((property.clone(), relation_links_to_value(&links)));
+        let ids: Vec<String> = links
             .into_iter()
-            .filter(|id| !had.contains(id))
-            .map(str::to_owned)
+            .filter(|link| !had.contains(link.card.as_str()))
+            .map(|link| link.card)
             .collect();
         if !ids.is_empty() {
             named.push(NamedCards {
@@ -111,6 +116,16 @@ pub(crate) async fn check_written(
                 ids,
             });
         }
+    }
+    if !normalized.is_empty() {
+        if let Some(Value::Object(values)) = block.fields.get_mut("properties") {
+            for (property, value) in normalized {
+                values.insert(property, value);
+            }
+        }
+        block
+            .validate()
+            .map_err(|source| invalid(&block.id, source))?;
     }
     Ok(named)
 }
@@ -222,7 +237,7 @@ pub(crate) async fn keep_cards_of_board(
             .iter()
             .filter_map(|property| values.get(*property).and_then(Value::as_array))
             .flatten()
-            .filter_map(Value::as_str)
+            .filter_map(relation_link_card)
             .map(str::to_owned)
             .collect()
     };
@@ -239,7 +254,7 @@ pub(crate) async fn keep_cards_of_board(
         for property in &relations {
             if let Some(Value::Array(items)) = values.get_mut(*property) {
                 items.retain(|item| {
-                    item.as_str()
+                    relation_link_card(item)
                         .is_some_and(|id| types.get(id) == Some(&BlockType::Card))
                 });
                 items.truncate(RELATION_LIMIT);

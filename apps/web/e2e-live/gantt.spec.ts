@@ -196,14 +196,17 @@ test('the dependencies and the zoom chosen on the page are kept by the server, a
   // Starts on the day the foundation ends: in order.
   const walls = await card(api, board, 'Build the walls', {
     due: { from: '2026-11-06', to: '2026-11-13' },
-    after: [foundation],
+    after: [{ card: foundation, kind: 'fs', lagDays: 0 }],
   });
   // Starts before the walls end: out of order. And names a card that is not there: one
   // deleted since (the server takes only cards of the board, in the trash too).
   const scrapped = await card(api, board, 'Scrapped', {});
   await card(api, board, 'Raise the roof', {
     due: { from: '2026-11-11', to: '2026-11-14' },
-    after: [walls, scrapped],
+    after: [
+      { card: walls, kind: 'fs', lagDays: 0 },
+      { card: scrapped, kind: 'fs', lagDays: 0 },
+    ],
   });
   const deleted = await api.delete(
     `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks/${scrapped}`,

@@ -56,6 +56,8 @@
     labels?: TreeLabels | undefined;
     /** Optional header actions replacing the default "+" button (e.g. "+ Unit" and "+ Chapter"). */
     headerActions?: Snippet | undefined;
+    /** Optional leading indicator rendered inside each non-chapter row (e.g. course completion check). */
+    itemLeading?: Snippet<[P]> | undefined;
     /** Root `data-testid`; defaults to `page-tree` for wikis. */
     testId?: string;
     /** A creation is under way: no other is asked for meanwhile. */
@@ -77,6 +79,7 @@
     rules,
     labels = WIKI_TREE_LABELS,
     headerActions,
+    itemLeading,
     testId = 'page-tree',
     busy = false,
   }: Props = $props();
@@ -381,6 +384,7 @@
                   onclick(event, page.id);
                 }}
               >
+                {@render itemLeading?.(page)}
                 {#if page.icon}
                   <span class="shrink-0" aria-hidden="true" data-testid="tree-icon"
                     >{page.icon}</span

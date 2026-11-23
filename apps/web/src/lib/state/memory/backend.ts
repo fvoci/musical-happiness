@@ -50,6 +50,8 @@ import {
   type DeletedItem,
   type DownloadedFile,
   type DownloadOptions,
+  type ImportOptions,
+  type ImportSummary,
   type Paging,
   type Sharing,
   type SharingChange,
@@ -86,7 +88,7 @@ import { MemoryFileVersions } from './file-versions.ts';
 import { readableBlob, readableFile, storeUpload } from './files.ts';
 import { userFound, usersAmong, usersNamed } from './users.ts';
 import { changeName, keepSettings, settingsOf } from './account.ts';
-import { archiveOf, exportableContainers, readArchive } from './archive.ts';
+import { archiveOf, exportableContainers, readImportFile, summarizeImport } from './archive.ts';
 import { checkedComment, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, MemoryReferences } from './references.ts';
 import { checkArchiveCards, checkCardParent, storeNewCard } from './card-hierarchy.ts';
@@ -508,21 +510,25 @@ export class MemoryBackend implements Backend {
     );
   }
 
-  async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
+  async importArchive(
+    workspaceId: string,
+    file: File,
+    options?: ImportOptions,
+  ): Promise<ImportSummary> {
     await this.#enter('importArchive', options?.signal);
     checkWorkspace(this.world, this.userId, workspaceId);
-    const { containers, blocks } = await readArchive(file);
+    const format = options?.format ?? 'fvoci';
+    const { containers, blocks, skipped } = await readImportFile(file, format, workspaceId);
     options?.onProgress?.({ sentBytes: file.size, totalBytes: file.size });
     checkDiariesComing(this.world, this.userId, workspaceId, { containers, blocks });
     checkArchiveCards(containers, blocks);
-    for (const board of containers) {
-      this.#insertContainer(
-        board,
-        blocks.filter((b) => b.containerId === board.id),
-        workspaceId,
-      );
-    }
-    return { membersLeftOut: 0 };
+    const insertedBlocks: StoredBlock[] = [];
+    const created = containers.map((board) => {
+      const own = blocks.filter((b) => b.containerId === board.id);
+      insertedBlocks.push(...own);
+      return this.#insertContainer(board, own, workspaceId);
+    });
+    return summarizeImport(format, created, insertedBlocks, skipped);
   }
 
   async joinContainer(id: string): Promise<ContainerMember> {

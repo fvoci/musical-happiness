@@ -6,6 +6,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import { addDays, type CalendarDate } from '$lib/logic/dates.ts';
 import {
   cardsClosingLoop,
   closesLoop,
@@ -22,25 +23,44 @@ import {
 } from '$lib/logic/dependencies.ts';
 import {
   createCard,
+  RELATION_KINDS,
+  RELATION_LAG_MAX,
+  RELATION_LAG_MIN,
   RELATION_LIMIT,
+  relationLink,
   setCardProperty,
   type Card,
   type PropertyTemplate,
   type PropertyValue,
+  type RelationKind,
+  type RelationLink,
 } from '$lib/logic/wire.ts';
 
 const AFTER = 'after';
 const DUE: PropertyTemplate = { id: 'due', name: 'Due', type: 'date', options: [] };
 
-function card(id: string, after?: string[], due?: PropertyValue): Card {
+type LinkInput = string | RelationLink;
+
+function card(id: string, after?: LinkInput[], due?: PropertyValue): Card {
   const made = createCard();
   made.id = id;
-  if (after) setCardProperty(made, AFTER, after);
+  if (after) {
+    setCardProperty(
+      made,
+      AFTER,
+      after.map((item) => (typeof item === 'string' ? relationLink(item) : item)),
+    );
+  }
   if (due !== undefined) setCardProperty(made, 'due', due);
   return made;
 }
 
-const edge = (from: string, to: string): RelationEdge => ({ from, to });
+const edge = (from: string, to: string, kind: RelationKind = 'fs', lagDays = 0): RelationEdge => ({
+  from,
+  to,
+  kind,
+  lagDays,
+});
 
 /** A chain a → b → c …: each card names the one before it. */
 function chain(length: number): RelationEdge[] {
@@ -60,11 +80,26 @@ describe('edges', () => {
     expect(relationEdges(cards, AFTER)).toEqual([edge('a', 'b')]);
   });
 
-  it('come from a relation value only: a text or another property gives none', () => {
+  it('come from a relation value only: a text, legacy string array, or another property gives none', () => {
     const odd = card('b');
     setCardProperty(odd, AFTER, 'a');
-    setCardProperty(odd, 'other', ['a']);
-    expect(relationEdges([card('a'), odd], AFTER)).toEqual([]);
+    setCardProperty(odd, 'other', [relationLink('a')]);
+    const legacy = card('c');
+    setCardProperty(legacy, AFTER, ['a']);
+    expect(relationEdges([card('a'), odd, legacy], AFTER)).toEqual([]);
+  });
+
+  it('carry each link kind and lagDays into the graph edges', () => {
+    const cards = [
+      card('a'),
+      card('b', [relationLink('a', 'ss', -2)]),
+      card('c', [relationLink('a', 'ff', 0), relationLink('b', 'sf', 5)]),
+    ];
+    expect(relationEdges(cards, AFTER)).toEqual([
+      edge('a', 'b', 'ss', -2),
+      edge('a', 'c', 'ff', 0),
+      edge('b', 'c', 'sf', 5),
+    ]);
   });
 
   it('cut identifiers are the ones that name no card that is there', () => {
@@ -75,10 +110,17 @@ describe('edges', () => {
 });
 
 describe('closing a loop', () => {
-  it('is refused for the edge that turns two cards around', () => {
-    const edges = [edge('a', 'b')];
+  it('is refused for the edge that turns two cards around, regardless of kind or lag', () => {
+    const edges = [edge('a', 'b', 'ss', -3)];
     expect(closesLoop(edges, 'b', 'a')).toBe(true);
     expect(closesLoop(edges, 'a', 'b')).toBe(false);
+    const mixedRing = [
+      edge('a', 'b', 'fs', 0),
+      edge('b', 'c', 'ss', 2),
+      edge('c', 'd', 'ff', -1),
+      edge('d', 'a', 'sf', 4),
+    ];
+    expect(edgesOnLoops(mixedRing)).toEqual(mixedRing);
   });
 
   it('is refused for a card naming itself', () => {
@@ -243,25 +285,152 @@ describe('dates out of order', () => {
       edge('b', 'c'),
     ]);
   });
+
+  describe('4 relation kinds × lagDays × card shapes matrix', () => {
+    const span = (first: string, last = first): Days => ({
+      first: first as CalendarDate,
+      last: last as CalendarDate,
+    });
+    const LAGS = [-3, 0, 3, RELATION_LAG_MIN, RELATION_LAG_MAX] as const;
+
+    it('never marks undated cards out of order for any kind or lag', () => {
+      const dated = span('2026-03-10', '2026-03-15');
+      for (const kind of RELATION_KINDS) {
+        for (const lag of LAGS) {
+          expect(daysOutOfOrder(undefined, dated, kind, lag)).toBe(false);
+          expect(daysOutOfOrder(dated, undefined, kind, lag)).toBe(false);
+          expect(daysOutOfOrder(undefined, undefined, kind, lag)).toBe(false);
+        }
+      }
+    });
+
+    it('checks exact boundary (late / same-day in-order / after) for single-day cards across all 4 kinds × lags', () => {
+      const before = span('2026-06-15');
+      for (const kind of RELATION_KINDS) {
+        for (const lag of LAGS) {
+          const boundary = addDays(before.first, lag);
+          const lateDay = addDays(boundary, -1);
+          const afterDay = addDays(boundary, 1);
+          expect(daysOutOfOrder(before, span(lateDay), kind, lag), `${kind} lag=${lag} late`).toBe(
+            true,
+          );
+          expect(
+            daysOutOfOrder(before, span(boundary), kind, lag),
+            `${kind} lag=${lag} same-day boundary`,
+          ).toBe(false);
+          expect(
+            daysOutOfOrder(before, span(afterDay), kind, lag),
+            `${kind} lag=${lag} after`,
+          ).toBe(false);
+        }
+      }
+    });
+
+    it('compares the exact start/end anchors for multi-day cards across all 4 kinds × negative/0/positive lags', () => {
+      // Predecessor A: Mar 10 .. Mar 15 (startA = Mar 10, endA = Mar 15)
+      // Successor B has duration 5 days (endB = startB + 4)
+      const before = span('2026-03-10', '2026-03-15');
+      const DURATION = 4;
+      for (const kind of RELATION_KINDS) {
+        const anchorA = kind === 'fs' || kind === 'ff' ? before.last : before.first;
+        const targetIsStart = kind === 'fs' || kind === 'ss';
+        for (const lag of LAGS) {
+          const boundary = addDays(anchorA, lag);
+          const makeAfter = (targetDay: CalendarDate): Days =>
+            targetIsStart
+              ? { first: targetDay, last: addDays(targetDay, DURATION) }
+              : { first: addDays(targetDay, -DURATION), last: targetDay };
+          expect(
+            daysOutOfOrder(before, makeAfter(addDays(boundary, -1)), kind, lag),
+            `${kind} lag=${lag} multi-day late`,
+          ).toBe(true);
+          expect(
+            daysOutOfOrder(before, makeAfter(boundary), kind, lag),
+            `${kind} lag=${lag} multi-day same-day boundary`,
+          ).toBe(false);
+          expect(
+            daysOutOfOrder(before, makeAfter(addDays(boundary, 1)), kind, lag),
+            `${kind} lag=${lag} multi-day after`,
+          ).toBe(false);
+        }
+      }
+    });
+
+    it('distinguishes FS, SS, FF, and SF on the same pair of multi-day cards', () => {
+      // A: Mar 10..Mar 20, B: Mar 12..Mar 18
+      // FS: startB (12) < endA (20) -> late
+      // SS: startB (12) >= startA (10) -> in order (with lag +3: 12 < 13 -> late)
+      // FF: endB (18) < endA (20) -> late (with lag -2: 18 >= 18 -> in order)
+      // SF: endB (18) >= startA (10) -> in order (with lag +9: 18 < 19 -> late)
+      const a = card('a', undefined, day('2026-03-10', '2026-03-20'));
+      const b = card('b', undefined, day('2026-03-12', '2026-03-18'));
+      expect(isOutOfOrder(a, b, DUE, 'UTC', 'fs', 0)).toBe(true);
+      expect(isOutOfOrder(a, b, DUE, 'UTC', 'fs', -8)).toBe(false);
+      expect(isOutOfOrder(a, b, DUE, 'UTC', 'fs', -7)).toBe(true);
+      expect(isOutOfOrder(a, b, DUE, 'UTC', 'ss', 0)).toBe(false);
+      expect(isOutOfOrder(a, b, DUE, 'UTC', 'ss', 2)).toBe(false);
+      expect(isOutOfOrder(a, b, DUE, 'UTC', 'ss', 3)).toBe(true);
+      expect(isOutOfOrder(a, b, DUE, 'UTC', 'ff', 0)).toBe(true);
+      expect(isOutOfOrder(a, b, DUE, 'UTC', 'ff', -2)).toBe(false);
+      expect(isOutOfOrder(a, b, DUE, 'UTC', 'ff', -1)).toBe(true);
+      expect(isOutOfOrder(a, b, DUE, 'UTC', 'sf', 0)).toBe(false);
+      expect(isOutOfOrder(a, b, DUE, 'UTC', 'sf', 8)).toBe(false);
+      expect(isOutOfOrder(a, b, DUE, 'UTC', 'sf', 9)).toBe(true);
+
+      const graphCards = [
+        a,
+        card('b1', [relationLink('a', 'ss', 0)], day('2026-03-12', '2026-03-18')),
+        card('b2', [relationLink('a', 'ss', 3)], day('2026-03-12', '2026-03-18')),
+        card('b3', [relationLink('a', 'ff', -2)], day('2026-03-12', '2026-03-18')),
+        card('b4', [relationLink('a', 'sf', 9)], day('2026-03-12', '2026-03-18')),
+      ];
+      const byId = new Map(graphCards.map((each) => [each.id, each]));
+      expect(edgesOutOfOrder(byId, relationEdges(graphCards, AFTER), DUE, 'UTC')).toEqual([
+        edge('a', 'b2', 'ss', 3),
+        edge('a', 'b4', 'sf', 9),
+      ]);
+    });
+  });
 });
 
 describe('the values of a copy of a card', () => {
   const RELATION: PropertyTemplate = { id: AFTER, name: 'After', type: 'relation', options: [] };
 
-  it('name the cards that are there, each once, not the card copied, at most the limit', () => {
-    const source = card('source', ['a', 'gone', 'source', 'a', 'b']);
+  it('name the cards that are there, each once, preserving kind and lagDays, not the card copied, at most the limit', () => {
+    const source = card('source', [
+      relationLink('a', 'ss', -2),
+      relationLink('gone', 'ff', 3),
+      relationLink('source', 'fs', 0),
+      relationLink('a', 'sf', 9),
+      relationLink('b', 'ff', 4),
+    ]);
     setCardProperty(source, 'text', ['x', 'x']);
     const there = new Set(['source', 'a', 'b']);
     expect(valuesOfCopy(source, [RELATION, DUE], there)).toEqual({
-      [AFTER]: ['a', 'b'],
+      [AFTER]: [relationLink('a', 'ss', -2), relationLink('b', 'ff', 4)],
       text: ['x', 'x'],
     });
-    const many = Array.from({ length: RELATION_LIMIT + 5 }, (_, at) => `c${String(at)}`);
-    const crowded = valuesOfCopy(card('source', many), [RELATION], new Set(many));
+    const many = Array.from({ length: RELATION_LIMIT + 5 }, (_, at) =>
+      relationLink(`c${String(at)}`, 'ss', at % 3),
+    );
+    const crowded = valuesOfCopy(
+      card('source', many),
+      [RELATION],
+      new Set(many.map((link) => link.card)),
+    );
     expect(crowded[AFTER]).toEqual(many.slice(0, RELATION_LIMIT));
   });
 
-  it('leave a card without a relation value as it is', () => {
+  it('leave a card without a relation value as it is, and drop stale relation link lists on non-relation properties', () => {
     expect(valuesOfCopy(card('source'), [RELATION], new Set())).toEqual({});
+    const stale = card('source');
+    setCardProperty(stale, 'note', [relationLink('a', 'ss', 2)]);
+    expect(
+      valuesOfCopy(
+        stale,
+        [{ id: 'note', name: 'Note', type: 'text', options: [] }],
+        new Set(['a']),
+      ),
+    ).toEqual({});
   });
 });

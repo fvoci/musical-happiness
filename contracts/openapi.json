@@ -198,6 +198,26 @@
         ],
         "type": "object"
       },
+      "ActiveTimeEntry": {
+        "description": "The caller's currently running timer, if any.",
+        "properties": {
+          "entry": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TimeEntry",
+                "description": "The running entry visible to this session, or `null` if no timer is running."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "entry"
+        ],
+        "type": "object"
+      },
       "AdminChange": {
         "description": "Whether a user is to be an administrator of the instance.",
         "properties": {
@@ -770,7 +790,7 @@
           },
           "properties": {
             "additionalProperties": true,
-            "description": "Property values keyed by property identifier: a string, a list of strings, or\n`null`, and for a property of the type `date` a date value (`{\"from\":\n\"2026-03-05\"}`, `{\"from\": \"2026-03-05\", \"to\": \"2026-03-09\"}` or `{\"from\":\n1772703000000}`) or `null`.",
+            "description": "Property values keyed by property identifier: a string, a list of strings, or\n`null`; for a property of the type `date` a date value (`{\"from\":\n\"2026-03-05\"}`, `{\"from\": \"2026-03-05\", \"to\": \"2026-03-09\"}` or `{\"from\":\n1772703000000}`) or `null`; and for a property of the type `relation` a list of\nrelation links (`{\"card\": \"<cardId>\", \"kind\": \"fs\" | \"ss\" | \"ff\" | \"sf\",\n\"lagDays\": -3650..=3650}`, normalized with all three fields when stored) or\n`null`.",
             "type": "object"
           },
           "tasksDone": {
@@ -1578,6 +1598,57 @@
         ],
         "type": "object"
       },
+      "CreateTimeEntryRequest": {
+        "additionalProperties": false,
+        "description": "Request body for manually logging a completed time entry (`POST /users/me/time/entries`).",
+        "properties": {
+          "blockId": {
+            "description": "Optional card (non-template) or unit identifier to link.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "containerId": {
+            "description": "Optional board or course identifier of the target.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "description": "End timestamp in milliseconds since the Unix epoch (`>= startedAt`).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TimeEntryKind",
+            "description": "Activity category (`lecture`, `study`, `work`, `other`)."
+          },
+          "note": {
+            "description": "Optional note (at most 1000 characters).",
+            "type": "string"
+          },
+          "startedAt": {
+            "description": "Start timestamp in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "workspaceId": {
+            "description": "Optional workspace identifier of the target.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "startedAt",
+          "endedAt"
+        ],
+        "type": "object"
+      },
       "CreateUnitNote": {
         "additionalProperties": false,
         "description": "Request body for creating a personal note on a course unit.",
@@ -2270,10 +2341,67 @@
         ],
         "type": "string"
       },
+      "ImportCounts": {
+        "description": "Counts of entities created by an import.",
+        "properties": {
+          "boards": {
+            "description": "Number of boards created (`ContainerKind::Board`).",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cards": {
+            "description": "Number of cards created (`BlockType::Card`).",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "comments": {
+            "description": "Number of comments created (`BlockType::Comment`).",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "files": {
+            "description": "Number of files stored.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pages": {
+            "description": "Number of wiki pages created (`BlockType::Page`).",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "wikis": {
+            "description": "Number of wikis created (`ContainerKind::Wiki`).",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "boards",
+          "cards",
+          "comments",
+          "files",
+          "pages",
+          "wikis"
+        ],
+        "type": "object"
+      },
+      "ImportFormat": {
+        "description": "The source format of an import.",
+        "enum": [
+          "fvoci",
+          "trello",
+          "notion"
+        ],
+        "type": "string"
+      },
       "ImportRequest": {
         "additionalProperties": false,
-        "description": "An archive to import: one sent in parts with `createImportUpload`.",
+        "description": "An archive or external export to import: sent in parts with `createImportUpload`.",
         "properties": {
+          "format": {
+            "$ref": "#/components/schemas/ImportFormat",
+            "description": "Source format of the uploaded file: `fvoci` (native archive `.boardarchive`/`.zip`,\ndefault when omitted), `trello` (Trello board `.json`), or `notion` (Notion\nMarkdown & CSV `.zip`)."
+          },
           "uploadId": {
             "description": "The upload of the archive, every part of it received. It is thrown away by the\nimport, whether the import succeeds or not.",
             "type": "string"
@@ -2284,19 +2412,96 @@
         ],
         "type": "object"
       },
-      "ImportResult": {
-        "description": "What an import did beyond making the archive's boards.",
+      "ImportSummary": {
+        "description": "Result summary returned after a completed import.",
         "properties": {
+          "containerIds": {
+            "description": "Identifiers of the newly created containers, in creation order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "format": {
+            "$ref": "#/components/schemas/ImportFormat",
+            "description": "Format that was imported."
+          },
+          "imported": {
+            "$ref": "#/components/schemas/ImportCounts",
+            "description": "Counts of items stored in the workspace."
+          },
           "membersLeftOut": {
-            "description": "How many of the users who were members of the archive's boards were left out of\nthe boards made of them, because they are not in the workspace; each counted\nonce. Who they are is not told.",
+            "description": "Native archive members left out because they are not in the workspace.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "skipped": {
+            "description": "Items skipped during conversion or import.",
+            "items": {
+              "$ref": "#/components/schemas/ImportWarning"
+            },
+            "type": "array"
+          },
+          "warnings": {
+            "description": "Non-fatal degradation notices (e.g. external URLs kept as links).",
+            "items": {
+              "$ref": "#/components/schemas/ImportWarning"
+            },
+            "type": "array"
+          },
+          "warningsOmitted": {
+            "description": "Number of additional skipped items or warnings omitted past `MAX_REPORTED_WARNINGS`.",
             "minimum": 0,
             "type": "integer"
           }
         },
         "required": [
-          "membersLeftOut"
+          "containerIds",
+          "format",
+          "imported",
+          "membersLeftOut",
+          "skipped",
+          "warnings"
         ],
         "type": "object"
+      },
+      "ImportWarning": {
+        "description": "One skipped or degraded item recorded during an import.",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ImportWarningCode",
+            "description": "Machine-readable reason code."
+          },
+          "item": {
+            "description": "Bounded source path or item label.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Short explanation of what happened.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "item",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "ImportWarningCode": {
+        "description": "Stable machine-readable category for a skipped or degraded import item.",
+        "enum": [
+          "external_attachment_linked",
+          "external_image_linked",
+          "missing_local_asset",
+          "closed_item_skipped",
+          "content_truncated",
+          "markdown_degraded",
+          "unsupported_entry_skipped",
+          "unresolved_reference",
+          "csv_row_warning"
+        ],
+        "type": "string"
       },
       "InvalidInput": {
         "description": "One thing of a request that was refused, and where in the request it is: exactly\none of `pointer`, `parameter` and `header` says.",
@@ -2893,7 +3098,7 @@
           },
           "fields": {
             "additionalProperties": true,
-            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card,\na comment or an attachment and 800,000 for a view. The `properties` of a card\namong them are values by property identifier: a string, a list of strings, or\n`null`.",
+            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card,\na comment or an attachment and 800,000 for a view. The `properties` of a card\namong them are values by property identifier: a string, a list of strings, a date\nvalue, a list of relation link objects (`{\"card\", \"kind\", \"lagDays\"}`), or `null`.",
             "type": "object"
           },
           "id": {
@@ -3025,7 +3230,7 @@
           },
           "properties": {
             "additionalProperties": true,
-            "description": "Property values by property identifier: a string, a list of strings, or `null`.",
+            "description": "Property values by property identifier: a string, a list of strings, a date value,\na list of relation link objects (`{\"card\", \"kind\", \"lagDays\"}`), or `null`.",
             "type": "object"
           },
           "title": {
@@ -5368,6 +5573,62 @@
         ],
         "type": "object"
       },
+      "StartTimeEntryRequest": {
+        "additionalProperties": false,
+        "description": "Request body for starting a live timer (`POST /users/me/time/start`).",
+        "properties": {
+          "blockId": {
+            "description": "Optional card (non-template) or unit identifier to track time against.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "containerId": {
+            "description": "Optional board or course identifier of the target.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TimeEntryKind",
+            "description": "Activity category (`lecture`, `study`, `work`, `other`)."
+          },
+          "note": {
+            "description": "Optional note (at most 1000 characters).",
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "Optional workspace identifier of the target.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "StartedTimeEntry": {
+        "description": "Result of starting a timer: the newly started entry and, if a previous active timer\nin an organization open to this session was stopped automatically, that stopped entry.",
+        "properties": {
+          "entry": {
+            "$ref": "#/components/schemas/TimeEntry",
+            "description": "The newly started active timer (`endedAt` is `null`)."
+          },
+          "stopped": {
+            "$ref": "#/components/schemas/TimeEntry",
+            "description": "The previous active timer that was stopped in the same transaction, if one was\nrunning in an organization open to this session."
+          }
+        },
+        "required": [
+          "entry"
+        ],
+        "type": "object"
+      },
       "SubscriberType": {
         "description": "The kind of entity that subscribes.",
         "enum": [
@@ -5495,6 +5756,223 @@
           "auto",
           "light",
           "dark"
+        ],
+        "type": "string"
+      },
+      "TimeEntry": {
+        "description": "One personal time tracking entry.",
+        "properties": {
+          "blockId": {
+            "description": "The card or unit linked to this entry, or `null` if none. Preserved even if\nthe target block is later moved to the trash or permanently deleted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "containerId": {
+            "description": "The board or course of the linked target, or `null` if none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "endedAt": {
+            "description": "When the entry ended, in milliseconds since the Unix epoch; `null` while running.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "The entry's identifier.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TimeEntryKind",
+            "description": "Activity category (`lecture`, `study`, `work`, `other`)."
+          },
+          "note": {
+            "description": "Optional note written by the user (at most 1000 characters).",
+            "type": "string"
+          },
+          "startedAt": {
+            "description": "When the entry started, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "targetKind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TimeTargetKind",
+                "description": "What kind of resource the entry was linked to (`card`, `unit`, `board`, `course`),\nor `null` for a targetless or workspace-only entry."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targetTitle": {
+            "description": "Snapshot of the target's title taken when the entry was recorded, or `null` if\ntargetless. Preserved when the target is later deleted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "workspaceId": {
+            "description": "The workspace of the linked target, or `null` for a targetless entry.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "blockId",
+          "containerId",
+          "createAt",
+          "endedAt",
+          "id",
+          "kind",
+          "note",
+          "startedAt",
+          "targetKind",
+          "targetTitle",
+          "updateAt",
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "TimeEntryKind": {
+        "description": "What kind of activity a time entry records.",
+        "enum": [
+          "lecture",
+          "study",
+          "work",
+          "other"
+        ],
+        "type": "string"
+      },
+      "TimeEntryKindTotals": {
+        "description": "Total completed duration in milliseconds broken down by `TimeEntryKind`.",
+        "properties": {
+          "lecture": {
+            "description": "Completed milliseconds logged as `lecture`.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "other": {
+            "description": "Completed milliseconds logged as `other`.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "study": {
+            "description": "Completed milliseconds logged as `study`.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "work": {
+            "description": "Completed milliseconds logged as `work`.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lecture",
+          "other",
+          "study",
+          "work"
+        ],
+        "type": "object"
+      },
+      "TimeEntryList": {
+        "description": "One page of personal time entries paired with the aggregate summary of the full filter.",
+        "properties": {
+          "entries": {
+            "description": "The requested page of entries, ordered newest first (`startedAt DESC, id DESC`).",
+            "items": {
+              "$ref": "#/components/schemas/TimeEntry"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/TimeEntrySummary",
+            "description": "Totals across every entry matching the query filters."
+          }
+        },
+        "required": [
+          "entries",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "TimeEntryPatch": {
+        "additionalProperties": false,
+        "description": "Request body for editing one of the user's time entries (`PATCH /users/me/time/entries/{entryId}`).",
+        "properties": {
+          "endedAt": {
+            "description": "New end timestamp in milliseconds since the Unix epoch. Setting this on a running\ntimer stops it at the given timestamp.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TimeEntryKind",
+            "description": "New activity category."
+          },
+          "note": {
+            "description": "New note (at most 1000 characters).",
+            "type": "string"
+          },
+          "startedAt": {
+            "description": "New start timestamp in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "TimeEntrySummary": {
+        "description": "Aggregated summary across all matching entries (across all pages).",
+        "properties": {
+          "byKind": {
+            "$ref": "#/components/schemas/TimeEntryKindTotals",
+            "description": "Completed duration in milliseconds per activity kind."
+          },
+          "count": {
+            "description": "Total number of matching entries across all pages (including any running entry).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "totalMs": {
+            "description": "Total completed duration in milliseconds (running timers contribute 0 until stopped).",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "byKind",
+          "count",
+          "totalMs"
+        ],
+        "type": "object"
+      },
+      "TimeTargetKind": {
+        "description": "What kind of resource a time entry was linked to when created.",
+        "enum": [
+          "card",
+          "unit",
+          "board",
+          "course"
         ],
         "type": "string"
       },
@@ -10334,6 +10812,350 @@
         ]
       }
     },
+    "/api/v1/users/me/time/active": {
+      "get": {
+        "description": "Returns `{ \"entry\": TimeEntry }` if the user of the session has a running timer in an\norganization the session opens, or `{ \"entry\": null }` otherwise. Timers running in an\norganization closed to this session (`sso_required` or unconfirmed personal space) are\nhidden.",
+        "operationId": "getActiveTimeEntry",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveTimeEntry"
+                }
+              }
+            },
+            "description": "The currently running timer, or null."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The caller's currently running timer",
+        "tags": [
+          "time"
+        ]
+      }
+    },
+    "/api/v1/users/me/time/entries": {
+      "get": {
+        "description": "Returns one page of the user's own time entries across every organization open to this\nsession, newest first (`startedAt DESC, id DESC`), together with `summary` totals over\nevery matching entry across all pages. Completed entries contribute `endedAt - startedAt`\nto `summary`; a running entry (`endedAt` is `null`) is counted in `summary.count` and\ncontributes `0` milliseconds until stopped.\n\nOptional filters: `from` (`startedAt >= from`), `to` (`startedAt <= to`), `kind`,\n`blockId`, `containerId`, plus standard `page` and `perPage` pagination.",
+        "operationId": "listTimeEntries",
+        "parameters": [
+          {
+            "description": "Inclusive lower bound on `startedAt`, in milliseconds since the Unix epoch.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Inclusive upper bound on `startedAt`, in milliseconds since the Unix epoch. Must be greater than or equal to `from` when both are given.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Narrows the list to entries of this kind: `lecture`, `study`, `work` or `other`. Anything else is 400.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "description": "What kind of activity a time entry records.",
+              "enum": [
+                "lecture",
+                "study",
+                "work",
+                "other"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Narrows the list to entries linked to this card or unit identifier.",
+            "in": "query",
+            "name": "blockId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Narrows the list to entries linked to this board or course identifier.",
+            "in": "query",
+            "name": "containerId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeEntryList"
+                }
+              }
+            },
+            "description": "Matching entries and aggregate summary."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "List the caller's time entries and totals",
+        "tags": [
+          "time"
+        ]
+      },
+      "post": {
+        "description": "Creates a completed time entry (`endedAt >= startedAt`) for the user of the session\nwithout stopping or modifying any currently running timer. Target validation and\norganization session walls work the same way as `startTimeEntry`.",
+        "operationId": "createTimeEntry",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTimeEntryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeEntry"
+                }
+              }
+            },
+            "description": "The created time entry."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Manually log a completed time entry",
+        "tags": [
+          "time"
+        ]
+      }
+    },
+    "/api/v1/users/me/time/entries/{entryId}": {
+      "delete": {
+        "description": "Permanently deletes one of the user's own time entries in an organization open to this\nsession. Answers 404 for another user's entry, a missing identifier, or an entry in an\norganization closed to this session.",
+        "operationId": "deleteTimeEntry",
+        "parameters": [
+          {
+            "description": "The identifier of the time entry: one of the user of the session.",
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The time entry was deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete one of the caller's time entries",
+        "tags": [
+          "time"
+        ]
+      },
+      "patch": {
+        "description": "Updates `kind`, `startedAt`, `endedAt` and/or `note` on one of the user's own entries\nin an organization open to this session. Setting `endedAt` on a running timer stops it.\nAnswers 400 if `endedAt < startedAt` or any field is invalid, and 404 for another\nuser's entry, a missing identifier, or an entry in an organization closed to this\nsession.",
+        "operationId": "patchTimeEntry",
+        "parameters": [
+          {
+            "description": "The identifier of the time entry: one of the user of the session.",
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TimeEntryPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeEntry"
+                }
+              }
+            },
+            "description": "The updated time entry."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Edit one of the caller's time entries",
+        "tags": [
+          "time"
+        ]
+      }
+    },
+    "/api/v1/users/me/time/start": {
+      "post": {
+        "description": "Starts a running timer for the user of the session. At most one timer may run per\naccount across all organizations: if another timer is already running (in the same\norganization or another), it is stopped automatically in the same transaction and\nreturned in `stopped` when its organization is open to this session.\n\nOptional `workspaceId`, `containerId` and `blockId` link the entry to a readable\nnon-template card or course unit (or board/course container). Passing `workspaceId`\nalone creates a workspace-scoped entry with `targetKind: null` (refused with 404 for\nworkspace guests). Linking to an unreadable, trashed, template, or non-card/non-unit\nblock answers 404. Linking to a target in an organization closed to this session\nanswers 401 (`sso_required` or `password_sign_in_required`). Targetless timers are\nstored in the user's own space.",
+        "operationId": "startTimeEntry",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartTimeEntryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartedTimeEntry"
+                }
+              }
+            },
+            "description": "The newly started timer and any previously running timer that was stopped."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Start a live timer",
+        "tags": [
+          "time"
+        ]
+      }
+    },
+    "/api/v1/users/me/time/stop": {
+      "post": {
+        "description": "Stops the running timer visible to this session (`endedAt` set to now) and returns the\ncompleted entry. Answers 404 if no timer is running in an organization open to this\nsession.",
+        "operationId": "stopTimeEntry",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeEntry"
+                }
+              }
+            },
+            "description": "The stopped time entry."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Stop the caller's currently running timer",
+        "tags": [
+          "time"
+        ]
+      }
+    },
     "/api/v1/users/me/workspaces": {
       "get": {
         "description": "The workspaces the user of the session is a member of, in every organization, with\nwhat the user is in each. By organization, the oldest first, and in each the oldest\nworkspace first; the one workspace of the user's own space (`kind` `personal`, see\n\"The user's own space\") comes last, whenever it was made, and a client puts it where\nit shows it. Every account has one, so the list is never empty. A workspace of an\norganization that takes only sessions made\nthrough its provider is listed for any session, with `ssoRequired` true for one that\nwas not made so: what is under it answers 401 with the reason `sso_required` until\nthe user signs in through the provider of `orgId`. The user's own space asks for no\nprovider: its `ssoRequired` is false. Once its account has a password it takes only\nsessions that have shown that, and is listed with `passwordRequired` true for a\nsession made through a provider that has not: what is under it answers 401 with the\nreason `password_sign_in_required` until the session gives the password\n(`confirmPassword`), or the user signs in with it (`login`).",
@@ -10528,7 +11350,7 @@
     },
     "/api/v1/w/{workspaceId}/archive/import": {
       "post": {
-        "description": "Makes the boards and wikis of an archive in the workspace, with the user as their\nadmin. The members the archive names for a board become members of it with the roles\nthey had, where they are in the workspace. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, one that has ended, and one for another workspace are\n404; an upload of a file is 400. A workspace the user is not in is 404 before the\nbody is read. For users of the workspace who are not guests, at the import as when\nthe upload was opened: a user who may not import any more is refused, and the upload\nis thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with\nthe `limit` passed, and nothing of it is stored; for the entry that is too large the\nreason is `archive_entry_too_large`. The blocks that show files are\npointed at the board's new copies of them, the images and file blocks of bodies\nincluded. A file the board's line lists under `missingFiles` is not stored, even when\nthe archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy\ndoes. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the\ncomments on them with it. What a write would refuse of an archive's boards, wikis\nand blocks is 400 before any of them is stored, with the message the write has: a\nblock of a type of the other kind (a page on a board, a card on a wiki), a page\nbelow anything but a page of its wiki or below a page the archive does not have,\npages that are each other's parents, a comment on anything but a card or page, a\nwiki that is a template, and a wiki deeper or with more pages than the\norganization's limits allow (400 with the reason `page_too_deep` or\n`too_many_pages`).\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay. The members of a board who are not in the workspace are left\nout of it, a guest of the workspace keeps no role above editor; the answer says how\nmany users were left out, not who.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.",
+        "description": "Makes the boards and wikis of an archive in the workspace, with the user as their\nadmin. The members the archive names for a board become members of it with the roles\nthey had, where they are in the workspace. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, one that has ended, and one for another workspace are\n404; an upload of a file is 400. A workspace the user is not in is 404 before the\nbody is read. For users of the workspace who are not guests, at the import as when\nthe upload was opened: a user who may not import any more is refused, and the upload\nis thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB (or a single JSONL line over 6 MiB) or a file larger\nthan `maxFileBytes` is 413 with the `limit` passed, and nothing of it is stored; for the\nentry or line that is too large the reason is `archive_entry_too_large`. The blocks that show files are\npointed at the board's new copies of them, the images and file blocks of bodies\nincluded. A file the board's line lists under `missingFiles` is not stored, even when\nthe archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy\ndoes. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the\ncomments on them with it. What a write would refuse of an archive's boards, wikis\nand blocks is 400 before any of them is stored, with the message the write has: a\nblock of a type of the other kind (a page on a board, a card on a wiki), a page\nbelow anything but a page of its wiki or below a page the archive does not have,\npages that are each other's parents, a comment on anything but a card or page, a\nwiki that is a template, and a wiki deeper or with more pages than the\norganization's limits allow (400 with the reason `page_too_deep` or\n`too_many_pages`).\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay. The members of a board who are not in the workspace are left\nout of it, a guest of the workspace keeps no role above editor; the answer says how\nmany users were left out, not who.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.\n\nOptional `format` selects `\"fvoci\"` (default, `.boardarchive`/`.zip`), `\"trello\"`\n(`.json`), or `\"notion\"` (`.zip`). External formats commit all boards, wikis, blocks,\nand bundled local files atomically: any validation, limit, or storage failure leaves\nnothing stored. Returns a structured `ImportSummary` with counts, newly created\ncontainer identifiers, native `membersLeftOut`, and bounded `skipped` / `warnings`.",
         "operationId": "importArchive",
         "parameters": [
           {
@@ -10556,11 +11378,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ImportResult"
+                  "$ref": "#/components/schemas/ImportSummary"
                 }
               }
             },
-            "description": "The boards of the archive are made."
+            "description": "Summary of the boards, wikis, blocks, and files created by the import."
           },
           "default": {
             "content": {
@@ -11666,7 +12488,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof other cards of the board, in the trash or not, each once, at most 50 (a value over\nit from before may be written with fewer of its cards, not with another). Any other is\n400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,\n`relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board\nthat is no card) or `relation_card_not_found`: no card of that identifier on the\nboard, which is also the answer for a card of another board. Every write of a card\nchecks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it\nchanges, and does not ask again for a card that a value named before.",
+        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof relation link objects (`{\"card\": \"<cardId>\", \"kind\": \"fs\" | \"ss\" | \"ff\" | \"sf\",\n\"lagDays\": -3650..=3650}`), naming other cards of the board, in the trash or not,\neach once (even if `kind` differs), at most 50 (a value over it from before may be\nwritten with fewer of its cards, not with another). `kind` defaults to `\"fs\"` and\n`lagDays` defaults to `0` when omitted, unknown fields and plain string arrays are\nrefused with 400, and stored links always include all three fields normalized. Any\nother refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,\n`relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`\n(a block of the board that is no card) or `relation_card_not_found`: no card of that\nidentifier on the board, which is also the answer for a card of another board. Every\nwrite of a card checks so (`patchCard`, the block routes, `createBoardsAndBlocks`)\nthe values it changes, and does not ask again for a card that a value named before.",
         "operationId": "createCard",
         "parameters": [
           {
@@ -20707,6 +21529,10 @@
     {
       "description": "What the user was told inside the application: mentions and cards given to them.",
       "name": "notifications"
+    },
+    {
+      "description": "Personal time tracking entries and the single active timer of the user of the session. Every entry is private to its owner across all organizations.",
+      "name": "time"
     },
     {
       "description": "What an organization's administrators manage: the organization, its members' roles, its workspaces and their trash, joining a workspace, and the audit logs.",

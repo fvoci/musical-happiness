@@ -28,8 +28,6 @@
   clear of the edges the device keeps. The back button closes it.
 -->
 <script lang="ts">
-  import DownloadIcon from '@lucide/svelte/icons/download';
-  import UploadIcon from '@lucide/svelte/icons/upload';
   import XIcon from '@lucide/svelte/icons/x';
   import type { Snippet } from 'svelte';
 
@@ -40,6 +38,7 @@
   import { closeOnBack, isOverlayEntry } from '$lib/layout/back.svelte.ts';
   import { userDisplayName } from '$lib/logic/users.ts';
   import { page } from '$lib/layout/room.svelte.ts';
+  import type { ContainerPlace } from '$lib/logic/urls.ts';
   import {
     THEME_SETTINGS,
     CARD_OPEN_BUILT,
@@ -56,12 +55,12 @@
     type WeekStartSetting,
   } from '$lib/logic/regional.ts';
   import { browserTimeZone } from '$lib/regional.ts';
-  import { saveBlob } from '$lib/save.ts';
-  import { isGuest, isOwnSpace, type Workspace } from '$lib/state/index.ts';
+  import { isOwnSpace, type ImportSummary, type Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
 
+  import ArchiveImportSection from './ArchiveImportSection.svelte';
   import { devReadout } from './dev.svelte.ts';
   import NameFields from './NameFields.svelte';
   import NotificationSettings from './NotificationSettings.svelte';
@@ -95,6 +94,10 @@
     account?: Snippet;
     /** Opens the workspace's records. Without it (no server) they are not offered. */
     onOpenRecords?: (() => void) | undefined;
+    /** Builds the href for a newly imported board or wiki. */
+    containerHref?: ((container: ContainerPlace) => string) | undefined;
+    /** Navigates to a newly imported board or wiki. */
+    onOpenContainer?: ((container: ContainerPlace) => void) | undefined;
   }
 
   let {
@@ -108,34 +111,35 @@
     onChangePassword,
     account,
     onOpenRecords,
+    containerHref,
+    onOpenContainer,
   }: Props = $props();
+
+  let dialogSession = 0;
+  function resetImportSession(): void {
+    dialogSession += 1;
+    lastImport = undefined;
+  }
 
   closeOnBack(
     () => open,
     () => {
       open = false;
-      leftOut = undefined;
+      resetImportSession();
     },
   );
 
   const workspaceName = $derived(nameOfWorkspace(workspace.info, m.shell_workspace_unnamed));
 
   const uid = $props.id();
-  let importField = $state<HTMLInputElement | null>(null);
   /**
-   * What the last import from here left out, and in which workspace: told
-   * while the dialog stays open on that workspace, forgotten when it closes.
+   * The latest import result from this dialog, keyed to its workspace: shown
+   * while the dialog stays open on that workspace and forgotten when it closes.
    */
-  let leftOut = $state<{ workspaceId: string; count: number }>();
-  const leftOutHere = $derived(
-    leftOut?.workspaceId === workspace.info?.id ? (leftOut?.count ?? 0) : 0,
+  let lastImport = $state.raw<{ workspaceId: string; summary: ImportSummary }>();
+  const lastSummaryHere = $derived(
+    lastImport && lastImport.workspaceId === workspace.info?.id ? lastImport.summary : undefined,
   );
-
-  /** Saves an archive of every board of the workspace, once it has all arrived. */
-  async function exportWorkspace(): Promise<void> {
-    const archive = await workspace.exportWorkspace();
-    if (archive) saveBlob(archive.bytes, archive.name);
-  }
 
   const settings = $derived(workspace.settings);
   const compact = $derived(page.stage === 'compact');
@@ -210,7 +214,7 @@
 <Dialog.Root
   bind:open
   onOpenChange={(now: boolean) => {
-    if (!now) leftOut = undefined;
+    if (!now) resetImportSession();
   }}
 >
   <Dialog.Content
@@ -347,67 +351,27 @@
 
       <!-- Of the workspace shown: none where it is closed to this session. -->
       {#if workspace.info}
-        <section class="grid gap-2 border-t pt-4" aria-labelledby="{uid}-archives">
-          <h3 id="{uid}-archives" class="font-medium">{m.shell_archive_title()}</h3>
-          <div class="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              class="roomy:min-h-touch"
-              data-testid="export-workspace"
-              onclick={() => void exportWorkspace()}
-            >
-              <DownloadIcon aria-hidden="true" />
-              {m.shell_export_workspace()}
-            </Button>
-            <!-- A guest brings no boards in: importing makes boards. -->
-            {#if !isGuest(workspace)}
-              <Button
-                variant="outline"
-                class="roomy:min-h-touch"
-                aria-describedby="{uid}-import-hint"
-                onclick={() => importField?.click()}
-              >
-                <UploadIcon aria-hidden="true" />
-                {m.shell_import()}
-              </Button>
-              <input
-                bind:this={importField}
-                type="file"
-                accept=".boardarchive,application/zip"
-                hidden
-                data-testid="import-archive"
-                onchange={(event) => {
-                  const field = event.currentTarget;
-                  const file = field.files?.[0];
-                  // The same file can be chosen again.
-                  field.value = '';
-                  const workspaceId = workspace.info?.id;
-                  if (!file || workspaceId === undefined) return;
-                  leftOut = undefined;
-                  void workspace.importArchive(file).then((imported) => {
-                    leftOut = { workspaceId, count: imported?.membersLeftOut ?? 0 };
-                  });
-                }}
-              />
-            {/if}
-          </div>
-          {#if !isGuest(workspace)}
-            <p id="{uid}-import-hint" class="text-xs text-muted-foreground">
-              {m.shell_import_hint({ workspace: workspaceName })}
-            </p>
-          {/if}
-          <!-- There before it says anything, so that what it says is announced. -->
-          <p
-            role="status"
-            class={leftOutHere > 0 ? 'text-xs' : 'sr-only'}
-            data-testid="import-left-out"
-          >
-            {#if leftOutHere > 0}{m.shell_import_left_out({
-                count: leftOutHere,
-                workspace: workspaceName,
-              })}{/if}
-          </p>
-        </section>
+        <ArchiveImportSection
+          {workspace}
+          {workspaceName}
+          summary={lastSummaryHere}
+          onStartImport={() => {
+            lastImport = undefined;
+            return dialogSession;
+          }}
+          onImported={(workspaceId: string, summary: ImportSummary, session: number) => {
+            if (open && session === dialogSession) {
+              lastImport = { workspaceId, summary };
+            }
+          }}
+          {containerHref}
+          onOpenContainer={onOpenContainer
+            ? (container: ContainerPlace) => {
+                resetImportSession();
+                onOpenContainer(container);
+              }
+            : undefined}
+        />
       {/if}
 
       {#if onOpenRecords}
@@ -421,7 +385,10 @@
               class="roomy:min-h-touch"
               aria-haspopup="dialog"
               data-testid="open-records"
-              onclick={onOpenRecords}>{m.audit_title()}</Button
+              onclick={() => {
+                resetImportSession();
+                onOpenRecords();
+              }}>{m.audit_title()}</Button
             >
           </div>
           <p class="text-xs text-muted-foreground">{m.audit_description()}</p>
