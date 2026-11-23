@@ -503,3 +503,57 @@ async fn an_organization_behind_the_wall_does_not_go_by_a_password() {
     ts.teardown().await;
     fake.stop();
 }
+
+/// Requesting account deletion reuses the `own_space` already read in the initial
+/// standing check when ending public-link readers, instead of reading the full deletion
+/// standing a second time.
+#[tokio::test]
+async fn requesting_account_deletion_does_not_reread_deletion_standing() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    use fvoci_model::{DeleteAccountRequest, Session};
+    use fvoci_store::{Access, Call, Observer};
+
+    #[derive(Debug, Clone, Default)]
+    struct ReadCount(Arc<AtomicUsize>);
+    impl Observer for ReadCount {
+        fn called(&self, call: Call) {
+            if call.access == Access::Read {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        fn waited_for_connection(&self, _: fvoci_store::DbType, _: Duration) {}
+    }
+
+    let th = Setup::native().start().await.init_basic().await;
+    let user2 = th.client2.me().await;
+    let reads = ReadCount::default();
+    assert!(
+        th.app.store().observe(Box::new(reads.clone())),
+        "install observer"
+    );
+
+    let session = Session {
+        user_id: user2.id.clone(),
+        ..Session::default()
+    };
+    let request = DeleteAccountRequest {
+        username: USER2_USERNAME.to_owned(),
+        password: PASSWORD.to_owned(),
+    };
+    reads.0.store(0, Ordering::Relaxed);
+    th.app
+        .request_account_deletion(&session, &request, None)
+        .await
+        .expect("deletion requested");
+    let count = reads.0.load(Ordering::Relaxed);
+    // 1: get_user_by_id, 2: account_deletion_standing, 3: shared_container_ids of own space.
+    // Re-reading account_deletion_standing inside end_readers_of_own_space would make 4.
+    assert_eq!(
+        count, 3,
+        "request_account_deletion should make 3 reads (not re-read standing), did {count}"
+    );
+    th.teardown().await;
+}

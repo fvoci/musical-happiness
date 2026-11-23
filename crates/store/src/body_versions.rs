@@ -113,7 +113,8 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails.
+    /// Returns [`StoreError::Database`] if a statement fails and [`StoreError::Corrupt`]
+    /// if a stored block column or version column cannot be decoded.
     pub async fn keep_body_version(&self, card_id: &str) -> Result<Option<i64>, StoreError> {
         self.transaction(async |scope| keep_held(scope, card_id).await)
             .await
@@ -127,7 +128,8 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails.
+    /// Returns [`StoreError::Database`] if a statement fails and [`StoreError::Corrupt`]
+    /// if a stored block column or version column cannot be decoded.
     pub async fn keep_body_version_by_hand(
         &self,
         card_id: &str,
@@ -203,7 +205,8 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a query fails.
+    /// Returns [`StoreError::Database`] if a query fails and [`StoreError::Corrupt`] if
+    /// a stored version cause is unknown.
     pub async fn body_versions(&self, block_id: &str) -> Result<Vec<KeptVersion>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
@@ -237,7 +240,8 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a query fails.
+    /// Returns [`StoreError::Database`] if a query fails and [`StoreError::Corrupt`] if
+    /// a stored version cause or body JSON cannot be decoded.
     pub async fn body_version(
         &self,
         block_id: &str,

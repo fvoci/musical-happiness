@@ -169,3 +169,254 @@ async fn an_own_space_has_no_organization_to_administer_and_no_people() {
     th.client.get(&here).await.check_ok();
     th.teardown().await;
 }
+
+/// `restoreOrgWorkspace` filters by organization even when an own space's workspace is
+/// actually in the trash (`delete_at > 0`): neither the shared organization's admin nor
+/// the space's owner can restore it, while the same admin restores a trashed workspace
+/// of the shared organization.
+#[tokio::test]
+async fn restore_org_workspace_refuses_a_trashed_own_space_workspace() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (org_workspaces, own) = workspaces_and_own(&th.client).await;
+    let shared_org_id = &org_workspaces[0].org_id;
+    let other_own = own_workspace(&th.client2).await;
+
+    // Positive control: create, trash, and restore a workspace of the shared organization.
+    let made: serde_json::Value = th
+        .client
+        .post(
+            &format!("/org/{shared_org_id}/workspaces"),
+            &json!({"name": "Extra"}),
+        )
+        .await
+        .created_json();
+    let extra_id = made["id"].as_str().expect("workspace id");
+    th.client
+        .delete(&format!("/org/{shared_org_id}/workspaces/{extra_id}"))
+        .await
+        .check_no_content();
+    let restored = th
+        .client
+        .post_empty(&format!(
+            "/org/{shared_org_id}/workspaces/{extra_id}/restore"
+        ))
+        .await;
+    restored.check_ok();
+    assert_eq!(restored.value()["deletedAt"], json!(0));
+
+    // Put both own spaces' workspaces in the trash directly in the database so a 404
+    // cannot be explained by `delete_at = 0`.
+    for ws_id in [&own.id, &other_own.id] {
+        th.app
+            .store()
+            .system()
+            .execute_unchecked(&format!(
+                "UPDATE workspaces SET delete_at = 1 WHERE id = '{ws_id}'"
+            ))
+            .await
+            .expect("trashed own space workspace");
+    }
+
+    // Shared org admin asking under shared_org_id, and owners asking under their space org_id:
+    // every restore is 404 and leaves delete_at = 1.
+    for (client, org_id, ws_id) in [
+        (&th.client, shared_org_id.as_str(), own.id.as_str()),
+        (&th.client, shared_org_id.as_str(), other_own.id.as_str()),
+        (&th.client, own.org_id.as_str(), own.id.as_str()),
+        (
+            &th.client2,
+            other_own.org_id.as_str(),
+            other_own.id.as_str(),
+        ),
+    ] {
+        client
+            .post_empty(&format!("/org/{org_id}/workspaces/{ws_id}/restore"))
+            .await
+            .check_not_found();
+    }
+    for ws_id in [&own.id, &other_own.id] {
+        let deleted_at = th
+            .app
+            .store()
+            .system()
+            .texts_unchecked(&format!(
+                "SELECT CAST(delete_at AS TEXT) FROM workspaces WHERE id = '{ws_id}'"
+            ))
+            .await
+            .expect("read");
+        assert_eq!(deleted_at, ["1"], "{ws_id} stayed in the trash");
+    }
+    th.teardown().await;
+}
+
+async fn start_webhook_receiver() -> (
+    String,
+    tokio::sync::mpsc::UnboundedReceiver<String>,
+    tokio::sync::oneshot::Sender<()>,
+    tokio::task::JoinHandle<()>,
+) {
+    let (received_tx, received_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let router = axum::Router::new().route(
+        "/hook",
+        axum::routing::post(move |body: String| {
+            let tx = received_tx.clone();
+            async move {
+                let _ = tx.send(body);
+                axum::http::StatusCode::OK
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind webhook receiver");
+    let url = format!("http://{}/hook", listener.local_addr().expect("local addr"));
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let serving = tokio::spawn(async move {
+        let _ = axum::serve(listener, router)
+            .with_graceful_shutdown(async move {
+                let _ = stop_rx.await;
+            })
+            .await;
+    });
+    (url, received_rx, stop_tx, serving)
+}
+
+fn make_views(board_id: &str, count: usize) -> Vec<fvoci_model::Block> {
+    (0..count)
+        .map(|i| fvoci_model::Block {
+            id: fvoci_model::new_id(),
+            container_id: board_id.to_owned(),
+            block_type: fvoci_model::BlockType::View,
+            title: format!("view {i}"),
+            ..fvoci_model::Block::default()
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Default)]
+struct ReadCount(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl fvoci_store::Observer for ReadCount {
+    fn called(&self, call: fvoci_store::Call) {
+        if call.access == fvoci_store::Access::Read {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    fn waited_for_connection(&self, _: fvoci_store::DbType, _: std::time::Duration) {}
+}
+
+async fn insert_views_counting_reads(
+    app: &fvoci_server::app::App,
+    board_id: &str,
+    user_id: &str,
+    count: usize,
+    reads: &ReadCount,
+) -> usize {
+    let mut batch = make_views(board_id, count);
+    reads.0.store(0, std::sync::atomic::Ordering::Relaxed);
+    app.insert_blocks(
+        &mut batch,
+        user_id,
+        fvoci_server::app::ChangeNotification::Suppress,
+    )
+    .await
+    .expect("inserted views");
+    assert!(
+        app.finish_background(std::time::Duration::from_secs(5))
+            .await,
+        "background webhooks finished"
+    );
+    reads.0.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// When `block_change_webhooks` is configured, an `App` handle entered through
+/// `enter_workspace` already knows its organization's kind (0 extra DB reads on
+/// `tell_webhooks`), a handle created via `scoped` reads it at most once across many
+/// block changes, and re-scoping to a personal organization does not reuse the previous
+/// organization's kind.
+#[tokio::test]
+async fn webhooks_cache_organization_kind_per_handle_and_reset_on_scoped() {
+    use std::time::Duration;
+
+    use fvoci_store::Tenant;
+
+    let (url, mut received_rx, stop_tx, serving) = start_webhook_receiver().await;
+    let th = Setup::native().start().await.init_basic().await;
+    let mut config = th.app.config().clone();
+    config.block_change_webhooks = vec![url];
+    let hooked =
+        fvoci_server::app::App::new(config, th.app.store().clone(), th.app.files().clone())
+            .expect("a server with the hook");
+    let reads = ReadCount::default();
+    assert!(
+        th.app.store().observe(Box::new(reads.clone())),
+        "install store observer"
+    );
+
+    let (org_workspaces, own) = workspaces_and_own(&th.client).await;
+    let org_ws = &org_workspaces[0];
+    let user_id = th.client.me().await.id;
+    let board = th.create_board(&org_ws.id, ContainerType::Private).await;
+
+    // 1. A scoped handle reads get_container once + org kind once across 6 blocks (2 reads).
+    let scoped = hooked.scoped(Tenant::org(&org_ws.org_id).expect("org id"));
+    assert_eq!(
+        insert_views_counting_reads(&scoped, &board.id, &user_id, 6, &reads).await,
+        2,
+        "scoped handle reads get_container once + org kind once for 6 blocks"
+    );
+    for _ in 0..6 {
+        tokio::time::timeout(Duration::from_secs(5), received_rx.recv())
+            .await
+            .expect("webhook delivered")
+            .expect("channel open");
+    }
+
+    // 2. A handle from enter_workspace already knows org kind (only 1 get_container read).
+    let entered = hooked
+        .enter_workspace_as(
+            fvoci_server::app::Asker {
+                user_id: &user_id,
+                making: fvoci_store::Making::with_password(),
+            },
+            &org_ws.id,
+        )
+        .await
+        .expect("enter")
+        .expect("member")
+        .app;
+    assert_eq!(
+        insert_views_counting_reads(&entered, &board.id, &user_id, 6, &reads).await,
+        1,
+        "entered handle already knows org kind (only 1 get_container read)"
+    );
+    for _ in 0..6 {
+        tokio::time::timeout(Duration::from_secs(5), received_rx.recv())
+            .await
+            .expect("webhook delivered")
+            .expect("channel open");
+    }
+
+    // 3. Re-scoping the shared-org handle to the personal org resets the cached kind.
+    let rescoped_own = entered.scoped(Tenant::org(&own.org_id).expect("own org id"));
+    let own_board: Container = th
+        .client
+        .create_board(&new_board(&own.id, ContainerType::Private, "private"))
+        .await
+        .created_json();
+    assert_eq!(
+        insert_views_counting_reads(&rescoped_own, &own_board.id, &user_id, 3, &reads).await,
+        2,
+        "rescoped own handle reads get_container once + org kind once"
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), received_rx.recv())
+            .await
+            .is_err(),
+        "no webhook sent for personal organization after rescoping a shared-org handle"
+    );
+
+    let _ = stop_tx.send(());
+    let _ = serving.await;
+    th.teardown().await;
+}

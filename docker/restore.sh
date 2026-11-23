@@ -6,8 +6,15 @@
 # migrates a backup of an older version), makes the search index anew and compares the
 # files with the records. compose.yaml's header says more.
 #
+# <backup folder> is trusted input: pg_restore runs SQL as PostgreSQL's superuser,
+# and tar extracts members from files.tar.
+#
 #   docker/restore.sh [-p project] [-f compose.yaml]... [--env-file .env]
-#                     [--profile name]... <backup folder>
+#                     [--profile name]... [--key-not-checked] [--other-project]
+#                     <backup folder>
+#
+# --key-not-checked: proceed when <backup>/env is absent or has no FVOCI_SECRET_KEY.
+# --other-project: proceed when <backup>/made names a different compose project.
 set -eu
 script=restore
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -15,6 +22,8 @@ here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$here/ops.sh"
 
 backup=""
+key_not_checked=no
+other_project=no
 while [ $# -gt 0 ]; do
     shared_option "$@"
     if [ "$shift_by" -gt 0 ]; then
@@ -22,6 +31,14 @@ while [ $# -gt 0 ]; do
         continue
     fi
     case $1 in
+    --key-not-checked)
+        key_not_checked=yes
+        shift
+        ;;
+    --other-project)
+        other_project=yes
+        shift
+        ;;
     -*) fail "unknown option $1" ;;
     *)
         [ -z "$backup" ] || fail "one backup folder, not two"
@@ -36,35 +53,49 @@ check_shared_options
 
 started=$(now_ms)
 storage=$(file_storage)
+if [ -f "$backup/made" ]; then
+    made_project=$(awk -v key="project=" 'index($0, key) == 1 { v = substr($0, length(key) + 1); sub(/\r$/, "", v); print v; exit }' <"$backup/made")
+    made_storage=$(awk -v key="file_storage=" 'index($0, key) == 1 { v = substr($0, length(key) + 1); sub(/\r$/, "", v); print v; exit }' <"$backup/made")
+    if [ -n "$made_project" ] && [ "$made_project" != "$project" ]; then
+        if [ "$other_project" = yes ]; then
+            say "warning: $backup was made for project $made_project, restoring into project $project (--other-project)"
+        else
+            fail "$backup was made for project $made_project, not $project (pass --other-project to restore into another project). Nothing was changed"
+        fi
+    fi
+    if [ -n "$made_storage" ] && [ "$made_storage" != "$storage" ]; then
+        fail "$backup was made with file_storage=$made_storage, while this installation uses file_storage=$storage. Nothing was changed"
+    fi
+fi
 if [ "$storage" = local ]; then
     [ -f "$backup/files.tar" ] ||
-        fail "$backup has no files.tar (its files were in S3) while this installation keeps them in its volume"
+        fail "$backup has no files.tar (its files were in S3) while this installation keeps them in its volume. Nothing was changed"
 elif [ -f "$backup/files.tar" ]; then
     say "the files of $backup/files.tar are not restored: this installation keeps its files in S3"
 fi
 # The key that seals the sign-in providers' secrets must be the backup's, or they do
 # not open. Both are read as compose reads an .env (quotes, escapes, a $ and the
-# variables it names): the value compose gives fvoci now (the shell's wins over the
-# .env's), against the backup's .env read alone (the shell's FVOCI_SECRET_KEY left
-# out, which would win over it too). Compared here, printed nowhere.
-current_key=$(compose config --environment) ||
-    fail "compose cannot list the variables it sees (config --environment needs a newer compose). Nothing was changed"
-current_key=$(printf '%s\n' "$current_key" | listed_key) || current_key=""
+# variables it names, multiline values): the value compose gives fvoci now (the shell's
+# wins over the .env's), against the backup's .env read alone (the shell's
+# FVOCI_SECRET_KEY left out, which would win over it too). Compared here, printed nowhere.
+current_key=$(secret_key_from "$env_file") ||
+    fail "compose cannot read FVOCI_SECRET_KEY from $env_file. Nothing was changed"
 backup_key=""
 if [ -f "$backup/env" ]; then
     # What compose says of the backup's .env is not shown (it may quote a secret); a
     # warning (a $ read as a variable not set) is how compose read it then too.
     backup_key=$(
         unset FVOCI_SECRET_KEY
-        docker compose --env-file "$backup/env" config --environment 2>/dev/null
+        secret_key_from "$backup/env"
     ) || fail "compose cannot read $backup/env (COMPOSE_FILE='$COMPOSE_FILE' docker compose --env-file '$backup/env' config -q says why, quoting it). Nothing was changed"
-    backup_key=$(printf '%s\n' "$backup_key" | listed_key) || backup_key=""
 fi
 if [ -n "$backup_key" ]; then
     [ "$backup_key" = "$current_key" ] ||
         fail "FVOCI_SECRET_KEY is not the backup's ($backup/env has it): the sign-in providers' secrets would not open. Nothing was changed"
+elif [ "$key_not_checked" = yes ]; then
+    say "warning: $backup/env does not say FVOCI_SECRET_KEY (--key-not-checked): the .env's must be the one the backup was made with"
 else
-    say "warning: $backup/env does not say FVOCI_SECRET_KEY: the .env's must be the one the backup was made with"
+    fail "$backup/env does not say FVOCI_SECRET_KEY (pass --key-not-checked if you verified that this .env has the backup's FVOCI_SECRET_KEY). Nothing was changed"
 fi
 unset backup_key current_key
 fvoci_containers=$(compose ps --all --quiet fvoci) || fail "compose cannot list the containers of $project"
@@ -108,7 +139,7 @@ if [ "$storage" = local ]; then
     say "restoring the files"
     stage="restoring the files: the database is restored; remove the volumes before trying again"
     compose run --rm --no-deps -T --pull never --entrypoint tar fvoci \
-        --extract --file=- --directory=/data <"$backup/files.tar"
+        --extract --no-same-owner --file=- --directory=/data -- files <"$backup/files.tar"
 fi
 
 say "starting the installation (migrate brings an older backup's schema up to date)"

@@ -83,8 +83,9 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a not-found error if the card is not there, `document_unavailable` if
-    /// what its editors typed cannot be written to it now, and the store's error.
+    /// Returns a not-found error if the card is not there, a conflict if it kept
+    /// changing concurrently, `document_unavailable` if what its editors typed cannot
+    /// otherwise be written to it now, and the store's error.
     pub async fn keep_body_version_now(&self, card_id: &str) -> Result<KeptBodyVersion, AppError> {
         let (outcome, number) = match self.collab().keep_by_hand(self, card_id).await? {
             ByHand::Kept(number) => (KeptOutcome::Kept, Some(number)),

@@ -24,7 +24,7 @@ pub struct Entered {
     /// What the user is in the workspace.
     pub role: WorkspaceRole,
     /// What the user is in the workspace's organization; `None` for somebody who is in
-    /// the workspace without belonging to the organization.
+    /// the workspace without belonging to the organization, and for a user's own space.
     pub org_role: Option<OrgRole>,
     /// What the workspace's organization is: one that people work in together, or the
     /// user's own space.
@@ -60,7 +60,7 @@ impl App {
             .await?;
         let takes = SessionTaken::of_organization(required);
         sso::require_session_opens(session.into(), org_id, &takes)?;
-        Ok(Some(self.scoped(tenant)))
+        Ok(Some(self.scoped(tenant).with_org_kind(OrgKind::Team)))
     }
 
     /// The same server reaching the rows of the organization `org_id`, for a member of
@@ -82,7 +82,7 @@ impl App {
         if self.org_actor(user_id, org_id).await?.org.is_none() {
             return Ok(None);
         }
-        Ok(Some(self.scoped(tenant)))
+        Ok(Some(self.scoped(tenant).with_org_kind(OrgKind::Team)))
     }
 
     /// The same server reaching the rows of the organization `org_id`, for a sign-in
@@ -148,7 +148,9 @@ impl App {
             return Ok(None);
         };
         sso::require_session_opens(asker, &access.org_id, &access.takes)?;
-        let app = self.in_organization(&access.org_id)?;
+        let app = self
+            .in_organization(&access.org_id)?
+            .with_org_kind(access.kind);
         Ok(Some(Entered {
             app,
             role: access.workspace_role,
