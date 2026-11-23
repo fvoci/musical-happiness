@@ -1,10 +1,14 @@
 //! Public import format, summary, warning, and security-limit types.
 
 use std::fmt;
+use std::path::Path;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use utoipa::ToSchema;
+
+use crate::error::AppError;
 
 /// Maximum number of skipped items or warnings kept in [`ImportSummary`] to bound memory
 /// and response payload size.
@@ -17,7 +21,7 @@ const MAX_WARNING_ITEM_CHARS: usize = 200;
 const MAX_WARNING_REASON_CHARS: usize = 500;
 
 /// The source format of an import.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ImportFormat {
     /// Native fvoci version 3 `.boardarchive` ZIP archive.
@@ -38,6 +42,42 @@ impl ImportFormat {
             Self::Trello => "trello",
             Self::Notion => "notion",
         }
+    }
+
+    /// Validates that an uploaded file name and byte size match this import format.
+    ///
+    /// - `fvoci`: requires `.boardarchive` or `.zip` and non-empty bytes.
+    /// - `trello`: requires `.json` and non-empty bytes.
+    /// - `notion`: requires `.zip` and non-empty bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns 400 Bad Request when the upload is empty or its extension does not match
+    /// this format.
+    pub fn validate_upload(self, file_name: &str, size: i64) -> Result<(), AppError> {
+        if size <= 0 {
+            return Err(AppError::bad_request("cannot import an empty file"));
+        }
+        let ext = Path::new(file_name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase);
+        let ok = match self {
+            Self::Fvoci => matches!(ext.as_deref(), Some("boardarchive" | "zip")),
+            Self::Trello => matches!(ext.as_deref(), Some("json")),
+            Self::Notion => matches!(ext.as_deref(), Some("zip")),
+        };
+        if !ok {
+            let expected = match self {
+                Self::Fvoci => ".boardarchive or .zip",
+                Self::Trello => ".json",
+                Self::Notion => ".zip",
+            };
+            return Err(AppError::bad_request(format_args!(
+                "import format `{self}` requires a {expected} file"
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -66,7 +106,7 @@ impl FromStr for ImportFormat {
 }
 
 /// Counts of entities created by an import.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportCounts {
     /// Number of boards created (`ContainerKind::Board`).
@@ -84,7 +124,7 @@ pub struct ImportCounts {
 }
 
 /// Stable machine-readable category for a skipped or degraded import item.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ImportWarningCode {
     /// An external Trello attachment URL was preserved as a link without fetching it.
@@ -108,7 +148,7 @@ pub enum ImportWarningCode {
 }
 
 /// One skipped or degraded item recorded during an import.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportWarning {
     /// Machine-readable reason code.
@@ -120,7 +160,7 @@ pub struct ImportWarning {
 }
 
 /// Result summary returned after a completed import.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportSummary {
     /// Format that was imported.

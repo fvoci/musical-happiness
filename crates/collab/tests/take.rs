@@ -290,8 +290,20 @@ fn random_refused_in_place_updates_rebuild_to_exact_prior_bytes() {
                 "seed {seed} step {step}: state"
             );
             assert_eq!(
-                changed.repair.body, expected.repair.body,
+                changed.doc.body().expect("in-place body"),
+                expected.repair.body,
                 "seed {seed} step {step}: body"
+            );
+            let expected_files: Vec<String> = expected
+                .repair
+                .body
+                .as_ref()
+                .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
+                .unwrap_or_default();
+            assert_eq!(
+                changed.doc.file_ids(),
+                expected_files,
+                "seed {seed} step {step}: file_ids"
             );
             assert_eq!(
                 changed.repair.update, expected.repair.update,
@@ -523,7 +535,11 @@ fn table_mend_past_reading_steps_is_taken_in_place_and_marked_for_remake() {
         "{} steps",
         changed.reading_steps
     );
-    let body = changed.repair.body.expect("valid mended body");
+    let body = changed
+        .doc
+        .body()
+        .expect("valid mended body")
+        .expect("non-empty mended body");
     let rows = body.document()["content"]
         .as_array()
         .expect("content")
@@ -656,7 +672,7 @@ fn mend_spans_replaces_non_empty_nested_shared_type_attr() {
     assert_eq!(changed.repair.mended, 1, "cell spans mended");
     let repair_update = changed.repair.update.expect("mend update emitted");
     assert_eq!(
-        json_of(changed.repair.body.as_ref()),
+        json_of(changed.doc.body().expect("mended body").as_ref()),
         two_by_two_table_body(),
         "mended table has valid default spans (1x1)"
     );

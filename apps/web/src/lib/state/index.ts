@@ -48,6 +48,16 @@ export {
   type User,
   type ViewDraft,
 } from './backend.ts';
+export { IMPORT_FORMATS, emptyImportCounts } from './import-types.ts';
+export type {
+  ImportCounts,
+  Imported,
+  ImportFormat,
+  ImportOptions,
+  ImportSummary,
+  ImportWarning,
+  ImportWarningCode,
+} from './import-types.ts';
 export type { Registered } from './account-types.ts';
 export { BoardStore, type CardDrop } from './board.svelte.ts';
 export { addViewAtEnd, duplicateView, moveView } from './view-moves.ts';

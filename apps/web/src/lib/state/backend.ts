@@ -44,6 +44,7 @@ import type { NotificationsOfBackend } from './notification-types.ts';
 import type { WikisOfBackend } from './wiki-types.ts';
 import type { DiariesOfBackend } from './diary-types.ts';
 import type { CoursesOfBackend } from './course-types.ts';
+import type { ImportOptions, ImportSummary } from './import-types.ts';
 import type { UserOrganization, WorkspaceInfo } from './workspace-types.ts';
 
 export type * from './account-types.ts';
@@ -64,11 +65,7 @@ export {
   type WorkspaceInfo,
 } from './workspace-types.ts';
 
-/** What an import did beyond making the archive's boards. */
-export interface Imported {
-  /** How many members of the archive's boards were left out: they are not in the workspace. */
-  readonly membersLeftOut: number;
-}
+export type * from './import-types.ts';
 
 // ----------------------------------------------------------------- errors
 
@@ -475,7 +472,7 @@ export interface Backend
    * are made one after the other: a failure keeps those before it. Members of
    * the boards who are not in the workspace are left out; it says how many.
    */
-  importArchive(workspaceId: string, file: File, options?: UploadOptions): Promise<Imported>;
+  importArchive(workspaceId: string, file: File, options?: ImportOptions): Promise<ImportSummary>;
 
   // Changes as they happen.
   /** Listens to the changes of one board or wiki. Returns the function that stops listening. */

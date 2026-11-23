@@ -2312,9 +2312,9 @@ export interface paths {
          *     original (the line-based version 1 and the ZIP of version 2) and a ZIP without
          *     `version.json` are 400, and nothing of them is stored. An archive of more than
          *     10,000 entries, whose entries unpack to more than 1 GiB together, or with a
-         *     `board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with
-         *     the `limit` passed, and nothing of it is stored; for the entry that is too large the
-         *     reason is `archive_entry_too_large`. The blocks that show files are
+         *     `board.jsonl` of more than 64 MiB (or a single JSONL line over 6 MiB) or a file larger
+         *     than `maxFileBytes` is 413 with the `limit` passed, and nothing of it is stored; for the
+         *     entry or line that is too large the reason is `archive_entry_too_large`. The blocks that show files are
          *     pointed at the board's new copies of them, the images and file blocks of bodies
          *     included. A file the board's line lists under `missingFiles` is not stored, even when
          *     the archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy
@@ -2336,6 +2336,12 @@ export interface paths {
          *     A user runs one import at a time, and the server as many as its setting
          *     `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
          *     `import_running` or `server_imports_busy`; the upload stays open, to be named again.
+         *
+         *     Optional `format` selects `"fvoci"` (default, `.boardarchive`/`.zip`), `"trello"`
+         *     (`.json`), or `"notion"` (`.zip`). External formats commit all boards, wikis, blocks,
+         *     and bundled local files atomically: any validation, limit, or storage failure leaves
+         *     nothing stored. Returns a structured `ImportSummary` with counts, newly created
+         *     container identifiers, native `membersLeftOut`, and bounded `skipped` / `warnings`.
          */
         post: operations["importArchive"];
         delete?: never;
@@ -6751,23 +6757,71 @@ export interface components {
          * @enum {string}
          */
         HourCycle: "auto" | "h12" | "h23";
-        /** @description An archive to import: one sent in parts with `createImportUpload`. */
+        /** @description Counts of entities created by an import. */
+        ImportCounts: {
+            /** @description Number of boards created (`ContainerKind::Board`). */
+            boards: number;
+            /** @description Number of cards created (`BlockType::Card`). */
+            cards: number;
+            /** @description Number of comments created (`BlockType::Comment`). */
+            comments: number;
+            /** @description Number of files stored. */
+            files: number;
+            /** @description Number of wiki pages created (`BlockType::Page`). */
+            pages: number;
+            /** @description Number of wikis created (`ContainerKind::Wiki`). */
+            wikis: number;
+        };
+        /**
+         * @description The source format of an import.
+         * @enum {string}
+         */
+        ImportFormat: "fvoci" | "trello" | "notion";
+        /** @description An archive or external export to import: sent in parts with `createImportUpload`. */
         ImportRequest: {
+            /**
+             * @description Source format of the uploaded file: `fvoci` (native archive `.boardarchive`/`.zip`,
+             *     default when omitted), `trello` (Trello board `.json`), or `notion` (Notion
+             *     Markdown & CSV `.zip`).
+             */
+            format?: components["schemas"]["ImportFormat"];
             /**
              * @description The upload of the archive, every part of it received. It is thrown away by the
              *     import, whether the import succeeds or not.
              */
             uploadId: string;
         };
-        /** @description What an import did beyond making the archive's boards. */
-        ImportResult: {
-            /**
-             * @description How many of the users who were members of the archive's boards were left out of
-             *     the boards made of them, because they are not in the workspace; each counted
-             *     once. Who they are is not told.
-             */
+        /** @description Result summary returned after a completed import. */
+        ImportSummary: {
+            /** @description Identifiers of the newly created containers, in creation order. */
+            containerIds: string[];
+            /** @description Format that was imported. */
+            format: components["schemas"]["ImportFormat"];
+            /** @description Counts of items stored in the workspace. */
+            imported: components["schemas"]["ImportCounts"];
+            /** @description Native archive members left out because they are not in the workspace. */
             membersLeftOut: number;
+            /** @description Items skipped during conversion or import. */
+            skipped: components["schemas"]["ImportWarning"][];
+            /** @description Non-fatal degradation notices (e.g. external URLs kept as links). */
+            warnings: components["schemas"]["ImportWarning"][];
+            /** @description Number of additional skipped items or warnings omitted past `MAX_REPORTED_WARNINGS`. */
+            warningsOmitted?: number;
         };
+        /** @description One skipped or degraded item recorded during an import. */
+        ImportWarning: {
+            /** @description Machine-readable reason code. */
+            code: components["schemas"]["ImportWarningCode"];
+            /** @description Bounded source path or item label. */
+            item: string;
+            /** @description Short explanation of what happened. */
+            reason: string;
+        };
+        /**
+         * @description Stable machine-readable category for a skipped or degraded import item.
+         * @enum {string}
+         */
+        ImportWarningCode: "external_attachment_linked" | "external_image_linked" | "missing_local_asset" | "closed_item_skipped" | "content_truncated" | "markdown_degraded" | "unsupported_entry_skipped" | "unresolved_reference" | "csv_row_warning";
         /**
          * @description One thing of a request that was refused, and where in the request it is: exactly
          *     one of `pointer`, `parameter` and `header` says.
@@ -11991,13 +12045,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The boards of the archive are made. */
+            /** @description Summary of the boards, wikis, blocks, and files created by the import. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImportResult"];
+                    "application/json": components["schemas"]["ImportSummary"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
