@@ -32,6 +32,7 @@ import {
   type CardDraft,
   type CardPatch,
   type CardSummary,
+  type CardTelling,
   type Category,
   type CategoryDraft,
   type CategoryPatch,
@@ -59,6 +60,7 @@ import {
   memberOf,
   newBoardAndViewOf,
   newCardRequest,
+  patchCardRequest,
   containerPatchOf,
   previewsOf,
   settingsChangeOf,
@@ -615,26 +617,24 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * (`updatedProperties`, `deletedProperties`), so somebody else's change
    * of another value at about the same time stays. The changes of one card
    * still go one after another, so that two quick ones of the same value
-   * arrive in the order they were made.
+   * arrive in the order they were made. A quiet one (`telling`) tells nobody
+   * whom it gives the card to (`disableNotify`).
    */
-  patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
-    return this.#turns.run(cardId, () => this.#patchCard(boardId, cardId, patch));
-  }
-
-  async #patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
-    const request: Schemas['CardPatch'] = {};
-    if (patch.title !== undefined) request.title = patch.title;
-    if (patch.icon !== undefined) request.icon = patch.icon;
-    const updated = patch.updatedProperties ?? {};
-    if (Object.keys(updated).length > 0) request.updatedProperties = updated;
-    const deleted = patch.deletedProperties ?? [];
-    if (deleted.length > 0) request.deletedProperties = deleted;
-    const card = await this.inWorkspace<Schemas['Card']>(
-      '/cards/{cardId}',
-      { cardId, boardId },
-      { method: 'PATCH', json: request },
+  patchCard(
+    boardId: string,
+    cardId: string,
+    patch: CardPatch,
+    telling?: CardTelling,
+  ): Promise<CardSummary> {
+    return this.#turns.run(cardId, async () =>
+      cardOf(
+        await this.inWorkspace<Schemas['Card']>(
+          '/cards/{cardId}',
+          { cardId, boardId },
+          patchCardRequest(patch, telling),
+        ),
+      ),
     );
-    return cardOf(card);
   }
 
   /** The comments of a card: blocks of the type `comment` under it. */

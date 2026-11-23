@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 59] = [
+const STEPS: [Step; 61] = [
     Step {
         version: 1,
         description: "baseline",
@@ -389,7 +389,19 @@ const STEPS: [Step; 59] = [
         sqlite: include_str!("../schema/sqlite/0061_courses.sql"),
         postgres: include_str!("../schema/postgres/0061_courses.sql"),
     },
-    // 62–64 are reserved for other work.
+    Step {
+        version: 62,
+        description: "body version bytes",
+        sqlite: include_str!("../schema/sqlite/0062_body_version_bytes.sql"),
+        postgres: include_str!("../schema/postgres/0062_body_version_bytes.sql"),
+    },
+    Step {
+        version: 63,
+        description: "unit progress",
+        sqlite: include_str!("../schema/sqlite/0063_unit_progress.sql"),
+        postgres: include_str!("../schema/postgres/0063_unit_progress.sql"),
+    },
+    // 64 is reserved for other work.
     Step {
         version: 65,
         description: "audit org member removed",
@@ -425,6 +437,10 @@ pub(crate) const BEFORE_DIARIES_VERSION: i64 = 54;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_COURSES_VERSION: i64 = 60;
 
+/// The migration before unit progress (0063).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_UNIT_PROGRESS_VERSION: i64 = 62;
+
 /// The migration before the one that adds `org_member_removed` to `audit_log`.
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION: i64 = 64;
@@ -452,7 +468,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 12] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 39] = [
+pub(crate) const ORG_TABLES: [&str; 40] = [
     "audit_log",
     "blocks",
     "body_docs",
@@ -488,6 +504,7 @@ pub(crate) const ORG_TABLES: [&str; 39] = [
     "subscriptions",
     "team_members",
     "teams",
+    "unit_progress",
     "upload_parts",
     "uploads",
     "workspace_members",
@@ -940,6 +957,17 @@ mod tests {
             .find(|step| step.version == BEFORE_COURSES_VERSION + 1)
             .expect("the migration after BEFORE_COURSES_VERSION is in the list");
         assert_eq!(step.description, "courses");
+    }
+
+    /// Migration 63 is unit progress, following `BEFORE_UNIT_PROGRESS_VERSION`.
+    #[test]
+    fn migration_63_is_unit_progress() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == 63)
+            .expect("migration 63 is in the list");
+        assert_eq!(step.description, "unit progress");
+        assert!(BEFORE_UNIT_PROGRESS_VERSION < step.version);
     }
 
     /// The migration right after `BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION` is 65.

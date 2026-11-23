@@ -1,13 +1,14 @@
 <!--
   The head of a course's left column: its icon, name and description, a
-  reserved slot for L2 "My progress", the trash button for editors, and the
-  course menu (edit / delete) for managers. Public sharing UI belongs to t5.
+  reserved slot for L2 "My progress", sharing/members, the trash button for
+  editors, and the course menu (edit / delete) for managers.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import PencilIcon from '@lucide/svelte/icons/pencil';
+  import Share2Icon from '@lucide/svelte/icons/share-2';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
@@ -21,11 +22,12 @@
     onEdit: () => void;
     onDelete: () => void;
     onTrash: () => void;
+    onShare?: (() => void) | undefined;
     /** Reserved header slot for L2 "My progress". */
     progress?: Snippet | undefined;
   }
 
-  let { course, onEdit, onDelete, onTrash, progress }: Props = $props();
+  let { course, onEdit, onDelete, onTrash, onShare, progress }: Props = $props();
 
   const title = $derived(course.course?.title || m.course_untitled());
   const actions = $derived<MenuAction[]>([
@@ -59,6 +61,17 @@
         </p>
       {/if}
     </div>
+    {#if onShare}
+      <IconButton
+        label={course.canManage ? m.shell_share() : m.share_members_title()}
+        data-testid="share-course"
+        aria-haspopup="dialog"
+        class="text-muted-foreground"
+        onclick={onShare}
+      >
+        <Share2Icon />
+      </IconButton>
+    {/if}
     {#if course.canEdit}
       <IconButton
         label={m.course_trash()}

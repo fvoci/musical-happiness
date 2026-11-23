@@ -2845,10 +2845,9 @@ async fn subscribed_block_ids(store: &Store, subscriber_id: &str) -> Vec<String>
     block_ids
 }
 
-/// The subscriptions to a block end when the block is deleted, on its own or along with
-/// the block it is on, and restoring the block does not bring them back.
+/// The subscriptions to a block pause in the trash, return on restore, and end on purge.
 #[tokio::test]
-async fn subscriptions_to_a_deleted_block_end_and_do_not_come_back() {
+async fn subscriptions_to_a_deleted_block_pause_in_trash_and_return_on_restore() {
     let test = common::setup().await;
     let store = &test.store;
     let Fixture {
@@ -2857,75 +2856,72 @@ async fn subscriptions_to_a_deleted_block_end_and_do_not_come_back() {
     let subscriber_id = common::user(store, "subscriber").await;
     let tree = insert_card_tree(&store.telling_nobody(), &board_id, &user_id).await;
     let card_id = id_of(&tree, "card");
+    let deepest_id = id_of(&tree, "deepest");
     let other_card_id = id_of(&tree, "other card");
 
-    // The card, a block that goes with it, and a card that stays. Two users subscribe to
-    // the card.
     for name in ["card", "deepest", "other card"] {
-        store
-            .create_subscription(subscription(block_named(&tree, name), &subscriber_id))
-            .await
-            .expect("the subscriber subscribes");
+        let sub = subscription(block_named(&tree, name), &subscriber_id);
+        store.create_subscription(sub).await.expect("subscribe");
     }
-    store
-        .create_subscription(subscription(block_named(&tree, "card"), &user_id))
-        .await
-        .expect("a second user subscribes to the card");
+    let second = subscription(block_named(&tree, "card"), &user_id);
+    store.create_subscription(second).await.expect("subscribe");
 
-    store
-        .delete_block(card_id, &user_id)
-        .await
-        .expect("the card is deleted");
-    let assert_ended = async |when: &str| {
-        for name in ["card", "deepest"] {
-            let block_id = id_of(&tree, name);
-            let error = store
-                .get_subscription(block_id, &subscriber_id)
-                .await
-                .expect_err("the subscription has ended");
-            assert!(
-                matches!(error, StoreError::NotFound(_)),
-                "the subscription to {name} is not found {when}: {error:?}"
-            );
-            let subscribers = store
-                .get_subscribers_for_block(block_id)
-                .await
-                .expect("the subscribers of a block are read");
-            assert!(
-                subscribers.is_empty(),
-                "{name} has no subscribers {when}: {subscribers:?}"
-            );
-        }
-        assert_eq!(
-            subscribed_block_ids(store, &subscriber_id).await,
-            [other_card_id],
-            "the subscription to the card that was not deleted is the one left {when}"
-        );
-        assert!(
-            subscribed_block_ids(store, &user_id).await.is_empty(),
-            "the second user has no subscription left {when}"
-        );
-    };
-    assert_ended("after the card was deleted").await;
+    store.delete_block(card_id, &user_id).await.expect("delete");
+    for block_id in [card_id, deepest_id] {
+        let err = store
+            .get_subscription(block_id, &subscriber_id)
+            .await
+            .expect_err("paused in trash");
+        assert!(err.is_not_found(), "{block_id}: {err:?}");
+        let subs = store
+            .get_subscribers_for_block(block_id)
+            .await
+            .expect("read");
+        assert!(subs.is_empty(), "{block_id}: {subs:?}");
+    }
+    assert_eq!(
+        subscribed_block_ids(store, &subscriber_id).await,
+        [other_card_id]
+    );
+    assert_eq!(
+        subscribed_block_ids(store, &user_id).await,
+        Vec::<String>::new()
+    );
 
     store
         .undelete_block(card_id, &user_id)
         .await
-        .expect("the card is restored");
-    existing_block(store, id_of(&tree, "deepest")).await;
-    assert_ended("after the card was restored").await;
-
-    // The restored block can be subscribed to like any other.
-    store
-        .create_subscription(subscription(block_named(&tree, "card"), &subscriber_id))
-        .await
-        .expect("the subscriber subscribes to the restored card");
-    let mut expected = strings([card_id, other_card_id]);
+        .expect("restore");
+    existing_block(store, deepest_id).await;
+    for (block_id, who) in [
+        (card_id, &subscriber_id),
+        (deepest_id, &subscriber_id),
+        (card_id, &user_id),
+    ] {
+        store
+            .get_subscription(block_id, who)
+            .await
+            .expect("restored");
+    }
+    let mut expected = strings([card_id, deepest_id, other_card_id]);
     expected.sort();
+    assert_eq!(subscribed_block_ids(store, &subscriber_id).await, expected);
+    assert_eq!(subscribed_block_ids(store, &user_id).await, [card_id]);
+
+    store
+        .delete_block(card_id, &user_id)
+        .await
+        .expect("re-delete");
+    store.purge_trash(i64::MAX).await.expect("purge trash");
+    let err = store.get_deleted_block(card_id).await.expect_err("purged");
+    assert!(err.is_not_found(), "got {err:?}");
     assert_eq!(
         subscribed_block_ids(store, &subscriber_id).await,
-        expected,
-        "the new subscription to the restored card is there"
+        [other_card_id]
+    );
+    assert_eq!(
+        subscribed_block_ids(store, &user_id).await,
+        Vec::<String>::new()
     );
 
     test.teardown().await;
@@ -3925,7 +3921,7 @@ async fn an_update_that_would_put_a_block_below_itself_is_refused() {
         ("text", "other card", MoveBy::Write),
         ("below", "", MoveBy::Patch),
         ("below", "", MoveBy::Write),
-        ("card", "text", MoveBy::Write),
+        ("card", "other card", MoveBy::Write),
     ] {
         let parent_id = if onto.is_empty() { "" } else { id(onto) };
         move_block(store, id(moved), parent_id, user_id, by)
@@ -3944,14 +3940,14 @@ async fn an_update_that_would_put_a_block_below_itself_is_refused() {
         names_with_parents(&moved),
         [
             ("below", ""),
-            ("card", "text"),
+            ("card", "other card"),
             ("other card", ""),
             ("text", "other card")
         ],
         "every block is where it was moved to, and the others where they were"
     );
 
-    // The card is now two levels below the other card.
+    // The card is now below the other card.
     for by in [MoveBy::Write, MoveBy::Patch] {
         let what = format!("moving the other card onto the card by {by:?}");
         let outcome = move_block(store, id("other card"), id("card"), user_id, by).await;

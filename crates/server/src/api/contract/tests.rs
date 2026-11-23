@@ -545,6 +545,7 @@ const ORDERS: &[(&str, &str)] = &[
     ("getFileVersions", "The newest first"),
     ("getInvitations", "The newest first"),
     ("getMembers", "By the identifier of the user"),
+    ("getMyCourseProgress", "ordered by `unitId`"),
     ("getMyIdentities", "Oldest first"),
     ("getMyMemberships", "By the identifier of the board"),
     ("getMyOrganizations", "Oldest first"),

@@ -58,9 +58,11 @@ impl App {
     /// The HTTP adapter releases this work only after handing off its response.
     ///
     /// Requests are limited by their address only, as logins are by theirs: a limit on
-    /// the email would lock its owner out for whoever asks in their name. What one
-    /// account is sent is limited after it is looked up, in the background, where the
-    /// answer cannot tell (`mail_reset_per_account_hour`).
+    /// the email would lock its owner out for whoever asks in their name. The hourly
+    /// limit (`mail_reset_per_account_hour`) and queue place are taken in the
+    /// background before looking up the account, and requests that mail nothing still
+    /// take their turn of the pace (`Queued::pass`), so neither the answer nor the
+    /// timing of later mail reveals whether an account with a password has that address.
     ///
     /// # Errors
     /// Returns 404 without mail, 400 for a malformed email, or 429 for too many
@@ -101,27 +103,16 @@ impl App {
         email: &str,
         requested: Option<Language>,
     ) -> Result<(), AppError> {
-        // An account that waits to be deleted is sent one as one in use is: the way back
-        // is signing in, which needs a password its person may have forgotten.
-        let user = match self.store().account_by_email(email).await {
-            Ok(user) => user,
-            Err(error) if error.is_not_found() => return Ok(()),
-            Err(error) => return Err(error.into()),
-        };
-        if user.password_hash.is_empty() {
-            return Ok(());
-        }
-        let settings = self.user_settings(&user.id).await?;
-        let language =
-            Language::first_of([Language::written_in(settings.language.as_str()), requested]);
-        // The answer was the same either way; a dropped message is told only here.
-        let queued = match self.inner.mail.queue_reset(&user.id) {
+        // Counted at the address, and in the queue, before anything is known of it:
+        // neither the hourly limit nor the pace's next turn tells whether an account
+        // with a password has this address.
+        let queued = match self.inner.mail.queue_reset(email) {
             Ok(queued) => queued,
             Err(reason) => {
                 match reason {
                     ResetMailDrop::AccountLimit => {
                         tracing::info!(
-                            "password recovery mail dropped: the account's hourly limit"
+                            "password recovery mail dropped: the address's hourly limit"
                         );
                     }
                     ResetMailDrop::QueueFull => {
@@ -132,6 +123,25 @@ impl App {
                 return Ok(());
             }
         };
+        // An account that waits to be deleted is sent one as one in use is: the way back
+        // is signing in, which needs a password its person may have forgotten.
+        let user = match self.store().account_by_email(email).await {
+            Ok(user) => user,
+            Err(error) if error.is_not_found() => {
+                // The turn of the pace a link would have taken is taken: how long the
+                // next message to anybody waits tells nothing either.
+                queued.pass(&self.inner.mail).await;
+                return Ok(());
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if user.password_hash.is_empty() {
+            queued.pass(&self.inner.mail).await;
+            return Ok(());
+        }
+        let settings = self.user_settings(&user.id).await?;
+        let language =
+            Language::first_of([Language::written_in(settings.language.as_str()), requested]);
         // The link is made once the message has its turn: its hour starts as it leaves.
         queued
             .deliver(

@@ -21,7 +21,8 @@ impl From<BlockError> for AppError {
             | BlockError::InvalidPageField { .. }
             | BlockError::InvalidEntryField { .. }
             | BlockError::InvalidUnitField { .. }
-            | BlockError::EntryDateChanges => Self::bad_request(error).with_field("fields"),
+            | BlockError::EntryDateChanges
+            | BlockError::TemplateCardHasChildren => Self::bad_request(error).with_field("fields"),
             BlockError::DayTaken { .. } => Self::conflict(error).with_reason(Reason::DayTaken),
             BlockError::TooManyEntries { limit } => Self::bad_request(error)
                 .with_reason(Reason::TooManyEntries)
@@ -37,12 +38,17 @@ impl From<BlockError> for AppError {
                 .with_reason(Reason::PageTooDeep)
                 .with_limit(u64::from(limit))
                 .with_field("parentId"),
+            BlockError::CardTooDeep { limit } => Self::bad_request(error)
+                .with_reason(Reason::CardTooDeep)
+                .with_limit(u64::from(limit))
+                .with_field("parentId"),
             BlockError::TooManyPages { limit } => Self::bad_request(error)
                 .with_reason(Reason::TooManyPages)
                 .with_limit(u64::from(limit)),
             BlockError::InvalidRelation(error) => Self::from(error),
             BlockError::TypeNotCurrent
             | BlockError::TypeStrandsComments
+            | BlockError::TypeStrandsCards
             | BlockError::PageByBlocks
             | BlockError::PageOffWiki
             | BlockError::NotPageOnWiki
@@ -59,7 +65,10 @@ impl From<BlockError> for AppError {
             | BlockError::PageNotBelowPage
             | BlockError::EntryBelowBlock
             | BlockError::UnitParentNotChapter
-            | BlockError::ChapterBelowBlock => Self::bad_request(error).with_field("parentId"),
+            | BlockError::ChapterBelowBlock
+            | BlockError::CardNotBelowCard
+            | BlockError::CardBelowTemplate
+            | BlockError::TemplateCardBelowBlock => Self::bad_request(error).with_field("parentId"),
             BlockError::EmptyContainerId => Self::from(anyhow::Error::from(error)),
         }
     }

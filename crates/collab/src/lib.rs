@@ -39,19 +39,21 @@ mod reading;
 mod repair;
 mod scan;
 mod schema;
+mod settle;
 mod take;
 mod update;
 
 pub use build::{from_body, from_body_by, new_doc};
 pub use doc::{
-    BodyDoc, BodyTakeError, Changed, StateCounts, client_changes, reading_steps, state_counts,
-    steps_ahead,
+    BodyDoc, BodyTakeError, Changed, SettleError, SettledDoc, StateCounts, client_changes,
+    reading_steps, state_counts, steps_ahead,
 };
 pub use repair::Repair;
+pub use settle::same_state;
 pub use take::{TakeError, Taken, from_state, take_update};
 pub use update::{
     MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, UpdateError, UpdateLimits,
-    same_state, state_of,
+    state_of,
 };
 pub use yrs;
 
@@ -183,14 +185,14 @@ pub mod testing {
         update: &[u8],
         limit: u64,
     ) -> Result<u64, UpdateError> {
-        let (sent, _) = crate::update::read(copy, update)?;
+        let (sent, _, _) = crate::update::read(copy, update)?;
         crate::update::charged(copy, (state, changes), (update, &sent), limit)
     }
 
     /// Whether two states are the same as [`crate::take_update`] tells it.
     #[must_use]
     pub fn same_state(one: &[u8], other: &[u8]) -> bool {
-        crate::update::same_state(one, other)
+        crate::settle::same_state(one, other)
     }
 
     /// The size of a body as its limit is measured.

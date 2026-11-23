@@ -7,10 +7,17 @@
  */
 import type { DocNode } from '../editor/schema.ts';
 
-import { isBackendError, type BodyDoc, type BodyDocState, type CourseUnit } from './backend.ts';
+import {
+  isBackendError,
+  isOwnSpace,
+  type BodyDoc,
+  type BodyDocState,
+  type CourseUnit,
+} from './backend.ts';
 import { BodyUploads } from './body-uploads.svelte.ts';
 import { REJOIN_SPACING, afterPutOut } from './card-parts.ts';
 import type { CourseStore } from './course.svelte.ts';
+import { UnitComments } from './unit-comments.svelte.ts';
 import { mentionedIn } from './user-names.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 
@@ -32,6 +39,9 @@ export class UnitStore {
   room = $state.raw<BodyDocState | undefined>(undefined);
   /** Reasons changes were dropped, each once, until dismissed. */
   lost = $state.raw<readonly string[]>([]);
+  /** Whether the reader is watching this unit for comment notifications (shared workspaces only). */
+  watching = $state<boolean | undefined>(undefined);
+  watchingBusy = $state(false);
 
   #readAt = 0;
   #bodyDoc: BodyDoc | undefined;
@@ -39,14 +49,27 @@ export class UnitStore {
   #rejoinedAt = -Infinity;
   #news: CourseUnit | undefined;
   #readings = 0;
+  #watchGen = 0;
   #shown = false;
 
+  readonly comments: UnitComments;
   readonly #bodyUploads: BodyUploads;
 
   constructor(course: CourseStore, unitId: string) {
     this.course = course;
     this.unitId = unitId;
+    this.comments = new UnitComments(course, unitId, () => {
+      if (this.canWatch) {
+        this.#watchGen += 1;
+        this.watching = true;
+      }
+    });
     this.#bodyUploads = new BodyUploads(() => this.course.workspace);
+  }
+
+  get canWatch(): boolean {
+    const { info, me } = this.course.workspace;
+    return Boolean(info?.id && me?.id && !isOwnSpace(info));
   }
 
   get #courseId(): string {
@@ -61,13 +84,58 @@ export class UnitStore {
 
   async load(): Promise<void> {
     this.status = 'loading';
-    await this.#readBody(true);
+    await Promise.all([this.#readBody(true), this.comments.read(true), this.#readWatch()]);
   }
 
-  /** Reads the body again after changes may have been missed (`resync`). */
+  /** Reads the body and comments again after changes may have been missed (`resync`). */
   async refresh(): Promise<void> {
-    if (this.status !== 'ready' || this.#busy()) return;
-    await this.#readBody(false);
+    if (this.status !== 'ready') return;
+    await Promise.all([
+      this.#busy() ? undefined : this.#readBody(false),
+      this.comments.read(false),
+    ]);
+  }
+
+  async #readWatch(): Promise<void> {
+    if (!this.canWatch) return;
+    const courses = this.course.workspace.backend.course;
+    const workspaceId = this.course.workspace.info?.id;
+    const meId = this.course.workspace.me?.id;
+    if (!courses || !workspaceId || !meId) return;
+    this.#watchGen += 1;
+    const gen = this.#watchGen;
+    try {
+      const ids = await courses.watching(workspaceId, meId);
+      if (!this.#closed && gen === this.#watchGen) this.watching = ids.includes(this.unitId);
+    } catch {
+      // Non-critical: the unit opens even if subscriptions could not be read.
+    }
+  }
+
+  async setWatching(next: boolean): Promise<void> {
+    if (!this.canWatch || this.watchingBusy) return;
+    const courses = this.course.workspace.backend.course;
+    const workspaceId = this.course.workspace.info?.id;
+    const meId = this.course.workspace.me?.id;
+    if (!courses || !workspaceId || !meId) return;
+    const before = this.watching;
+    this.#watchGen += 1;
+    this.watching = next;
+    this.watchingBusy = true;
+    try {
+      if (next) await courses.watchUnit(workspaceId, this.unitId, meId);
+      else await courses.unwatchUnit(workspaceId, this.unitId, meId);
+    } catch (error) {
+      if (this.#closed) return;
+      if (!next && isBackendError(error) && error.status === 404) {
+        this.watching = false;
+      } else {
+        this.watching = before;
+        this.course.workspace.report('save', error);
+      }
+    } finally {
+      this.watchingBusy = false;
+    }
   }
 
   async #readBody(first: boolean): Promise<void> {
@@ -89,8 +157,12 @@ export class UnitStore {
       this.#shown = true;
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
-      if (isBackendError(error) && (error.status === 404 || error.status === 403)) this.gone();
-      else if (first) {
+      if (isBackendError(error) && error.status === 401) {
+        if (first) this.status = 'failed';
+        this.course.workspace.report('load', error);
+      } else if (isBackendError(error) && (error.status === 404 || error.status === 403)) {
+        this.gone();
+      } else if (first) {
         this.status = 'failed';
         this.course.workspace.report('load', error);
       }
@@ -99,6 +171,7 @@ export class UnitStore {
 
   close(): void {
     this.#closed = true;
+    this.comments.close();
     this.closeBody();
     this.#bodyUploads.giveUp();
   }

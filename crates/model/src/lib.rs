@@ -52,6 +52,7 @@ mod subscription;
 mod table_grid;
 mod team;
 mod unit;
+mod unit_progress;
 mod upload;
 mod user;
 mod workspace;
@@ -82,7 +83,7 @@ pub use body_version::{
     BodyVersion, BodyVersionCause, BodyVersionContent, KeptBodyVersion, KeptOutcome,
     ParseBodyVersionCauseError,
 };
-pub use card::{CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview};
+pub use card::{CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview, MAX_CARD_DEPTH};
 pub use card_property::{
     CardPropertyError, DATE_PROPERTY_TYPE, PersonProperties, assigned_users,
     clear_values_of_another_kind, validate_block_properties, validate_card_property_definitions,
@@ -177,6 +178,10 @@ pub use team::{Team, TeamMember, TeamName, team_name, team_name_key};
 pub use unit::{
     CHAPTERS_PER_COURSE, COURSE_DEPTH, CourseLimits, DeletedUnit, NewUnit, NotUnitBlockError,
     UNITS_PER_COURSE, Unit, UnitKind, UnitMove, UnitNode, UnitPatch, sort_units,
+};
+pub use unit_progress::{
+    CompletionChange, CourseProgressSummary, LastPositionChange, MemberCourseProgress,
+    UNIT_PROGRESS_POSITION_MAX_CHARS, UnitProgress, UnitProgressChange, UnitProgressUpdate,
 };
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{LoginOrigin, Me, Session, User, UserPreferencesPatch};

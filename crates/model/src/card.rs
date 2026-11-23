@@ -15,6 +15,10 @@ use crate::refusal::{RefusalReason, Refusals};
 /// The member of a card's fields that holds its icon.
 pub(crate) const CARD_ICON_FIELD: &str = "icon";
 
+/// How deep a card hierarchy on a board may go: a top-level card is at depth 1,
+/// its child at depth 2, and its grandchild at depth 3.
+pub const MAX_CARD_DEPTH: u32 = 3;
+
 /// Errors from validating cards and converting them to and from blocks.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum CardError {
@@ -46,6 +50,10 @@ pub struct Card {
     pub id: String,
     /// The identifier of the board the card belongs to.
     pub board_id: String,
+    /// The identifier of the parent card on the same board; empty for a top-level card
+    /// (depth 1). A card template has no parent.
+    #[serde(default, deserialize_with = "deserialize_nullable_string")]
+    pub parent_id: String,
     /// The card's number on its board, as `#12` names it: from 1, one more for each card
     /// made on the board, never given again, also once the card is gone. A card keeps it
     /// while it is one; a copy and an import are new cards with new numbers, and a card
@@ -275,6 +283,7 @@ impl Card {
         let mut card = Self {
             id: block.id.clone(),
             board_id: block.container_id.clone(),
+            parent_id: block.parent_id.clone(),
             number: block.number,
             created_by: block.created_by.clone(),
             modified_by: block.modified_by.clone(),
@@ -299,8 +308,8 @@ impl Card {
 }
 
 impl From<Card> for Block {
-    /// Converts the card to a block of type `card` directly on the card's board: a block
-    /// without a parent.
+    /// Converts the card to a block of type `card` on the card's board, preserving its
+    /// `parent_id`.
     fn from(card: Card) -> Self {
         let mut fields = JsonMap::new();
         fields.insert(CARD_ICON_FIELD.to_owned(), Value::from(card.icon));
@@ -309,7 +318,7 @@ impl From<Card> for Block {
 
         Self {
             id: card.id,
-            parent_id: String::new(),
+            parent_id: card.parent_id,
             created_by: card.created_by,
             modified_by: card.modified_by,
             schema: 1,
@@ -331,6 +340,14 @@ impl From<Card> for Block {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CardPatch {
+    /// The new parent card identifier on the same board; `""` or `null` moves the card
+    /// to the top level (depth 1). Left out, the parent stays as it is.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_parent_id_patch"
+    )]
+    pub parent_id: Option<String>,
     /// The new title.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -392,6 +409,9 @@ impl CardPatch {
     /// Applies the patch to `card`: the updated properties are set, then the deleted ones
     /// removed.
     pub fn apply(&self, card: &mut Card) {
+        if let Some(parent_id) = &self.parent_id {
+            card.parent_id.clone_from(parent_id);
+        }
         if let Some(title) = &self.title {
             card.title.clone_from(title);
         }
@@ -442,6 +462,7 @@ impl CardPatch {
         }
 
         Ok(BlockPatch {
+            parent_id: self.parent_id.clone(),
             title: self.title.clone(),
             updated_fields,
             property_changes: self.property_changes(),
@@ -450,6 +471,26 @@ impl CardPatch {
             ..BlockPatch::default()
         })
     }
+}
+
+/// Deserializes a nullable string where `null` means the empty string.
+fn deserialize_nullable_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+/// Deserializes a nullable `parentId` in a patch: absent leaves the parent unchanged
+/// (`None`, via `#[serde(default)]`), while `null` or `""` moves the card to the top
+/// level (`Some("")`), and a string moves it below that parent.
+fn deserialize_parent_id_patch<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(
+        Option::<String>::deserialize(deserializer)?.unwrap_or_default(),
+    ))
 }
 
 /// What an icon of more than one grapheme cluster is refused with.

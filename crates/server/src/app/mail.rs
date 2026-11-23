@@ -97,7 +97,7 @@ pub(super) struct Mailer {
     /// Invitation messages per organization and hour, up to the organization's limit.
     org_quota: Arc<quota::HourlyQuota>,
     org_shares: Arc<share::OrgShares>,
-    /// Recovery messages per account and hour, up to `mail_reset_per_account_hour`.
+    /// Recovery messages per email address and hour, up to `mail_reset_per_account_hour`.
     reset_quota: Arc<quota::HourlyQuota>,
     /// Messages that confirm a registration's address, per address and hour, up to the
     /// same number; they go in the recovery queue.
@@ -210,15 +210,16 @@ impl Mailer {
         }
     }
 
-    /// Takes the place of one recovery message to the account `user_id` in its queue.
-    /// A message that finds no place counts nothing against the account's hour.
+    /// Takes the place of one recovery message to `email` (in any letter case) in its
+    /// queue, before the account is looked up. A message that finds no place counts
+    /// nothing against the address's hour.
     ///
     /// # Errors
-    /// Returns why the message is dropped: the account's hourly limit, asked first, or
-    /// a full queue.
-    pub(super) fn queue_reset(&self, user_id: &str) -> Result<Queued, ResetMailDrop> {
+    /// Returns why the message is dropped: the hourly limit, asked first, or a full queue.
+    pub(super) fn queue_reset(&self, email: &str) -> Result<Queued, ResetMailDrop> {
+        let key = email.to_lowercase();
         self.reset_quota
-            .take(user_id, 1, self.reset_per_hour, Instant::now(), || {
+            .take(&key, 1, self.reset_per_hour, Instant::now(), || {
                 Arc::clone(&self.reset_queue).try_acquire_owned()
             })
             .map(|place| Queued {
@@ -226,10 +227,7 @@ impl Mailer {
                 place,
                 org: None,
             })
-            .map_err(|refusal| match refusal {
-                quota::Refusal::Limit(_) => ResetMailDrop::AccountLimit,
-                quota::Refusal::Unplaced(_) => ResetMailDrop::QueueFull,
-            })
+            .map_err(|refusal| dropped(&refusal))
     }
 
     /// Takes the place of one message that confirms the address `email` of a
@@ -249,10 +247,7 @@ impl Mailer {
                 place,
                 org: None,
             })
-            .map_err(|refusal| match refusal {
-                quota::Refusal::Limit(_) => ResetMailDrop::AccountLimit,
-                quota::Refusal::Unplaced(_) => ResetMailDrop::QueueFull,
-            })
+            .map_err(|refusal| dropped(&refusal))
     }
 
     /// Counts one link the account `user_id` asks for in the account's hour, whatever
@@ -416,9 +411,7 @@ impl Queued {
     /// afterwards must not tell it from one that is sent. While the way is closed no
     /// message leaves to be timed, and the turn is left to one that may.
     pub(super) async fn pass(self, mailer: &Mailer) {
-        if !mailer.pace.is_closed() {
-            mailer.pace.turn(self.kind).await;
-        }
+        mailer.pace.pass_turn(self.kind).await;
     }
 }
 

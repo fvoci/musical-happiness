@@ -33,6 +33,7 @@ import {
   type CardStore,
   type KeptBodyVersion,
   type PageStore,
+  type UnitStore,
 } from '$lib/state/index.ts';
 
 import { VersionComparing } from './version-compare.svelte.ts';
@@ -109,6 +110,22 @@ export function pageVersions(page: PageStore): VersionsSource {
     writable: () => page.room?.writable ?? false,
     opening: () => opening(page),
     current: () => bodyNow(page.room, page.body),
+  };
+}
+
+/** The versions of a unit's body, for a backend that has courses. */
+export function unitVersions(unit: UnitStore): VersionsSource {
+  const courses = unit.course.workspace.backend.course;
+  if (!courses) throw new Error('this backend has no courses');
+  return {
+    workspace: unit.course.workspace,
+    versions: courses.bodyVersions,
+    ownerId: unit.course.courseId,
+    itemId: unit.unitId,
+    settle: () => unit.settleBody(),
+    writable: () => unit.room?.writable ?? false,
+    opening: () => opening(unit),
+    current: () => bodyNow(unit.room, unit.body),
   };
 }
 

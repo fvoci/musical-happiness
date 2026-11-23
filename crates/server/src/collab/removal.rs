@@ -57,15 +57,16 @@ impl Collab {
 
     /// Writes pending bodies before the trash snapshot, then closes the deleted rooms.
     /// The task owns the entire operation even when its HTTP caller goes away.
-    pub(crate) async fn remove<W, F>(
+    pub(crate) async fn remove<T, W, F>(
         &self,
         app: &App,
         deletion: Deletion,
         remove: W,
-    ) -> Result<(), AppError>
+    ) -> Result<T, AppError>
     where
+        T: Send + 'static,
         W: FnOnce(App) -> F + Send + 'static,
-        F: Future<Output = Result<(), AppError>> + Send + 'static,
+        F: Future<Output = Result<T, AppError>> + Send + 'static,
     {
         let (collab, scoped) = (self.clone(), app.clone());
         app.spawn_tracked(async move { collab.remove_held(&scoped, deletion, remove).await })
@@ -109,15 +110,15 @@ impl Collab {
         }
     }
 
-    async fn remove_held<W, F>(
+    async fn remove_held<T, W, F>(
         &self,
         app: &App,
         deletion: Deletion,
         remove: W,
-    ) -> Result<(), AppError>
+    ) -> Result<T, AppError>
     where
         W: FnOnce(App) -> F,
-        F: Future<Output = Result<(), AppError>>,
+        F: Future<Output = Result<T, AppError>>,
     {
         // A block that holds no card (a comment, a view) takes no document along: the
         // organization's documents do not wait for it.
@@ -129,7 +130,7 @@ impl Collab {
         self.write_deleted(app, &card_ids).await;
         #[cfg(feature = "test-util")]
         self.paused_at(DeletionStage::BeforeRemoving).await;
-        remove(app.clone()).await?;
+        let result = remove(app.clone()).await?;
         // Mark and detach the old rooms before new document work can begin. A restored
         // card may open a new room while the old connections are still being told.
         let rooms = self.detach_deleted_rooms(app, &card_ids);
@@ -143,7 +144,7 @@ impl Collab {
         #[cfg(feature = "test-util")]
         self.paused_at(DeletionStage::AfterRemoving).await;
         self.finish_deleted_rooms(rooms).await;
-        Ok(())
+        Ok(result)
     }
 
     /// Writes to the cards about to be deleted what their documents hold and they do

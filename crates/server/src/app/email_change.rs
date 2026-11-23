@@ -249,7 +249,7 @@ impl App {
     /// their connections close, and its password is taken nowhere until it is set
     /// anew ([`fvoci_store::Store::revert_email_change`] says what else goes). The
     /// address it had until then is told. Returns the address the account has again,
-    /// or none where somebody else had it by now and the account kept the one it had.
+    /// or none where somebody else had it by now and the account's address was cleared.
     ///
     /// # Errors
     ///
@@ -273,6 +273,7 @@ impl App {
         tracing::info!(
             user_id = %reverted.user_id,
             restored = reverted.restored.is_some(),
+            unlinked_identities = reverted.unlinked_identities,
             "a link gave an account the address it had back"
         );
         self.broadcast_person_change_in_background(reverted.user_id.clone());
@@ -436,12 +437,13 @@ impl App {
     }
 }
 
-/// Whether the address an account had until a link gave it another back is told so:
-/// where there was one, and the account has another now.
+/// Whether the address an account had before a revert link was used is told so:
+/// where there was one, and it is no longer the account's address (restored to
+/// another, or cleared).
 fn is_told(reverted: &EmailReverted) -> bool {
     !reverted.before.is_empty()
         && reverted
             .restored
             .as_deref()
-            .is_some_and(|now| !now.eq_ignore_ascii_case(&reverted.before))
+            .is_none_or(|now| !now.eq_ignore_ascii_case(&reverted.before))
 }

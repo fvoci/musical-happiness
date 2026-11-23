@@ -8,10 +8,12 @@ import type { Container, ContainerMember } from '../../logic/wire.ts';
 import type { DeletedItem, Paging } from '../backend.ts';
 
 import { categoriesIn, tellCategories } from './categories.ts';
+import { checkCardRestore } from './card-hierarchy.ts';
+import { mayRemoveComments, type Role } from './comments.ts';
 import { checkDiaryRoom } from './diary-places.ts';
 import { pageOf } from './paging.ts';
 import { fail } from './refuse.ts';
-import type { World } from './world.ts';
+import type { StoredBlock, World } from './world.ts';
 
 /** Where a board was filed for one person: the category, the place in it, hidden or not. */
 export interface ContainerPlace {
@@ -233,4 +235,53 @@ export function takeContainerBack(world: World, userId: string, containerId: str
     tellCategories(world, person, deleted.container.workspaceId);
   }
   return deleted.container;
+}
+
+/** Collects `root` and every block below it in `world`, parents before children. */
+export function subtreeOf(world: World, root: StoredBlock): StoredBlock[] {
+  const gone: StoredBlock[] = [];
+  const collect = (parent: StoredBlock): void => {
+    gone.push(parent);
+    for (const child of world.childrenOf(parent.id)) collect(child);
+  };
+  collect(root);
+  return gone;
+}
+
+/**
+ * Takes a block and what went with it out of the trash, as the server does:
+ * a comment at the top by the comment's rule, anything else by an editor's,
+ * only under a living parent. Marks each block as modified by `userId` now.
+ */
+export function takeBlockBack(
+  world: World,
+  userId: string,
+  boardId: string,
+  blockId: string,
+  memberRole: () => Role,
+  ensureBoard: () => void,
+): StoredBlock[] {
+  const deleted = world.deletedBlocks.get(blockId);
+  if (deleted?.containerId !== boardId) fail(404, 'no such block in the trash');
+  const top = deleted.blocks[0];
+  if (top?.type !== 'comment') {
+    mayManageCards(world, userId, boardId, 'access denied to undelete block');
+  } else if (!mayRemoveComments(memberRole(), userId, deleted)) {
+    fail(403, "access denied to undelete other users' comments");
+  }
+  let reroot = false;
+  if (top?.type === 'card') {
+    reroot = checkCardRestore(world, boardId, deleted.blocks);
+  } else if (top?.parentId && !world.blocks.has(top.parentId)) {
+    fail(404, 'the parent of the block is gone');
+  }
+  ensureBoard();
+  world.deletedBlocks.delete(blockId);
+  if (reroot && top) top.parentId = '';
+  for (const block of deleted.blocks) {
+    block.updateAt = world.now();
+    block.modifiedBy = userId;
+    world.blocks.set(block.id, block);
+  }
+  return deleted.blocks;
 }

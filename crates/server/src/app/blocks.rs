@@ -8,7 +8,11 @@ use crate::collab::Deletion;
 use crate::error::AppError;
 
 /// Whether the people a change to a block newly names (those its body mentions, those
-/// a card is given to) are told of it. Bulk operations suppress it.
+/// a card is given to) are told of it. A client that writes again what was said before
+/// (a copy, a change taken back or made again, via `disableNotify`) suppresses it while
+/// its writer watches what it writes new all the same ([`Self::Suppress`]); a bulk copy
+/// from another board (`sourceBoardId`) tells nobody and makes nobody watch
+/// ([`Self::Copied`]).
 ///
 /// Websocket broadcasts and webhooks are not notifications: they happen either way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -16,8 +20,11 @@ pub enum ChangeNotification {
     /// Report the change.
     #[default]
     Send,
-    /// Do not report the change.
+    /// Do not report the change (`disableNotify`): tell nobody, while the writer still
+    /// watches newly written cards, pages or comments.
     Suppress,
+    /// Bulk copy from another board (`sourceBoardId`): tell nobody and make nobody watch.
+    Copied,
 }
 
 /// What happened to a block, as the notification service names it.
@@ -44,7 +51,8 @@ impl App {
     fn store_telling(&self, notification: ChangeNotification) -> fvoci_store::Store {
         match notification {
             ChangeNotification::Send => self.store().clone(),
-            ChangeNotification::Suppress => self.store().telling_nobody(),
+            ChangeNotification::Suppress => self.store().quietly(),
+            ChangeNotification::Copied => self.store().telling_nobody(),
         }
     }
 
@@ -365,18 +373,31 @@ impl App {
         let block = self.store().get_block(block_id).await?;
         let container = self.store().get_container(&block.container_id).await?;
         let (removed, by) = (block_id.to_owned(), modified_by.to_owned());
-        self.collab()
+        let deleted = self
+            .collab()
             .remove(self, Deletion::Block(removed.clone()), async move |app| {
-                Ok(app.store().delete_block(&removed, &by).await?)
+                Ok(app.store().delete_block_family(&removed, &by).await?)
             })
             .await?;
         log_notification(notification, ChangeAction::Delete, block_id);
 
         let app = self.clone();
+        // Always broadcast the deleted block; for cards, also broadcast descendant cards
+        // that went to the trash along with it so board clients drop sub-cards too.
+        let child_card_ids: Vec<String> = deleted
+            .into_iter()
+            .filter(|each| each.id != block.id && each.block_type == BlockType::Card)
+            .map(|each| each.id)
+            .collect();
         self.spawn_background(async move {
             app.ws()
                 .broadcast_block_delete(&container.workspace_id, &block.id, &block.container_id)
                 .await;
+            for child_id in &child_card_ids {
+                app.ws()
+                    .broadcast_block_delete(&container.workspace_id, child_id, &block.container_id)
+                    .await;
+            }
         });
         Ok(())
     }
@@ -444,12 +465,16 @@ impl App {
 
     /// Restores a block from the trash, with everything that was deleted along with
     /// it, and returns the block; websocket listeners and webhooks are told in the
-    /// background.
+    /// background for every restored block. A top-level card in the deletion whose parent
+    /// card is no longer live is re-rooted to the top level.
     ///
     /// # Errors
     ///
     /// Returns a not-found error if the block is not in the trash or has nothing to
-    /// come back to: its board, or the block it was on, does not exist.
+    /// come back to: its board, or (for non-card blocks) the block it was on, does not
+    /// exist. Returns a conflict error if a card cannot be restored under its live parent
+    /// (for example, because the parent became a template or the subtree would exceed
+    /// [`fvoci_model::MAX_CARD_DEPTH`]).
     pub async fn undelete_block(
         &self,
         block_id: &str,
@@ -457,29 +482,40 @@ impl App {
     ) -> Result<Block, AppError> {
         let restored = {
             let _structure = self.collab().changing_structure(self).await;
-            self.store().undelete_block(block_id, modified_by).await
+            self.store()
+                .undelete_block_family(block_id, modified_by)
+                .await
         };
-        let block = match restored {
-            Ok(block) => block,
+        let restored = match restored {
+            Ok(blocks) => blocks,
             Err(error) if error.is_not_found() => return Err(AppError::not_found("block")),
             Err(error) => return Err(error.into()),
         };
+        let block = restored
+            .iter()
+            .find(|each| each.id == block_id)
+            .cloned()
+            .ok_or_else(|| AppError::not_found("block"))?;
         let container = self.store().get_container(&block.container_id).await?;
         // An undeletion is always reported; there is no flag for it.
         log_notification(ChangeNotification::Send, ChangeAction::Add, block_id);
 
         let app = self.clone();
-        let restored = block.clone();
+        let root_id = block_id.to_owned();
         self.spawn_background(async move {
-            app.ws()
-                .broadcast_block_change(&container.workspace_id, &restored)
-                .await;
-            app.tell_webhooks(&restored).await;
+            for each in &restored {
+                if each.id == root_id || each.block_type == BlockType::Card {
+                    app.ws()
+                        .broadcast_block_change(&container.workspace_id, each)
+                        .await;
+                    app.tell_webhooks(each).await;
+                }
+            }
         });
         Ok(block)
     }
 
-    /// Copies a block of a board and its direct children, except comments, under new
+    /// Copies a block of a board and its descendants, except comments, under new
     /// identifiers, gives copied images, file blocks and attachments files of their own,
     /// and returns the copies, the copy of the block itself first. Websocket listeners are told in
     /// the background; webhooks are not told about duplicates.
@@ -496,12 +532,15 @@ impl App {
         duplicate_as: DuplicateAs,
     ) -> Result<Vec<Block>, AppError> {
         let container = self.store().get_container(container_id).await?;
-        // The card and the cards below it, which are copied with it.
+        // The card and all descendant cards below it, which are copied with it.
         let mut sources = vec![block_id.to_owned()];
         sources.extend(
-            self.blocks(container_id, Some(block_id), Some(&BlockType::Card))
+            self.blocks_below(block_id)
                 .await?
                 .into_iter()
+                .filter(|child| {
+                    child.container_id == container_id && child.block_type == BlockType::Card
+                })
                 .map(|child| child.id),
         );
         self.collab().write_bodies(self, &sources).await?;

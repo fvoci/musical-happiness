@@ -104,7 +104,8 @@ interface BlockWays<T, P> {
   show: (block: T) => void;
   /** Shows what the backend says of a block (unless what is shown is newer). */
   answered: (block: T) => void;
-  send: (id: string, patch: P, own: (key: string) => boolean) => Promise<T>;
+  /** Sends a write: a `quiet` one was said before (undo, redo), and tells nobody of it. */
+  send: (id: string, patch: P, own: (key: string) => boolean, quiet: boolean) => Promise<T>;
 }
 
 /** The writes of a board's cards, or of its views: by identifier, as `BoardWrites` for the board. */
@@ -135,8 +136,12 @@ export class BlockWrites<T extends { id: string; updateAt: number }, P extends o
     return () => this.#inverses.ready(reverse);
   }
 
-  /** Shows `patch` on the block and sends it; on refusal takes back what is still its own. */
-  async write(id: string, patch: P, reverse: P): Promise<void> {
+  /**
+   * Shows `patch` on the block and sends it; on refusal takes back what is
+   * still its own. A `quiet` write was said before (undo, redo): it tells
+   * nobody whom it names.
+   */
+  async write(id: string, patch: P, reverse: P, quiet = false): Promise<void> {
     const ways = this.#ways;
     const current = ways.shown(id);
     if (!current) return;
@@ -149,7 +154,7 @@ export class BlockWrites<T extends { id: string; updateAt: number }, P extends o
         id,
         written,
         reverse,
-        (own) => ways.send(id, written, own),
+        (own) => ways.send(id, written, own, quiet),
         (refused) => {
           restore = refused;
         },
@@ -228,6 +233,7 @@ export function patchCardOrStored(
   cardId: string,
   patch: CardPatch,
   own: (key: string) => boolean,
+  quiet = false,
 ): Promise<CardSummary> {
   const { backend } = store.workspace;
   return answeredOrStored(
@@ -239,7 +245,7 @@ export function patchCardOrStored(
       updatedProperties: card.fields.properties,
     }),
     {
-      send: () => backend.patchCard(store.boardId, cardId, patch),
+      send: () => backend.patchCard(store.boardId, cardId, patch, quiet ? { quiet } : undefined),
       read: async () => {
         const { body: _body, ...card } = await backend.card(store.boardId, cardId);
         return card;
@@ -278,8 +284,8 @@ export function cardWritesOf(store: BoardStore): BlockWrites<CardSummary, CardPa
       store.cards = take(store.cards, card);
       store.openCard?.cardChanged(card);
     },
-    send: (cardId: string, patch: CardPatch, own: (key: string) => boolean) =>
-      patchCardOrStored(store, cardId, patch, own),
+    send: (cardId: string, patch: CardPatch, own: (key: string) => boolean, quiet: boolean) =>
+      patchCardOrStored(store, cardId, patch, own, quiet),
   });
 }
 

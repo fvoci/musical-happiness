@@ -31,6 +31,7 @@ import {
   type CardDraft,
   type CardPatch,
   type CardSummary,
+  type CardTelling,
   type Category,
   type CategoryDraft,
   type CategoryPatch,
@@ -78,9 +79,9 @@ import { readableBlob, readableFile, storeUpload } from './files.ts';
 import { userFound, usersAmong, usersNamed } from './users.ts';
 import { changeName, keepSettings, settingsOf } from './account.ts';
 import { archiveOf, exportableContainers, readArchive } from './archive.ts';
-import { checkedBody, checkedComment, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
+import { checkedComment, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, MemoryReferences } from './references.ts';
-import { numberBlock } from './card-numbers.ts';
+import { checkArchiveCards, checkCardParent, storeNewCard } from './card-hierarchy.ts';
 import { MemoryContentSearch } from './content-search.ts';
 import { MemoryNotifications, noteComment } from './notifications.ts';
 import { searchBoardsOf } from './search.ts';
@@ -92,6 +93,8 @@ import {
   deletion,
   mayManageCards,
   placesOf,
+  subtreeOf,
+  takeBlockBack,
   takeContainerBack,
 } from './trash.ts';
 import type { StoredBlock, StoredCard, StoredView, World } from './world.ts';
@@ -174,18 +177,11 @@ export class MemoryBackend implements Backend {
     }
   }
 
-  /** Of `kind` where asked; `shared`: board/wiki/course; `linked`: board/wiki only. */
-  #container(
-    containerId: string,
-    kind: ContainerKind | 'any' | 'shared' | 'linked' = 'any',
-  ): Container {
+  /** Of `kind` where asked; `shared`: board/wiki/course (not diary). */
+  #container(containerId: string, kind: ContainerKind | 'any' | 'shared' = 'any'): Container {
     const board = this.world.containers.get(containerId);
     const found = board?.kind ?? 'board';
-    const ok =
-      kind === 'any' ||
-      (kind === 'shared' && found !== 'diary') ||
-      (kind === 'linked' && found !== 'diary' && found !== 'course') ||
-      found === kind;
+    const ok = kind === 'any' || (kind === 'shared' && found !== 'diary') || found === kind;
     return board && ok ? board : fail(404, 'no board');
   }
 
@@ -515,6 +511,7 @@ export class MemoryBackend implements Backend {
     const { containers, blocks } = await readArchive(file);
     options?.onProgress?.({ sentBytes: file.size, totalBytes: file.size });
     checkDiariesComing(this.world, this.userId, workspaceId, { containers, blocks });
+    checkArchiveCards(containers, blocks);
     for (const board of containers) {
       this.#insertContainer(
         board,
@@ -599,13 +596,13 @@ export class MemoryBackend implements Backend {
 
   async sharing(id: string): Promise<Sharing> {
     await this.#enter('sharing');
-    this.#container(id, 'linked');
+    this.#container(id, 'shared');
     return copy(this.world.sharing.get(id) ?? { enabled: false, token: '' });
   }
 
   async setSharing(id: string, change: SharingChange): Promise<Sharing> {
     await this.#enter('setSharing');
-    this.#container(id, 'linked');
+    this.#container(id, 'shared');
     const before = this.world.sharing.get(id);
     const token =
       !before?.token || change.regenerate ? this.world.newId().replaceAll('-', '') : before.token;
@@ -726,25 +723,23 @@ export class MemoryBackend implements Backend {
   async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
     await this.#enter('createCard');
     const board = this.#container(boardId, 'board');
-    const block = this.#newBlock(boardId, '', 'card');
-    block.title = draft.title ?? '';
-    block.fields = {
-      icon: draft.icon ?? '',
-      isTemplate: draft.isTemplate ?? false,
-      properties: copy(draft.properties ?? {}),
-    };
-    block.body = checkedBody(this.world, boardId, draft.body ?? null);
-    checkRelations(this.world, board, block, undefined, 'properties');
-    numberBlock(this.world, block);
-    this.world.blocks.set(block.id, block);
-    this.#tellBlocks(boardId, [block]);
-    return this.#commented(summaryOf(block as StoredCard));
+    const block = this.#newBlock(boardId, draft.parentId ?? '', 'card');
+    const stored = storeNewCard(this.world, board, block, draft);
+    this.#tellBlocks(boardId, [stored]);
+    return this.#commented(summaryOf(stored));
   }
 
-  async patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
+  /** Tells nobody of a change of a card, quiet or not: only comments are told here. */
+  async patchCard(
+    boardId: string,
+    cardId: string,
+    patch: CardPatch,
+    _telling?: CardTelling,
+  ): Promise<CardSummary> {
     await this.#enter('patchCard');
     const before = this.#block(boardId, cardId, 'card') as StoredCard;
     const card = applyCardPatch(before, patch);
+    checkCardParent(this.world, boardId, card, card.parentId, false, before);
     checkRelations(this.world, this.#container(boardId), card, before, 'updatedProperties');
     this.world.blocks.set(cardId, card);
     this.#touch(card);
@@ -853,12 +848,7 @@ export class MemoryBackend implements Backend {
     await this.#enter('deleteBlock');
     const block = this.#block(boardId, blockId);
     // Everything under it goes along, at every depth.
-    const gone: StoredBlock[] = [];
-    const collect = (parent: StoredBlock): void => {
-      gone.push(parent);
-      for (const child of this.world.childrenOf(parent.id)) collect(child);
-    };
-    collect(block);
+    const gone = subtreeOf(this.world, block);
     const entry = { containerId: boardId, blocks: gone, ...deletion(this) };
     if (block.type === 'comment' && !mayRemoveComments(this.#roleOn(boardId), this.userId, entry)) {
       fail(403, "access denied to delete other users' comments");
@@ -874,27 +864,17 @@ export class MemoryBackend implements Backend {
 
   async restoreBlock(boardId: string, blockId: string): Promise<void> {
     await this.#enter('restoreBlock');
-    const deleted = this.world.deletedBlocks.get(blockId);
-    if (deleted?.containerId !== boardId) fail(404, 'no such block in the trash');
-    // A comment at the top of the deletion comes back by the comment's rule, anything else by an editor's.
-    const top = deleted.blocks[0];
-    const card = top?.type !== 'comment';
-    if (card) mayManageCards(this.world, this.userId, boardId, 'access denied to undelete block');
-    else if (!mayRemoveComments(this.#memberRole(boardId), this.userId, deleted))
-      fail(403, "access denied to undelete other users' comments");
-    const parent = top?.parentId;
-    // A block comes back only under a living parent, or with none.
-    if (parent && !this.world.blocks.has(parent)) {
-      fail(404, 'the parent of the block is gone');
-    }
-    this.#container(boardId);
-    this.world.deletedBlocks.delete(blockId);
-    for (const block of deleted.blocks) {
-      // As the server: whoever restores is the last to change each block, now.
-      this.#touch(block);
-      this.world.blocks.set(block.id, block);
-    }
-    this.#tellBlocks(boardId, deleted.blocks);
+    const restored = takeBlockBack(
+      this.world,
+      this.userId,
+      boardId,
+      blockId,
+      () => this.#memberRole(boardId),
+      () => {
+        this.#container(boardId);
+      },
+    );
+    this.#tellBlocks(boardId, restored);
   }
 
   async deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]> {

@@ -26,7 +26,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use fvoci_collab::testing::{
-    changes_of, charged, placing_steps, projected, same_state, size_of, to_body, with_update,
+    changes_of, charged, placing_steps, projected, size_of, to_body, with_update,
 };
 use fvoci_collab::{
     BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, UpdateLimits,
@@ -165,27 +165,15 @@ impl Passes {
     }
 }
 
-/// The document of a state, read as the crate reads one: into a new document, with no
-/// change left waiting.
-fn applied(state: yrs::Update) -> Doc {
-    let doc = new_doc();
-    {
-        let mut txn = doc.transact_mut();
-        txn.apply_update(state)
-            .expect("a state the crate wrote applies");
-        assert!(!txn.has_missing_updates(), "no change is left waiting");
-    }
-    doc
-}
-
 /// Takes `update` into `doc` in place as [`BodyDoc::take_in_place`] does an update that
 /// needs no repair, one pass at a time, and the passes the worker makes after it
 /// (`collab_worker/serve.rs`); with the state and the body of the document it leaves.
 ///
 /// Passes 1–4 of the old copy-first take (`state_of`, `scan`, `decode`, `apply to copy`)
-/// are gone: the update is charged against the held `doc` and cached `prior_state` /
-/// `prior_changes`, applied in place, and the held `doc` is dropped before the settled
-/// read-back.
+/// and Passes 7–10 of the per-update settle re-read (`drop`, `decode`, `apply`,
+/// `state_of`, `same_state`) are gone: live updates charge against the cached prior
+/// state, apply in place, encode once, and count steps/origins in place while settle
+/// re-reads run only at open, fold, and close.
 fn take_by_passes(
     doc: Doc,
     prior_state: &[u8],
@@ -220,27 +208,7 @@ fn take_by_passes(
         read_steps <= READING_STEPS,
         "read within its steps: {read_steps}"
     );
-    passes.time("the held document dropped before read-back", take, || {
-        drop(doc);
-    });
-    let read = passes.time("7. decode", take, || decode(&state));
-    let mut again = passes.time("8. apply", take, || applied(read));
-    let mut state_again = passes.time("9. state_of again", take, || state_of(&again));
-    let same = passes.time("10. same_state", take, || same_state(&state_again, &state));
-    if !same {
-        // `settled_sized` reads what the first reading wrote once more.
-        (again, state_again) = passes.time("6–10 again: read twice", take, || {
-            reading_steps(&state_again, READING_STEPS).expect("a state");
-            drop(again);
-            let twice = applied(decode(&state_again));
-            let settled = state_of(&twice);
-            assert!(same_state(&settled, &state_again), "it reads to itself");
-            (twice, settled)
-        });
-    }
-    let json = passes.time("11. projection", take, || {
-        projected(&again).expect("a body")
-    });
+    let json = passes.time("11. projection", take, || projected(&doc).expect("a body"));
     let body = passes.time("12. Body::parse", take, || {
         json.map(|json| Body::parse(json).expect("a body").expect("not empty"))
     });
@@ -254,12 +222,12 @@ fn take_by_passes(
         })
     });
     passes.time("Request::Body: to_body and JSON", Paid::ByTheWorker, || {
-        to_body(&again)
+        to_body(&doc)
             .expect("a body")
             .map(|body| serde_json::to_vec(body.document()).expect("JSON"))
     });
-    passes.time("settled document dropped", Paid::ByTheWorker, || {
-        drop(again);
+    passes.time("held document dropped", Paid::ByTheWorker, || {
+        drop(doc);
     });
     passes.0.push((
         if cheap {
@@ -270,7 +238,7 @@ fn take_by_passes(
         Paid::Told,
         Duration::ZERO,
     ));
-    (passes, state_again, body)
+    (passes, state, body)
 }
 
 /// How long each pass of an ordinary in-place take takes, for the shapes of [`PASSED`]:
@@ -364,7 +332,7 @@ fn passes() {
             rest[0],
             rest[RUNS - 1]
         );
-        row("with_update (copy+1–10)", Paid::Told, of(|whole| whole.1));
+        row("with_update (copy+1–6)", Paid::Told, of(|whole| whole.1));
     }
 }
 

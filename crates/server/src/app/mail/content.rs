@@ -89,22 +89,22 @@ impl Content {
         Self::link(subject, &intro, ending, link, language)
     }
 
-    /// The notice to the address the account `username` had until a link mailed to an
-    /// address before gave it that one back. It names nothing of the address the
-    /// account has now, and carries no link.
+    /// The notice to the address the account `username` had until a revert link mailed
+    /// to an earlier address was used. It names nothing of the address the account has
+    /// now (nor whether the earlier address was restored or cleared), and carries no link.
     pub(crate) fn email_reverted(username: &str, language: Language) -> Self {
         let (subject, said, ending) = match language {
             Language::English => (
-                "The email address of your fvoci account was given back",
+                "The email address of your fvoci account was changed back",
                 format!(
-                    "The email address of the fvoci account {username} was given back to the one it had before, by the link mailed there. This address is no longer the account's, the account was signed out everywhere, and its password works no more until it is reset."
+                    "A link mailed to an earlier address of the fvoci account {username} was used to undo an email change. This address is no longer the account's, the account was signed out everywhere, and its password works no more until it is reset."
                 ),
                 "If you did not ask for this, whoever reads the account's earlier address did: ask an administrator of your organization, or the operator of the server, for help.",
             ),
             Language::Korean => (
-                "fvoci 계정의 이메일 주소가 되돌려졌습니다",
+                "fvoci 계정의 이메일 주소 변경이 되돌려졌습니다",
                 format!(
-                    "예전 주소로 보낸 링크로 fvoci 계정 {username}의 이메일 주소가 예전 주소로 되돌려졌습니다. 이 주소는 더 이상 계정의 주소가 아니고, 계정은 모든 기기에서 로그아웃되었으며, 비밀번호는 재설정할 때까지 쓸 수 없습니다."
+                    "예전 주소로 보낸 링크로 fvoci 계정 {username}의 이메일 주소 변경이 되돌려졌습니다. 이 주소는 더 이상 계정의 주소가 아니고, 계정은 모든 기기에서 로그아웃되었으며, 비밀번호는 재설정할 때까지 쓸 수 없습니다."
                 ),
                 "요청한 적이 없다면 계정의 예전 주소를 읽는 사람이 한 것입니다. 조직의 관리자나 서버 운영자에게 도움을 요청하세요.",
             ),

@@ -508,12 +508,13 @@ async fn a_mention_typed_by_one_of_several_is_told_as_theirs_and_ones_own_is_not
 
 /// Makes a card of the board that names the user in its body and by its person
 /// property, as one of those of the board `source_id`: with `sourceBoardId`.
-async fn made_from_another_board(client: &Client, board_id: &str, source_id: &str, user_id: &str) {
+async fn made_from_another_board(th: &TestServer, board_id: &str, source_id: &str, user_id: &str) {
     let mut card = crate::blocks::new_block(board_id, BlockType::Card, "Made from");
     card.body = fvoci_model::Body::parse(mentioning(&[user_id])).expect("a body");
     card.fields
         .insert("properties".to_owned(), json!({OWNER: user_id}));
-    client
+    let made: Vec<Block> = th
+        .client
         .post(
             &format!(
                 "{}?sourceBoardId={source_id}",
@@ -522,7 +523,16 @@ async fn made_from_another_board(client: &Client, board_id: &str, source_id: &st
             &[card],
         )
         .await
-        .check_created();
+        .created_json();
+    assert_eq!(
+        th.app
+            .store()
+            .get_subscribers_for_block(&made[0].id)
+            .await
+            .expect("the watchers are read"),
+        [],
+        "blocks made from another board's make nobody watch them"
+    );
 }
 
 /// What is no person's own words tells nobody: a write that asks for it, a copy of a
@@ -568,7 +578,7 @@ async fn copies_restores_and_quiet_writes_tell_nobody_and_a_body_only_whom_it_ne
 
     // Blocks made from those of another board, as a board is from a template.
     let source = board_with_owner(&th, ContainerType::Private).await;
-    made_from_another_board(&th.client, &board.id, &source.id, &b.id).await;
+    made_from_another_board(&th, &board.id, &source.id, &b.id).await;
     assert_eq!(
         waiting().await,
         0,

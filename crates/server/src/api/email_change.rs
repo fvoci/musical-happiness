@@ -265,8 +265,8 @@ impl std::fmt::Debug for RevertEmailChange {
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 struct RevertedEmailChange {
     /// The address the account has again: the one the link was mailed to. Left out
-    /// where another account or a registration had it by then, and the account kept
-    /// the address it had.
+    /// where another account or a registration had it by then, and the account's
+    /// email address was cleared instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     email: Option<String>,
 }
@@ -281,12 +281,16 @@ struct RevertedEmailChange {
 ///
 /// - the address the link was mailed to is the account's again and is answered as
 ///   `email`, unless another account or a registration has it by now: then the
-///   account keeps the address it has, and `email` is left out;
+///   account's email address is cleared (so the address set after this change can no
+///   longer recover the account, and an operator helps recover it), and `email` is
+///   left out;
 /// - every session of the account ends, and its live connections close;
 /// - the account's password is locked: `login`, and every request that asks for the
 ///   password, refuses it as a wrong one, until a new one is set through a reset link
-///   (`requestPasswordReset`, mailed to the address the account has) or by the
-///   operator. Sign-ins through a provider go on as they did, and open no more;
+///   (`requestPasswordReset`, mailed to the restored address) or by the operator;
+/// - any single sign-on identity linked to the account after this link was created is
+///   removed; identities already linked at or before that time stay and sign in as
+///   they did, opening no more;
 /// - the change of address that waited ends, and so do the account's reset links and
 ///   the links of this kind mailed after this one. Those mailed before it stand.
 ///
@@ -311,7 +315,7 @@ struct RevertedEmailChange {
     security(()),
     request_body = RevertEmailChange,
     responses(
-        (status = 200, description = "The account's sessions ended and its password is locked, and it has the address back unless `email` is left out.", body = RevertedEmailChange),
+        (status = 200, description = "The account's sessions ended, its password is locked, and later-linked SSO identities were removed; it has the address back, or its email address was cleared when `email` is left out.", body = RevertedEmailChange),
         (
             status = 429,
             description = "Too many requests from where this one comes from.",

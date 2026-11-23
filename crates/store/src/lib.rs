@@ -17,6 +17,7 @@ mod body_digest;
 mod body_docs;
 mod body_links;
 mod body_versions;
+mod card_hierarchy;
 mod card_numbers;
 mod card_values;
 mod categories;
@@ -83,6 +84,7 @@ mod teams;
 #[cfg(feature = "test-util")]
 pub mod testing;
 mod trash;
+mod unit_progress;
 mod uploads;
 mod users;
 mod users_by_id;
@@ -107,7 +109,9 @@ pub use blocks::{
 };
 pub use body_digest::body_digest;
 pub use body_docs::{DocAsRead, LoggedUpdate, StoredDoc};
-pub use body_versions::{BodyBefore, ByHand, DEFAULT_BODY_VERSIONS_KEPT, KeptVersion};
+pub use body_versions::{
+    BodyBefore, ByHand, DEFAULT_BODY_VERSIONS_KEPT, DEFAULT_BODY_VERSIONS_MAX_BYTES, KeptVersion,
+};
 pub use category_containers::{ContainerPlace, ContainerVisibility};
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
@@ -162,6 +166,7 @@ pub use signups::{
     Confirmed, Proof, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS, Signup, SignupLookup,
     SignupStart, Started,
 };
+pub use subscriptions::WatchedBlock;
 pub use trash::{DeletedBlock, DeletedContainer, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
@@ -275,7 +280,7 @@ pub struct PoolStatus {
 pub struct Store {
     inner: Arc<Inner>,
     tenant: Tenant,
-    /// Whom what this handle writes notes to be told ([`Store::telling_nobody`]).
+    /// Whom what this handle writes notes to be told ([`Store::telling_nobody`], [`Store::quietly`]).
     noting: db::Noting,
 }
 
@@ -290,6 +295,8 @@ struct Inner {
     search_outbox: std::sync::atomic::AtomicBool,
     /// See [`Store::set_body_versions_kept`].
     body_versions_kept: std::sync::atomic::AtomicU32,
+    /// See [`Store::set_body_versions_max_bytes`].
+    body_versions_max_bytes: std::sync::atomic::AtomicU64,
     /// See [`Store::set_file_versions_kept`].
     file_versions_kept: std::sync::atomic::AtomicU32,
     /// Who is told about the calls; see [`Store::observe`].
@@ -451,6 +458,9 @@ impl Store {
                 body_versions_kept: std::sync::atomic::AtomicU32::new(
                     body_versions::DEFAULT_BODY_VERSIONS_KEPT,
                 ),
+                body_versions_max_bytes: std::sync::atomic::AtomicU64::new(
+                    body_versions::DEFAULT_BODY_VERSIONS_MAX_BYTES,
+                ),
                 file_versions_kept: std::sync::atomic::AtomicU32::new(
                     file_versions::DEFAULT_FILE_VERSIONS_KEPT,
                 ),
@@ -493,12 +503,24 @@ impl Store {
     }
 
     /// A handle to the same database whose writes of blocks note nothing to tell
-    /// anybody: for a write that is not its writer's own words (a version of a body
-    /// brought back), and for one whose writer asked for that.
+    /// anybody, and make nobody watch anything: for a write that is not its writer's
+    /// own words (a version of a body brought back).
     #[must_use]
     pub fn telling_nobody(&self) -> Self {
         Self {
             noting: db::Noting::Nobody,
+            ..self.clone()
+        }
+    }
+
+    /// A handle to the same database whose writes of blocks note nothing to tell
+    /// anybody, as their writer asked (`disableNotify`): what is written was said
+    /// before, a copy or a change taken back or made again. Who writes a card, a page
+    /// or a comment watches it all the same, as any writer does; nobody else comes to.
+    #[must_use]
+    pub fn quietly(&self) -> Self {
+        Self {
+            noting: db::Noting::Quietly,
             ..self.clone()
         }
     }

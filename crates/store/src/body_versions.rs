@@ -4,10 +4,11 @@
 //! The server keeps a card's body as a version when it changed since the newest one
 //! ([`Store::keep_body_version`]): which body that is, and when, is the server's to
 //! say (`crates/server/src/collab`); the store tells a body that is kept already by its
-//! digest, numbers the versions, and keeps the newest
-//! ([`Store::set_body_versions_kept`]). A card in the trash keeps its rows; they go when
-//! the card is gone for good ([`forget_gone_blocks`]). The files the kept versions show
-//! are not collected ([`crate::file_refs`]).
+//! digest, numbers the versions, and keeps the newest within both the count and byte
+//! budgets ([`Store::set_body_versions_kept`], [`Store::set_body_versions_max_bytes`]).
+//! A card in the trash keeps its rows; they go when the card is gone for good
+//! ([`forget_gone_blocks`]). The files the kept versions show are not collected
+//! ([`crate::file_refs`]).
 //!
 //! Each version says how it came to be kept ([`BodyVersionCause`]): by an editor who
 //! asked for it ([`Store::keep_body_version_by_hand`]), as the body a version was gone
@@ -33,6 +34,11 @@ use crate::{blocks, containers};
 
 /// How many versions of a card's body the store keeps unless told otherwise.
 pub const DEFAULT_BODY_VERSIONS_KEPT: u32 = 50;
+
+/// Maximum total uncompressed serialized JSON bytes of kept body versions per card
+/// unless told otherwise: 64 MiB (16 versions at the 4 MiB [`fvoci_model::BODY_MAX_BYTES`]
+/// limit; bounds per-card disk growth even if the per-body limit increases later).
+pub const DEFAULT_BODY_VERSIONS_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The version of [`body_version_editors`] rows for who wrote since the newest version.
 pub(crate) const PENDING: i64 = 0;
@@ -95,6 +101,15 @@ impl Store {
         self.inner
             .body_versions_kept
             .store(kept.max(1), Ordering::Relaxed);
+    }
+
+    /// Sets the byte budget for all kept versions of a card's body combined, in
+    /// uncompressed serialized JSON bytes. At least one byte. Counts for the versions
+    /// kept after; the newest version is always kept even if it alone exceeds the budget.
+    pub fn set_body_versions_max_bytes(&self, max_bytes: u64) {
+        self.inner
+            .body_versions_max_bytes
+            .store(max_bytes.max(1), Ordering::Relaxed);
     }
 
     /// Keeps the body a card holds as a version, and gives the number of the new
@@ -193,11 +208,12 @@ impl Store {
         .await
     }
 
-    /// How many versions are kept, for a scope that begins.
+    /// How many versions and body bytes are kept, for a scope that begins.
     pub(crate) fn versions_kept(&self) -> VersionsKept {
         VersionsKept {
             of_comments: u32::try_from(self.comment_versions_kept()).unwrap_or(u32::MAX),
             of_bodies: self.inner.body_versions_kept.load(Ordering::Relaxed),
+            body_max_bytes: self.inner.body_versions_max_bytes.load(Ordering::Relaxed),
         }
     }
 
@@ -462,18 +478,25 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
     } else {
         now_millis()
     };
-    let version = newest.map_or(1, |(version, _)| version + 1);
+    let version = newest.as_ref().map_or(1, |(version, _)| version + 1);
+    let body_json = block
+        .body
+        .as_ref()
+        .map(|doc| to_json_text(doc.document()))
+        .transpose()?;
+    let body_bytes = body_json
+        .as_deref()
+        .map_or(0_i64, |json| i64::try_from(json.len()).unwrap_or(i64::MAX));
     let files: Vec<&str> = block.body.as_ref().map(Body::file_ids).unwrap_or_default();
     let mut sql = scope.sql(
-        "INSERT INTO body_versions (block_id, version, body, body_digest, files, kept_at, cause) \
+        "INSERT INTO body_versions \
+         (block_id, version, body, body_bytes, body_digest, files, kept_at, cause) \
          VALUES (",
     );
     sql.bind(Id(&block.id))
         .push_bind(", ", version)
-        .push_bind(
-            ", ",
-            Param::opt_jsonb(block.body.as_ref().map(Body::document))?,
-        )
+        .push_bind(", ", Param::OptJsonb(body_json))
+        .push_bind(", ", body_bytes)
         .push_bind(", ", Param::Bytes(digest))
         .push_bind(", ", to_json_text(&files)?)
         .push_bind(", ", kept_at)
@@ -490,10 +513,15 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
         scope.execute(sql).await?;
     }
     let through = version.saturating_sub(scope.body_versions_kept());
-    let forgot_some = forget_past(scope, &block.id, through).await?;
+    let forgot_by_count = forget_past(scope, &block.id, through).await?;
+    let forgot_by_bytes = if newest.is_some() && scope.body_versions_kept() > 1 {
+        forget_over_budget(scope, &block.id, version).await?
+    } else {
+        false
+    };
     Ok(Kept {
         version: Some(version),
-        forgot_some,
+        forgot_some: forgot_by_count || forgot_by_bytes,
     })
 }
 
@@ -543,6 +571,44 @@ async fn forget_past(
         .push_bind(" AND version <= ", through);
     scope.execute(sql).await?;
     Ok(true)
+}
+
+/// Forgets the oldest versions of a card until the remaining versions' `body_bytes` sum
+/// to at most the store's byte budget, always keeping `newest` (even if it alone exceeds
+/// the budget). Returns whether any version was forgotten.
+async fn forget_over_budget(
+    scope: &mut Scope<'_>,
+    block_id: &str,
+    newest: i64,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT version, body_bytes FROM body_versions WHERE block_id = ");
+    sql.bind(Id(block_id)).push(" ORDER BY version DESC");
+    let versions: Vec<(i64, i64)> = scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| Ok((row.int(0)?, row.int(1)?)))
+        .collect::<Result<_, StoreError>>()?;
+    match budget_cutoff(&versions, newest, scope.body_versions_max_bytes()) {
+        Some(through) => forget_past(scope, block_id, through).await,
+        None => Ok(false),
+    }
+}
+
+/// The highest version number to forget (inclusive) so that the remaining versions'
+/// non-negative byte sizes sum to at most `max_bytes`, given `(version, body_bytes)`
+/// ordered newest first. `newest` is always kept, even when it alone exceeds `max_bytes`.
+fn budget_cutoff(versions_desc: &[(i64, i64)], newest: i64, max_bytes: u64) -> Option<i64> {
+    let mut kept_bytes = 0_u128;
+    let limit = u128::from(max_bytes);
+    for &(version, bytes) in versions_desc {
+        let size = u128::from(u64::try_from(bytes).unwrap_or(0));
+        kept_bytes += size;
+        if version < newest && kept_bytes > limit {
+            return Some(version);
+        }
+    }
+    None
 }
 
 /// Puts down who wrote a card's body since its newest version, besides those put down
@@ -621,4 +687,53 @@ pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), Stor
         scope.execute(sql).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::budget_cutoff;
+
+    #[test]
+    fn budget_cutoff_keeps_within_budget_and_never_drops_newest() {
+        assert_eq!(
+            budget_cutoff(&[(3, 40), (2, 30), (1, 30)], 3, 100),
+            None,
+            "exact fit keeps all versions"
+        );
+        assert_eq!(
+            budget_cutoff(&[(3, 40), (2, 30), (1, 31)], 3, 100),
+            Some(1),
+            "one byte over drops oldest version"
+        );
+        assert_eq!(
+            budget_cutoff(&[(3, 60), (2, 50), (1, 10)], 3, 100),
+            Some(2),
+            "exceeding at v2 drops v2 and older"
+        );
+        assert_eq!(
+            budget_cutoff(&[(1, 500)], 1, 100),
+            None,
+            "single version exceeding budget is kept"
+        );
+        assert_eq!(
+            budget_cutoff(&[(4, 120), (3, 0), (2, 50), (1, 0)], 4, 100),
+            Some(3),
+            "when newest exceeds budget, every older version is dropped"
+        );
+        assert_eq!(
+            budget_cutoff(&[(4, 60), (3, 40), (2, 0), (1, 50)], 4, 100),
+            Some(1),
+            "zero-byte version stays while cumulative total fits budget"
+        );
+        assert_eq!(
+            budget_cutoff(&[(2, i64::MAX), (1, i64::MAX)], 2, u64::MAX),
+            None,
+            "two i64::MAX entries fit inside u64::MAX"
+        );
+        assert_eq!(
+            budget_cutoff(&[(3, i64::MAX), (2, i64::MAX), (1, 2)], 3, u64::MAX),
+            Some(1),
+            "cumulative sum exceeding u64::MAX still prunes without saturating"
+        );
+    }
 }

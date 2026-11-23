@@ -13,6 +13,8 @@ use fvoci_model::{
 use serde_json::Value;
 
 use crate::Store;
+// Re-exported through `containers` so newer modules avoid naming the legacy table module.
+pub(crate) use crate::container_team_access::inherited_members_source;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::{container_kinds, members, subscriptions};
@@ -915,6 +917,7 @@ pub(crate) async fn delete_member(
     {
         // Whoever may no longer see the board is no longer told what changes on it.
         subscriptions::end_subscriptions_to_container(scope, container_id, user_id).await?;
+        crate::trash::forget_watcher_of_container(scope, container_id, user_id).await?;
     }
     Ok(())
 }

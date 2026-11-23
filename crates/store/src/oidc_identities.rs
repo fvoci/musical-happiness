@@ -3,7 +3,8 @@
 //! Signing in through a provider, and the provider itself, are in `oidc.rs`.
 
 use crate::Store;
-use crate::db::{Dialect, Id, now_millis};
+use crate::db::{Dialect, Id, Scope};
+use crate::email_revert;
 use crate::error::StoreError;
 use crate::oidc::Identity;
 use crate::sessions;
@@ -107,6 +108,10 @@ impl Store {
                     None => Err(LinkRefusal::AnotherAddress),
                 });
             }
+            // Later than any revert link of the account, also one made in the same
+            // millisecond: reverting a change made before this link always removes
+            // identities tied after it.
+            let created = email_revert::after_latest(scope, &user_id, link.now).await?;
             // Tied unless it is somebody's already, in one statement: of two links of
             // one identity at once the second waits for the first and ties nothing, and
             // the transaction goes on to read whose it is.
@@ -117,7 +122,7 @@ impl Store {
                 .push_bind(", ", identity.subject)
                 .push_bind(", ", Id(&user_id))
                 .push_bind(", ", provider_email)
-                .push_bind(", ", now_millis())
+                .push_bind(", ", created)
                 .push(") ON CONFLICT (issuer, subject) DO NOTHING");
             let newly = scope.execute(sql).await? > 0;
             let mut sql = scope.sql("SELECT user_id FROM user_identities WHERE issuer = ");
@@ -232,12 +237,56 @@ impl Store {
         identity: Identity<'_>,
         provider_email: &str,
     ) -> Result<(), StoreError> {
+        self.add_identity_at(user_id, identity, provider_email, crate::db::now_millis())
+            .await
+    }
+
+    /// Ties an identity to an account at `create_at` (milliseconds since the Unix
+    /// epoch). For tests that verify ordering against other timestamps.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Conflict`] if the identity is an account's already, and
+    /// [`StoreError::Database`] if the statement fails.
+    #[cfg(any(test, feature = "test-util"))]
+    pub async fn add_identity_at(
+        &self,
+        user_id: &str,
+        identity: Identity<'_>,
+        provider_email: &str,
+        create_at: i64,
+    ) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
-            crate::oidc::insert_identity(scope, identity, user_id, provider_email, now_millis())
-                .await
+            crate::oidc::insert_identity(scope, identity, user_id, provider_email, create_at).await
         })
         .await
     }
+}
+
+/// The latest `create_at` among identities tied to `user_id`, if any exists.
+pub(crate) async fn latest_create_at(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<Option<i64>, StoreError> {
+    let mut latest = scope.sql("SELECT MAX(create_at) FROM user_identities WHERE user_id = ");
+    latest.bind(Id(user_id));
+    match scope.fetch_optional(latest).await? {
+        Some(row) => row.opt_int(0),
+        None => Ok(None),
+    }
+}
+
+/// Removes every identity tied to `user_id` strictly after `after` (milliseconds since
+/// the Unix epoch) and returns how many were removed; identities tied at or before
+/// `after` stay.
+pub(crate) async fn remove_linked_after(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    after: i64,
+) -> Result<u64, StoreError> {
+    let mut sql = scope.sql("DELETE FROM user_identities WHERE user_id = ");
+    sql.bind(Id(user_id)).push_bind(" AND create_at > ", after);
+    scope.execute(sql).await
 }
 
 /// An identity tied to an account, as it is stored.

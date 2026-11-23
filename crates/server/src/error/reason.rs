@@ -226,6 +226,8 @@ reasons! {
     SearchUnavailable => "search_unavailable", "Search unavailable";
     /// A page would be deeper in its wiki than the organization's limit.
     PageTooDeep => "page_too_deep", "Page too deep";
+    /// A card, or a sub-card below it, would be deeper on its board than the limit.
+    CardTooDeep => "card_too_deep", "Card too deep";
     /// The wiki would have more pages than the organization's limit.
     TooManyPages => "too_many_pages", "Too many pages in the wiki";
     /// The day of the diary has an entry: one that would come back from the trash finds

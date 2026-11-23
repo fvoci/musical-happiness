@@ -154,6 +154,74 @@ async fn the_server_keeps_as_many_versions_as_it_is_set_to() {
     th.teardown().await;
 }
 
+/// The server prunes the oldest versions once their combined serialized JSON size
+/// exceeds `body_versions_max_bytes`, while always keeping the newest version even if it
+/// alone exceeds the budget.
+#[tokio::test]
+async fn the_server_prunes_versions_to_fit_the_byte_budget() {
+    const BUDGET: u64 = 320;
+    let sample = paragraphs(&["first version with some padding text"]);
+    let one_bytes =
+        u64::try_from(serde_json::to_string(&sample).expect("json").len()).expect("fits u64");
+    assert!(
+        one_bytes * 2 <= BUDGET && one_bytes * 3 > BUDGET,
+        "budget {BUDGET} fits two copies of {one_bytes} bytes, not three"
+    );
+    let th = Setup::native()
+        .configure(|config| config.collab.body_versions_max_bytes = BUDGET)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let e = editing(&th, &sample).await;
+    write_whole(
+        &th.client,
+        &e.card_id,
+        &paragraphs(&["second version with some padding text"]),
+    )
+    .await;
+    write_whole(
+        &th.client,
+        &e.card_id,
+        &paragraphs(&["third version with some padding text"]),
+    )
+    .await;
+    let kept = versions(&th.client, &e.card_id).await;
+    assert_eq!(
+        kept.iter()
+            .map(|version| &version["version"])
+            .collect::<Vec<_>>(),
+        [3, 2],
+        "byte budget pruned version 1 while keeping versions 3 and 2"
+    );
+    edit_and_leave(&e, &e.app, &e.user2, "typed").await;
+    let kept = versions(&th.client, &e.card_id).await;
+    assert_eq!(
+        kept.iter()
+            .map(|version| &version["version"])
+            .collect::<Vec<_>>(),
+        [4, 3],
+        "collaborative version keep also enforces the byte budget"
+    );
+    // A single body larger than the budget still keeps itself as the newest version.
+    let oversized = "x".repeat(usize::try_from(BUDGET + 256).expect("fits usize"));
+    write_whole(&th.client, &e.card_id, &paragraphs(&[&oversized])).await;
+    let kept = versions(&th.client, &e.card_id).await;
+    assert_eq!(
+        kept.iter()
+            .map(|version| &version["version"])
+            .collect::<Vec<_>>(),
+        [5],
+        "newest version survives even when larger than the budget"
+    );
+    assert_eq!(
+        lines(&th.client, &e.card_id, &kept[0]).await,
+        [oversized],
+        "oversized newest version reads back intact"
+    );
+    th.teardown().await;
+}
+
 /// A server that is stopped keeps what the editors of its open documents typed as
 /// versions before it ends: the server that starts after it finds them kept.
 #[tokio::test]

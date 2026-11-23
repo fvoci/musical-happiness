@@ -327,6 +327,12 @@ fn describe_page_tree(reason: Reason) -> Option<&'static str> {
              restored or duplicated. `errors` names `/parentId` when a page is made or moved; a \
              restore and a copy name no parent. Nothing was changed."
         }
+        Reason::CardTooDeep => {
+            "Status 400. The card, or the lowest sub-card below it, would be deeper on its board \
+             than the limit (`limit`, 3: top-level card is depth 1, child is depth 2, grandchild \
+             is depth 3): when a card is made, moved, or imported. `errors` names `/parentId`. \
+             Nothing was changed."
+        }
         Reason::TooManyPages => {
             "Status 400. The wiki would have more pages than the organization's limit, which \
              `limit` tells (`wiki_pages`, 5000 unless configured; pages in the trash are not \

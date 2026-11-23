@@ -754,6 +754,10 @@
               "null"
             ]
           },
+          "parentId": {
+            "description": "The identifier of the parent card on the same board; empty for a top-level card\n(depth 1). A card template has no parent.",
+            "type": "string"
+          },
           "preview": {
             "oneOf": [
               {
@@ -805,6 +809,7 @@
           "lastCommentAt",
           "modifiedBy",
           "number",
+          "parentId",
           "properties",
           "tasksDone",
           "tasksTotal",
@@ -845,6 +850,13 @@
           },
           "icon": {
             "description": "The new icon; at most one grapheme.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentId": {
+            "description": "The new parent card identifier on the same board; `\"\"` or `null` moves the card\nto the top level (depth 1). Left out, the parent stays as it is.",
             "type": [
               "string",
               "null"
@@ -1495,6 +1507,29 @@
         "required": [
           "blocks",
           "containers"
+        ],
+        "type": "object"
+      },
+      "CourseProgressSummary": {
+        "description": "Course-wide progress summary across all active members.",
+        "properties": {
+          "members": {
+            "description": "Per-member completion counts for active course members, ordered by `userId`.",
+            "items": {
+              "$ref": "#/components/schemas/MemberCourseProgress"
+            },
+            "type": "array"
+          },
+          "totalUnits": {
+            "description": "Total number of currently live units in the course. Chapters and trashed units are\nexcluded.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "members",
+          "totalUnits"
         ],
         "type": "object"
       },
@@ -2681,6 +2716,26 @@
         ],
         "description": "The user of a session, as their own account is answered to them: the user, and what\nnobody else is told of the account."
       },
+      "MemberCourseProgress": {
+        "description": "Aggregate completion count of one active course member.\n\nIntentionally omits unit identifiers, completion timestamps, planned dates, and last\npositions so personal learning details are never disclosed to other members.",
+        "properties": {
+          "completedUnits": {
+            "description": "Number of currently live units in the course completed by this member.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "userId": {
+            "description": "Identifier of the active course member.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "completedUnits",
+          "userId"
+        ],
+        "type": "object"
+      },
       "MemberRoles": {
         "description": "The roles a member of a board is to have. A role that is left out is taken away, and\na member with no role may do nothing on the board, not even view it.",
         "properties": {
@@ -2896,6 +2951,13 @@
           "isTemplate": {
             "description": "Whether the card is a template.",
             "type": "boolean"
+          },
+          "parentId": {
+            "description": "The identifier of the parent card on the same board; left out, empty, or `null`\nfor a top-level card (depth 1). At most three levels deep; templates cannot have a\nparent or sub-cards.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "properties": {
             "additionalProperties": true,
@@ -4700,6 +4762,11 @@
             "type": "/problems/page-too-deep"
           },
           {
+            "reason": "card_too_deep",
+            "title": "Card too deep",
+            "type": "/problems/card-too-deep"
+          },
+          {
             "reason": "too_many_pages",
             "title": "Too many pages in the wiki",
             "type": "/problems/too-many-pages"
@@ -4904,7 +4971,7 @@
         "description": "What became of the address of an account a link was used for.",
         "properties": {
           "email": {
-            "description": "The address the account has again: the one the link was mailed to. Left out\nwhere another account or a registration had it by then, and the account kept\nthe address it had.",
+            "description": "The address the account has again: the one the link was mailed to. Left out\nwhere another account or a registration had it by then, and the account's\nemail address was cleared instead.",
             "type": [
               "string",
               "null"
@@ -5534,6 +5601,68 @@
           },
           "title": {
             "description": "The new title.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "UnitProgress": {
+        "description": "One learner's personal progress on a single unit.",
+        "properties": {
+          "completedAt": {
+            "description": "Completion time in milliseconds since the Unix epoch; `null` if not completed.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lastPosition": {
+            "description": "Optional last read or watched position string, at most 256 characters.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plannedDate": {
+            "description": "Optional personal target date (`YYYY-MM-DD`), reserved for personal scheduling.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unitId": {
+            "description": "Identifier of the unit block.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "completedAt",
+          "lastPosition",
+          "plannedDate",
+          "unitId",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "UnitProgressUpdate": {
+        "additionalProperties": false,
+        "description": "Request body for updating the caller's personal progress on a unit.\n\nOmitted members leave the stored value untouched. Sending `completed: true` on an\nalready completed unit preserves its original `completedAt` timestamp. Sending\n`lastPosition: null` (or a whitespace-only string) clears the stored position.",
+        "properties": {
+          "completed": {
+            "description": "Set `true` to mark completed (idempotent), `false` to mark incomplete, or omit to\nleave unchanged (`null` is refused).",
+            "type": "boolean"
+          },
+          "lastPosition": {
+            "description": "Last read or watched position (at most 256 characters, no control characters).\nOmit to keep unchanged, or send `null` to clear.",
             "type": [
               "string",
               "null"
@@ -6600,7 +6729,7 @@
     },
     "/api/v1/email-change/revert": {
       "post": {
-        "description": "Consumes the token of the link mailed, with the notice of `confirmEmailChange`, to\nthe address the account had until then (`<server_url>/revert-email#<token>`, for\nseven days from the change, used once): for the owner of an account whose address\nwas moved by somebody who knew the password. No session is needed and none is made.\nOpening the page of the link changes nothing; this request does, all of it at once:\n\n- the address the link was mailed to is the account's again and is answered as\n  `email`, unless another account or a registration has it by now: then the\n  account keeps the address it has, and `email` is left out;\n- every session of the account ends, and its live connections close;\n- the account's password is locked: `login`, and every request that asks for the\n  password, refuses it as a wrong one, until a new one is set through a reset link\n  (`requestPasswordReset`, mailed to the address the account has) or by the\n  operator. Sign-ins through a provider go on as they did, and open no more;\n- the change of address that waited ends, and so do the account's reset links and\n  the links of this kind mailed after this one. Those mailed before it stand.\n\nThe address the account had until then is mailed a notice that names nothing of\nthe address it has now. No reset link is mailed by this request.\n\nWhile a link stands, the address it was mailed to is held for the account: another\naccount's change of address, `register` and `acceptInvitation` are answered as for\nan address an account has. Nothing ends a link but its use, its seven days and the\nerasing of the account: not a newer change of address, nor taking a change back,\nnor a password changed, set or reset, nor asking to delete the account.\n\nA token that is missing, used, ended, of a link mailed after one that was used, or\nof an account that is being erased, is 400 naming `token` in `errors`, and changes\nnothing: which of them it was is not said. Requests are counted by where they come\nfrom, as registrations are, and too many are 429.",
+        "description": "Consumes the token of the link mailed, with the notice of `confirmEmailChange`, to\nthe address the account had until then (`<server_url>/revert-email#<token>`, for\nseven days from the change, used once): for the owner of an account whose address\nwas moved by somebody who knew the password. No session is needed and none is made.\nOpening the page of the link changes nothing; this request does, all of it at once:\n\n- the address the link was mailed to is the account's again and is answered as\n  `email`, unless another account or a registration has it by now: then the\n  account's email address is cleared (so the address set after this change can no\n  longer recover the account, and an operator helps recover it), and `email` is\n  left out;\n- every session of the account ends, and its live connections close;\n- the account's password is locked: `login`, and every request that asks for the\n  password, refuses it as a wrong one, until a new one is set through a reset link\n  (`requestPasswordReset`, mailed to the restored address) or by the operator;\n- any single sign-on identity linked to the account after this link was created is\n  removed; identities already linked at or before that time stay and sign in as\n  they did, opening no more;\n- the change of address that waited ends, and so do the account's reset links and\n  the links of this kind mailed after this one. Those mailed before it stand.\n\nThe address the account had until then is mailed a notice that names nothing of\nthe address it has now. No reset link is mailed by this request.\n\nWhile a link stands, the address it was mailed to is held for the account: another\naccount's change of address, `register` and `acceptInvitation` are answered as for\nan address an account has. Nothing ends a link but its use, its seven days and the\nerasing of the account: not a newer change of address, nor taking a change back,\nnor a password changed, set or reset, nor asking to delete the account.\n\nA token that is missing, used, ended, of a link mailed after one that was used, or\nof an account that is being erased, is 400 naming `token` in `errors`, and changes\nnothing: which of them it was is not said. Requests are counted by where they come\nfrom, as registrations are, and too many are 429.",
         "operationId": "revertEmailChange",
         "requestBody": {
           "content": {
@@ -6621,7 +6750,7 @@
                 }
               }
             },
-            "description": "The account's sessions ended and its password is locked, and it has the address back unless `email` is left out."
+            "description": "The account's sessions ended, its password is locked, and later-linked SSO identities were removed; it has the address back, or its email address was cleared when `email` is left out."
           },
           "429": {
             "content": {
@@ -11364,7 +11493,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator and the times. For editors.\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof other cards of the board, in the trash or not, each once, at most 50 (a value over\nit from before may be written with fewer of its cards, not with another). Any other is\n400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,\n`relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board\nthat is no card) or `relation_card_not_found`: no card of that identifier on the\nboard, which is also the answer for a card of another board. Every write of a card\nchecks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it\nchanges, and does not ask again for a card that a value named before.",
+        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof other cards of the board, in the trash or not, each once, at most 50 (a value over\nit from before may be written with fewer of its cards, not with another). Any other is\n400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,\n`relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board\nthat is no card) or `relation_card_not_found`: no card of that identifier on the\nboard, which is also the answer for a card of another board. Every write of a card\nchecks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it\nchanges, and does not ask again for a card that a value named before.",
         "operationId": "createCard",
         "parameters": [
           {
@@ -11693,7 +11822,7 @@
         ]
       },
       "patch": {
-        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card. The relation values it changes are checked as `createCard` says.",
+        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card. The relation values it changes are checked as `createCard` says.\n`parentId` reparents the card within the same board (empty or `null` moves it to the\ntop level; left out keeps its current parent), checked for cycles and maximum depth 3\nincluding any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).",
         "operationId": "patchCard",
         "parameters": [
           {
@@ -14381,6 +14510,113 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/progress": {
+      "get": {
+        "description": "Returns the caller's own personal progress rows for every live unit in the course,\nordered by `unitId`. Enrolled course members (including viewers and invited guests)\nand personal-space owners receive their own rows; an unjoined reader of an open course\nreceives an empty array `[]`. Other users' personal rows are never returned. Non-course\ncontainers and unreadable private courses answer 404.",
+        "operationId": "getMyCourseProgress",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UnitProgress"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The caller's progress rows for the course."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "My progress in a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/progress/summary": {
+      "get": {
+        "description": "Returns the total number of live units in the course (excluding chapters and trashed\nunits) and the completed live-unit count for each active course member, ordered by\n`userId`. Accounts that have been deleted, are pending deletion, or are no longer\nactive members of the workspace or course are excluded. Never discloses which units a\nmember completed, completion timestamps, planned dates, or last positions. Readable\nby anyone who can view the course (and the owner of a personal-space course);\nunreadable private courses and non-course containers answer 404.",
+        "operationId": "getCourseProgressSummary",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseProgressSummary"
+                }
+              }
+            },
+            "description": "Aggregate completion counts for active course members."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Progress summary of a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/courses/{courseId}/trash/units": {
       "get": {
         "description": "One page of the course's chapters and units that are in the trash, each with its\nidentifier, `kind`, title, the chapter it was below, when it was deleted, by whom,\nand (for a chapter) how many units below it went with it; `undeleteUnit` brings one\nback until the trash is emptied of it. A unit that went with its chapter comes back\nwith that chapter, and is not listed separately. For editors of the course. The last\ndeleted first; the pages cut that order.",
@@ -15504,6 +15740,77 @@
           }
         },
         "summary": "Move a unit or chapter",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/progress": {
+      "put": {
+        "description": "Creates or updates the caller's own progress row on a live unit of the course.\nEnrolled members of any role (viewer, commenter, editor, admin, including invited\nguests) and personal-space owners may record their own progress; an unjoined reader\nof an open course is refused with 403 until they join the course.\n\nSetting `completed: true` is idempotent and preserves an existing `completedAt`\ntimestamp. Setting `completed: false` clears `completedAt` to `null`. Omitting\n`completed` or `lastPosition` preserves the existing value; sending `lastPosition:\nnull` clears it. Personal progress writes never broadcast over websockets, never\nenter search indexes or archives, and emit no webhooks or audit logs. Chapters,\ntrashed units, units of another course, and non-course containers answer 404.",
+        "operationId": "putUnitProgress",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitProgressUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitProgress"
+                }
+              }
+            },
+            "description": "The updated personal progress row."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Record my progress on a unit",
         "tags": [
           "courses"
         ]
