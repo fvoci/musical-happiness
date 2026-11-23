@@ -27,7 +27,11 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// workspace that the user has a role on, their own or a team's, the pages of its open
 /// wikis and the units of its open courses for who works there (an open board they have
 /// not joined is not searched), and, in the workspace of the user's own space, the
-/// entries of its diaries, whose title and body together hold every word of `q`. The
+/// entries of its diaries, whose title and body together hold every word of `q`. When
+/// `q` is `#` followed only by ASCII digits (such as `#12`, or `#00012` normalized to
+/// `12`) and `kind` is omitted or `card`, it matches non-template cards across every
+/// readable board of the workspace whose `number` equals that positive integer; any
+/// other text (including non-digits mixed in) or other `kind` runs ordinary word search. The
 /// title of an entry is its day (`2026-11-21`). Chapters, comments, property values and
 /// attached files are not searched, and neither are templates. How words match depends
 /// on the server: with a search server, Korean is matched by its words, whatever
@@ -36,7 +40,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// or the body as it is written there, ASCII letters in either case ("환불" finds
 /// "환불규정을", "배포하다" does not find "배포합니다"). Each hit is the card, the page,
 /// the entry or the unit as it is now: its `kind`, its `title`, the container it is in
-/// (`containerId`, and `containerKind`, by which a client tells their addresses apart),
+/// (`containerId`, `containerKind`, and `containerTitle`, by which a client tells their
+/// addresses and names apart),
 /// and `snippet`, a piece of its body in stretches of plain text, those that matched
 /// marked; the snippet is empty for a body that changed a moment ago, or has nothing to
 /// show. The best match first (without a search server: those whose title holds every

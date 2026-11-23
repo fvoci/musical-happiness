@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use fvoci_model::{SearchHit, SearchKind};
-use fvoci_store::{Store, TextFound, TextSearch};
+use fvoci_store::{NumberSearch, Store, TextFound, TextSearch};
 
 use super::Search;
 use super::find::{Asked, Check, DEEPEST, Pages, found_hit, unavailable};
@@ -81,12 +81,21 @@ fn words(text: &str) -> Vec<String> {
     words
 }
 
+/// What a database search matches against: every word in title/body, or an exact card number.
+#[derive(Clone)]
+enum AskingFor {
+    Words {
+        words: Vec<String>,
+        kind: Option<SearchKind>,
+    },
+    CardNumber(u32),
+}
+
 /// What a search asks the database, owned: each page is asked in a task of its own.
 struct Asking {
     workspace_id: String,
     containers: Option<Vec<String>>,
-    kind: Option<SearchKind>,
-    words: Vec<String>,
+    target: AskingFor,
 }
 
 impl Asking {
@@ -116,18 +125,30 @@ impl Asking {
         let store = store.clone();
         let workspace_id = self.workspace_id.clone();
         let containers = self.containers.clone();
-        let kind = self.kind;
-        let words = self.words.clone();
+        let target = self.target.clone();
         let page = tokio::spawn(async move {
             let _turn = turn;
-            let search = TextSearch {
-                workspace_id: &workspace_id,
-                containers: containers.as_deref(),
-                kind,
-                words: &words,
-                begun: &sent,
-            };
-            store.search_text(&search, from, size, by).await
+            match target {
+                AskingFor::Words { words, kind } => {
+                    let search = TextSearch {
+                        workspace_id: &workspace_id,
+                        containers: containers.as_deref(),
+                        kind,
+                        words: &words,
+                        begun: &sent,
+                    };
+                    store.search_text(&search, from, size, by).await
+                }
+                AskingFor::CardNumber(number) => {
+                    let search = NumberSearch {
+                        workspace_id: &workspace_id,
+                        containers: containers.as_deref(),
+                        number,
+                        begun: &sent,
+                    };
+                    store.search_cards_by_number(&search, from, size, by).await
+                }
+            }
         });
         let late = || Late::after(&begun);
         // Getting a connection is waited for within the time too. The task keeps its turn
@@ -155,15 +176,20 @@ impl App {
         asked: &Asked,
         pages: &Pages<'_>,
     ) -> Result<Vec<SearchHit>, AppError> {
-        let words = words(&asked.text);
+        let target = match check.number {
+            Some(number) => AskingFor::CardNumber(number),
+            None => AskingFor::Words {
+                words: words(&asked.text),
+                kind: asked.kind,
+            },
+        };
         let asking = Asking {
             workspace_id: check.workspace_id.to_owned(),
             containers: match pages.containers {
                 Containers::Listed(ids) => Some(ids.to_vec()),
                 Containers::All => None,
             },
-            kind: asked.kind,
-            words: words.clone(),
+            target: target.clone(),
         };
         let size = i64::try_from(pages.size).unwrap_or(i64::MAX);
         let mut found = Vec::new();
@@ -175,14 +201,21 @@ impl App {
             {
                 Page::Ids(ids) => ids,
                 Page::Late(late) => {
-                    tracing::warn!(words = words.len(), "{}", late.said());
+                    let word_count = match &target {
+                        AskingFor::Words { words, .. } => words.len(),
+                        AskingFor::CardNumber(_) => 1,
+                    };
+                    tracing::warn!(words = word_count, "{}", late.said());
                     return Err(unavailable());
                 }
             };
             let more_may_match = ids.len() == pages.size;
             let kept = self.check_hits(check, ids, |id| id).await?;
             found.extend(kept.into_iter().map(|(_, document)| {
-                let snippet = snippet(&document.text, &words);
+                let snippet = match &target {
+                    AskingFor::Words { words, .. } => snippet(&document.text, words),
+                    AskingFor::CardNumber(_) => Vec::new(),
+                };
                 found_hit(document, snippet)
             }));
             from = from.saturating_add(size);

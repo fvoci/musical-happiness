@@ -12,6 +12,7 @@ use crate::Store;
 use crate::blocks::{self, BlockFilter, CopyChanges, CopyTitles, DuplicateAs, Written};
 use crate::body_versions::BodyWrite;
 use crate::card_values;
+use crate::container_membership;
 use crate::containers;
 use crate::db::{Dialect, Scope, now_millis};
 use crate::error::StoreError;
@@ -58,6 +59,12 @@ pub enum StreamCreateError<E> {
 enum StreamAbort<E> {
     Producer(E),
     Incomplete,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CreatorMembership {
+    AdminOnly,
+    AdminAndEditor,
 }
 
 /// The key of the PostgreSQL advisory lock that the replacement of the built-in
@@ -172,7 +179,7 @@ impl Store {
         containers: &mut [Container],
         user_id: &str,
         new_files: NewBodyFiles,
-        mut batches: tokio::sync::mpsc::Receiver<StreamBatch<E>>,
+        batches: tokio::sync::mpsc::Receiver<StreamBatch<E>>,
     ) -> Result<(), StreamCreateError<E>>
     where
         E: Send,
@@ -188,68 +195,67 @@ impl Store {
                     containers.iter().map(|container| container.id.as_str()),
                 )
                 .await?;
-                let now = now_millis();
-                let mut named = Vec::new();
-                let mut finished = false;
-                while let Some(next) = batches.recv().await {
-                    let mut batch = match next {
-                        StreamBatch::Batch(batch) => batch,
-                        StreamBatch::Done => {
-                            finished = true;
-                            break;
-                        }
-                        StreamBatch::Err(error) => {
-                            // Store the caller's error and return a sentinel `StoreError`
-                            // so `Store::transaction` rolls back; the match below replaces
-                            // this sentinel with `StreamCreateError::Producer(error)`.
-                            abort = Some(StreamAbort::Producer(error));
-                            return Err(StoreError::NoRows);
-                        }
-                    };
-                    if batch.is_empty() {
-                        continue;
-                    }
-                    for block in &batch {
-                        block
-                            .validate()
-                            .map_err(|source| StoreError::InvalidBlock {
-                                id: block.id.clone(),
-                                source,
-                            })?;
-                    }
-                    for index in blocks::parents_first(&batch) {
-                        let block = &mut batch[index];
-                        named.extend(
-                            blocks::insert_block_at(
-                                scope,
-                                block,
-                                user_id,
-                                Some(now),
-                                Written {
-                                    new_files,
-                                    body_write: BodyWrite::Whole,
-                                    telling: Telling::Nobody,
-                                },
-                            )
-                            .await?,
-                        );
-                    }
-                }
-                if !finished {
-                    abort = Some(StreamAbort::Incomplete);
-                    return Err(StoreError::NoRows);
-                }
-                card_values::check_named_cards(scope, &named).await
+                stream_block_batches_in_tx(scope, user_id, new_files, batches, &mut abort).await
             })
             .await;
-        match outcome {
-            Ok(()) => Ok(()),
-            Err(store_error) => match abort {
-                Some(StreamAbort::Producer(error)) => Err(StreamCreateError::Producer(error)),
-                Some(StreamAbort::Incomplete) => Err(StreamCreateError::Incomplete),
-                None => Err(StreamCreateError::Store(store_error)),
-            },
+        map_stream_outcome(outcome, abort)
+    }
+
+    /// Atomically inserts every container, records every staged file (removing its
+    /// `writing` mark), streams all block batches with [`NewBodyFiles::Recorded`], makes
+    /// `user_id` an administrator of each container, and adds any `extra_members` not
+    /// already present — all inside a single database transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamCreateError::Store`] on validation, limit, path, or database
+    /// refusal, [`StreamCreateError::Producer`] if `batches` yields [`StreamBatch::Err`],
+    /// or [`StreamCreateError::Incomplete`] if `batches` closes before
+    /// [`StreamBatch::Done`]. Nothing is committed on error.
+    pub async fn create_imported_containers_blocks_files_and_members_streamed<E>(
+        &self,
+        containers: &mut [Container],
+        files: &[FileInfo],
+        extra_members: &[ContainerMember],
+        user_id: &str,
+        batches: tokio::sync::mpsc::Receiver<StreamBatch<E>>,
+    ) -> Result<Vec<ContainerMember>, StreamCreateError<E>>
+    where
+        E: Send,
+    {
+        for file in files {
+            file_info::check_new_path(&file.path)?;
         }
+        let mut abort: Option<StreamAbort<E>> = None;
+        let outcome = self
+            .transaction(async |scope| {
+                for container in containers.iter_mut() {
+                    containers::insert_container(scope, container, user_id).await?;
+                }
+                containers::lock_containers(
+                    scope,
+                    containers.iter().map(|container| container.id.as_str()),
+                )
+                .await?;
+                record_imported_files(scope, files).await?;
+                stream_block_batches_in_tx(
+                    scope,
+                    user_id,
+                    NewBodyFiles::Recorded,
+                    batches,
+                    &mut abort,
+                )
+                .await?;
+                add_imported_members(
+                    scope,
+                    containers,
+                    extra_members,
+                    CreatorMembership::AdminOnly,
+                )
+                .await
+            })
+            .await;
+        map_stream_outcome(outcome, abort)
     }
 
     /// Does what [`Store::create_containers_and_blocks`] does and makes the creator of each
@@ -295,6 +301,35 @@ impl Store {
         files: &[FileInfo],
         user_id: &str,
     ) -> Result<Vec<ContainerMember>, StoreError> {
+        self.create_imported_containers_blocks_files_and_members(
+            containers_and_blocks,
+            files,
+            &[],
+            user_id,
+        )
+        .await
+    }
+
+    /// Atomically inserts every container, records every written file (removing its
+    /// `writing` mark), inserts every block (checking body file references against the
+    /// recorded files), makes `user_id` an administrator and editor of each container,
+    /// and adds any `extra_members` not already present, all in one transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::InvalidPath`] for a malformed file path,
+    /// [`StoreError::NotFound`] if `user_id` does not work in a container's workspace,
+    /// a member's user does not exist, or a file's writing mark is gone,
+    /// [`StoreError::InvalidContainer`] or [`StoreError::InvalidBlock`] on validation
+    /// or limit refusal (such as `DIARIES_PER_SPACE` or duplicate diary days), or
+    /// [`StoreError::Database`] if a statement fails. Nothing is written on error.
+    pub async fn create_imported_containers_blocks_files_and_members(
+        &self,
+        containers_and_blocks: &mut ContainersAndBlocks,
+        files: &[FileInfo],
+        extra_members: &[ContainerMember],
+        user_id: &str,
+    ) -> Result<Vec<ContainerMember>, StoreError> {
         for file in files {
             file_info::check_new_path(&file.path)?;
         }
@@ -303,6 +338,7 @@ impl Store {
                 scope,
                 containers_and_blocks,
                 files,
+                extra_members,
                 user_id,
             )
             .await
@@ -417,18 +453,90 @@ pub(crate) async fn create_containers_and_blocks_with_admin(
     new_files: NewBodyFiles,
 ) -> Result<Vec<ContainerMember>, StoreError> {
     create_containers_and_blocks(scope, containers_and_blocks, user_id, new_files).await?;
-    add_creator_admins(scope, &containers_and_blocks.containers).await
+    add_creator_admins(
+        scope,
+        &containers_and_blocks.containers,
+        CreatorMembership::AdminAndEditor,
+    )
+    .await
 }
 
-async fn create_imported_containers_blocks_and_files(
+async fn stream_block_batches_in_tx<E>(
     scope: &mut Scope<'_>,
-    containers_and_blocks: &mut ContainersAndBlocks,
-    files: &[FileInfo],
     user_id: &str,
-) -> Result<Vec<ContainerMember>, StoreError> {
-    for container in &mut containers_and_blocks.containers {
-        containers::insert_container(scope, container, user_id).await?;
+    new_files: NewBodyFiles,
+    mut batches: tokio::sync::mpsc::Receiver<StreamBatch<E>>,
+    abort: &mut Option<StreamAbort<E>>,
+) -> Result<(), StoreError> {
+    let now = now_millis();
+    let mut named = Vec::new();
+    let mut finished = false;
+    while let Some(next) = batches.recv().await {
+        let mut batch = match next {
+            StreamBatch::Batch(batch) => batch,
+            StreamBatch::Done => {
+                finished = true;
+                break;
+            }
+            StreamBatch::Err(error) => {
+                *abort = Some(StreamAbort::Producer(error));
+                return Err(StoreError::NoRows);
+            }
+        };
+        if batch.is_empty() {
+            continue;
+        }
+        for block in &batch {
+            block
+                .validate()
+                .map_err(|source| StoreError::InvalidBlock {
+                    id: block.id.clone(),
+                    source,
+                })?;
+        }
+        for index in blocks::parents_first(&batch) {
+            let block = &mut batch[index];
+            named.extend(
+                blocks::insert_block_at(
+                    scope,
+                    block,
+                    user_id,
+                    Some(now),
+                    Written {
+                        new_files,
+                        body_write: BodyWrite::Whole,
+                        telling: Telling::Nobody,
+                    },
+                )
+                .await?,
+            );
+        }
     }
+    if !finished {
+        *abort = Some(StreamAbort::Incomplete);
+        return Err(StoreError::NoRows);
+    }
+    card_values::check_named_cards(scope, &named).await
+}
+
+fn map_stream_outcome<T, E>(
+    outcome: Result<T, StoreError>,
+    abort: Option<StreamAbort<E>>,
+) -> Result<T, StreamCreateError<E>> {
+    match outcome {
+        Ok(value) => Ok(value),
+        Err(store_error) => match abort {
+            Some(StreamAbort::Producer(error)) => Err(StreamCreateError::Producer(error)),
+            Some(StreamAbort::Incomplete) => Err(StreamCreateError::Incomplete),
+            None => Err(StreamCreateError::Store(store_error)),
+        },
+    }
+}
+
+async fn record_imported_files(
+    scope: &mut Scope<'_>,
+    files: &[FileInfo],
+) -> Result<(), StoreError> {
     for file in files {
         if !loose_objects::record_written(scope, file).await? {
             return Err(StoreError::NotFound(format!(
@@ -437,6 +545,38 @@ async fn create_imported_containers_blocks_and_files(
             )));
         }
     }
+    Ok(())
+}
+
+async fn add_imported_members(
+    scope: &mut Scope<'_>,
+    containers: &[Container],
+    extra_members: &[ContainerMember],
+    creator_role: CreatorMembership,
+) -> Result<Vec<ContainerMember>, StoreError> {
+    let mut members = add_creator_admins(scope, containers, creator_role).await?;
+    for member in extra_members {
+        if container_membership::add_member(scope, member)
+            .await?
+            .is_none()
+        {
+            members.push(member.clone());
+        }
+    }
+    Ok(members)
+}
+
+async fn create_imported_containers_blocks_and_files(
+    scope: &mut Scope<'_>,
+    containers_and_blocks: &mut ContainersAndBlocks,
+    files: &[FileInfo],
+    extra_members: &[ContainerMember],
+    user_id: &str,
+) -> Result<Vec<ContainerMember>, StoreError> {
+    for container in &mut containers_and_blocks.containers {
+        containers::insert_container(scope, container, user_id).await?;
+    }
+    record_imported_files(scope, files).await?;
     blocks::insert_blocks(
         scope,
         &mut containers_and_blocks.blocks,
@@ -445,12 +585,19 @@ async fn create_imported_containers_blocks_and_files(
         Telling::Nobody,
     )
     .await?;
-    add_creator_admins(scope, &containers_and_blocks.containers).await
+    add_imported_members(
+        scope,
+        &containers_and_blocks.containers,
+        extra_members,
+        CreatorMembership::AdminAndEditor,
+    )
+    .await
 }
 
 async fn add_creator_admins(
     scope: &mut Scope<'_>,
     containers: &[Container],
+    role: CreatorMembership,
 ) -> Result<Vec<ContainerMember>, StoreError> {
     let mut members = Vec::with_capacity(containers.len());
     for container in containers {
@@ -461,7 +608,7 @@ async fn add_creator_admins(
             container_id: container.id.clone(),
             user_id: container.created_by.clone(),
             scheme_admin: true,
-            scheme_editor: true,
+            scheme_editor: role == CreatorMembership::AdminAndEditor,
             ..ContainerMember::default()
         };
         containers::save_member(scope, &member).await?;

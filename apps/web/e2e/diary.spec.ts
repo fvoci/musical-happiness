@@ -25,6 +25,7 @@ import {
   switchTo,
   year,
 } from './diary.support.ts';
+import { primaryKey } from './keyboard.support.ts';
 import { screensDir } from './screens.ts';
 import { openApp, showSidebar, sidebar } from './shell.support.ts';
 import { goInside } from './wiki.support.ts';
@@ -304,4 +305,36 @@ test('fits a phone, light and dark', async ({ page }) => {
     }
     await page.screenshot({ path: `${screensDir('diary')}/phone-${scheme}.png` });
   }
+});
+
+test('keeps a manual body version with ⌘S/Ctrl+S and restores from the versions dialog', async ({
+  page,
+}) => {
+  await openDiary(page);
+  const today = year(page, '2026-11-21');
+  await editorOf(today).click();
+  await page.keyboard.type('First entry draft.');
+  await expect(today.getByTestId('entry-body')).toHaveAttribute('data-editor', 'ready');
+
+  const save = await primaryKey(page, 's');
+  await page.keyboard.press(save);
+  await expect(today.getByTestId('body-kept')).toContainText('Version kept.');
+
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Second line added.');
+  await expect(editorOf(today)).toContainText('Second line added.');
+
+  await today.getByTestId('entry-versions').click();
+  const dialog = page.getByTestId('body-versions');
+  await expect(dialog).toBeVisible();
+  const list = dialog.getByTestId('body-versions-list').locator('button[data-version]');
+  await expect(list).toHaveCount(1);
+  await expect(list.first().getByTestId('body-version-cause')).toHaveText('Kept by hand');
+
+  // Restore version 1 (before "Second line added.").
+  await list.first().click();
+  await dialog.getByTestId('body-version-restore').click();
+  await page.getByTestId('confirm-dialog').getByRole('button', { name: 'Restore' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(editorOf(today)).toHaveText('First entry draft.');
 });

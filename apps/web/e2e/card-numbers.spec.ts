@@ -11,6 +11,7 @@ import { expect, test, type Locator, type Page, type TestInfo } from '@playwrigh
 import { documentBoundary, primaryKey } from './keyboard.support.ts';
 import { boardPage, dialog, openView } from './kanban.support.ts';
 import { screensDir } from './screens.ts';
+import { newWiki } from './wiki.support.ts';
 
 const WELCOME = 'Welcome to fvoci!';
 
@@ -206,6 +207,65 @@ test('the search of the workspace and the search of a view find a card by its nu
   await field.fill(`#${String(target.number)}`);
   await expect(boardPage(page).locator('[data-card]')).toHaveCount(1);
   await expect(boardPage(page).locator(`[data-card="${target.id}"]`)).toBeVisible();
+});
+
+test('`#N` finds matching cards across boards with the current board first, and works from a wiki', async ({
+  page,
+}, info) => {
+  await openView(page, info, WELCOME, 'Onboarding');
+  const welcomeFirst = (await cardsOfBoard(page)).find((one) => one.number === 1);
+  if (!welcomeFirst) throw new Error('no #1 card on welcome board');
+
+  const other = await page.evaluate(async () => {
+    interface DevExtra {
+      workspace: { board: { boardId: string } };
+      backend: {
+        workspaces(): Promise<{ id: string }[]>;
+        boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
+        cards(boardId: string): Promise<{ id: string; title: string; number?: number }[]>;
+      };
+    }
+    const { workspace, backend } = (window as unknown as { fvociDev: DevExtra }).fvociDev;
+    const [ws] = await backend.workspaces();
+    const boards = await backend.boards(ws?.id ?? '');
+    for (const board of boards) {
+      if (board.id === workspace.board.boardId) continue;
+      const cards = await backend.cards(board.id);
+      const first = cards.find((card) => card.number === 1);
+      if (first) return { boardTitle: board.title, cardId: first.id, cardTitle: first.title };
+    }
+    throw new Error('no other board with a #1 card');
+  });
+
+  await expect(page.getByTestId('open-search')).toBeVisible();
+  await page.keyboard.press(await primaryKey(page, 'k'));
+  const search = page.getByTestId('search-dialog');
+  await page.getByTestId('search-field').fill('#1');
+  await expect(search).toHaveAttribute('data-status', 'found');
+  const options = search.getByRole('option');
+  await expect(options.first()).toHaveAttribute('data-search-hit', welcomeFirst.id);
+  await expect(options.first().locator('[data-hit-container]')).toHaveText(WELCOME);
+  await expect(numberIn(options.first())).toContainText('#1');
+  const otherOption = search.locator(`[data-search-hit="${other.cardId}"]`);
+  await expect(otherOption).toBeVisible();
+  await expect(otherOption.locator('[data-hit-container]')).toHaveText(other.boardTitle);
+  await expect(numberIn(otherOption)).toContainText('#1');
+  await page.keyboard.press('Escape');
+  await expect(search).toHaveCount(0);
+
+  // Off any board (on a wiki screen), `#0001` still finds matching cards and navigates directly.
+  await newWiki(page, 'Cross-board notes');
+  await page.keyboard.press(await primaryKey(page, 'k'));
+  await page.getByTestId('search-field').fill('#0001');
+  await expect(search).toHaveAttribute('data-status', 'found');
+  const welcomeFromWiki = search.locator(`[data-search-hit="${welcomeFirst.id}"]`);
+  await expect(welcomeFromWiki).toBeVisible();
+  await expect(welcomeFromWiki.locator('[data-hit-container]')).toHaveText(WELCOME);
+  await expect(numberIn(welcomeFromWiki)).toContainText('#1');
+  await welcomeFromWiki.click();
+  await expect(search).toHaveCount(0);
+  await expect(page.getByTestId('card-title')).toHaveValue(welcomeFirst.title);
+  await expect(page.getByTestId('card-location')).toContainText('#1');
 });
 
 test.describe('screens', () => {

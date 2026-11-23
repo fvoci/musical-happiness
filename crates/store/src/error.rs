@@ -77,6 +77,17 @@ pub enum StoreError {
     #[error(transparent)]
     Block(#[from] BlockError),
 
+    /// A body checked or composed inside the store failed body validation (for example,
+    /// appending to an existing diary entry exceeded `BODY_MAX_BYTES` or
+    /// `BODY_MAX_NODES`).
+    #[error("{source}")]
+    InvalidBody {
+        /// The request field name that carried the body.
+        field: &'static str,
+        /// Why the body was refused.
+        source: fvoci_model::BodyError,
+    },
+
     /// A board failed validation before it was written.
     #[error(transparent)]
     InvalidContainer(#[from] ContainerError),

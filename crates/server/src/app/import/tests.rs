@@ -1,6 +1,6 @@
 use std::io::{self, Cursor, Read};
 
-use fvoci_model::Block;
+use fvoci_model::{Block, Container};
 
 use super::archive::{
     CENTRAL_HEADER, SCAN_CHUNK_BYTES, clean_dir, count_central_headers, split_entry_name,

@@ -2328,10 +2328,11 @@ export interface paths {
          *     organization's limits allow (400 with the reason `page_too_deep` or
          *     `too_many_pages`).
          *
-         *     The boards are made one after the other, not all or none: when one of them fails,
-         *     those before it stay. The members of a board who are not in the workspace are left
-         *     out of it, a guest of the workspace keeps no role above editor; the answer says how
-         *     many users were left out, not who.
+         *     The containers, blocks, memberships and files of the archive are committed all or
+         *     none: if any container or file fails, all staged files are removed and nothing is
+         *     stored. The members of a board who are not in the workspace are left out of it, a
+         *     guest of the workspace keeps no role above editor; the answer says how many users
+         *     were left out, not who.
          *
          *     A user runs one import at a time, and the server as many as its setting
          *     `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
@@ -4559,21 +4560,29 @@ export interface paths {
         post?: never;
         /**
          * Delete an entry
-         * @description The entry goes to the trash of its diary, where it holds no day: the day takes a new
-         *     entry. It is restored by `undeleteDiaryEntry`, and gone for good when the trash is
-         *     emptied of it, as a card is.
+         * @description An entry with a body or any note (mood, weather or place) goes to the trash of its
+         *     diary, where it holds no day so the day takes a new entry; it is restored by
+         *     `undeleteDiaryEntry`, and gone for good when the trash is emptied of it. A completely
+         *     empty entry (no body, no mood, no weather and no place) is removed for good without
+         *     entering the trash.
          */
         delete: operations["deleteDiaryEntry"];
         options?: never;
         head?: never;
         /**
          * Change an entry
-         * @description Its mood, its weather, its place, or its whole body. A new body is sent with
-         *     `readAt`, the `updateAt` of the entry as it was read: 409 if the entry has changed
-         *     since, and nothing is changed. Where the body is being edited together (the same
-         *     user in two windows), what was typed is written to the entry first, so a writer who
-         *     read it before is refused and reads it again. The day of the entry does not change:
-         *     the patch has no member for it.
+         * @description Its mood, its weather, its place, its whole body (`body`), or blocks appended after
+         *     its current body (`appendBody`). `body` and `appendBody` cannot be sent together.
+         *     A whole-body replacement (`body`) is sent with `readAt`, the `updateAt` of the entry
+         *     as it was read: `readAt` is compared against when the entry's body last changed, so
+         *     metadata-only patches (`mood`, `weather`, `place`) do not cause 409 conflicts while
+         *     any change to the body does. `appendBody` appends inside one server transaction
+         *     without requiring `readAt`, refusing (400 at `/appendBody`) if the combined body
+         *     exceeds the body limits (`BODY_MAX_BYTES`, `BODY_MAX_NODES`, `BODY_MAX_DEPTH`).
+         *     Where the body is being edited together (the same user in two windows), what was
+         *     typed is written to the entry first, so a writer who read it before is refused (for
+         *     `body`) or appended after the latest text (for `appendBody`). The day of the entry
+         *     does not change: the patch has no member for it.
          */
         patch: operations["patchDiaryEntry"];
         trace?: never;
@@ -4592,7 +4601,14 @@ export interface paths {
          */
         get: operations["getDiaryEntryBodyVersions"];
         put?: never;
-        post?: never;
+        /**
+         * Keep an entry's body as a version now
+         * @description As `keepCardBodyVersion` keeps a card's: the body the entry has, with what those who
+         *     edit it together typed, by hand; nothing of a body that is its newest version already
+         *     (`unchanged`), nor within a minute of a version kept by hand (`recent`). An entry in
+         *     the trash is not there (404).
+         */
+        post: operations["keepDiaryEntryBodyVersion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5115,7 +5131,11 @@ export interface paths {
          *     workspace that the user has a role on, their own or a team's, the pages of its open
          *     wikis and the units of its open courses for who works there (an open board they have
          *     not joined is not searched), and, in the workspace of the user's own space, the
-         *     entries of its diaries, whose title and body together hold every word of `q`. The
+         *     entries of its diaries, whose title and body together hold every word of `q`. When
+         *     `q` is `#` followed only by ASCII digits (such as `#12`, or `#00012` normalized to
+         *     `12`) and `kind` is omitted or `card`, it matches non-template cards across every
+         *     readable board of the workspace whose `number` equals that positive integer; any
+         *     other text (including non-digits mixed in) or other `kind` runs ordinary word search. The
          *     title of an entry is its day (`2026-11-21`). Chapters, comments, property values and
          *     attached files are not searched, and neither are templates. How words match depends
          *     on the server: with a search server, Korean is matched by its words, whatever
@@ -5124,7 +5144,8 @@ export interface paths {
          *     or the body as it is written there, ASCII letters in either case ("환불" finds
          *     "환불규정을", "배포하다" does not find "배포합니다"). Each hit is the card, the page,
          *     the entry or the unit as it is now: its `kind`, its `title`, the container it is in
-         *     (`containerId`, and `containerKind`, by which a client tells their addresses apart),
+         *     (`containerId`, `containerKind`, and `containerTitle`, by which a client tells their
+         *     addresses and names apart),
          *     and `snippet`, a piece of its body in stretches of plain text, those that matched
          *     marked; the snippet is empty for a body that changed a moment ago, or has nothing to
          *     show. The best match first (without a search server: those whose title holds every
@@ -6331,9 +6352,10 @@ export interface components {
              *     made on the board, never given again, also once the card is gone. A card keeps it
              *     while it is one; a copy and an import are new cards with new numbers, and a card
              *     that comes back from the trash has its own. `null` for a template of the board's
-             *     cards (`isTemplate`): a card made a template loses its number, and takes the next
-             *     one if it is made a card again. The server gives it: what a request sends here is
-             *     ignored, whatever it is.
+             *     cards (`isTemplate`): a card made a template hides its number while keeping it
+             *     stored, and regains its old number without consuming a new one if made a card
+             *     again; a template created without a number takes the next number when made a card.
+             *     The server gives it: what a request sends here is ignored, whatever it is.
              */
             number: number | null;
             /**
@@ -7031,14 +7053,16 @@ export interface components {
          *     change.
          */
         DiaryEntryPatch: {
+            appendBody?: components["schemas"]["Body"] | null;
             body?: components["schemas"]["Body"] | null;
             mood?: components["schemas"]["Mood"] | null;
             /** @description The new place, at most 100 characters; empty for none. */
             place?: string | null;
             /**
              * Format: int64
-             * @description The `updateAt` of the entry as the client read it: if the entry has changed
-             *     since, the patch is refused with 409 and changes nothing. Needed with `body`,
+             * @description The `updateAt` of the entry as the client read it: checked against when the
+             *     entry's body last changed, so metadata-only patches (`mood`, `weather`, `place`)
+             *     do not cause 409 conflicts while any change to the body does. Needed with `body`,
              *     and checked whenever it is sent.
              */
             readAt?: number | null;
@@ -8693,6 +8717,8 @@ export interface components {
             containerId: string;
             /** @description What its container is: a board, a wiki, a diary or a course. */
             containerKind: components["schemas"]["ContainerKind"];
+            /** @description The title of the board, wiki, diary or course the match is in; empty if untitled. */
+            containerTitle: string;
             /** @description The identifier of the card, the page, the entry or the unit. */
             id: string;
             /** @description What it is. */
@@ -16948,6 +16974,42 @@ export interface operations {
             };
         };
     };
+    keepDiaryEntryBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of. */
+                workspaceId: string;
+                /** @description The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is. */
+                diaryId: string;
+                /** @description The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary. */
+                entryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What became of the body. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeptBodyVersion"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getDiaryEntryBodyVersion: {
         parameters: {
             query?: never;
@@ -17617,7 +17679,7 @@ export interface operations {
     searchWorkspaceContent: {
         parameters: {
             query?: {
-                /** @description The words to find, at most 200 characters. Without it nothing is found. */
+                /** @description The words to find, or `#12` (`#00012` normalized to `12`) to match cards by their number across readable boards, at most 200 characters. Without it nothing is found. */
                 q?: string;
                 /** @description The kind of thing to find: `card`, `page`, `entry` or `unit`. Left out, every kind. Anything else is 400. */
                 kind?: string;

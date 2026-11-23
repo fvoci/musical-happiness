@@ -72,7 +72,7 @@
   const workspace = $derived(board.workspace);
   const cardTitle = $derived(card.summary?.title || m['KanbanCard.untitled']());
   const there = $derived(card.summary !== undefined && !card.missing);
-  const number = $derived(card.summary?.number);
+  const number = $derived(card.summary?.fields.isTemplate ? undefined : card.summary?.number);
 
   const SAVE_TEXT: Record<SaveState, () => string> = {
     idle: () => '',

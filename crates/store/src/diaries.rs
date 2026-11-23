@@ -11,16 +11,20 @@
 use std::fmt;
 
 use fvoci_model::{
-    Block, BlockError, BlockType, Container, ContainerError, ContainerKind, ContainerMember,
-    DIARIES_PER_SPACE, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryMaking, DiaryRun, MonthDay,
-    NewDiaryEntry, OrgKind, entry_date, entry_mood, new_id,
+    Block, BlockError, BlockType, Body, BodyChange, Container, ContainerError, ContainerKind,
+    ContainerMember, DIARIES_PER_SPACE, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryEntryPatch,
+    DiaryMaking, DiaryRun, ENTRY_BODY_UPDATED_AT_FIELD, MonthDay, NewDiaryEntry, OrgKind,
+    entry_body_updated_at, entry_date, entry_mood, is_empty_entry, new_id,
 };
+use serde_json::Value;
 
-use crate::block_derived::Refreshing;
+use crate::block_derived::{self, Refreshing};
 use crate::blocks::{self, Paging};
+use crate::body_versions::BodyWrite;
 use crate::db::{Dialect, Id, Param, Scope, Sql, now_millis};
+use crate::notification_noting::Telling;
 use crate::trash::{
-    block_from_json, block_not_in_trash, from_json, push_paging, take_blocks_out_of_trash,
+    self, block_from_json, block_not_in_trash, from_json, push_paging, take_blocks_out_of_trash,
 };
 use crate::{Store, StoreError, containers, directory, org_admin, workspace_membership};
 
@@ -321,14 +325,149 @@ impl Store {
                 });
             }
             check_room(scope, &entry, limit).await?;
-            let restored =
-                take_blocks_out_of_trash(scope, &row.id(0)?, user_id, now_millis(), |_| {}).await?;
+            let now = now_millis();
+            let restored = take_blocks_out_of_trash(scope, &row.id(0)?, user_id, now, |block| {
+                if block.block_type == BlockType::Entry {
+                    block
+                        .fields
+                        .insert(ENTRY_BODY_UPDATED_AT_FIELD.to_owned(), Value::from(now));
+                }
+            })
+            .await?;
             restored
                 .into_iter()
                 .find(|block| block.id == entry_id)
                 .ok_or_else(block_not_in_trash)
         })
         .await
+    }
+
+    /// Applies `patch` to an entry of `diary_id` inside one transaction under the
+    /// diary's lock. When `patch.append_body` is present, its blocks are appended to
+    /// the entry's current body and validated against the body limits before writing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if the diary or entry does not exist,
+    /// [`StoreError::InvalidBody`] if appending exceeds body limits,
+    /// [`StoreError::Stale`] if `read_at` predates the last body change, and the
+    /// errors of [`Store::patch_block`].
+    pub async fn patch_diary_entry(
+        &self,
+        diary_id: &str,
+        entry_id: &str,
+        patch: &DiaryEntryPatch,
+        user_id: &str,
+    ) -> Result<Block, StoreError> {
+        self.transaction(async |scope| {
+            if containers::lock_container_of_kind(scope, diary_id).await?
+                != Some(ContainerKind::Diary)
+            {
+                return Err(StoreError::not_found(format_args!("diary ID={diary_id}")));
+            }
+            let existing = blocks::get_block(scope, entry_id).await?;
+            if existing.container_id != diary_id || existing.block_type != BlockType::Entry {
+                return Err(StoreError::not_found(format_args!(
+                    "entry ID={entry_id} on diary {diary_id}"
+                )));
+            }
+            let mut block_patch = patch.clone().into_block_patch();
+            if let Some(extra) = patch.append_body.clone() {
+                let combined =
+                    Body::append_to(existing.body.as_ref(), extra).map_err(|source| {
+                        StoreError::InvalidBody {
+                            field: "appendBody",
+                            source,
+                        }
+                    })?;
+                block_patch.body = BodyChange::Set(combined);
+            }
+            let telling = Telling::of(scope);
+            blocks::patch_block(
+                scope,
+                entry_id,
+                &block_patch,
+                user_id,
+                BodyWrite::Whole,
+                telling,
+            )
+            .await?;
+            blocks::get_block(scope, entry_id).await
+        })
+        .await
+    }
+
+    /// Deletes an entry of `diary_id`. A completely empty entry (no body, no mood, no
+    /// weather and no place) is removed for good without entering the trash; an entry
+    /// with any content or metadata moves to the diary's trash so it can be restored.
+    /// Returns whether an entry was deleted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn delete_diary_entry(
+        &self,
+        diary_id: &str,
+        entry_id: &str,
+        user_id: &str,
+    ) -> Result<bool, StoreError> {
+        self.transaction(async |scope| {
+            if containers::lock_container_of_kind(scope, diary_id).await?
+                != Some(ContainerKind::Diary)
+            {
+                return Ok(false);
+            }
+            let Some(block) = blocks::find_block(scope, entry_id).await? else {
+                return Ok(false);
+            };
+            if block.container_id != diary_id || block.block_type != BlockType::Entry {
+                return Ok(false);
+            }
+            if is_empty_entry(&block)
+                && !crate::body_docs::has_unwritten_body(scope, entry_id).await?
+            {
+                block_derived::trashed(scope, std::slice::from_ref(&block)).await?;
+                let mut sql = scope.sql("DELETE FROM blocks WHERE id = ");
+                sql.bind(Id(entry_id))
+                    .push_bind(" AND container_id = ", Id(diary_id));
+                scope.execute(sql).await?;
+                block_derived::forget_gone_blocks(scope).await?;
+                return Ok(true);
+            }
+            let deleted = trash::delete_block(scope, entry_id, user_id).await?;
+            Ok(!deleted.is_empty())
+        })
+        .await
+    }
+}
+
+/// Stamps the server-managed body-change timestamp on a diary entry block before it is
+/// written. On insert, it equals `create_at`; on update, it advances to `update_at`
+/// only when the body changed, leaving metadata-only patches (`mood`, `weather`,
+/// `place`) from invalidating conditional body writes.
+pub(crate) fn stamp_entry_body_time(block: &mut Block, existing: Option<&Block>) {
+    if block.block_type != BlockType::Entry {
+        return;
+    }
+    let body_at = match existing {
+        Some(before) if block.body == before.body => entry_body_updated_at(before),
+        Some(_) => block.update_at,
+        None => block.create_at,
+    };
+    block
+        .fields
+        .insert(ENTRY_BODY_UPDATED_AT_FIELD.to_owned(), Value::from(body_at));
+}
+
+/// The inclusive range `(min_read_at, update_at)` of `readAt` timestamps that are
+/// current for `block`. For diary entries, any `readAt` from the last body change
+/// through `update_at` is current (metadata-only edits do not conflict with body
+/// writes); for all other blocks, only the exact `update_at` matches.
+pub(crate) fn read_at_window(block: &Block) -> (i64, i64) {
+    if block.block_type == BlockType::Entry {
+        (entry_body_updated_at(block), block.update_at)
+    } else {
+        (block.update_at, block.update_at)
     }
 }
 

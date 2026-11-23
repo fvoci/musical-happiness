@@ -82,7 +82,9 @@ impl App {
         if let Some(block_type) = block_type {
             filter = filter.with_type(block_type.clone());
         }
-        Ok(self.store().get_blocks(&filter).await?)
+        let mut blocks = self.store().get_blocks(&filter).await?;
+        hide_inactive_numbers(&mut blocks);
+        Ok(blocks)
     }
 
     /// Returns all blocks of a board, in no particular order.
@@ -91,10 +93,12 @@ impl App {
     ///
     /// Returns the store's error if the query fails.
     pub async fn blocks_for_container(&self, container_id: &str) -> Result<Vec<Block>, AppError> {
-        Ok(self
+        let mut blocks = self
             .store()
             .get_blocks(&BlockFilter::container(container_id))
-            .await?)
+            .await?;
+        hide_inactive_numbers(&mut blocks);
+        Ok(blocks)
     }
 
     /// Returns the block with the given identifier: only a block of a board of the kinds
@@ -111,7 +115,10 @@ impl App {
             .get_block_within(block_id, self.workspace.as_deref(), self.kinds)
             .await;
         match found {
-            Ok(block) => Ok(block),
+            Ok(mut block) => {
+                block.hide_inactive_number();
+                Ok(block)
+            }
             Err(error) if error.is_not_found() => Err(AppError::not_found("block")),
             Err(error) => Err(error.into()),
         }
@@ -152,6 +159,7 @@ impl App {
                 .insert_block(block, modified_by)
                 .await?;
         }
+        block.hide_inactive_number();
         log_notification(notification, ChangeAction::Add, &block.id);
 
         let app = self.clone();
@@ -223,6 +231,7 @@ impl App {
                 .await?;
             blocks.clone_from_slice(&stored);
         }
+        hide_inactive_numbers(blocks);
         for block in blocks.iter() {
             self.ws()
                 .broadcast_block_change(&container.workspace_id, block)
@@ -270,7 +279,8 @@ impl App {
                 })
                 .await?;
         }
-        let block = self.store().get_block(block_id).await?;
+        let mut block = self.store().get_block(block_id).await?;
+        block.hide_inactive_number();
         self.tell_of_update(&container.workspace_id, &block, notification);
         Ok(block)
     }
@@ -344,13 +354,14 @@ impl App {
         let block_ids = batch.block_ids.clone();
         self.spawn_background(async move {
             for block_id in &block_ids {
-                let block = match app.store().get_block(block_id).await {
+                let mut block = match app.store().get_block(block_id).await {
                     Ok(block) => block,
                     Err(error) => {
                         tracing::error!(%error, block_id, "cannot read a patched block to announce it");
                         return;
                     }
                 };
+                block.hide_inactive_number();
                 app.ws().broadcast_block_change(&workspace_id, &block).await;
                 app.tell_webhooks(&block).await;
             }
@@ -410,7 +421,10 @@ impl App {
     /// Returns the store's error if the trash cannot be read.
     pub async fn deleted_block(&self, block_id: &str) -> Result<Option<DeletedBlock>, AppError> {
         match self.store().get_deleted_block(block_id).await {
-            Ok(deleted) => Ok(Some(deleted)),
+            Ok(mut deleted) => {
+                deleted.block.hide_inactive_number();
+                Ok(Some(deleted))
+            }
             Err(error) if error.is_not_found() => Ok(None),
             Err(error) => Err(error.into()),
         }
@@ -425,7 +439,10 @@ impl App {
     /// Returns the store's error if the trash cannot be read.
     pub async fn deletion(&self, block_id: &str) -> Result<Vec<Block>, AppError> {
         match self.store().get_deletion(block_id).await {
-            Ok(blocks) => Ok(blocks),
+            Ok(mut blocks) => {
+                hide_inactive_numbers(&mut blocks);
+                Ok(blocks)
+            }
             Err(error) if error.is_not_found() => Ok(Vec::new()),
             Err(error) => Err(error.into()),
         }
@@ -451,7 +468,9 @@ impl App {
     ///
     /// Returns the store's error if the blocks cannot be read.
     pub async fn blocks_below(&self, block_id: &str) -> Result<Vec<Block>, AppError> {
-        Ok(self.store().get_blocks_below(block_id).await?)
+        let mut blocks = self.store().get_blocks_below(block_id).await?;
+        hide_inactive_numbers(&mut blocks);
+        Ok(blocks)
     }
 
     /// Returns the earlier versions of a comment's body, the first first.
@@ -486,11 +505,12 @@ impl App {
                 .undelete_block_family(block_id, modified_by)
                 .await
         };
-        let restored = match restored {
+        let mut restored = match restored {
             Ok(blocks) => blocks,
             Err(error) if error.is_not_found() => return Err(AppError::not_found("block")),
             Err(error) => return Err(error.into()),
         };
+        hide_inactive_numbers(&mut restored);
         let block = restored
             .iter()
             .find(|each| each.id == block_id)
@@ -551,6 +571,7 @@ impl App {
         let files = self
             .copy_and_update_card_files(container_id, user_id, &mut blocks)
             .await;
+        hide_inactive_numbers(&mut blocks);
         if files.is_ok() {
             self.keep_bodies_as_copied(&blocks).await;
         }
@@ -600,6 +621,13 @@ impl App {
                 app.tell_webhooks(block).await;
             }
         });
+    }
+}
+
+/// Hides stored card numbers on blocks that do not currently take one (card templates).
+pub(super) fn hide_inactive_numbers(blocks: &mut [Block]) {
+    for block in blocks {
+        block.hide_inactive_number();
     }
 }
 
