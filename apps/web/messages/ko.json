@@ -1891,6 +1891,7 @@
   "notifications_assignment": "{who} {title} 카드를 내게 맡겼습니다",
   "notifications_comment": "{who} {title}에 댓글을 달았습니다",
   "notifications_comment_times": "{who} {title}에 댓글을 {times}개 달았습니다",
+  "notifications_review_due": "{title} 복습할 시간입니다",
   "shell_settings_notify": "알림",
   "shell_settings_notify_hint": "위쪽의 종이 알려 주는 것입니다. 꺼 둔 것은 나중을 위해 남겨 두지 않습니다.",
   "shell_settings_notify_mention": "언급",

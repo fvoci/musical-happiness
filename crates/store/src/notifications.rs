@@ -13,7 +13,7 @@ use fvoci_model::{BlockType, ContainerKind, NotificationKind, SearchKind};
 use crate::Store;
 use crate::blocks::Paging;
 use crate::db::{Id, Row, Scope, Sql};
-use crate::directory::{Making, SessionTaken};
+use crate::directory::{HAS_PASSWORD, Making, org_kind, taken};
 use crate::error::StoreError;
 use crate::search_docs::select_documents;
 
@@ -34,20 +34,23 @@ pub struct NotificationReader<'a> {
 
 impl NotificationReader<'_> {
     /// The organizations the reader was told something in that their session does not
-    /// open, by the one rule of it ([`SessionTaken::opened_by`]). A notification is of
-    /// an organization that people work in, and of no one's own space (`Noted::note`):
-    /// what such an organization takes is what its provider takes, if it takes only
-    /// that provider's sessions.
+    /// open, by the one rule of it ([`crate::directory::SessionTaken::opened_by`]):
+    /// organizations that people work in that require their SSO provider, and personal
+    /// spaces whose account has a password that this session has not confirmed.
     async fn closed_organizations(self, scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
-        let mut sql = scope.sql(
-            "SELECT DISTINCT n.org_id, p.id FROM notifications AS n \
-             JOIN oidc_providers AS p ON p.org_id = n.org_id AND p.sso_required = ",
-        );
+        let mut sql = scope.sql(&format!(
+            "SELECT DISTINCT n.org_id, o.kind, p.id, {HAS_PASSWORD} \
+             FROM notifications AS n \
+             JOIN organizations AS o ON o.id = n.org_id \
+             JOIN users AS u ON u.id = n.recipient_id \
+             LEFT JOIN oidc_providers AS p ON p.org_id = n.org_id AND p.sso_required = "
+        ));
         sql.bind(true)
             .push_bind(" WHERE n.recipient_id = ", Id(self.user_id));
         let mut closed = Vec::new();
         for row in scope.fetch_all(sql).await? {
-            let takes = SessionTaken::of_organization(Some(row.id(1)?));
+            let kind = org_kind(&row, 1)?;
+            let takes = taken(kind, row.id(2)?, &row.text(3)?);
             if !takes.opened_by(self.making) {
                 closed.push(row.id(0)?);
             }
@@ -179,8 +182,9 @@ impl Store {
     }
 
     /// Whether what the organization `org_id` told the reader is kept from their
-    /// session: the organization takes only the sessions made through its provider,
-    /// and theirs was made otherwise ([`SessionTaken::opened_by`]).
+    /// session: either an organization requiring its SSO provider or a personal space
+    /// whose account has a password that this session has not confirmed
+    /// ([`crate::directory::SessionTaken::opened_by`]).
     ///
     /// # Errors
     ///
@@ -192,10 +196,20 @@ impl Store {
     ) -> Result<bool, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                let mut sql = scope.sql("SELECT id FROM oidc_providers WHERE org_id = ");
-                sql.bind(Id(org_id)).push_bind(" AND sso_required = ", true);
+                let mut sql = scope.sql(&format!(
+                    "SELECT o.kind, p.id, {HAS_PASSWORD} \
+                     FROM organizations AS o \
+                     JOIN users AS u ON u.id = "
+                ));
+                sql.bind(Id(reader.user_id))
+                    .push_bind(
+                        " LEFT JOIN oidc_providers AS p ON p.org_id = o.id AND p.sso_required = ",
+                        true,
+                    )
+                    .push_bind(" WHERE o.id = ", Id(org_id));
                 for row in scope.fetch_all(sql).await? {
-                    let takes = SessionTaken::of_organization(Some(row.id(0)?));
+                    let kind = org_kind(&row, 0)?;
+                    let takes = taken(kind, row.id(1)?, &row.text(2)?);
                     if !takes.opened_by(reader.making) {
                         return Ok(true);
                     }

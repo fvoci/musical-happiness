@@ -34,8 +34,7 @@ mod every_organization;
 mod session_taken;
 mod sign_in;
 
-pub(crate) use session_taken::memberships_of;
-use session_taken::{HAS_PASSWORD, taken};
+pub(crate) use session_taken::{HAS_PASSWORD, memberships_of, taken};
 pub use session_taken::{Making, SessionTaken};
 
 pub(crate) use every_organization::{

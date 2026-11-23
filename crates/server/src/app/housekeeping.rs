@@ -2,9 +2,11 @@
 //! the rows of every organization; and the sweep of the temporary directories at the
 //! start.
 
+use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use fvoci_model::{ContainerKinds, TimeZone, add_days, day_at};
 use fvoci_store::Tenant;
 use tokio::fs;
 
@@ -12,6 +14,15 @@ use super::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::storage::WRITING_DIR;
+
+/// Maximum candidate reviews read per round in [`App::notify_due_reviews`].
+const REVIEW_NOTIFY_ROUND: i64 = 200;
+
+/// Maximum rounds per [`App::notify_due_reviews`] invocation.
+const REVIEW_NOTIFY_MAX_ROUNDS: usize = 10;
+
+/// Maximum notifications kept per person (matches `notifications.rs`).
+const MOST_NOTIFICATIONS_PER_USER: i64 = 10_000;
 
 impl App {
     /// The server as its housekeeping uses it: reaching the rows of every organization.
@@ -127,6 +138,101 @@ impl App {
             }
         }
         Ok(removed)
+    }
+
+    /// Creates `review_due` notifications for pending, un-notified reviews whose
+    /// `scheduled_date` has reached each learner's local calendar day at `now`, marking
+    /// `notified_at = now` atomically so each review notifies its owner at most once.
+    ///
+    /// Returns the number of notifications created. Runs under housekeeping's system
+    /// scope and requires the server lock.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the server lock is not held or a database query fails.
+    pub async fn notify_due_reviews(&self, now: i64) -> Result<u64, AppError> {
+        let app = self.housekeeping();
+        app.require_server_lock()?;
+        let utc_day = day_at(now, &TimeZone::default())
+            .ok_or_else(|| AppError::internal("current timestamp is outside supported years"))?;
+        let max_date = add_days(&utc_day, 1).unwrap_or(utc_day);
+
+        let mut user_days: HashMap<String, String> = HashMap::new();
+        let mut cursor: Option<(String, i64, String)> = None;
+        let mut sent = 0_u64;
+
+        for _ in 0..REVIEW_NOTIFY_MAX_ROUNDS {
+            let after = cursor
+                .as_ref()
+                .map(|(date, create_at, id)| (date.as_str(), *create_at, id.as_str()));
+            let batch = app
+                .store()
+                .due_unnotified_reviews(&max_date, after, REVIEW_NOTIFY_ROUND)
+                .await?;
+            if batch.is_empty() {
+                break;
+            }
+            let reached_limit =
+                i64::try_from(batch.len()).unwrap_or(i64::MAX) >= REVIEW_NOTIFY_ROUND;
+            for candidate in &batch {
+                let user_today = if let Some(day) = user_days.get(&candidate.user_id) {
+                    day.as_str()
+                } else {
+                    let computed = app.user_today(&candidate.user_id, now).await?;
+                    user_days
+                        .entry(candidate.user_id.clone())
+                        .or_insert(computed)
+                        .as_str()
+                };
+                if candidate.scheduled_date.as_str() > user_today {
+                    continue;
+                }
+                let enrolled = app
+                    .in_organization(&candidate.org_id)?
+                    .in_workspace(&candidate.workspace_id)
+                    .reaching(ContainerKinds::COURSES)
+                    .container_access(&candidate.user_id, &candidate.container_id)
+                    .await?
+                    .is_some_and(|access| {
+                        access.has_membership()
+                            && access.grant.reads()
+                            && !access.container.is_template
+                    });
+                if !enrolled {
+                    continue;
+                }
+                if app
+                    .store()
+                    .notify_due_review(candidate, now, MOST_NOTIFICATIONS_PER_USER)
+                    .await?
+                {
+                    sent += 1;
+                    app.ws()
+                        .notifications_changed(&candidate.user_id, &[&candidate.org_id])
+                        .await;
+                }
+            }
+            if !reached_limit {
+                break;
+            }
+            if let Some(last) = batch.last() {
+                cursor = Some((last.scheduled_date.clone(), last.create_at, last.id.clone()));
+            }
+        }
+        Ok(sent)
+    }
+
+    /// Housekeeping entry point for [`App::notify_due_reviews`]: logs failures and leaves
+    /// remaining work for the next run.
+    pub async fn notify_due_reviews_upkeep(&self) {
+        if self.config().notifications_by_hand || !self.holds_server_lock() {
+            return;
+        }
+        match self.notify_due_reviews(now_millis()).await {
+            Ok(0) => {}
+            Ok(sent) => tracing::info!(sent, "sent due unit review notifications"),
+            Err(error) => tracing::error!(%error, "unable to send due unit review notifications"),
+        }
     }
 }
 

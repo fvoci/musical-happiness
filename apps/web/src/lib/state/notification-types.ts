@@ -6,13 +6,14 @@
  * (`times`, `people`); more of it makes it unread again and puts it first.
  * When what the reader was told changes, `watchSelf` hears `notifications`.
  */
-import type { NotificationKind } from '../logic/notify-settings.ts';
+import type { NotificationKind as NotifySettingKind } from '../logic/notify-settings.ts';
 import type { ContainerKind } from '../logic/wire.ts';
 
 import type { SearchKind } from './content-search.ts';
 import type { Paging } from './trash-reads.ts';
 
-export type { NotificationKind } from '../logic/notify-settings.ts';
+/** What a notification tells of, including personal due-review reminders. */
+export type NotificationKind = NotifySettingKind | 'review_due';
 
 /** What a notification is about, for a reader who reads it now. */
 export interface NotificationSubject {

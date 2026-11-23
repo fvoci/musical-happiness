@@ -87,6 +87,7 @@ pub mod testing;
 mod time_entries;
 mod trash;
 mod unit_progress;
+mod unit_reviews;
 mod uploads;
 mod users;
 mod users_by_id;
@@ -172,6 +173,7 @@ pub use signups::{
 pub use subscriptions::WatchedBlock;
 pub use time_entries::{NewStoredTimeEntry, TimeEntryFilter, TimeEntryPatchOutcome, TimeReader};
 pub use trash::{DeletedBlock, DeletedContainer, Purged};
+pub use unit_reviews::DueReviewCandidate;
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
 pub use visibility::{VisibilityScope, VisibilityVersion};

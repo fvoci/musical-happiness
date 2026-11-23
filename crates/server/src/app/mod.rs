@@ -82,6 +82,7 @@ mod templates;
 mod time_entries;
 mod trash;
 mod unit_progress;
+mod unit_reviews;
 mod uploads;
 mod users;
 mod webhooks;
