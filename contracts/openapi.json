@@ -1899,11 +1899,22 @@
         "additionalProperties": false,
         "description": "A change of an entry. Absent members leave the entry as it is. Its day does not\nchange.",
         "properties": {
+          "appendBody": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "A document whose blocks are appended after the entry's current body inside one\nserver transaction without replacing what is already there. Cannot be sent\ntogether with `body`. `null` or an empty document appends nothing. Refused (400)\nif the combined body exceeds the body limits (`BODY_MAX_BYTES`,\n`BODY_MAX_NODES`, `BODY_MAX_DEPTH`). Does not require `readAt`; if `readAt` is\nalso sent, it is checked against the entry's body timestamp before appending."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "body": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The new body; `null` takes the body away. Sent only with `readAt`."
+                "description": "The new body; `null` takes the body away. Sent only with `readAt`, and not\ntogether with `appendBody`."
               },
               {
                 "type": "null"
@@ -1929,7 +1940,7 @@
             ]
           },
           "readAt": {
-            "description": "The `updateAt` of the entry as the client read it: if the entry has changed\nsince, the patch is refused with 409 and changes nothing. Needed with `body`,\nand checked whenever it is sent.",
+            "description": "The `updateAt` of the entry as the client read it: checked against when the\nentry's body last changed, so metadata-only patches (`mood`, `weather`, `place`)\ndo not cause 409 conflicts while any change to the body does. Needed with `body`,\nand checked whenever it is sent.",
             "format": "int64",
             "type": [
               "integer",
@@ -10246,7 +10257,7 @@
     },
     "/api/v1/w/{workspaceId}/archive/import": {
       "post": {
-        "description": "Makes the boards and wikis of an archive in the workspace, with the user as their\nadmin. The members the archive names for a board become members of it with the roles\nthey had, where they are in the workspace. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, one that has ended, and one for another workspace are\n404; an upload of a file is 400. A workspace the user is not in is 404 before the\nbody is read. For users of the workspace who are not guests, at the import as when\nthe upload was opened: a user who may not import any more is refused, and the upload\nis thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with\nthe `limit` passed, and nothing of it is stored; for the entry that is too large the\nreason is `archive_entry_too_large`. The blocks that show files are\npointed at the board's new copies of them, the images and file blocks of bodies\nincluded. A file the board's line lists under `missingFiles` is not stored, even when\nthe archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy\ndoes. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the\ncomments on them with it. What a write would refuse of an archive's boards, wikis\nand blocks is 400 before any of them is stored, with the message the write has: a\nblock of a type of the other kind (a page on a board, a card on a wiki), a page\nbelow anything but a page of its wiki or below a page the archive does not have,\npages that are each other's parents, a comment on anything but a card or page, a\nwiki that is a template, and a wiki deeper or with more pages than the\norganization's limits allow (400 with the reason `page_too_deep` or\n`too_many_pages`).\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay. The members of a board who are not in the workspace are left\nout of it, a guest of the workspace keeps no role above editor; the answer says how\nmany users were left out, not who.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.",
+        "description": "Makes the boards and wikis of an archive in the workspace, with the user as their\nadmin. The members the archive names for a board become members of it with the roles\nthey had, where they are in the workspace. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, one that has ended, and one for another workspace are\n404; an upload of a file is 400. A workspace the user is not in is 404 before the\nbody is read. For users of the workspace who are not guests, at the import as when\nthe upload was opened: a user who may not import any more is refused, and the upload\nis thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with\nthe `limit` passed, and nothing of it is stored; for the entry that is too large the\nreason is `archive_entry_too_large`. The blocks that show files are\npointed at the board's new copies of them, the images and file blocks of bodies\nincluded. A file the board's line lists under `missingFiles` is not stored, even when\nthe archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy\ndoes. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the\ncomments on them with it. What a write would refuse of an archive's boards, wikis\nand blocks is 400 before any of them is stored, with the message the write has: a\nblock of a type of the other kind (a page on a board, a card on a wiki), a page\nbelow anything but a page of its wiki or below a page the archive does not have,\npages that are each other's parents, a comment on anything but a card or page, a\nwiki that is a template, and a wiki deeper or with more pages than the\norganization's limits allow (400 with the reason `page_too_deep` or\n`too_many_pages`).\n\nThe containers, blocks, memberships and files of the archive are committed all or\nnone: if any container or file fails, all staged files are removed and nothing is\nstored. The members of a board who are not in the workspace are left out of it, a\nguest of the workspace keeps no role above editor; the answer says how many users\nwere left out, not who.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.",
         "operationId": "importArchive",
         "parameters": [
           {
@@ -16086,7 +16097,7 @@
     },
     "/api/v1/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}": {
       "delete": {
-        "description": "The entry goes to the trash of its diary, where it holds no day: the day takes a new\nentry. It is restored by `undeleteDiaryEntry`, and gone for good when the trash is\nemptied of it, as a card is.",
+        "description": "An entry with a body or any note (mood, weather or place) goes to the trash of its\ndiary, where it holds no day so the day takes a new entry; it is restored by\n`undeleteDiaryEntry`, and gone for good when the trash is emptied of it. A completely\nempty entry (no body, no mood, no weather and no place) is removed for good without\nentering the trash.",
         "operationId": "deleteDiaryEntry",
         "parameters": [
           {
@@ -16197,7 +16208,7 @@
         ]
       },
       "patch": {
-        "description": "Its mood, its weather, its place, or its whole body. A new body is sent with\n`readAt`, the `updateAt` of the entry as it was read: 409 if the entry has changed\nsince, and nothing is changed. Where the body is being edited together (the same\nuser in two windows), what was typed is written to the entry first, so a writer who\nread it before is refused and reads it again. The day of the entry does not change:\nthe patch has no member for it.",
+        "description": "Its mood, its weather, its place, its whole body (`body`), or blocks appended after\nits current body (`appendBody`). `body` and `appendBody` cannot be sent together.\nA whole-body replacement (`body`) is sent with `readAt`, the `updateAt` of the entry\nas it was read: `readAt` is compared against when the entry's body last changed, so\nmetadata-only patches (`mood`, `weather`, `place`) do not cause 409 conflicts while\nany change to the body does. `appendBody` appends inside one server transaction\nwithout requiring `readAt`, refusing (400 at `/appendBody`) if the combined body\nexceeds the body limits (`BODY_MAX_BYTES`, `BODY_MAX_NODES`, `BODY_MAX_DEPTH`).\nWhere the body is being edited together (the same user in two windows), what was\ntyped is written to the entry first, so a writer who read it before is refused (for\n`body`) or appended after the latest text (for `appendBody`). The day of the entry\ndoes not change: the patch has no member for it.",
         "operationId": "patchDiaryEntry",
         "parameters": [
           {
@@ -16325,6 +16336,65 @@
           }
         },
         "summary": "The versions of an entry's body",
+        "tags": [
+          "diaries"
+        ]
+      },
+      "post": {
+        "description": "As `keepCardBodyVersion` keeps a card's: the body the entry has, with what those who\nedit it together typed, by hand; nothing of a body that is its newest version already\n(`unchanged`), nor within a minute of a version kept by hand (`recent`). An entry in\nthe trash is not there (404).",
+        "operationId": "keepDiaryEntryBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "diaryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.",
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptBodyVersion"
+                }
+              }
+            },
+            "description": "What became of the body."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Keep an entry's body as a version now",
         "tags": [
           "diaries"
         ]

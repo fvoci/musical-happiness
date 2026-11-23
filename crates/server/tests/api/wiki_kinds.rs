@@ -150,6 +150,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getDiaryEntryBodyVersions", Reaches::DIARIES),
     ("getDiaryEntryBodyVersion", Reaches::DIARIES),
     ("restoreDiaryEntryBodyVersion", Reaches::DIARIES),
+    ("keepDiaryEntryBodyVersion", Reaches::DIARIES),
     // What a course holds.
     ("getUnitTree", Reaches::COURSES),
     ("createUnit", Reaches::COURSES),

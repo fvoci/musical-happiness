@@ -200,6 +200,16 @@ fn check_type(block: &Block, kind: ContainerKind) -> Result<(), AppError> {
 /// entry at a time and a request for an entry is refused, said of the archive before
 /// anything of it is stored. An entry that says no day is the store's to refuse.
 fn check_days(diary_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
+    check_days_at(diary_id, blocks, DiaryDate::of_utc_millis(now_millis()))
+}
+
+/// Checks diary entry count, future-date reach (at most `ENTRY_DAYS_AHEAD` past
+/// `today`), and per-day uniqueness for an archive diary.
+fn check_days_at(
+    diary_id: &str,
+    blocks: &[&Block],
+    today: Option<DiaryDate>,
+) -> Result<(), AppError> {
     let limit = fvoci_model::ENTRIES_PER_DIARY;
     if blocks.len() > usize::try_from(limit).unwrap_or(usize::MAX) {
         return Err(StoreError::InvalidBlock {
@@ -208,7 +218,6 @@ fn check_days(diary_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
         }
         .into());
     }
-    let today = DiaryDate::of_utc_millis(now_millis());
     let mut days = HashSet::new();
     for block in blocks {
         let Some(date) = fvoci_model::entry_date(block) else {
@@ -669,5 +678,40 @@ mod tests {
         let error = check(&of("c", ContainerKind::Course, &extra_unit), LIMITS)
             .expect_err("too many units");
         assert_eq!(error.reason(), Some(Reason::TooManyUnits));
+    }
+
+    #[test]
+    fn diary_archive_days_enforce_reach_uniqueness_and_entry_limit() {
+        let today = "2026-11-21".parse::<DiaryDate>().expect("today");
+        let make_entry = |id: &str, date: &str| Block {
+            id: id.to_owned(),
+            container_id: "d".to_owned(),
+            block_type: BlockType::Entry,
+            title: date.to_owned(),
+            fields: serde_json::json!({"date": date})
+                .as_object()
+                .expect("object")
+                .clone(),
+            ..Block::default()
+        };
+        let within = make_entry("e1", "2026-11-23");
+        assert!(check_days_at("d", &[&within], Some(today)).is_ok());
+
+        let too_far = make_entry("e2", "2026-11-24");
+        let err = check_days_at("d", &[&within, &too_far], Some(today))
+            .expect_err("three days ahead is refused");
+        assert!(err.to_string().contains("2026-11-24"), "{err}");
+
+        let dup_a = make_entry("e3", "2026-11-20");
+        let dup_b = make_entry("e4", "2026-11-20");
+        let err = check_days_at("d", &[&dup_a, &dup_b], Some(today))
+            .expect_err("duplicate date is refused");
+        assert!(err.to_string().contains("two entries"), "{err}");
+
+        let too_many_count = usize::try_from(fvoci_model::ENTRIES_PER_DIARY).expect("usize") + 1;
+        let many: Vec<Block> = vec![within; too_many_count];
+        let refs: Vec<&Block> = many.iter().collect();
+        let err = check_days_at("d", &refs, Some(today)).expect_err("over entry limit");
+        assert_eq!(err.reason(), Some(Reason::TooManyEntries));
     }
 }

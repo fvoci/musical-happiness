@@ -107,6 +107,7 @@ impl Outcome {
             | StoreError::UserNotFound(_)
             | StoreError::NotAllFound { .. }
             | StoreError::InvalidBlock { .. }
+            | StoreError::InvalidBody { .. }
             | StoreError::Block(_)
             | StoreError::InvalidContainer(_)
             | StoreError::InvalidContainersAndBlocks(_)

@@ -27,6 +27,8 @@ import type { ContainerPlace } from './trash.ts';
 export interface StoredBlock extends Block {
   /** Cards and comments: their text. */
   body?: DocNode | null;
+  /** Diary entries: when the body last changed, so metadata-only edits do not stale body `readAt`. */
+  bodyUpdatedAt?: number;
   /** Comments whose text was changed: when that last happened. */
   editedAt?: number;
   /** Attachments. */

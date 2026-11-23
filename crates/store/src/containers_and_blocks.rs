@@ -12,6 +12,7 @@ use crate::Store;
 use crate::blocks::{self, BlockFilter, CopyChanges, CopyTitles, DuplicateAs};
 use crate::body_versions::BodyWrite;
 use crate::card_values;
+use crate::container_membership;
 use crate::containers;
 use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
@@ -161,6 +162,35 @@ impl Store {
         files: &[FileInfo],
         user_id: &str,
     ) -> Result<Vec<ContainerMember>, StoreError> {
+        self.create_imported_containers_blocks_files_and_members(
+            containers_and_blocks,
+            files,
+            &[],
+            user_id,
+        )
+        .await
+    }
+
+    /// Atomically inserts every container, records every written file (removing its
+    /// `writing` mark), inserts every block (checking body file references against the
+    /// recorded files), makes `user_id` an administrator and editor of each container,
+    /// and adds any `extra_members` not already present, all in one transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::InvalidPath`] for a malformed file path,
+    /// [`StoreError::NotFound`] if `user_id` does not work in a container's workspace,
+    /// a member's user does not exist, or a file's writing mark is gone,
+    /// [`StoreError::InvalidContainer`] or [`StoreError::InvalidBlock`] on validation
+    /// or limit refusal (such as `DIARIES_PER_SPACE` or duplicate diary days), or
+    /// [`StoreError::Database`] if a statement fails. Nothing is written on error.
+    pub async fn create_imported_containers_blocks_files_and_members(
+        &self,
+        containers_and_blocks: &mut ContainersAndBlocks,
+        files: &[FileInfo],
+        extra_members: &[ContainerMember],
+        user_id: &str,
+    ) -> Result<Vec<ContainerMember>, StoreError> {
         for file in files {
             file_info::check_new_path(&file.path)?;
         }
@@ -169,6 +199,7 @@ impl Store {
                 scope,
                 containers_and_blocks,
                 files,
+                extra_members,
                 user_id,
             )
             .await
@@ -290,6 +321,7 @@ async fn create_imported_containers_blocks_and_files(
     scope: &mut Scope<'_>,
     containers_and_blocks: &mut ContainersAndBlocks,
     files: &[FileInfo],
+    extra_members: &[ContainerMember],
     user_id: &str,
 ) -> Result<Vec<ContainerMember>, StoreError> {
     for container in &mut containers_and_blocks.containers {
@@ -311,7 +343,16 @@ async fn create_imported_containers_blocks_and_files(
         Telling::Nobody,
     )
     .await?;
-    add_creator_admins(scope, &containers_and_blocks.containers).await
+    let mut members = add_creator_admins(scope, &containers_and_blocks.containers).await?;
+    for member in extra_members {
+        if container_membership::add_member(scope, member)
+            .await?
+            .is_none()
+        {
+            members.push(member.clone());
+        }
+    }
+    Ok(members)
 }
 
 async fn add_creator_admins(

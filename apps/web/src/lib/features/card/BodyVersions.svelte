@@ -56,13 +56,13 @@
     reading: VersionsReading | undefined;
     /** The board, or the wiki: who may go back to a version. */
     container: Pick<BoardStore, 'workspace' | 'canEdit'>;
-    /** Whose body it is, for the words it says: a card's, a wiki's page's, or a course's unit's. */
-    of?: 'card' | 'page' | 'unit';
+    /** Whose body it is, for the words it says: a card's, a wiki's page's, a course's unit's, or a diary entry's. */
+    of?: 'card' | 'page' | 'unit' | 'entry';
   }
 
   let { open = $bindable(), reading, container, of = 'card' }: Props = $props();
 
-  /** What is said of the card, the page, or the unit. */
+  /** What is said of the card, the page, the unit, or the diary entry. */
   const words = $derived(
     of === 'page'
       ? {
@@ -78,15 +78,22 @@
             isCurrent: m.unit_version_is_current,
             restoreDescription: m.unit_version_restore_description,
           }
-        : {
-            noBody: m.card_version_no_body,
-            invalid: m.card_body_invalid,
-            isCurrent: m.card_version_is_current,
-            restoreDescription: m.card_version_restore_description,
-          },
+        : of === 'entry'
+          ? {
+              noBody: m.entry_version_no_body,
+              invalid: m.diary_body_invalid,
+              isCurrent: m.entry_version_is_current,
+              restoreDescription: m.entry_version_restore_description,
+            }
+          : {
+              noBody: m.card_version_no_body,
+              invalid: m.card_body_invalid,
+              isCurrent: m.card_version_is_current,
+              restoreDescription: m.card_version_restore_description,
+            },
   );
 
-  const references = $derived(bodyReferences(container));
+  const references = $derived(of === 'entry' ? undefined : bodyReferences(container));
 
   /** How many faces a version shows of those who wrote it. */
   const FACES = 3;

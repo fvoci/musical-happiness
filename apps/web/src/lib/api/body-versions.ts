@@ -149,3 +149,47 @@ export class ServerUnitVersions implements BodyVersions {
     );
   }
 }
+
+/**
+ * The versions of a diary entry's body on the server (`getDiaryEntryBodyVersions`,
+ * `getDiaryEntryBodyVersion`, `restoreDiaryEntryBodyVersion`,
+ * `keepDiaryEntryBodyVersion`).
+ */
+export class ServerEntryVersions implements BodyVersions {
+  readonly #ask: Ask;
+
+  constructor(ask: Ask) {
+    this.#ask = ask;
+  }
+
+  list(diaryId: string, entryId: string): Promise<BodyVersion[]> {
+    return this.#ask<Schemas['BodyVersion'][]>(
+      '/diaries/{diaryId}/entries/{entryId}/body-versions',
+      { diaryId, entryId },
+    );
+  }
+
+  async read(diaryId: string, entryId: string, version: number): Promise<BodyVersionContent> {
+    const kept = await this.#ask<Schemas['BodyVersionContent']>(
+      '/diaries/{diaryId}/entries/{entryId}/body-versions/{version}',
+      { diaryId, entryId, version: String(version) },
+    );
+    return { ...kept, body: bodyOf(kept.body) };
+  }
+
+  async restore(diaryId: string, entryId: string, version: number): Promise<void> {
+    await this.#ask<Schemas['DiaryEntry']>(
+      '/diaries/{diaryId}/entries/{entryId}/body-versions/{version}/restore',
+      { diaryId, entryId, version: String(version) },
+      { method: 'POST' },
+    );
+  }
+
+  keep(diaryId: string, entryId: string): Promise<KeptBodyVersion> {
+    return this.#ask<Schemas['KeptBodyVersion']>(
+      '/diaries/{diaryId}/entries/{entryId}/body-versions',
+      { diaryId, entryId },
+      { method: 'POST' },
+    );
+  }
+}

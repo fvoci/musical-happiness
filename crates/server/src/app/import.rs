@@ -7,7 +7,6 @@
 //! refused (`docs/s6-design.md` 3.10).
 
 use std::collections::{HashMap, HashSet};
-use std::mem;
 use std::path::Path;
 
 use bytes::Bytes;
@@ -17,20 +16,16 @@ use fvoci_model::{
     renew_containers_and_blocks_ids_told,
 };
 use serde_json::Value;
-use tokio::fs;
 
 use super::App;
-use super::container_copies::counted_as;
 use super::export::ARCHIVE_VERSION;
 use super::file_name::check_file_name;
 use super::files::stored_extension;
 use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
-use crate::metrics::ContainerWork;
 use crate::permissions;
 use archive::{
-    Archive, check_entry, entry_limit, entry_name, open_archive, read_entry, remove_unpacked,
-    too_many_entries, unpack_entry,
+    Archive, check_entry, entry_limit, entry_name, open_archive, read_entry, too_many_entries,
 };
 use fvoci_store::StoreError;
 
@@ -149,15 +144,15 @@ impl App {
 
     /// Imports the native fvoci v3 archive in the file at `path`, of zero or more boards
     /// with their blocks and files. The archive is read from the file at random, an entry
-    /// at a time; a file entry is unpacked into a file beside it, `path` with the name
-    /// `entry`, to be stored from there.
+    /// at a time; file entries are unpacked into a temporary staging directory under
+    /// `tmp_dir` (`import-stage-<secret>/entry`) and committed atomically with all
+    /// containers, blocks, and memberships in a single transaction.
     async fn import_archive_detailed(
         &self,
         path: &Path,
         options: &ImportOptions,
     ) -> Result<(Imported, ImportCounts, Vec<String>), AppError> {
         let zip = open_archive(path).await?;
-        let unpacked_file = path.with_file_name("entry");
         // The original's streaming reader rejects a ZIP with no entries as invalid.
         if zip.is_empty() {
             return Err(AppError::bad_request("zip: not a valid zip file"));
@@ -203,222 +198,8 @@ impl App {
             }
         }
         let (elsewhere, diaries) = named_elsewhere(&zip, &containers, options).await?;
-        // What the archive cannot say of itself: whether the workspace takes its
-        // diaries. Asked before the first board is stored, as each diary is asked again
-        // when it is.
-        if diaries > 0 {
-            self.store()
-                .check_room_for_diaries(&options.workspace_id, diaries)
-                .await?;
-        }
-
-        // First pass: the boards; a file entry needs its board already known.
-        let mut left_out: HashSet<String> = HashSet::new();
-        let StoredContainers {
-            by_dir: stored,
-            created_order,
-            copies,
-            files,
-        } = self
-            .store_archive_containers(&zip, containers, options, &elsewhere, &mut left_out)
-            .await?;
-
-        // Second pass: the files, placed under their board.
-        let entries = (&zip, largest_file, unpacked_file.as_path());
-        let file_map = self.store_archive_files(entries, &stored, &files).await?;
-
-        self.point_at_stored_files(&stored, &file_map, &copies, &options.modified_by)
-            .await;
-        tracing::debug!(containers_imported = stored.len(), "import archive - done");
-        let (counts, container_ids) = summarize_native_import(&created_order, file_map.len());
-        Ok((
-            Imported {
-                members_left_out: left_out.len(),
-            },
-            counts,
-            container_ids,
-        ))
-    }
-
-    /// Stores the file entries of the archive (`entries`: the archive, the limit of a
-    /// file's size and where an entry is unpacked to), each under the board of its
-    /// directory among `stored`, but those its board line says are missing, and returns
-    /// the stored name of each new file by its board and the name of its entry.
-    ///
-    /// # Errors
-    ///
-    /// As [`App::save_archive_entry`], with the entry named.
-    async fn store_archive_files(
-        &self,
-        (zip, largest_file, unpacked): (&Archive, u64, &Path),
-        stored: &HashMap<String, Container>,
-        files: &HashMap<String, ArchiveFiles>,
-    ) -> Result<HashMap<(String, String), String>, AppError> {
-        let mut file_map: HashMap<(String, String), String> = HashMap::new();
-        for index in 0..zip.len() {
-            let (dir, filename) = entry_name(zip, index)?;
-            // An entry without a file name is a directory of a re-packed archive.
-            if filename.is_empty() || filename == "version.json" || filename == "board.jsonl" {
-                continue;
-            }
-            let Some(container) = stored.get(&dir) else {
-                tracing::warn!(dir, filename, "skipping orphan image in archive");
-                continue;
-            };
-            let said = files.get(&dir);
-            if said.is_some_and(|said| said.missing.contains(&filename)) {
-                tracing::warn!(
-                    dir,
-                    filename,
-                    "skipping an entry of the archive that its board says is missing"
-                );
-                continue;
-            }
-            let name = name_in(files, &dir, &filename);
-            let entry = (zip, index, largest_file, unpacked);
-            let saved = self.save_archive_entry(entry, &container.id, name).await;
-            let new_name = saved.map_err(|error| {
-                error.context(format_args!(
-                    "cannot import file {filename} for board {dir}"
-                ))
-            })?;
-            file_map.insert((container.id.clone(), filename), new_name);
-        }
-        Ok(file_map)
-    }
-
-    /// Unpacks the entry of the archive at its index (`entry`: the archive, the index,
-    /// the limit of its size and where it is unpacked to) and stores it as a file of
-    /// `container_id` called `name`. Gives the new file's stored name; the unpacked copy
-    /// is removed either way.
-    async fn save_archive_entry(
-        &self,
-        (zip, index, limit, unpacked): (&Archive, usize, u64, &Path),
-        container_id: &str,
-        name: &str,
-    ) -> Result<String, AppError> {
-        let saved = match unpack_entry(zip, index, limit, unpacked).await {
-            Ok(()) => match fs::File::open(unpacked).await {
-                Ok(mut file) => self.save_file(&mut file, container_id, name).await,
-                Err(error) => Err(AppError::internal(format_args!(
-                    "cannot open an unpacked archive entry: {error}"
-                ))),
-            },
-            Err(error) => Err(error),
-        };
-        remove_unpacked(unpacked).await;
-        saved
-    }
-
-    /// Stores the boards of the archive, each its `board.jsonl` at an index under a
-    /// directory, and returns them by their directory, with the new identifiers of the
-    /// blocks among `elsewhere` (what a body of another board may name). Members left
-    /// out are added to `left_out` ([`App::store_archive_container`]).
-    ///
-    /// # Errors
-    ///
-    /// As [`App::store_archive_container`], and a bad request for an entry that cannot be read.
-    async fn store_archive_containers(
-        &self,
-        zip: &Archive,
-        containers: Vec<(usize, String)>,
-        options: &ImportOptions,
-        elsewhere: &HashSet<String>,
-        left_out: &mut HashSet<String>,
-    ) -> Result<StoredContainers, AppError> {
-        let mut stored = StoredContainers::default();
-        for (index, dir) in containers {
-            let jsonl = read_entry(zip, index, MAX_JSONL_BYTES).await?;
-            let mut container = parse_board_jsonl(jsonl, options, elsewhere).await?;
-            stored
-                .files
-                .insert(dir.clone(), mem::take(&mut container.files));
-            // Two blocks of an archive that share an identifier are no archive of this
-            // server's: the first is the one named.
-            for (old, new) in mem::take(&mut container.renamed) {
-                stored.copies.entry(old).or_insert(new);
-            }
-            let container = self
-                .store_archive_container(container, options, left_out)
-                .await?;
-            stored
-                .created_order
-                .push((container.kind, container.id.clone()));
-            stored.by_dir.insert(dir, container);
-        }
-        Ok(stored)
-    }
-
-    /// Stores one board of an archive as [`parse_board_jsonl`] read it, with its
-    /// members who are in the workspace and the importing user as an admin, and
-    /// returns the stored board. The members who are not in the workspace are left out,
-    /// and added to `left_out`.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the board or a membership cannot be stored. What
-    /// the store refuses as a bad request, [`parse_board_jsonl`] has refused before.
-    async fn store_archive_container(
-        &self,
-        container: ParsedContainer,
-        options: &ImportOptions,
-        left_out: &mut HashSet<String>,
-    ) -> Result<Container, AppError> {
-        let ParsedContainer {
-            containers_and_blocks,
-            members,
-            renamed: _,
-            files: _,
-        } = container;
-        // Keep only members who are in the workspace: a board takes no others. A guest of
-        // the workspace keeps a role no higher than editor. A membership without a role
-        // opens nothing, and is neither kept nor counted as left out.
-        let mut kept_members = Vec::with_capacity(members.len());
-        for member in members {
-            if permissions::role_of(&member).is_none() {
-                continue;
-            }
-            let actor = self.actor(&member.user_id, &options.workspace_id).await?;
-            match actor.workspace {
-                Some(workspace_role) => {
-                    kept_members.push(no_more_than_holdable(member, workspace_role));
-                }
-                None => {
-                    left_out.insert(member.user_id);
-                }
-            }
-        }
-
-        let created = self
-            .create_imported_containers_and_blocks(containers_and_blocks, &options.modified_by)
+        self.commit_native_archive(&zip, containers, options, &elsewhere, diaries, largest_file)
             .await
-            .map_err(|error| error.context("error inserting archive blocks"))?;
-
-        for container in &created.containers {
-            let admin = ContainerMember {
-                container_id: container.id.clone(),
-                user_id: options.modified_by.clone(),
-                scheme_admin: true,
-                ..ContainerMember::default()
-            };
-            self.add_member_to_container(&admin).await?;
-            for member in &kept_members {
-                let member = ContainerMember {
-                    container_id: container.id.clone(),
-                    ..member.clone()
-                };
-                self.add_member_to_container(&member).await?;
-            }
-            // Counted once it is made with its members, as it stays whatever comes after.
-            self.metrics()
-                .container_copied(ContainerWork::Import, counted_as(container.kind));
-        }
-
-        created
-            .containers
-            .into_iter()
-            .next()
-            .ok_or_else(|| AppError::bad_request("missing board in archive"))
     }
 }
 
@@ -483,10 +264,10 @@ impl ParsedContainer {
 
 /// Reads and checks every board of the archive ([`parse_board_jsonl`]) as the store
 /// checks it, before the first is stored: an archive that one of them refuses stores
-/// nothing. What is read is dropped and read again to be stored, so that one board at a
-/// time is held. Returns what the bodies name that is no block of their own board: it
-/// may be a block of another board of the archive, whose new identifier is asked for
-/// when that board is stored. And how many diaries the archive holds.
+/// nothing. Returns what the bodies name that is no block of their own board (which
+/// may be a block of another board of the archive, whose new identifier is recorded when
+/// the archive is prepared for its single-transaction commit) and how many diaries the
+/// archive holds.
 ///
 /// # Errors
 ///
@@ -507,20 +288,6 @@ async fn named_elsewhere(
         elsewhere.extend(container.named_elsewhere());
     }
     Ok((elsewhere, diaries))
-}
-
-/// The boards of an archive as they were stored.
-#[derive(Default)]
-struct StoredContainers {
-    /// Each board by the directory of the archive it came in.
-    by_dir: HashMap<String, Container>,
-    /// Containers created, in creation order (kind and new ID), for deterministic summaries.
-    created_order: Vec<(ContainerKind, String)>,
-    /// The new identifier of each block that a body of another board names, by its old
-    /// one.
-    copies: HashMap<String, String>,
-    /// What the board lines say of the files, by the directory of the archive.
-    files: HashMap<String, ArchiveFiles>,
 }
 
 /// The name a file of the archive is stored with: the one the board line of its
@@ -764,11 +531,6 @@ fn parse_archive_lines(
     Ok((containers_and_blocks, container_members, files))
 }
 
-/// A filter for all of a board's blocks.
-fn container_blocks(container_id: &str) -> fvoci_store::BlockFilter {
-    fvoci_store::BlockFilter::container(container_id)
-}
-
 /// Reads every entry of a native archive once before anything is stored so any broken
 /// or oversized entry, or cumulative unpacked total past [`MAX_UNPACKED_BYTES`], refuses
 /// the archive with nothing stored yet.
@@ -877,6 +639,7 @@ mod bundle;
 mod external_tests;
 mod markdown;
 mod markdown_nodes;
+mod native_atomic;
 mod notion;
 mod notion_csv;
 mod places;

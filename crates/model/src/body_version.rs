@@ -18,10 +18,11 @@ pub enum BodyVersionCause {
     #[default]
     Auto,
     /// By an editor who asked for it then (`keepCardBodyVersion`, `keepPageBodyVersion`,
-    /// `keepUnitBodyVersion`).
+    /// `keepDiaryEntryBodyVersion`, `keepUnitBodyVersion`).
     Manual,
     /// The body a version was gone back to, by who went back to it
-    /// (`restoreCardBodyVersion`, `restorePageBodyVersion`, `restoreUnitBodyVersion`).
+    /// (`restoreCardBodyVersion`, `restorePageBodyVersion`, `restoreDiaryEntryBodyVersion`,
+    /// `restoreUnitBodyVersion`).
     Restored,
 }
 

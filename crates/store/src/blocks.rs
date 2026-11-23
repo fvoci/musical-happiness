@@ -743,6 +743,7 @@ async fn insert_block_at(
         // and when the clock steps back: a writer that read the block before this
         // change is told so (`readAt`).
         block.update_at = now.max(existing.update_at.saturating_add(1));
+        crate::diaries::stamp_entry_body_time(block, Some(&existing));
         // A block stays on its board: the update is keyed by the board too, and a block
         // of that identifier on another board is not this block.
         let mut sql = scope.sql("UPDATE blocks SET ");
@@ -780,6 +781,7 @@ async fn insert_block_at(
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
         block.edited_at = 0;
+        crate::diaries::stamp_entry_body_time(block, None);
         insert_block_row(scope, block, new_files).await?;
         notification_noting::note_named(scope, block, None, user_id, telling).await?;
     }
@@ -943,7 +945,7 @@ pub(crate) async fn patch_block(
     let container_id = get_block(scope, block_id).await?.container_id;
     containers::lock_container(scope, &container_id).await?;
     let mut block = get_block(scope, block_id).await?;
-    let stored_update_at = block.update_at;
+    let (min_read_at, stored_update_at) = crate::diaries::read_at_window(&block);
     // What the block was stored with before it was refused is not the patch's fault.
     block.drop_malformed_fields();
     patch
@@ -963,7 +965,7 @@ pub(crate) async fn patch_block(
             source,
         })?;
     if let Some(read_at) = patch.read_at
-        && read_at != stored_update_at
+        && !(min_read_at..=stored_update_at).contains(&read_at)
     {
         return Err(StoreError::Stale {
             id: block.id,

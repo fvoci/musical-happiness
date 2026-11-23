@@ -365,6 +365,11 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "getDiaryEntryBodyVersions",
     ),
     (
+        "POST",
+        "/diaries/{diaryId}/entries/{entryId}/body-versions",
+        "keepDiaryEntryBodyVersion",
+    ),
+    (
         "GET",
         "/diaries/{diaryId}/entries/{entryId}/body-versions/{version}",
         "getDiaryEntryBodyVersion",

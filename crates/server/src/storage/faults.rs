@@ -19,11 +19,11 @@ pub enum FaultyOp {
     Delete,
 }
 
-/// The failures a test asks for: how many of the next calls of each operation fail.
-/// None at first.
+/// The failures a test asks for: how many calls to skip, then how many of the next calls
+/// of each operation fail. None at first.
 #[derive(Debug, Default)]
 pub struct Faults {
-    left: Mutex<Vec<(FaultyOp, u32)>>,
+    left: Mutex<Vec<(FaultyOp, u32, u32)>>,
 }
 
 impl Faults {
@@ -33,9 +33,19 @@ impl Faults {
     ///
     /// Panics if a test panicked while it held the faults.
     pub fn fail(&self, op: FaultyOp, times: u32) {
+        self.fail_after(op, 0, times);
+    }
+
+    /// Lets `skip` calls of `op` succeed, then makes the next `times` calls fail, in place
+    /// of what was asked before.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a test panicked while it held the faults.
+    pub fn fail_after(&self, op: FaultyOp, skip: u32, times: u32) {
         let mut left = self.left.lock().expect("the faults are not poisoned");
-        left.retain(|(other, _)| *other != op);
-        left.push((op, times));
+        left.retain(|(other, _, _)| *other != op);
+        left.push((op, skip, times));
     }
 
     /// Fails a call of `op` if one is asked for, counting it.
@@ -43,9 +53,13 @@ impl Faults {
         let mut left = self.left.lock().expect("the faults are not poisoned");
         match left
             .iter_mut()
-            .find(|(other, times)| *other == op && *times > 0)
+            .find(|(other, _, times)| *other == op && *times > 0)
         {
-            Some((_, times)) => {
+            Some((_, skip, _)) if *skip > 0 => {
+                *skip -= 1;
+                Ok(())
+            }
+            Some((_, _, times)) => {
                 *times -= 1;
                 Err(StorageError::Io(std::io::Error::other(format!(
                     "a failure the test asked for: {op:?} {path}"

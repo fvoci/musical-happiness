@@ -266,7 +266,7 @@ describe('the notes of a day on its page', () => {
     expect(patching).toHaveBeenCalledWith(
       diary.id,
       entry.entry?.id,
-      expect.objectContaining({ weather: '맑음', body: text('떠나기 전') }),
+      expect.objectContaining({ weather: '맑음', appendBody: text('떠나기 전') }),
       { keepalive: true },
     );
     await vi.waitFor(async () => {

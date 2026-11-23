@@ -35,6 +35,12 @@ pub const ENTRY_WEATHER_FIELD: &str = "weather";
 /// string; absent for none.
 pub const ENTRY_PLACE_FIELD: &str = "place";
 
+/// The field of an entry that holds when its body last changed (or when the entry was
+/// made, if its body has not changed since), in milliseconds since the Unix epoch.
+/// Managed by the store so conditional body writes compare `readAt` against body
+/// changes rather than metadata patches (`mood`, `weather`, `place`).
+pub const ENTRY_BODY_UPDATED_AT_FIELD: &str = "bodyUpdatedAt";
+
 /// The most characters the weather of an entry has, and its place: a few words each,
 /// shown on one line at the head of the entry.
 pub const ENTRY_NOTE_MAX_CHARS: usize = 100;
@@ -282,6 +288,12 @@ pub(crate) fn is_note_value(value: &Value) -> bool {
     value.as_str().is_some_and(is_note)
 }
 
+/// Whether `value` is the body-change timestamp of an entry: a non-negative integer in
+/// milliseconds since the Unix epoch.
+pub(crate) fn is_body_updated_at_value(value: &Value) -> bool {
+    value.as_i64().is_some_and(|time| time >= 0)
+}
+
 fn is_note(text: &str) -> bool {
     text.chars().count() <= ENTRY_NOTE_MAX_CHARS && !text.contains('\0')
 }
@@ -304,6 +316,32 @@ pub fn entry_mood(block: &Block) -> Option<Mood> {
         .get(ENTRY_MOOD_FIELD)
         .and_then(Value::as_str)
         .and_then(|text| text.parse().ok())
+}
+
+/// When the body of the entry `block` last changed, in milliseconds since the Unix
+/// epoch. For an entry stored before this field was kept: `update_at` if it has a body
+/// (so stale writers are still refused), or `create_at` if it has none.
+#[must_use]
+pub fn entry_body_updated_at(block: &Block) -> i64 {
+    block
+        .fields
+        .get(ENTRY_BODY_UPDATED_AT_FIELD)
+        .and_then(Value::as_i64)
+        .unwrap_or(if block.body.is_some() {
+            block.update_at
+        } else {
+            block.create_at
+        })
+}
+
+/// Whether the entry `block` has nothing written in it: no body, no mood, no weather
+/// and no place.
+#[must_use]
+pub fn is_empty_entry(block: &Block) -> bool {
+    block.body.is_none()
+        && entry_mood(block).is_none()
+        && text_field(&block.fields, ENTRY_WEATHER_FIELD).is_empty()
+        && text_field(&block.fields, ENTRY_PLACE_FIELD).is_empty()
 }
 
 fn text_field(fields: &JsonMap, field: &str) -> String {
@@ -452,6 +490,7 @@ const DATE_TOO_FAR: &str = "the day is more than two days past today";
 const NOTE_TOO_LONG: &str = "at most 100 characters";
 const NOTE_WITH_NUL: &str = "the text holds the character U+0000";
 const READ_AT_MISSING: &str = "a new body is sent with the `updateAt` the entry was read at";
+const BODY_AND_APPEND: &str = "`body` and `appendBody` cannot be sent in the same patch";
 
 /// Refuses a weather or a place that is too long or holds U+0000.
 fn refuse_note(refused: &mut Refusals, member: &str, text: Option<&str>) {
@@ -574,24 +613,43 @@ pub struct DiaryEntryPatch {
     pub weather: Option<String>,
     /// The new place, at most 100 characters; empty for none.
     pub place: Option<String>,
-    /// The new body; `null` takes the body away. Sent only with `readAt`.
+    /// The new body; `null` takes the body away. Sent only with `readAt`, and not
+    /// together with `appendBody`.
     #[schema(value_type = Option<Body>)]
     pub body: BodyChange,
-    /// The `updateAt` of the entry as the client read it: if the entry has changed
-    /// since, the patch is refused with 409 and changes nothing. Needed with `body`,
+    /// A document whose blocks are appended after the entry's current body inside one
+    /// server transaction without replacing what is already there. Cannot be sent
+    /// together with `body`. `null` or an empty document appends nothing. Refused (400)
+    /// if the combined body exceeds the body limits (`BODY_MAX_BYTES`,
+    /// `BODY_MAX_NODES`, `BODY_MAX_DEPTH`). Does not require `readAt`; if `readAt` is
+    /// also sent, it is checked against the entry's body timestamp before appending.
+    pub append_body: Option<Body>,
+    /// The `updateAt` of the entry as the client read it: checked against when the
+    /// entry's body last changed, so metadata-only patches (`mood`, `weather`, `place`)
+    /// do not cause 409 conflicts while any change to the body does. Needed with `body`,
     /// and checked whenever it is sent.
     pub read_at: Option<i64>,
 }
 
 impl DiaryEntryPatch {
+    /// Whether this patch replaces, clears, or appends to the entry's body.
+    #[must_use]
+    pub fn has_body_write(&self) -> bool {
+        !self.body.is_keep() || self.append_body.is_some()
+    }
+
     /// Checks the shape of the patch as a request sends it, all of it.
     ///
     /// # Errors
     ///
     /// Returns every member that is refused: a weather or a place that is too long or
-    /// holds U+0000, and a new body without `readAt`.
+    /// holds U+0000, a new body without `readAt`, and sending `body` together with
+    /// `appendBody`.
     pub fn check_request(&self) -> Result<(), Refusals> {
         let mut refused = Refusals::new();
+        if !self.body.is_keep() && self.append_body.is_some() {
+            refused.refuse("appendBody", RefusalReason::Invalid, BODY_AND_APPEND);
+        }
         if !self.body.is_keep() && self.read_at.is_none() {
             refused.refuse("readAt", RefusalReason::Required, READ_AT_MISSING);
         }
@@ -804,5 +862,48 @@ mod tests {
             ),
             ("2026-11-21", Some(Mood::Great), "", "home")
         );
+    }
+
+    #[test]
+    fn empty_entry_detection_and_body_timestamp_fallback() {
+        let mut block = Block {
+            id: "e".to_owned(),
+            container_id: "d".to_owned(),
+            block_type: crate::BlockType::Entry,
+            title: "2026-11-21".to_owned(),
+            fields: json!({"date": "2026-11-21"})
+                .as_object()
+                .expect("object")
+                .clone(),
+            create_at: 100,
+            update_at: 250,
+            ..Block::default()
+        };
+        assert!(is_empty_entry(&block));
+        assert_eq!(entry_body_updated_at(&block), 100);
+
+        block
+            .fields
+            .insert(ENTRY_WEATHER_FIELD.to_owned(), json!("맑음"));
+        assert!(!is_empty_entry(&block));
+
+        block
+            .fields
+            .insert(ENTRY_BODY_UPDATED_AT_FIELD.to_owned(), json!(180));
+        assert_eq!(entry_body_updated_at(&block), 180);
+
+        let body = Body::parse(json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "x"}]}
+        ]}))
+        .expect("valid")
+        .expect("non-empty");
+        let conflict = DiaryEntryPatch {
+            body: BodyChange::Set(body.clone()),
+            append_body: Some(body),
+            read_at: Some(180),
+            ..DiaryEntryPatch::default()
+        };
+        let refused = conflict.check_request().expect_err("body + appendBody");
+        assert!(refused.iter().any(|r| r.pointer == "/appendBody"));
     }
 }
