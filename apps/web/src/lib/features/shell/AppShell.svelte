@@ -84,6 +84,8 @@
     /** The address of the personal "My time" screen, when time tracking is available. */
     timeHref?: string | undefined;
     onOpenTime?: (() => void) | undefined;
+    reviewsToday?: boolean;
+    onOpenReviewsToday?: (() => void) | undefined;
     /** The address of a board or a wiki, for a link to it. */
     containerHref: (container: ContainerPlace) => string;
     /** The address of a board's or a wiki's public link with its read token. */
@@ -125,6 +127,8 @@
     meTime = false,
     timeHref,
     onOpenTime,
+    reviewsToday = false,
+    onOpenReviewsToday,
     containerHref,
     sharedHref,
     onOpenContainer,
@@ -227,10 +231,8 @@
     sidebar.drawerOpen = false;
   }
 
-  function openTime(): void {
-    onOpenTime?.();
-    sidebar.drawerOpen = false;
-  }
+  const closeDrawerThen = (action?: () => void) =>
+    action ? () => (action(), (sidebar.drawerOpen = false), undefined) : undefined;
 
   /**
    * Opens the settings; a drawer they were asked for from closes first.
@@ -329,7 +331,9 @@
     {containerId}
     {meTime}
     {timeHref}
-    onOpenTime={onOpenTime ? openTime : undefined}
+    onOpenTime={closeDrawerThen(onOpenTime)}
+    {reviewsToday}
+    onOpenReviewsToday={closeDrawerThen(onOpenReviewsToday)}
     {containerHref}
     hidden={!layout.strip}
     inert={drawerOut || paneCovered()}
@@ -346,9 +350,7 @@
       data-testid="sidebar-scrim"
       aria-label={m.shell_close_sidebar()}
       class="fixed inset-0 z-40 animate-in cursor-default scrim duration-200 fade-in-0"
-      onclick={() => {
-        sidebar.drawerOpen = false;
-      }}
+      onclick={() => (sidebar.drawerOpen = false)}
     ></button>
   {/if}
 
@@ -384,7 +386,9 @@
       {containerId}
       {meTime}
       {timeHref}
-      onOpenTime={onOpenTime ? openTime : undefined}
+      onOpenTime={closeDrawerThen(onOpenTime)}
+      {reviewsToday}
+      onOpenReviewsToday={closeDrawerThen(onOpenReviewsToday)}
       {containerHref}
       beside={layout.list === 'beside'}
       onOpenContainer={openContainer}
@@ -408,6 +412,7 @@
       {workspace}
       {containerId}
       {meTime}
+      {reviewsToday}
       {sharedHref}
       menuButton={layout.menuButton}
       onOpenSidebar={openDrawer}

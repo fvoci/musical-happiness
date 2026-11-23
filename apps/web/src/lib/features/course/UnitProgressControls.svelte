@@ -16,12 +16,18 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { isComposing } from '$lib/keys.ts';
   import {
+    courseReviewIntervals,
+    courseReviews,
+    DEFAULT_REVIEW_INTERVALS,
     hasControlChars,
     UNIT_PROGRESS_POSITION_MAX_CHARS,
     type CourseStore,
+    type ScheduleUnitReview,
   } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { Input } from '$lib/ui/input/index.js';
+
+  import ReviewIntervalPicker from './ReviewIntervalPicker.svelte';
 
   interface Props {
     course: CourseStore;
@@ -36,6 +42,10 @@
   const lastPosition = $derived(progress?.lastPosition ?? '');
   const busy = $derived(course.progress.isBusy(unitId));
   const canTrack = $derived(course.canTrackProgress);
+  const reviewStore = $derived(courseReviews(course));
+  const reviewIntervals = $derived(
+    courseReviewIntervals(course.course?.properties as Record<string, unknown> | undefined),
+  );
 
   let editingFor = $state<string | undefined>(undefined);
   let draft = $state('');
@@ -43,6 +53,38 @@
   let inputRef = $state<HTMLInputElement | null>(null);
   let triggerRef = $state<HTMLElement | null>(null);
   const editingPosition = $derived(editingFor === unitId);
+
+  let suggestFor = $state<string | undefined>(undefined);
+  let suggestedDays = $state(DEFAULT_REVIEW_INTERVALS[0] ?? 1);
+  let scheduledNotice = $state<{ unitId: string; text: string } | undefined>(undefined);
+  const showingSuggestion = $derived(canTrack && completed && suggestFor === unitId);
+
+  async function toggleComplete(): Promise<void> {
+    const targetId = unitId;
+    const wasCompleted = completed;
+    scheduledNotice = undefined;
+    const ok = await course.toggleUnitComplete(targetId);
+    if (!ok || unitId !== targetId) return;
+    if (!wasCompleted && course.progress.isCompleted(targetId)) {
+      const nextDays =
+        course.progress.of(targetId)?.suggestedNextIntervalDays ?? reviewIntervals[0] ?? 1;
+      suggestedDays = nextDays;
+      suggestFor = targetId;
+    } else if (suggestFor === targetId) {
+      suggestFor = undefined;
+    }
+  }
+
+  async function scheduleSuggested(selection: ScheduleUnitReview): Promise<void> {
+    const targetId = unitId;
+    const created = await reviewStore.scheduleReview(targetId, selection);
+    if (!created) return;
+    if (suggestFor === targetId) suggestFor = undefined;
+    scheduledNotice = {
+      unitId: targetId,
+      text: m.review_scheduled_status({ date: created.scheduledDate }),
+    };
+  }
 
   async function startEditing(): Promise<void> {
     if (!canTrack || busy) return;
@@ -119,7 +161,7 @@
         aria-pressed={completed}
         disabled={busy}
         data-testid="unit-complete-toggle"
-        onclick={() => void course.toggleUnitComplete(unitId)}
+        onclick={() => void toggleComplete()}
       >
         {#if completed}
           <CircleCheckIcon aria-hidden="true" />
@@ -247,4 +289,23 @@
       </span>
     {/if}
   </div>
+  {#if showingSuggestion}
+    <ReviewIntervalPicker
+      intervals={reviewIntervals}
+      suggested={suggestedDays}
+      title={m.review_suggest_title()}
+      confirmLabel={m.review_suggest_confirm()}
+      skipLabel={m.review_suggest_skip()}
+      busy={reviewStore.reviewsBusy}
+      testId="review-suggest-bar"
+      onConfirm={scheduleSuggested}
+      onSkip={() => {
+        suggestFor = undefined;
+      }}
+    />
+  {:else if scheduledNotice?.unitId === unitId}
+    <p class="text-xs text-muted-foreground" role="status" data-testid="review-scheduled-notice">
+      {scheduledNotice.text}
+    </p>
+  {/if}
 {/if}

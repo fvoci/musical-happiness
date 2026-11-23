@@ -17,6 +17,7 @@
   import { onDestroy } from 'svelte';
 
   import BuildingIcon from '@lucide/svelte/icons/building-2';
+  import CalendarCheckIcon from '@lucide/svelte/icons/calendar-check';
   import ClockIcon from '@lucide/svelte/icons/clock';
   import NotebookPenIcon from '@lucide/svelte/icons/notebook-pen';
   import PanelLeftCloseIcon from '@lucide/svelte/icons/panel-left-close';
@@ -63,6 +64,8 @@
     meTime?: boolean;
     timeHref?: string | undefined;
     onOpenTime?: (() => void) | undefined;
+    reviewsToday?: boolean;
+    onOpenReviewsToday?: (() => void) | undefined;
     containerHref: (container: ContainerPlace) => string;
     /** The sidebar is a column beside the board: its button folds it. Otherwise it closes the drawer. */
     beside: boolean;
@@ -84,6 +87,8 @@
     meTime = false,
     timeHref,
     onOpenTime,
+    reviewsToday = false,
+    onOpenReviewsToday,
     containerHref,
     beside,
     onOpenContainer,
@@ -374,6 +379,18 @@
     >
       <UsersIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
       <span class="min-w-0 flex-1 truncate">{m.people_title()}</span>
+    </button>
+  {/if}
+  {#if onOpenReviewsToday && workspace.backend.course && workspace.info && workspace.me?.id}
+    <button
+      type="button"
+      data-testid="open-today-reviews"
+      aria-current={reviewsToday ? 'page' : undefined}
+      class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium roomy:min-h-touch"
+      onclick={onOpenReviewsToday}
+    >
+      <CalendarCheckIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
+      <span class="min-w-0 flex-1 truncate">{m.today_reviews_title()}</span>
     </button>
   {/if}
   {#if timeHref && workspace.me?.id}

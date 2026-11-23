@@ -97,20 +97,51 @@ export { UnitStore } from './unit.svelte.ts';
 export type { UnitComments } from './unit-comments.svelte.ts';
 export { createCourse } from './course-parts.ts';
 export { shownCourse } from './shown-course.svelte.ts';
-export { hasControlChars, UNIT_PROGRESS_POSITION_MAX_CHARS } from './course-types.ts';
+export {
+  courseReviewIntervals,
+  DEFAULT_REVIEW_INTERVALS,
+  hasControlChars,
+  hasDisallowedNoteControlChars,
+  MAX_REVIEW_INTERVAL_DAYS,
+  MIN_REVIEW_INTERVAL_DAYS,
+  suggestedNextIntervalDays,
+  UNIT_NOTE_CONTENT_MAX_CHARS,
+  UNIT_NOTE_KINDS,
+  UNIT_PROGRESS_POSITION_MAX_CHARS,
+  validateUnitNoteContent,
+} from './course-types.ts';
+export {
+  courseReviews,
+  CourseReviewsStore,
+  todayReviews,
+  TodayReviewsStore,
+} from './unit-reviews.svelte.ts';
 export type {
+  CompletedUnitReview,
+  CompleteUnitReview,
   CourseDraft,
   CourseProgressSummary,
+  CourseReviews,
   Courses,
   CourseUnit,
   CourseUnitDetail,
+  CreateUnitNote,
+  ListCourseReviewsQuery,
   MemberCourseProgress,
+  PatchUnitNote,
+  ReviewStatusFilter,
+  ScheduleUnitReview,
+  TodayReviewItem,
   UnitDraft,
   UnitKind,
   UnitMove,
+  UnitNote,
+  UnitNoteContentError,
+  UnitNoteKind,
   UnitPatch,
   UnitProgress,
   UnitProgressUpdate,
+  UnitReview,
 } from './course-types.ts';
 export type { PresenceSource, TreeItem, TreeSource } from './tree-source.ts';
 export {

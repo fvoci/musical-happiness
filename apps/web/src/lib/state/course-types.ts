@@ -14,6 +14,9 @@ import type { Container, ContainerType, MemberRole } from '../logic/wire.ts';
 import type { BodyWrite, Comment, CommentVersion } from './backend.ts';
 import type { BodyVersions } from './body-versions.ts';
 import type { DeletedItem, Paging } from './trash-reads.ts';
+import type { CourseReviews } from './unit-review-types.ts';
+
+export * from './unit-review-types.ts';
 
 /** Whether an outline entry is a unit (with a body) or a chapter (a top-level heading). */
 export type UnitKind = 'unit' | 'chapter';
@@ -98,6 +101,8 @@ export interface UnitProgress {
   plannedDate: string | null;
   /** Optional last read or watched position string, at most 256 Unicode scalar values. */
   lastPosition: string | null;
+  /** Suggested next spaced-repetition review interval in days when completed. */
+  suggestedNextIntervalDays?: number;
   /** Last modification time in milliseconds since Unix epoch. */
   updateAt: number;
 }
@@ -184,6 +189,9 @@ export interface Courses {
   ): Promise<UnitProgress>;
   /** Aggregate completion counts for active course members, ordered by `userId`. */
   progressSummary(courseId: string, workspaceId?: string): Promise<CourseProgressSummary>;
+
+  // Personal spaced-repetition reviews, workspace today reviews, and personal study notes.
+  readonly reviews: CourseReviews;
 }
 
 /** Where a backend keeps its courses. One by a public link reads only its course's outline and units. */

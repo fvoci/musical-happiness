@@ -24,6 +24,7 @@ import { memberRole } from './container-access.ts';
 import { fail } from './refuse.ts';
 import { copy } from './shapes.ts';
 import { workersOf } from './spaces.ts';
+import { memorySuggestedIntervalForUnit } from './unit-reviews.ts';
 import type { World } from './world.ts';
 
 type PositionChange = { kind: 'keep' } | { kind: 'clear' } | { kind: 'set'; value: string };
@@ -60,7 +61,16 @@ export function memoryMyProgress(world: World, userId: string, courseId: string)
   for (const [unitId, row] of byUnit) {
     const block = world.blocks.get(unitId);
     if (block?.containerId === courseId && block.type === 'unit') {
-      rows.push(copy(row));
+      const cloned = copy(row);
+      if (cloned.completedAt !== null) {
+        cloned.suggestedNextIntervalDays = memorySuggestedIntervalForUnit(
+          world,
+          userId,
+          courseId,
+          unitId,
+        );
+      }
+      rows.push(cloned);
     }
   }
   return rows.sort((a, b) => (a.unitId < b.unitId ? -1 : a.unitId > b.unitId ? 1 : 0));
@@ -116,7 +126,16 @@ export function memoryPutUnitProgress(
     updateAt: now,
   };
   byUnit.set(unitId, next);
-  return copy(next);
+  const result = copy(next);
+  if (result.completedAt !== null) {
+    result.suggestedNextIntervalDays = memorySuggestedIntervalForUnit(
+      world,
+      userId,
+      courseId,
+      unitId,
+    );
+  }
+  return result;
 }
 
 export function memoryProgressSummary(

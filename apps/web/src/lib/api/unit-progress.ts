@@ -20,6 +20,9 @@ export function unitProgressOf(row: Schemas['UnitProgress']): UnitProgress {
     completedAt: row.completedAt,
     plannedDate: row.plannedDate,
     lastPosition: row.lastPosition,
+    ...(typeof row.suggestedNextIntervalDays === 'number'
+      ? { suggestedNextIntervalDays: row.suggestedNextIntervalDays }
+      : {}),
     updateAt: row.updateAt,
   };
 }

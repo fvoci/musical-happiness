@@ -15,6 +15,7 @@
 -->
 <script lang="ts">
   import BellIcon from '@lucide/svelte/icons/bell';
+  import CalendarCheckIcon from '@lucide/svelte/icons/calendar-check';
   import XIcon from '@lucide/svelte/icons/x';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
@@ -193,7 +194,11 @@
     <ul class="grid">
       {#each inbox.items as notification (notification.id)}
         {@const unread = notification.readAt === 0}
-        <li data-notification={notification.id} data-unread={unread || undefined}>
+        <li
+          data-notification={notification.id}
+          data-unread={unread || undefined}
+          data-kind={notification.subject?.kind}
+        >
           {#if notification.subject}
             <a
               href={hrefOf(notification)}
@@ -221,9 +226,12 @@
     aria-hidden="true"
   ></span>
   <span class="grid min-w-0 flex-1 gap-0.5">
-    <span class={[unread && 'font-medium']}
-      >{notificationText(notification.subject, nameOf(notification))}</span
-    >
+    <span class={['flex items-start gap-1.5', unread && 'font-medium']}>
+      {#if notification.subject?.kind === 'review_due'}
+        <CalendarCheckIcon class="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
+      {/if}
+      <span>{notificationText(notification.subject, nameOf(notification))}</span>
+    </span>
     <span class="text-xs text-muted-foreground">
       {relativeTime(notification.updateAt, locale, Math.max(now, notification.updateAt))}
       {#if unread}<span class="sr-only">· {m.notifications_unread()}</span>{/if}

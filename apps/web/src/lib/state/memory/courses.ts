@@ -44,6 +44,7 @@ import { commentOf, copy, memberOf, orderOf, scramble, unitOf } from './shapes.t
 import { checkWorkspace } from './spaces.ts';
 import { deletedUnitsOf, deletion } from './trash.ts';
 import { memoryMyProgress, memoryProgressSummary, memoryPutUnitProgress } from './unit-progress.ts';
+import { MemoryUnitReviews } from './unit-reviews.ts';
 import {
   memoryUnwatchUnit,
   memoryWatchingUnits,
@@ -79,6 +80,7 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
   /** The limits a memory course is held to; a test may lower them to reach them. */
   limits: CourseLimits = DEFAULT_COURSE_LIMITS;
   #bodyVersions: MemoryBodyVersions | undefined;
+  #reviews: MemoryUnitReviews | undefined;
 
   constructor(host: WikiHost) {
     super();
@@ -87,6 +89,11 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
 
   get #world(): World {
     return this.#host.world;
+  }
+
+  get reviews(): MemoryUnitReviews {
+    this.#reviews ??= new MemoryUnitReviews(this.#host, () => this.#enter('reviews'));
+    return this.#reviews;
   }
 
   get bodyVersions(): MemoryBodyVersions {

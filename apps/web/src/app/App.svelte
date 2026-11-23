@@ -256,6 +256,10 @@
   const openTime = (): void => {
     router.go({ meTime: true });
   };
+  const openReviewsToday = (): void => {
+    const workspaceId = workspace?.info?.id;
+    if (workspaceId) router.go({ workspaceId, reviewsToday: true });
+  };
 </script>
 
 {#snippet accountSettings()}
@@ -416,6 +420,8 @@
     meTime={router.route.meTime === true}
     timeHref={workspace.backend.time ? router.href({ meTime: true }) : undefined}
     onOpenTime={openTime}
+    reviewsToday={router.route.reviewsToday === true}
+    onOpenReviewsToday={workspace.backend.course ? openReviewsToday : undefined}
     containerHref={(container: ContainerPlace) => router.href(placeRoute(container))}
     sharedHref={(containerId: string, readToken: string) =>
       router.href({ boardId: containerId, readToken })}
