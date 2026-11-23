@@ -30,6 +30,7 @@ mod oidc_trust;
 mod scrapes;
 pub mod search;
 mod secret_key;
+mod security;
 pub mod smtp;
 mod upload_limits;
 pub mod wiki;
@@ -37,6 +38,7 @@ pub mod wiki;
 use environment::{ENV_KEYS, EnvKind, env_value};
 pub use scrapes::{MetricsAddress, MetricsHost, MetricsToken};
 pub use secret_key::{ENV_ONLY, SECRET_KEY_ENV};
+pub use security::SecurityContact;
 
 use crate::auth::sealed::SecretKey;
 
@@ -227,6 +229,9 @@ pub struct Configuration {
     /// client's `Accept-Encoding` asks). On unless set: a proxy in front that compresses
     /// itself can have it off.
     pub compress_responses: bool,
+    /// The contact URI published in `/.well-known/security.txt` (`mailto:`, `https://`,
+    /// or `tel:` per RFC 9116); empty disables the endpoint (404).
+    pub security_contact: String,
     /// The largest body, in bytes, of a request to an API route that takes JSON. A
     /// larger one is refused with 413. It does not apply to file uploads, which are
     /// limited to one part (`upload_part_bytes`) as they are read, nor to the parts of
@@ -373,6 +378,7 @@ impl Default for Configuration {
             public_link_connections_per_container: 200,
             public_link_connections_per_address: 10,
             compress_responses: true,
+            security_contact: String::new(),
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             trash_retention_days: 30,
             upload_part_bytes: DEFAULT_UPLOAD_PART_BYTES,
@@ -454,6 +460,7 @@ impl std::fmt::Debug for Configuration {
                 &self.public_link_connections_per_address,
             )
             .field("compress_responses", &self.compress_responses)
+            .field("security_contact", &self.security_contact)
             .field("max_request_bytes", &self.max_request_bytes)
             .field("trash_retention_days", &self.trash_retention_days)
             .field("upload_part_bytes", &self.upload_part_bytes)
@@ -719,6 +726,16 @@ impl Configuration {
         std::time::Duration::from_secs(self.server_lock_wait_seconds)
     }
 
+    /// The contact URI for `/.well-known/security.txt`, or `None` if unset.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `security_contact` is non-empty and not a valid `mailto:`,
+    /// `https://`, or `tel:` URI (RFC 9116).
+    pub fn security_contact(&self) -> anyhow::Result<Option<SecurityContact>> {
+        SecurityContact::parse(&self.security_contact)
+    }
+
     /// Checks that the configuration only asks for what this server supports.
     ///
     /// Returns the warnings: keys of the file that no setting reads, and settings that
@@ -783,6 +800,7 @@ impl Configuration {
         self.wiki.check()?;
         self.metrics_listen_address()?;
         self.check_metrics_token()?;
+        self.security_contact()?;
         if !["local", "s3"].contains(&self.file_storage.as_str()) {
             bail!(
                 "file_storage {:?} is not supported; use \"local\" or \"s3\"",

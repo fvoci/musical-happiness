@@ -155,6 +155,7 @@ mod rooms_teams;
 mod search;
 mod search_database;
 mod search_database_size;
+mod search_engines;
 mod search_index;
 mod search_isolation;
 mod search_pages;

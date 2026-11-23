@@ -4,17 +4,27 @@
 //! the web app's client-side routes can be opened directly. The original server adds no
 //! cache headers; this one sets them so that the server can sit behind a CDN.
 
+mod discovery;
+
 use std::path::{Path, PathBuf};
 
 use axum::body::Body;
+use axum::extract::{OriginalUri, State};
 use axum::http::header::{
-    ACCESS_CONTROL_ALLOW_ORIGIN, CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE,
+    ACCESS_CONTROL_ALLOW_ORIGIN, ALLOW, CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE,
     X_CONTENT_TYPE_OPTIONS,
 };
-use axum::http::{HeaderValue, Request, StatusCode, Uri};
-use axum::response::{IntoResponse, Response};
+use axum::http::{HeaderValue, Method, Request, StatusCode, Uri};
+use axum::response::{IntoResponse, Redirect, Response};
 use tower::ServiceExt as _;
 use tower_http::services::ServeDir;
+
+pub(crate) use discovery::{origin_routes, send_robots_tag};
+
+use crate::app::App;
+use crate::config::SecurityContact;
+use crate::error::AppError;
+use discovery::{SecurityTxt, https_origin_of};
 
 /// The body of the answer to a path that names nothing.
 const NOT_FOUND_BODY: &str = "not found\n";
@@ -34,6 +44,8 @@ const STATIC_DOCUMENT_POLICY: &str = "sandbox allow-scripts";
 pub struct WebRoot {
     root: PathBuf,
     base_url: String,
+    https_origin: Option<String>,
+    security_txt: Option<SecurityTxt>,
 }
 
 impl WebRoot {
@@ -42,7 +54,22 @@ impl WebRoot {
         Self {
             root: web_app_path.as_ref().to_path_buf(),
             base_url: base_url(server_url),
+            https_origin: https_origin_of(server_url),
+            security_txt: None,
         }
+    }
+
+    /// Configures the `/.well-known/security.txt` response for this web root.
+    #[must_use]
+    pub(crate) fn with_security_contact(mut self, contact: Option<SecurityContact>) -> Self {
+        self.security_txt =
+            contact.map(|contact| SecurityTxt::new(contact, self.https_origin.as_deref()));
+        self
+    }
+
+    /// The `/.well-known/security.txt` policy, or `None` when `security_contact` is unset.
+    pub(crate) fn security_txt(&self) -> Option<&SecurityTxt> {
+        self.security_txt.as_ref()
     }
 
     /// The path the web app is served under: the path part of `server_url`.
@@ -137,6 +164,76 @@ impl WebRoot {
             }
         }
     }
+}
+
+/// Serves a static file under `/static/`.
+pub(crate) async fn handle_static(State(app): State<App>, request: Request<Body>) -> Response {
+    // The path as the client sent it, still percent-encoded: the file service decodes
+    // it, once.
+    let path = request
+        .uri()
+        .path()
+        .strip_prefix("/static/")
+        .unwrap_or_default()
+        .to_owned();
+    app.web().serve_static(&path, request).await
+}
+
+/// The page that starts the web app, for its root.
+pub(crate) async fn handle_root(State(app): State<App>) -> Response {
+    app.web().serve_index().await
+}
+
+/// Everything that is neither an API route nor a static file is a route of the web app:
+/// the page that starts it is the answer to a `GET`.
+///
+/// A path that ends in a slash is redirected to the one without, so that every screen
+/// has one address. The root is the exception; with a base path it is the base path
+/// itself, with or without the slash.
+pub(crate) async fn handle_fallback(
+    State(app): State<App>,
+    method: Method,
+    uri: Uri,
+    OriginalUri(original): OriginalUri,
+) -> Response {
+    let path = uri.path();
+    if path == "/api" || path.starts_with("/api/") {
+        return AppError::not_found("route").into_response();
+    }
+    if path == "/static" || path.starts_with("/static/") {
+        return not_found().into_response();
+    }
+    if method != Method::GET && method != Method::HEAD {
+        let mut response = AppError::method_not_allowed().into_response();
+        response
+            .headers_mut()
+            .insert(ALLOW, HeaderValue::from_static("GET, HEAD"));
+        return response;
+    }
+    if path.len() > 1 && path.ends_with('/') {
+        return match without_trailing_slash(&original) {
+            Some(location) => Redirect::permanent(&location).into_response(),
+            None => not_found().into_response(),
+        };
+    }
+    app.web().serve_index().await
+}
+
+/// The address a path with a trailing slash is redirected to: the same path without
+/// the slash, with its query.
+///
+/// `None` for a path with an empty segment or a backslash, such as `//host/` and
+/// `/\host/`: without its last slash it would read as an address on another host.
+fn without_trailing_slash(uri: &Uri) -> Option<String> {
+    let path = uri.path().trim_end_matches('/');
+    // Browsers read a backslash as a slash, so `/\host` is `//host` to them.
+    if path.is_empty() || path.contains("//") || path.contains('\\') {
+        return None;
+    }
+    Some(match uri.query() {
+        Some(query) => format!("{path}?{query}"),
+        None => path.to_owned(),
+    })
 }
 
 /// The response for a path that names nothing, worded as the original's.
