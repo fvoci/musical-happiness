@@ -4,13 +4,17 @@
 //! updates, no webhooks, and no audit log entries so a learner's private per-unit state
 //! never leaves the caller's own session.
 
-use fvoci_model::{CourseProgressSummary, UnitProgress, UnitProgressChange};
+use fvoci_model::{
+    CourseProgressSummary, JsonMap, UnitProgress, UnitProgressChange, course_review_intervals,
+    suggested_next_interval_days,
+};
 
 use super::App;
 use crate::error::AppError;
 
 impl App {
-    /// Returns the caller's personal progress rows for live units of `course_id`.
+    /// Returns the caller's personal progress rows for live units of `course_id`,
+    /// populating `suggested_next_interval_days` for completed units.
     ///
     /// # Errors
     ///
@@ -19,14 +23,31 @@ impl App {
         &self,
         course_id: &str,
         user_id: &str,
+        course_properties: &JsonMap,
     ) -> Result<Vec<UnitProgress>, AppError> {
-        Ok(self
+        let mut rows = self
             .store()
             .get_my_course_progress(course_id, user_id)
-            .await?)
+            .await?;
+        if rows.iter().any(|row| row.completed_at.is_some()) {
+            let intervals = course_review_intervals(course_properties);
+            let latest = self
+                .store()
+                .latest_unit_review_intervals(course_id, user_id, None)
+                .await?;
+            for row in &mut rows {
+                if row.completed_at.is_some() {
+                    let current = latest.get(&row.unit_id).copied();
+                    row.suggested_next_interval_days =
+                        Some(suggested_next_interval_days(current, &intervals));
+                }
+            }
+        }
+        Ok(rows)
     }
 
-    /// Creates or updates the caller's personal progress on a live unit of `course_id`.
+    /// Creates or updates the caller's personal progress on a live unit of `course_id`,
+    /// populating `suggested_next_interval_days` when completed.
     ///
     /// # Errors
     ///
@@ -38,11 +59,23 @@ impl App {
         unit_id: &str,
         user_id: &str,
         change: &UnitProgressChange,
+        course_properties: &JsonMap,
     ) -> Result<UnitProgress, AppError> {
-        Ok(self
+        let mut progress = self
             .store()
             .upsert_unit_progress(course_id, unit_id, user_id, change)
-            .await?)
+            .await?;
+        if progress.completed_at.is_some() {
+            let intervals = course_review_intervals(course_properties);
+            let latest = self
+                .store()
+                .latest_unit_review_intervals(course_id, user_id, Some(unit_id))
+                .await?;
+            let current = latest.get(unit_id).copied();
+            progress.suggested_next_interval_days =
+                Some(suggested_next_interval_days(current, &intervals));
+        }
+        Ok(progress)
     }
 
     /// Returns the aggregate completion summary across active members of `course_id`.

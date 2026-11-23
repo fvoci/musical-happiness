@@ -190,6 +190,7 @@ fn overdue_units_do_not_auto_shift_and_personal_planned_date_overrides_shared() 
             planned_date: None,
             last_position: None,
             update_at: 1_000,
+            suggested_next_interval_days: None,
         },
         UnitProgress {
             unit_id: "u3".to_owned(),
@@ -197,6 +198,7 @@ fn overdue_units_do_not_auto_shift_and_personal_planned_date_overrides_shared() 
             planned_date: Some("2026-11-26".to_owned()),
             last_position: None,
             update_at: 1_000,
+            suggested_next_interval_days: None,
         },
     ];
     let view = build_course_schedule_view(None, &nodes, &progress, day("2026-11-24"));

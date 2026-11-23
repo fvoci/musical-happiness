@@ -24,6 +24,8 @@ export interface SearchHit {
   /** The board the card is on, the wiki the page is in, or the diary the entry is in. */
   containerId: string;
   containerKind: ContainerKind;
+  /** The title of the board, wiki, diary or course; empty if untitled. */
+  containerTitle?: string;
   /** Its title as it is now. */
   title: string;
   /** A card's number on its board; none for a page. */

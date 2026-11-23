@@ -51,6 +51,7 @@ export class ServerContentSearch implements ContentSearch {
       kind: hit.kind,
       containerId: hit.containerId,
       containerKind: hit.containerKind,
+      containerTitle: hit.containerTitle,
       title: hit.title,
       ...(hit.number === undefined || hit.number === null ? {} : { number: hit.number }),
       snippet: hit.snippet.map((part) => ({ text: part.text, matched: part.matched })),

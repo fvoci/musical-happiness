@@ -16,6 +16,9 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
+  import HistoryIcon from '@lucide/svelte/icons/history';
+
+  import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import BodyView from '$lib/editor/BodyView.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { CalendarDate } from '$lib/logic/dates.ts';
@@ -33,11 +36,13 @@
     open: boolean;
     locale: string;
     onOpen: () => void;
+    /** Opens the versions kept of the open entry's body. */
+    onVersions?: () => void;
     /** The open day's body, with its editor; `label` is the day written whole. */
     body: Snippet<[entry: EntryStore, label: string]>;
   }
 
-  let { diary, date, today, open, locale, onOpen, body }: Props = $props();
+  let { diary, date, today, open, locale, onOpen, onVersions, body }: Props = $props();
 
   const uid = $props.id();
   const entry = $derived(diary.entries.find((one) => one.date === date));
@@ -53,11 +58,18 @@
   data-open={open && (!toCome || entry) ? '' : undefined}
   data-written={entry ? '' : undefined}
 >
-  <h2 id="{uid}-year" class="flex items-baseline gap-2">
-    <span class="text-base font-semibold">{displayYear(date, locale)}</span>
-    <span class="text-sm text-muted-foreground">{displayWeekday(date, locale)}</span>
-    <span class="sr-only">{whole}</span>
-  </h2>
+  <div class="flex items-center justify-between gap-2">
+    <h2 id="{uid}-year" class="flex items-baseline gap-2">
+      <span class="text-base font-semibold">{displayYear(date, locale)}</span>
+      <span class="text-sm text-muted-foreground">{displayWeekday(date, locale)}</span>
+      <span class="sr-only">{whole}</span>
+    </h2>
+    {#if open && entry && onVersions}
+      <IconButton label={m.card_versions()} data-testid="entry-versions" onclick={onVersions}>
+        <HistoryIcon aria-hidden="true" />
+      </IconButton>
+    {/if}
+  </div>
   {#if entry && !open}
     <NotesShown notes={entry} />
   {/if}

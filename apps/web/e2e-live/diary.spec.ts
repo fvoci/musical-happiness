@@ -10,6 +10,7 @@
  */
 import { expect, test, type APIRequestContext, type Browser, type Page } from '@playwright/test';
 
+import { primaryKey } from '../e2e/keyboard.support.ts';
 import { person, register, signedIn, signInOnPage, watchErrors, type Schemas } from './support.ts';
 
 test.use({ locale: 'en-US', timezoneId: 'Asia/Seoul' });
@@ -265,5 +266,51 @@ test('a day’s mood, weather and place, the calendar and the days in a row stay
   );
   await expect(page.getByTestId('diary-calendar').locator('[data-written]')).toHaveCount(0);
   await expect(page.getByTestId('diary-streak-badge')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('keeps a diary entry body version with ⌘S/Ctrl+S and restores it on the real server', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const who = person('diarist');
+  await register(base, who);
+  const api = await signedIn(base, who);
+  const { ownId, diaryId } = await aDiary(api);
+  const today = todayInSeoul();
+  const monthDay = today.slice(5);
+  const errors = watchErrors(page);
+
+  await page.goto(`/w/${ownId}/diaries/${diaryId}/${monthDay}`);
+  await signInOnPage(page, who);
+  const cell = year(page, today);
+  await editorOf(page, today).click();
+  await page.keyboard.type('Kept paragraph.');
+  await expect(cell.getByTestId('entry-body')).toHaveAttribute('data-editor', 'ready');
+
+  const save = await primaryKey(page, 's');
+  await page.keyboard.press(save);
+  await expect(cell.getByTestId('body-kept')).toContainText('Version kept.');
+
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Edited after save.');
+  await expect(editorOf(page, today)).toContainText('Edited after save.');
+
+  await cell.getByTestId('entry-versions').click();
+  const dialog = page.getByTestId('body-versions');
+  await expect(dialog).toBeVisible();
+  const list = dialog.getByTestId('body-versions-list').locator('button[data-version]');
+  await expect(list).toHaveCount(1);
+  await expect(list.first().getByTestId('body-version-cause')).toHaveText('Kept by hand');
+
+  await list.first().click();
+  await dialog.getByTestId('body-version-restore').click();
+  await page.getByTestId('confirm-dialog').getByRole('button', { name: 'Restore' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(editorOf(page, today)).toHaveText('Kept paragraph.');
+  await expect
+    .poll(() => stored(api, ownId, diaryId, monthDay), { timeout: 15_000 })
+    .toEqual({ [today]: 'Kept paragraph.' });
   expect(errors).toEqual([]);
 });

@@ -10,6 +10,7 @@
  * day of the calendar no more than two days past the world's own (UTC).
  * Deleting an entry puts it in the trash, where it holds no day.
  */
+import type { DocNode } from '../../editor/schema.ts';
 import {
   addDays,
   dateOfUtc,
@@ -32,14 +33,15 @@ import {
 
 import type { BackendError } from '../problems.ts';
 
-import { checkedWhole } from './bodies.ts';
+import { checkedBody, checkedWhole } from './bodies.ts';
+import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { fileAsNew } from './categories.ts';
 import { pause } from './pause.ts';
 import { fail } from './refuse.ts';
 import { changeOf, copy, entryOf, memberOf } from './shapes.ts';
 import { checkWorkspace, ownSpaceOf } from './spaces.ts';
 import { deletion } from './trash.ts';
-import type { StoredBlock, World } from './world.ts';
+import type { StoredBlock, StoredCard, World } from './world.ts';
 
 /** The server's limits (`crates/model/src/diary.rs`). */
 export const DIARIES_PER_SPACE = 20;
@@ -70,9 +72,20 @@ function detailOf(block: StoredBlock): DiaryEntryDetail {
 export class MemoryDiaries implements Diaries {
   readonly #host: DiaryHost;
   readonly #failures = new Map<keyof Diaries, BackendError>();
+  #bodyVersions: MemoryBodyVersions | undefined;
 
   constructor(host: DiaryHost) {
     this.#host = host;
+  }
+
+  get bodyVersions(): MemoryBodyVersions {
+    this.#bodyVersions ??= new MemoryBodyVersions(
+      this.#world,
+      this.#host.userId,
+      () => this.#enter('bodyVersions'),
+      'entry',
+    );
+    return this.#bodyVersions;
   }
 
   /** Makes the next call of `method` reject with `error`, once. */
@@ -238,6 +251,7 @@ export class MemoryDiaries implements Diaries {
       title: day,
       fields: { date: day, mood: null, weather: '', place: '' },
       body: null,
+      bodyUpdatedAt: now,
       createAt: now,
       updateAt: now,
       deleteAt: 0,
@@ -257,19 +271,40 @@ export class MemoryDiaries implements Diaries {
     await this.#enter('patchEntry');
     this.#diary(diaryId);
     const block = this.#entry(diaryId, entryId);
+    if (patch.body !== undefined && patch.appendBody !== undefined) {
+      fail(400, '`body` and `appendBody` cannot be sent in the same patch', {
+        field: 'appendBody',
+      });
+    }
     if (patch.body !== undefined && patch.readAt === undefined) {
       fail(400, 'a body is written with the version it was read at', { field: 'readAt' });
     }
-    if (patch.readAt !== undefined && patch.readAt !== block.updateAt) {
-      fail(409, 'the entry changed since it was read');
-    }
     const notes = checkedNotes(patch);
     if (patch.body !== undefined) {
-      block.body = checkedWhole(this.#world, diaryId, entryId, patch.body);
-      // As the server: its room's document is made anew from the body written whole.
-      this.#world.bodyWritten?.(entryId);
+      const body = checkedWhole(this.#world, diaryId, entryId, patch.body);
+      checkReadAt(block, patch.readAt);
+      this.#writeBody(diaryId, block, body, notes);
+      return detailOf(block);
     }
-    if (patch.body !== undefined || Object.keys(notes).length > 0) {
+    if (patch.appendBody !== undefined) {
+      const extra = checkedBody(this.#world, diaryId, patch.appendBody, 'appendBody');
+      if (extra !== null) {
+        this.#world.bodyFlushed?.(entryId);
+        const existing = block.body ?? null;
+        const merged =
+          existing === null
+            ? extra
+            : { ...existing, content: [...(existing.content ?? []), ...(extra.content ?? [])] };
+        const checked = checkedBody(this.#world, diaryId, merged, 'appendBody');
+        checkReadAt(block, patch.readAt);
+        this.#writeBody(diaryId, block, checked, notes);
+        return detailOf(block);
+      }
+      checkReadAt(block, patch.readAt);
+    } else {
+      checkReadAt(block, patch.readAt);
+    }
+    if (Object.keys(notes).length > 0) {
       block.fields = { ...block.fields, ...notes };
       block.updateAt = this.#world.now();
       block.modifiedBy = this.#host.userId;
@@ -278,21 +313,65 @@ export class MemoryDiaries implements Diaries {
     return detailOf(block);
   }
 
+  #writeBody(
+    diaryId: string,
+    block: StoredBlock,
+    body: DocNode | null,
+    notes: Partial<DayNotes>,
+  ): void {
+    const changed = JSON.stringify(block.body ?? null) !== JSON.stringify(body);
+    writtenWhole(this.#world, block as StoredCard, body, this.#host.userId, () => {
+      block.body = body;
+      block.fields = { ...block.fields, ...notes };
+      const now = this.#world.now();
+      block.updateAt = now;
+      if (changed) block.bodyUpdatedAt = now;
+      block.modifiedBy = this.#host.userId;
+    });
+    // As the server: its room's document is made anew from the body written whole.
+    this.#world.bodyWritten?.(block.id);
+    this.#world.tellContainer(diaryId, changeOf(diaryId, block));
+  }
+
   async deleteEntry(diaryId: string, entryId: string): Promise<void> {
     await this.#enter('deleteEntry');
     this.#diary(diaryId);
     const block = this.#entry(diaryId, entryId);
-    this.#world.deletedBlocks.set(entryId, {
-      containerId: diaryId,
-      blocks: [block],
-      ...deletion({ world: this.#world, userId: this.#host.userId }),
-    });
+    this.#world.bodyFlushed?.(entryId);
+    const entry = entryOf(block);
+    const empty =
+      (block.body ?? null) === null &&
+      entry.mood === null &&
+      entry.weather === '' &&
+      entry.place === '';
+    if (empty) {
+      this.#world.bodyVersions.delete(entryId);
+    } else {
+      this.#world.deletedBlocks.set(entryId, {
+        containerId: diaryId,
+        blocks: [block],
+        ...deletion({ world: this.#world, userId: this.#host.userId }),
+      });
+    }
     this.#world.blocks.delete(entryId);
     this.#world.tellContainer(diaryId, {
       kind: 'blocksDeleted',
       containerId: diaryId,
       blockIds: [entryId],
     });
+  }
+}
+
+/**
+ * Checks `readAt` against the entry's body change window `[bodyUpdatedAt, updateAt]`,
+ * so metadata-only patches (`mood`/`weather`/`place`) do not cause spurious 409s
+ * while any actual body change rejects stale `readAt` values.
+ */
+function checkReadAt(block: StoredBlock, readAt: number | undefined): void {
+  if (readAt === undefined) return;
+  const bodyAt = block.bodyUpdatedAt ?? (block.body ? block.updateAt : block.createAt);
+  if (readAt < bodyAt || readAt > block.updateAt) {
+    fail(409, 'the entry changed since it was read');
   }
 }
 

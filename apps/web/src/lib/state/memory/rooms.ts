@@ -414,7 +414,7 @@ export class MemoryRooms {
     if (!card || body === undefined) return;
     if (sameBody(body, card.body ?? null)) return;
     card.body = body;
-    card.updateAt = this.#world.now();
+    card.updateAt = card.bodyUpdatedAt = this.#world.now();
     card.modifiedBy = room.lastWriter ?? card.modifiedBy;
     this.#world.tellContainer(room.containerId, changeOf(room.containerId, card));
     roomWrote(this.#world, card);
