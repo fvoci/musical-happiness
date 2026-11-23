@@ -60,13 +60,17 @@ export class MemoryReferences implements References {
    */
   #shown(block: StoredBlock | undefined, workspaceId: string): LinkedBlock | undefined {
     const { world, userId } = this.#asker;
-    if (block?.type !== 'card' && block?.type !== 'page') return undefined;
+    if (block?.type !== 'card' && block?.type !== 'page' && block?.type !== 'unit') {
+      return undefined;
+    }
     if (world.containers.get(block.containerId)?.workspaceId !== workspaceId) return undefined;
     if (!reads(world, userId, block.containerId)) return undefined;
     const icon = typeof block.fields.icon === 'string' ? block.fields.icon : '';
     const { id, title, containerId } = block;
     if (block.type === 'page')
       return { id, kind: 'page', title, icon, containerId, containerKind: 'wiki' };
+    if (block.type === 'unit')
+      return { id, kind: 'unit', title, icon: '', containerId, containerKind: 'course' };
     const numbered = block.number === undefined ? {} : { number: block.number };
     return { id, kind: 'card', title, icon, containerId, containerKind: 'board', ...numbered };
   }

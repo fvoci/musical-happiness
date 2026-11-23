@@ -6,7 +6,14 @@
  * (reading, changing, deleting, restoring, members, joining, sidebar, export)
  * goes through the container operations.
  */
+import type { DocNode } from '../editor/schema.ts';
 import type { Container } from '../logic/wire.ts';
+import {
+  BackendError,
+  type BodyWrite,
+  type Comment,
+  type CommentVersion,
+} from '../state/backend.ts';
 import type {
   CourseDraft,
   Courses,
@@ -18,7 +25,15 @@ import type {
 } from '../state/course-types.ts';
 import type { DeletedItem, Paging } from '../state/trash-reads.ts';
 
-import { bodyOf, containerOf, wireBody, type Schemas } from './convert.ts';
+import { ServerUnitVersions } from './body-versions.ts';
+import {
+  bodyOf,
+  commentOf,
+  commentVersionOf,
+  containerOf,
+  wireBody,
+  type Schemas,
+} from './convert.ts';
 import type { WikiRequest } from './wikis.ts';
 
 /** A unit or chapter as the outline lists it; `courseId` is the course it was read from. */
@@ -97,9 +112,12 @@ export class ServerCourses implements Courses {
   readonly #request: WikiRequest;
   readonly #learn: (courses: readonly Schemas['Container'][]) => void;
 
+  readonly bodyVersions: ServerUnitVersions;
+
   constructor(request: WikiRequest, learn: (courses: readonly Schemas['Container'][]) => void) {
     this.#request = request;
     this.#learn = learn;
+    this.bodyVersions = new ServerUnitVersions(request);
   }
 
   async courses(workspaceId: string): Promise<Container[]> {
@@ -199,6 +217,111 @@ export class ServerCourses implements Courses {
         { courseId, unitId },
         { method: 'POST' },
       ),
+    );
+  }
+
+  async comments(courseId: string, unitId: string): Promise<Comment[]> {
+    const blocks = await this.#request<Schemas['Block'][]>(
+      '/courses/{courseId}/units/{unitId}/comments',
+      { courseId, unitId },
+    );
+    return blocks.map(commentOf);
+  }
+
+  async createComment(courseId: string, unitId: string, body: DocNode): Promise<Comment> {
+    const request: Schemas['NewUnitComment'] = { body: wireBody(body) };
+    return commentOf(
+      await this.#request<Schemas['Block']>(
+        '/courses/{courseId}/units/{unitId}/comments',
+        { courseId, unitId },
+        { method: 'POST', json: request },
+      ),
+    );
+  }
+
+  async patchComment(
+    courseId: string,
+    unitId: string,
+    commentId: string,
+    write: BodyWrite,
+  ): Promise<Comment> {
+    if (!write.body) {
+      throw new BackendError(400, { detail: 'a comment has a text' });
+    }
+    const request: Schemas['UnitCommentPatch'] = {
+      body: wireBody(write.body),
+      readAt: write.readAt,
+    };
+    return commentOf(
+      await this.#request<Schemas['Block']>(
+        '/courses/{courseId}/units/{unitId}/comments/{commentId}',
+        { courseId, unitId, commentId },
+        { method: 'PATCH', json: request },
+      ),
+    );
+  }
+
+  async deleteComment(courseId: string, unitId: string, commentId: string): Promise<void> {
+    await this.#request(
+      '/courses/{courseId}/units/{unitId}/comments/{commentId}',
+      { courseId, unitId, commentId },
+      { method: 'DELETE' },
+    );
+  }
+
+  async restoreComment(courseId: string, unitId: string, commentId: string): Promise<Comment> {
+    return commentOf(
+      await this.#request<Schemas['Block']>(
+        '/courses/{courseId}/units/{unitId}/comments/{commentId}/undelete',
+        { courseId, unitId, commentId },
+        { method: 'POST' },
+      ),
+    );
+  }
+
+  async commentVersions(
+    courseId: string,
+    unitId: string,
+    commentId: string,
+  ): Promise<CommentVersion[]> {
+    const versions = await this.#request<Schemas['CommentVersion'][]>(
+      '/courses/{courseId}/units/{unitId}/comments/{commentId}/versions',
+      { courseId, unitId, commentId },
+    );
+    return versions.map(commentVersionOf);
+  }
+
+  async watching(workspaceId: string, subscriberId: string): Promise<string[]> {
+    const subs = await this.#request<Schemas['Subscription'][]>(
+      '/subscriptions/{subscriberId}',
+      { subscriberId },
+      {},
+      workspaceId,
+    );
+    return subs.filter((sub) => sub.deleteAt === 0).map((sub) => sub.blockId);
+  }
+
+  async watchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void> {
+    const request: Schemas['NewSubscription'] = {
+      blockId: unitId,
+      blockType: 'unit',
+      subscriberId,
+      subscriberType: 'user',
+    };
+    await this.#request<Schemas['Subscription']>(
+      '/subscriptions',
+      {},
+      { method: 'POST', json: request },
+      workspaceId,
+    );
+  }
+
+  async unwatchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void> {
+    await this.#request(
+      '/subscriptions/{blockId}/{subscriberId}',
+      { blockId: unitId, subscriberId },
+      { method: 'DELETE' },
+      workspaceId,
     );
   }
 }

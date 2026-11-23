@@ -34,7 +34,7 @@ import { BackendError } from '../problems.ts';
 import { memberRole } from './container-access.ts';
 import { checkedBody } from './bodies.ts';
 import { fail } from './refuse.ts';
-import { copy, pageOf, wireOf } from './shapes.ts';
+import { copy, pageOf, unitOf, wireOf } from './shapes.ts';
 import type { StoredCard, World } from './world.ts';
 
 /** How many versions of a body are kept (the server's `collab_body_versions`). */
@@ -188,13 +188,13 @@ export class MemoryBodyVersions implements BodyVersions {
   readonly #userId: string;
   /** The wait every call of the backend starts with, and the failure a test asked for. */
   readonly #enter: () => Promise<void>;
-  readonly #of: 'card' | 'page';
+  readonly #of: 'card' | 'page' | 'unit';
 
   constructor(
     world: World,
     userId: string,
     enter: () => Promise<void>,
-    of: 'card' | 'page' = 'card',
+    of: 'card' | 'page' | 'unit' = 'card',
   ) {
     this.#world = world;
     this.#userId = userId;
@@ -202,8 +202,10 @@ export class MemoryBodyVersions implements BodyVersions {
     this.#of = of;
   }
 
-  get #kind(): 'board' | 'wiki' {
-    return this.#of === 'page' ? 'wiki' : 'board';
+  get #kind(): 'board' | 'wiki' | 'course' {
+    if (this.#of === 'page') return 'wiki';
+    if (this.#of === 'unit') return 'course';
+    return 'board';
   }
 
   async list(containerId: string, cardId: string): Promise<BodyVersion[]> {
@@ -244,6 +246,8 @@ export class MemoryBodyVersions implements BodyVersions {
     world.bodyWritten?.(cardId);
     if (this.#of === 'page') {
       world.tellContainer(containerId, { kind: 'pages', containerId, pages: [pageOf(card)] });
+    } else if (this.#of === 'unit') {
+      world.tellContainer(containerId, { kind: 'units', containerId, units: [unitOf(card)] });
     } else
       world.tellContainer(containerId, {
         kind: 'blocks',
@@ -297,7 +301,7 @@ export class MemoryBodyVersions implements BodyVersions {
         fail(403, `access denied to ${what} a version of the ${this.#of}'s body`);
       }
     };
-    if (this.#of === 'page') refuse();
+    if (this.#of === 'page' || this.#of === 'unit') refuse();
     const card = this.#card(containerId, cardId);
     refuse();
     return card;

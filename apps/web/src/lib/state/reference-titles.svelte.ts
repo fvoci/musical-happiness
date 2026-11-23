@@ -369,14 +369,32 @@ export class ReferenceTitles {
           containerKind: 'wiki',
         });
       }
+    } else if (change.kind === 'units') {
+      for (const unit of change.units) {
+        if (unit.kind !== 'unit') continue;
+        const key = `${workspaceId}/${unit.id}`;
+        if (!this.#held(key)) continue;
+        const { id, title, courseId } = unit;
+        this.#changedAt.set(key, this.#tick());
+        this.#known.set(key, {
+          id,
+          kind: 'unit',
+          title,
+          icon: '',
+          containerId: courseId,
+          containerKind: 'course',
+        });
+      }
     } else if (change.kind === 'blocksDeleted') {
       for (const id of change.blockIds) this.#unsee(`${workspaceId}/${id}`);
-      // A page goes with those below it, and only it is told of: the rest are asked.
+      // A page or chapter goes with those below it, and only it is told of: the rest are asked.
       const { containerId } = change;
-      const pages = this.#knownHere(
-        (linked) => linked?.kind === 'page' && linked.containerId === containerId,
+      const nested = this.#knownHere(
+        (linked) =>
+          (linked?.kind === 'page' || linked?.kind === 'unit') &&
+          linked.containerId === containerId,
       );
-      if (pages.length > 0) void this.#ask(pages);
+      if (nested.length > 0) void this.#ask(nested);
     } else if (change.kind === 'containerDeleted') {
       for (const id of this.#knownHere((linked) => linked?.containerId === change.containerId)) {
         this.#unsee(`${workspaceId}/${id}`);
