@@ -67,7 +67,10 @@ export class TreeWrites {
     const shown = this.#host.openPage();
     // The reader's own deletion, heard back before its answer: the reader's still.
     const own = pageIds.find((pageId) => this.#deleting.has(pageId));
-    const title = own === undefined ? this.#page(shown?.pageId)?.title : this.#deleting.get(own);
+    const title =
+      own === undefined
+        ? (this.#page(shown?.pageId)?.title ?? shown?.meta?.title)
+        : this.#deleting.get(own);
     this.#host.setPages(this.#host.pages().filter((page) => !gone.includes(page.id)));
     if (by === 'held' || !shown || !gone.includes(shown.pageId)) return;
     shown.gone(own === undefined ? by : 'reader', title ?? '');

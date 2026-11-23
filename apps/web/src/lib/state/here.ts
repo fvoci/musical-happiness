@@ -22,8 +22,10 @@ export async function whileHere<T>(
 ): Promise<T | undefined> {
   const workspace = place instanceof BoardStore ? place.workspace : place;
   const entered = workspace.info;
+  const visit = place instanceof BoardStore ? place.visit : undefined;
   const answer = await work();
   const left =
-    workspace.info !== entered || (place instanceof BoardStore && workspace.board !== place);
+    workspace.info !== entered ||
+    (place instanceof BoardStore && (workspace.board !== place || place.visit !== visit));
   return left ? undefined : answer;
 }

@@ -16,7 +16,7 @@ import { setDisplaySettings } from '../display.svelte.ts';
 import { DEFAULT_ACCOUNT_SETTINGS } from '../logic/account-settings.ts';
 import { resolveRegional, type Regional } from '../logic/regional.ts';
 import { UndoManager } from '../logic/undo.ts';
-import { createBoard as createEmptyBoard, type Container } from '../logic/wire.ts';
+import type { Container } from '../logic/wire.ts';
 import { browserTimeZone, setRegionalSettings } from '../regional.ts';
 
 import {
@@ -34,11 +34,15 @@ import {
   type WorkspaceInfo,
   type User,
 } from './backend.ts';
+import { isCacheableBoard } from './board-cache.ts';
 import { BoardStore } from './board.svelte.ts';
 import { hiddenContainersOf, sidebarOf, withoutContainer, type SidebarCategory } from './order.ts';
 import { SidebarWrites } from './sidebar-writes.ts';
 import { Transfers } from './transfers.svelte.ts';
 import { UserNames, type Learning } from './user-names.ts';
+import type { WorkspaceSnapshot } from './workspace-cache.ts';
+import { enterCachedWorkspace, WorkspaceCaches, type CacheLimits } from './workspace-caches.ts';
+import { WorkspaceCategories } from './workspace-categories.ts';
 import * as entry from './workspace-entry.ts';
 import { reread } from './write.ts';
 
@@ -66,6 +70,8 @@ export interface WorkspaceOptions {
   lastWorkspace?: (userId: string) => string | undefined;
   /** How somebody whose account was deleted is named, in the app's language (`UserNames`). */
   goneUserName?: () => string;
+  /** Optional bounds for the in-memory navigation caches (used in tests). */
+  cacheLimits?: CacheLimits;
 }
 
 export class Workspace {
@@ -126,11 +132,18 @@ export class Workspace {
   #problemCount = 0;
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
   #refreshing = 0;
+  /** Navigation caches: recent workspaces, boards and wiki last-opened pages. */
+  readonly #caches: WorkspaceCaches<BoardStore>;
+  /** Workspace currently being fetched by `#enter`, so a concurrent `resync` does not double-fetch. */
+  #enteringWorkspaceId: string | undefined;
+  /** Whether the currently shown workspace snapshot is valid to save back into cache on leave. */
+  #cacheableVisit = false;
 
   constructor(options: WorkspaceOptions) {
     this.backend = options.backend;
     this.#locale = options.locale;
     this.#lastWorkspace = options.lastWorkspace;
+    this.#caches = new WorkspaceCaches<BoardStore>(options.cacheLimits);
     this.#userNames = new UserNames(this, options.goneUserName);
     this.undo.onStateDidChange = () => {
       this.canUndo = this.undo.canUndo;
@@ -159,6 +172,9 @@ export class Workspace {
    * Where `leaves` says of the settings that the page loads again for them, nothing more is read.
    */
   async load(workspaceId?: string, leaves?: (settings: AccountSettings) => boolean): Promise<void> {
+    this.#caches.clear();
+    this.#leave(undefined, false);
+    this.workspaces = [];
     this.status = 'loading';
     try {
       const [me, workspaces, settings] = await Promise.all([
@@ -173,8 +189,8 @@ export class Workspace {
       this.#stopWatching?.();
       this.#stopWatching = this.backend.watchSelf(this.#apply.bind(this));
       const chosen = workspaceId ?? this.firstChoice();
-      if (chosen === undefined) this.#leave(undefined);
-      else await this.#enter(chosen);
+      if (chosen === undefined) this.#leave(undefined, false);
+      else await this.#enter(chosen, true);
       this.status = 'ready';
     } catch (error) {
       const over = sessionOver(error);
@@ -193,17 +209,18 @@ export class Workspace {
   }
 
   /**
-   * Shows the workspace `workspaceId`: its people, boards and sidebar are
-   * read, and what was shown of another (the open board, undo) is let go.
-   * Nothing is done when it is the one entered or being entered, unless
-   * `again`. A failure is told; the status says it (`entered`).
+   * Shows the workspace `workspaceId`: cached sidebar data is shown immediately
+   * when available and revalidated in the background (stale-while-revalidate);
+   * what was shown of another is parked or cleared. Nothing is done when it is
+   * the one entered or being entered, unless `again`.
    */
   async enter(workspaceId: string, again = false): Promise<void> {
     if (!again && this.asked === workspaceId && this.entered !== 'failed') return;
     const turn = this.#entering + 1;
     try {
-      await this.#enter(workspaceId);
+      await this.#enter(workspaceId, again);
     } catch (error) {
+      if (this.ends(error, true)) return;
       if (turn !== this.#entering) return;
       this.entered = 'failed';
       this.report('load', error);
@@ -213,31 +230,102 @@ export class Workspace {
   /** Entries begun: the latest is the one that counts. */
   #entering = 0;
 
-  async #enter(workspaceId: string): Promise<void> {
+  async #enter(workspaceId: string, again = false): Promise<void> {
     this.#entering += 1;
     const turn = this.#entering;
-    this.#leave(workspaceId);
+    this.#leave(workspaceId, true);
     const workspace = this.workspaces.find((one) => one.id === workspaceId);
     if (!workspace) {
+      this.#caches.evictWorkspace(workspaceId);
       this.entered = 'missing';
+      return;
+    }
+    const cached =
+      !again && this.me ? this.#caches.workspaces.get(this.me.id, workspaceId) : undefined;
+    if (cached && entry.isOpen(workspace)) {
+      await this.#enterCached(turn, workspace, cached);
       return;
     }
     this.info = { ...workspace }; // Each entry its own: a way back is not "still there".
     this.entered = 'loading';
-    const read = await entry.enterWorkspace(this.backend, workspace);
+    this.#enteringWorkspaceId = workspaceId;
+    let read: entry.Entered;
+    try {
+      read = await entry.enterWorkspace(this.backend, workspace);
+    } finally {
+      if (turn === this.#entering) this.#enteringWorkspaceId = undefined;
+    }
+    if (read.status !== 'ready') {
+      this.#caches.evictForEntered(this.workspaces, workspaceId, read, this.board);
+    }
     if (turn !== this.#entering) return;
     [this.entered, this.info, this.closed] = [read.status, read.info, read.closed];
     this.workspaces = entry.withClosed(this.workspaces, read.closed);
     if (read.status === 'ready') {
       ({ users: this.users, containers: this.containers, categories: this.categories } = read);
       this.workspaceUsers = read.users;
+      this.#cacheableVisit = true;
+      this.#rememberWorkspace();
+      this.#caches.pruneContainers(workspaceId, this.containers, this.board);
     }
   }
 
-  /** Lets go of everything of the workspace shown: nothing of it stays for the next. */
-  #leave(asked: string | undefined): void {
-    this.board?.close();
-    this.board = undefined;
+  async #enterCached(
+    turn: number,
+    workspace: WorkspaceInfo,
+    cached: WorkspaceSnapshot,
+  ): Promise<void> {
+    this.#enteringWorkspaceId = workspace.id;
+    this.#cacheableVisit = true;
+    try {
+      await enterCachedWorkspace(
+        this,
+        this.#caches,
+        {
+          isCurrent: (t, visit) => t === this.#entering && this.info === visit,
+          sidebarBegun: () => this.#sidebarWrites.begun,
+          sidebarReading: (begun) => this.#sidebarWrites.reading(begun),
+          refreshSidebar: () => {
+            void this.#refresh();
+          },
+          rememberWorkspace: () => {
+            this.#cacheableVisit = true;
+            this.#rememberWorkspace();
+          },
+          leaveWithoutCaching: (asked) => {
+            this.#leave(asked, false);
+          },
+        },
+        turn,
+        workspace,
+        cached,
+      );
+    } finally {
+      if (turn === this.#entering) this.#enteringWorkspaceId = undefined;
+    }
+  }
+
+  #rememberWorkspace(): void {
+    if (!this.#cacheableVisit || !this.me || !this.info || this.entered !== 'ready') return;
+    this.#caches.workspaces.set({
+      userId: this.me.id,
+      workspaceId: this.info.id,
+      users: this.users,
+      workspaceUsers: this.workspaceUsers,
+      containers: this.containers,
+      categories: this.categories,
+    });
+  }
+
+  /** Lets go of the workspace shown, saving its sidebar snapshot when `cache` is true. */
+  #leave(asked: string | undefined, cache = false): void {
+    if (cache) {
+      this.#rememberWorkspace();
+      this.#parkBoard();
+    } else {
+      this.#dropBoard();
+    }
+    this.#cacheableVisit = false;
     this.undo.clear();
     this.asked = asked;
     [this.info, this.closed] = [undefined, undefined];
@@ -247,19 +335,20 @@ export class Workspace {
 
   /**
    * The session is over, or opens nothing (`sessionOver`). Nothing listens any
-   * more (a connection without a session hears nothing, and would only be
-   * opened again and again): signing in reads afresh, or starts the page again.
+   * more and every navigation cache is wiped so nothing survives across sessions.
    */
   #over(status: 'signedOut' | 'leaving'): void {
     this.status = status;
+    this.#leave(undefined, false);
+    this.workspaces = [];
     this.close();
   }
 
-  /** Stops listening. For a test, or when the reader signs out. */
+  /** Stops listening and clears every cache. For a test, or when the reader signs out. */
   close(): void {
     this.#stopWatching?.();
-    this.board?.close();
-    this.board = undefined;
+    this.#dropBoard();
+    this.#caches.clear();
   }
 
   #takeSettings(settings: AccountSettings): void {
@@ -282,6 +371,7 @@ export class Workspace {
         break;
       }
       case 'containerDeleted':
+        this.#caches.evictContainer(change.containerId, this.board);
         this.containers = this.containers.filter((board) => board.id !== change.containerId);
         // A deleted board leaves every category (no message says so). Brought
         // back, it is filed again where it was, and the sidebar is told.
@@ -297,6 +387,10 @@ export class Workspace {
         this.#takeSettings(change.settings);
         break;
       case 'resync':
+        if (this.info) {
+          this.#cacheableVisit = false;
+          this.#caches.workspaces.delete(this.info.id);
+        }
         void this.#refresh();
         void this.#userNames.reread();
         break;
@@ -315,7 +409,7 @@ export class Workspace {
    */
   async #refresh(): Promise<void> {
     const workspace = this.info;
-    if (this.status !== 'ready' || !workspace) return;
+    if (this.status !== 'ready' || !workspace || this.#enteringWorkspaceId === workspace.id) return;
     this.#refreshing += 1;
     const reading = this.#refreshing;
     const before = this.containers.map((board) => board.id);
@@ -328,15 +422,24 @@ export class Workspace {
       // Superseded, or another workspace was entered meanwhile.
       if (reading !== this.#refreshing || this.info !== workspace) return;
       this.containers = reread(this.containers, boards, before);
+      this.#caches.pruneContainers(workspace.id, this.containers, this.board);
       // Not over a sidebar write under way, or one begun since this reading was.
       const verdict = this.#sidebarWrites.reading(begun);
       if (verdict === 'show') this.categories = categories;
       else if (verdict === 'again') void this.#refresh();
+      this.#cacheableVisit = true;
+      this.#rememberWorkspace();
     } catch (error) {
-      // A reading in the background: only a session that is over is told
-      // (as signing out). The next message, or the next load, brings the rest.
-      if (reading === this.#refreshing && isBackendError(error) && error.status === 401) {
+      if (isBackendError(error) && error.status === 401) {
         this.report('load', error);
+        return;
+      }
+      if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+        this.#caches.evictWorkspace(workspace.id, this.board);
+        if (reading === this.#refreshing && this.info === workspace) {
+          this.#leave(this.asked, false);
+          this.entered = 'missing';
+        }
       }
     }
   }
@@ -347,6 +450,13 @@ export class Workspace {
    */
   report(action: ProblemAction, error: unknown): void {
     if (this.ends(error, action === 'load')) return;
+    if (isBackendError(error) && error.status === 403) {
+      if (this.info) {
+        this.#cacheableVisit = false;
+        this.#caches.workspaces.delete(this.info.id);
+      }
+      if (this.board) this.#caches.boards.delete(this.board.boardId, this.board);
+    }
     this.#problemCount += 1;
     this.problems = [
       ...this.problems,
@@ -361,10 +471,17 @@ export class Workspace {
     const closing = entry.closedBy(this.workspaces, this.info, error);
     if (closing) {
       if (reading && this.showing && closing.entered === 'password') return true;
+      this.#caches.evictForClosing(
+        this.workspaces,
+        error,
+        closing.entered,
+        closing.closed?.id,
+        this.board,
+      );
       this.workspaces = closing.workspaces;
       if (!closing.closed) return true;
       this.#entering += 1; // What is still being read of it does not open it again.
-      this.#leave(this.asked);
+      this.#leave(this.asked, false);
       [this.closed, this.entered] = [closing.closed, closing.entered];
       return true;
     }
@@ -419,66 +536,124 @@ export class Workspace {
   // ------------------------------------------------------------- boards
 
   /**
-   * Opens a board: reads it and starts following its changes. The board
-   * that was open is closed. The returned store is also `this.board`.
+   * Opens a board: resumes a cached store immediately (refreshing in the
+   * background) or loads a new one. The board that was open is parked in cache
+   * when reusable, else closed. The returned store is also `this.board`.
    */
   async openBoard(boardId: string): Promise<BoardStore> {
-    // A board that went missing is read anew: it may have been brought back.
-    if (this.board?.boardId === boardId && !this.board.missing) return this.board;
-    this.board?.close();
+    // A board that went missing or failed is read anew: it may have been brought back.
+    if (this.board?.boardId === boardId && this.board.status !== 'failed' && !this.board.missing) {
+      return this.board;
+    }
+    this.#parkBoard();
+    const cached =
+      this.me && this.info
+        ? this.#caches.boards.take(this.me.id, this.info.id, boardId)
+        : undefined;
+    if (cached) {
+      this.board = cached;
+      await cached.resume();
+      this.#trackBoard(cached);
+      return cached;
+    }
     const store = new BoardStore(this, boardId);
     this.board = store;
     await store.load();
+    this.#trackBoard(store);
     return store;
   }
 
+  /** Parks the open board in cache if reusable, else closes it. */
   closeBoard(): void {
-    this.board?.close();
+    this.#parkBoard();
+  }
+
+  #parkBoard(): void {
+    const open = this.board;
     this.board = undefined;
+    if (!open) return;
+    if (isCacheableBoard(open) && this.me && this.info) {
+      open.park();
+      this.#caches.boards.track(this.me.id, this.info.id, open);
+    } else {
+      this.#caches.boards.delete(open.boardId);
+      open.close();
+    }
+  }
+
+  #dropBoard(): void {
+    const open = this.board;
+    this.board = undefined;
+    if (!open) return;
+    this.#caches.boards.delete(open.boardId);
+    open.close();
+  }
+
+  #trackBoard(store: BoardStore): void {
+    if (this.board === store && isCacheableBoard(store) && this.me && this.info) {
+      this.#caches.boards.track(this.me.id, this.info.id, store);
+    }
+  }
+
+  // ------------------------------------------------------------- caches
+
+  evictWorkspace(workspaceId: string): void {
+    if (this.info?.id === workspaceId) {
+      this.#cacheableVisit = false;
+      this.board?.markEvicted();
+    }
+    this.#caches.evictWorkspace(workspaceId, this.board);
+  }
+
+  evictOrg(orgId: string): void {
+    if (this.info?.orgId === orgId) {
+      this.#cacheableVisit = false;
+      this.board?.markEvicted();
+    }
+    this.#caches.evictOrg(this.workspaces, orgId, this.board);
+  }
+
+  evictContainer(containerId: string): void {
+    this.#caches.evictContainer(containerId, this.board);
+  }
+
+  pruneWorkspaces(): void {
+    this.#caches.pruneWorkspaces(this.workspaces, this.board);
+  }
+
+  rememberedWikiPage(wikiId: string): string | undefined {
+    return this.me && this.info
+      ? this.#caches.wikis.get(this.me.id, this.info.id, wikiId)
+      : undefined;
+  }
+
+  rememberWikiPage(wikiId: string, pageId: string): void {
+    if (this.me && this.info) this.#caches.wikis.set(this.me.id, this.info.id, wikiId, pageId);
+  }
+
+  forgetWikiPage(wikiId: string, pageId?: string): void {
+    if (pageId === undefined) this.#caches.wikis.delete(wikiId);
+    else this.#caches.wikis.deletePage(wikiId, pageId);
   }
 
   /**
    * Makes a board and its first view, a kanban grouped by the board's first
-   * select property (a board without card properties is given one named
-   * `statusName`). `viewTitle` is the title of that view. The caller passes
-   * both in the reader's language. The two are made together.
+   * select property (`createBoardOf`).
    */
-  async createBoard(
+  createBoard(
     draft: BoardDraft,
     viewTitle = '',
     statusName = 'Status',
   ): Promise<Container | undefined> {
-    if (!this.info) return undefined;
-    try {
-      const cardProperties =
-        draft.cardProperties ?? createEmptyBoard(undefined, statusName).cardProperties;
-      const { board } = await this.backend.createBoard(
-        this.info.id,
-        { ...draft, cardProperties },
-        entry.firstKanban(cardProperties, viewTitle),
-      );
-      this.#apply({ kind: 'container', container: board });
-      return board;
-    } catch (error) {
-      this.report('save', error);
-      return undefined;
-    }
+    return entry.createBoardOf(this, draft, viewTitle, statusName);
   }
 
   /**
    * The boards the reader may find by `query` (every word of the title) in each of their
    * workspaces the session opens, oldest first. A failure finds nothing there; a session over signs out.
    */
-  async searchBoards(query: string): Promise<Container[]> {
-    if (!this.info || query.trim() === '') return [];
-    const found = this.workspaces.filter(entry.isOpen).map((workspace) =>
-      this.backend.searchBoards(workspace.id, query.trim()).catch((error: unknown) => {
-        if (isBackendError(error) && error.status === 401) this.report('load', error);
-        else if (!isBackendError(error)) console.error(error);
-        return [];
-      }),
-    );
-    return (await Promise.all(found)).flat().sort((one, other) => one.createAt - other.createAt);
+  searchBoards(query: string): Promise<Container[]> {
+    return entry.searchBoardsOf(this, query);
   }
 
   /** The templates a board can be made from; none when they cannot be read (told). */
@@ -492,27 +667,13 @@ export class Workspace {
   }
 
   /** Copies a board, a wiki or a template into a board (`duplicateContainer`), in the sidebar at once. */
-  async duplicateContainer(containerId: string): Promise<Container | undefined> {
-    if (!this.info) return undefined;
-    try {
-      const copy = await this.backend.duplicateContainer(containerId, false, this.info.id);
-      this.#apply({ kind: 'container', container: copy });
-      return copy;
-    } catch (error) {
-      this.report('save', error);
-      return undefined;
-    }
+  duplicateContainer(containerId: string): Promise<Container | undefined> {
+    return entry.duplicateContainerOf(this, containerId, false);
   }
 
   /** Makes a template of the workspace from a board. A template is no board of the sidebar. */
-  async createTemplateFromBoard(boardId: string): Promise<Container | undefined> {
-    if (!this.info) return undefined;
-    try {
-      return await this.backend.duplicateContainer(boardId, true, this.info.id);
-    } catch (error) {
-      this.report('save', error);
-      return undefined;
-    }
+  createTemplateFromBoard(boardId: string): Promise<Container | undefined> {
+    return entry.duplicateContainerOf(this, boardId, true);
   }
 
   /**
@@ -520,21 +681,8 @@ export class Workspace {
    * after the account is made (each call makes another copy). Undefined when
    * it could not be made; the reader starts with an empty workspace then.
    */
-  async onboard(): Promise<string | undefined> {
-    if (!this.info) return undefined;
-    let boardId: string;
-    try {
-      boardId = await this.backend.onboard(this.info.id);
-    } catch (error) {
-      this.report('load', error);
-      return undefined;
-    }
-    try {
-      this.#apply({ kind: 'container', container: await this.backend.container(boardId) });
-    } catch {
-      // It is made; the server's message, or the next reading, shows it.
-    }
-    return boardId;
+  onboard(): Promise<string | undefined> {
+    return entry.onboardOf(this);
   }
 
   // ----------------------------------------------------------- archives
@@ -603,198 +751,49 @@ export class Workspace {
 
   // --------------------------------------------------------- categories
 
-  /**
-   * Shows a sidebar write at once. When it is refused the sidebar goes back
-   * to what it was and is read again: what was taken back may be older than
-   * what arrived from elsewhere meanwhile.
-   */
-  async #categoryWrite(optimistic: Category[], send: () => Promise<unknown>): Promise<void> {
-    const [before, workspace] = [this.categories, this.info];
-    this.categories = optimistic;
-    this.#sidebarWrites.begin();
-    try {
-      await send();
-    } catch (error) {
-      this.#sidebarRefused(before, workspace);
-      this.report('save', error);
-    } finally {
-      this.#sidebarWrites.end();
-    }
-  }
-
   readonly #sidebarWrites = new SidebarWrites(() => {
     void this.#refresh();
   });
 
-  #sidebarRefused(before: Category[], workspace: WorkspaceInfo | undefined): void {
-    if (this.info !== workspace) return;
-    this.categories = before;
+  readonly #categoryOps = new WorkspaceCategories(this, this.#sidebarWrites, () => {
     void this.#refresh();
-  }
+  });
 
   /** A new category goes first, as the backend puts it. */
-  async createCategory(name: string): Promise<void> {
-    const workspace = this.info;
-    if (!workspace) return;
-    this.#sidebarWrites.begin();
-    try {
-      const category = await this.backend.createCategory(workspace.id, { name });
-      // Shown already, or of a workspace left meanwhile: nothing to add.
-      if (this.categories.some((existing) => existing.id === category.id)) return;
-      if (this.info !== workspace) return;
-      // The others were moved down to make room; until they are read again,
-      // the new one is put before them.
-      const first = Math.min(...this.categories.map((existing) => existing.sortOrder));
-      this.categories = [
-        ...this.categories,
-        { ...category, sortOrder: Math.min(category.sortOrder, first - 1) },
-      ];
-    } catch (error) {
-      this.report('save', error);
-    } finally {
-      this.#sidebarWrites.end();
-    }
+  createCategory(name: string): Promise<void> {
+    return this.#categoryOps.create(name);
   }
 
-  async renameCategory(categoryId: string, name: string): Promise<void> {
-    const workspace = this.info;
-    if (!workspace) return;
-    await this.#categoryWrite(
-      this.categories.map((category) =>
-        category.id === categoryId ? { ...category, name } : category,
-      ),
-      () => this.backend.patchCategory(workspace.id, categoryId, { name }),
-    );
+  renameCategory(categoryId: string, name: string): Promise<void> {
+    return this.#categoryOps.rename(categoryId, name);
   }
 
-  async setCategoryCollapsed(categoryId: string, collapsed: boolean): Promise<void> {
-    const workspace = this.info;
-    if (!workspace) return;
-    await this.#categoryWrite(
-      this.categories.map((category) =>
-        category.id === categoryId ? { ...category, collapsed } : category,
-      ),
-      () => this.backend.patchCategory(workspace.id, categoryId, { collapsed }),
-    );
+  setCategoryCollapsed(categoryId: string, collapsed: boolean): Promise<void> {
+    return this.#categoryOps.setCollapsed(categoryId, collapsed);
   }
 
-  async deleteCategory(categoryId: string): Promise<void> {
-    const workspace = this.info;
-    const gone = this.categories.find((category) => category.id === categoryId);
-    if (!workspace || !gone) return;
-    await this.#categoryWrite(
-      this.categories
-        .filter((category) => category.id !== categoryId)
-        .map((category) =>
-          // Its boards go to the default category, those it hid still hidden.
-          category.type === 'system'
-            ? {
-                ...category,
-                containerIds: [...category.containerIds, ...gone.containerIds],
-                hiddenContainerIds: [...category.hiddenContainerIds, ...gone.hiddenContainerIds],
-              }
-            : category,
-        ),
-      () => this.backend.deleteCategory(workspace.id, categoryId),
-    );
+  deleteCategory(categoryId: string): Promise<void> {
+    return this.#categoryOps.remove(categoryId);
   }
 
   /** Sets the order of the categories; `categoryIds` names every one of them. */
-  async reorderCategories(categoryIds: readonly string[]): Promise<void> {
-    const workspace = this.info;
-    if (!workspace) return;
-    await this.#categoryWrite(
-      this.categories.map((category) => ({
-        ...category,
-        sortOrder: categoryIds.indexOf(category.id) * 10,
-      })),
-      () => this.backend.reorderCategories(workspace.id, [...categoryIds]),
-    );
+  reorderCategories(categoryIds: readonly string[]): Promise<void> {
+    return this.#categoryOps.reorder(categoryIds);
   }
 
   /** Files a board under a category, at `index` among the boards shown there. */
-  async moveContainer(containerId: string, categoryId: string, index: number): Promise<void> {
-    const workspace = this.info;
-    if (!workspace) return;
-    await this.#categoryWrite(
-      this.categories.map((category) => {
-        const containerIds = category.containerIds.filter((id) => id !== containerId);
-        if (category.id === categoryId) {
-          containerIds.splice(Math.max(0, Math.min(index, containerIds.length)), 0, containerId);
-        }
-        return { ...category, containerIds };
-      }),
-      () => this.backend.moveContainerToCategory(workspace.id, containerId, categoryId, index),
-    );
+  moveContainer(containerId: string, categoryId: string, index: number): Promise<void> {
+    return this.#categoryOps.moveContainer(containerId, categoryId, index);
   }
 
   /** Hides a board or a wiki in its category, out of the sidebar. Hiding can be undone. */
-  async hideContainer(containerId: string): Promise<void> {
-    const entry = this.sidebar.find((shown) =>
-      shown.containers.some((board) => board.id === containerId),
-    );
-    if (!entry) return;
-    const categoryId = entry.category.id;
-    try {
-      await this.undo.perform(
-        () => this.#setContainerHidden(categoryId, containerId, true),
-        () => this.#setContainerHidden(categoryId, containerId, false),
-        'hideContainer',
-      );
-    } catch (error) {
-      this.report('save', error);
-    }
+  hideContainer(containerId: string): Promise<void> {
+    return this.#categoryOps.hideContainer(containerId);
   }
 
   /** Shows a hidden board in the sidebar again, in the category that hides it. */
-  async unhideContainer(containerId: string): Promise<void> {
-    const category = this.categories.find((one) => one.hiddenContainerIds.includes(containerId));
-    if (!category) return;
-    try {
-      await this.#setContainerHidden(category.id, containerId, false);
-    } catch (error) {
-      this.report('save', error);
-    }
-  }
-
-  /**
-   * Shows the change at once; when the backend refuses it, takes it back as
-   * any sidebar write (`#sidebarRefused`) and rejects.
-   */
-  async #setContainerHidden(
-    categoryId: string,
-    containerId: string,
-    hidden: boolean,
-  ): Promise<void> {
-    const workspace = this.info;
-    if (!workspace) return;
-    const before = this.categories;
-    const category = before.find((one) => one.id === categoryId);
-    // A board no category files (one brought back from the trash) is shown in
-    // the default category but cannot be hidden there until it is filed there.
-    const loose = hidden && category !== undefined && !category.containerIds.includes(containerId);
-    this.categories = before.map((one) => {
-      if (one.id !== categoryId) return one;
-      const others = one.hiddenContainerIds.filter((id) => id !== containerId);
-      return {
-        ...one,
-        containerIds: loose ? [...one.containerIds, containerId] : one.containerIds,
-        hiddenContainerIds: hidden ? [...others, containerId] : others,
-      };
-    });
-    this.#sidebarWrites.begin();
-    try {
-      if (loose) {
-        const filed = category.containerIds.length;
-        await this.backend.moveContainerToCategory(workspace.id, containerId, categoryId, filed);
-      }
-      await this.backend.setContainerHidden(workspace.id, categoryId, containerId, hidden);
-    } catch (error) {
-      this.#sidebarRefused(before, workspace);
-      throw error;
-    } finally {
-      this.#sidebarWrites.end();
-    }
+  unhideContainer(containerId: string): Promise<void> {
+    return this.#categoryOps.unhideContainer(containerId);
   }
 
   // --------------------------------------------------------------- undo

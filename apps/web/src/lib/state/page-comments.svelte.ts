@@ -38,10 +38,12 @@ export class PageComments {
   /** Readings begun: the latest is the one that counts. */
   #readings = 0;
   #closed = false;
+  readonly #isSpeculative: () => boolean;
 
-  constructor(wiki: WikiStore, pageId: string) {
+  constructor(wiki: WikiStore, pageId: string, isSpeculative: () => boolean = () => false) {
     this.#wiki = wiki;
     this.#pageId = pageId;
+    this.#isSpeculative = isSpeculative;
   }
 
   get #wikis(): Wikis {
@@ -108,10 +110,14 @@ export class PageComments {
       this.#comments = reread(this.#comments, comments, before);
       this.status = 'ready';
     } catch (error) {
+      if (isBackendError(error) && error.status === 401) {
+        this.#wiki.workspace.report('load', error);
+        return;
+      }
       if (this.#closed || reading !== this.#readings) return;
       if (this.status !== 'ready') this.status = 'failed';
       const gone = isBackendError(error) && (error.status === 404 || error.status === 403);
-      if (first && !gone) this.#wiki.workspace.report('load', error);
+      if (first && !gone && !this.#isSpeculative()) this.#wiki.workspace.report('load', error);
     }
   }
 

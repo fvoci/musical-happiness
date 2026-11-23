@@ -29,6 +29,7 @@ async function showPassword(workspace: Workspace, password: string): Promise<boo
       listed = await workspace.backend.workspaces();
     }
     workspace.workspaces = listed;
+    workspace.pruneWorkspaces();
     return !listed.some((one) => one.passwordRequired);
   } catch (error) {
     if (sessionOver(error)) throw error;
@@ -123,6 +124,7 @@ export async function passwordChanged(workspace: Workspace, password: string): P
 export async function confirmPassword(workspace: Workspace, password: string): Promise<void> {
   await workspace.backend.confirmPassword(password);
   workspace.workspaces = await workspace.backend.workspaces();
+  workspace.pruneWorkspaces();
   // Not a workspace the reader went to while this was under way.
   if (workspace.entered === 'password' && workspace.asked !== undefined) {
     await workspace.enter(workspace.asked, true);

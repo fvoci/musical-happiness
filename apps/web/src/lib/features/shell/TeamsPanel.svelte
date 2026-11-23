@@ -56,7 +56,11 @@
       members = candidates.filter((member) => member.role !== 'guest');
       loaded = true;
       unread = false;
-    } catch {
+    } catch (error) {
+      if (isBackendError(error) && error.status === 401) workspace.report('load', error);
+      else if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+        workspace.evictWorkspace(place);
+      }
       if (current === reading) unread = true;
     }
   }
@@ -105,8 +109,13 @@
     refusedName = undefined;
     try {
       await step(workspaceId);
+      workspace.evictWorkspace(workspaceId);
       return true;
     } catch (error) {
+      if (isBackendError(error) && error.status === 401) workspace.report('save', error);
+      else if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+        workspace.evictWorkspace(workspaceId);
+      }
       problem = told(error);
       if (aboutName(error)) refusedName = naming;
       return false;

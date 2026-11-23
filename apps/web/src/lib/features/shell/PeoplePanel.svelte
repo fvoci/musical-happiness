@@ -112,6 +112,10 @@
       ]);
       failure = false;
     } catch (error) {
+      if (isBackendError(error) && error.status === 401) workspace.report('load', error);
+      else if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+        workspace.evictWorkspace(workspaceId);
+      }
       failure = problemOf(error, m.people_load_failed({ workspace: workspaceName }));
     }
     version += 1;
@@ -127,6 +131,10 @@
     try {
       await step(workspaceId);
     } catch (error) {
+      if (isBackendError(error) && error.status === 401) workspace.report('save', error);
+      else if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+        workspace.evictWorkspace(workspaceId);
+      }
       problem = problemOf(error, m.people_failed());
     } finally {
       await read();
@@ -151,11 +159,13 @@
   const setRole = (member: WorkspaceMember, role: WorkspaceRole): Promise<void> =>
     act(async (id) => {
       await people.setRole(id, member.userId, role);
+      workspace.evictWorkspace(id);
     });
 
   const remove = (member: WorkspaceMember): Promise<void> =>
     act(async (id) => {
       await people.removeMember(id, member.userId);
+      workspace.evictWorkspace(id);
     });
 
   const inviteGuests = (enabled: boolean): Promise<void> =>
