@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as back from '$lib/layout/back.svelte.ts';
 
 import { localeOfSetting, matchLocale } from '../../../src/app/locale.ts';
+import { goToPlace, routeOfPlace } from '../../../src/app/places.ts';
 import {
   parseRoute,
   placeRoute,
@@ -155,6 +156,56 @@ describe('the address of a diary', () => {
     for (const path of ['/w/me/diaries/d', '/w/me/diaries/d/02-29']) {
       expect(routePath(parseRoute(path, ''), '')).toBe(path);
     }
+  });
+
+  it('reads and writes ?year=YYYY on a diary day, ignoring invalid years', () => {
+    expect(parseRoute('/w/me/diaries/d/11-21', '', '?year=2024')).toMatchObject({
+      workspaceId: 'me',
+      diaryId: 'd',
+      monthDay: '11-21',
+      year: '2024',
+      unknown: false,
+    });
+    expect(routePath(parseRoute('/w/me/diaries/d/11-21', '', '?year=2024'), '')).toBe(
+      '/w/me/diaries/d/11-21?year=2024',
+    );
+    expect(routePath({ workspaceId: 'me', diaryId: 'd', year: '2024' }, '')).toBe(
+      '/w/me/diaries/d',
+    );
+    for (const bad of ['', '?year=', '?year=abc', '?year=0000', '?year=20250', '?year=-1']) {
+      expect(parseRoute('/w/me/diaries/d/11-21', '', bad).year).toBeUndefined();
+    }
+    expect(parseRoute('/w/me/diaries/d', '', '?year=2024').year).toBeUndefined();
+  });
+
+  it('builds entry search routes with ?year=YYYY and follows popstate across years', () => {
+    history.replaceState(null, '', '/w/me/diaries/d/11-21');
+    const router = new Router('');
+    const stop = router.listen();
+    const hit = {
+      kind: 'entry' as const,
+      id: 'e1',
+      containerId: 'd',
+      workspaceId: 'me',
+      title: '2024-11-21',
+    };
+    expect(routeOfPlace(router, hit)).toEqual({
+      workspaceId: 'me',
+      diaryId: 'd',
+      monthDay: '11-21',
+      year: '2024',
+    });
+    expect(router.href(routeOfPlace(router, hit))).toBe('/w/me/diaries/d/11-21?year=2024');
+    goToPlace(router, hit);
+    expect(`${location.pathname}${location.search}`).toBe('/w/me/diaries/d/11-21?year=2024');
+    expect(router.route.year).toBe('2024');
+    router.openDay('11-21');
+    expect(`${location.pathname}${location.search}`).toBe('/w/me/diaries/d/11-21');
+    expect(router.route.year).toBeUndefined();
+    history.replaceState(null, '', '/w/me/diaries/d/11-21?year=2023');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(router.route.year).toBe('2023');
+    stop();
   });
 
   it('keeps a day no year has, for the page to say it is not found', () => {

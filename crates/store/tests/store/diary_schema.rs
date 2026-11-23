@@ -422,6 +422,11 @@ async fn fill(test: &common::TestStore, own: &Store, diary_id: &str, user_id: &s
     }
 }
 
+/// Index of the runs query in [`Store::plans_of_diary_reads`]: only it scans a subquery
+/// of its own (`written`), so changing the order in `plans_of_diary_reads` requires
+/// updating this constant.
+const RUNS_READ: usize = 2;
+
 /// What the plan of a read of a diary must say, the entries of a month and day first,
 /// the days of a month second and the days alone (for the runs) third: the days are
 /// found by the index the read is for, an entry by its own key and not by going through
@@ -431,7 +436,7 @@ async fn fill(test: &common::TestStore, own: &Store, diary_id: &str, user_id: &s
 fn check_plan(read: usize, plan: &str) {
     // Only the runs (the third read) go through a subquery of their own.
     let own = |line: &str| {
-        read == 2 && (line.contains("SCAN written") || line.contains("SCAN (subquery-"))
+        read == RUNS_READ && (line.contains("SCAN written") || line.contains("SCAN (subquery-"))
     };
     let through = |line: &str| match db_type() {
         DbType::Sqlite => line.contains("SCAN ") && !own(line),
@@ -588,7 +593,7 @@ async fn a_full_diary_of_every_other_day_answers_its_runs_from_the_key() {
         .plans_of_diary_reads(&diary_id, at, day("2000-11-01"), day("2000-11-30"))
         .await
         .expect("explained");
-    check_plan(2, &plan.join("\n"));
+    check_plan(RUNS_READ, &plan.join("\n"));
     let answer = serde_json::to_vec(&runs).expect("serialized").len();
     println!(
         "the runs of {ENTRIES_PER_DIARY} entries a day apart on {:?}: {:?} a read, \

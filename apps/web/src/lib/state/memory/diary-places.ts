@@ -7,7 +7,7 @@
  */
 import { addDays, dateOfUtc, parseCalendarDate } from '../../logic/dates.ts';
 import type { Container } from '../../logic/wire.ts';
-import { DAYS_AHEAD, DIARIES_PER_SPACE } from './diaries.ts';
+import { DAYS_AHEAD, DIARIES_PER_SPACE, ENTRIES_PER_DIARY } from './diaries.ts';
 import { fail } from './refuse.ts';
 import type { StoredBlock, World } from './world.ts';
 
@@ -20,7 +20,7 @@ export function checkDiaryRoom(
 ): void {
   if (more === 0) return;
   if (world.ownSpaces.get(userId)?.id !== workspaceId) {
-    fail(400, 'a diary is kept in its owner’s own space alone', { reason: 'diary_not_own_space' });
+    fail(400, 'a diary is kept in its owner’s own space alone', { field: 'kind' });
   }
   const there = [...world.containers.values()].filter(
     (container) => container.workspaceId === workspaceId && container.kind === 'diary',
@@ -42,14 +42,31 @@ export function checkDiariesComing(
 ): void {
   const diaries = coming.containers.filter((container) => container.kind === 'diary');
   checkDiaryRoom(world, userId, workspaceId, diaries.length);
+  const diaryIds = new Set(diaries.map((diary) => diary.id));
+  for (const block of coming.blocks) {
+    if (block.type === 'entry' && !diaryIds.has(block.containerId)) {
+      fail(400, 'an entry belongs on a diary alone', { field: 'type' });
+    }
+  }
   const latest = addDays(dateOfUtc(world.now()), DAYS_AHEAD);
   for (const diary of diaries) {
+    const mine = coming.blocks.filter((block) => block.containerId === diary.id);
+    for (const block of mine) {
+      if (block.type !== 'entry') fail(400, 'a diary holds entries alone', { field: 'type' });
+      if (block.parentId !== '') fail(400, 'an entry is below no block', { field: 'parentId' });
+    }
+    if (mine.length > ENTRIES_PER_DIARY) {
+      fail(400, 'the diary has as many entries as it may', {
+        reason: 'too_many_entries',
+        limit: ENTRIES_PER_DIARY,
+      });
+    }
     const days = new Set<string>();
-    for (const block of coming.blocks) {
-      if (block.containerId !== diary.id || block.type !== 'entry') continue;
+    for (const block of mine) {
       const date = block.fields.date;
-      const day = parseCalendarDate(typeof date === 'string' ? date : block.title);
-      if (!day || day > latest) fail(400, 'an entry’s day is no day, or too far ahead');
+      const day = typeof date === 'string' ? parseCalendarDate(date) : undefined;
+      if (!day) fail(400, 'an entry’s day is no day', { field: 'fields' });
+      if (day > latest) fail(400, 'an entry’s day is too far ahead');
       if (days.has(day)) fail(400, 'a diary has one entry a day');
       days.add(day);
     }

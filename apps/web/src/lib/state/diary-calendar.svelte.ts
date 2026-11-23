@@ -41,6 +41,10 @@ export class DiaryCalendar {
   #monthReads = 0;
   #counting: Promise<void> | undefined;
   #countAgain = false;
+  /** `resync` asked for a count while one was on its way: retry even if that one fails. */
+  #resyncCount = false;
+  /** The last count was refused: wait for `resync` instead of asking again on every edit. */
+  #refused = false;
 
   constructor(host: CalendarHost) {
     this.#host = host;
@@ -63,17 +67,18 @@ export class DiaryCalendar {
   }
 
   /** Reads the runs; asked again while they are read, they are read once more after. */
-  count(): Promise<void> {
+  count(force = false): Promise<void> {
     if (this.#counting) {
-      this.#countAgain = true;
+      if (force) this.#resyncCount = true;
+      else this.#countAgain = true;
       return this.#counting;
     }
     this.#counting = this.#count().finally(() => {
       this.#counting = undefined;
-      if (this.#countAgain) {
-        this.#countAgain = false;
-        void this.count();
-      }
+      const retry = this.#resyncCount || (this.#countAgain && !this.#refused);
+      this.#resyncCount = false;
+      this.#countAgain = false;
+      if (retry) void this.count();
     });
     return this.#counting;
   }
@@ -82,8 +87,13 @@ export class DiaryCalendar {
     const diaries = this.#host.workspace.backend.diary;
     if (!diaries) return;
     try {
-      [this.runs, this.counted] = [await diaries.runs(this.#host.diaryId), true];
+      [this.runs, this.counted, this.#refused] = [
+        await diaries.runs(this.#host.diaryId),
+        true,
+        false,
+      ];
     } catch (error) {
+      this.#refused = true;
       this.#failed(error);
     }
   }
@@ -105,7 +115,10 @@ export class DiaryCalendar {
       this.runs.some((run) => run.from <= date && date <= run.to);
     // Being read: read again after, not to miss what was heard. A count refused
     // waits for what is missed to be read (`resync`), not for every key typed.
-    if (this.#counting || (this.counted && entries.some((entry) => !held(entry.date)))) {
+    if (
+      this.#counting ||
+      (this.counted && !this.#refused && entries.some((entry) => !held(entry.date)))
+    ) {
       void this.count();
     }
   }
@@ -114,13 +127,13 @@ export class DiaryCalendar {
   heardDeleted(blockIds: readonly string[]): void {
     const days = this.days.filter((day) => !blockIds.includes(day.entryId));
     if (days.length !== this.days.length) this.days = days;
-    void this.count();
+    if (!this.#refused) void this.count();
   }
 
   /** What was missed is read again. */
   resync(): void {
     if (this.month) void this.showMonth(this.month);
-    void this.count();
+    void this.count(true);
   }
 
   #failed(error: unknown): void {

@@ -886,4 +886,14 @@ mod tests {
             "it puts up the wall"
         );
     }
+
+    /// The migration right after `BEFORE_DIARIES_VERSION` is the one of the diaries.
+    #[test]
+    fn the_migration_after_before_diaries_is_the_diaries_one() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_DIARIES_VERSION + 1)
+            .expect("the migration after BEFORE_DIARIES_VERSION is in the list");
+        assert_eq!(step.description, "diaries");
+    }
 }
