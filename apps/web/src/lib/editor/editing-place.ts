@@ -28,7 +28,7 @@ import {
 } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 
-import { shortcutLabel } from '$lib/keys.ts';
+import { isComposing, shortcutLabel } from '$lib/keys.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
 
 import { diagramKind } from './diagram-kind.ts';
@@ -94,19 +94,42 @@ function arrowOntoDiagram(view: EditorView, event: KeyboardEvent): boolean {
   return true;
 }
 
+/** Chrome on Android leaves Enter to DOM reconciliation (`handleKeyDown`) so Gboard composition is not disrupted. */
+function isAndroidChrome(): boolean {
+  const agent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+  return agent.includes('Android') && agent.includes('Chrome/');
+}
+
+/** Whether `event` inserts a newline into an open editable diagram's source. */
+function isDiagramEnter(view: EditorView, event: KeyboardEvent): boolean {
+  return (
+    placeOf(view.state)?.kind === 'diagram' &&
+    event.key === 'Enter' &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    view.editable
+  );
+}
+
 /**
- * The keys that open and close a place, heard before the editor's own
- * handling: the editor leaves Enter on Android to the change it makes in the
- * page, which a selected diagram does not make.
+ * The keys that open, close and break lines in a place, heard before the
+ * editor's own handling: the editor leaves Enter on Android to the change it
+ * makes in the page (which a selected diagram does not make) and on iOS lets
+ * native Enter split the source's `<pre>` and rebuild the diagram view.
  */
 function placeKeys(view: EditorView, event: KeyboardEvent): boolean {
-  if (event.isComposing) return false;
+  if (isComposing(event) || view.composing) return false;
   const place = placeOf(view.state);
   const { selection } = view.state;
   if (place && closesPlace(event)) {
     // The key belongs to the place: it must not also close what the editor is in.
     event.stopPropagation();
     closePlace(view, true);
+  } else if (!isAndroidChrome() && isDiagramEnter(view, event)) {
+    // A new line, always (Shift+Enter too): a source may have empty lines, and three Enters
+    // do not leave it.
+    view.dispatch(view.state.tr.insertText('\n').scrollIntoView());
   } else if (
     !place &&
     event.key === 'Enter' &&
@@ -124,16 +147,9 @@ function placeKeys(view: EditorView, event: KeyboardEvent): boolean {
 }
 
 function handleKeyDown(view: EditorView, event: KeyboardEvent): boolean {
-  if (event.isComposing) return false;
-  if (
-    placeOf(view.state)?.kind === 'diagram' &&
-    event.key === 'Enter' &&
-    !event.altKey &&
-    !event.ctrlKey &&
-    !event.metaKey
-  ) {
-    // A new line, always (Shift+Enter too): a source may have empty lines, and three Enters
-    // do not leave it.
+  if (isComposing(event)) return false;
+  if (isDiagramEnter(view, event)) {
+    // Fallback for synthetic Enter dispatched from DOM reconciliation (e.g. Android virtual keyboard).
     view.dispatch(view.state.tr.insertText('\n').scrollIntoView());
     return true;
   }
