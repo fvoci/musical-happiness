@@ -18,6 +18,7 @@ use scrape_read::ScrapeRead;
 
 mod accounts;
 mod background;
+mod courses;
 mod database;
 mod files;
 mod mail;
@@ -32,6 +33,7 @@ mod websocket;
 
 pub(crate) use accounts::{LoginOutcome, ResetMailDrop};
 pub(crate) use background::{Job, JobOutcome, LoginLimit};
+pub(crate) use courses::{CourseSource, ScheduleRedistributionScope, UnitCompletionAction};
 pub(crate) use database::{Database, DbAccess, DbOutcome};
 pub(crate) use files::{FilesBackend, FilesOperation, FilesOutcome};
 pub(crate) use mail::{MailFailure, MailKind};
@@ -75,6 +77,7 @@ struct Kept {
     objects: objects::ObjectMetrics,
     search: search::SearchMetrics,
     notifications: notifications::NotificationMetrics,
+    courses: courses::CourseMetrics,
 }
 
 impl Metrics {
@@ -119,6 +122,7 @@ impl Metrics {
         let objects = objects::ObjectMetrics::register(&registry)?;
         let search = search::SearchMetrics::register(&registry)?;
         let notifications = notifications::NotificationMetrics::register(&registry)?;
+        let courses = courses::CourseMetrics::register(&registry)?;
         Ok(Self {
             kept: Some(Arc::new(Kept {
                 registry,
@@ -134,6 +138,7 @@ impl Metrics {
                 objects,
                 search,
                 notifications,
+                courses,
             })),
         })
     }

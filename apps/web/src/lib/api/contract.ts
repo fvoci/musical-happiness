@@ -3170,16 +3170,18 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Copy a board or a wiki
+         * Copy a board, wiki, or course
          * @description Copies a board with its blocks, except comments, as a board or as a template. The
          *     user becomes the admin of the copy, which is always private. A copy of the same kind
          *     has the title of the original with ` copy` after it; a template made from a board is
-         *     titled `New board template`, and a board made from a template keeps the title. The
-         *     server writes those words in English and in Korean (` 사본`, `새 보드 템플릿`), and
+         *     titled `New board template` (from a course, `New course template`), and a container
+         *     made from a template keeps the title. The
+         *     server writes those words in English and in Korean (` 사본`, `새 보드 템플릿`,
+         *     `새 학습 템플릿`), and
          *     chooses by the language of the user's settings; where the settings leave the language
          *     to the device, or name one the server does not write in, by the first of the two that
-         *     `Accept-Language` prefers; failing both, English. The board's members may copy it; an
-         *     open template is for everyone in its workspace, and a built-in template for everyone.
+         *     `Accept-Language` prefers; failing both, English. The container's members may copy it;
+         *     an open template is for everyone in its workspace, and a built-in template for everyone.
          *
          *     A wiki is copied as a board is, with its pages as they stand: their tree and order,
          *     titles, icons and bodies, the images and file blocks of the bodies given files of
@@ -3190,6 +3192,14 @@ export interface paths {
          *     A copy deeper or with more pages than the organization's limits allow, lowered since
          *     the wiki grew, is 400 with the reason `page_too_deep` or `too_many_pages` and the
          *     `limit`.
+         *
+         *     A course is copied with its live chapters and units, their hierarchy, order, bodies,
+         *     files, internal unit references remapped to the copies, study amounts (`amount`,
+         *     `amountUnit`), shared `scheduledDate`, and shared course schedule (`course_schedules`).
+         *     When copied from a built-in course template, template marks are stripped and shared
+         *     schedule dates are shifted to the copier's day. Personal learner progress
+         *     (`unit_progress`), comments, trashed units, body versions, subscriptions, notifications,
+         *     other members, access groups, and public links are never copied.
          */
         post: operations["duplicateContainer"];
         delete?: never;
@@ -6989,10 +6999,14 @@ export interface components {
             cards: number;
             /** @description Number of comments created (`BlockType::Comment`). */
             comments: number;
+            /** @description Number of courses created (`ContainerKind::Course`). */
+            courses: number;
             /** @description Number of files stored. */
             files: number;
             /** @description Number of wiki pages created (`BlockType::Page`). */
             pages: number;
+            /** @description Number of course units created (`BlockType::Unit`). */
+            units: number;
             /** @description Number of wikis created (`ContainerKind::Wiki`). */
             wikis: number;
         };

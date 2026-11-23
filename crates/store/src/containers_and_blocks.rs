@@ -172,7 +172,39 @@ impl Store {
         containers: &mut [Container],
         user_id: &str,
         new_files: NewBodyFiles,
+        batches: tokio::sync::mpsc::Receiver<StreamBatch<E>>,
+    ) -> Result<(), StreamCreateError<E>>
+    where
+        E: Send,
+    {
+        self.create_containers_and_blocks_streamed_with_schedules(
+            containers,
+            user_id,
+            new_files,
+            batches,
+            &[],
+        )
+        .await
+    }
+
+    /// Like [`Store::create_containers_and_blocks_streamed`], and also persists shared
+    /// `course_schedules` rows in the same database transaction before committing.
+    ///
+    /// Each `(index, schedule)` entry must reference a [`fvoci_model::ContainerKind::Course`]
+    /// inside `containers`; an out-of-range index or non-course container fails the
+    /// transaction with [`StoreError::NotFound`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`Store::create_containers_and_blocks_streamed`], or
+    /// [`StoreError::NotFound`] if a schedule index does not name a course in `containers`.
+    pub async fn create_containers_and_blocks_streamed_with_schedules<E>(
+        &self,
+        containers: &mut [Container],
+        user_id: &str,
+        new_files: NewBodyFiles,
         mut batches: tokio::sync::mpsc::Receiver<StreamBatch<E>>,
+        schedules: &[(usize, fvoci_model::ValidatedCourseSchedule)],
     ) -> Result<(), StreamCreateError<E>>
     where
         E: Send,
@@ -199,9 +231,6 @@ impl Store {
                             break;
                         }
                         StreamBatch::Err(error) => {
-                            // Store the caller's error and return a sentinel `StoreError`
-                            // so `Store::transaction` rolls back; the match below replaces
-                            // this sentinel with `StreamCreateError::Producer(error)`.
                             abort = Some(StreamAbort::Producer(error));
                             return Err(StoreError::NoRows);
                         }
@@ -239,7 +268,9 @@ impl Store {
                     abort = Some(StreamAbort::Incomplete);
                     return Err(StoreError::NoRows);
                 }
-                card_values::check_named_cards(scope, &named).await
+                card_values::check_named_cards(scope, &named).await?;
+                insert_streamed_schedules(scope, containers, schedules).await?;
+                Ok(())
             })
             .await;
         match outcome {
@@ -603,4 +634,28 @@ pub(crate) async fn duplicate_container(
     )
     .await?;
     Ok((copies, members))
+}
+
+async fn insert_streamed_schedules(
+    scope: &mut Scope<'_>,
+    containers: &[Container],
+    schedules: &[(usize, fvoci_model::ValidatedCourseSchedule)],
+) -> Result<(), StoreError> {
+    if schedules.is_empty() {
+        return Ok(());
+    }
+    let org = scope.org()?;
+    for (index, schedule) in schedules {
+        let Some(course) = containers
+            .get(*index)
+            .filter(|c| c.kind == fvoci_model::ContainerKind::Course)
+        else {
+            return Err(StoreError::not_found(format_args!(
+                "course at container index {index}"
+            )));
+        };
+        crate::course_schedules::upsert_schedule_row(scope, &course.id, schedule, org.clone())
+            .await?;
+    }
+    Ok(())
 }

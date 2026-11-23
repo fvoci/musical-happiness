@@ -95,7 +95,7 @@ export type { PageDraft, PageMove, WikiDraft, WikiPage, WikiPageDetail } from '.
 export { CourseStore, type CourseLooks } from './course.svelte.ts';
 export { UnitStore } from './unit.svelte.ts';
 export type { UnitComments } from './unit-comments.svelte.ts';
-export { createCourse } from './course-parts.ts';
+export { createCourse, createCourseFromTemplate } from './course-parts.ts';
 export { shownCourse } from './shown-course.svelte.ts';
 export { hasControlChars, UNIT_PROGRESS_POSITION_MAX_CHARS } from './course-types.ts';
 export type {

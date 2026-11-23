@@ -27,7 +27,7 @@ use super::file_name::check_file_name;
 use super::files::stored_extension;
 use crate::collab::AccessScope;
 use crate::error::{AppError, ErrorKind};
-use crate::metrics::ContainerWork;
+use crate::metrics::{ContainerWork, CourseSource};
 use crate::permissions;
 use archive::{
     Archive, check_entry, entry_limit, entry_name, open_archive, read_entry, too_many_entries,
@@ -333,6 +333,7 @@ impl App {
                     plan.zip_index,
                     plan.containers,
                     plan.members,
+                    &plan.schedules,
                     plan.stream_plan,
                     Arc::clone(all_copies),
                     options,
@@ -341,6 +342,7 @@ impl App {
                 .await?;
             stored.counts.cards += stats.counts.cards;
             stored.counts.pages += stats.counts.pages;
+            stored.counts.units += stats.counts.units;
             stored.counts.comments += stats.counts.comments;
             for (cid, ids) in stats.blocks_to_point {
                 stored.blocks_to_point.entry(cid).or_default().extend(ids);
@@ -363,6 +365,7 @@ impl App {
         zip_index: usize,
         mut containers: Vec<Container>,
         members: Vec<ContainerMember>,
+        schedules: &[(usize, fvoci_model::ValidatedCourseSchedule)],
         stream_plan: native_stream::StreamPlan,
         all_copies: Arc<HashMap<String, String>>,
         options: &ImportOptions,
@@ -406,11 +409,12 @@ impl App {
         let write_result = {
             let _structure = self.collab().changing_structure(self).await;
             self.store()
-                .create_containers_and_blocks_streamed(
+                .create_containers_and_blocks_streamed_with_schedules(
                     &mut containers,
                     &options.modified_by,
                     NewBodyFiles::Unchecked,
                     rx,
+                    schedules,
                 )
                 .await
         };
@@ -508,6 +512,9 @@ impl App {
             }
             self.metrics()
                 .container_copied(ContainerWork::Import, counted_as(container.kind));
+            if container.kind == ContainerKind::Course && !container.is_template {
+                self.metrics().course_created(CourseSource::Import);
+            }
         }
         Ok(())
     }
@@ -688,7 +695,8 @@ fn tally_container_counts(
         match kind {
             ContainerKind::Board => counts.boards += 1,
             ContainerKind::Wiki => counts.wikis += 1,
-            ContainerKind::Diary | ContainerKind::Course => {}
+            ContainerKind::Course => counts.courses += 1,
+            ContainerKind::Diary => {}
         }
         container_ids.push(id.clone());
     }

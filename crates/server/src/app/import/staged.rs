@@ -496,13 +496,15 @@ fn count_imported(combined: &ContainersAndBlocks, files: usize) -> ImportCounts 
         match container.kind {
             ContainerKind::Board => counts.boards += 1,
             ContainerKind::Wiki => counts.wikis += 1,
-            ContainerKind::Diary | ContainerKind::Course => {}
+            ContainerKind::Course => counts.courses += 1,
+            ContainerKind::Diary => {}
         }
     }
     for block in &combined.blocks {
         match block.block_type {
             BlockType::Card => counts.cards += 1,
             BlockType::Page => counts.pages += 1,
+            BlockType::Unit => counts.units += 1,
             BlockType::Comment => counts.comments += 1,
             _ => {}
         }

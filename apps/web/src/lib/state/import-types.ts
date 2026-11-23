@@ -14,8 +14,10 @@ export const IMPORT_FORMATS: readonly ImportFormat[] = ['fvoci', 'trello', 'noti
 export interface ImportCounts {
   readonly boards: number;
   readonly wikis: number;
+  readonly courses?: number;
   readonly cards: number;
   readonly pages: number;
+  readonly units?: number;
   readonly comments: number;
   readonly files: number;
 }
@@ -66,5 +68,5 @@ export interface ImportOptions extends UploadOptions {
 
 /** Empty `ImportCounts` baseline. */
 export function emptyImportCounts(): ImportCounts {
-  return { boards: 0, wikis: 0, cards: 0, pages: 0, comments: 0, files: 0 };
+  return { boards: 0, wikis: 0, courses: 0, cards: 0, pages: 0, units: 0, comments: 0, files: 0 };
 }

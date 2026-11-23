@@ -15,9 +15,11 @@ use std::io::{self, BufRead, BufReader};
 
 use fvoci_model::{
     ArchiveLine, BODY_MAX_BYTES, Block, BlockError, BlockType, Container, ContainerKind,
-    ContainerMember, ContainersAndBlocksError, DiaryDate, JsonMap, RelationProperties,
-    UnmatchedRelation, collect_block_references, new_id, rewrite_block_ids,
+    ContainerMember, ContainersAndBlocksError, CourseScheduleUpdate, DiaryDate, JsonMap,
+    RelationProperties, UnmatchedRelation, ValidatedCourseSchedule, collect_block_references,
+    new_id, rewrite_block_ids,
 };
+use serde::Deserialize;
 use serde_json::Value;
 
 use super::archive::Archive;
@@ -57,12 +59,27 @@ struct BlockMeta {
     needs_fields_recheck: bool,
 }
 
+/// One `courseSchedule` line decoded from `board.jsonl` during Pass 1.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ArchiveCourseSchedule {
+    #[serde(default, alias = "containerId")]
+    board_id: String,
+    start_date: String,
+    target_date: String,
+    study_days: i32,
+    #[serde(default)]
+    #[expect(dead_code, reason = "optional wire timestamp ignored on import")]
+    update_at: Option<i64>,
+}
+
 /// Output of Pass 1 for a single `board.jsonl` entry, holding only structural metadata.
 pub(super) struct ScannedBoard {
     pub(super) zip_index: usize,
     pub(super) dir: String,
     pub(super) containers: Vec<Container>,
     pub(super) members: Vec<ContainerMember>,
+    pub(super) schedules: Vec<(usize, ValidatedCourseSchedule)>,
     pub(super) files: ArchiveFiles,
     blocks: Vec<BlockMeta>,
     keep: Vec<bool>,
@@ -77,6 +94,7 @@ pub(super) struct BoardWritePlan {
     pub(super) dir: String,
     pub(super) containers: Vec<Container>,
     pub(super) members: Vec<ContainerMember>,
+    pub(super) schedules: Vec<(usize, ValidatedCourseSchedule)>,
     pub(super) files: ArchiveFiles,
     /// `line_number -> block_index` for kept blocks needing post-rewrite field validation.
     pub(super) recheck_lines: HashMap<usize, usize>,
@@ -233,6 +251,7 @@ struct ScanAccum {
     container_idx_by_id: HashMap<String, usize>,
     relations: RelationProperties,
     members: Vec<ContainerMember>,
+    raw_schedules: Vec<(String, ValidatedCourseSchedule, usize)>,
     files: ArchiveFiles,
     blocks: Vec<BlockMeta>,
     referenced: HashSet<String>,
@@ -249,6 +268,7 @@ impl ScanAccum {
             container_idx_by_id: HashMap::new(),
             relations: RelationProperties::new(),
             members: Vec::new(),
+            raw_schedules: Vec::new(),
             files: ArchiveFiles::default(),
             blocks: Vec::new(),
             referenced: HashSet::new(),
@@ -282,10 +302,33 @@ impl ScanAccum {
                 self.members.push(member);
                 Ok(())
             }
+            "courseSchedule" => self.take_course_schedule(archive_line.data, line_number),
             other => Err(AppError::bad_request(format_args!(
                 "unsupported archive line type; got {other}, line {line_number}"
             ))),
         }
+    }
+
+    fn take_course_schedule(&mut self, data: Value, line_number: usize) -> Result<(), AppError> {
+        let parsed: ArchiveCourseSchedule = serde_json::from_value(data).map_err(|error| {
+            AppError::bad_request(format_args!(
+                "invalid courseSchedule in archive line {line_number}: {error}"
+            ))
+        })?;
+        let update = CourseScheduleUpdate {
+            start_date: parsed.start_date,
+            target_date: parsed.target_date,
+            study_days: parsed.study_days,
+            auto_assign: false,
+        };
+        let validated = update.check_request().map_err(|error| {
+            AppError::bad_request(format_args!(
+                "invalid courseSchedule in archive line {line_number}: {error}"
+            ))
+        })?;
+        self.raw_schedules
+            .push((parsed.board_id, validated, line_number));
+        Ok(())
     }
 
     fn take_board(
@@ -411,6 +454,11 @@ impl ScanAccum {
             );
         }
         validate_kept_structure(&self.containers, &self.blocks, &keep)?;
+        let schedules = resolve_course_schedules(
+            &self.containers,
+            &self.container_idx_by_id,
+            self.raw_schedules,
+        )?;
 
         let own_kept: HashSet<&str> = self
             .blocks
@@ -436,6 +484,7 @@ impl ScanAccum {
             dir,
             containers: self.containers,
             members: self.members,
+            schedules,
             files: self.files,
             blocks: self.blocks,
             keep,
@@ -444,6 +493,41 @@ impl ScanAccum {
             diaries,
         })
     }
+}
+
+/// Resolves validated `courseSchedule` lines to their course container index, rejecting
+/// missing/non-course targets and duplicate schedules for the same course.
+fn resolve_course_schedules(
+    containers: &[Container],
+    container_idx_by_id: &HashMap<String, usize>,
+    raw_schedules: Vec<(String, ValidatedCourseSchedule, usize)>,
+) -> Result<Vec<(usize, ValidatedCourseSchedule)>, AppError> {
+    let mut seen: HashSet<usize> = HashSet::with_capacity(raw_schedules.len());
+    let mut resolved = Vec::with_capacity(raw_schedules.len());
+    for (board_id, schedule, line_number) in raw_schedules {
+        let idx = if board_id.is_empty() && containers.len() == 1 {
+            0
+        } else {
+            let Some(&idx) = container_idx_by_id.get(&board_id) else {
+                return Err(AppError::bad_request(format_args!(
+                    "courseSchedule in archive line {line_number} names no course of the archive"
+                )));
+            };
+            idx
+        };
+        if containers[idx].kind != ContainerKind::Course {
+            return Err(AppError::bad_request(format_args!(
+                "courseSchedule in archive line {line_number} applies only to a course"
+            )));
+        }
+        if !seen.insert(idx) {
+            return Err(AppError::bad_request(format_args!(
+                "duplicate courseSchedule in archive line {line_number}"
+            )));
+        }
+        resolved.push((idx, schedule));
+    }
+    Ok(resolved)
 }
 
 /// Container context available during Pass-1 block validation.
@@ -580,6 +664,7 @@ pub(super) fn build_write_plan(
         dir,
         mut containers,
         members,
+        schedules,
         files,
         blocks,
         keep,
@@ -621,6 +706,7 @@ pub(super) fn build_write_plan(
         dir,
         containers,
         members,
+        schedules,
         files,
         recheck_lines,
         stream_plan: StreamPlan {

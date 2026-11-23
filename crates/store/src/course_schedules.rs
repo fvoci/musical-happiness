@@ -300,7 +300,7 @@ impl Store {
     }
 }
 
-async fn fetch_course_schedule(
+pub(crate) async fn fetch_course_schedule(
     scope: &mut Scope<'_>,
     course_id: &str,
     org: Param,
@@ -418,7 +418,7 @@ async fn lock_active_learner(
     Ok(())
 }
 
-async fn upsert_schedule_row(
+pub(crate) async fn upsert_schedule_row(
     scope: &mut Scope<'_>,
     course_id: &str,
     schedule: &ValidatedCourseSchedule,

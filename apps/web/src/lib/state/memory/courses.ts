@@ -228,6 +228,7 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
     const theirs = [...this.#world.containers.values()].filter(
       (board) =>
         isCourse(board) &&
+        !board.isTemplate &&
         board.workspaceId === workspaceId &&
         (board.type === 'O' ||
           (this.#world.members.get(board.id) ?? []).some((member) => member.userId === userId)),

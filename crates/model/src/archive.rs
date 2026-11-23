@@ -17,7 +17,7 @@ pub struct ArchiveHeader {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ArchiveLine {
-    /// What `data` holds: `board`, `block` or `boardMember`.
+    /// What `data` holds: `board`, `block`, `boardMember`, or `courseSchedule`.
     #[serde(rename = "type")]
     pub line_type: String,
     /// The entity itself, decoded according to `line_type`.

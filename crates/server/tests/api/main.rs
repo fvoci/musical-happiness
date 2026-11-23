@@ -45,6 +45,8 @@ mod confirmed_password;
 mod content_blocks;
 mod content_search;
 mod cookies;
+mod course_archives;
+mod course_copies;
 mod course_schedules;
 mod courses;
 mod database_busy;

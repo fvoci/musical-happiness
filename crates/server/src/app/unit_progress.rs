@@ -4,10 +4,11 @@
 //! updates, no webhooks, and no audit log entries so a learner's private per-unit state
 //! never leaves the caller's own session.
 
-use fvoci_model::{CourseProgressSummary, UnitProgress, UnitProgressChange};
+use fvoci_model::{CompletionChange, CourseProgressSummary, UnitProgress, UnitProgressChange};
 
 use super::App;
 use crate::error::AppError;
+use crate::metrics::UnitCompletionAction;
 
 impl App {
     /// Returns the caller's personal progress rows for live units of `course_id`.
@@ -39,10 +40,22 @@ impl App {
         user_id: &str,
         change: &UnitProgressChange,
     ) -> Result<UnitProgress, AppError> {
-        Ok(self
+        let progress = self
             .store()
             .upsert_unit_progress(course_id, unit_id, user_id, change)
-            .await?)
+            .await?;
+        match change.completion {
+            CompletionChange::Complete => {
+                self.metrics()
+                    .course_unit_completion(UnitCompletionAction::Completed);
+            }
+            CompletionChange::Incomplete => {
+                self.metrics()
+                    .course_unit_completion(UnitCompletionAction::Uncompleted);
+            }
+            CompletionChange::Keep => {}
+        }
+        Ok(progress)
     }
 
     /// Returns the aggregate completion summary across active members of `course_id`.

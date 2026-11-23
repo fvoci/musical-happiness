@@ -147,6 +147,11 @@ export class World {
   readonly unitWatchers = new Map<string, Map<string, boolean>>();
   /** Personal unit progress rows per user (`userId -> Map<unitId, UnitProgress>`). */
   readonly unitProgress = new Map<string, Map<string, UnitProgress>>();
+  /** Shared course study schedules, by course ID. */
+  readonly courseSchedules = new Map<
+    string,
+    { startDate: string; targetDate: string; studyDays: number }
+  >();
   /** Personal time entries, by user (`time.ts`). */
   readonly timeEntries = new Map<string, TimeEntry[]>();
 

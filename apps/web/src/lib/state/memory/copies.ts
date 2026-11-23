@@ -7,6 +7,7 @@
 import type { DocNode } from '../../editor/schema.ts';
 import type { Container } from '../../logic/wire.ts';
 
+import { parseIsoDateDays } from './archive.ts';
 import { flushContainers } from './bodies.ts';
 import { numberBlock } from './card-numbers.ts';
 import { fileAsNew } from './categories.ts';
@@ -41,15 +42,26 @@ function writtenIn(tag: string): 'en' | 'ko' | undefined {
  * left to the device or is another language, by the first of the two the
  * browser asks for (its `Accept-Language`); failing both, English.
  */
+const TEMPLATE_MARKS = new Set([
+  'onboarding',
+  'templateKey',
+  'templateLanguage',
+  'templateBaseDate',
+  'templateSchedule',
+]);
+
 export function copyTitle(
-  source: { title: string; isTemplate: boolean },
+  source: { title: string; isTemplate: boolean; kind?: Container['kind'] },
   asTemplate: boolean,
   language: string,
 ): string {
   if (source.isTemplate !== asTemplate && !asTemplate) return source.title;
   const asked = typeof navigator === 'undefined' ? [] : navigator.languages;
   const korean = (writtenIn(language) ?? asked.map(writtenIn).find(Boolean)) === 'ko';
-  if (source.isTemplate !== asTemplate) return korean ? '새 보드 템플릿' : 'New board template';
+  if (source.isTemplate !== asTemplate) {
+    if (source.kind === 'course') return korean ? '새 학습 템플릿' : 'New course template';
+    return korean ? '새 보드 템플릿' : 'New board template';
+  }
   return `${source.title} ${korean ? '사본' : 'copy'}`;
 }
 
@@ -96,6 +108,43 @@ export interface Copied {
   source: Container;
   blocks: readonly StoredBlock[];
   workspaceId: string;
+  /** Optional shared schedule to store on the copied course. */
+  schedule?: { startDate: string; targetDate: string; studyDays: number } | undefined;
+}
+
+function templateScheduleOf(
+  properties: Record<string, unknown>,
+): { startDate: string; targetDate: string; studyDays: number } | undefined {
+  const raw = properties.templateSchedule;
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const obj = raw as Record<string, unknown>;
+  if (
+    typeof obj.startDate === 'string' &&
+    typeof obj.targetDate === 'string' &&
+    typeof obj.studyDays === 'number'
+  ) {
+    return { startDate: obj.startDate, targetDate: obj.targetDate, studyDays: obj.studyDays };
+  }
+  return undefined;
+}
+
+function shiftIsoDate(value: string, days: number): string | undefined {
+  if (days === 0) return value;
+  const parsed = parseIsoDateDays(value);
+  if (parsed === undefined) return undefined;
+  const shifted = new Date((parsed + days) * 86_400_000);
+  const year = shifted.getUTCFullYear();
+  if (year < 1 || year > 9999) return undefined;
+  return shifted.toISOString().slice(0, 10);
+}
+
+function builtinCourseDayShift(source: Container, now: number): number {
+  if (!source.isBuiltin || source.kind !== 'course') return 0;
+  const base = source.properties.templateBaseDate;
+  if (typeof base !== 'string') return 0;
+  const baseDays = parseIsoDateDays(base);
+  const todayDays = parseIsoDateDays(new Date(now).toISOString().slice(0, 10));
+  return baseDays !== undefined && todayDays !== undefined ? todayDays - baseDays : 0;
 }
 
 /**
@@ -111,8 +160,14 @@ export function insertCopy(world: World, userId: string, copied: Copied): Contai
   for (const block of blocks) ids.set(block.id, world.newId());
   const renamed = (id: string): string => ids.get(id) ?? id;
   const cardIds = new Set(blocks.filter((block) => block.type === 'card').map(({ id }) => id));
+  const copiedProps = copy(source.properties);
+  const builtinSchedule = source.isBuiltin ? templateScheduleOf(copiedProps) : undefined;
+  const properties = source.isBuiltin
+    ? Object.fromEntries(Object.entries(copiedProps).filter(([key]) => !TEMPLATE_MARKS.has(key)))
+    : copiedProps;
   const board: Container = {
     ...copy(source),
+    properties,
     id: renamed(source.id),
     workspaceId,
     createdBy: userId,
@@ -125,9 +180,38 @@ export function insertCopy(world: World, userId: string, copied: Copied): Contai
   world.containers.set(board.id, board);
   world.members.set(board.id, [memberOf(board.id, userId, 'admin')]);
   fileAsNew(world, userId, board);
+  const rawSchedule =
+    copied.schedule ??
+    (source.kind === 'course'
+      ? (builtinSchedule ?? world.courseSchedules.get(source.id))
+      : undefined);
+  let dayShift = builtinCourseDayShift(source, now);
+  if (board.kind === 'course' && rawSchedule) {
+    const startDate = shiftIsoDate(rawSchedule.startDate, dayShift);
+    const targetDate = shiftIsoDate(rawSchedule.targetDate, dayShift);
+    if (startDate && targetDate) {
+      world.courseSchedules.set(board.id, {
+        startDate,
+        targetDate,
+        studyDays: rawSchedule.studyDays,
+      });
+    } else {
+      dayShift = 0;
+      world.courseSchedules.set(board.id, { ...rawSchedule });
+    }
+  }
   for (const block of blocks) {
     const made = copy(block);
     renameCopied(source, made, ids, cardIds);
+    if (
+      dayShift !== 0 &&
+      board.kind === 'course' &&
+      made.type === 'unit' &&
+      typeof made.fields.scheduledDate === 'string'
+    ) {
+      const shifted = shiftIsoDate(made.fields.scheduledDate, dayShift);
+      if (shifted) made.fields.scheduledDate = shifted;
+    }
     const stored: StoredBlock = {
       ...made,
       id: renamed(block.id),

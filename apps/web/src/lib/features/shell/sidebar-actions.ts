@@ -143,12 +143,17 @@ export function containerActions(
   return [
     ...moves,
     ...saving,
-    ...(kind === 'diary' || kind === 'course'
+    ...(kind === 'diary'
       ? []
       : [
           {
             id: 'duplicate',
-            label: wiki ? m.shell_duplicate_wiki() : m['Sidebar.duplicate-board'](),
+            label:
+              kind === 'course'
+                ? m.shell_duplicate_course()
+                : wiki
+                  ? m.shell_duplicate_wiki()
+                  : m['Sidebar.duplicate-board'](),
             icon: CopyIcon,
             run: () => {
               menus.onDuplicateContainer(container.id);
