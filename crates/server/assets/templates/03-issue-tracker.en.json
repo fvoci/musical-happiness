@@ -629,7 +629,11 @@
             "304d6fa0-f4dd-56bc-98f9-0660b6beb50d"
           ],
           "4e7f4a57-e008-5681-a3c3-4ea0ee5d6fa6": [
-            "c9b1987c-c654-52d4-87ae-db49caa3d4b8"
+            {
+              "card": "c9b1987c-c654-52d4-87ae-db49caa3d4b8",
+              "kind": "fs",
+              "lagDays": 0
+            }
           ]
         }
       },
@@ -664,7 +668,11 @@
             "304d6fa0-f4dd-56bc-98f9-0660b6beb50d"
           ],
           "4e7f4a57-e008-5681-a3c3-4ea0ee5d6fa6": [
-            "ceb53077-29a3-5834-8dcb-cb3adff67eeb"
+            {
+              "card": "ceb53077-29a3-5834-8dcb-cb3adff67eeb",
+              "kind": "fs",
+              "lagDays": 0
+            }
           ]
         }
       },

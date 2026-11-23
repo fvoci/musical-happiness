@@ -52,6 +52,8 @@
         return m.audit_org_admin_granted({ actor, subject });
       case 'org_admin_removed':
         return m.audit_org_admin_removed({ actor, subject });
+      case 'org_member_removed':
+        return m.audit_org_member_removed({ actor, subject });
       case 'workspace_created':
         return m.audit_workspace_created({ actor, workspace });
       case 'workspace_renamed':

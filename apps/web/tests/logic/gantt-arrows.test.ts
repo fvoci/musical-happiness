@@ -26,7 +26,13 @@ import {
   TURN_INSET,
   type Bar,
 } from '$lib/logic/gantt.ts';
-import { createCard, setCardProperty, type Card, type PropertyTemplate } from '$lib/logic/wire.ts';
+import {
+  createCard,
+  relationLink,
+  setCardProperty,
+  type Card,
+  type PropertyTemplate,
+} from '$lib/logic/wire.ts';
 
 const day = (text: string): CalendarDate => text as CalendarDate;
 const days = (first: string, last = first): Days => ({ first: day(first), last: day(last) });
@@ -38,7 +44,12 @@ const AFTER = 'after';
 function card(id: string, after?: string[]): Card {
   const made = createCard();
   made.id = id;
-  if (after) setCardProperty(made, AFTER, after);
+  if (after)
+    setCardProperty(
+      made,
+      AFTER,
+      after.map((target) => relationLink(target)),
+    );
   return made;
 }
 
@@ -77,8 +88,8 @@ describe('the relations a chart draws', () => {
     const drawn = all.slice(0, 3);
     const relations = relationsOf(drawn, all, AFTER, daysOf);
     expect(relations.edges).toEqual([
-      { from: 'a', to: 'b' },
-      { from: 'a', to: 'c' },
+      { from: 'a', to: 'b', kind: 'fs', lagDays: 0 },
+      { from: 'a', to: 'c', kind: 'fs', lagDays: 0 },
     ]);
   });
 
@@ -93,7 +104,7 @@ describe('the relations a chart draws', () => {
   it('are only between cards that have days: a card without a date has no bar to reach', () => {
     const cards = [card('a'), card('undated', ['a']), card('b', ['undated', 'a'])];
     const relations = relationsOf(cards, cards, AFTER, daysOf);
-    expect(relations.edges).toEqual([{ from: 'a', to: 'b' }]);
+    expect(relations.edges).toEqual([{ from: 'a', to: 'b', kind: 'fs', lagDays: 0 }]);
   });
 
   it('say for each card which cards it comes after, in the order of its value', () => {

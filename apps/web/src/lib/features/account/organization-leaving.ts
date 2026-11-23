@@ -5,9 +5,9 @@
  * the server's detail.
  */
 import { m } from '$lib/i18n/paraglide/messages.js';
-import { isBackendError, isOwnSpace, type WorkspaceInfo } from '$lib/state/index.ts';
+import { isBackendError, type UserOrganization } from '$lib/state/index.ts';
 
-/** An organization the reader is a member of, by the names of its workspaces they are in. */
+/** An organization the reader is a member of, by its own name. */
 export interface LeavableOrganization {
   orgId: string;
   name: string;
@@ -15,24 +15,15 @@ export interface LeavableOrganization {
 
 /**
  * The organizations that people work in together that the reader is a member
- * of, each once, in the order of their workspaces. One where the reader is a
- * guest of every workspace is none they are a member of: a guest leaves a
- * board, not the organization. Their own space is left by nobody.
+ * of, from `GET /api/v1/users/me/organizations` (including ones with no
+ * workspaces left).
  */
 export function leavableOrganizations(
-  workspaces: readonly WorkspaceInfo[],
+  organizations: readonly UserOrganization[],
 ): LeavableOrganization[] {
-  const titles = new Map<string, string[]>();
-  for (const workspace of workspaces) {
-    if (workspace.orgId === undefined || isOwnSpace(workspace) || workspace.role === 'guest') {
-      continue;
-    }
-    const known = titles.get(workspace.orgId) ?? [];
-    titles.set(workspace.orgId, workspace.title ? [...known, workspace.title] : known);
-  }
-  return [...titles].map(([orgId, known]) => ({
-    orgId,
-    name: known.join(', ') || m.account_delete_organization_unnamed(),
+  return organizations.map((organization) => ({
+    orgId: organization.id,
+    name: organization.name || m.account_delete_organization_unnamed(),
   }));
 }
 
@@ -46,6 +37,8 @@ export function leaveProblemOf(error: unknown): LeaveProblem {
   if (!isBackendError(error)) return { text: m.account_failed(), settled: false };
   if (error.status === 404) return { text: m.org_leave_not_member(), settled: true };
   switch (error.reason) {
+    case 'password_required':
+      return { text: m.org_leave_password_required(), settled: true };
     case 'last_instance_admin':
       return { text: m.org_leave_last_instance_admin(), settled: true };
     case 'sole_org_admin':

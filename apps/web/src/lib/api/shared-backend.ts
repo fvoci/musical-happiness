@@ -333,6 +333,7 @@ export class SharedBackend implements Backend {
   }
 
   // Nobody is named to the reader, and the place has no sidebar.
+  organizations: Backend['organizations'] = nothing;
   users: Backend['users'] = nothing;
   usersById: Backend['usersById'] = nothing;
   members: Backend['members'] = nothing;

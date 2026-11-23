@@ -14,6 +14,7 @@ import type {
   ChangeListener,
   CommentVersion,
   Sharing,
+  UserOrganization,
   WorkspaceInfo,
   User,
 } from '../backend.ts';
@@ -115,6 +116,8 @@ export class World {
   readonly workspaceMembers = new Set<string>();
   /** Each user's own space, by user, once it was asked for. */
   readonly ownSpaces = new Map<string, WorkspaceInfo>();
+  /** Shared organizations each user belongs to, when seeded for tests (`spaces.ts`). */
+  readonly organizations = new Map<string, UserOrganization[]>();
   /** The password of each user that has one (`spaces.ts`): the world signs nobody in by it. */
   readonly passwords = new Map<string, string>();
   readonly users = new Map<string, User>();

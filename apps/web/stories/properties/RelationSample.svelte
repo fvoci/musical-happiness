@@ -3,6 +3,7 @@
   import RelationProperty from '$lib/components/properties/kinds/RelationProperty.svelte';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { relationLink, type RelationLink } from '$lib/logic/wire.ts';
 
   import { exampleCard } from '../fixtures.ts';
 
@@ -31,9 +32,9 @@
       }),
     ),
   );
-  let ids = $derived([
-    ...Array.from({ length: selected }, (_, index) => `example-card-${index + 1}`),
-    ...Array.from({ length: hidden }, (_, index) => `example-deleted-${index + 1}`),
+  let links: RelationLink[] = $derived([
+    ...Array.from({ length: selected }, (_, index) => relationLink(`example-card-${index + 1}`)),
+    ...Array.from({ length: hidden }, (_, index) => relationLink(`example-deleted-${index + 1}`)),
   ]);
   const excluded = $derived(loop ? new Set(['example-card-1', 'example-card-3']) : undefined);
   const surface = new PickerPresentation();
@@ -45,22 +46,22 @@
     name={m.property_type_relation()}
     cardId="example-current-card"
     {cards}
-    {ids}
+    {links}
     {excluded}
     locale={getLocale()}
     editable={!readOnly}
     placeholder={m.property_relation_search()}
     presentation={surface.current}
     {startOpen}
-    onChange={(value: string[]) => {
-      ids = value;
+    onChange={(value: RelationLink[]) => {
+      links = value;
     }}
     onOpenCard={(id: string) => {
       opened = id;
     }}
   />
   <output data-testid="relation-value" class="text-xs break-all text-muted-foreground"
-    >{JSON.stringify(ids)}</output
+    >{JSON.stringify(links)}</output
   >
   <output data-testid="opened-card" class="text-xs text-muted-foreground">{opened}</output>
 </div>

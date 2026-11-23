@@ -13,6 +13,7 @@ import type {
   NewAccount,
   Registration,
   User,
+  UserOrganization,
   WorkspaceInfo,
 } from '../state/backend.ts';
 
@@ -242,5 +243,9 @@ export class AccountRequests {
     return workspacesOf(
       await this.#http.request<Schemas['UserWorkspace'][]>('/api/v1/users/me/workspaces'),
     );
+  }
+
+  async organizations(): Promise<UserOrganization[]> {
+    return this.#http.request<Schemas['UserOrganization'][]>('/api/v1/users/me/organizations');
   }
 }

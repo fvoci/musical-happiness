@@ -71,6 +71,15 @@ describe('the server backend', () => {
     expect(sent[0]?.headers['X-Requested-With']).toBe('XMLHttpRequest');
   });
 
+  it('lists the shared organizations the reader is a member of', async () => {
+    const listed = [{ id: 'org-1', name: 'Acme', role: 'admin' }];
+    const sent = serve(listed);
+    expect(await serverBackend('/base').organizations()).toEqual(listed);
+    expect(sent.map(({ method, url }) => ({ method, url }))).toEqual([
+      { method: 'GET', url: '/base/api/v1/users/me/organizations' },
+    ]);
+  });
+
   it("reads the reader's own address and the one the account waits for, and asks to change it with the password", async () => {
     const user = { id: 'u', username: 'ada', displayName: 'Ada', createAt: 1, updateAt: 2 };
     serve({ ...user, deleteAt: 0, hasPassword: true, email: 'a@old.example' });

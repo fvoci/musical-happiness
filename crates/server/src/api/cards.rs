@@ -77,14 +77,18 @@ async fn card_with_permission(
 /// (depth > 3 with reason `card_too_deep` and `limit: 3`).
 ///
 /// The value of a card relation property (of the `type` `relation`) is `null` or a list
-/// of other cards of the board, in the trash or not, each once, at most 50 (a value over
-/// it from before may be written with fewer of its cards, not with another). Any other is
-/// 400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,
-/// `relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board
-/// that is no card) or `relation_card_not_found`: no card of that identifier on the
-/// board, which is also the answer for a card of another board. Every write of a card
-/// checks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it
-/// changes, and does not ask again for a card that a value named before.
+/// of relation link objects (`{"card": "<cardId>", "kind": "fs" | "ss" | "ff" | "sf",
+/// "lagDays": -3650..=3650}`), naming other cards of the board, in the trash or not,
+/// each once (even if `kind` differs), at most 50 (a value over it from before may be
+/// written with fewer of its cards, not with another). `kind` defaults to `"fs"` and
+/// `lagDays` defaults to `0` when omitted, unknown fields and plain string arrays are
+/// refused with 400, and stored links always include all three fields normalized. Any
+/// other refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,
+/// `relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`
+/// (a block of the board that is no card) or `relation_card_not_found`: no card of that
+/// identifier on the board, which is also the answer for a card of another board. Every
+/// write of a card checks so (`patchCard`, the block routes, `createBoardsAndBlocks`)
+/// the values it changes, and does not ask again for a card that a value named before.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/boards/{boardId}/cards",

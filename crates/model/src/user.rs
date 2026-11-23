@@ -39,7 +39,7 @@ impl Me {
     /// hash is blanked: `user` is as the store has it.
     #[must_use]
     pub fn of(mut user: User, pending_email: Option<String>) -> Self {
-        let has_password = !user.password_hash.is_empty();
+        let has_password = user.has_password();
         user.password_hash.clear();
         let email = user.email.clone();
         Self {
@@ -111,6 +111,18 @@ pub struct User {
 }
 
 impl User {
+    /// Whether a stored password hash means the account has a password to sign in with.
+    #[must_use]
+    pub fn has_password_hash(password_hash: &str) -> bool {
+        !password_hash.is_empty()
+    }
+
+    /// Whether the account has a password to sign in with.
+    #[must_use]
+    pub fn has_password(&self) -> bool {
+        Self::has_password_hash(&self.password_hash)
+    }
+
     /// Whether the password is taken nowhere ([`Self::password_locked_at`]).
     #[must_use]
     pub fn password_is_locked(&self) -> bool {

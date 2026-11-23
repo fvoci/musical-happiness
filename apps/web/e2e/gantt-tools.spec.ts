@@ -318,7 +318,10 @@ test('a reader who may not change the view zooms for the visit, and the view sta
     });
     await author.createCard(boardId, {
       title: 'Second',
-      properties: { [due.id]: { from: '2026-11-11' }, after: [one.id] },
+      properties: {
+        [due.id]: { from: '2026-11-11' },
+        after: [{ card: one.id, kind: 'fs', lagDays: 0 }],
+      },
     });
     const view = await author.createView(boardId, {
       title: 'Read only',

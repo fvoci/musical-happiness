@@ -16,7 +16,7 @@
   import ShuffleIcon from '@lucide/svelte/icons/shuffle';
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
-  import { onDestroy, onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack, type Snippet } from 'svelte';
 
   import { isComposing } from '$lib/keys.ts';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
@@ -33,9 +33,11 @@
     card: CardSummary;
     /** Start with the caret in the title: for a card that was just made. */
     autofocus?: boolean;
+    /** Optional inline controls beside the icon / "Add icon" row. */
+    meta?: Snippet;
   }
 
-  let { board, card, autofocus = false }: Props = $props();
+  let { board, card, autofocus = false, meta }: Props = $props();
 
   /** How long the typing has to pause before the title is stored, in milliseconds. */
   const PAUSE = 800;
@@ -127,40 +129,45 @@
 </script>
 
 <div class="flex flex-col items-start gap-1" data-testid="card-heading">
-  {#if icon !== '' && editable}
-    <ActionMenu
-      bind:open={iconMenuOpen}
-      title={m.card_icon_change()}
-      subtitle={card.title || m['KanbanCard.untitled']()}
-      align="start"
-      actions={iconActions}
-    >
-      {#snippet trigger(props: Record<string, unknown>)}
-        <button
-          {...props}
-          type="button"
-          aria-label={m.card_icon_change()}
-          data-testid="card-icon"
-          class="grid size-10 place-items-center rounded-md text-3xl leading-none hover:bg-muted aria-expanded:bg-muted roomy:size-touch"
+  {#if icon !== '' || editable}
+    <div class="flex w-full flex-wrap items-center gap-2">
+      {#if icon !== '' && editable}
+        <ActionMenu
+          bind:open={iconMenuOpen}
+          title={m.card_icon_change()}
+          subtitle={card.title || m['KanbanCard.untitled']()}
+          align="start"
+          actions={iconActions}
         >
+          {#snippet trigger(props: Record<string, unknown>)}
+            <button
+              {...props}
+              type="button"
+              aria-label={m.card_icon_change()}
+              data-testid="card-icon"
+              class="grid size-10 place-items-center rounded-md text-3xl leading-none hover:bg-muted aria-expanded:bg-muted roomy:size-touch"
+            >
+              <span aria-hidden="true">{icon}</span>
+            </button>
+          {/snippet}
+        </ActionMenu>
+      {:else if icon !== ''}
+        <span class="grid size-10 place-items-center text-3xl leading-none" data-testid="card-icon">
           <span aria-hidden="true">{icon}</span>
-        </button>
-      {/snippet}
-    </ActionMenu>
-  {:else if icon !== ''}
-    <span class="grid size-10 place-items-center text-3xl leading-none" data-testid="card-icon">
-      <span aria-hidden="true">{icon}</span>
-    </span>
-  {:else if editable}
-    <Button
-      variant="ghost"
-      class="-ml-2 text-muted-foreground roomy:min-h-touch"
-      data-testid="card-add-icon"
-      onclick={() => void board.setCardIcon(card.id, randomEmoji())}
-    >
-      <SmilePlusIcon data-icon="inline-start" aria-hidden="true" />
-      {m['CardDetail.add-icon']()}
-    </Button>
+        </span>
+      {:else if editable}
+        <Button
+          variant="ghost"
+          class="-ml-2 text-muted-foreground roomy:min-h-touch"
+          data-testid="card-add-icon"
+          onclick={() => void board.setCardIcon(card.id, randomEmoji())}
+        >
+          <SmilePlusIcon data-icon="inline-start" aria-hidden="true" />
+          {m['CardDetail.add-icon']()}
+        </Button>
+      {/if}
+      {@render meta?.()}
+    </div>
   {/if}
 
   {#if editable}

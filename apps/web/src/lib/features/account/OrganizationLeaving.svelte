@@ -2,14 +2,14 @@
   Leaving an organization, in the settings: each organization the reader is a
   member of, with a way out of it. Asked, a dialog says what leaving comes
   to before anything changes: out of its workspaces, boards and wikis at
-  once, what they wrote stays, and coming back takes an invitation. An
-  account without a password is told first to set one, since it signs in
-  through an organization's provider only.
+  once, what they wrote stays, and rejoining requires an invitation or SSO
+  sign-in if the organization allows it. An account without a password must
+  set one first, so the Leave action stays disabled until it has one.
 
-  A refusal (the only administrator of the organization or of the server,
-  the only person in it) is said in the dialog with what to do first, and
-  the dialog stays; nothing changed. Left, the organization goes from the
-  list, and the page says so.
+  A refusal (password required, the only administrator of the organization or
+  of the server, the only person in it) is said in the dialog with what to do
+  first, and the dialog stays; nothing changed. Left, the organization goes
+  from the list, and the page says so.
 -->
 <script lang="ts">
   import { tick } from 'svelte';
@@ -29,11 +29,15 @@
     organizations: readonly LeavableOrganization[];
     /** Whether the account has a password; one without signs in through a provider only. */
     hasPassword: boolean;
+    /** Whether loading the organization list failed. */
+    unread?: boolean;
+    /** Retries loading the organization list after a failure. */
+    onRetry?: () => void;
     /** Leaves the organization; a refusal rejects. */
     onLeave: (orgId: string) => Promise<void>;
   }
 
-  let { organizations, hasPassword, onLeave }: Props = $props();
+  let { organizations, hasPassword, unread = false, onRetry, onLeave }: Props = $props();
 
   let open = $state(false);
   /** The organization the dialog asks about; kept while it closes. */
@@ -60,7 +64,7 @@
 
   async function leave(): Promise<void> {
     const leaving = asked;
-    if (!leaving || working) return;
+    if (!leaving || working || !hasPassword) return;
     working = true;
     problem = undefined;
     try {
@@ -75,11 +79,21 @@
   }
 </script>
 
-{#if organizations.length > 0 || left}
+{#if organizations.length > 0 || left || unread}
   <div class="grid gap-3 border-t pt-4" data-testid="organization-leaving">
     <p bind:this={heading} tabindex="-1" class="font-medium outline-none">
       {m.org_leave_title()}
     </p>
+    {#if unread}
+      <div class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
+        <p class="min-w-0 flex-1 text-sm" role="alert">{m.app_problem_load()}</p>
+        {#if onRetry}
+          <Button variant="outline" class="roomy:min-h-touch" onclick={onRetry}>
+            {m.app_retry()}
+          </Button>
+        {/if}
+      </div>
+    {/if}
     {#if organizations.length > 0}
       <ul class="grid gap-2">
         {#each organizations as organization (organization.orgId)}
@@ -155,7 +169,7 @@
         <Button
           variant="destructive"
           class="roomy:min-h-touch"
-          disabled={working || problem?.settled === true}
+          disabled={working || !hasPassword || problem?.settled === true}
           onclick={() => void leave()}
         >
           {working ? m.account_working() : m.org_leave_button()}

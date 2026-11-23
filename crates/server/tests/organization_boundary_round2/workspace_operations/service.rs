@@ -286,6 +286,8 @@ async fn account(case: &mut Case) {
     case.present("getMe", &[], &user).await;
     let workspace = case.workspace.clone();
     case.present("getMyWorkspaces", &[], &workspace).await;
+    let org = case.org.clone();
+    case.present("getMyOrganizations", &[], &org).await;
     let memberships = case.run("getMyMemberships", &[], json!({})).await.value();
     assert!(
         !memberships.as_array().expect("memberships").is_empty(),
@@ -409,6 +411,22 @@ async fn invitation(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) {
         "invitation joins its own workspace"
     );
     case.record("completeEmailVerification", &confirmed);
+    let invited_username = format!("{}-invited", case.label);
+    let members = case
+        .client
+        .get(&format!("/org/{}/members", case.org))
+        .await
+        .value();
+    let invited_id = members
+        .as_array()
+        .expect("org members")
+        .iter()
+        .find(|m| m["username"] == invited_username)
+        .and_then(|m| m["userId"].as_str())
+        .expect("invited member in org")
+        .to_owned();
+    case.run("removeOrgMember", &[("userId", &invited_id)], json!({}))
+        .await;
 }
 
 /// Confirms the registration of `recipient` by the newest of the `count` confirmation

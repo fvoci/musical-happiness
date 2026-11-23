@@ -308,7 +308,7 @@ export function orderingRelations(
 }
 
 /** Names an edge in a set. */
-export function edgeKey(edge: RelationEdge): string {
+export function edgeKey(edge: Pick<RelationEdge, 'from' | 'to'>): string {
   return `${edge.from}\u0000${edge.to}`;
 }
 
