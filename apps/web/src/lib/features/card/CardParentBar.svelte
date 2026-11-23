@@ -141,7 +141,7 @@
               {...props}
               type="button"
               data-testid="card-parent-picker-trigger"
-              class="-ml-1.5 inline-flex min-h-7 items-center gap-1.5 rounded-md px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground aria-expanded:bg-muted roomy:min-h-touch"
+              class="inline-flex min-h-7 items-center gap-1.5 rounded-md px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground aria-expanded:bg-muted roomy:min-h-touch"
             >
               <CornerLeftUpIcon class="size-3.5 shrink-0" aria-hidden="true" />
               <span>{m.card_parent_set()}</span>

@@ -9,6 +9,7 @@
  * it out of the list, which moves the pages after it; so "more" reads the
  * whole of the list so far again, one page longer, instead of the page after.
  */
+import { ancestorsOf } from '../logic/card-hierarchy.ts';
 import { isBackendError, type DeletedItem, type Paging } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
 import type { CourseStore } from './course.svelte.ts';
@@ -167,7 +168,19 @@ export async function restoreCard(board: BoardStore, cardId: string): Promise<vo
   const { backend } = board.workspace;
   await backend.restoreBlock(board.boardId, cardId);
   try {
-    board.cards = take(board.cards, await backend.card(board.boardId, cardId));
+    const cards = await backend.cards(board.boardId);
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- local lookup map, never reactive
+    const byId = new Map(cards.map((card) => [card.id, card]));
+    let next = board.cards;
+    for (const card of cards) {
+      if (
+        card.id === cardId ||
+        ancestorsOf(card.id, byId).some((ancestor) => ancestor.id === cardId)
+      ) {
+        next = take(next, card);
+      }
+    }
+    board.cards = next;
   } catch (error) {
     board.workspace.report('load', error);
   }

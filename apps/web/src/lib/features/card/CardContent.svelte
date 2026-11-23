@@ -17,6 +17,7 @@
 
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { CardFrame } from '$lib/layout/presentation.ts';
+  import { ancestorsOf } from '$lib/logic/card-hierarchy.ts';
   import type { BoardView } from '$lib/logic/wire.ts';
   import {
     whileHere,
@@ -65,6 +66,11 @@
   });
 
   const summary = $derived(card.summary);
+  const hasParent = $derived(
+    summary !== undefined &&
+      !summary.fields.isTemplate &&
+      ancestorsOf(summary.id, board.cardsById).length > 0,
+  );
   const ready = $derived(card.status === 'ready');
   /** A card that starts without a title and a body was just made: the caret goes to its title. */
   const blank = untrack(() => card.summary?.title === '' && !card.summary.hasBody);
@@ -167,14 +173,17 @@
         <p class="rounded-md bg-muted px-3 py-2 text-muted-foreground">
           {m['CardDialog.editing-template']()}
         </p>
-      {:else}
+      {:else if hasParent}
         <CardParentBar {board} card={summary} {onOpenCard} />
       {/if}
-      <CardTitle {board} card={summary} autofocus={blank} />
+      <CardTitle {board} card={summary} autofocus={blank}>
+        {#snippet meta()}
+          {#if !summary.fields.isTemplate && !hasParent}
+            <CardParentBar {board} card={summary} {onOpenCard} />
+          {/if}
+        {/snippet}
+      </CardTitle>
       <CardProperties {board} {view} card={summary} {onOpenCard} />
-      {#if !summary.fields.isTemplate}
-        <SubcardsSection {board} card={summary} {onOpenCard} />
-      {/if}
       {#if ready}
         <CardBody
           container={board}
@@ -182,6 +191,9 @@
           {references}
           keep={() => keepVersion(cardVersions(board, card))}
         />
+        {#if !summary.fields.isTemplate}
+          <SubcardsSection {board} card={summary} {onOpenCard} />
+        {/if}
         <CardBacklinks workspace={board.workspace} blockId={card.cardId} />
         <CardAttachments {board} {card} />
         <CardComments {board} {card} {readVersions} />
