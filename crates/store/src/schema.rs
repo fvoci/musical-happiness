@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 60] = [
+const STEPS: [Step; 61] = [
     Step {
         version: 1,
         description: "baseline",
@@ -401,6 +401,12 @@ const STEPS: [Step; 60] = [
         sqlite: include_str!("../schema/sqlite/0063_unit_progress.sql"),
         postgres: include_str!("../schema/postgres/0063_unit_progress.sql"),
     },
+    Step {
+        version: 64,
+        description: "time entries",
+        sqlite: include_str!("../schema/sqlite/0064_time_entries.sql"),
+        postgres: include_str!("../schema/postgres/0064_time_entries.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -434,6 +440,10 @@ pub(crate) const BEFORE_COURSES_VERSION: i64 = 60;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_UNIT_PROGRESS_VERSION: i64 = 62;
 
+/// The migration version right before `time_entries` (64).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_TIME_ENTRIES_VERSION: i64 = 63;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -457,7 +467,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 12] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 40] = [
+pub(crate) const ORG_TABLES: [&str; 41] = [
     "audit_log",
     "blocks",
     "body_docs",
@@ -493,6 +503,7 @@ pub(crate) const ORG_TABLES: [&str; 40] = [
     "subscriptions",
     "team_members",
     "teams",
+    "time_entries",
     "unit_progress",
     "upload_parts",
     "uploads",
@@ -957,5 +968,15 @@ mod tests {
             .expect("migration 63 is in the list");
         assert_eq!(step.description, "unit progress");
         assert!(BEFORE_UNIT_PROGRESS_VERSION < step.version);
+    }
+
+    /// The migration right after `BEFORE_TIME_ENTRIES_VERSION` is the one of time entries.
+    #[test]
+    fn the_migration_after_before_time_entries_is_the_time_entries_one() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_TIME_ENTRIES_VERSION + 1)
+            .expect("the migration after BEFORE_TIME_ENTRIES_VERSION is in the list");
+        assert_eq!(step.description, "time entries");
     }
 }
