@@ -1906,7 +1906,7 @@
   "app_course_managed_hint": "이 학습의 구성원이 아닙니다. 참여하면 단원을 읽을 수 있으며, 워크스페이스의 모든 구성원에게 참여 사실이 표시됩니다.",
   "app_problem_too_many_units": "학습 하나에는 단원을 {limit}개까지 둘 수 있습니다. 아무것도 바뀌지 않았습니다.",
   "app_problem_too_many_chapters": "학습 하나에는 장을 {limit}개까지 둘 수 있습니다. 아무것도 바뀌지 않았습니다.",
-  "share_course_title": "학습 구성원",
+  "share_course_title": "학습 공유",
   "share_course_workspace_open": "{workspace}의 누구나 이 학습을 읽고 참여할 수 있음",
   "share_course_guest_hint": "손님은 {workspace}에서 이 학습만 볼 수 있습니다. 링크는 한 사람용입니다.",
   "share_course_guest_links_title": "이 학습의 손님 링크",
@@ -1914,5 +1914,13 @@
   "teams_course_remove": "학습에서 팀 빼기",
   "course_trash_below": "하위 단원 {count}개 포함",
   "app_problem_unit_move_gone": "다른 사람이 지운 단원이라 옮기지 못했습니다.",
-  "course_unit_viewers": "{names}: {count}명이 이 단원을 보고 있음"
+  "course_unit_viewers": "{names}: {count}명이 이 단원을 보고 있음",
+  "editor_reference_unit": "단원",
+  "unit_backlinks": "이 단원을 가리키는 곳",
+  "unit_version_no_body": "이때는 본문이 없었습니다.",
+  "unit_version_is_current": "지금 단원의 본문이 이 판입니다.",
+  "unit_version_restore_description": "모두에게 단원의 본문이 {when}의 판으로 바뀝니다. 지금 본문도 판으로 남아서 다시 되돌릴 수 있습니다.",
+  "course_unit_more": "{title} 단원 더 보기",
+  "course_unit_watch": "이 단원 지켜보기",
+  "course_unit_watching": "이 단원을 지켜보는 중"
 }

@@ -81,6 +81,7 @@ export { shownWiki } from './shown-wiki.svelte.ts';
 export type { PageDraft, PageMove, WikiDraft, WikiPage, WikiPageDetail } from './wiki-types.ts';
 export { CourseStore, type CourseLooks } from './course.svelte.ts';
 export { UnitStore } from './unit.svelte.ts';
+export type { UnitComments } from './unit-comments.svelte.ts';
 export { createCourse } from './course-parts.ts';
 export { shownCourse } from './shown-course.svelte.ts';
 export type {

@@ -18,7 +18,9 @@ function routeOf(router: Router, linked: LinkedBlock): Partial<Route> | undefine
   if (route.shared) return undefined;
   const { workspaceId } = route;
   if (linked.kind === 'page') return { workspaceId, wikiId: linked.containerId, pageId: linked.id };
-  if (linked.kind === 'unit') return undefined;
+  if (linked.kind === 'unit') {
+    return { workspaceId, courseId: linked.containerId, unitId: linked.id };
+  }
   return { workspaceId, boardId: linked.containerId, viewId: ANY_VIEW, cardId: linked.id };
 }
 
@@ -35,6 +37,8 @@ export function referencePlaces(router: Router): ReferencePlaces {
         router.openCard(linked.id);
       } else if (linked.kind === 'page' && linked.containerId === router.route.wikiId) {
         router.openPage(linked.id);
+      } else if (linked.kind === 'unit' && linked.containerId === router.route.courseId) {
+        router.openUnit(linked.id);
       } else router.go(route);
     },
     named: (address) =>

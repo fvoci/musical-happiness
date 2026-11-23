@@ -1,39 +1,37 @@
 <!--
   One course (`/w/<workspace>/courses/<course>/<unit>`): its chapters and units
-  as a depth-2 tree on the left, and the open unit's title and collaborative
-  body in the center. Composes `features/course/`, `features/wiki/` (`PageTree`,
-  `MovePageDialog`, `PageViewers`, `OutlineButton`, `OutlineColumns`),
-  `features/card/` (`CardBody`), and `features/shell/` (`TrashDialog`).
-
-  Comments, body versions, `[[` unit references, and public sharing UI are t5.
+  as a depth-2 tree on the left, and the open unit's title, collaborative body,
+  backlinks, comments, and body versions in the center. Composes
+  `features/course/`, `features/wiki/` (`PageTree`, `MovePageDialog`,
+  `PageViewers`, `OutlineButton`, `OutlineColumns`), `features/card/`
+  (`CardBody`, `CardBacklinks`, `CardComments`, `CommentComposer`,
+  `BodyVersions`), and `features/shell/` (`TrashDialog`, `ShareDialog`).
 -->
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
 
-  import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
-  import CardBody from '$lib/features/card/CardBody.svelte';
-  import ChapterNameDialog from '$lib/features/course/ChapterNameDialog.svelte';
+  import { holdSaveKey } from '$lib/editor/save-key.ts';
+  import BodyVersions from '$lib/features/card/BodyVersions.svelte';
+  import { unitVersions, VersionsReading } from '$lib/features/card/body-versions.svelte.ts';
   import CourseJoin from '$lib/features/course/CourseJoin.svelte';
   import CourseScreen from '$lib/features/course/CourseScreen.svelte';
-  import CourseSettingsDialog from '$lib/features/course/CourseSettingsDialog.svelte';
-  import TrashDialog from '$lib/features/shell/TrashDialog.svelte';
-  import MovePageDialog from '$lib/features/wiki/MovePageDialog.svelte';
+  import UnitMenu from '$lib/features/course/UnitMenu.svelte';
   import OutlineButton from '$lib/features/wiki/OutlineButton.svelte';
   import OutlineColumns from '$lib/features/wiki/OutlineColumns.svelte';
   import { PageOutline } from '$lib/features/wiki/page-outline.svelte.ts';
   import PageTree from '$lib/features/wiki/PageTree.svelte';
   import PageViewers from '$lib/features/wiki/PageViewers.svelte';
-  import { COURSE_MOVE_LABELS, COURSE_TREE_LABELS } from '$lib/features/wiki/tree-actions.ts';
+  import { COURSE_TREE_LABELS } from '$lib/features/wiki/tree-actions.ts';
   import { TreeOpen } from '$lib/features/wiki/tree-open.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { courseTreeRules, type PagePlace } from '$lib/logic/page-moves.ts';
-  import { ancestorsOf, firstUnit, withDescendants } from '$lib/logic/page-tree.ts';
+  import { ancestorsOf, firstUnit } from '$lib/logic/page-tree.ts';
   import {
     CourseStore,
+    referenceTitles,
     shownCourse,
     unitTrash,
     whileHere,
-    type CourseLooks,
     type CourseUnit,
     type PageDraft,
     type Trash,
@@ -42,11 +40,18 @@
   } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
+  import CourseDialogs from './CourseDialogs.svelte';
+  import CourseUnitContent from './CourseUnitContent.svelte';
   import ManagedContainer from './ManagedContainer.svelte';
   import NotFound from './NotFound.svelte';
+  import { referencePlaces } from './reference-places.ts';
   import type { Router } from './router.svelte.ts';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
+
+  $effect.pre(() => {
+    referenceTitles(workspace).places = referencePlaces(router);
+  });
 
   const uid = $props.id();
   const courseId = $derived(router.route.courseId);
@@ -65,7 +70,8 @@
       notice = undefined;
       joined = false;
       made = undefined;
-      [trash, trashOpen] = [undefined, false];
+      [trash, trashOpen, sharing] = [undefined, false, false];
+      [versions, versionsOpen] = [undefined, false];
       [deleteOpen, movingOpen, chapterOpen, settingsOpen, deleteCourseOpen] = [
         false,
         false,
@@ -150,14 +156,14 @@
     const id = unitId;
     if (shown?.status !== 'ready') return;
     const target = id && shown.unit(id)?.kind === 'chapter' ? undefined : id;
-    untrack(() => shown.showUnit(target));
+    untrack(() => {
+      if (versions && versions.unitId !== id) [versions, versionsOpen] = [undefined, false];
+      shown.showUnit(target);
+    });
   });
 
   let deleting = $state.raw<CourseUnit | undefined>(undefined);
   let deleteOpen = $state(false);
-  const below = $derived(
-    deleting && course ? withDescendants(course.units, deleting.id).size - 1 : 0,
-  );
   let moving = $state<string | undefined>(undefined);
   let movingOpen = $state(false);
   let chapterDialog = $state.raw<{ mode: 'create' } | { mode: 'rename'; chapter: CourseUnit }>({
@@ -165,7 +171,10 @@
   });
   let chapterOpen = $state(false);
   let settingsOpen = $state(false);
+  let sharing = $state(false);
   let deleteCourseOpen = $state(false);
+  let versions = $state.raw<{ unitId: string; reading: VersionsReading }>();
+  let versionsOpen = $state(false);
   let trash = $state.raw<Trash | undefined>(undefined);
   let trashOpen = $state(false);
 
@@ -242,6 +251,13 @@
   }
 </script>
 
+<!-- A unit shown, the keys that keep a version of its body never open the browser save dialog. -->
+<svelte:window
+  onkeydown={(event: KeyboardEvent) => {
+    if (course?.openUnit) holdSaveKey(event);
+  }}
+/>
+
 {#if !course || course.status === 'idle' || course.status === 'loading'}
   <div class="grid h-full place-items-center p-6">
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
@@ -299,6 +315,9 @@
           trash = unitTrash(store);
           trashOpen = true;
           void trash.read();
+        }}
+        onShare={() => {
+          sharing = true;
         }}
         showBar={outline.mode === 'button' || (reading && outline.where === 'button')}
         stickyBar={outline.mode === 'button'}
@@ -384,85 +403,53 @@
         {#snippet viewers(id: string)}
           <PageViewers wiki={store} pageId={id} of="unit" large />
         {/snippet}
+        {#snippet unitActions(unit: UnitStore)}
+          {@const shown = store.unit(unit.unitId)}
+          {#if shown?.kind === 'unit'}
+            <UnitMenu
+              unit={shown}
+              onVersions={() => {
+                versions = {
+                  unitId: unit.unitId,
+                  reading: new VersionsReading(unitVersions(unit)),
+                };
+                versionsOpen = true;
+              }}
+            />
+          {/if}
+        {/snippet}
         {#snippet missingUnit()}
           <NotFound {router} />
         {/snippet}
         {#snippet body(unit: UnitStore)}
-          <div {@attach outline.source}>
-            <CardBody container={store} card={unit} of="unit" testId="unit-body" />
-          </div>
+          <CourseUnitContent {workspace} {store} {unit} outlined={outline.source} />
         {/snippet}
       </CourseScreen>
     </div>
   </div>
 
-  <MovePageDialog
-    bind:open={movingOpen}
-    wiki={store}
-    pageId={moving}
+  {#if versions && versions.unitId === unitId}
+    <BodyVersions bind:open={versionsOpen} reading={versions.reading} container={store} of="unit" />
+  {/if}
+
+  <CourseDialogs
+    {workspace}
+    {store}
+    {router}
     {rules}
-    labels={COURSE_MOVE_LABELS}
-    onMove={(id: string, to: PagePlace) => void moveUnit(store, id, to)}
-  />
-
-  <ChapterNameDialog
-    bind:open={chapterOpen}
-    mode={chapterDialog.mode}
-    initial={chapterDialog.mode === 'rename' ? chapterDialog.chapter.title : ''}
-    onSubmit={(title: string) => void submitChapter(store, title)}
-  />
-
-  {@const isChapter = deleting?.kind === 'chapter'}
-  {@const delTitle =
-    deleting?.title || (isChapter ? m.course_chapter_untitled() : m.course_unit_untitled())}
-  <ConfirmDialog
-    bind:open={deleteOpen}
-    title={isChapter ? m.course_delete_chapter_title() : m.course_delete_unit_title()}
-    description={isChapter
-      ? below > 0
-        ? m.course_delete_chapter_below({ title: delTitle, count: below })
-        : m.course_delete_chapter_alone({ title: delTitle })
-      : m.course_delete_unit_info({ title: delTitle })}
-    confirmLabel={m.shared_delete()}
-    destructive
-    onConfirm={() => {
-      if (deleting) void store.deleteUnit(deleting.id);
-    }}
-    focusAfter={() =>
-      document.querySelector<HTMLElement>(
-        '[data-testid="unit-tree"] [role="treeitem"][tabindex="0"]',
-      )}
-  />
-
-  {#if store.canEdit}
-    <TrashDialog
-      bind:open={trashOpen}
-      {trash}
-      {workspace}
-      title={m.course_trash()}
-      description={m.course_trash_description()}
-      untitled={m.course_unit_untitled()}
-      belowLabel={(count: number) => m.course_trash_below({ count })}
-      testId="unit-trash"
-    />
-  {/if}
-
-  {#if store.course}
-    <CourseSettingsDialog
-      bind:open={settingsOpen}
-      course={store.course}
-      onSave={(looks: CourseLooks) => void store.changeCourse(looks)}
-    />
-  {/if}
-
-  <ConfirmDialog
-    bind:open={deleteCourseOpen}
-    title={m.shell_delete_course_title()}
-    description={m.shell_delete_course_info({
-      title: store.course?.title || m.course_untitled(),
-    })}
-    confirmLabel={m['DeleteBoardDialog.confirm-delete']()}
-    destructive
-    onConfirm={() => void deleteCourse(store)}
+    {moving}
+    bind:movingOpen
+    onMoveUnit={(id: string, to: PagePlace) => void moveUnit(store, id, to)}
+    {chapterDialog}
+    bind:chapterOpen
+    onSubmitChapter={(title: string) => void submitChapter(store, title)}
+    {deleting}
+    bind:deleteOpen
+    {trash}
+    bind:trashOpen
+    bind:sharing
+    bind:settingsOpen
+    bind:deleteCourseOpen
+    onDeleteCourse={() => void deleteCourse(store)}
   />
 {/if}

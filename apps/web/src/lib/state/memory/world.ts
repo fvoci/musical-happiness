@@ -138,6 +138,8 @@ export class World {
   readonly fileLeases = new Map<string, FileLeaseHeld>();
   /** What each user was told, by user (`notifications.ts`). */
   readonly notifications = new Map<string, StoredNotification[]>();
+  /** Explicit unit watch overrides per user (`userId -> Map<unitId, boolean>`). */
+  readonly unitWatchers = new Map<string, Map<string, boolean>>();
 
   /**
    * The name of the channel the rooms of the bodies share with the worlds of
@@ -220,7 +222,8 @@ export class World {
    * who does not read it is told nothing.
    */
   tellContainer(containerId: string, change: Change): void {
-    if (this.containers.get(containerId)?.kind !== 'wiki') {
+    const kind = this.containers.get(containerId)?.kind;
+    if (kind !== 'wiki' && kind !== 'course') {
       this.#tell((watcher) => watcher.containerId === containerId, change);
       return;
     }
