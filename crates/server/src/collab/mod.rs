@@ -465,8 +465,8 @@ impl Collab {
     ///
     /// As [`Collab::open`], and the refusals of an update (`update_refused`,
     /// `update_out_of_step`, also for a document that is not of `epoch` any more,
-    /// `update_too_large`, `document_too_large`). A refused update is in neither the
-    /// document nor the log. So is one under way when the worker ended
+    /// `update_too_large`, `document_too_large`, `table_too_large`). A refused update is
+    /// in neither the document nor the log. So is one under way when the worker ended
     /// (`document_unavailable`).
     pub async fn take(
         &self,

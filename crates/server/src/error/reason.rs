@@ -109,6 +109,8 @@ reasons! {
     UpdateTooLarge => "update_too_large", "Update too large";
     /// With the update the body's document, or its body, would be larger than it may be.
     DocumentTooLarge => "document_too_large", "Document too large";
+    /// A table in the body has, or with the update would have, more rows or columns than it may.
+    TableTooLarge => "table_too_large", "Table too large";
     /// The server holds as many documents of bodies being edited as it may.
     TooManyDocuments => "too_many_documents", "Too many documents open";
     /// The body's document cannot be worked on for now.

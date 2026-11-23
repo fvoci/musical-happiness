@@ -11,6 +11,9 @@ import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import type { DocNode } from '$lib/editor/schema.ts';
+import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from '$lib/editor/table-grid.ts';
+import { lostNote } from '$lib/features/card/body-notes.ts';
+import { setLocale } from '$lib/i18n/paraglide/runtime.js';
 import type { BodyDoc, BodyDocHears } from '$lib/state/backend.ts';
 import { bodyOf, FIELD, roomsOf } from '$lib/state/memory/rooms.ts';
 import { documentOf } from '$lib/state/memory/room-docs.ts';
@@ -278,5 +281,90 @@ describe('the tables of a room in memory', () => {
     }
     here.close();
     there.close();
+  });
+
+  it('refuses a 201st row and a 21st column with table_too_large and leaves the table untouched', async () => {
+    const cases = [
+      {
+        name: '201 rows',
+        initial: tableOf(Array.from({ length: MAX_TABLE_ROWS }, () => ['a'])),
+        exceed: (doc: Y.Doc) => {
+          addRow(doc, ['extra']);
+        },
+      },
+      {
+        name: '21 columns',
+        initial: tableOf([
+          Array.from({ length: MAX_TABLE_COLUMNS }, () => 'a'),
+          Array.from({ length: MAX_TABLE_COLUMNS }, () => 'b'),
+        ]),
+        exceed: (doc: Y.Doc) => {
+          addColumn(doc, ['x', 'y']);
+        },
+      },
+    ];
+    for (const testCase of cases) {
+      const { world: stored, backend, boardId, cardId } = world();
+      const card = stored.blocks.get(cardId) as StoredCard;
+      card.body = testCase.initial;
+      const discarded: string[] = [];
+      const mine = backend.openDoc('w', boardId, cardId, {
+        state: () => undefined,
+        discarded: (why) => {
+          discarded.push(why);
+        },
+      });
+      try {
+        const doc = await joined(mine);
+        testCase.exceed(doc);
+        await vi.waitFor(() => {
+          expect(discarded, testCase.name).toEqual(['table_too_large']);
+          expect(mine.state.status, testCase.name).toBe('joined');
+          expect(mine.state.pending, testCase.name).toBe(false);
+        });
+        expect(mine.state.doc ? bodyOf(mine.state.doc) : undefined, testCase.name).toEqual(
+          testCase.initial,
+        );
+        roomsOf(stored).flush();
+        expect(stored.blocks.get(cardId)?.body, testCase.name).toEqual(testCase.initial);
+
+        // Room stays writable after the refusal: a subsequent valid edit is accepted.
+        const recovered = mine.state.doc;
+        expect(recovered, testCase.name).toBeDefined();
+        recovered?.transact(() => {
+          const line = new Y.XmlElement('paragraph');
+          line.insert(0, [new Y.XmlText('after refusal')]);
+          const fragment = recovered.getXmlFragment(FIELD);
+          fragment.insert(fragment.length, [line]);
+        });
+        await vi.waitFor(() => {
+          expect(mine.state.pending, testCase.name).toBe(false);
+          expect(mine.state.doc ? bodyOf(mine.state.doc)?.content?.length : 0, testCase.name).toBe(
+            2,
+          );
+        });
+        expect(discarded, testCase.name).toEqual(['table_too_large']);
+      } finally {
+        mine.close();
+      }
+    }
+  });
+
+  it('maps table_too_large to dedicated en and ko limit notices', async () => {
+    try {
+      await setLocale('en', { reload: false });
+      const en = lostNote('table_too_large');
+      expect(en).toContain('200');
+      expect(en).toContain('20');
+      expect(en).not.toBe(lostNote('document_too_large'));
+
+      await setLocale('ko', { reload: false });
+      const ko = lostNote('table_too_large');
+      expect(ko).toContain('200');
+      expect(ko).toContain('20');
+      expect(ko).not.toBe(lostNote('document_too_large'));
+    } finally {
+      await setLocale('en', { reload: false });
+    }
   });
 });

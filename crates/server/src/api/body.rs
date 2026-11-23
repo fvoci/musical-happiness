@@ -7,7 +7,7 @@ use fvoci_model::{BlockPatch, Body, BodyChange, BodyError, JsonMap};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 
 /// Decodes a JSON request body.
 ///
@@ -79,13 +79,16 @@ pub(crate) fn objects_mut<'v>(
 /// document that is refused, where it is one node (the first; a document may have
 /// thousands), else the document.
 fn body_refused(error: BodyError) -> AppError {
-    let pointer = match &error {
-        BodyError::InvalidNode { path, .. } | BodyError::TableTooLarge { path } => {
-            format!("/body{path}")
-        }
-        _ => "/body".to_owned(),
+    let (pointer, reason) = match &error {
+        BodyError::InvalidNode { path, .. } => (format!("/body{path}"), None),
+        BodyError::TableTooLarge { path } => (format!("/body{path}"), Some(Reason::TableTooLarge)),
+        _ => ("/body".to_owned(), None),
     };
-    AppError::bad_request(error).with_pointer(pointer)
+    let refused = AppError::bad_request(error).with_pointer(pointer);
+    match reason {
+        Some(reason) => refused.with_reason(reason),
+        None => refused,
+    }
 }
 
 /// The JSON Pointer to the block at `index` of a request: empty if the request body is
