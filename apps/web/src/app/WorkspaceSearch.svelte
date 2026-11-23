@@ -9,9 +9,11 @@
   server that does not answer, or cannot hold its index, answers each search
   503, which the dialog says.
 
-  A card opens over the view of its board that is shown, or else over the
-  board's first view; a page at its wiki's address (`places.ts`). The name of
-  the board or wiki of a hit is the one the sidebar knows, none where it does not.
+  Where a board is shown, a card's number (`#12`, `12`) finds that board's
+  card first (`numbered-search.ts`). A card opens over the view of its board
+  that is shown, or else over the board's first view; a page at its wiki's
+  address (`places.ts`). The name of the board or wiki of a hit is the one
+  the sidebar knows, none where it does not.
 -->
 <script lang="ts">
   import { tick } from 'svelte';
@@ -24,6 +26,7 @@
     searchKeysLabel,
     searchKeysNames,
   } from '$lib/features/search/search-keys.ts';
+  import { findNumbered, type NumberedSearch } from '$lib/features/search/numbered-search.ts';
   import { SearchSession } from '$lib/features/search/search-session.svelte.ts';
   import { SearchSwitch } from '$lib/features/search/search-switch.svelte.ts';
   import SearchDialog from '$lib/features/search/SearchDialog.svelte';
@@ -69,8 +72,14 @@
     const kept = focused instanceof HTMLElement && !focused.closest('[data-search-dialog]');
     opener = from ?? (kept ? focused : undefined);
     session?.close();
+    const { backend } = workspace;
+    const search: NumberedSearch = {
+      find: (ask) => backend.search.find(workspaceId, ask),
+      numbered: (boardId, number) => backend.references.numbered(workspaceId, boardId, number),
+      boardShown: () => router.route.boardId,
+    };
     session = new SearchSession({
-      find: (ask) => workspace.backend.search.find(workspaceId, ask),
+      find: (ask) => findNumbered(search, ask),
       onRefused: (error) => {
         workspace.report('load', error);
       },

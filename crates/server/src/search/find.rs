@@ -229,9 +229,9 @@ impl App {
     /// The search server's index may be behind what is stored, and the database may
     /// have changed since it was searched, so a hit is no more than an identifier to
     /// ask about. A hit is kept if the database, as this handle reaches it, has a
-    /// document of that identifier now ([`SearchDocument`]: a card that is no template
-    /// of its board, or a page, that is no block of the trash, in a container that is
-    /// no template), in this workspace, of the kind asked for, in a container the user
+    /// document of that identifier now ([`SearchDocument`]: a card or a page whose
+    /// `isTemplate` is not `true`, that is no block of the trash, in a container that
+    /// is no template), in this workspace, of the kind asked for, in a container the user
     /// has a role on or that is an open wiki, and reads ([`App::container_access`], asked
     /// once a container). What is answered of it is what the database says: the
     /// container and its kind, the kind and the title.
@@ -296,6 +296,7 @@ pub(super) fn found_hit(document: SearchDocument, snippet: Vec<SnippetPart>) -> 
         container_id: document.container_id,
         container_kind: document.container_kind,
         title: document.title,
+        number: document.number,
         snippet,
     }
 }

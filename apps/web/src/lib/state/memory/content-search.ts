@@ -138,6 +138,7 @@ export class MemoryContentSearch implements ContentSearch {
             containerId: board.id,
             containerKind: board.kind ?? 'board',
             title: block.title,
+            ...(block.number === undefined ? {} : { number: block.number }),
             snippet: snippetOf(text, words),
           },
           inTitle: words.filter((word) => holds(block.title, word)).length,

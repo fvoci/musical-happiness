@@ -776,6 +776,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_write_marked_as_changing_no_access_leaves_the_revision() {
+        use crate::StoreError;
+        use crate::testing::TestDatabase;
+        let directory =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/visibility-tests");
+        let database = TestDatabase::create(&directory).await;
+        let store = Store::connect(database.db_type(), database.database_connection())
+            .await
+            .expect("test store");
+        let write = async |marked: bool| {
+            store
+                .transaction(async |scope| {
+                    let mut sql = scope.sql("UPDATE containers SET next_card_number = 1");
+                    if marked {
+                        sql.changing_no_access();
+                    }
+                    scope.execute(sql).await?;
+                    Ok::<(), StoreError>(())
+                })
+                .await
+                .expect("the write");
+        };
+        let before = store.visibility_version().await;
+        write(true).await;
+        assert_eq!(store.visibility_version().await, before, "a marked write");
+        write(false).await;
+        assert_ne!(
+            store.visibility_version().await,
+            before,
+            "the same write unmarked"
+        );
+        store.close().await;
+        database.remove().await;
+    }
+
+    #[tokio::test]
     async fn confirmed_rollback_is_settled_but_abandoned_transaction_is_not() {
         use crate::StoreError;
         use crate::testing::TestDatabase;

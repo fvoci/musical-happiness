@@ -178,6 +178,7 @@ describe('a card’s change message', () => {
         updateAt: 2,
         deleteAt: 0,
         body: null,
+        number: alpha.number,
       },
       summaryOfBody(body),
     );

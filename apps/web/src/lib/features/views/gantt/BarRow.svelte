@@ -1,6 +1,6 @@
 <!--
-  One card of the chart: its title at the left, which stays there while the
-  days scroll, and its bar on its days.
+  One card of the chart: its number and title at the left, which stay there
+  while the days scroll, and its bar on its days.
 
   The bar is a button that opens the card. The bars are one stop of the Tab
   key, and the arrow keys walk them (`onkeys`); `current` is the one the stop
@@ -39,6 +39,7 @@
 
   import type { Snippet } from 'svelte';
 
+  import CardNumber from '$lib/components/card-number/CardNumber.svelte';
   import type { BarBox } from '$lib/logic/gantt.ts';
 
   import type { CardLine } from './chart.svelte.ts';
@@ -149,7 +150,8 @@
       class="flex min-w-0 flex-1 items-center px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset can-hover:hover:bg-muted"
       onclick={follow}
     >
-      <span class="truncate">{line.title}</span>
+      <CardNumber number={line.number} class="pe-1.5" />
+      <span data-title class="truncate">{line.title}</span>
       {#if line.late || line.loop}
         <span
           aria-hidden="true"

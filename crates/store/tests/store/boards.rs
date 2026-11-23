@@ -4028,11 +4028,12 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         // Stamped by the store when the block is inserted.
         created_by: String::new(),
         modified_by: String::new(),
+        number: None,
         schema: 7,
-        // A card, the one block that has a body, so that every member is set.
+        // A card and no template, the one block with a body and a number: all is set.
         block_type: BlockType::Card,
         title: "a text".to_owned(),
-        fields: object(json!({ "contentOrder": ["a", "b"], "isTemplate": true })),
+        fields: object(json!({ "contentOrder": ["a", "b"], "isTemplate": false })),
         body: Body::parse(json!({"type": "doc", "content": [
             {"type": "paragraph", "content": [{"type": "text", "text": "a body"}]},
         ]}))
@@ -4087,8 +4088,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         .await
         .expect("the board is restored");
 
-    // Restoring changes who modified the board and its blocks last, and when. Nothing
-    // else.
+    // Restoring changes who modified the board and its blocks last, and when; nothing else.
     let restored = test
         .get_container(&board.id)
         .await

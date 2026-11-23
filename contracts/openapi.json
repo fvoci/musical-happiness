@@ -446,6 +446,15 @@
             "description": "The identifier of the user who last modified the block.",
             "type": "string"
           },
+          "number": {
+            "description": "A card's number on its board, as `Card.number` gives it; absent for a template\nof the board's cards and for every other block. The server gives it and ignores\na client's, whatever it is.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "parentId": {
             "description": "The identifier of the parent block; empty for root blocks.",
             "type": "string"
@@ -735,6 +744,15 @@
             "description": "The identifier of the user who last modified the card.",
             "type": "string"
           },
+          "number": {
+            "description": "The card's number on its board, as `#12` names it: from 1, one more for each card\nmade on the board, never given again, also once the card is gone. A card keeps it\nwhile it is one; a copy and an import are new cards with new numbers, and a card\nthat comes back from the trash has its own. `null` for a template of the board's\ncards (`isTemplate`): a card made a template loses its number, and takes the next\none if it is made a card again. The server gives it: what a request sends here is\nignored, whatever it is.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "preview": {
             "oneOf": [
               {
@@ -785,6 +803,7 @@
           "isTemplate",
           "lastCommentAt",
           "modifiedBy",
+          "number",
           "properties",
           "tasksDone",
           "tasksTotal",
@@ -2425,6 +2444,15 @@
           "kind": {
             "$ref": "#/components/schemas/LinkedKind",
             "description": "Whether it is a card or a page."
+          },
+          "number": {
+            "description": "A card's number on its board, as `Card.number` gives it; absent for a page and\nfor a template of the board's cards.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "title": {
             "description": "Its title; empty for one without.",
@@ -4740,6 +4768,15 @@
           "kind": {
             "$ref": "#/components/schemas/SearchKind",
             "description": "What it is."
+          },
+          "number": {
+            "description": "A card's number on its board, as `Card.number` gives it; absent for a page.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "snippet": {
             "description": "A piece of its body around what matched, in stretches that follow one\nanother; empty where the body has changed since it was indexed, or has nothing\nto show.",
@@ -10736,6 +10773,68 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/by-number/{number}": {
+      "get": {
+        "description": "The card of the board that has the number (`Card.number`, as `#12` names the card),\nfor the members of the board, as `getCard` gives it. One answer, 404, says that there\nis no such card, whatever the reason: no card of the board has the number (the card\nis in the trash, is gone for good, or is a template of the board's cards), the\nnumber is none, the board is one the user does not read (a private board they are\nno member of, one they only manage, one they are no guest of), or is no board of\nthis workspace (of another workspace or organization, a wiki, or none at all).",
+        "operationId": "getCardByNumber",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the card on the board, as `Card.number` gives it. One that no card of the board has, and what is no number, is 404.",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Card"
+                }
+              }
+            },
+            "description": "The card."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "A card by its number",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/boards/{boardId}/property-order": {
       "put": {
         "description": "The body names every card property of the board (`cardProperties`, by `id`) once,\nin the new order, as `reorderCategories` names categories; one left out, one named\ntwice or one the board does not have is 400, and nothing changes. For who may manage\nthe board's properties, as `patchContainer`. The board's listeners get `UPDATE_CONTAINER`, as\nfor any change of the board.",
@@ -14925,7 +15024,7 @@
     },
     "/api/v1/w/{workspaceId}/references/search": {
       "get": {
-        "description": "The cards and pages of this workspace, on a board or a wiki the user reads, whose\ntitle has every word of `q` in it, as spaces divide it and whatever the case of the\nletters (of every letter, not only ASCII); `%` and `_` are characters like any\nother. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, and a card\nthat is a template of its board's cards are never found. A `q` of more than 200\ncharacters is 400.",
+        "description": "The cards and pages of this workspace, on a board or a wiki the user reads, whose\ntitle has every word of `q` in it, as spaces divide it and whatever the case of the\nletters (of every letter, not only ASCII); `%` and `_` are characters like any\nother. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, and a block\nwhose `isTemplate` is `true` (for a card, a template of its board's cards) are never\nfound. A `q` of more than 200\ncharacters is 400.",
         "operationId": "searchReferences",
         "parameters": [
           {

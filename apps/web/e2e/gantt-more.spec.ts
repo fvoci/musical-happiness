@@ -203,5 +203,5 @@ test('a bar of a grouped chart says its group', async ({ page }, info) => {
     .locator('[data-group] [data-slot="group-name"]')
     .allTextContents();
   expect(groups.some((group) => name.endsWith(`Group: ${group.trim()}.`))).toBe(true);
-  expect(name.startsWith('Drag cards, November 12. ')).toBe(true);
+  expect(name.startsWith('number 1, Drag cards, November 12. ')).toBe(true);
 });

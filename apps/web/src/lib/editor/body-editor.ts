@@ -34,6 +34,8 @@ export interface BodyEditorTools {
 export interface BodyReferences extends ReferenceDrawing {
   /** What may be named whose title matches what was typed after `[[`. */
   search: (query: string) => SuggestionEntry[] | Promise<SuggestionEntry[]>;
+  /** The cards of the same board that what was typed after `#` names; none without a board. */
+  numbered?: (query: string) => SuggestionEntry[];
   /** The identifier an address names, if it is the address of a card or a page of the workspace. */
   named: (address: string) => string | undefined;
   /** Whether the reader may see what the identifier names. */

@@ -286,6 +286,7 @@
               <Bar
                 cardId={card.id}
                 title={placed.title(card)}
+                number={card.number}
                 name={placed.name(card)}
                 time={segment.fromBefore ? undefined : placed.time(card)}
                 fromBefore={segment.fromBefore}
