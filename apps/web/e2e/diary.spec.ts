@@ -182,6 +182,45 @@ test('the days step through 02-29, which holds the leap years alone', async ({ p
   await expect(page.getByTestId('not-found')).toBeVisible();
 });
 
+test('search result ?year=YYYY expands that year; invalid or absent years keep the default', async ({
+  page,
+}) => {
+  await openDiary(page);
+  await page.getByTestId('diary-earlier').click();
+  const last = year(page, '2025-11-21');
+  await last.getByTestId('entry-blank').click();
+  await page.keyboard.type('Autumn lantern festival.');
+  await expect(last).toHaveAttribute('data-written', '');
+  await page.clock.runFor(3000);
+
+  // Move to another day so search navigates back to 11-21 with ?year=2025.
+  await page.getByTestId('diary-next').click();
+  await expect(page).toHaveURL(/\/11-22$/u);
+
+  await page.getByTestId('open-search').click();
+  await page.getByTestId('search-field').fill('lantern');
+  // Search debounces input; advance the fake clock installed by openDiary.
+  await page.clock.runFor(500);
+  const hit = page.locator('[data-search-hit]').first();
+  await expect(hit).toBeVisible();
+  await expect(hit).toHaveAttribute('href', /\/11-21\?year=2025$/u);
+  await hit.click();
+
+  await expect(page).toHaveURL(/\/11-21\?year=2025$/u);
+  await expect(year(page, '2025-11-21')).toHaveAttribute('data-open', '');
+  await expect(year(page, '2026-11-21')).not.toHaveAttribute('data-open');
+
+  // Unknown/non-existent or malformed ?year= falls back to this year's default.
+  const basePath = new URL(page.url()).pathname;
+  await goInside(page, `${basePath}?year=1999`);
+  await expect(year(page, '2026-11-21')).toHaveAttribute('data-open', '');
+  await goInside(page, `${basePath}?year=bad`);
+  await expect(year(page, '2026-11-21')).toHaveAttribute('data-open', '');
+  // Plain address without ?year= stays backward compatible.
+  await goInside(page, basePath);
+  await expect(year(page, '2026-11-21')).toHaveAttribute('data-open', '');
+});
+
 test('midnight moves today; what is being written stays on its day', async ({ page }) => {
   await openDiary(page, new Date('2026-11-21T23:58:00+09:00'));
   const late = year(page, '2026-11-21');

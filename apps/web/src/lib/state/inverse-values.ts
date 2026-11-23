@@ -40,6 +40,8 @@ export class InverseValues {
         for (const member of value as (Patch & { id: string })[]) {
           values.set(JSON.stringify([key, member.id]), member);
         }
+      } else if (key === 'readAt') {
+        continue;
       } else if (value !== undefined) {
         values.set(JSON.stringify([key]), value);
       }

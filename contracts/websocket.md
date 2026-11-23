@@ -66,6 +66,7 @@
 | `UPDATE_CLIENT_CONFIG` | `clientConfig` | 모든 연결. **지금은 보내는 곳이 없다**(서버 설정이 실행 중에 바뀌지 않는다) |
 | `UNSUBSCRIBED_WORKSPACE` | `workspaceId`, `reason`(`workspace access ended`, `sso required`) | 서버가 그 워크스페이스의 구독을 끝낸 연결(아래 "서버가 구독을 끝낼 때"). 연결과 다른 구독은 그대로다(방은 아래 "서버가 구독을 끝낼 때") |
 | `PONG` | 없음 | `PING`을 보낸 연결. 곧바로 간다: 그 연결이 앞서 보낸 것의 답(`DOC_JOINED` 같은 것)보다 먼저 올 수 있다. 연결의 보낼 줄(512개)이 차 있으면 가지 않는다 |
+| `UPDATE_NOTIFICATIONS` | 없음. 무엇이 바뀌었는지 싣지 않는다: 받은 클라이언트가 알림을 다시 읽는다(`getUnreadNotifications`, `getNotifications`) | 그 사용자의 세션이 있는 연결 모두(구독과 상관없이). 알림 작업이 알림을 만들거나 늘리면 그 알림의 조직을 그 연결의 세션이 여는 것만(`getNotifications`와 같은 거름: 프로바이더 세션만 받는 조직의 알림은 다른 세션의 연결에 아무것도 내지 않는다). 사용자가 읽음으로 바꿀 때도 같다: 읽은 알림의 조직을 여는 세션의 연결만 |
 | `UNSUBSCRIBED_BLOCKS` | `workspaceId`, `blockIds`(그 보드의 따라가던 블록 모두. 받지 않은 구독이면 그 명령의 블록), `reason`(`public link access ended`, `public link connections full`) | 서버가 그 보드의 블록 구독을 끝낸 연결, 또는 받지 않은 구독을 보낸 연결 |
 
 방문의 `UPDATE_PRESENCE`는 구독과 별개이며 받는 사람과 멤버는 7절을 따른다.
@@ -106,6 +107,7 @@
 | `patchMe` | 이름이 바뀌면 그 사람이 구성원인(손님 포함) 워크스페이스마다 `UPDATE_USER`. 바꾸는 것이 없는 요청은 아무것도 내지 않는다 |
 | `leaveOrganization` | 나간 사람의 연결 가운데 그 조직의 워크스페이스를 구독한 것에 워크스페이스마다 `UNSUBSCRIBED_WORKSPACE`(`workspace access ended`). 그 워크스페이스들의 방이 나간 사람을 다시 묻는다(`DOC_LEFT`). 나간 사람이 혼자 관리하던 보드가 워크스페이스의 다른 관리자에게 넘어가면 그 보드의 `UPDATE_MEMBER`(새 관리자). 워크스페이스에서 사람을 뺄 때처럼 다른 사람에게 그 사람이 빠졌다는 메시지는 없다 |
 | `patchUserSettings`, `patchClientState` | 메시지 없음 |
+| `readNotification`, `readNotifications`, 알림 작업이 알림을 만들거나 늘릴 때 | 그 사용자의 연결에 `UPDATE_NOTIFICATIONS`(위의 규칙) |
 
 메시지는 쓰기가 끝난 뒤 보낸다. 어떤 조작은 답하기 전에 보내고(`createBoardsAndBlocks`, `createBlocks`, `createCard`, `deleteContainer`, `deleteBoardsAndBlocks`, 카테고리의 메시지 모두), 나머지는 따로 돌며 보낸다. 클라이언트는 HTTP의 답과 메시지의 순서에 기대지 않는다.
 

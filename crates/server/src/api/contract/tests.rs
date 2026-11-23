@@ -97,7 +97,7 @@ fn the_contract_says_when_each_reason_comes() {
 }
 
 /// The operations that need no session at all.
-const NO_SESSION: [&str; 17] = [
+const NO_SESSION: [&str; 18] = [
     "completeEmailVerification",
     "completePasswordReset",
     "confirmEmailChange",
@@ -113,6 +113,7 @@ const NO_SESSION: [&str; 17] = [
     "register",
     "requestEmailVerification",
     "requestPasswordReset",
+    "revertEmailChange",
     "startOidcCarryOver",
     "startOidcLogin",
 ];
@@ -545,6 +546,7 @@ const ORDERS: &[(&str, &str)] = &[
     ("getMyIdentities", "Oldest first"),
     ("getMyMemberships", "By the identifier of the board"),
     ("getMyWorkspaces", "the oldest workspace first"),
+    ("getNotifications", "the newest first"),
     ("getOrgAudit", "the newest first"),
     ("getOrgMembers", "the oldest member first"),
     ("getOrgWorkspaces", "the oldest first"),

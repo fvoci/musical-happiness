@@ -115,7 +115,7 @@ export class EntryStore {
   #notesHost(): NotesHost {
     const host = this.host;
     const entry = (): DiaryEntryDetail | undefined => this.entry;
-    const drafted = (): boolean => this.draft !== null;
+    const drafted = (): boolean => this.draft !== null && !this.unsaved;
     return {
       get diaries() {
         return host.workspace.backend.diary;
@@ -339,6 +339,7 @@ export class EntryStore {
       opened.close();
       // Opened again meanwhile: it is written in, not left.
       if (this.#bodyDoc || this.#wanted) {
+        if (this.entry?.id === emptied.id) this.#changedHere = true;
         void this.#notes.send();
         return undefined;
       }
@@ -398,8 +399,11 @@ export class EntryStore {
       this.host.received(this.entry);
       void this.#notes.send();
     } catch (error) {
+      if (this.entry?.id !== entry.id) return;
       this.unsaved = true;
       this.host.workspace.report('save', error);
+      // The draft could not be written: the notes it held go on their own.
+      void this.#notes.send();
     } finally {
       this.flushing = false;
     }
@@ -436,6 +440,8 @@ export class EntryStore {
     } catch (error) {
       // Gone already (deleted elsewhere) is what was wanted.
       if (isBackendError(error) && error.status === 404) return;
+      // Kept, it was still emptied here: leaving it blank again tries to delete it again.
+      if (this.entry?.id === entry.id) this.#changedHere = true;
       this.host.workspace.report('save', error);
       // Kept, it keeps what was emptied in it.
       void this.#notes.send();

@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { playwrightWorkers } from './tools/test-cpus.ts';
+
 /**
  * Browser tests of the spikes (`spikes/<name>/*.spec.ts`), against the
  * spikes' development server. Separate from the product's end-to-end tests.
@@ -8,7 +10,7 @@ import { defineConfig, devices } from '@playwright/test';
  */
 const PORT = Number(process.env.FVOCI_SPIKES_PORT ?? 18320);
 /** The spikes measured on a phone's screen only. */
-const PHONE_ONLY = /spikes\/kanban-scroll\/[^/]+\.spec\.ts$/;
+const PHONE_ONLY = /spikes[\\/]kanban-scroll[\\/][^\\/]+\.spec\.ts$/;
 /** An iPhone's screen of 390 by 844 points. */
 const PHONE = {
   viewport: { width: 390, height: 844 },
@@ -25,6 +27,7 @@ export default defineConfig({
   outputDir: 'test-results/spikes',
   forbidOnly: Boolean(process.env.CI),
   reporter: [['list']],
+  workers: playwrightWorkers(),
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: 'retain-on-failure',

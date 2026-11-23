@@ -88,6 +88,8 @@ const REACHED: &[(&str, Reaches)] = &[
     ("putUploadPart", Reaches::EVERY),
     ("completeUpload", Reaches::EVERY),
     ("deleteUpload", Reaches::EVERY),
+    // Whoever writes a card or a page watches it, and may stop.
+    ("deleteSubscription", Reaches::LINKED),
     // Its place in the sidebar.
     ("setContainerCategory", Reaches::EVERY),
     ("hideContainer", Reaches::EVERY),
@@ -107,6 +109,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getCommentVersions", Reaches::BOARDS),
     ("createCard", Reaches::BOARDS),
     ("getCards", Reaches::BOARDS),
+    ("getCardByNumber", Reaches::BOARDS),
     ("getCard", Reaches::BOARDS),
     ("patchCard", Reaches::BOARDS),
     ("getCardBodyVersions", Reaches::BOARDS),
@@ -114,7 +117,6 @@ const REACHED: &[(&str, Reaches)] = &[
     ("restoreCardBodyVersion", Reaches::BOARDS),
     ("keepCardBodyVersion", Reaches::BOARDS),
     ("getDeletedCards", Reaches::BOARDS),
-    ("deleteSubscription", Reaches::BOARDS),
     // What a wiki holds.
     ("getPageTree", Reaches::WIKIS),
     ("createPage", Reaches::WIKIS),
@@ -489,6 +491,8 @@ impl World {
             .replace("{subscriberId}", &self.me)
             .replace("{partNumber}", "1")
             .replace("{version}", "1")
+            // The board's card is its first.
+            .replace("{number}", "1")
             .replace("{leaseId}", "no-lease");
         // The one operation of the table that asks its query for something.
         let path = if operation == "getDiaryDays" {
@@ -936,6 +940,22 @@ async fn what_names_a_diary_in_a_body_is_refused() {
         )
         .await;
     entry_as_block.check_bad_request();
+    // Nor is a diary entry a block to subscribe to.
+    let subscribe = |block: &str| {
+        json!({
+            "blockId": block, "blockType": "entry", "subscriberId": world.me, "subscriberType": "user",
+        })
+    };
+    let (to_entry, to_nothing) = (
+        client
+            .post(&format!("{ws}/subscriptions"), &subscribe(&diary.block))
+            .await,
+        client
+            .post(&format!("{ws}/subscriptions"), &subscribe(UNKNOWN_ID))
+            .await,
+    );
+    to_entry.check_not_found();
+    assert_eq!(to_entry.problem(), to_nothing.problem());
     assert_eq!(ids(&client.get(&format!("{ws}/diaries")).await).len(), 1);
     world.ts.teardown().await;
 }
@@ -1178,6 +1198,9 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
             .check_done();
     }
 
+    // Nor is a course unit a block to subscribe to.
+    assert_unit_subscription_refused(&world, &course.block).await;
+
     // The wiki is as it was, and so is the board's card.
     let read = client
         .get(&format!("{ROOT_WS}/containers/{}", wiki.container))
@@ -1190,6 +1213,32 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
     card.check_done();
     assert_eq!(card.value()["title"], "a card");
     world.ts.teardown().await;
+}
+
+async fn assert_unit_subscription_refused(world: &World, unit_id: &str) {
+    let subscribe = |block: &str| {
+        json!({
+            "blockId": block, "blockType": "unit", "subscriberId": world.me, "subscriberType": "user",
+        })
+    };
+    let (to_unit, to_nothing) = (
+        world
+            .ts
+            .client
+            .post(&format!("{ROOT_WS}/subscriptions"), &subscribe(unit_id))
+            .await,
+        world
+            .ts
+            .client
+            .post(&format!("{ROOT_WS}/subscriptions"), &subscribe(UNKNOWN_ID))
+            .await,
+    );
+    to_unit.check_not_found();
+    assert_eq!(
+        to_unit.problem(),
+        to_nothing.problem(),
+        "a course unit is refused for subscriptions as a missing block"
+    );
 }
 
 async fn assert_board_creation_refuses_other_kinds(client: &Client, board_id: &str) {

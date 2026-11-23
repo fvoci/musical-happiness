@@ -13,6 +13,7 @@ import { studioVersion } from './tools/build/rhwp-studio.ts';
 import { pptxRenderer } from './tools/build/pptx-renderer.ts';
 import { thirdPartyNotices } from './tools/licenses/notices.ts';
 import { workerPackages } from './tools/licenses/worker-packages.ts';
+import { vitestWorkers } from './tools/test-cpus.ts';
 
 /**
  * The server serves `index.html` for every page of the app and everything
@@ -153,6 +154,9 @@ export default defineConfig(({ command }) => ({
     rolldownOptions: { output: OUTPUT_NAMES },
   },
   test: {
+    // FVOCI_TEST_CPUS, when it is set (tools/test-cpus.ts); read under Vitest only, so
+    // that a wrong value stops no build.
+    maxWorkers: process.env.VITEST ? vitestWorkers() : undefined,
     projects: [
       {
         extends: true,

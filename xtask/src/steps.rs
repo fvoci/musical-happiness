@@ -51,10 +51,63 @@ impl std::fmt::Debug for Step<'_> {
 
 /// How a step ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Outcome {
+pub(crate) enum Outcome {
     Passed,
     Failed(String),
     Skipped(String),
+}
+
+/// A step that had its turn: how it ended and how long it took.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StepResult {
+    pub(crate) name: String,
+    pub(crate) outcome: Outcome,
+    pub(crate) elapsed: Duration,
+}
+
+/// The steps of a task after their turns, and whether the task was interrupted.
+#[derive(Debug)]
+#[must_use = "the verdict of the task is in `into_result`"]
+pub(crate) struct Ran {
+    task: String,
+    results: Vec<StepResult>,
+    interrupted: bool,
+}
+
+impl Ran {
+    pub(crate) fn results(&self) -> &[StepResult] {
+        &self.results
+    }
+
+    pub(crate) fn interrupted(&self) -> bool {
+        self.interrupted
+    }
+
+    /// The task's verdict.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the task was interrupted or a step failed; the error names the failed steps.
+    pub(crate) fn into_result(self) -> Result<()> {
+        let failed: Vec<&str> = self
+            .results
+            .iter()
+            .filter(|result| matches!(result.outcome, Outcome::Failed(_)))
+            .map(|result| result.name.as_str())
+            .collect();
+        if self.interrupted {
+            bail!("{}: interrupted", self.task)
+        } else if failed.is_empty() {
+            Ok(())
+        } else {
+            bail!(
+                "{}: {} failed: {}",
+                self.task,
+                failed.len(),
+                failed.join(", ")
+            )
+        }
+    }
 }
 
 /// Writes a line to standard error, where the output of the started commands goes too.
@@ -88,12 +141,9 @@ pub(crate) fn interrupted() -> bool {
 }
 
 /// Runs every step, also after one failed, and prints a summary. Once the task is
-/// interrupted the steps not yet started are skipped and the task fails.
-///
-/// # Errors
-///
-/// Fails if any step failed; the error names them.
-pub(crate) fn run_all(task: &str, steps: Vec<Step<'_>>) -> Result<()> {
+/// interrupted the steps not yet started are skipped. The verdict is the returned
+/// [`Ran::into_result`].
+pub(crate) fn run_all(task: &str, steps: Vec<Step<'_>>) -> Ran {
     run_all_reporting(task, steps, &mut say, &interrupted)
 }
 
@@ -103,15 +153,15 @@ fn run_all_reporting(
     steps: Vec<Step<'_>>,
     report: &mut dyn FnMut(&str),
     stop: &dyn Fn() -> bool,
-) -> Result<()> {
-    let mut results: Vec<(String, Outcome, Duration)> = Vec::with_capacity(steps.len());
+) -> Ran {
+    let mut results: Vec<StepResult> = Vec::with_capacity(steps.len());
     for step in steps {
         if stop() {
-            results.push((
-                step.name,
-                Outcome::Skipped("interrupted".to_owned()),
-                Duration::ZERO,
-            ));
+            results.push(StepResult {
+                name: step.name,
+                outcome: Outcome::Skipped("interrupted".to_owned()),
+                elapsed: Duration::ZERO,
+            });
             continue;
         }
         report(&format!("\n==> {}", step.name));
@@ -129,27 +179,29 @@ fn run_all_reporting(
                 }
             },
         };
-        results.push((step.name, outcome, started.elapsed()));
+        results.push(StepResult {
+            name: step.name,
+            outcome,
+            elapsed: started.elapsed(),
+        });
     }
 
     report(&format!("\n{}", summary(task, &results)));
-    let failed: Vec<&str> = results
-        .iter()
-        .filter(|(_, outcome, _)| matches!(outcome, Outcome::Failed(_)))
-        .map(|(name, _, _)| name.as_str())
-        .collect();
-    if stop() {
-        bail!("{task}: interrupted")
-    } else if failed.is_empty() {
-        Ok(())
-    } else {
-        bail!("{task}: {} failed: {}", failed.len(), failed.join(", "))
+    Ran {
+        task: task.to_owned(),
+        results,
+        interrupted: stop(),
     }
 }
 
-fn summary(task: &str, results: &[(String, Outcome, Duration)]) -> String {
+fn summary(task: &str, results: &[StepResult]) -> String {
     let mut lines = vec![format!("{task} summary")];
-    for (name, outcome, elapsed) in results {
+    for StepResult {
+        name,
+        outcome,
+        elapsed,
+    } in results
+    {
         lines.push(match outcome {
             Outcome::Passed => format!("  PASS  {name}  ({:.1}s)", elapsed.as_secs_f64()),
             Outcome::Failed(_) => format!("  FAIL  {name}  ({:.1}s)", elapsed.as_secs_f64()),
@@ -248,6 +300,7 @@ mod tests {
             &mut |line| lines.push(line.to_owned()),
             &|| false,
         )
+        .into_result()
         .expect_err("a failed step fails the task");
         assert_eq!(ran.get(), 2, "both steps ran");
         assert_eq!(
@@ -265,16 +318,16 @@ mod tests {
     #[test]
     fn the_summary_lists_every_step_with_its_verdict() {
         let results = [
-            (
-                "fmt".to_owned(),
-                Outcome::Passed,
-                Duration::from_millis(1500),
-            ),
-            (
-                "clippy".to_owned(),
-                Outcome::Failed("x".to_owned()),
-                Duration::from_secs(2),
-            ),
+            StepResult {
+                name: "fmt".to_owned(),
+                outcome: Outcome::Passed,
+                elapsed: Duration::from_millis(1500),
+            },
+            StepResult {
+                name: "clippy".to_owned(),
+                outcome: Outcome::Failed("x".to_owned()),
+                elapsed: Duration::from_secs(2),
+            },
         ];
         assert_eq!(
             summary("check", &results),
@@ -335,6 +388,7 @@ mod tests {
             &mut |line| lines.push(line.to_owned()),
             &|| false,
         )
+        .into_result()
         .expect("a skipped step fails nothing");
         let summary = lines.last().expect("a summary");
         assert!(
@@ -365,6 +419,7 @@ mod tests {
             &mut |line| lines.push(line.to_owned()),
             &|| stopped.get(),
         )
+        .into_result()
         .expect_err("an interrupted task fails");
         assert_eq!(ran.get(), 1, "the second step did not run");
         assert_eq!(error.to_string(), "task: interrupted");

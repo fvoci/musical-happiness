@@ -277,7 +277,8 @@ async fn each_organization_of_an_account_is_asked_for_itself() {
     let counted = test
         .leaving_organization(standing.alone_in[0].clone())
         .await
-        .expect("counted");
+        .expect("counted")
+        .expect("the organization is still there");
     assert_eq!(
         (
             counted.name.as_str(),
@@ -291,6 +292,25 @@ async fn each_organization_of_an_account_is_asked_for_itself() {
         ask(&test, &person).await,
         DeletionAsking::Asked(_)
     ));
+    test.teardown().await;
+}
+
+/// Reading the counts of an organization that was already removed (e.g., an own space
+/// erased concurrently while a waiting account checks its deletion screen) returns
+/// `Ok(None)` instead of `StoreError::NotFound`.
+#[tokio::test]
+async fn leaving_organization_on_a_gone_organization_does_not_fail_not_found() {
+    let test = common::setup().await;
+    let gone_id = new_id();
+    let gone = test.for_org(&gone_id).expect("an identifier");
+    let result = gone
+        .leaving_organization(fvoci_model::OrganizationName {
+            id: gone_id,
+            name: String::new(),
+        })
+        .await
+        .expect("a gone organization is Ok(None), not an error");
+    assert_eq!(result, None);
     test.teardown().await;
 }
 

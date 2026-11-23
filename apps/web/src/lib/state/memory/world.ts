@@ -20,6 +20,7 @@ import type {
 
 import { reads } from './container-access.ts';
 import type { KeptOfCard } from './body-versions.ts';
+import type { StoredNotification } from './notifications.ts';
 import type { ContainerPlace } from './trash.ts';
 
 /** A view, card, comment or attachment as the world stores it. */
@@ -30,6 +31,16 @@ export interface StoredBlock extends Block {
   editedAt?: number;
   /** Attachments. */
   file?: { fileId: string; name: string; size: number; contentType: string };
+}
+
+/**
+ * The order the server lists the blocks of a board in (`ORDER BY create_at,
+ * id`), and so copies and exports them: the one made first first, those made
+ * at once by their identifiers. The world's own order is the order it stored
+ * them in, which a block back from the trash leaves at the end.
+ */
+export function oldestFirst(a: StoredBlock, b: StoredBlock): number {
+  return a.createAt - b.createAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
 export type StoredView = StoredBlock & BoardView;
@@ -117,12 +128,16 @@ export class World {
   /** Deleted blocks, by the identifier of the block the deletion was asked for. */
   readonly deletedBlocks = new Map<string, DeletedBlocks>();
   readonly deletedContainers = new Map<string, DeletedContainer>();
+  /** The number the next card of each board takes, by board; 1 where none was made (`card-numbers.ts`). */
+  readonly nextCardNumbers = new Map<string, number>();
   /** The texts written down of changed comments, by comment, the one it has now last. */
   readonly commentVersions = new Map<string, CommentVersion[]>();
   /** The versions kept of the bodies of cards, by card (`body-versions.ts`). */
   readonly bodyVersions = new Map<string, KeptOfCard>();
   /** Who has a file open in the editor, by board and file (`file-versions.ts`). */
   readonly fileLeases = new Map<string, FileLeaseHeld>();
+  /** What each user was told, by user (`notifications.ts`). */
+  readonly notifications = new Map<string, StoredNotification[]>();
 
   /**
    * The name of the channel the rooms of the bodies share with the worlds of

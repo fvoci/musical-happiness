@@ -10,12 +10,14 @@ mod account_deletion;
 mod account_erasure;
 mod accounts;
 mod audit;
+mod block_copies;
 mod block_derived;
 mod blocks;
 mod body_digest;
 mod body_docs;
 mod body_links;
 mod body_versions;
+mod card_numbers;
 mod card_values;
 mod categories;
 mod category_containers;
@@ -37,6 +39,7 @@ mod db;
 mod diaries;
 mod directory;
 mod email_change;
+mod email_revert;
 mod error;
 mod file_info;
 mod file_refs;
@@ -49,6 +52,9 @@ mod linked_blocks;
 mod loose_objects;
 mod members;
 mod memberships_everywhere;
+mod notification_noting;
+mod notification_outbox;
+mod notifications;
 mod observe;
 mod oidc;
 mod oidc_former;
@@ -117,6 +123,7 @@ pub use directory::{
 pub use email_change::{
     EMAIL_CHANGE_LIFETIME_MILLIS, EMAIL_CHANGE_LINK_LIFETIME_MILLIS, EmailChanged,
 };
+pub use email_revert::{EMAIL_REVERT_LIFETIME_MILLIS, EmailReverted};
 pub use error::{StoreError, Taken};
 pub use file_refs::NewBodyFiles;
 pub use file_versions::{
@@ -128,6 +135,8 @@ pub use invitations::{
 };
 pub use invited_signups::InvitedConfirmation;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
+pub use notification_outbox::{NotificationEvent, NotificationLimits, Told};
+pub use notifications::{NotificationPlace, NotificationReader, StoredNotification};
 pub use observe::{Access, Call, Observer, Outcome};
 pub use oidc::{
     FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoredProvider,
@@ -266,6 +275,8 @@ pub struct PoolStatus {
 pub struct Store {
     inner: Arc<Inner>,
     tenant: Tenant,
+    /// Whom what this handle writes notes to be told ([`Store::telling_nobody`]).
+    noting: db::Noting,
 }
 
 #[derive(Debug)]
@@ -428,6 +439,7 @@ impl Store {
 
         Ok(Self {
             tenant: Tenant::Unset,
+            noting: db::Noting::Named,
             inner: Arc::new(Inner {
                 pool,
                 sqlite_writers: tokio::sync::Mutex::new(()),
@@ -476,6 +488,18 @@ impl Store {
         Self {
             inner: Arc::clone(&self.inner),
             tenant,
+            noting: self.noting,
+        }
+    }
+
+    /// A handle to the same database whose writes of blocks note nothing to tell
+    /// anybody: for a write that is not its writer's own words (a version of a body
+    /// brought back), and for one whose writer asked for that.
+    #[must_use]
+    pub fn telling_nobody(&self) -> Self {
+        Self {
+            noting: db::Noting::Nobody,
+            ..self.clone()
         }
     }
 
@@ -758,6 +782,7 @@ impl Store {
                 let result = operation(
                     &mut Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept)
                         .noting_for_search(&self.inner.search_outbox)
+                        .noting(self.noting)
                         .tracking_visibility(visibility),
                 )
                 .await;
@@ -769,6 +794,7 @@ impl Store {
                 let result = operation(
                     &mut Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
                         .noting_for_search(&self.inner.search_outbox)
+                        .noting(self.noting)
                         .tracking_visibility(visibility),
                 )
                 .await;

@@ -35,20 +35,20 @@
     stepMonthDay,
     writable,
     yearOf,
-    type MonthDay,
   } from '$lib/logic/diary-days.ts';
   import { displayDay, displayYear } from '$lib/logic/format.ts';
   import { DiaryStore, whileHere, type EntryStore, type Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import NotFound from './NotFound.svelte';
-  import type { Router } from './router.svelte.ts';
+  import type { Route, Router } from './router.svelte.ts';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
 
   const diaryId = $derived(router.route.diaryId);
   const asked = $derived(router.route.monthDay);
   const monthDay = $derived(asked === undefined ? undefined : parseMonthDay(asked));
+  const askedYear = $derived(router.route.year);
 
   /** The diary of the address, made anew for another one. */
   const diary = $derived(diaryId ? new DiaryStore(workspace, diaryId) : undefined);
@@ -117,6 +117,19 @@
     return undefined;
   });
 
+  /** The year named in the address (`?year=YYYY`), when that day is among the page's days. */
+  const target = $derived.by(() => {
+    const day = monthDay;
+    const year = askedYear;
+    if (!day || !year) return undefined;
+    const date = dateIn(Number(year), day);
+    if (!date) return undefined;
+    if ((diary?.entries ?? []).some((entry) => entry.date === date)) return date;
+    // Checked against today as the page opened: midnight never opens another day.
+    const shown = untrack(() => pageDays(day, today.date, from, []));
+    return shown.includes(date) && untrack(() => writable(date, today.date)) ? date : undefined;
+  });
+
   /** This year's day, as the page opens on a day of the year: open if it has come. */
   const opening = $derived.by(() => {
     const day = monthDay;
@@ -126,14 +139,18 @@
       return date && writable(date, today.date) ? date : undefined;
     });
   });
-  /** The year the reader opened on this day of the year. */
-  let chosen = $state.raw<{ monthDay: MonthDay; date: CalendarDate } | undefined>(undefined);
+  /** The year the reader opened on this day of the year; resets whenever the route changes. */
+  let chosen = $derived<{ route: Route; date: CalendarDate | undefined }>({
+    route: router.route,
+    date: undefined,
+  });
   /** The day the reader opened by pressing it: the caret goes into it. */
   let pressed = $state.raw<CalendarDate | undefined>(undefined);
-  const open = $derived(chosen && chosen.monthDay === monthDay ? chosen.date : opening);
+  const open = $derived(chosen.date ?? target ?? opening);
 
   function openDate(date: CalendarDate): void {
-    chosen = { monthDay: monthDayOf(date), date };
+    // Reading `chosen` first syncs its route dependency before overriding `date` for this route.
+    chosen = { route: chosen.route, date };
   }
 
   function step(by: 1 | -1): void {
@@ -143,13 +160,13 @@
   /** A day picked from the month: its day of the year, its year shown and open. */
   function pick(date: CalendarDate): void {
     reach = Math.min(reach, yearOf(date));
-    openDate(date);
     router.openDay(monthDayOf(date));
+    openDate(date);
   }
 
   function toToday(): void {
-    openDate(today.date);
     router.openDay(monthDayOf(today.date));
+    openDate(today.date);
   }
 
   let renaming = $state(false);

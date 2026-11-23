@@ -155,8 +155,9 @@ impl Collab {
 
     /// Makes the document again from its body if its state is near its limit, it
     /// names many clients or one more client may leave it with many steps to read
-    /// ([`OpenDoc::crowded`]), and folds its log into its state if it is long; whether
-    /// it was made again. The
+    /// ([`OpenDoc::crowded`]), and folds its log into its state if it is long, after
+    /// writing the body to its card ([`Collab::write_now`]); whether it was made
+    /// again, by itself or because its card was written past it. The
     /// update before is logged whatever happens here: what fails is logged, and tried
     /// again after a later update.
     async fn keep_up(&self, app: &App, card_id: &str, slot: &mut Held) -> bool {
@@ -172,12 +173,27 @@ impl Collab {
         {
             return true;
         }
-        // Not by a process that lost the lock of the server, as at closing.
-        if app.holds_server_lock()
-            && slot
-                .open
+        let long = |slot: &Held| {
+            slot.open
                 .as_ref()
                 .is_some_and(|open| open.log_end - open.state_seq >= FOLD_AFTER)
+        };
+        // Not by a process that lost the lock of the server, as at closing.
+        if !app.holds_server_lock() || !long(slot) {
+            return false;
+        }
+        // The body first: the log says who sent which update, which is how a name in
+        // the body is known to be somebody's doing, and a fold takes that away. A
+        // body that cannot be written now is written later, by its last typist's
+        // name alone.
+        match self.write_or_replace(app, card_id, slot).await {
+            Ok(true) => return true,
+            Ok(false) => self.version_if_due(app, card_id, slot).await,
+            Err(error) => {
+                tracing::warn!(%error, card_id, "cannot write a card's body before its log is folded");
+            }
+        }
+        if long(slot)
             && let Err(error) = self.fold(app, card_id, slot).await
         {
             tracing::error!(%error, card_id, "cannot fold a document's log into its state");

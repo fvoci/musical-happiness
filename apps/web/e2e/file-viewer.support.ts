@@ -174,3 +174,37 @@ export function timerLateness(page: Page): Promise<number> {
       }),
   );
 }
+
+/**
+ * Waits for the app's idle-loaded CJK and monospace font sheets (`lib/fonts.ts`)
+ * to settle on the page before a main-thread responsiveness check: WebKit has no
+ * `requestIdleCallback` and loads them on a 1.5 s timer, decoding the 2.6 MB
+ * Hanja subset (`noto-sans-kr-rest.woff2`) synchronously on the main thread when
+ * Han characters on the card match.
+ */
+export async function settlePageFonts(page: Page): Promise<void> {
+  const state = await page.waitForFunction(() => {
+    const faces = [...document.fonts];
+    // When fonts are not built (`pnpm run fonts` skipped), no Noto Sans rule exists.
+    if (!faces.some((face) => face.family.includes('Noto Sans'))) return 'none';
+    const required = ['Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC', 'D2Coding'];
+    return required.every((name) => faces.some((face) => face.family.includes(name)))
+      ? 'loaded'
+      : false;
+  });
+  if ((await state.jsonValue()) === 'none') return;
+  await page.evaluate(async () => {
+    // Let a full style/layout/paint cycle match the newly added rules against text on screen.
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          resolve();
+        });
+      });
+    });
+    while (document.fonts.status === 'loading') {
+      await document.fonts.ready;
+    }
+    await document.fonts.ready;
+  });
+}

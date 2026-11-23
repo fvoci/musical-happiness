@@ -490,11 +490,11 @@ pub async fn forget_migration(db_type: DbType, database_connection: &str, versio
 
 /// The tables that are no organization's; every other table of the schema is behind
 /// the wall between organizations.
-pub const GLOBAL_TABLES: [&str; 11] = crate::schema::GLOBAL_TABLES;
+pub const GLOBAL_TABLES: [&str; 12] = crate::schema::GLOBAL_TABLES;
 
 /// The tables that hold rows of organizations, and the organizations themselves, each
 /// behind the wall on PostgreSQL.
-pub const ORG_TABLES: [&str; 37] = crate::schema::ORG_TABLES;
+pub const ORG_TABLES: [&str; 39] = crate::schema::ORG_TABLES;
 
 /// Brings a test database to the schema as a server left it that knew nothing of
 /// organizations: every migration before theirs, and none of the changes of the data

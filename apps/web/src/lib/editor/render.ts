@@ -36,6 +36,7 @@ import {
   type MathNodeName,
 } from './drawing.ts';
 import { fileUrl } from './files.ts';
+import { drawTable } from './render-table.ts';
 import {
   DIAGRAM_LANGUAGE,
   isAllowedHref,
@@ -414,6 +415,8 @@ class BodyDrawing {
         return this.#fileBlock(node);
       case 'blockMath':
         return this.#math('blockMath', node);
+      case 'table':
+        return drawTable(this.#page, node, childrenOf, (tag, cell) => this.#container(tag, cell));
       default:
         // Not on the list: not drawn.
         return undefined;

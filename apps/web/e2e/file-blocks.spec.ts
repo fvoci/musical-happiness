@@ -41,7 +41,7 @@ test('a file chosen through the slash menu is a file block that saves its bytes 
   await page.keyboard.press('Enter');
   await page.keyboard.type('/');
   const menu = page.locator('[data-suggestions="slash"]');
-  await expect(menu.getByRole('option')).toHaveText(['File']);
+  await expect(menu.getByRole('option')).toHaveText(['File', 'Table']);
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser'),
     page.keyboard.press('Enter'),
@@ -118,7 +118,10 @@ test('files chosen together become file blocks in the order chosen', async ({ pa
   await page.keyboard.type('Two:');
   await page.keyboard.press('Enter');
   await page.keyboard.type('/');
-  await expect(page.locator('[data-suggestions="slash"]').getByRole('option')).toHaveText(['File']);
+  await expect(page.locator('[data-suggestions="slash"]').getByRole('option')).toHaveText([
+    'File',
+    'Table',
+  ]);
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser'),
     page.keyboard.press('Enter'),
@@ -155,7 +158,10 @@ test('a file still going up when the page is left is given up, and the reader is
 
   await body.click();
   await page.keyboard.type('/');
-  await expect(page.locator('[data-suggestions="slash"]').getByRole('option')).toHaveText(['File']);
+  await expect(page.locator('[data-suggestions="slash"]').getByRole('option')).toHaveText([
+    'File',
+    'Table',
+  ]);
   // Slow enough to be left on its way.
   await latency(page, 5000);
   const [chooser] = await Promise.all([

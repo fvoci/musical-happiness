@@ -4,8 +4,9 @@
  * one, its task items and its preview, as a list of cards gives them. The
  * memory backend makes it of the body it holds, as the server does.
  */
+import { countTasks } from '../editor/body-text.ts';
 import { cardPreviewOf, type CardPreview } from '../editor/card-preview.ts';
-import { countTasks, type DocNode } from '../editor/schema.ts';
+import type { DocNode } from '../editor/schema.ts';
 
 export interface BodySummary {
   hasBody: boolean;

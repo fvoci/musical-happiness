@@ -30,13 +30,11 @@ export class ServerOrganizations implements Organizations {
     this.#http = http;
   }
 
-  async administered(): Promise<string | undefined> {
-    const workspaces = await this.#http.request<Schemas['UserWorkspace'][]>(
-      '/api/v1/users/me/workspaces',
-    );
+  async administered(workspaces: readonly WorkspaceInfo[]): Promise<string | undefined> {
     // The reader's own space has nobody to administer it: it is not asked for.
     const shared = workspaces.filter((workspace) => workspace.kind !== 'personal');
-    for (const orgId of new Set(shared.map((workspace) => workspace.orgId))) {
+    const orgIds = shared.flatMap((workspace) => (workspace.orgId ? [workspace.orgId] : []));
+    for (const orgId of new Set(orgIds)) {
       try {
         await this.organization(orgId);
         return orgId;

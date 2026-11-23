@@ -15,10 +15,7 @@ use crate::db::{Id, Row, Scope};
 use crate::error::StoreError;
 
 /// The columns of a block as a reference shows it ([`shown_block`]): without its body.
-const SHOWN_COLUMNS: &str = "id, container_id, parent_id, type, title, fields, update_at";
-
-/// The member of a card's fields that says it is a template of its board's cards.
-const IS_TEMPLATE_FIELD: &str = "isTemplate";
+const SHOWN_COLUMNS: &str = "id, container_id, parent_id, type, title, fields, update_at, number";
 
 /// How many blocks a search reads at a time while it looks for titles.
 const SEARCHED_AT_ONCE: u16 = 500;
@@ -38,6 +35,7 @@ fn shown_block(row: &Row) -> Result<Block, StoreError> {
         title: row.text(4)?,
         fields: row.json_map(5, "fields")?,
         update_at: row.int(6)?,
+        number: crate::card_numbers::number_from_row(row, 7)?,
         ..Block::default()
     })
 }
@@ -186,8 +184,9 @@ impl Store {
     /// The cards and pages on the boards of `container_ids` whose title has every word of
     /// `term` in it, as spaces divide it and whatever the case of the letters: at most
     /// `limit`, the one changed last first, without their bodies. An empty term finds
-    /// every one. A card that is a template of its board's cards is never found, and
-    /// nothing in the trash is.
+    /// every one. A block whose `isTemplate` is `true` ([`Block::is_template`]: for a
+    /// card, a template of its board's cards) is never found, and nothing in the trash
+    /// is.
     ///
     /// The blocks are read some at a time, each time those after the last one read in
     /// that order: a block that is changed meanwhile moves to before where the reading
@@ -223,9 +222,7 @@ impl Store {
                 for row in &rows {
                     let block = shown_block(row)?;
                     last = Some((block.update_at, block.id.clone()));
-                    let is_template =
-                        block.fields.get(IS_TEMPLATE_FIELD) == Some(&serde_json::Value::Bool(true));
-                    if !is_template && title_has(&block.title, &words) {
+                    if !block.is_template() && title_has(&block.title, &words) {
                         found.push(block);
                         if found.len() == limit {
                             return Ok(found);

@@ -12,18 +12,15 @@
     history.replaceState(null, '', location.pathname);
   }
 
-  /** Sends the token in the address, if it has one: once for each. */
-  function confirmFromAddress(): Promise<void> | undefined {
-    const token = location.hash.slice(1);
-    return token ? confirm(token) : undefined;
-  }
-
-  let confirming = $state.raw(confirmFromAddress());
+  /** The link as it was opened: each opening is new, also of the same link again. */
+  let opened = $state.raw({ token: location.hash.slice(1) });
   function onhashchange(): void {
     // The token that was just used left the address: what it came to stays said.
-    if (location.hash.length > 1) confirming = confirmFromAddress();
+    if (location.hash.length > 1) opened = { token: location.hash.slice(1) };
   }
 </script>
 
 <svelte:window {onhashchange} />
-<ConfirmEmailPage {confirming} homeHref={router.href({})} />
+{#key opened}
+  <ConfirmEmailPage token={opened.token} {confirm} homeHref={router.href({})} />
+{/key}

@@ -30,6 +30,7 @@ mod invitation_mail;
 mod invitations;
 mod limits;
 mod members;
+mod notifications;
 mod oidc;
 mod oidc_held;
 mod onboarding;
@@ -145,6 +146,7 @@ fn routes() -> Routes {
         .merge(invitations::routes())
         .merge(invitation_mail::routes())
         .merge(members::routes())
+        .merge(notifications::routes())
         .merge(workspace_members::routes())
         .merge(teams::routes())
         .merge(container_teams::routes())

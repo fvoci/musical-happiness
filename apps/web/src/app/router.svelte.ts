@@ -32,6 +32,8 @@ export interface Route {
   emailVerify?: true;
   /** The page the link that changes an account's address opens; its token is in the fragment. */
   emailConfirm?: true;
+  /** The page the link that gives an account its address back opens; its token is in the fragment. */
+  emailRevert?: true;
   /** The organization whose screen is shown; then nothing else is. */
   orgId?: string | undefined;
   workspaceId: string | undefined;
@@ -44,6 +46,8 @@ export interface Route {
   /** A diary of the workspace, in place of a board, and the day of the year it is open on (`MM-DD`). */
   diaryId?: string | undefined;
   monthDay?: string | undefined;
+  /** An optional year of that day to expand on arrival (`?year=YYYY`). */
+  year?: string | undefined;
   /**
    * The token of an invitation: the address is the link of one
    * (`/invite/<token>`), and names nothing else.
@@ -67,6 +71,11 @@ const NOWHERE: Route = {
   cardId: undefined,
   unknown: false,
 };
+
+/** A four-digit year (`0001`–`9999`) for a diary page's `?year=YYYY` query; undefined for anything else. */
+function diaryYear(raw: string | null | undefined): string | undefined {
+  return raw && /^\d{4}$/.test(raw) && raw !== '0000' ? raw : undefined;
+}
 
 /** The base path the server filled into index.html; empty at the root of the site. */
 export function readBasePath(document: Document): string {
@@ -108,6 +117,9 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
   if (segments[0] === 'confirm-email' && segments.length === 1) {
     return { ...NOWHERE, emailConfirm: true };
   }
+  if (segments[0] === 'revert-email' && segments.length === 1) {
+    return { ...NOWHERE, emailRevert: true };
+  }
   if (segments[0] === 'invite' && segments.length === 2) {
     return { ...NOWHERE, invitation: segments[1] };
   }
@@ -122,7 +134,16 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
     return { ...NOWHERE, workspaceId, wikiId: boardId, pageId: viewId };
   }
   if (section === 'diaries' && boardId !== undefined && cardId === undefined && w === 'w') {
-    return { ...NOWHERE, workspaceId, diaryId: boardId, monthDay: viewId };
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- read once from a URL query string
+    const rawYear = viewId !== undefined ? new URLSearchParams(search).get('year') : null;
+    const year = diaryYear(rawYear);
+    return {
+      ...NOWHERE,
+      workspaceId,
+      diaryId: boardId,
+      monthDay: viewId,
+      ...(year ? { year } : {}),
+    };
   }
   if (
     w !== 'w' ||
@@ -173,7 +194,11 @@ function settled(route: Partial<Route>): Route {
   const wikiId = (workspaceId && route.wikiId) || undefined;
   if (wikiId) return { ...NOWHERE, workspaceId, wikiId, pageId: route.pageId || undefined };
   const diaryId = (workspaceId && route.diaryId) || undefined;
-  if (diaryId) return { ...NOWHERE, workspaceId, diaryId, monthDay: route.monthDay || undefined };
+  if (diaryId) {
+    const monthDay = route.monthDay || undefined;
+    const year = monthDay ? diaryYear(route.year) : undefined;
+    return { ...NOWHERE, workspaceId, diaryId, monthDay, ...(year ? { year } : {}) };
+  }
   const boardId = ((workspaceId || readToken) && route.boardId) || undefined;
   const viewId = (boardId && route.viewId) || undefined;
   const cardId = (viewId && route.cardId) || undefined;
@@ -201,8 +226,18 @@ export function shownContainerId(route: Route): string | undefined {
 /** The address of a route, from the root of the site. */
 export function routePath(route: Partial<Route>, basePath: string): string {
   if (route.orgId) return buildUrl(`/org/${encodeURIComponent(route.orgId)}`, basePath);
-  const { workspaceId, boardId, viewId, cardId, readToken, wikiId, pageId, diaryId, monthDay } =
-    settled(route);
+  const {
+    workspaceId,
+    boardId,
+    viewId,
+    cardId,
+    readToken,
+    wikiId,
+    pageId,
+    diaryId,
+    monthDay,
+    year,
+  } = settled(route);
   if (readToken && boardId) {
     const parts = [boardId, viewId, cardId].filter((part) => part !== undefined);
     const path = ['shared', ...parts.map((part) => encodeURIComponent(part))].join('/');
@@ -219,7 +254,8 @@ export function routePath(route: Partial<Route>, basePath: string): string {
     ...(named.length > 0 ? [section] : []),
     ...named.map((part) => encodeURIComponent(part)),
   ];
-  return buildUrl(`/${path.join('/')}`, basePath);
+  const url = buildUrl(`/${path.join('/')}`, basePath);
+  return diaryId && monthDay && year ? `${url}?year=${encodeURIComponent(year)}` : url;
 }
 
 export class Router {
@@ -250,6 +286,7 @@ export class Router {
         next.passwordForgot === now.passwordForgot &&
         next.emailVerify === now.emailVerify &&
         next.emailConfirm === now.emailConfirm &&
+        next.emailRevert === now.emailRevert &&
         next.orgId === now.orgId &&
         next.workspaceId === now.workspaceId &&
         next.boardId === now.boardId &&
@@ -259,6 +296,7 @@ export class Router {
         next.pageId === now.pageId &&
         next.diaryId === now.diaryId &&
         next.monthDay === now.monthDay &&
+        next.year === now.year &&
         next.invitation === now.invitation &&
         next.readToken === now.readToken &&
         next.shared === now.shared &&
@@ -310,7 +348,10 @@ export class Router {
       return;
     }
     // While an address waits to be written, that one is where the bar is heading.
-    const here = next.readToken ? `${location.pathname}${location.search}` : location.pathname;
+    const here =
+      next.readToken || next.year || this.route.year
+        ? `${location.pathname}${location.search}`
+        : location.pathname;
     const shown = this.#writes > 0 ? this.#heading : here;
     if (path !== shown) {
       // The address is written once no sheet that just closed is still giving

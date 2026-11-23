@@ -28,14 +28,13 @@ use std::time::Duration;
 
 use anyhow::{Context as _, bail};
 use axum::Router;
-use axum::body::Body;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::ws::rejection::WebSocketUpgradeRejection;
-use axum::extract::{OriginalUri, Request, State};
+use axum::extract::{Request, State};
 use axum::http::header::{ACCEPT_ENCODING, ALLOW, CONTENT_TYPE, ORIGIN, REFERRER_POLICY};
-use axum::http::{Extensions, HeaderMap, HeaderValue, Method, StatusCode, Uri, Version};
+use axum::http::{Extensions, HeaderMap, HeaderValue, StatusCode, Version};
 use axum::middleware;
-use axum::response::{IntoResponse, Redirect, Response};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
@@ -209,32 +208,42 @@ impl Server {
             .route("/ws", get(handle_websocket))
             // What the `type` of a problem points at.
             .merge(problems::routes())
-            .route("/static/{*path}", get(handle_static))
-            .fallback(handle_fallback)
+            .route("/static/{*path}", get(web::handle_static))
+            .fallback(web::handle_fallback)
             .method_not_allowed_fallback(method_not_allowed)
             .with_state(self.app.clone());
+        let origin = web::origin_routes(self.app.clone());
         // Nesting puts the API's routes into this router, so they get the layer too; its
         // fallbacks do not, and their answers are measured as unmatched.
-        let routes = if measured {
-            routes.route_layer(middleware::from_fn(request_metrics::note_route))
+        let (routes, origin) = if measured {
+            (
+                routes.route_layer(middleware::from_fn(request_metrics::note_route)),
+                origin.route_layer(middleware::from_fn(request_metrics::note_route)),
+            )
         } else {
-            routes
+            (routes, origin)
         };
         let routes = if self.base_path.is_empty() {
-            routes
+            routes.merge(origin)
         } else {
             // The base path with a slash is the web app's root as well; the nested router
-            // gets the base path itself and what is below it.
+            // gets the base path itself and what is below it. Origin-root metadata routes
+            // (`/robots.txt`, `/.well-known/security.txt`) stay at the origin root.
             let root = Router::new()
-                .route(&format!("{}/", self.base_path), get(handle_root))
+                .route(&format!("{}/", self.base_path), get(web::handle_root))
                 .method_not_allowed_fallback(method_not_allowed)
                 .with_state(self.app.clone());
 
             Router::new()
                 .nest(&self.base_path, routes)
                 .merge(root)
+                .merge(origin)
                 .fallback(|| async { web::not_found() })
         };
+        let routes = routes.layer(middleware::from_fn_with_state(
+            Arc::<str>::from(self.base_path.as_str()),
+            web::send_robots_tag,
+        ));
         let routes = self.with_request_layers(routes, &self.base_path);
         if measured {
             request_metrics::know_problems(self.app.metrics());
@@ -324,6 +333,7 @@ impl Server {
         let uploads = start_upload_clean_up(&self.app);
         let restock = app::start_template_restock(&self.app);
         let search = search::start_upkeep(&self.app);
+        let telling = app::start_notification_upkeep(&self.app);
 
         let service = self
             .router()
@@ -394,6 +404,9 @@ impl Server {
         uploads.cancel().await;
         restock.cancel().await;
         search::stop_upkeep(search).await;
+        if let Some(telling) = telling {
+            telling.cancel().await;
+        }
         served.context("serving HTTP")
     }
 
@@ -647,6 +660,7 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
             clean_up_sessions(&app).await;
             app.end_lapsed_former_providers().await;
             app.erase_due_accounts().await;
+            app.forget_old_notifications().await;
         }
     })
 }
@@ -796,23 +810,6 @@ async fn websocket_identity(
     }
 }
 
-async fn handle_static(State(app): State<App>, request: Request<Body>) -> Response {
-    // The path as the client sent it, still percent-encoded: the file service decodes
-    // it, once.
-    let path = request
-        .uri()
-        .path()
-        .strip_prefix("/static/")
-        .unwrap_or_default()
-        .to_owned();
-    app.web().serve_static(&path, request).await
-}
-
-/// The page that starts the web app, for its root.
-async fn handle_root(State(app): State<App>) -> Response {
-    app.web().serve_index().await
-}
-
 /// The answer to a path under the API prefix that is no route: with a trailing slash,
 /// misspelled, or of another version.
 async fn api_not_found() -> AppError {
@@ -892,58 +889,6 @@ fn without_refused_identity(accepted: &str) -> Option<String> {
         .map(str::trim)
         .collect();
     Some(kept.join(", "))
-}
-
-/// Everything that is neither an API route nor a static file is a route of the web app:
-/// the page that starts it is the answer to a `GET`.
-///
-/// A path that ends in a slash is redirected to the one without, so that every screen
-/// has one address. The root is the exception; with a base path it is the base path
-/// itself, with or without the slash.
-async fn handle_fallback(
-    State(app): State<App>,
-    method: Method,
-    uri: Uri,
-    OriginalUri(original): OriginalUri,
-) -> Response {
-    let path = uri.path();
-    if path == "/api" || path.starts_with("/api/") {
-        return AppError::not_found("route").into_response();
-    }
-    if path == "/static" || path.starts_with("/static/") {
-        return web::not_found().into_response();
-    }
-    if method != Method::GET && method != Method::HEAD {
-        let mut response = AppError::method_not_allowed().into_response();
-        response
-            .headers_mut()
-            .insert(ALLOW, HeaderValue::from_static("GET, HEAD"));
-        return response;
-    }
-    if path.len() > 1 && path.ends_with('/') {
-        return match without_trailing_slash(&original) {
-            Some(location) => Redirect::permanent(&location).into_response(),
-            None => web::not_found().into_response(),
-        };
-    }
-    app.web().serve_index().await
-}
-
-/// The address a path with a trailing slash is redirected to: the same path without
-/// the slash, with its query.
-///
-/// `None` for a path with an empty segment or a backslash, such as `//host/` and
-/// `/\host/`: without its last slash it would read as an address on another host.
-fn without_trailing_slash(uri: &Uri) -> Option<String> {
-    let path = uri.path().trim_end_matches('/');
-    // Browsers read a backslash as a slash, so `/\host` is `//host` to them.
-    if path.is_empty() || path.contains("//") || path.contains('\\') {
-        return None;
-    }
-    Some(match uri.query() {
-        Some(query) => format!("{path}?{query}"),
-        None => path.to_owned(),
-    })
 }
 
 pub mod connection;

@@ -18,7 +18,7 @@
 -->
 <script lang="ts">
   import type { Editor as TiptapEditor } from '@tiptap/core';
-  import { Selection } from '@tiptap/pm/state';
+  import { tick } from 'svelte';
 
   import type { DocNode } from '$lib/editor/schema.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -49,20 +49,54 @@
   /** Where the caret of the draft was, and whether it had the focus; read as the room's editor comes. */
   let caret = { at: 1, focused: false };
 
+  /** The editor now mounted (draft or room), to place the caret once it is editable. */
+  let active = $state.raw<TiptapEditor | undefined>(undefined);
   /** The caret was put in as the day was opened. */
   let placed = false;
 
   function place(editor: TiptapEditor): void {
-    if (!focus || placed) return;
+    if (!focus || placed || !editor.isEditable || editor.isDestroyed) return;
     placed = true;
     // At once, not a frame later as the editor's own command does: keys pressed
     // right after the day was opened would go nowhere until that frame.
-    const { state, view } = editor;
-    view.dispatch(state.tr.setSelection(Selection.atEnd(state.doc)).scrollIntoView());
-    view.focus();
+    if (editorChunk.selectEnd) editorChunk.selectEnd(editor);
+    else editor.chain().setTextSelection(editor.state.doc.content.size).scrollIntoView().run();
+    editor.view.focus();
   }
 
+  // An editor mounted read-only (while the room joins or a draft flushes) takes the
+  // caret once it becomes editable: after its own effect has set `editor.isEditable`.
+  $effect(() => {
+    const editor = active;
+    const ready = entry.room ? entry.room.writable : !entry.flushing;
+    if (!focus || placed || !editor || !ready) return;
+    if (editor.isEditable) {
+      place(editor);
+      return;
+    }
+    let cancelled = false;
+    void tick().then(() => {
+      if (cancelled || active !== editor) return;
+      // Do not steal focus if the reader moved into another field while the room was joining.
+      const focused = document.activeElement;
+      if (
+        focused instanceof HTMLElement &&
+        focused.isConnected &&
+        focused !== document.body &&
+        !editor.view.dom.contains(focused)
+      ) {
+        placed = true;
+        return;
+      }
+      place(editor);
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
   function watchDraft(editor: TiptapEditor): void {
+    active = editor;
     let going = false;
     const keep = (): void => {
       if (!going) caret = { at: editor.state.selection.from, focused: editor.isFocused };
@@ -74,12 +108,17 @@
     });
     editor.on('destroy', () => {
       going = true;
+      if (active === editor) active = undefined;
     });
     place(editor);
   }
 
   /** The room's editor is there: the draft goes into it, and the caret with it. */
   function adopt(editor: TiptapEditor): void {
+    active = editor;
+    editor.on('destroy', () => {
+      if (active === editor) active = undefined;
+    });
     const blank = (): void => {
       entry.noteBlank(editor.isEmpty);
     };

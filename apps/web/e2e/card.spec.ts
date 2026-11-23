@@ -1073,6 +1073,9 @@ test('an upload shows how far it is, in place and in the stack, and can be given
   page,
 }) => {
   await openTaskCard(page);
+  // Wait for the body room and editor to settle before slowing backend latency for the upload,
+  // or the slow-join status line can appear mid-click and shift the attachments section down.
+  await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
   const section = page.getByTestId('card-attachments');
   const uploads = section.locator('[data-upload]');
   const file = (name: string): { name: string; mimeType: string; buffer: Buffer } => ({

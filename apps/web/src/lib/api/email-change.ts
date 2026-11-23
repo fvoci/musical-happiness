@@ -30,4 +30,14 @@ export class ServerEmailChange implements EmailChange {
     const json: Schemas['ConfirmEmailChange'] = { token };
     await this.#http.request('/api/v1/email-change/confirm', {}, { method: 'POST', json });
   }
+
+  async revert(token: string): Promise<string | undefined> {
+    const json: Schemas['RevertEmailChange'] = { token };
+    const answer = await this.#http.request<Schemas['RevertedEmailChange']>(
+      '/api/v1/email-change/revert',
+      {},
+      { method: 'POST', json },
+    );
+    return answer.email ?? undefined;
+  }
 }

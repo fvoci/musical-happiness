@@ -84,24 +84,25 @@ impl Store {
 
     /// How much is in the handle's organization, which goes with its only member, and
     /// what kind it is of: the boards and the wikis of its workspaces in use (templates
-    /// not counted), and the files they hold.
+    /// not counted), and the files they hold. Returns `Ok(None)` if the organization
+    /// row is no longer there (for example, erased concurrently).
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NoOrganization`] if the handle names none,
-    /// [`StoreError::NotFound`] if its organization is not there, and
+    /// [`StoreError::Corrupt`] if a stored kind is unknown, and
     /// [`StoreError::Database`] if a query fails.
     pub async fn leaving_organization(
         &self,
         organization: OrganizationName,
-    ) -> Result<LeavingOrganization, StoreError> {
+    ) -> Result<Option<LeavingOrganization>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql("SELECT kind FROM organizations WHERE id = ");
             sql.bind(scope.org()?);
-            let kind = match scope.fetch_optional(sql).await? {
-                Some(row) => directory::org_kind(&row, 0)?,
-                None => return Err(StoreError::not_found("organization")),
+            let Some(row) = scope.fetch_optional(sql).await? else {
+                return Ok(None);
             };
+            let kind = directory::org_kind(&row, 0)?;
             let (mut boards, mut wikis, mut diaries, mut courses) = (0, 0, 0, 0);
             let mut sql = scope.sql(
                 "SELECT c.kind, CAST(COUNT(*) AS BIGINT) FROM containers AS c \
@@ -133,7 +134,7 @@ impl Store {
                 Some(row) => row.int(0)?,
                 None => 0,
             };
-            Ok(LeavingOrganization {
+            Ok(Some(LeavingOrganization {
                 id: organization.id,
                 kind,
                 name: organization.name,
@@ -142,7 +143,7 @@ impl Store {
                 diaries: Some(diaries),
                 courses: Some(courses),
                 files: Some(files),
-            })
+            }))
         })
         .await
     }
@@ -175,7 +176,8 @@ impl Store {
                     .push_bind(", delete_after = ", delete_after)
                     .push_bind(", update_at = ", now)
                     .push_bind(" WHERE delete_at = 0 AND id = ", Id(user_id))
-                    .push_bind(" AND password_hash = ", seen_password_hash);
+                    .push_bind(" AND password_hash = ", seen_password_hash)
+                    .push_bind(" AND password_locked_at = ", 0_i64);
                 if scope.execute(sql).await? == 0 {
                     return Ok(DeletionAsking::Changed);
                 }

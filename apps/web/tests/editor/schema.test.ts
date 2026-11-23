@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
+import { countTasks, plainText } from '$lib/editor/body-text.ts';
 import {
   BODY_VERSION,
-  countTasks,
   emptyDoc,
   isAllowedHref,
   isEmptyDoc,
@@ -11,7 +11,6 @@ import {
   MAX_LATEX,
   MAX_NODES,
   NODE_SPECS,
-  plainText,
   storedSize,
   toStoredDoc,
   validateDoc,
@@ -24,8 +23,8 @@ const paragraph = (...content: DocNode[]): DocNode => ({ type: 'paragraph', cont
 const doc = (...content: DocNode[]): DocNode => ({ type: 'doc', content });
 
 describe('the list of what a body may contain', () => {
-  it('has the nineteen nodes and five marks of version 4', () => {
-    expect(BODY_VERSION).toBe(4);
+  it('has the twenty-three nodes and five marks of version 5', () => {
+    expect(BODY_VERSION).toBe(5);
     expect(Object.keys(NODE_SPECS).sort()).toEqual([
       'blockMath',
       'blockquote',
@@ -43,6 +42,10 @@ describe('the list of what a body may contain', () => {
       'orderedList',
       'paragraph',
       'reference',
+      'table',
+      'tableCell',
+      'tableHeader',
+      'tableRow',
       'taskItem',
       'taskList',
       'text',
@@ -99,7 +102,7 @@ describe('validating a document', () => {
   });
 
   it.each<[string, unknown, string]>([
-    ['an unknown node', doc({ type: 'table' }), 'unknown node type "table"'],
+    ['an unknown node', doc({ type: 'video' }), 'unknown node type "video"'],
     [
       'an unknown mark',
       doc(paragraph(text('x', { type: 'underline' }))),

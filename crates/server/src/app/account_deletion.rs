@@ -42,12 +42,14 @@ impl App {
         // administrator: asked of a session that opens it, as its workspace is.
         if let Some(own_space) = standing.own_space {
             let takes = SessionTaken::of_space(&user.password_hash);
-            organizations.push(if takes.opened_by(session.into()) {
+            if takes.opened_by(session.into()) {
                 let within = self.in_organization(&own_space.id)?;
-                within.store().leaving_organization(own_space).await?
+                if let Some(counted) = within.store().leaving_organization(own_space).await? {
+                    organizations.push(counted);
+                }
             } else {
-                LeavingOrganization::closed(own_space, OrgKind::Personal)
-            });
+                organizations.push(LeavingOrganization::closed(own_space, OrgKind::Personal));
+            }
         }
         for organization in standing.alone_in {
             let within = match self.enter_org_as_admin(session, &organization.id).await {
@@ -55,10 +57,17 @@ impl App {
                 Err(error) if error.reason() == Some(Reason::SsoRequired) => None,
                 Err(error) => return Err(error),
             };
-            organizations.push(match within {
-                Some(within) => within.store().leaving_organization(organization).await?,
-                None => LeavingOrganization::closed(organization, OrgKind::Team),
-            });
+            match within {
+                Some(within) => {
+                    if let Some(counted) = within.store().leaving_organization(organization).await?
+                    {
+                        organizations.push(counted);
+                    }
+                }
+                None => {
+                    organizations.push(LeavingOrganization::closed(organization, OrgKind::Team));
+                }
+            }
         }
         Ok(AccountDeletion {
             requested_at: leaving.map(|leaving| leaving.requested_at),
@@ -134,7 +143,8 @@ impl App {
             DeletionAsking::Asked(leaving) => {
                 // What the account had open ends with its sessions.
                 self.ws().close_user(&user.id);
-                self.end_readers_of_own_space(&user.id).await;
+                let own_space_id = standing.own_space.as_ref().map(|space| space.id.as_str());
+                self.end_readers_of_own_space(&user.id, own_space_id).await;
                 tracing::info!(
                     user_id = %user.id,
                     delete_after = leaving.delete_after,
@@ -155,15 +165,14 @@ impl App {
     /// public link: the links open nothing while the account waits to be deleted. The
     /// asking stands whatever becomes of this; a connection that is missed is told
     /// nothing more once what it was let in by is checked again.
-    async fn end_readers_of_own_space(&self, user_id: &str) {
+    async fn end_readers_of_own_space(&self, user_id: &str, own_space_id: Option<&str>) {
+        let Some(own_space_id) = own_space_id else {
+            return;
+        };
         let ended = async {
-            let standing = self.store().account_deletion_standing(user_id).await?;
-            if let Some(own_space) = standing.own_space {
-                self.in_organization(&own_space.id)?
-                    .end_shared_readers(None)
-                    .await?;
-            }
-            Ok::<(), AppError>(())
+            self.in_organization(own_space_id)?
+                .end_shared_readers(None)
+                .await
         };
         if let Err(error) = ended.await {
             tracing::warn!(user_id, %error, "the readers of an own space's links were not ended");

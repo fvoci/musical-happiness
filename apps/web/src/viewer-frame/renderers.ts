@@ -27,4 +27,4 @@ export const RENDERERS: Record<FormatId, (engine: ArrayBuffer | null) => Promise
  * there (an archive unpacked and counted, a compound file's chains): the
  * frame hands it the bytes as they came.
  */
-export const CHECKED_IN_WORKER: ReadonlySet<FormatId> = new Set(['hwpx', 'hwp']);
+export const CHECKED_IN_WORKER: ReadonlySet<FormatId> = new Set(['pptx', 'hwpx', 'hwp']);

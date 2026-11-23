@@ -1,6 +1,6 @@
 # 서버의 설정
 
-적은 때: 2026-11-11 05:05 KST, 고친 때: 2026-11-19 02:35 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
+적은 때: 2026-11-11 05:05 KST, 고친 때: 2026-11-23 13:25 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
 
 키를 더하거나 바꾸면 같은 커밋에서 이 문서를 고친다. 이 문서는 코드와 함께 검사된다. `config.rs`의 테스트 `the_configuration_document_lists_every_key`가 다음을 견준다.
 
@@ -30,7 +30,7 @@
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
-| `server_url` | `FVOCI_SERVER_URL` | 문자열 | `"http://localhost:8000"` | 사용자가 서버에 닿는 주소다. 경로가 있으면 웹앱이 그 경로를 자기 주소의 기준으로 쓴다. 서버가 실제로 그 경로 아래에서 답하게 하는 것은 `FVOCI_BASE_PATH`(아래 "그 밖의 환경 변수")이므로 둘을 같게 준다. 경로를 떼어 넘기는 프록시 뒤라면 그 변수는 비워 둔다. 바꾸는 요청과 WebSocket이 받아들이는 출처(`Origin`)가 이 주소에서 나온다. `https://`로 시작하면 세션 쿠키가 `Secure`가 되고 이름이 `__Host-fvoci_session`이 된다. 출처로 읽을 수 없는 주소면 시작하지 않는다 |
+| `server_url` | `FVOCI_SERVER_URL` | 문자열 | `"http://localhost:8000"` | 사용자가 서버에 닿는 주소다. 경로가 있으면 웹앱이 그 경로를 자기 주소의 기준으로 쓴다. 서버가 실제로 그 경로 아래에서 답하게 하는 것은 `FVOCI_BASE_PATH`(아래 "그 밖의 환경 변수")이므로 둘을 같게 준다. 경로를 떼어 넘기는 프록시 뒤라면 그 변수는 비워 둔다. 출처 루트에서만 읽히는 `/robots.txt`(`Disallow: /`)와 `/.well-known/security.txt`는 `FVOCI_BASE_PATH`가 있어도 언제나 서버의 출처 루트에서 답한다(다른 앱과 한 출처를 나누는 프록시 뒤라면 프록시가 출처 루트를 맡고, fvoci가 내주는 페이지의 `X-Robots-Tag: noindex, nofollow`가 색인을 막는다). 바꾸는 요청과 WebSocket이 받아들이는 출처(`Origin`)가 이 주소에서 나온다. `https://`로 시작하면 세션 쿠키가 `Secure`가 되고 이름이 `__Host-fvoci_session`이 된다. 출처로 읽을 수 없는 주소면 시작하지 않는다 |
 | `port` | `FVOCI_PORT` | 정수(1–65535) | `8000` | 들을 포트. 0이면 시작하지 않는다 |
 | `listen_loopback_only` | `FVOCI_LISTEN_LOOPBACK_ONLY` | 참·거짓 | `false` | 참이면 루프백(`localhost`)에서만 듣는다. 거짓이면 모든 인터페이스(IPv6, 안 되면 IPv4)에서 듣는다 |
 | `serve_https` | `FVOCI_SERVE_HTTPS` | 참·거짓 | `false` | 참이면 서버가 직접 HTTPS를 연다. 인증서는 작업 디렉터리의 `./cert/cert.pem`과 `./cert/key.pem`이다 |
@@ -40,6 +40,7 @@
 | `public_link_connections_per_container` | `FVOCI_PUBLIC_LINK_CONNECTIONS_PER_CONTAINER` | 정수(1 이상) | `200` | 공개 링크로 한 보드나 위키를 함께 읽는 연결의 수. 링크의 읽기 토큰으로 블록을 따라가거나(`SUBSCRIBE_BLOCKS`) 그 토큰으로 방문을 알리는(`SET_PRESENCE`) 연결을 하나로 센다(로그인한 사람의 연결도 링크로 읽으면 센다). 다 찼으면 새 연결의 구독은 받지 않고 `UNSUBSCRIBED_BLOCKS`(`reason` `public link connections full`)로 알리며, 방문은 받지 않아 보드의 "익명 n명"에 세지 않는다. 이미 읽는 연결과 보드의 구성원이 보통으로 여는 연결에는 닿지 않는다. 0은 시작 오류다 |
 | `public_link_connections_per_address` | `FVOCI_PUBLIC_LINK_CONNECTIONS_PER_ADDRESS` | 정수(1 이상) | `10` | 위의 연결 가운데 한 주소에서 오는 것의 수. IPv6 주소는 /64로 센다. 주소는 요청 로그와 로그인 제한이 쓰는 것이다(`trusted_proxies` 뒤면 `X-Forwarded-For`). 넘으면 위와 같다. 0은 시작 오류다 |
 | `compress_responses` | `FVOCI_COMPRESS_RESPONSES` | 참·거짓 | `true` | 참이면 API의 JSON 응답을 클라이언트의 `Accept-Encoding`에 따라 zstd, brotli, gzip으로 압축한다(32바이트 미만과 오류 응답은 그대로). 압축하는 프록시나 CDN 뒤라면 거짓으로 둔다. 내보내는 아카이브와 파일은 이것과 관계없이 압축하지 않는다(길이를 그대로 보낸다). 웹앱의 정적 파일은 빌드가 만든 `.zst`, `.br`, `.gz`를 고르므로 이것과 관계없다 |
+| `security_contact` | `FVOCI_SECURITY_CONTACT` | 문자열 | `""` | `GET /.well-known/security.txt`(RFC 9116)의 `Contact`에 실을 보안 제보 연락처(`mailto:security@example.com`, `https://example.com/security`, `tel:+1-555-0100` 꼴). 비어 있으면 `/.well-known/security.txt`는 404다. 값이 있으면 `Expires`는 응답 시각 기준 180일 뒤(UTC RFC 3339)로 내고, `server_url`이 `https://`이면 출처 기준 `Canonical`을 함께 낸다. 옛 경로 `/security.txt`는 언제나 404다. 위 세 스킴의 URI가 아니거나 공백·제어 문자가 있으면 시작하지 않는다 |
 
 ## 키: 데이터베이스
 
@@ -53,7 +54,7 @@
 | `server_lock_wait_seconds` | `FVOCI_SERVER_LOCK_WAIT_SECONDS` | 정수(0 이상) | `30` | 시작할 때 다른 프로세스가 쥔 서버 잠금(위)을 기다리는 시간(초). 지나면 시작을 거절한다. 0이면 기다리지 않는다. 재시작에서 앞선 서버가 내려가는 시간보다 길게 둔다 |
 | `org_creation` | `FVOCI_ORG_CREATION` | 문자열 | `"first_user_only"` | 서버가 조직을 하나만 두는가(`first_user_only`), 여럿을 받는가(`open`). `open`은 `database_kind`가 `sqlite`이면 시작하지 않는다(SQLite는 조직 하나만 담는다). PostgreSQL에서는 조직의 행을 행 단위 보안 정책이 갈라 둔다. 서버가 붙는 DB 역할이 슈퍼유저이거나 `BYPASSRLS`이면 그 정책이 걸리지 않는다: `open`이면 DB에 아무것도 만들기 전에 시작을 거부하고, `first_user_only`면 경고를 남기고 시작한다. 그 밖의 값은 시작 오류다. 가입(`register`)이 이 값을 따른다: `first_user_only`에서는 첫 사용자만 가입해 조직을 시작하고 그 뒤의 사람은 초대 링크로만 들어온다(403 `invitation_required`). `open`에서는 가입하는 사람마다 새 조직을 시작한다 |
 
-`docker/compose.yaml`로 띄운 설치의 백업과 갱신은 그 곁의 스크립트가 한다(쓰는 법은 그 머리 주석). 세 스크립트는 compose가 그 파일들과 `.env`를 거절하거나 경고하면(값의 `$`는 compose에게 변수이고, 서비스는 그것을 뺀 값을 받는다: 받는 값을 지키려면 `$`와 그 뒤 이름을 지우고, `$`를 주려면 `$$`로 쓰거나 값을 작은따옴표로 감싼다. 그렇게 바뀐 비밀 키나 비밀번호는 그것으로 봉한 것을 열지 못한다) 아무것도 바꾸지 않고 멈추고, compose의 말을 그것이 따온 값 없이 보인다(아는 말은 줄 번호와 그 말로, 나머지는 줄 수로). `docker/backup.sh`는 DB를 `pg_dump -Fc`로, 파일이 볼륨에 있으면 그 파일을, 그리고 `.env`와 compose 파일의 사본을 주인만 읽는 폴더(700, 파일은 600) 하나에 뜨고, `--keep-days`(기본 14)보다 오래된 그 프로젝트의 백업을 지운다. 파일이 S3에 있으면 DB만 뜨고 그렇게 말한다(버킷은 운영자가 맡는다). `docker/restore.sh`는 빈 DB와 빈 파일 볼륨에만 되살린다: fvoci의 컨테이너가 있거나, 표가 하나라도 있거나, 파일이 있거나, compose가 fvoci에 줄 `FVOCI_SECRET_KEY`가 백업의 `.env`를 compose가 읽은 것과 다르면 아무것도 바꾸지 않고 거절한다. 되살린 뒤 `up`이 스키마를 올리고, 관리 소켓의 `search/reindex`로 검색 색인을 다시 만들고 `files/reconcile`로 기록과 파일을 대조한다. `docker/update.sh`는 새 compose 파일과 `.env`를 먼저 검사해 모자란 줄을 이름하고 아무것도 멈추지 않은 채 끝낸다. 지나면 `pull`, 백업, fvoci 멈춤, `up`(마이그레이션), 준비와 ping의 커밋 확인 순서이고, 내려가 있던 시간과 스키마의 판을 찍고, 그 전에 돌던 이미지에 `fvoci-server:before-update-<프로젝트>` 태그를 붙여 둔다. 내리는 마이그레이션은 없다: 스키마가 바뀐 뒤 되돌리는 길은 백업에서 되살리는 것뿐이다.
+`docker/compose.yaml`로 띄운 설치의 백업과 갱신은 그 곁의 스크립트가 한다(쓰는 법은 그 머리 주석). 세 스크립트는 compose가 그 파일들과 `.env`를 거절하거나 경고하면(값의 `$`는 compose에게 변수이고, 서비스는 그것을 뺀 값을 받는다: 받는 값을 지키려면 `$`와 그 뒤 이름을 지우고, `$`를 주려면 `$$`로 쓰거나 값을 작은따옴표로 감싼다. 그렇게 바뀐 비밀 키나 비밀번호는 그것으로 봉한 것을 열지 못한다) 아무것도 바꾸지 않고 멈추고, compose의 말을 그것이 따온 값 없이 보인다(아는 말은 줄 번호와 그 말로, 나머지는 줄 수로). `docker/backup.sh`는 DB를 `pg_dump -Fc`로, 파일이 볼륨에 있으면 그 파일을, 그리고 `.env`와 compose 파일의 사본을 주인만 읽는 폴더(700, 파일은 600) 하나에 뜨고, `--keep-days`(기본 14)보다 오래된 그 프로젝트의 백업을 지운다. 파일이 S3에 있으면 DB만 뜨고 그렇게 말한다(버킷은 운영자가 맡는다). `docker/restore.sh`는 빈 DB와 빈 파일 볼륨에만 되살린다: fvoci의 컨테이너가 있거나, 표가 하나라도 있거나, 파일이 있거나, 백업의 `made`가 다른 프로젝트(`--other-project`로 허용)·파일 저장 방식을 가리키거나, `FVOCI_SECRET_KEY`가 없거나(`--key-not-checked`로 허용) 백업과 다르면 아무것도 바꾸지 않고 거절한다. 되살린 뒤 `up`이 스키마를 올리고, 관리 소켓의 `search/reindex`로 검색 색인을 다시 만들고 `files/reconcile`로 기록과 파일을 대조한다. `docker/update.sh`는 새 compose 파일과 `.env`를 먼저 검사해 모자란 줄을 이름하고 아무것도 멈추지 않은 채 끝낸다. 지나면 `pull`, 백업, fvoci 멈춤, `up`(마이그레이션), 준비와 ping의 커밋 확인 순서이고, 내려가 있던 시간과 스키마의 판을 찍고, 그 전에 돌던 이미지에 `fvoci-server:before-update-<프로젝트>-<UTC 시각>` 태그를 붙여 둔다. 내리는 마이그레이션은 없다: 스키마가 바뀐 뒤 되돌리는 길은 백업에서 되살리는 것뿐이다.
 
 ## 키: 파일 저장소
 

@@ -190,9 +190,20 @@ pub(crate) struct Sql {
     params: Vec<Param>,
     /// The first bound value that had to be an identifier and was not.
     invalid_id: Option<String>,
+    /// Set by [`Self::changing_no_access`].
+    changes_no_access: bool,
 }
 
 impl Sql {
+    /// Marks a statement that writes only what no check of access reads, such as the
+    /// number the next card of a board gets: it leaves the revision of what is
+    /// visible ([`crate::visibility`]), so the permissions read before it stay cached.
+    /// A statement that writes anything else is not marked.
+    pub(crate) fn changing_no_access(&mut self) -> &mut Self {
+        self.changes_no_access = true;
+        self
+    }
+
     /// The statement that asks the database how it would answer this one, which is a
     /// query: its plan, a line a row. PostgreSQL runs the query to say what it read.
     #[cfg(any(test, feature = "test-util"))]
@@ -287,6 +298,19 @@ pub(crate) struct Scope<'c> {
     /// Whether the store notes changes for the search server
     /// ([`crate::Store::keep_search_outbox`]); `None` for a scope that notes none.
     search_outbox: Option<&'c AtomicBool>,
+    /// Whether the writes of blocks of this scope note whom to tell
+    /// ([`crate::Store::telling_nobody`]).
+    noting: Noting,
+}
+
+/// Whom the writes of blocks of a handle, and of its scopes, note to be told.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Noting {
+    /// Whom a write newly names: those its body mentions, those a card is given to.
+    #[default]
+    Named,
+    /// Nobody: what is written is no person's own words.
+    Nobody,
 }
 
 /// How many versions the store keeps, as it is set when a scope begins. Two counts in
@@ -340,7 +364,18 @@ impl<'c> Scope<'c> {
             visibility: None,
             versions_kept,
             search_outbox: None,
+            noting: Noting::Named,
         }
+    }
+
+    /// The same scope, whose writes of blocks note whom to tell as `noting` says.
+    pub(crate) fn noting(self, noting: Noting) -> Self {
+        Self { noting, ..self }
+    }
+
+    /// Whether the writes of blocks of this scope note nothing to tell anybody.
+    pub(crate) fn tells_nobody(&self) -> bool {
+        self.noting == Noting::Nobody
     }
 
     /// The same scope, which notes changes for the search server while `kept` says so.
@@ -373,9 +408,11 @@ impl<'c> Scope<'c> {
     }
 
     /// Notes that a statement that may write starts.
-    fn starts_writing(&mut self, text: &str) {
-        if let Some(visibility) = self.visibility {
-            visibility.statement(text);
+    fn starts_writing(&mut self, sql: &Sql) {
+        if let Some(visibility) = self.visibility
+            && !sql.changes_no_access
+        {
+            visibility.statement(&sql.text);
         }
         self.wrote = true;
         if let Some(writes) = self.writes {
@@ -530,6 +567,7 @@ impl<'c> Scope<'c> {
             text: text.to_owned(),
             params: Vec::new(),
             invalid_id: None,
+            changes_no_access: false,
         }
     }
 
@@ -538,7 +576,7 @@ impl<'c> Scope<'c> {
     /// A value bound as an identifier that is not one matches no row.
     pub(crate) async fn fetch_all(&mut self, sql: Sql) -> Result<Vec<Row>, StoreError> {
         if !is_plain_select(&sql.text) {
-            self.starts_writing(&sql.text);
+            self.starts_writing(&sql);
         }
         // The text is built from literals in this crate; every value is a bound
         // parameter.
@@ -629,7 +667,7 @@ impl<'c> Scope<'c> {
         if let Some(invalid) = sql.invalid_id {
             return Err(StoreError::InvalidId(invalid));
         }
-        self.starts_writing(&sql.text);
+        self.starts_writing(&sql);
         let text = AssertSqlSafe(sql.text);
         match &mut self.conn {
             ConnRef::Sqlite(conn) => Ok(bind_params!(sqlx::query(text), sql.params, sqlite_id)

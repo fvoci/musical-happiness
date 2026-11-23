@@ -43,8 +43,9 @@ struct PreMigration {
     diary_id: String,
 }
 
-/// Seeds a database at migration 60 with an organization of people (board, wiki,
-/// template, trashed board, blocks, sharing) and a personal space (diary + entry).
+/// Seeds a database before migration 61 (at migration 59; 60 is unused) with an
+/// organization of people (board, wiki, template, trashed board, blocks, sharing) and a
+/// personal space (diary + entry).
 async fn database_before_courses() -> PreMigration {
     let database = common::empty_database().await;
     fvoci_store::testing::migrate_to_before_courses(&database).await;

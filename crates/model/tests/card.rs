@@ -58,6 +58,7 @@ fn sample_block() -> Block {
         update_at: NOW,
         delete_at: 0,
         container_id: board_id,
+        number: Some(7),
         edited_at: 0,
     }
 }
@@ -70,6 +71,12 @@ fn card_from_block_good_block() {
     let card = Card::from_block(&block, NOW).expect("the block is a well-formed card");
 
     assert_eq!(card.id, block.id);
+    assert_eq!(card.number, Some(7), "the card has the block's number");
+    assert_eq!(
+        Block::from(card.clone()).number,
+        Some(7),
+        "and its block the card's"
+    );
     assert!(
         serde_json::to_value(&card).expect("a card serializes")["contentOrder"].is_null(),
         "a card's content is its body: the stored contentOrder is not read"
@@ -411,4 +418,32 @@ fn a_preview_is_cut_between_characters() {
         "a".repeat(199),
         "no space at the end"
     );
+}
+
+/// A card has a number on its board, unless it is a template of the board's cards; no
+/// other block has one.
+#[test]
+fn only_a_card_that_is_no_template_takes_a_number() {
+    let with = |block_type: BlockType, is_template: Value| {
+        let mut block = Block {
+            block_type,
+            ..sample_block()
+        };
+        block.fields.insert("isTemplate".to_owned(), is_template);
+        block.takes_number()
+    };
+    assert!(with(BlockType::Card, json!(false)));
+    assert!(with(BlockType::Card, Value::Null), "null is no template");
+    assert!(!with(BlockType::Card, json!(true)), "a template");
+    let mut without_field = sample_block();
+    without_field.fields.remove("isTemplate");
+    assert!(without_field.takes_number(), "a card without the field");
+    for other in [
+        BlockType::View,
+        BlockType::Comment,
+        BlockType::Attachment,
+        BlockType::Page,
+    ] {
+        assert!(!with(other.clone(), json!(false)), "{other}");
+    }
 }

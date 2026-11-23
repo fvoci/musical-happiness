@@ -484,6 +484,12 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     // open: asked below.
     "getMyMemberships",
     "getMyWorkspaces",
+    // What the account was told, in every organization its session opens: those of
+    // one it does not open are left out of the list and of the count, and are not
+    // marked as read
+    // (`notifications_isolation::a_session_its_organization_does_not_take_reaches_nothing_it_was_told_there`).
+    "getNotifications",
+    "getUnreadNotifications",
     "getSharedBlocks",
     "getSharedContainer",
     "getSharedCards",
@@ -504,6 +510,10 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "ping",
     // What a link leads into is shown to whoever holds it, signed in or not.
     "previewInvitation",
+    // Marking as read what the account was told, as listing it (`getNotifications`):
+    // nothing of an organization the session does not open is marked.
+    "readNotification",
+    "readNotifications",
     "ready",
     "register",
     "requestAccountDeletion",
@@ -511,6 +521,9 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "requestEmailVerification",
     "requestPasswordReset",
     "resendEmailChange",
+    // Giving an account the address it had back asks for no session: whoever holds the
+    // link mailed to that address uses it (`email_revert`).
+    "revertEmailChange",
     // The first password of an account that has none is the account's own, as
     // changing one is.
     "setPassword",

@@ -47,11 +47,12 @@ pub(crate) mod tag {
     pub(crate) const FILES: &str = "files";
     pub(crate) const ARCHIVES: &str = "archives";
     pub(crate) const SUBSCRIPTIONS: &str = "subscriptions";
+    pub(crate) const NOTIFICATIONS: &str = "notifications";
     pub(crate) const ORGANIZATION: &str = "organization";
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 18] = [
+const TAGS: [(&str, &str); 19] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -122,6 +123,10 @@ const TAGS: [(&str, &str); 18] = [
     (tag::FILES, "The files of a board."),
     (tag::ARCHIVES, "Exporting boards and importing them."),
     (tag::SUBSCRIPTIONS, "Subscriptions to blocks."),
+    (
+        tag::NOTIFICATIONS,
+        "What the user was told inside the application: mentions and cards given to them.",
+    ),
     (
         tag::ORGANIZATION,
         "What an organization's administrators manage: the organization, its members' \
@@ -333,7 +338,8 @@ const SCHEMAS: &[(&str, Members)] = &[
         "EmailVerified",
         Members::AllBut(&["containerId", "containerKind"]),
     ),
-    ("Block", Members::AllBut(&["editedAt"])),
+    ("RevertedEmailChange", Members::AllBut(&["email"])),
+    ("Block", Members::AllBut(&["editedAt", "number"])),
     ("Body", Members::AsWritten),
     ("Container", Members::All),
     (
@@ -387,13 +393,16 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("OidcFormerProvider", Members::All),
     ("OidcFormerProviderEnd", Members::All),
     ("OidcPendingProvider", Members::All),
+    ("Notification", Members::All),
+    ("NotificationKind", Members::AsWritten),
+    ("NotificationSubject", Members::All),
     (
         "Problem",
         Members::Only(&["type", "title", "status", "detail"]),
     ),
     ("Readiness", Members::All),
     ("ReadinessCheck", Members::AsWritten),
-    ("SearchHit", Members::All),
+    ("SearchHit", Members::AllBut(&["number"])),
     ("SearchKind", Members::AsWritten),
     ("ServerMetadata", Members::AsWritten),
     ("Sharing", Members::AllBut(&["token", "updateAt"])),
@@ -419,6 +428,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Me", Members::AllBut(&["pendingEmail"])),
     ("PersonName", Members::All),
     ("UserSettings", Members::AsWritten),
+    ("UnreadNotifications", Members::All),
     ("UserWorkspace", Members::All),
     ("WorkspaceMember", Members::All),
     ("WorkspaceRole", Members::AsWritten),
@@ -426,7 +436,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("OrgKind", Members::AsWritten),
     ("Page", Members::All),
     ("PageNode", Members::All),
-    ("LinkedBlock", Members::All),
+    ("LinkedBlock", Members::AllBut(&["number"])),
     ("WorkspaceRoleChange", Members::All),
     // What a request carries.
     ("AcceptInvitation", Members::Only(&["token"])),
@@ -449,6 +459,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("FinishPasswordReset", Members::All),
     ("CompleteEmailVerification", Members::Only(&["token"])),
     ("ConfirmEmailChange", Members::All),
+    ("RevertEmailChange", Members::All),
     ("RequestEmailChange", Members::Only(&["email", "password"])),
     ("ResendEmailChange", Members::Only(&[])),
     ("RequestEmailVerification", Members::Only(&[])),

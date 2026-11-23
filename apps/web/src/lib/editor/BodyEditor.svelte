@@ -47,6 +47,7 @@
   import { emptyDoc, isEmptyDoc, toStoredDoc, validateDoc, type DocNode } from './schema.ts';
   import { suggestionList } from './suggestion-list.ts';
   import { SlashMenu } from './slash-menu.ts';
+  import { tableEntries } from './table-menu.ts';
   import { BodyUpload, fromUpload } from './uploads.ts';
   import { SaveKey } from './save-key.ts';
 
@@ -164,9 +165,11 @@
   const reference: ReferenceOptions = {
     drawing: () => references,
     search: (query) => references?.search(query) ?? [],
+    numbered: (query) => references?.numbered?.(query) ?? [],
     named: (address) => references?.named(address),
     seen: (id) => references?.seen(id) ?? Promise.resolve(false),
     render: suggestionList({ kind: 'reference', label: m.editor_suggest_references }),
+    renderNumbered: suggestionList({ kind: 'card-number', label: m.editor_suggest_board_cards }),
   };
 
   /**
@@ -177,12 +180,12 @@
     upload: () => uploadFile,
     uploadingLabel: (kind) =>
       kind === 'file' ? m.editor_file_uploading() : m.editor_image_uploading(),
-    onProgress: (_pending, ended, destroyed) => {
+    onProgress: (ended, destroyed) => {
       if (destroyed) {
-        if (ended?.outcome === 'gone') onUploadDropped?.(ended.kind);
+        if (ended.outcome === 'gone') onUploadDropped?.(ended.kind);
         return;
       }
-      if (!ended || (ended.outcome !== 'gone' && ended.outcome !== 'refused')) return;
+      if (ended.outcome !== 'gone' && ended.outcome !== 'refused') return;
       // A formula's loss, said first, is not replaced.
       if (!(said && !said.upload)) {
         said = { text: UPLOAD_SAID[ended.kind][ended.outcome](), upload: true };
@@ -190,19 +193,21 @@
     },
   });
 
-  /** The slash menu: only where files can be added, for a file is all it offers for now. */
+  /** The slash menu: a file where files can be added, and tables (table-menu.ts). */
   const slashMenu = SlashMenu.configure({
-    entries: () =>
-      uploadFile
+    entries: (current) => [
+      ...(uploadFile
         ? [
             {
               value: 'file',
               label: m.editor_slash_file(),
               words: ['file', 'attachment', 'upload', '파일', '첨부'],
-              run: (current) => current.storage.bodyUpload.choose(),
+              run: (chosen: Editor) => chosen.storage.bodyUpload.choose(),
             },
           ]
-        : [],
+        : []),
+      ...tableEntries(current),
+    ],
     render: suggestionList({ kind: 'slash', label: m.editor_slash_label }),
   });
 

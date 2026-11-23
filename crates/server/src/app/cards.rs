@@ -157,6 +157,19 @@ impl App {
         self.card_of_block(&block).await
     }
 
+    /// Returns the block of the card of the board that has `number`, if there is one.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the card cannot be looked for.
+    pub async fn card_by_number(
+        &self,
+        board_id: &str,
+        number: u32,
+    ) -> Result<Option<Block>, AppError> {
+        Ok(self.store().get_card_by_number(board_id, number).await?)
+    }
+
     /// Returns the card of a card block that was read before, with when its last
     /// comment was posted.
     ///

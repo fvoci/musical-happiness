@@ -786,3 +786,44 @@ fn the_days_a_former_provider_is_kept_are_read() {
     );
     assert!(negative.is_err(), "a negative number of days is refused");
 }
+
+#[test]
+fn security_contact_is_read_from_file_and_environment_and_checked() {
+    let default = Configuration::parse("{}", no_env).expect("default");
+    assert_eq!(default.security_contact, "");
+    assert_eq!(default.security_contact().expect("valid"), None);
+
+    let from_file = Configuration::parse(
+        r#"{"security_contact": "mailto:security@example.com"}"#,
+        no_env,
+    )
+    .expect("from file");
+    assert_eq!(
+        from_file
+            .security_contact()
+            .expect("valid")
+            .expect("present")
+            .as_str(),
+        "mailto:security@example.com"
+    );
+    from_file.check().expect("accepted");
+
+    let env = |name: &str| {
+        (name == "FVOCI_SECURITY_CONTACT").then(|| "https://example.org/security".to_owned())
+    };
+    let from_env = Configuration::parse(
+        r#"{"security_contact": "mailto:security@example.com"}"#,
+        env,
+    )
+    .expect("from env");
+    assert_eq!(from_env.security_contact, "https://example.org/security");
+    from_env.check().expect("accepted");
+
+    let invalid = Configuration::parse(r#"{"security_contact": "security@example.com"}"#, no_env)
+        .expect("parsed as string");
+    let error = invalid.check().expect_err("bare email must be refused");
+    assert!(
+        error.to_string().contains("security_contact"),
+        "error names the key: {error}"
+    );
+}

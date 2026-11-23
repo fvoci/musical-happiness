@@ -351,6 +351,7 @@
     <ColumnTabs
       {tabs}
       current={paging.current}
+      visible={pane.measured && !pane.columns}
       onShow={(at: number) => {
         paging.show(at);
       }}
@@ -394,15 +395,17 @@
       onscroll={paging.onScroll}
       {@attach attachDrag}
     >
-      {#each columnEntries as entry (entry.kind === 'gap' ? ' gap' : entry.group.option.id)}
+      {#each columnEntries as entry, drawnAt (entry.kind === 'gap' ? ' gap' : entry.group.option.id)}
         {#if entry.kind === 'column'}
           {@const id = columnIdOf(entry.group.option.id)}
           <KanbanColumn
             {board}
+            viewId={view.id}
             {groupBy}
             group={entry.group}
             name={nameOf(entry.group)}
             panelId="{uid}-panel-{entry.at}"
+            {drawnAt}
             {face}
             {editable}
             {settable}

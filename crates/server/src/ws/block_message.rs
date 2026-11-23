@@ -102,6 +102,7 @@ fn without_body(block: &Block) -> Block {
         delete_at,
         container_id,
         edited_at,
+        number,
     } = block;
     Block {
         id: id.clone(),
@@ -118,5 +119,6 @@ fn without_body(block: &Block) -> Block {
         delete_at: *delete_at,
         container_id: container_id.clone(),
         edited_at: *edited_at,
+        number: *number,
     }
 }

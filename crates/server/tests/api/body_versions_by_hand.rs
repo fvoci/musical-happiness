@@ -319,3 +319,47 @@ async fn a_pages_body_is_kept_now_by_who_edits_the_wiki() {
     th.client.post_empty(&keep).await.check_not_found();
     th.teardown().await;
 }
+
+/// If a card with unwritten collaborative updates is deleted before `keep_by_hand` or
+/// `write_whole` writes those updates back, the missing card surfaces as 404 `NotFound`
+/// rather than 503 `document_unavailable`.
+#[tokio::test]
+async fn deleting_a_card_with_unwritten_updates_surfaces_not_found_not_unavailable() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    collab.leave_due_writes();
+    let (editor, epoch) = joined(collab, &e.app, &e.card_id, 101).await;
+    typed(&e, &editor, epoch, &e.user1, "unsaved").await;
+
+    // Delete the card directly in the store while its collab document still holds
+    // unwritten updates.
+    e.app
+        .store()
+        .delete_block(&e.card_id, &e.user1)
+        .await
+        .expect("card deleted");
+
+    let error = collab
+        .keep_by_hand(&e.app, &e.card_id)
+        .await
+        .expect_err("deleted card cannot keep a version");
+    assert!(
+        error.is_not_found(),
+        "expected 404 NotFound, got {:?} (reason {:?}): {error}",
+        error.kind(),
+        error.reason()
+    );
+
+    let write_error = collab
+        .write_whole(&e.app, vec![e.card_id.clone()], |_app| async { Ok(()) })
+        .await
+        .expect_err("deleted card cannot be written whole");
+    assert!(
+        write_error.is_not_found(),
+        "expected 404 NotFound from write_whole, got {:?} (reason {:?}): {write_error}",
+        write_error.kind(),
+        write_error.reason()
+    );
+    th.teardown().await;
+}

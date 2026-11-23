@@ -1218,6 +1218,10 @@ async fn the_links_of_a_space_are_closed_while_its_account_waits() {
         "a reader of the link is told of the card: {told:?}"
     );
 
+    let before_deletion = (
+        ts.app.store().visibility_version().await,
+        space.app.store().visibility_version().await,
+    );
     space
         .owner
         .post(
@@ -1226,6 +1230,18 @@ async fn the_links_of_a_space_are_closed_while_its_account_waits() {
         )
         .await
         .check_ok();
+    let while_waiting = (
+        ts.app.store().visibility_version().await,
+        space.app.store().visibility_version().await,
+    );
+    assert_eq!(
+        while_waiting.0, before_deletion.0,
+        "requesting deletion does not move the organization's revision"
+    );
+    assert_ne!(
+        while_waiting.1, before_deletion.1,
+        "requesting deletion moves the own space's revision"
+    );
     let absent = ts.anonymous().get(&nothing).await;
     for path in [&link, &cards] {
         let closed: ApiResponse = ts.anonymous().get(path).await;
@@ -1253,6 +1269,18 @@ async fn the_links_of_a_space_are_closed_while_its_account_waits() {
     let signed_in = back.login("space-owner", PASSWORD).await;
     assert!(signed_in.status.is_success(), "{}", signed_in.text());
     back.delete("/users/me/deletion").await.check_no_content();
+    let after_cancel = (
+        ts.app.store().visibility_version().await,
+        space.app.store().visibility_version().await,
+    );
+    assert_eq!(
+        after_cancel.0, while_waiting.0,
+        "cancelling deletion does not move the organization's revision"
+    );
+    assert_ne!(
+        after_cancel.1, while_waiting.1,
+        "cancelling deletion moves the own space's revision again"
+    );
     ts.anonymous().get(&link).await.check_ok();
     ts.anonymous().get(&cards).await.check_ok();
     ts.teardown().await;

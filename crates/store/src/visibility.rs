@@ -65,7 +65,11 @@ impl Count {
     }
 
     fn end(&mut self, unsettled_until: Option<Instant>) {
-        self.writers -= 1;
+        self.end_many(1, unsettled_until);
+    }
+
+    fn end_many(&mut self, count: usize, unsettled_until: Option<Instant>) {
+        self.writers = self.writers.saturating_sub(count);
         self.revision = self.revision.wrapping_add(1);
         if unsettled_until.is_some() {
             self.unsettled_until = unsettled_until;
@@ -159,24 +163,62 @@ impl Visibility {
         )
     }
 
+    /// The count of an organization, if already created and its map lock is unpoisoned.
+    fn try_org(&self, org: Uuid) -> Option<Guarded> {
+        self.orgs.lock().ok()?.get(&org).map(Arc::clone)
+    }
+
     pub(crate) fn writing(&self, tenant: Tenant) -> Writing<'_> {
         Writing {
             visibility: self,
             moves: tenant.into(),
             touched: AtomicBool::new(false),
-            named: Mutex::default(),
+            started: Mutex::default(),
             finished: AtomicBool::new(false),
         }
     }
 
-    /// Applies `change` to what a write moves, each count under its own lock, one
-    /// after the other: a reader reads them in the same order.
-    fn change(&self, moves: Moves, change: impl Fn(&mut Count)) {
+    /// Starts a writer on the primary count (`org` or `shared`).
+    fn start_primary(&self, moves: Moves) {
         match moves {
-            Moves::Org(org) => change(&mut lock(&self.org(org))),
-            Moves::All => change(&mut self.shared.write().expect("visibility shared lock")),
+            Moves::Org(org) => lock(&self.org(org)).start(),
+            Moves::All => self.shared.write().expect("visibility shared lock").start(),
         }
-        change(&mut lock(&self.every));
+    }
+
+    /// Starts a writer on `every`.
+    fn start_every(&self) {
+        lock(&self.every).start();
+    }
+
+    /// Ends a writer on the primary count if its lock is unpoisoned (for `Drop`, which
+    /// must never panic during unwinding).
+    fn try_end_primary(&self, moves: Moves, unsettled: Option<Instant>) {
+        match moves {
+            Moves::Org(org) => {
+                if let Some(guarded) = self.try_org(org)
+                    && let Ok(mut count) = guarded.lock()
+                {
+                    count.end(unsettled);
+                }
+            }
+            Moves::All => {
+                if let Ok(mut count) = self.shared.write() {
+                    count.end(unsettled);
+                }
+            }
+        }
+    }
+
+    /// Ends `writers` increments on `every` if its lock is unpoisoned.
+    fn try_end_every(&self, writers: usize, unsettled: Option<Instant>) {
+        if let Ok(mut count) = self.every.lock() {
+            count.end_many(writers, unsettled);
+        }
+    }
+
+    /// Wakes readers waiting on active writers.
+    fn notify(&self) {
         self.changed
             .send_modify(|step| *step = step.wrapping_add(1));
     }
@@ -294,6 +336,18 @@ impl Store {
     }
 }
 
+/// Which counts a [`Writing`] actually incremented, so `Drop` releases only what
+/// succeeded and never panics if a lock was poisoned.
+#[derive(Debug, Default)]
+struct Started {
+    /// The organizations named via [`Writing::invalidate_of`].
+    named: Vec<Uuid>,
+    /// The scopes whose primary count (`org` or `shared`) was incremented.
+    primaries: Vec<Moves>,
+    /// How many times `every` was incremented.
+    every: usize,
+}
+
 /// Lives outside the connection/transaction future, including its commit or rollback.
 /// Abandonment moves the revision on and keeps reads from being cached for a while.
 #[derive(Debug)]
@@ -301,9 +355,9 @@ pub(crate) struct Writing<'a> {
     visibility: &'a Visibility,
     moves: Moves,
     touched: AtomicBool,
-    /// The organizations the write named besides ([`Self::invalidate_of`]): each is
-    /// moved on as it is named and again as the write ends.
-    named: Mutex<Vec<Uuid>>,
+    /// What this write has incremented on [`Visibility`]. Never held while locking
+    /// `self.visibility`.
+    started: Mutex<Started>,
     finished: AtomicBool,
 }
 
@@ -324,7 +378,7 @@ impl Writing<'_> {
         if self.touched.swap(true, Ordering::Relaxed) {
             return;
         }
-        self.visibility.change(self.moves, Count::start);
+        self.start(self.moves);
     }
 
     /// Moves on the revision of the organization `org`, which the write changes what
@@ -334,12 +388,28 @@ impl Writing<'_> {
         if self.moves == Moves::Org(org) {
             return self.invalidate();
         }
-        let mut named = self.named.lock().expect("visibility named lock");
-        if named.contains(&org) {
-            return;
+        {
+            let mut started = self.started.lock().expect("visibility started lock");
+            if started.named.contains(&org) {
+                return;
+            }
+            started.named.push(org);
         }
-        named.push(org);
-        self.visibility.change(Moves::Org(org), Count::start);
+        self.start(Moves::Org(org));
+    }
+
+    /// Increments the primary and `every` counts for `moves`, recording each step only
+    /// after it succeeds so unwinding drops only what was actually started.
+    fn start(&self, moves: Moves) {
+        self.visibility.start_primary(moves);
+        self.started
+            .lock()
+            .expect("visibility started lock")
+            .primaries
+            .push(moves);
+        self.visibility.start_every();
+        self.started.lock().expect("visibility started lock").every += 1;
+        self.visibility.notify();
     }
 
     pub(crate) fn settled(&self) {
@@ -349,18 +419,21 @@ impl Writing<'_> {
 
 impl Drop for Writing<'_> {
     fn drop(&mut self) {
-        let unsettled = (!self.finished.load(Ordering::Relaxed))
-            .then(|| Instant::now() + self.visibility.settle);
-        let named = std::mem::take(&mut *self.named.lock().expect("visibility named lock"));
-        for org in named {
-            self.visibility
-                .change(Moves::Org(org), |count| count.end(unsettled));
-        }
-        if !self.touched.load(Ordering::Relaxed) {
+        let Ok(started) = self.started.get_mut() else {
+            return;
+        };
+        if started.primaries.is_empty() && started.every == 0 {
             return;
         }
-        self.visibility
-            .change(self.moves, |count| count.end(unsettled));
+        let unsettled = (!self.finished.load(Ordering::Relaxed))
+            .then(|| Instant::now() + self.visibility.settle);
+        for moves in std::mem::take(&mut started.primaries) {
+            self.visibility.try_end_primary(moves, unsettled);
+        }
+        if started.every > 0 {
+            self.visibility.try_end_every(started.every, unsettled);
+        }
+        self.visibility.notify();
     }
 }
 
@@ -427,6 +500,9 @@ fn affects_visibility(text: &str) -> bool {
         // Which provider an organization takes sessions of (`sso_required`).
         "oidc_providers",
     ];
+    if notes_for_later(text) {
+        return false;
+    }
     let mut deletes = false;
     let mut cascading = false;
     for word in text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
@@ -439,9 +515,64 @@ fn affects_visibility(text: &str) -> bool {
     deletes && cascading
 }
 
+/// The lists a write keeps of what to do later: whom to tell, what to index again, who
+/// watches what. None of them lets anybody see anything, though the statements that
+/// fill them join the boards and the workspaces to find whose rows they note.
+const NOTED_FOR_LATER: [&str; 3] = ["notification_outbox", "search_outbox", "subscriptions"];
+
+/// Whether `text` only inserts rows into one of [`NOTED_FOR_LATER`].
+fn notes_for_later(text: &str) -> bool {
+    let mut words = text
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .filter(|word| !word.is_empty());
+    matches!(
+        (words.next(), words.next(), words.next()),
+        (Some(insert), Some(into), Some(table))
+            if insert.eq_ignore_ascii_case("insert")
+                && into.eq_ignore_ascii_case("into")
+                && NOTED_FOR_LATER.iter().any(|list| table.eq_ignore_ascii_case(list))
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn what_a_write_notes_for_later_moves_no_revision() {
+        // A handle of one organization: one of no organization moves nothing on what
+        // only reads the tables of access anyway.
+        let visibility = Visibility::default();
+        let of_first = org(1);
+        let old = visibility.version(of_first).await;
+        let writing = visibility.writing(of_first);
+        for text in [
+            "INSERT INTO subscriptions (block_id) SELECT b.id FROM blocks AS b \
+             JOIN containers AS bo ON bo.id = b.container_id",
+            "INSERT INTO notification_outbox (org_id) SELECT w.org_id FROM containers AS bo \
+             JOIN workspaces AS w ON w.id = bo.workspace_id",
+            "INSERT INTO search_outbox (scope) SELECT 'block' FROM blocks AS b \
+             JOIN containers AS bo ON bo.id = b.container_id",
+        ] {
+            writing.statement(text);
+        }
+        writing.settled();
+        drop(writing);
+        assert_eq!(visibility.version(of_first).await, old, "no access changed");
+
+        for text in [
+            "INSERT INTO container_members (container_id) SELECT id FROM containers",
+            "UPDATE subscriptions SET notified_at = 1 WHERE block_id IN \
+             (SELECT id FROM blocks WHERE container_id IN (SELECT id FROM containers))",
+        ] {
+            let before = visibility.version(of_first).await;
+            let writing = visibility.writing(of_first);
+            writing.statement(text);
+            writing.settled();
+            drop(writing);
+            assert_ne!(visibility.version(of_first).await, before, "{text}");
+        }
+    }
 
     fn org(n: u128) -> Tenant {
         Tenant::Org(Uuid::from_u128(n))
@@ -718,6 +849,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_write_marked_as_changing_no_access_leaves_the_revision() {
+        use crate::StoreError;
+        use crate::testing::TestDatabase;
+        let directory =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/visibility-tests");
+        let database = TestDatabase::create(&directory).await;
+        let store = Store::connect(database.db_type(), database.database_connection())
+            .await
+            .expect("test store");
+        let write = async |marked: bool| {
+            store
+                .transaction(async |scope| {
+                    let mut sql = scope.sql("UPDATE containers SET next_card_number = 1");
+                    if marked {
+                        sql.changing_no_access();
+                    }
+                    scope.execute(sql).await?;
+                    Ok::<(), StoreError>(())
+                })
+                .await
+                .expect("the write");
+        };
+        let before = store.visibility_version().await;
+        write(true).await;
+        assert_eq!(store.visibility_version().await, before, "a marked write");
+        write(false).await;
+        assert_ne!(
+            store.visibility_version().await,
+            before,
+            "the same write unmarked"
+        );
+        store.close().await;
+        database.remove().await;
+    }
+
+    #[tokio::test]
     async fn confirmed_rollback_is_settled_but_abandoned_transaction_is_not() {
         use crate::StoreError;
         use crate::testing::TestDatabase;
@@ -763,5 +930,56 @@ mod tests {
         assert!(sent, "a dispatch checked anew is not refused for it");
         store.close().await;
         database.remove().await;
+    }
+
+    #[tokio::test]
+    async fn a_poisoned_organization_lock_does_not_abort_when_writing_drops() {
+        let visibility = Visibility::default();
+        let poisoned_org = Uuid::from_u128(1);
+        let healthy_org = Uuid::from_u128(2);
+        let version = visibility.version(Tenant::Org(poisoned_org)).await;
+        let panic_in_send = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            visibility.if_current(version, || panic!("caller callback panicked"));
+        }));
+        assert!(panic_in_send.is_err(), "callback panic propagates");
+
+        // Writing to the poisoned org panics on start, and unwinding through Drop must
+        // not double-panic and abort the process.
+        let direct = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let writing = visibility.writing(Tenant::Org(poisoned_org));
+            writing.invalidate();
+        }));
+        assert!(direct.is_err(), "poisoned lock still panics on start");
+
+        // Same for `invalidate_of` from a write of another organization: unwinding
+        // drops `Writing`, releasing the healthy organization's count without aborting.
+        let cross = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let writing = visibility.writing(Tenant::Org(healthy_org));
+            writing.invalidate();
+            writing.invalidate_of(poisoned_org);
+        }));
+        assert!(cross.is_err(), "poisoned named org panics on start");
+
+        // The healthy organization's writer count and `every` writer count were both
+        // released on unwind.
+        let healthy_version = visibility.version(Tenant::Org(healthy_org)).await;
+        assert!(
+            !healthy_version.cacheable(),
+            "abandoned write unsettles healthy org"
+        );
+        let mut dispatched = false;
+        assert!(visibility.if_current(healthy_version, || dispatched = true));
+        assert!(dispatched);
+
+        let every_version = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            visibility.version(Tenant::Unset),
+        )
+        .await
+        .expect("every writer count released on unwind");
+        assert!(
+            !every_version.cacheable(),
+            "abandoned write unsettles every"
+        );
     }
 }

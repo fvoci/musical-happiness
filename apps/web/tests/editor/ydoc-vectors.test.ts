@@ -86,7 +86,7 @@ describe('the vectors of a body as a Y document', () => {
     if (one.json !== null) expect(validateDoc(one.json)).toEqual([]);
   });
 
-  it.each(vectors.refused.map((one) => [one.name, one] as const))(
+  it.each([...vectors.refused, ...vectors.shortened].map((one) => [one.name, one] as const))(
     '%s: an editor reads the update as the JSON beside it, which is no body',
     (_name, one) => {
       expect(readStored(readerOf(fromBase64(one.update)), schema)).toEqual(one.json);
@@ -128,7 +128,9 @@ const made = JSON.parse(
     path.resolve(import.meta.dirname, '../../../../crates/collab/tests/data/made-here.json'),
     'utf8',
   ),
-) as Record<'documents' | 'repairs', { name: string; update: string }[]>;
+) as Record<'documents' | 'repairs', { name: string; update: string }[]> & {
+  mended: { name: string; update: string; json: DocNode | null }[];
+};
 
 describe('the Y documents the server makes', () => {
   const byName = (section: YdocVectors['documents']): Map<string, YdocVectors['documents'][0]> =>
@@ -149,6 +151,12 @@ describe('the Y documents the server makes', () => {
   it('are one for every body and every repair of the vectors', () => {
     expect(made.documents.map((one) => one.name)).toEqual([...bodies.keys()]);
     expect(made.repairs.map((one) => one.name)).toEqual([...repairs.keys()]);
+    // All but what is past a limit, which the server refuses and does not repair.
+    expect(made.mended.map((one) => one.name)).toEqual(
+      [...vectors.refused, ...vectors.shortened]
+        .map((one) => one.name)
+        .filter((name) => name !== 'a table of twenty-one columns'),
+    );
   });
 
   it.each(made.documents.map((one) => [one.name, one] as const))(
@@ -169,6 +177,16 @@ describe('the Y documents the server makes', () => {
     (name, one) => {
       const mine = read(one.update);
       expect(mine.json).toEqual(repairs.get(name)?.json);
+      expect(mine.deleted).toBe(false);
+    },
+  );
+
+  it.each(made.mended.map((one) => [one.name, one] as const))(
+    '%s: after the repair an editor reads the body the server reads, and deletes nothing',
+    (_name, one) => {
+      const mine = read(one.update);
+      expect(mine.json).toEqual(one.json);
+      if (one.json !== null) expect(validateDoc(one.json)).toEqual([]);
       expect(mine.deleted).toBe(false);
     },
   );

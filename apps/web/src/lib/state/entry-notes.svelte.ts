@@ -38,9 +38,10 @@ export interface NotesHost {
 
 const NONE: Partial<DayNotes> = {};
 
-/** Notes that hold nothing: a mood taken away, a weather or a place emptied. */
-function holdsNothing(notes: Partial<DayNotes>): boolean {
-  return Object.values(notes).every((value) => value === null || value === '');
+/** What of `notes` holds something: a mood taken away, or an emptied weather or place, is dropped. */
+function withoutBlank(notes: Partial<DayNotes>): Partial<DayNotes> {
+  const entries = Object.entries(notes).filter(([, value]) => value !== null && value !== '');
+  return entries.length > 0 ? Object.fromEntries(entries) : NONE;
 }
 
 export class EntryNotes {
@@ -49,6 +50,8 @@ export class EntryNotes {
   #waiting = $state.raw<Partial<DayNotes>>(NONE);
   /** On its way. */
   #sending = $state.raw<Partial<DayNotes>>(NONE);
+  /** Which write owns `#sending`: a newer write (e.g. `leave`) leaves an older one's settlement behind. */
+  #generation = 0;
   #timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(host: NotesHost) {
@@ -85,20 +88,37 @@ export class EntryNotes {
     const { diaries, diaryId, entryId, held } = this.#host;
     const sending = this.#waiting;
     if (!diaries || !entryId || held || this.#sending !== NONE || sending === NONE) return;
+    await this.#dispatch(diaries, diaryId, entryId, sending, true);
+  }
+
+  async #dispatch(
+    diaries: Diaries,
+    diaryId: string,
+    entryId: string,
+    sending: Partial<DayNotes>,
+    report: boolean,
+  ): Promise<void> {
+    this.#generation += 1;
+    const generation = this.#generation;
     [this.#sending, this.#waiting] = [sending, NONE];
     let written: DiaryEntryDetail;
     try {
       written = await diaries.patchEntry(diaryId, entryId, sending, { keepalive: true });
     } catch (error) {
+      if (generation !== this.#generation) return;
       const gone = isBackendError(error) && error.status === 404;
       // An entry deleted elsewhere takes the notes to the one made next (`EntryStore.lose`),
-      // but not those that hold nothing: they were for it, and would clear what another holds.
-      const back = gone && holdsNothing(sending) ? NONE : sending;
+      // but not keys that hold nothing: they were for it, and would clear what another holds.
+      const back = gone ? withoutBlank(sending) : sending;
       const later = this.#waiting;
       [this.#sending, this.#waiting] = [NONE, back === NONE ? later : { ...back, ...later }];
-      if (!gone) this.#host.refused(error);
+      if (!gone && report) this.#host.refused(error);
+      if (gone && this.#waiting !== NONE && this.#host.entryId && this.#host.entryId !== entryId) {
+        await this.send();
+      }
       return;
     }
+    if (generation !== this.#generation) return;
     this.#sending = NONE;
     this.#host.written(written);
     if (this.#waiting !== NONE) await this.send();
@@ -116,44 +136,45 @@ export class EntryNotes {
 
   /**
    * A write that carried `notes` (`unanswered`) was answered: what waits is
-   * answered where it is still what was carried; `written` is the entry it made.
+   * answered where it is still what was carried.
    */
-  carried(notes: Partial<DayNotes>, written?: DiaryEntryDetail): void {
+  carried(notes: Partial<DayNotes>): void {
     const left = Object.entries(this.#waiting).filter(
       ([key, value]) => notes[key as keyof DayNotes] !== value,
     );
     if (left.length !== Object.keys(this.#waiting).length) {
       this.#waiting = left.length > 0 ? Object.fromEntries(left) : NONE;
     }
-    if (written) this.#host.written(written);
   }
 
   /**
    * The page goes: what is not answered goes now in one write, to arrive still
-   * once it has gone; a page kept to come back to hears the answer. Nothing on
-   * its way, it is sent as ever; held by a draft whose write is on its way
-   * already (it carries what was there as it went), it goes alone.
+   * once it has gone; a page kept to come back to hears the answer. It takes
+   * over from any write still on its way so that write's earlier answer does
+   * not resend what this one carried; held by a draft whose write is on its way
+   * already, it goes alone.
    */
   async leave(): Promise<void> {
     const { diaries, diaryId, entryId, held } = this.#host;
     const notes = this.unanswered();
     if (!diaries || !entryId || !notes) return;
     if (this.#sending === NONE && !held) return this.send();
-    try {
-      this.carried(notes, await diaries.patchEntry(diaryId, entryId, notes, { keepalive: true }));
-    } catch {
-      // Not answered, it waits: sent with the next change, or as the page goes again.
-    }
+    await this.#dispatch(diaries, diaryId, entryId, notes, false);
   }
 
   /**
-   * The entry is first here (made, or heard of), or went: what waits and
-   * holds nothing was for none, or for the one gone, and is not sent.
+   * The entry is first here (made, or heard of), or went: keys that wait and
+   * hold nothing were for none, or for the one gone, and are not sent.
    */
   forgetBlank(): void {
-    if (this.#waiting === NONE || !holdsNothing(this.#waiting)) return;
-    clearTimeout(this.#timer);
-    this.#waiting = NONE;
+    if (this.#waiting === NONE) return;
+    const left = withoutBlank(this.#waiting);
+    if (left === NONE) {
+      clearTimeout(this.#timer);
+      this.#waiting = NONE;
+    } else if (Object.keys(left).length !== Object.keys(this.#waiting).length) {
+      this.#waiting = left;
+    }
   }
 
   /** Nothing is sent by itself any more: the page goes. */

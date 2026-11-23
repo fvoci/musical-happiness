@@ -66,7 +66,8 @@ pub struct WorkspaceAccess {
     /// The organization the workspace belongs to.
     pub org_id: String,
     /// What the user is in that organization; `None` for somebody who is in the
-    /// workspace without belonging to the organization.
+    /// workspace without belonging to the organization, and for a user's own space
+    /// (agreeing with [`Store::org_role_of_user`]).
     pub org_role: Option<OrgRole>,
     /// What the user is in the workspace.
     pub workspace_role: WorkspaceRole,
@@ -435,7 +436,7 @@ impl Store {
                 Ok(Some(WorkspaceAccess {
                     org_id: row.id(0)?,
                     workspace_role: role(&row, 1)?,
-                    org_role: if org_role.is_empty() {
+                    org_role: if kind == OrgKind::Personal || org_role.is_empty() {
                         None
                     } else {
                         Some(role(&row, 2)?)

@@ -316,8 +316,8 @@ async fn become_first(scope: &mut Scope<'_>) -> Result<InstanceRole, StoreError>
 ///
 /// Returns [`StoreError::Conflict`] if another user, deleted or not, or a registration
 /// whose address is not confirmed yet and that has not ended, has the name or the email
-/// address in any letter case, and [`StoreError::InvalidId`] if the identifier is not
-/// one.
+/// address in any letter case, or a link that gives an account its address back holds
+/// the address; and [`StoreError::InvalidId`] if the identifier is not one.
 pub(crate) async fn insert_account(
     scope: &mut Scope<'_>,
     user: &mut User,
@@ -327,6 +327,10 @@ pub(crate) async fn insert_account(
     signups::claim_account_names(scope).await?;
     if let Some(taken) = signups::signup_has_names(scope, &user.username, &user.email, now).await? {
         return Err(StoreError::Conflict(taken));
+    }
+    // An address a link may give back to the account that had it is that account's.
+    if crate::email_revert::holds(scope, &user.email, None, now).await? {
+        return Err(StoreError::Conflict(Taken::Email));
     }
     user.create_at = now;
     user.update_at = now;
