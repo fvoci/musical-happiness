@@ -827,3 +827,56 @@ fn security_contact_is_read_from_file_and_environment_and_checked() {
         "error names the key: {error}"
     );
 }
+
+#[test]
+fn body_versions_max_bytes_is_read_from_file_and_environment_and_checked() {
+    let default = Configuration::parse("{}", no_env).expect("default");
+    assert_eq!(
+        default.collab.body_versions_max_bytes,
+        fvoci_store::DEFAULT_BODY_VERSIONS_MAX_BYTES
+    );
+
+    let from_file =
+        Configuration::parse(r#"{"body_versions_max_bytes": 1048576}"#, no_env).expect("from file");
+    assert_eq!(from_file.collab.body_versions_max_bytes, 1_048_576);
+    from_file.check().expect("accepted");
+
+    let env = |name: &str| (name == "FVOCI_BODY_VERSIONS_MAX_BYTES").then(|| "2097152".to_owned());
+    let from_env =
+        Configuration::parse(r#"{"body_versions_max_bytes": 1048576}"#, env).expect("from env");
+    assert_eq!(from_env.collab.body_versions_max_bytes, 2_097_152);
+    from_env.check().expect("accepted");
+
+    let max_str = u64::MAX.to_string();
+    let env_max = |name: &str| (name == "FVOCI_BODY_VERSIONS_MAX_BYTES").then(|| max_str.clone());
+    let from_env_max = Configuration::parse("{}", env_max).expect("u64::MAX from env");
+    assert_eq!(from_env_max.collab.body_versions_max_bytes, u64::MAX);
+    from_env_max.check().expect("u64::MAX accepted");
+
+    let env_zero = |name: &str| (name == "FVOCI_BODY_VERSIONS_MAX_BYTES").then(|| "0".to_owned());
+    let zero_env = Configuration::parse("{}", env_zero).expect("parsed zero");
+    assert!(
+        zero_env
+            .check()
+            .expect_err("zero from env refused")
+            .to_string()
+            .contains("body_versions_max_bytes"),
+        "env zero error names key"
+    );
+
+    for bad in ["-1", "not-a-number"] {
+        let env_bad =
+            |name: &str| (name == "FVOCI_BODY_VERSIONS_MAX_BYTES").then(|| bad.to_owned());
+        assert!(
+            Configuration::parse("{}", env_bad).is_err(),
+            "env {bad:?} must be refused"
+        );
+    }
+
+    let zero = Configuration::parse(r#"{"body_versions_max_bytes": 0}"#, no_env).expect("parsed");
+    let error = zero.check().expect_err("zero must be refused");
+    assert!(
+        error.to_string().contains("body_versions_max_bytes"),
+        "error names the key: {error}"
+    );
+}

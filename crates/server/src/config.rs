@@ -301,7 +301,7 @@ pub struct Configuration {
     /// How long a request waits for that turn before it is told to try again, in
     /// seconds.
     pub password_hash_queue_seconds: u64,
-    /// The keys `collab_*` (editing a body together).
+    /// The keys of editing a body together and its version limits.
     #[serde(flatten)]
     pub collab: collab::CollabSettings,
     /// SMTP transport settings and the limits of all mail; an empty host disables

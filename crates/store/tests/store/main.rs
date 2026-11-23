@@ -22,6 +22,7 @@ mod boards_and_blocks;
 mod body_docs;
 mod body_links;
 mod body_versions;
+mod body_versions_budget;
 mod builtin_templates;
 mod card_numbers;
 mod categories;

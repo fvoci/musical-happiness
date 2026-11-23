@@ -1,6 +1,6 @@
 //! The configuration keys that environment variables can override.
 
-use anyhow::{Context as _, bail};
+use anyhow::bail;
 use serde_json::Value;
 
 /// How the text of an environment variable becomes a configuration value.
@@ -90,11 +90,14 @@ pub(super) fn env_value(name: &str, text: &str, kind: EnvKind) -> anyhow::Result
     Ok(match kind {
         EnvKind::Text => Value::from(text),
         EnvKind::Number => {
-            let number: i64 = text
-                .trim()
-                .parse()
-                .with_context(|| format!("{name}={text:?} is not a whole number"))?;
-            Value::from(number)
+            let trimmed = text.trim();
+            if let Ok(number) = trimmed.parse::<i64>() {
+                Value::from(number)
+            } else if let Ok(number) = trimmed.parse::<u64>() {
+                Value::from(number)
+            } else {
+                bail!("{name}={text:?} is not a whole number");
+            }
         }
         EnvKind::Flag => match text.trim().to_lowercase().as_str() {
             "true" | "1" | "t" | "yes" | "on" => Value::Bool(true),
