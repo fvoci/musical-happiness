@@ -107,3 +107,54 @@ export function parseRelationValue(stored: unknown): RelationLink[] {
 export function relationCardIds(stored: unknown): string[] {
   return parseRelationValue(stored).map((link) => link.card);
 }
+
+/** Clamps a numeric lag value to an integer within `RELATION_LAG_MIN..=RELATION_LAG_MAX`. */
+export function clampRelationLagDays(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  const clamped = Math.min(RELATION_LAG_MAX, Math.max(RELATION_LAG_MIN, Math.trunc(value)));
+  return clamped === 0 ? 0 : clamped;
+}
+
+/**
+ * Parses a user-entered lag value as a whole integer in `RELATION_LAG_MIN..=RELATION_LAG_MAX`.
+ * Returns `undefined` when empty, non-integer, or out of bounds.
+ */
+export function parseLagDaysInput(raw: string | number | null | undefined): number | undefined {
+  if (raw === null || raw === undefined) return undefined;
+  if (typeof raw === 'number') return isRelationLagDays(raw) ? (raw === 0 ? 0 : raw) : undefined;
+  const trimmed = raw.trim();
+  if (!/^[+-]?\d+$/.test(trimmed)) return undefined;
+  const parsed = Number(trimmed);
+  return isRelationLagDays(parsed) ? (parsed === 0 ? 0 : parsed) : undefined;
+}
+
+/**
+ * Returns a copy of `links` with the entry for `targetCardId` updated, keeping
+ * every other entry (including hidden/deleted cards) and their order intact.
+ */
+export function updateRelationLink(
+  links: readonly RelationLink[],
+  targetCardId: string,
+  patch: { kind?: RelationKind; lagDays?: number },
+): RelationLink[] {
+  return links.map((link) => {
+    if (link.card !== targetCardId) return relationLink(link.card, link.kind, link.lagDays);
+    const kind = patch.kind ?? link.kind;
+    const lagDays =
+      patch.lagDays === undefined ? link.lagDays : clampRelationLagDays(patch.lagDays);
+    return relationLink(link.card, kind, lagDays);
+  });
+}
+
+/**
+ * Returns a copy of `links` without `targetCardId`, keeping every other entry
+ * (including hidden/deleted cards) and their order intact.
+ */
+export function removeRelationLink(
+  links: readonly RelationLink[],
+  targetCardId: string,
+): RelationLink[] {
+  return links
+    .filter((link) => link.card !== targetCardId)
+    .map((link) => relationLink(link.card, link.kind, link.lagDays));
+}

@@ -24,6 +24,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_get_organization, handle_patch_organization))
         .routes(routes!(handle_get_org_members))
+        .routes(routes!(handle_remove_org_member))
         .routes(routes!(handle_put_org_role))
         .routes(routes!(
             handle_get_org_workspaces,
@@ -121,6 +122,48 @@ async fn handle_put_org_role(
     let change: OrgRoleChange = decode_object(&body)?;
     org.app
         .set_org_role(&user_id, change.role, &org.session.user_id)
+        .await?;
+    Ok(no_content())
+}
+
+/// Remove a member from an organization
+///
+/// Takes a member out of the organization, all at once or not at all: ends their
+/// joinings of workspaces as organization administrator (recorded in each workspace as
+/// `org_admin_revoked`), takes them out of every workspace of the organization in use
+/// or in the trash, passes any board they were the only admin of to that workspace's
+/// oldest other administrator on their own account (recorded under the administrator
+/// who takes them out), removes their roles on boards and wikis, workspace groups,
+/// subscriptions, unused invitation links, and membership of the organization, and ends
+/// instance administration if this is the server's own first organization. Recorded in
+/// the organization's audit log (`org_member_removed`). Their open connections stop
+/// following the organization's workspaces (`UNSUBSCRIBED_WORKSPACE`) and leave open
+/// body rooms (`DOC_LEFT`). Unlike `leaveOrganization`, this does not require the
+/// removed account to have a password.
+///
+/// 404 for a user who is no member of the organization, or for a caller who does not
+/// administer it (or for an own space or an organization that does not exist).
+///
+/// What stands in the way is 409, and nothing changes: an administrator cannot remove
+/// themselves here (reason `cannot_remove_self`; use `leaveOrganization` instead); the
+/// server's only administrator stays in the server's own first organization (reason
+/// `last_instance_admin`); the only administrator of an organization that has other
+/// people in it stays until somebody else is one (reason `sole_org_admin`); and the
+/// only person in the organization is not removed (reason `alone_in_organization`).
+#[utoipa::path(
+    delete,
+    path = "/org/{orgId}/members/{userId}",
+    operation_id = "removeOrgMember",
+    tag = tag::ORGANIZATION,
+    params(OrgId, UserId),
+    responses((status = 204, description = "The member is out of the organization.")),
+)]
+async fn handle_remove_org_member(
+    org: OrgAdmin,
+    Path((_, user_id)): Path<(String, String)>,
+) -> ApiResult {
+    org.app
+        .remove_org_member(&org.org_id, &user_id, &org.session.user_id)
         .await?;
     Ok(no_content())
 }
@@ -299,8 +342,8 @@ async fn handle_leave_org_workspace(
 /// The audit log of an organization
 ///
 /// One page of what was done to the organization itself, the newest first: who made a
-/// member an administrator or a member, made, renamed, deleted or brought back a
-/// workspace, and turned the public links off or on.
+/// member an administrator or a member, removed a member, made, renamed, deleted or
+/// brought back a workspace, and turned the public links off or on.
 #[utoipa::path(
     get,
     path = "/org/{orgId}/audit",

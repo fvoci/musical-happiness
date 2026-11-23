@@ -52,7 +52,7 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 46] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 47] = [
     // No workspace of an organization has a diary: a diary is of a user's own space.
     "getDiaries",
     "createDiary",
@@ -84,6 +84,7 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 46] = [
     "patchOrganization",
     "putOidcProvider",
     "putOrgRole",
+    "removeOrgMember",
     "renameOrgWorkspace",
     "restoreOrgWorkspace",
     "startOidcTrial",
@@ -136,6 +137,7 @@ fn operations() -> Vec<(String, String, String)> {
         | "deleteBlock"
         | "deletePage"
         | "deleteUnit"
+        | "deleteCourseSchedule"
         | "deleteBoardsAndBlocks"
         | "deleteUpload"
         | "deleteCategory"
@@ -596,6 +598,55 @@ async fn log_in(server: &TestServer, name: &str) -> Client {
     )
 }
 
+/// Read operations a plain member reaches with 200 in their workspace in both organizations.
+const MEMBER_READ_OPERATIONS: &[&str] = &[
+    "getWorkspace",
+    "getCategories",
+    "getWorkspaceBoards",
+    "searchWorkspaceBoards",
+    "getContainer",
+    "getBlocks",
+    "getCards",
+    "getCard",
+    "getCardByNumber",
+    "getWikis",
+    "getPageTree",
+    "getPage",
+    "getCourses",
+    "getUnitTree",
+    "getUnit",
+    "getMyCourseProgress",
+    "getCourseProgressSummary",
+    "getCourseSchedule",
+    "getWorkspaceLearningToday",
+    "getUnitComments",
+    "getUnitCommentVersions",
+    "getUnitBodyVersions",
+    "getUnitBodyVersion",
+    "getPageComments",
+    "getPageCommentVersions",
+    "getPageBodyVersions",
+    "getPageBodyVersion",
+    "getCardBodyVersions",
+    "getCardBodyVersion",
+    "getUpload",
+    "getSharedContainer",
+    "getSharedCards",
+    "getSharedPageTree",
+    "getSharedPage",
+    "getSharedUnitTree",
+    "getSharedUnit",
+    "getTemplates",
+    "getWorkspaceUsers",
+    "resolveReferences",
+    "getReferencesTo",
+    "searchReferences",
+    "getMyMemberships",
+    "getMyOrganizations",
+    "getActiveTimeEntry",
+    "listTimeEntries",
+];
+
 #[tokio::test]
 async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizations() {
     if db_type_of_the_tests() != DbType::Postgres {
@@ -619,50 +670,7 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
     );
     // What a member reads of their workspace and its board is there for them in the
     // second one too.
-    for read in [
-        "getWorkspace",
-        "getCategories",
-        "getWorkspaceBoards",
-        "searchWorkspaceBoards",
-        "getContainer",
-        "getBlocks",
-        "getCards",
-        "getCard",
-        "getCardByNumber",
-        "getWikis",
-        "getPageTree",
-        "getPage",
-        "getCourses",
-        "getUnitTree",
-        "getUnit",
-        "getMyCourseProgress",
-        "getCourseProgressSummary",
-        "getUnitComments",
-        "getUnitCommentVersions",
-        "getUnitBodyVersions",
-        "getUnitBodyVersion",
-        "getPageComments",
-        "getPageCommentVersions",
-        "getPageBodyVersions",
-        "getPageBodyVersion",
-        "getCardBodyVersions",
-        "getCardBodyVersion",
-        "getUpload",
-        "getSharedContainer",
-        "getSharedCards",
-        "getSharedPageTree",
-        "getSharedPage",
-        "getSharedUnitTree",
-        "getSharedUnit",
-        "getTemplates",
-        "getWorkspaceUsers",
-        "resolveReferences",
-        "getReferencesTo",
-        "searchReferences",
-        "getMyMemberships",
-        "getActiveTimeEntry",
-        "listTimeEntries",
-    ] {
+    for &read in MEMBER_READ_OPERATIONS {
         assert_eq!(
             of_second.get(read),
             Some(&200),

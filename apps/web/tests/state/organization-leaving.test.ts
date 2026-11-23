@@ -25,13 +25,6 @@ const design: WorkspaceInfo = {
   orgId: 'a',
 };
 const sales: WorkspaceInfo = { id: 's', title: 'Sales', kind: 'team', role: 'admin', orgId: 'a' };
-const visited: WorkspaceInfo = {
-  id: 'v',
-  title: 'Visited',
-  kind: 'team',
-  role: 'guest',
-  orgId: 'b',
-};
 const plain: WorkspaceInfo = { id: 'p', title: '', kind: 'team', role: 'member', orgId: 'c' };
 
 function holder(read: () => Promise<WorkspaceInfo[]>) {
@@ -76,9 +69,14 @@ describe('leaving an organization', () => {
 });
 
 describe('the organizations the reader can leave', () => {
-  it('are each once, by the names of their workspaces, and not one they are a guest of', () => {
-    expect(leavableOrganizations([own, design, visited, sales, plain])).toEqual([
-      { orgId: 'a', name: 'Design, Sales' },
+  it('maps shared organizations by their real name, naming empty ones', () => {
+    expect(
+      leavableOrganizations([
+        { id: 'a', name: 'Acme Studio', role: 'admin' },
+        { id: 'c', name: '', role: 'member' },
+      ]),
+    ).toEqual([
+      { orgId: 'a', name: 'Acme Studio' },
       { orgId: 'c', name: 'Unnamed organization' },
     ]);
   });
@@ -87,6 +85,10 @@ describe('the organizations the reader can leave', () => {
 describe('what a refusal is told as', () => {
   it('says what to do first, and that asking again changes nothing until then', () => {
     const told = (reason: string) => leaveProblemOf(new BackendError(409, { reason }));
+    expect(told('password_required')).toEqual({
+      text: expect.stringContaining('Set a password') as string,
+      settled: true,
+    });
     expect(told('sole_org_admin')).toEqual({
       text: expect.stringContaining('only administrator') as string,
       settled: true,

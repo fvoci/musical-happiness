@@ -9,12 +9,18 @@
 //! ordering field ([`PAGE_ORDER_FIELD`]) and tree placement of wiki pages.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use thiserror::Error;
 
 use crate::body::{Body, BodyChange};
+use crate::course_schedule::{
+    AmountUnit, FieldChange, UNIT_AMOUNT_FIELD, UNIT_AMOUNT_UNIT_FIELD, UNIT_SCHEDULED_DATE_FIELD,
+    refuse_unit_amount, refuse_unit_scheduled_date, unit_amount, unit_amount_unit,
+    unit_scheduled_date,
+};
 use crate::page::{PAGE_ORDER_FIELD, refuse_title, text_field};
 use crate::refusal::{RefusalReason, Refusals};
-use crate::{Block, BlockPatch, BlockType};
+use crate::{Block, BlockPatch, BlockType, JsonMap};
 
 /// How many units a course may have, those in the trash not counted. Chapters do not
 /// count toward this limit ([`CHAPTERS_PER_COURSE`]).
@@ -132,6 +138,15 @@ pub struct UnitNode {
     /// (by code unit, not by a locale), and by `id` where two have the same. The server
     /// makes it; a client reads it only to sort.
     pub order: String,
+    /// Optional study amount (`1..=100_000`) for a unit; always `null` for a chapter.
+    #[schema(minimum = 1, maximum = 100_000)]
+    pub amount: Option<u32>,
+    /// Optional unit of study amount (`minutes`, `pages`, or `problems`) for a unit;
+    /// always `null` for a chapter.
+    pub amount_unit: Option<AmountUnit>,
+    /// Optional shared scheduled date (`YYYY-MM-DD`) for a unit; always `null` for a
+    /// chapter.
+    pub scheduled_date: Option<String>,
     /// Creation time in milliseconds since the Unix epoch.
     pub create_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
@@ -140,9 +155,22 @@ pub struct UnitNode {
 
 impl From<Block> for UnitNode {
     fn from(block: Block) -> Self {
+        let kind = UnitKind::of_block(&block.block_type).unwrap_or_default();
+        let (amount, amount_unit, scheduled_date) = if kind == UnitKind::Unit {
+            (
+                unit_amount(&block.fields),
+                unit_amount_unit(&block.fields),
+                unit_scheduled_date(&block.fields),
+            )
+        } else {
+            (None, None, None)
+        };
         Self {
-            kind: UnitKind::of_block(&block.block_type).unwrap_or_default(),
+            kind,
             order: text_field(&block.fields, PAGE_ORDER_FIELD),
+            amount,
+            amount_unit,
+            scheduled_date,
             id: block.id,
             parent_id: block.parent_id,
             title: block.title,
@@ -175,6 +203,15 @@ pub struct Unit {
     pub title: String,
     /// Its place among the siblings of the same parent, as in `getUnitTree`.
     pub order: String,
+    /// Optional study amount (`1..=100_000`) for a unit; always `null` for a chapter.
+    #[schema(minimum = 1, maximum = 100_000)]
+    pub amount: Option<u32>,
+    /// Optional unit of study amount (`minutes`, `pages`, or `problems`) for a unit;
+    /// always `null` for a chapter.
+    pub amount_unit: Option<AmountUnit>,
+    /// Optional shared scheduled date (`YYYY-MM-DD`) for a unit; always `null` for a
+    /// chapter.
+    pub scheduled_date: Option<String>,
     /// The unit's body; `null` for a unit without one, and always `null` for a chapter.
     pub body: Option<Body>,
     /// The identifier of the user who made it.
@@ -190,9 +227,22 @@ pub struct Unit {
 
 impl From<Block> for Unit {
     fn from(block: Block) -> Self {
+        let kind = UnitKind::of_block(&block.block_type).unwrap_or_default();
+        let (amount, amount_unit, scheduled_date) = if kind == UnitKind::Unit {
+            (
+                unit_amount(&block.fields),
+                unit_amount_unit(&block.fields),
+                unit_scheduled_date(&block.fields),
+            )
+        } else {
+            (None, None, None)
+        };
         Self {
-            kind: UnitKind::of_block(&block.block_type).unwrap_or_default(),
+            kind,
             order: text_field(&block.fields, PAGE_ORDER_FIELD),
+            amount,
+            amount_unit,
+            scheduled_date,
             id: block.id,
             course_id: block.container_id,
             parent_id: block.parent_id,
@@ -246,18 +296,80 @@ pub struct NewUnit {
     /// The identifier of the sibling it goes right after: a sibling of the same parent.
     /// Empty for the first place; left out or `null`, the last place.
     pub after: Option<String>,
+    /// Optional study amount (`1..=100_000`) for a unit; refused on a chapter (400 at
+    /// `/amount`).
+    #[schema(value_type = Option<u32>, minimum = 1, maximum = 100_000)]
+    pub amount: Option<i64>,
+    /// Optional unit of study amount (`minutes`, `pages`, or `problems`) for a unit;
+    /// refused on a chapter (400 at `/amountUnit`).
+    pub amount_unit: Option<AmountUnit>,
+    /// Optional shared scheduled date (`YYYY-MM-DD`) for a unit; refused on a chapter
+    /// (400 at `/scheduledDate`).
+    pub scheduled_date: Option<String>,
 }
+
+/// What a chapter refuses when schedule or study-amount members are supplied.
+const CHAPTER_SCHEDULE_FORBIDDEN: &str = "chapters cannot have a study amount or scheduled date";
 
 impl NewUnit {
     /// Checks the shape of the request.
     ///
     /// # Errors
     ///
-    /// Returns the title if it is longer than a block's may be.
+    /// Returns refusals for an overlong title, study-amount or schedule fields supplied on
+    /// a chapter, an out-of-range `amount`, or a malformed `scheduledDate`.
     pub fn check_request(&self) -> Result<(), Refusals> {
         let mut refused = Refusals::new();
         refuse_title(&mut refused, Some(&self.title));
+        if self.kind == UnitKind::Chapter {
+            if self.amount.is_some() {
+                refused.refuse("amount", RefusalReason::Invalid, CHAPTER_SCHEDULE_FORBIDDEN);
+            }
+            if self.amount_unit.is_some() {
+                refused.refuse(
+                    "amountUnit",
+                    RefusalReason::Invalid,
+                    CHAPTER_SCHEDULE_FORBIDDEN,
+                );
+            }
+            if self.scheduled_date.is_some() {
+                refused.refuse(
+                    "scheduledDate",
+                    RefusalReason::Invalid,
+                    CHAPTER_SCHEDULE_FORBIDDEN,
+                );
+            }
+        } else {
+            refuse_unit_amount(&mut refused, self.amount);
+            refuse_unit_scheduled_date(&mut refused, self.scheduled_date.as_deref());
+        }
         refused.into_result()
+    }
+
+    /// Returns the unit-specific `fields` map populated from this request.
+    ///
+    /// Includes any supplied schedule/amount fields even when `self.kind` is a chapter so
+    /// [`Block::validate`](crate::Block::validate) enforces `CHAPTER_FIELD_KINDS` at the
+    /// store boundary if [`Self::check_request`] was bypassed.
+    #[must_use]
+    pub fn to_fields(&self) -> JsonMap {
+        let mut fields = JsonMap::new();
+        if let Some(amount) = self.amount {
+            fields.insert(UNIT_AMOUNT_FIELD.to_owned(), Value::from(amount));
+        }
+        if let Some(amount_unit) = self.amount_unit {
+            fields.insert(
+                UNIT_AMOUNT_UNIT_FIELD.to_owned(),
+                Value::from(amount_unit.as_str()),
+            );
+        }
+        if let Some(scheduled_date) = &self.scheduled_date {
+            fields.insert(
+                UNIT_SCHEDULED_DATE_FIELD.to_owned(),
+                Value::from(scheduled_date.clone()),
+            );
+        }
+        fields
     }
 }
 
@@ -297,33 +409,115 @@ pub struct UnitPatch {
     /// checked whenever it is sent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_at: Option<i64>,
+    /// The new study amount (`1..=100_000`) of a unit; `null` clears it. Refused on a
+    /// chapter (400 at `/amount`).
+    #[serde(skip_serializing_if = "FieldChange::is_keep")]
+    #[schema(value_type = Option<u32>, minimum = 1, maximum = 100_000)]
+    pub amount: FieldChange<i64>,
+    /// The new unit of study amount (`minutes`, `pages`, or `problems`) of a unit; `null`
+    /// clears it. Refused on a chapter (400 at `/amountUnit`).
+    #[serde(skip_serializing_if = "FieldChange::is_keep")]
+    #[schema(value_type = Option<AmountUnit>)]
+    pub amount_unit: FieldChange<AmountUnit>,
+    /// The new shared scheduled date (`YYYY-MM-DD`) of a unit; `null` clears it. Refused
+    /// on a chapter (400 at `/scheduledDate`).
+    #[serde(skip_serializing_if = "FieldChange::is_keep")]
+    #[schema(value_type = Option<String>)]
+    pub scheduled_date: FieldChange<String>,
 }
 
 impl UnitPatch {
-    /// Checks the shape of the patch as a request sends it.
+    /// Checks the shape of the patch as a request sends it, assuming a unit target.
     ///
     /// # Errors
     ///
-    /// Returns every member that is refused: a title longer than a block's may be, and a
-    /// new body without `readAt`.
+    /// Returns every member that is refused: an overlong title, a new body without
+    /// `readAt`, an out-of-range `amount`, or a malformed `scheduledDate`.
     pub fn check_request(&self) -> Result<(), Refusals> {
+        self.check_request_for(UnitKind::Unit)
+    }
+
+    /// Checks the shape of the patch against the target node's [`UnitKind`].
+    ///
+    /// # Errors
+    ///
+    /// Returns every refused member, including study-amount or schedule changes attempted
+    /// on a chapter.
+    pub fn check_request_for(&self, kind: UnitKind) -> Result<(), Refusals> {
         let mut refused = Refusals::new();
         if !self.body.is_keep() && self.read_at.is_none() {
             refused.refuse("readAt", RefusalReason::Required, READ_AT_MISSING);
         }
         refuse_title(&mut refused, self.title.as_deref());
+        if kind == UnitKind::Chapter {
+            if !self.amount.is_keep() {
+                refused.refuse("amount", RefusalReason::Invalid, CHAPTER_SCHEDULE_FORBIDDEN);
+            }
+            if !self.amount_unit.is_keep() {
+                refused.refuse(
+                    "amountUnit",
+                    RefusalReason::Invalid,
+                    CHAPTER_SCHEDULE_FORBIDDEN,
+                );
+            }
+            if !self.scheduled_date.is_keep() {
+                refused.refuse(
+                    "scheduledDate",
+                    RefusalReason::Invalid,
+                    CHAPTER_SCHEDULE_FORBIDDEN,
+                );
+            }
+        } else {
+            if let FieldChange::Set(amount) = self.amount {
+                refuse_unit_amount(&mut refused, Some(amount));
+            }
+            if let FieldChange::Set(ref date) = self.scheduled_date {
+                refuse_unit_scheduled_date(&mut refused, Some(date));
+            }
+        }
         refused.into_result()
     }
 
     /// The patch of the underlying block that does what this patch says.
     #[must_use]
     pub fn into_block_patch(self) -> BlockPatch {
-        BlockPatch {
+        let mut patch = BlockPatch {
             title: self.title,
             body: self.body,
             read_at: self.read_at,
             ..BlockPatch::default()
+        };
+        match self.amount {
+            FieldChange::Keep => {}
+            FieldChange::Clear => patch.deleted_fields.push(UNIT_AMOUNT_FIELD.to_owned()),
+            FieldChange::Set(amount) => {
+                patch
+                    .updated_fields
+                    .insert(UNIT_AMOUNT_FIELD.to_owned(), Value::from(amount));
+            }
         }
+        match self.amount_unit {
+            FieldChange::Keep => {}
+            FieldChange::Clear => patch.deleted_fields.push(UNIT_AMOUNT_UNIT_FIELD.to_owned()),
+            FieldChange::Set(unit) => {
+                patch.updated_fields.insert(
+                    UNIT_AMOUNT_UNIT_FIELD.to_owned(),
+                    Value::from(unit.as_str()),
+                );
+            }
+        }
+        match self.scheduled_date {
+            FieldChange::Keep => {}
+            FieldChange::Clear => patch
+                .deleted_fields
+                .push(UNIT_SCHEDULED_DATE_FIELD.to_owned()),
+            FieldChange::Set(date) => {
+                patch
+                    .updated_fields
+                    .insert(UNIT_SCHEDULED_DATE_FIELD.to_owned(), Value::from(date));
+            }
+        }
+        patch
     }
 }
 

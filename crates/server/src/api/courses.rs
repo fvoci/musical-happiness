@@ -8,8 +8,8 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Block, BlockError, BlockType, Container, ContainerKind, ContainerType, DeletedUnit,
-    MinimumRole, NewUnit, Unit, UnitMove, UnitNode, UnitPatch,
+    Block, BlockError, Container, ContainerKind, ContainerType, DeletedUnit, MinimumRole, NewUnit,
+    Unit, UnitKind, UnitMove, UnitNode, UnitPatch,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -199,8 +199,10 @@ async fn handle_get_unit_tree(
 /// top of the course (`parentId` must be empty; 400 at `/parentId` otherwise) with no
 /// body and no room. Among the siblings of that parent it goes right after `after` (400
 /// at `/after` if that is no sibling of the same parent), first if `after` is empty, and
-/// last if it is left out. A unit's body is written by `patchUnit`, or together in its
-/// room (`JOIN_DOC`).
+/// last if it is left out. A unit may also carry optional study-schedule fields
+/// (`amount` `1..=100_000`, `amountUnit`, and shared `scheduledDate` `YYYY-MM-DD`;
+/// forbidden on chapters with 400). A unit's body is written by `patchUnit`, or together
+/// in its room (`JOIN_DOC`).
 ///
 /// A course holds at most 2,000 units and 200 chapters, those in the trash not counted
 /// (chapters do not count toward the 2,000-unit limit): one more unit is 400 with the
@@ -269,8 +271,10 @@ async fn handle_get_unit(
 
 /// Change a unit or chapter
 ///
-/// Its title, or (for a unit) its whole body, for editors of the course. A chapter has
-/// no body: sending `body` on a chapter is 400 at `/body`. A new body is sent with
+/// Its title, or (for a unit) its whole body and optional study-schedule fields (`amount`,
+/// `amountUnit`, `scheduledDate`, each clearable with `null`), for editors of the course.
+/// A chapter has no body or schedule fields: sending `body`, `amount`, `amountUnit`, or
+/// `scheduledDate` on a chapter is 400. A new body is sent with
 /// `readAt`, the `updateAt` of the unit as it was read: 409 if the unit has changed
 /// since, and nothing is changed. Where the body is being edited together, what the
 /// editors typed is written to the unit first, so a writer who read it before is refused
@@ -300,10 +304,11 @@ async fn handle_patch_unit(
     .await?;
     let (mut patch, document): (UnitPatch, _) = decode_with_document(&body)?;
     patch.body = document;
-    if unit.block_type == BlockType::Chapter && !patch.body.is_keep() {
+    let kind = UnitKind::of_block(&unit.block_type).unwrap_or_default();
+    if kind == UnitKind::Chapter && !patch.body.is_keep() {
         return Err(AppError::from(BlockError::BodyNotAllowed));
     }
-    patch.check_request()?;
+    patch.check_request_for(kind)?;
     ws.app
         .check_body_files(&course_id, patch.body.new_body())
         .await?;

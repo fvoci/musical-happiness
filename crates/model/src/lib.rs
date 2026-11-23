@@ -23,6 +23,7 @@ mod comment_version;
 mod container;
 mod container_teams;
 mod containers_and_blocks;
+mod course_schedule;
 mod date_value;
 mod deleted_item;
 mod diary;
@@ -110,6 +111,17 @@ pub use containers_and_blocks::{
     PatchContainersAndBlocks, Renewed, generate_containers_and_blocks_ids,
     renew_containers_and_blocks_ids, renew_containers_and_blocks_ids_told,
 };
+pub use course_schedule::{
+    AmountUnit, CourseOutlineNodes, CourseSchedule, CourseScheduleUpdate, CourseScheduleView,
+    FieldChange, LearningTodayItem, MAX_SCHEDULE_SPAN_DAYS, ParseAmountUnitError, RedistributePlan,
+    RedistributeScheduleRequest, STUDY_DAYS_ALL, STUDY_DAYS_FRIDAY, STUDY_DAYS_MONDAY,
+    STUDY_DAYS_SATURDAY, STUDY_DAYS_SUNDAY, STUDY_DAYS_THURSDAY, STUDY_DAYS_TUESDAY,
+    STUDY_DAYS_WEDNESDAY, STUDY_DAYS_WEEKDAYS, ScheduledUnit, StudyDays, UNIT_AMOUNT_FIELD,
+    UNIT_AMOUNT_MAX, UNIT_AMOUNT_MIN, UNIT_AMOUNT_UNIT_FIELD, UNIT_SCHEDULED_DATE_FIELD,
+    UnitScheduleUpdate, UnitWeight, ValidatedCourseSchedule, WorkspaceLearningToday,
+    build_course_schedule_view, build_workspace_learning_today, distribute_units, outline_units,
+    study_dates_in_range, today_in_time_zone,
+};
 pub use date_value::{
     DateValueError, check_date_value, date_property_ids, day_at, days_between, move_dates,
     rewrite_previous_date_values,
@@ -148,7 +160,8 @@ pub use org_admin::{
 };
 pub use org_kind::{OrgKind, UnknownOrgKind};
 pub use organization::{
-    OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
+    OrgRole, UnknownRole, UserOrganization, UserWorkspace, WorkspaceMember, WorkspaceRole,
+    WorkspaceRoleChange,
 };
 pub use page::{
     DeletedPage, NewPage, OrderError, PAGE_ICON_FIELD, PAGE_ORDER_FIELD, Page, PageDuplicate,

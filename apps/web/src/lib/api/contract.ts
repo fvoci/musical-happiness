@@ -767,8 +767,8 @@ export interface paths {
         /**
          * The audit log of an organization
          * @description One page of what was done to the organization itself, the newest first: who made a
-         *     member an administrator or a member, made, renamed, deleted or brought back a
-         *     workspace, and turned the public links off or on.
+         *     member an administrator or a member, removed a member, made, renamed, deleted or
+         *     brought back a workspace, and turned the public links off or on.
          */
         get: operations["getOrgAudit"];
         put?: never;
@@ -809,12 +809,15 @@ export interface paths {
          *     an own space, which nobody leaves. A guest of a workspace is no member of its
          *     organization: 404 here, and it leaves a workspace or board by `leaveContainer`.
          *
-         *     What stands in the way is 409, and nothing changes: the server's only administrator
-         *     stays in the server's own first organization (reason `last_instance_admin`); the
-         *     only administrator of an organization that has other people in it stays until
-         *     somebody else is one (reason `sole_org_admin`); and nobody leaves an organization
-         *     they are the only person in (reason `alone_in_organization`). Asked in that order.
-         *     Of two administrators who leave at once, the second is asked once the first is out.
+         *     What stands in the way is 409, and nothing changes: an account without a password
+         *     (`hasPassword` of `getMe` is false) must set one (`setPassword`) before leaving
+         *     (reason `password_required`); the server's only administrator stays in the server's
+         *     own first organization (reason `last_instance_admin`); the only administrator of an
+         *     organization that has other people in it stays until somebody else is one (reason
+         *     `sole_org_admin`); and nobody leaves an organization they are the only person in
+         *     (reason `alone_in_organization`). Asked in that order (`password_required`,
+         *     `last_instance_admin`, `sole_org_admin`, `alone_in_organization`). Of two
+         *     administrators who leave at once, the second is asked once the first is out.
          */
         post: operations["leaveOrganization"];
         delete?: never;
@@ -838,6 +841,47 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a member from an organization
+         * @description Takes a member out of the organization, all at once or not at all: ends their
+         *     joinings of workspaces as organization administrator (recorded in each workspace as
+         *     `org_admin_revoked`), takes them out of every workspace of the organization in use
+         *     or in the trash, passes any board they were the only admin of to that workspace's
+         *     oldest other administrator on their own account (recorded under the administrator
+         *     who takes them out), removes their roles on boards and wikis, workspace groups,
+         *     subscriptions, unused invitation links, and membership of the organization, and ends
+         *     instance administration if this is the server's own first organization. Recorded in
+         *     the organization's audit log (`org_member_removed`). Their open connections stop
+         *     following the organization's workspaces (`UNSUBSCRIBED_WORKSPACE`) and leave open
+         *     body rooms (`DOC_LEFT`). Unlike `leaveOrganization`, this does not require the
+         *     removed account to have a password.
+         *
+         *     404 for a user who is no member of the organization, or for a caller who does not
+         *     administer it (or for an own space or an organization that does not exist).
+         *
+         *     What stands in the way is 409, and nothing changes: an administrator cannot remove
+         *     themselves here (reason `cannot_remove_self`; use `leaveOrganization` instead); the
+         *     server's only administrator stays in the server's own first organization (reason
+         *     `last_instance_admin`); the only administrator of an organization that has other
+         *     people in it stays until somebody else is one (reason `sole_org_admin`); and the
+         *     only person in the organization is not removed (reason `alone_in_organization`).
+         */
+        delete: operations["removeOrgMember"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1847,6 +1891,31 @@ export interface paths {
          *     the identifier of the board.
          */
         get: operations["getMyMemberships"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/organizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The organizations the user is a member of
+         * @description The organizations that people work in together of which the user of the session is a
+         *     member, with their name and the user's role in each. Includes organizations in which
+         *     the user is in no workspace, and leaves out the user's own space and organizations
+         *     where the user is only a guest of a workspace. Asked of any session: an organization
+         *     that takes only sessions made through its provider is still listed so the user can
+         *     see it in settings and leave it (`leaveOrganization`). Oldest first.
+         */
+        get: operations["getMyOrganizations"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3635,6 +3704,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/my-schedule/redistribute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redistribute my personal schedule in a course
+         * @description Explicitly redistributes only the caller's incomplete live units in outline tree order
+         *     from `fromDate` (default: caller's today in their configured `timeZone`) to
+         *     `targetDate` (default: course's saved `targetDate`) across `studyDays` (default:
+         *     course's saved `studyDays`), updating only the caller's own `unit_progress.plannedDate`
+         *     rows. Completed units and shared unit `scheduledDate` values are untouched. Available
+         *     to any enrolled course member (including viewers and invited guests) and
+         *     personal-space owners; unjoined readers of an open course are refused with 403.
+         *     Personal redistributions never broadcast over websockets, never enter search indexes
+         *     or archives, and emit no webhooks or audit logs.
+         */
+        post: operations["redistributeMyCourseSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/courses/{courseId}/progress": {
         parameters: {
             query?: never;
@@ -3679,6 +3776,76 @@ export interface paths {
         get: operations["getCourseProgressSummary"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Schedule of a course
+         * @description Returns the course's shared schedule settings (`schedule`, or `null` if unset),
+         *     today's calendar date (`today`) computed in the caller's configured `timeZone` (UTC
+         *     when set to `auto`), `todayCount`, `overdueCount`, and every live unit in outline
+         *     tree order (chapters and trashed units excluded). For enrolled members and
+         *     personal-space owners, each unit includes the caller's own `myPlannedDate`,
+         *     `effectiveDate` (`myPlannedDate ?? scheduledDate`), `completed`, and `overdue`
+         *     (`!completed && effectiveDate < today`). Unjoined readers of an open course receive
+         *     `myPlannedDate: null` and `completed: false`. Other users' personal planned dates are
+         *     never disclosed. Overdue units never auto-shift when read.
+         */
+        get: operations["getCourseSchedule"];
+        /**
+         * Save a course's shared schedule
+         * @description Creates or updates the course's shared study period (`startDate`..=`targetDate`) and
+         *     weekday bitmask (`studyDays`, 1..=127 where bit 0 is Monday and bit 6 is Sunday). For
+         *     editors and admins of the course (and personal-space owners); viewers and unjoined
+         *     readers are refused with 403. When `autoAssign` is `true`, proportionally assigns
+         *     shared `scheduledDate` values across all live units in outline tree order by study
+         *     amount (default weight 1) and announces modified blocks to websocket listeners and
+         *     webhooks in the background.
+         */
+        put: operations["putCourseSchedule"];
+        post?: never;
+        /**
+         * Remove a course's shared schedule
+         * @description Removes the course's saved shared schedule settings (idempotent if none exists), for
+         *     editors and admins of the course (and personal-space owners). Existing unit
+         *     `scheduledDate` values and learners' personal `plannedDate` rows are left intact.
+         */
+        delete: operations["deleteCourseSchedule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/schedule/redistribute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redistribute a course's shared schedule
+         * @description Explicitly redistributes the shared `scheduledDate` of all live units in outline tree
+         *     order from `fromDate` (default: caller's today in their configured `timeZone`) to
+         *     `targetDate` (default: course's saved `targetDate`) across `studyDays` (default:
+         *     course's saved `studyDays`), weighted by each unit's study `amount` (default 1). For
+         *     editors and admins of the course (and personal-space owners); viewers and unjoined
+         *     readers are refused with 403. Announces modified blocks to websocket listeners and
+         *     webhooks in the background and never reads any user's personal progress.
+         */
+        post: operations["redistributeCourseSchedule"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3736,8 +3903,10 @@ export interface paths {
          *     top of the course (`parentId` must be empty; 400 at `/parentId` otherwise) with no
          *     body and no room. Among the siblings of that parent it goes right after `after` (400
          *     at `/after` if that is no sibling of the same parent), first if `after` is empty, and
-         *     last if it is left out. A unit's body is written by `patchUnit`, or together in its
-         *     room (`JOIN_DOC`).
+         *     last if it is left out. A unit may also carry optional study-schedule fields
+         *     (`amount` `1..=100_000`, `amountUnit`, and shared `scheduledDate` `YYYY-MM-DD`;
+         *     forbidden on chapters with 400). A unit's body is written by `patchUnit`, or together
+         *     in its room (`JOIN_DOC`).
          *
          *     A course holds at most 2,000 units and 200 chapters, those in the trash not counted
          *     (chapters do not count toward the 2,000-unit limit): one more unit is 400 with the
@@ -3781,8 +3950,10 @@ export interface paths {
         head?: never;
         /**
          * Change a unit or chapter
-         * @description Its title, or (for a unit) its whole body, for editors of the course. A chapter has
-         *     no body: sending `body` on a chapter is 400 at `/body`. A new body is sent with
+         * @description Its title, or (for a unit) its whole body and optional study-schedule fields (`amount`,
+         *     `amountUnit`, `scheduledDate`, each clearable with `null`), for editors of the course.
+         *     A chapter has no body or schedule fields: sending `body`, `amount`, `amountUnit`, or
+         *     `scheduledDate` on a chapter is 400. A new body is sent with
          *     `readAt`, the `updateAt` of the unit as it was read: 409 if the unit has changed
          *     since, and nothing is changed. Where the body is being edited together, what the
          *     editors typed is written to the unit first, so a writer who read it before is refused
@@ -4040,6 +4211,33 @@ export interface paths {
          *     trashed units, units of another course, and non-course containers answer 404.
          */
         put: operations["putUnitProgress"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set or clear my personal planned date on a unit
+         * @description Sets the caller's personal `plannedDate` (`YYYY-MM-DD`) on a live unit of the course,
+         *     or clears it (`null`) to revert to the unit's shared `scheduledDate`. Preserves
+         *     `completedAt` and `lastPosition`. Available to any enrolled course member (including
+         *     viewers and invited guests) and personal-space owners; unjoined readers of an open
+         *     course are refused with 403. Never visible to other members, workspace/org admins, or
+         *     public link readers, and emits no websocket broadcasts, webhooks, search updates, or
+         *     audit logs. Chapters, trashed units, units of another course, and non-course
+         *     containers answer 404.
+         */
+        put: operations["putUnitSchedule"];
         post?: never;
         delete?: never;
         options?: never;
@@ -4502,6 +4700,34 @@ export interface paths {
          *     A guest of the workspace is told that it is not there (404).
          */
         delete: operations["revokeInvitation"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/learning/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Today's and overdue learning units in a workspace
+         * @description Returns the caller's incomplete units due today (`effectiveDate == today`) and
+         *     overdue (`effectiveDate < today`) across all live courses in this workspace that the
+         *     caller is enrolled in (direct membership or inherited group role), evaluated in the
+         *     caller's configured `timeZone` (UTC when set to `auto`). `todayUnits` are ordered by
+         *     course creation order (`createAt`, `courseId`) and then outline order within each
+         *     course; `overdueUnits` are ordered by `effectiveDate` ascending (oldest first), then
+         *     course creation order, then outline order. Never includes private courses the caller
+         *     is not enrolled in (even for workspace or organization admins) and never reads
+         *     another user's personal `plannedDate` or completion status.
+         */
+        get: operations["getWorkspaceLearningToday"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -5640,10 +5866,15 @@ export interface components {
             isAdmin: boolean;
         };
         /**
+         * @description Unit of measure for a course unit's study amount.
+         * @enum {string}
+         */
+        AmountUnit: "minutes" | "pages" | "problems";
+        /**
          * @description What a record of the audit log says was done.
          * @enum {string}
          */
-        AuditAction: "self_added_to_container" | "added_to_container" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "oidc_former_provider_kept" | "oidc_former_provider_ended" | "oidc_former_provider_lapsed" | "oidc_identity_bound" | "oidc_identity_carried_over" | "email_verified_by_operator";
+        AuditAction: "self_added_to_container" | "added_to_container" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "org_member_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "oidc_former_provider_kept" | "oidc_former_provider_ended" | "oidc_former_provider_lapsed" | "oidc_identity_bound" | "oidc_identity_carried_over" | "email_verified_by_operator";
         /** @description A user as a record of the audit log names them. */
         AuditPerson: {
             /** @description The name the user shows; empty for none. */
@@ -6340,6 +6571,61 @@ export interface components {
              */
             totalUnits: number;
         };
+        /** @description Stored shared study schedule of a course. */
+        CourseSchedule: {
+            /** @description Start date of the study period (`YYYY-MM-DD`). */
+            startDate: string;
+            /**
+             * Format: int32
+             * @description Weekday bitmask (`1..=127`; bit 0 = Monday .. bit 6 = Sunday).
+             */
+            studyDays: number;
+            /** @description Target completion date of the study period (`YYYY-MM-DD`). */
+            targetDate: string;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
+        /** @description Request body for creating or updating a course's shared schedule. */
+        CourseScheduleUpdate: {
+            /**
+             * @description When `true`, immediately assigns shared `scheduledDate` values across all live
+             *     units proportionally by study amount. Left out, `false`.
+             */
+            autoAssign?: boolean;
+            /** @description Start date of the study period (`YYYY-MM-DD`). */
+            startDate: string;
+            /**
+             * Format: int32
+             * @description Weekday bitmask (`1..=127`; bit 0 = Monday .. bit 6 = Sunday).
+             */
+            studyDays: number;
+            /** @description Target completion date (`YYYY-MM-DD`), on or after `startDate`. */
+            targetDate: string;
+        };
+        /** @description Full schedule view of a course for the calling user. */
+        CourseScheduleView: {
+            /**
+             * Format: int32
+             * @description Number of incomplete live units whose `effectiveDate` is strictly before `today`.
+             */
+            overdueCount: number;
+            schedule: components["schemas"]["CourseSchedule"] | null;
+            /**
+             * @description Today's calendar date (`YYYY-MM-DD`) in the caller's configured time zone (UTC when
+             *     set to `auto`).
+             */
+            today: string;
+            /**
+             * Format: int32
+             * @description Number of incomplete live units whose `effectiveDate` equals `today`.
+             */
+            todayCount: number;
+            /** @description Live units of the course in outline tree order (chapters and trashed units excluded). */
+            units: components["schemas"]["ScheduledUnit"][];
+        };
         /** @description Request body for manually logging a completed time entry (`POST /users/me/time/entries`). */
         CreateTimeEntryRequest: {
             /** @description Optional card (non-template) or unit identifier to link. */
@@ -6879,6 +7165,31 @@ export interface components {
          * @enum {string}
          */
         KeptOutcome: "kept" | "unchanged" | "recent";
+        /** @description One incomplete unit scheduled for today or overdue across enrolled courses in a workspace. */
+        LearningTodayItem: {
+            /**
+             * Format: int32
+             * @description Optional study amount (`1..=100_000`).
+             */
+            amount: number | null;
+            amountUnit: components["schemas"]["AmountUnit"] | null;
+            /** @description Identifier of the course holding this unit. */
+            courseId: string;
+            /** @description Title of the course holding this unit. */
+            courseTitle: string;
+            /** @description Effective date (`myPlannedDate` if set, otherwise `scheduledDate`). */
+            effectiveDate: string;
+            /** @description Caller's personal planned date (`YYYY-MM-DD`) on the unit, if any. */
+            myPlannedDate: string | null;
+            /** @description Identifier of the chapter holding this unit; empty for a top-level unit. */
+            parentId: string;
+            /** @description Shared scheduled date (`YYYY-MM-DD`) on the unit, if any. */
+            scheduledDate: string | null;
+            /** @description Title of the unit. */
+            title: string;
+            /** @description Identifier of the unit block. */
+            unitId: string;
+        };
         /**
          * @description An organization that goes with the account of its only member, and how much is in
          *     it: the account's own space, and an organization of people that has nobody else. The
@@ -7388,6 +7699,13 @@ export interface components {
              *     Empty for the first place; left out or `null`, the last place.
              */
             after?: string | null;
+            /**
+             * Format: int32
+             * @description Optional study amount (`1..=100_000`) for a unit; refused on a chapter (400 at
+             *     `/amount`).
+             */
+            amount?: number | null;
+            amountUnit?: components["schemas"]["AmountUnit"] | null;
             /** @description Whether to make a `unit` or a `chapter`. Left out, `unit`. */
             kind?: components["schemas"]["UnitKind"];
             /**
@@ -7396,6 +7714,11 @@ export interface components {
              *     empty (400 at `/parentId` otherwise).
              */
             parentId?: string;
+            /**
+             * @description Optional shared scheduled date (`YYYY-MM-DD`) for a unit; refused on a chapter
+             *     (400 at `/scheduledDate`).
+             */
+            scheduledDate?: string | null;
             /** @description The title. Left out, empty. */
             title?: string;
         };
@@ -7994,6 +8317,25 @@ export interface components {
              */
             size: number;
         };
+        /**
+         * @description Request body for manually redistributing a course's shared schedule or the caller's
+         *     personal schedule.
+         *
+         *     Omitted or `null` members fall back to defaults: `fromDate` defaults to today in the
+         *     caller's configured time zone (UTC when `auto`), and `targetDate` / `studyDays` fall
+         *     back to the course's saved schedule.
+         */
+        RedistributeScheduleRequest: {
+            /** @description Start date (`YYYY-MM-DD`) for redistribution; omitted or `null` uses caller's today. */
+            fromDate?: string | null;
+            /**
+             * Format: int32
+             * @description Weekday bitmask (`1..=127`); omitted or `null` uses the course's saved `studyDays`.
+             */
+            studyDays?: number | null;
+            /** @description Target end date (`YYYY-MM-DD`); omitted or `null` uses the course's saved `targetDate`. */
+            targetDate?: string | null;
+        };
         /** @description The identifiers the references name, each the `id` of a node `reference`: at most 100. */
         ReferenceIds: string[];
         /** @description A request to register a new user. */
@@ -8078,6 +8420,37 @@ export interface components {
              *     email address was cleared instead.
              */
             email?: string | null;
+        };
+        /**
+         * @description One live unit of a course with its shared schedule, caller's personal override,
+         *     effective date, and completion/overdue status.
+         */
+        ScheduledUnit: {
+            /**
+             * Format: int32
+             * @description Optional study amount (`1..=100_000`); treated as weight `1` when `null`.
+             */
+            amount: number | null;
+            amountUnit: components["schemas"]["AmountUnit"] | null;
+            /** @description Whether the caller has completed this unit. */
+            completed: boolean;
+            /** @description Effective date for the caller: `myPlannedDate` if set, otherwise `scheduledDate`. */
+            effectiveDate: string | null;
+            /**
+             * @description Caller's own personal planned date (`YYYY-MM-DD`), if any. Never shows another
+             *     user's planned date.
+             */
+            myPlannedDate: string | null;
+            /** @description Whether this unit is overdue for the caller (`!completed && effectiveDate < today`). */
+            overdue: boolean;
+            /** @description Identifier of the chapter this unit sits under; empty for a top-level unit. */
+            parentId: string;
+            /** @description Shared scheduled date (`YYYY-MM-DD`) stored on the unit block, if any. */
+            scheduledDate: string | null;
+            /** @description Title of the unit. */
+            title: string;
+            /** @description Identifier of the unit block. */
+            unitId: string;
         };
         /** @description One thing a search found: the user reads it now. */
         SearchHit: {
@@ -8429,6 +8802,12 @@ export interface components {
         Title: "dr" | "prof";
         /** @description A unit or chapter of a course. */
         Unit: {
+            /**
+             * Format: int32
+             * @description Optional study amount (`1..=100_000`) for a unit; always `null` for a chapter.
+             */
+            amount: number | null;
+            amountUnit: components["schemas"]["AmountUnit"] | null;
             body: components["schemas"]["Body"] | null;
             /** @description The identifier of the course it is of. */
             courseId: string;
@@ -8452,6 +8831,11 @@ export interface components {
              *     the top of its course.
              */
             parentId: string;
+            /**
+             * @description Optional shared scheduled date (`YYYY-MM-DD`) for a unit; always `null` for a
+             *     chapter.
+             */
+            scheduledDate: string | null;
             /** @description The title. */
             title: string;
             /**
@@ -8501,6 +8885,12 @@ export interface components {
         /** @description A unit or chapter as the outline of its course lists it: without its body. */
         UnitNode: {
             /**
+             * Format: int32
+             * @description Optional study amount (`1..=100_000`) for a unit; always `null` for a chapter.
+             */
+            amount: number | null;
+            amountUnit: components["schemas"]["AmountUnit"] | null;
+            /**
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
@@ -8520,6 +8910,11 @@ export interface components {
              *     the top of its course.
              */
             parentId: string;
+            /**
+             * @description Optional shared scheduled date (`YYYY-MM-DD`) for a unit; always `null` for a
+             *     chapter.
+             */
+            scheduledDate: string | null;
             /** @description The unit's or chapter's title. */
             title: string;
             /**
@@ -8533,6 +8928,13 @@ export interface components {
          *     node stands in the course does not change here (`moveUnit`).
          */
         UnitPatch: {
+            /**
+             * Format: int32
+             * @description The new study amount (`1..=100_000`) of a unit; `null` clears it. Refused on a
+             *     chapter (400 at `/amount`).
+             */
+            amount?: number | null;
+            amountUnit?: components["schemas"]["AmountUnit"] | null;
             body?: components["schemas"]["Body"] | null;
             /**
              * Format: int64
@@ -8541,6 +8943,11 @@ export interface components {
              *     checked whenever it is sent.
              */
             readAt?: number | null;
+            /**
+             * @description The new shared scheduled date (`YYYY-MM-DD`) of a unit; `null` clears it. Refused
+             *     on a chapter (400 at `/scheduledDate`).
+             */
+            scheduledDate?: string | null;
             /** @description The new title. */
             title?: string | null;
         };
@@ -8581,6 +8988,19 @@ export interface components {
              *     Omit to keep unchanged, or send `null` to clear.
              */
             lastPosition?: string | null;
+        };
+        /**
+         * @description Request body for setting or clearing the caller's personal planned date on a unit.
+         *
+         *     The `plannedDate` member is required on the wire (`null` clears the personal override;
+         *     an omitted key `{}` is rejected with 400).
+         */
+        UnitScheduleUpdate: {
+            /**
+             * @description Personal planned date (`YYYY-MM-DD`), or `null` to clear the personal override and
+             *     revert to the unit's shared `scheduledDate`.
+             */
+            plannedDate: string | null;
         };
         /** @description A request to remove an identity from the account of the session. */
         UnlinkRequest: {
@@ -8713,6 +9133,18 @@ export interface components {
         /** @description The identifiers of the users asked for: at least one, at most 200. */
         UserIds: string[];
         /**
+         * @description An organization that people work in together, as one of its members finds it
+         *     among theirs.
+         */
+        UserOrganization: {
+            /** @description The organization's identifier. */
+            id: string;
+            /** @description The organization's name; empty if it was given none. */
+            name: string;
+            /** @description What the user is in the organization. */
+            role: components["schemas"]["OrgRole"];
+        };
+        /**
          * @description A change to the bag of state a client keeps with the account: entries the server
          *     stores without knowing what they mean.
          */
@@ -8822,6 +9254,24 @@ export interface components {
              * @description Last modification time in milliseconds since the Unix epoch.
              */
             updateAt: number;
+        };
+        /** @description Caller's today and overdue incomplete units across enrolled courses in a workspace. */
+        WorkspaceLearningToday: {
+            /**
+             * @description Incomplete units with `effectiveDate < today`, ordered by `effectiveDate` ascending
+             *     (oldest first), then course creation order, then outline order within each course.
+             */
+            overdueUnits: components["schemas"]["LearningTodayItem"][];
+            /**
+             * @description Today's calendar date (`YYYY-MM-DD`) in the caller's configured time zone (UTC when
+             *     set to `auto`).
+             */
+            today: string;
+            /**
+             * @description Incomplete units with `effectiveDate == today`, ordered by course creation order
+             *     (`createAt`, `courseId`) and then outline order within each course.
+             */
+            todayUnits: components["schemas"]["LearningTodayItem"][];
         };
         /** @description A member of a workspace, as its administrators list them. */
         WorkspaceMember: components["schemas"]["PersonName"] & {
@@ -9873,6 +10323,38 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["OrgMember"][];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removeOrgMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it; and 404 for the user's own space, which nobody administers. */
+                orgId: string;
+                /** @description The identifier of the user. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The member is out of the organization. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -11331,6 +11813,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContainerMember"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMyOrganizations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organizations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOrganization"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -14450,6 +14961,44 @@ export interface operations {
             };
         };
     };
+    redistributeMyCourseSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RedistributeScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description The course schedule view after personal redistribution. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseScheduleView"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getMyCourseProgress: {
         parameters: {
             query?: never;
@@ -14505,6 +15054,148 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CourseProgressSummary"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCourseSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The course schedule and live unit dates for the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseScheduleView"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putCourseSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CourseScheduleUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated course schedule view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseScheduleView"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCourseSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The shared course schedule is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    redistributeCourseSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RedistributeScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description The course schedule view after shared redistribution. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseScheduleView"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -15178,6 +15869,46 @@ export interface operations {
         };
         responses: {
             /** @description The updated personal progress row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitProgress"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putUnitSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnitScheduleUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated personal progress row with the new plannedDate. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -15921,6 +16652,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getWorkspaceLearningToday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's incomplete units due today and overdue in this workspace. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceLearningToday"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
