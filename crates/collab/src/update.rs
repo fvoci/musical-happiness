@@ -654,7 +654,7 @@ pub(crate) fn settled_sized(doc: Doc, limits: &UpdateLimits) -> Result<Settled, 
             return Ok(Settled {
                 doc: again.doc,
                 state_bytes: state_again.len(),
-                client_changes: again.client_changes,
+                client_changes: again.client_changes.max(client_changes),
                 reading_steps: steps,
                 steps_ahead,
                 outcome: Outcome::Remake { steps, limit },

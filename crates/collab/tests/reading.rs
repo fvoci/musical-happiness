@@ -900,16 +900,16 @@ fn delete_every_other_letter(
     Update { runs, deleted }.bytes()
 }
 
-/// The remaining refusal from 1b-2: into a 2,047-session document under the mark at
-/// rest, a session read before all others deletes every other letter in 415 paragraphs
-/// (taken settled, staying under three quarters of `READING_STEPS` ahead) and then in
-/// 600 more paragraphs. The second update pushes reading steps past `READING_STEPS`
-/// and used to be refused and lost; it is now accepted with `remake: true`, its body
-/// holds all 1,015 edited paragraphs, and remaking from that body leaves 0 steps.
-/// Combining the same update with an invalid node (requiring a repair) is still
-/// refused, and `client_changes` / `body_bytes` limits are not bypassed.
+/// Two-step deletions into a 2,047-session document under the mark at rest: a session
+/// read before all others deletes every other letter in 415 paragraphs (taken settled,
+/// staying under three quarters of `READING_STEPS` ahead) and then in 600 more
+/// paragraphs. The second update pushes reading steps past `READING_STEPS`: it is
+/// accepted with `remake: true`, its body holds all 1,015 edited paragraphs, and
+/// remaking from that body leaves 0 steps. Combining the same update with an invalid
+/// node (requiring a repair) is still refused, and `client_changes` / `body_bytes`
+/// limits are not bypassed.
 #[test]
-fn the_1b2_two_step_deletions_into_2047_sessions_are_taken_and_marked_for_remake() {
+fn two_step_deletions_into_2047_sessions_are_taken_and_marked_for_remake() {
     let doc = document_of_2047_sessions();
     let first = delete_every_other_letter(0, 415, ReadFirst::Append);
     assert!(first.len() <= SERVED.update_bytes, "{} bytes", first.len());

@@ -279,6 +279,17 @@ impl Collab {
                 .await?;
         }
         for update in updates {
+            if open.must_remake {
+                // Another logged update follows one that already left the document
+                // unsettled past `READING_STEPS`: do not hand the slow state back to
+                // `yrs`; fall back to remaking from the card's body.
+                return Err(Opening::Refused(
+                    AppError::bad_request(
+                        "a logged update follows one that left the document past the steps it may take to read",
+                    )
+                    .with_reason(Reason::UpdateRefused),
+                ));
+            }
             let request = Request::Retake {
                 doc: open.number,
                 update: update.bytes,

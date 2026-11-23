@@ -19,6 +19,17 @@ use crate::error::{AppError, Reason};
 /// meanwhile (its title, its fields) before the write is given up for now.
 const PROJECTION_TRIES: u32 = 3;
 
+/// Whether [`Collab::remake_and_tell`] should emit [`DocChange::Closed`] when a
+/// required remake (`must_remake`) cannot run or fails and forgets the open slot.
+/// Callers with an active room (`keep_up`) tell the room so its watcher retries
+/// opening and remaking; callers that already run inside `ensure_open` or closing
+/// stay quiet so the watcher does not spin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OnForget {
+    Quiet,
+    TellClosed,
+}
+
 impl Collab {
     /// Takes an update into the document of a held slot and logs it with what a repair
     /// deleted; a document whose log could not be written is closed, so that the next
@@ -122,7 +133,7 @@ impl Collab {
         update: &[u8],
         repair: Option<&[u8]>,
         files: &[String],
-    ) -> Result<Vec<i64>, Unanswered> {
+    ) -> Result<Vec<i64>, AppError> {
         let mut entries: Vec<(&[u8], &str)> = vec![(update, user_id)];
         if let Some(repair) = repair {
             entries.push((repair, ""));
@@ -146,7 +157,7 @@ impl Collab {
             .await;
         let seqs = match logged {
             Ok(seqs) => seqs,
-            Err(error) => return Err(self.not_logged(app, card_id, slot, error).await.into()),
+            Err(error) => return Err(self.not_logged(app, card_id, slot, error).await),
         };
         if body_before == BodyBefore::Keep {
             // The store kept the body the card held, by those put down before.
@@ -201,7 +212,10 @@ impl Collab {
         // A document made from a body that is near the limit itself is not made again
         // at every update: only once it grew by a quarter of the limit since.
         let grown = open.state_bytes >= open.made_bytes.saturating_add(limit / 4);
-        if (near_limit && grown || open.crowded()) && self.remake_and_tell(app, card_id, slot).await
+        if (near_limit && grown || open.crowded())
+            && self
+                .remake_and_tell(app, card_id, slot, OnForget::TellClosed)
+                .await
         {
             return true;
         }
@@ -260,15 +274,27 @@ impl Collab {
             }
             Unanswered::Died(_) => false,
         });
-        wanted && self.remake_and_tell(app, card_id, slot).await
+        wanted
+            && self
+                .remake_and_tell(app, card_id, slot, OnForget::Quiet)
+                .await
     }
 
     /// Makes the document again from its body and tells the room, unless that failed
     /// a little before (it is tried again after [`REMAKE_RETRY`]); whether it was made
     /// again. A document that must be remade ([`OpenDoc::must_remake`]) is never kept
     /// open or folded if the remake cannot run or fails: it is closed (`forget`), and
-    /// its logged updates stay in the store for the next opening or recovery.
-    pub(super) async fn remake_and_tell(&self, app: &App, card_id: &str, slot: &mut Held) -> bool {
+    /// its logged updates stay in the store for the next opening or recovery. When
+    /// `on_forget` is [`OnForget::TellClosed`], forgetting a `must_remake` document
+    /// tells the room ([`DocChange::Closed`]) so its watcher retries opening and
+    /// remaking instead of leaving the logged update unprojected.
+    pub(super) async fn remake_and_tell(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        on_forget: OnForget,
+    ) -> bool {
         let must_remake = slot.open.as_ref().is_some_and(|open| open.must_remake);
         // A process that lost the lock of the server would be refused by `remake_from`;
         // it does not try, and so logs no failure.
@@ -280,6 +306,9 @@ impl Collab {
         {
             if must_remake {
                 self.forget(slot).await;
+                if on_forget == OnForget::TellClosed {
+                    self.tell(app, card_id, DocChange::Closed);
+                }
             }
             return false;
         }
@@ -297,11 +326,48 @@ impl Collab {
                 tracing::error!(%error, card_id, "cannot make a document that grew large again");
                 if must_remake {
                     self.forget(slot).await;
+                    if on_forget == OnForget::TellClosed {
+                        self.tell(app, card_id, DocChange::Closed);
+                    }
                 }
                 slot.remake_failed_at = Some(Instant::now());
                 false
             }
         }
+    }
+
+    /// Writes, versions, remakes if worn, folds if settled, and forgets a held slot as
+    /// it closes. If the slot was already forgotten (for instance after a transient
+    /// `must_remake` failure) while its log still has updates unwritten to the card,
+    /// opens it aside first so closing does not strand those updates.
+    pub(super) async fn close_held(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+    ) -> Result<(), AppError> {
+        let opened = if slot.open.is_none()
+            && app
+                .store()
+                .has_unwritten_body(card_id)
+                .await
+                .unwrap_or(false)
+        {
+            self.open_aside(app, card_id, slot).await
+        } else {
+            Ok(())
+        };
+        let written = match opened {
+            Ok(()) => self.write_now(app, card_id, slot).await,
+            Err(error) => Err(error),
+        };
+        if written.is_ok() {
+            self.version_as_left(app, card_id, slot).await;
+            self.remake_worn(app, card_id, slot).await;
+        }
+        self.fold_as_it_closes(app, card_id, slot).await;
+        self.forget(slot).await;
+        written
     }
 
     /// Makes the open document of a slot again from its body if it is worn
@@ -318,7 +384,8 @@ impl Collab {
     /// those changes are lost, as they are after any making again.
     pub(super) async fn remake_worn(&self, app: &App, card_id: &str, slot: &mut Held) {
         if slot.open.as_ref().is_some_and(OpenDoc::worn) {
-            self.remake_and_tell(app, card_id, slot).await;
+            self.remake_and_tell(app, card_id, slot, OnForget::Quiet)
+                .await;
         }
     }
 

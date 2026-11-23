@@ -458,7 +458,13 @@ impl Collab {
                     // Stored or logged under a larger limit: its body is written to the
                     // card, and it is made again from that.
                     // Boxed: the remake asks the open document, through here.
-                    Box::pin(self.remake_and_tell(app, card_id, slot)).await;
+                    Box::pin(self.remake_and_tell(
+                        app,
+                        card_id,
+                        slot,
+                        super::upkeep::OnForget::Quiet,
+                    ))
+                    .await;
                     if slot.open.is_none() {
                         // The remake failed and closed it: the store holds it.
                         return Err(refusals::unavailable());

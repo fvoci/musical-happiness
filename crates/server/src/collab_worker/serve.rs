@@ -66,12 +66,15 @@ struct Worker {
     held_bytes: u64,
 }
 
-/// A document, the size of its state, and the share it is counted in.
+/// A document, the size of its state, the share it is counted in, and whether it was
+/// left unsettled past [`READING_STEPS`] and must be remade from its body before any
+/// further request other than reading its body or closing it.
 #[derive(Debug)]
 struct Held {
     doc: BodyDoc,
     state_bytes: u64,
     share: Share,
+    must_remake: bool,
 }
 
 impl Worker {
@@ -100,19 +103,31 @@ impl Worker {
                 "the worker is configured once",
             )),
             Request::Open { doc, source, share } => self.open(doc, source, share),
-            Request::Take { doc, update } => {
-                self.take(doc, &update, self.update_limits, take_refused)
-            }
-            Request::Retake { doc, update } => {
-                self.take(doc, &update, self.logged_limits(), logged_refused)
-            }
-            Request::StateVector(doc) => Ok(Answer::Bytes(self.doc(doc)?.state_vector())),
+            Request::Take { doc, update } => self.take(
+                doc,
+                &update,
+                self.update_limits,
+                take_refused,
+                Refusal::OutOfOrder,
+            ),
+            Request::Retake { doc, update } => self.take(
+                doc,
+                &update,
+                self.logged_limits(),
+                logged_refused,
+                Refusal::Unappliable,
+            ),
+            Request::StateVector(doc) => Ok(Answer::Bytes(
+                self.settled_doc(doc, Refusal::OutOfOrder)?.state_vector(),
+            )),
             Request::Diff { doc, state_vector } => self
-                .doc(doc)?
+                .settled_doc(doc, Refusal::OutOfOrder)?
                 .diff(&state_vector)
                 .map(Answer::Bytes)
                 .map_err(|error| refused(Refusal::Unreadable, &error.to_string())),
-            Request::State(doc) => Ok(Answer::Bytes(self.doc(doc)?.state())),
+            Request::State(doc) => Ok(Answer::Bytes(
+                self.settled_doc(doc, Refusal::OutOfOrder)?.state(),
+            )),
             Request::Body(doc) => {
                 let body = self
                     .doc(doc)?
@@ -135,16 +150,18 @@ impl Worker {
     }
 
     /// Takes an update into a document within `limits`; `refused` is what one that
-    /// is not taken is answered with.
+    /// is not taken is answered with, and `on_remake` is returned if the held document
+    /// is already unsettled and waiting to be remade from its body.
     fn take(
         &mut self,
         doc: DocNumber,
         update: &[u8],
         limits: UpdateLimits,
         refused: fn(&TakeError) -> Refused,
+        on_remake: Refusal,
     ) -> Response {
         let changed = self
-            .doc(doc)?
+            .settled_doc(doc, on_remake)?
             .take(update, &limits)
             .map_err(|error| refused(&error))?;
         let state_bytes = u64::try_from(changed.state_bytes).unwrap_or(u64::MAX);
@@ -159,7 +176,15 @@ impl Worker {
             .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
             .unwrap_or_default();
         let share = self.docs.get(&doc).map_or(Share::Kept, |held| held.share);
-        self.hold(doc, changed.doc, state_bytes, share)?;
+        self.hold(
+            doc,
+            Held {
+                doc: changed.doc,
+                state_bytes,
+                share,
+                must_remake: remake,
+            },
+        )?;
         Ok(Answer::Taken {
             repair: changed.repair.update,
             state_bytes,
@@ -198,20 +223,31 @@ impl Worker {
             .ok_or_else(|| refused(Refusal::UnknownDocument, "no document is open under it"))
     }
 
+    /// Returns a held document only if it is settled (not waiting to be remade from
+    /// its body), refusing with `on_remake` otherwise so an unsettled state past
+    /// [`READING_STEPS`] is never handed back to `yrs` or stored.
+    fn settled_doc(&self, doc: DocNumber, on_remake: Refusal) -> Result<&BodyDoc, Refused> {
+        let held = self
+            .docs
+            .get(&doc)
+            .ok_or_else(|| refused(Refusal::UnknownDocument, "no document is open under it"))?;
+        if held.must_remake {
+            return Err(refused(
+                on_remake,
+                "the document must be made again from its body before another request",
+            ));
+        }
+        Ok(&held.doc)
+    }
+
     /// Holds `held` under `doc`, in place of what was held there, if the states of all
     /// the documents stay within [`Limits::held_bytes`].
-    fn hold(
-        &mut self,
-        doc: DocNumber,
-        held: BodyDoc,
-        state_bytes: u64,
-        share: Share,
-    ) -> Result<(), Refused> {
+    fn hold(&mut self, doc: DocNumber, held: Held) -> Result<(), Refused> {
         let before = self.docs.get(&doc).map_or(0, |held| held.state_bytes);
         let after = self
             .held_bytes
             .saturating_sub(before)
-            .saturating_add(state_bytes);
+            .saturating_add(held.state_bytes);
         if after > self.limits.held_bytes {
             return Err(refused(
                 Refusal::TooManyDocuments,
@@ -219,14 +255,7 @@ impl Worker {
             ));
         }
         self.held_bytes = after;
-        self.docs.insert(
-            doc,
-            Held {
-                doc: held,
-                state_bytes,
-                share,
-            },
-        );
+        self.docs.insert(doc, held);
         Ok(())
     }
 
@@ -290,7 +319,15 @@ impl Worker {
         };
         let (state, state_bytes, (client_changes, steps_ahead)) = state;
         let clients = count(opened.clients());
-        self.hold(doc, opened, state_bytes, share)?;
+        self.hold(
+            doc,
+            Held {
+                doc: opened,
+                state_bytes,
+                share,
+                must_remake: false,
+            },
+        )?;
         Ok(Answer::Opened {
             state,
             state_bytes,
@@ -495,6 +532,66 @@ mod tests {
         assert!(
             serve(&mut [].as_slice(), &mut Vec::new()).is_ok(),
             "a pipe closed at once"
+        );
+    }
+
+    #[test]
+    fn a_document_marked_for_remake_allows_only_body_and_close() {
+        let mut worker = Worker::new(LIMITS);
+        let opened = worker.answer(Request::Open {
+            doc: 1,
+            source: Source::Body(None),
+            share: Share::Kept,
+        });
+        assert!(
+            matches!(opened, Ok(Answer::Opened { .. })),
+            "opened: {opened:?}"
+        );
+        worker.docs.get_mut(&1).expect("held").must_remake = true;
+
+        let refusal = |response: Response| response.err().map(|refused| refused.refusal);
+        assert_eq!(
+            refusal(worker.answer(Request::Take {
+                doc: 1,
+                update: Vec::new(),
+            })),
+            Some(Refusal::OutOfOrder),
+            "Take is blocked until remade"
+        );
+        assert_eq!(
+            refusal(worker.answer(Request::Retake {
+                doc: 1,
+                update: Vec::new(),
+            })),
+            Some(Refusal::Unappliable),
+            "Retake is refused cleanly so replay falls back to the card"
+        );
+        assert_eq!(
+            refusal(worker.answer(Request::State(1))),
+            Some(Refusal::OutOfOrder),
+            "State is blocked so unsettled state cannot be folded"
+        );
+        assert_eq!(
+            refusal(worker.answer(Request::StateVector(1))),
+            Some(Refusal::OutOfOrder),
+            "StateVector is blocked until remade"
+        );
+        assert_eq!(
+            refusal(worker.answer(Request::Diff {
+                doc: 1,
+                state_vector: vec![0],
+            })),
+            Some(Refusal::OutOfOrder),
+            "Diff is blocked until remade"
+        );
+        assert!(
+            matches!(worker.answer(Request::Body(1)), Ok(Answer::Body(None))),
+            "Body is allowed for projection"
+        );
+        assert_eq!(
+            worker.answer(Request::Close(1)),
+            Ok(Answer::Done),
+            "Close is allowed for remake or forget"
         );
     }
 }

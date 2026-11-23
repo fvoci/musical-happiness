@@ -561,13 +561,7 @@ impl Collab {
             card_id,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
-                let written = collab.write_now(app, card_id, slot).await;
-                if written.is_ok() {
-                    collab.version_as_left(app, card_id, slot).await;
-                    collab.remake_worn(app, card_id, slot).await;
-                }
-                collab.fold_as_it_closes(app, card_id, slot).await;
-                collab.forget(slot).await;
+                let written = collab.close_held(app, card_id, slot).await;
                 collab.retire(slot);
                 written
             },
@@ -706,9 +700,14 @@ impl Collab {
                 if !held_by_a_room {
                     collab.open_aside(app, card_id, slot).await?;
                 }
-                let written = collab.write_now(app, card_id, slot).await;
-                if written.is_ok() && slot.open.as_ref().is_some_and(|open| open.must_remake) {
-                    collab.remake_and_tell(app, card_id, slot).await;
+                let mut written = collab.write_now(app, card_id, slot).await;
+                if written.is_ok()
+                    && slot.open.as_ref().is_some_and(|open| open.must_remake)
+                    && !collab
+                        .remake_and_tell(app, card_id, slot, upkeep::OnForget::Quiet)
+                        .await
+                {
+                    written = Err(refusals::unavailable());
                 }
                 collab.fold_as_it_closes(app, card_id, slot).await;
                 if !held_by_a_room {

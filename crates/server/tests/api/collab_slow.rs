@@ -12,7 +12,7 @@ use fvoci_collab::{BodyDoc, READING_STEPS, UpdateLimits, reading_steps};
 use fvoci_model::ContainerType;
 use fvoci_server::collab::DocChange;
 use fvoci_server::error::{AppError, Reason};
-use fvoci_store::BodyBefore;
+use fvoci_store::{BodyBefore, body_digest};
 use serde_json::{Value, json};
 
 use crate::body_versions::versions;
@@ -105,6 +105,18 @@ fn walkers(clock: u64, count: u64, children: u64) -> Run {
 
 fn walking(clock: u64, count: u64, children: u64) -> Vec<u8> {
     update_of(&[walkers(clock, count, children)])
+}
+
+/// Walking changes plus one invalid element (`nothing-a-body-has`) so applying it
+/// crosses `READING_STEPS` and also requires a repair.
+fn repair_needed_walkers(past: u64, children: u64) -> Run {
+    let mut run = walkers(0, past, children);
+    run.count += 1;
+    run.changes.push(0x87);
+    number(&mut run.changes, TYPIST);
+    number(&mut run.changes, children - 1);
+    run.changes.extend_from_slice(b"\x03\x12nothing-a-body-has");
+    run
 }
 
 fn reason_of(error: &AppError) -> Option<&'static str> {
@@ -203,15 +215,7 @@ async fn a_document_whose_update_is_past_its_steps_is_taken_and_made_again_from_
     };
 
     // Past the steps with a repair on a freshly made document: still refused, not remade.
-    let mut bad_walkers = walkers(0, past, CHILDREN);
-    bad_walkers.count += 1;
-    bad_walkers.changes.push(0x87);
-    number(&mut bad_walkers.changes, TYPIST);
-    number(&mut bad_walkers.changes, CHILDREN - 1);
-    bad_walkers
-        .changes
-        .extend_from_slice(b"\x03\x12nothing-a-body-has");
-    let both_bad = update_of(&[bad_walkers, typing(CHILDREN)]);
+    let both_bad = update_of(&[repair_needed_walkers(past, CHILDREN), typing(CHILDREN)]);
     let refused = take(loaded.epoch, both_bad)
         .await
         .expect_err("past the steps with a repair");
@@ -254,6 +258,42 @@ async fn a_document_whose_update_is_past_its_steps_is_taken_and_made_again_from_
         .await
         .expect("an editor that loaded it again goes on");
     assert!(!on.remade, "not made again at every update");
+
+    // Past the steps with a repair on an edited document (`state_bytes > made_bytes`):
+    // still refused (`document_too_large`), and the edited document IS remade from its
+    // body without the refused update.
+    let typed_again = take(again_epoch, typed_in_order(CHILDREN))
+        .await
+        .expect("typed list on edited document");
+    assert!(!typed_again.remade, "typed list stays settled");
+    let refused_edited = take(
+        again_epoch,
+        update_of(&[repair_needed_walkers(past, CHILDREN)]),
+    )
+    .await
+    .expect_err("past the steps with a repair on edited doc");
+    assert_eq!(
+        reason_of(&refused_edited),
+        Some("document_too_large"),
+        "repair past steps on edited doc is refused"
+    );
+    assert!(told(), "edited doc is remade after refusal");
+    let after_refusal = stored(&e).await;
+    assert_eq!(
+        after_refusal.epoch,
+        made.epoch + 1,
+        "edited doc remade to next epoch"
+    );
+    assert_eq!(
+        reading_steps(&after_refusal.state, u64::MAX).expect("a state"),
+        0,
+        "remade after refusal takes 0 steps"
+    );
+    assert_eq!(
+        paragraphs_of(body_of(&card(&th.client, &e.card_id).await).as_ref()),
+        20_002,
+        "kept + first 10k + on + second 10k, without the refused update"
+    );
     th.teardown().await;
 }
 
@@ -635,6 +675,18 @@ async fn an_update_past_reading_steps_in_a_room_acks_resets_keeps_body_version_a
     th.teardown().await;
 }
 
+/// Waits until `card_id` has `expected` paragraphs in its projected body.
+async fn wait_for_paragraphs(th: &TestServer, card_id: &str, expected: usize) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while paragraphs_of(body_of(&card(&th.client, card_id).await).as_ref()) != expected {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "recovered card body did not reach {expected} paragraphs"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// Stopping the server at `paused_before_projection` (after logging an update past
 /// `READING_STEPS` and before writing its body to the card) and starting it again
 /// recovers the update without losing the tail, writes it to the card, remakes the
@@ -646,13 +698,10 @@ async fn closing_at_paused_before_projection_keeps_an_update_past_reading_steps(
     let (a, b) = (th.client.me().await, th.client2.me().await);
     let board = board_with_owner(&th, ContainerType::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
-    let created = card_with(&th.client, &board.id, &paragraphs(&["kept"])).await;
-    let card_id = created.id.clone();
-    let app = Editing {
-        card_id: card_id.clone(),
-        ..editing_app(&th).await
-    }
-    .app;
+    let card_id = card_with(&th.client, &board.id, &paragraphs(&["kept"]))
+        .await
+        .id;
+    let app = editing_app(&th).await.app;
     let collab = app.collab().clone();
     let loaded = collab.open(&app, &card_id).await.expect("opened");
     collab
@@ -661,6 +710,7 @@ async fn closing_at_paused_before_projection_keeps_an_update_past_reading_steps(
         .expect("typed");
 
     // Pause the projection inside the remake that follows logging the heavy update.
+    let mut events = collab.subscribe();
     let (waiting, go) = collab.pause_next_projection();
     let heavy = walking_with_mention(LIST, &b.id);
     let taking = tokio::spawn({
@@ -686,9 +736,11 @@ async fn closing_at_paused_before_projection_keeps_an_update_past_reading_steps(
         .await
         .expect("read")
         .expect("doc");
-    assert_eq!(logged.projected_seq, 0, "projection has not committed");
-    assert_eq!(logged.log_end, 2, "both updates are logged");
-    assert_eq!(logged.updates.len(), 2, "two updates in log");
+    assert_eq!(
+        (logged.projected_seq, logged.log_end, logged.updates.len()),
+        (0, 2, 2),
+        "both updates are logged and not projected yet"
+    );
 
     // Simulate crash at paused_before_projection: close the store so the paused
     // projection cannot commit, wake it so its slot releases, and start a fresh server.
@@ -696,21 +748,26 @@ async fn closing_at_paused_before_projection_keeps_an_update_past_reading_steps(
         .killed_and_started_again(async |old_app| {
             old_app.store().close().await;
             go.notify_one();
-            let _ = taking.await;
+            let taken = taking
+                .await
+                .expect("joined")
+                .expect("update was logged before store closed");
+            assert!(!taken.remade, "remake failed because store closed");
+            assert_eq!(
+                collab.held_state_bytes(&app, &card_id).await,
+                None,
+                "failed must_remake slot is forgotten instead of kept open"
+            );
+            assert!(
+                std::iter::from_fn(|| events.try_recv().ok())
+                    .any(|event| event.card_id == card_id && event.change == DocChange::Closed),
+                "room is told DocChange::Closed when must_remake remake fails"
+            );
         })
         .await;
 
-    let expected_paragraphs = usize::try_from(LIST).expect("fits") + 2;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
-    while paragraphs_of(body_of(&card(&th.client, &card_id).await).as_ref()) != expected_paragraphs
-    {
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "recovered card body did not include the update"
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-
+    let expected = usize::try_from(LIST).expect("fits") + 2;
+    wait_for_paragraphs(&th, &card_id, expected).await;
     let restarted = Editing {
         card_id: card_id.clone(),
         ..editing_app(&th).await
@@ -719,13 +776,13 @@ async fn closing_at_paused_before_projection_keeps_an_update_past_reading_steps(
     let body = again.body().map(|body| body.document().clone());
     assert_eq!(
         paragraphs_of(body.as_ref()),
-        expected_paragraphs,
-        "recovered document kept all paragraphs"
+        expected,
+        "kept all paragraphs"
     );
     assert_eq!(
         body_of(&card(&th.client, &card_id).await),
         body,
-        "card body matches recovered document"
+        "card matches recovered doc"
     );
     let made = stored(&restarted).await;
     assert_eq!(made.epoch, loaded.epoch + 1, "remade cleanly on recovery");
@@ -736,14 +793,256 @@ async fn closing_at_paused_before_projection_keeps_an_update_past_reading_steps(
         0,
         "recovered document has 0 reading steps"
     );
-
-    // Mention from the logged heavy update survived the crash and recovery.
     let b_told = told(&th, &th.client2).await;
     assert_eq!(kinds(&b_told), (vec!["mention"], 0), "{b_told:?}");
     assert_eq!(
         b_told[0].subject.as_ref().expect("seen").actor_id,
         a.id,
         "recovered mention credits A"
+    );
+    th.teardown().await;
+}
+
+/// If a stored log has another update *after* one that already left the document
+/// unsettled past `READING_STEPS` (as from a pre-counting server), replay stops
+/// without handing the slow state back to `yrs` and falls back to the card's body
+/// without ending the worker.
+#[tokio::test]
+async fn logged_updates_after_one_past_reading_steps_fall_back_to_card_without_ending_worker() {
+    let th = roomy().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    collab.open(&e.app, &e.card_id).await.expect("opened");
+    collab.abandon().await;
+    let before = stored(&e).await;
+    let each = READING_STEPS / CHILDREN / 2 + 8;
+    let trailing = Editor::join(105, &before.state).append_paragraph("after slow");
+    let updates = [
+        typed_in_order(CHILDREN),
+        walking(0, each, CHILDREN),
+        walking(each, each, CHILDREN),
+        trailing,
+    ];
+    let entries: Vec<(&[u8], &str)> = updates
+        .iter()
+        .map(|update| (update.as_slice(), e.user1.as_str()))
+        .collect();
+    e.app
+        .store()
+        .append_body_updates(
+            &e.card_id,
+            &entries,
+            before.as_read(),
+            &[],
+            &[],
+            BodyBefore::Leave,
+        )
+        .await
+        .expect("logged past the server");
+    let worker = worker_of(&th, &e).await;
+
+    let (again, again_epoch) = joined(collab, &e.app, &e.card_id, 102).await;
+    assert_eq!(
+        collab.worker_pids().await[0],
+        Some(worker),
+        "the worker runs on without being killed"
+    );
+    let body = again.body().map(|body| body.document().clone());
+    assert_eq!(
+        paragraphs_of(body.as_ref()),
+        1,
+        "fell back cleanly to the card's body"
+    );
+    assert_eq!(
+        body_of(&card(&th.client, &e.card_id).await),
+        body,
+        "card and remade document match"
+    );
+    let made = stored(&e).await;
+    assert_eq!(made.epoch, before.epoch + 1, "remade from card");
+    assert_eq!(again_epoch, made.epoch, "rejoined at remade epoch");
+    assert_eq!(made.updates.len(), 0, "log cleared by fallback remake");
+    assert_eq!(
+        reading_steps(&made.state, u64::MAX).expect("a state"),
+        0,
+        "remade document takes 0 steps"
+    );
+    th.teardown().await;
+}
+
+/// Closing a card whose `must_remake` slot was already forgotten while its log still
+/// holds unwritten updates opens it aside, projects the body and mentions, and remakes
+/// it to 0 reading steps instead of stranding the log.
+#[tokio::test]
+async fn close_finishes_a_forgotten_must_remake_log() {
+    const LIST: u64 = 10_000;
+    let th = roomy().await;
+    let (a, b) = (th.client.me().await, th.client2.me().await);
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &b.id, "editor").await;
+    let card_a = card_with(&th.client, &board.id, &paragraphs(&["kept"])).await;
+    let edit_a = Editing {
+        card_id: card_a.id.clone(),
+        ..editing_app(&th).await
+    };
+    let collab = edit_a.app.collab();
+    collab.open(&edit_a.app, &card_a.id).await.expect("opened");
+    collab.abandon().await;
+    let before = stored(&edit_a).await;
+    let typed = typed_in_order(LIST);
+    let heavy = walking_with_mention(LIST, &b.id);
+    edit_a
+        .app
+        .store()
+        .append_body_updates(
+            &card_a.id,
+            &[
+                (typed.as_slice(), a.id.as_str()),
+                (heavy.as_slice(), a.id.as_str()),
+            ],
+            before.as_read(),
+            &[],
+            &[a.id.as_str()],
+            BodyBefore::Leave,
+        )
+        .await
+        .expect("logged");
+    assert_eq!(
+        collab.held_state_bytes(&edit_a.app, &card_a.id).await,
+        None,
+        "slot is forgotten before close"
+    );
+    collab
+        .close(&edit_a.app, &card_a.id)
+        .await
+        .expect("close opens aside and finishes unwritten must_remake log");
+    assert_eq!(
+        paragraphs_of(body_of(&card(&th.client, &card_a.id).await).as_ref()),
+        usize::try_from(LIST).expect("fits") + 2,
+        "close projected the forgotten must_remake updates"
+    );
+    let made = stored(&edit_a).await;
+    assert_eq!(made.epoch, before.epoch + 1, "remade during close");
+    assert_eq!(made.updates.len(), 0, "log cleared by remake");
+    assert_eq!(
+        reading_steps(&made.state, u64::MAX).expect("a state"),
+        0,
+        "remade state takes 0 steps"
+    );
+    let b_told = told(&th, &th.client2).await;
+    assert_eq!(kinds(&b_told), (vec!["mention"], 0), "{b_told:?}");
+    assert_eq!(
+        b_told[0].subject.as_ref().expect("seen").actor_id,
+        a.id,
+        "mention credits A"
+    );
+    th.teardown().await;
+}
+
+/// Recovering a card that crashed *after* `project_body` and *before*
+/// `remake_body_doc` (`projected_seq == log_end`, `state_seq < log_end`) remakes the
+/// document to 0 reading steps without re-projecting or duplicating mention
+/// notifications.
+#[tokio::test]
+async fn recovering_after_projection_and_before_remake_dedups_mentions() {
+    const LIST: u64 = 10_000;
+    let th = roomy().await;
+    let (a, b) = (th.client.me().await, th.client2.me().await);
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &b.id, "editor").await;
+    let card_b = card_with(&th.client, &board.id, &paragraphs(&["kept"])).await;
+    let edit_b = Editing {
+        card_id: card_b.id.clone(),
+        ..editing_app(&th).await
+    };
+    let collab = edit_b.app.collab();
+    collab.open(&edit_b.app, &card_b.id).await.expect("opened");
+    collab.abandon().await;
+    let before = stored(&edit_b).await;
+    let typed = typed_in_order(LIST);
+    let heavy = walking_with_mention(LIST, &b.id);
+    let seqs = edit_b
+        .app
+        .store()
+        .append_body_updates(
+            &card_b.id,
+            &[
+                (typed.as_slice(), a.id.as_str()),
+                (heavy.as_slice(), a.id.as_str()),
+            ],
+            before.as_read(),
+            &[],
+            &[a.id.as_str()],
+            BodyBefore::Leave,
+        )
+        .await
+        .expect("logged");
+    let after_log = stored(&edit_b).await;
+    let uncounted = UpdateLimits {
+        update_bytes: 1024 * 1024,
+        state_bytes: 8 * 1024 * 1024,
+        body_bytes: fvoci_model::BODY_MAX_BYTES,
+        placing_steps: None,
+        clients: None,
+        client_changes: None,
+        reading_steps: None,
+    };
+    let projected_body = BodyDoc::from_state(&before.state, &uncounted)
+        .expect("opened")
+        .doc
+        .take(&typed, &uncounted)
+        .expect("typed")
+        .doc
+        .take(&heavy, &uncounted)
+        .expect("heavy")
+        .repair
+        .body;
+    let digest = body_digest(projected_body.as_ref());
+    let held_card = edit_b
+        .app
+        .store()
+        .get_block(&card_b.id)
+        .await
+        .expect("card");
+    edit_b
+        .app
+        .store()
+        .project_body(
+            &card_b.id,
+            Some(projected_body),
+            held_card.update_at,
+            *seqs.last().expect("seq"),
+            &digest,
+            &a.id,
+            after_log.as_read(),
+        )
+        .await
+        .expect("projected before crash");
+
+    assert_eq!(
+        kinds(&told(&th, &th.client2).await),
+        (vec!["mention"], 0),
+        "mention delivered once at projection"
+    );
+    collab.recover(&th.app).await;
+
+    let made = stored(&edit_b).await;
+    assert_eq!(made.epoch, before.epoch + 1, "remade by recover");
+    assert_eq!(made.updates.len(), 0, "unfolded log cleared by remake");
+    assert_eq!(
+        reading_steps(&made.state, u64::MAX).expect("a state"),
+        0,
+        "recovered document takes 0 steps"
+    );
+    assert_eq!(
+        paragraphs_of(body_of(&card(&th.client, &card_b.id).await).as_ref()),
+        usize::try_from(LIST).expect("fits") + 2,
+        "card kept its projected body"
+    );
+    assert_eq!(
+        kinds(&told(&th, &th.client2).await),
+        (vec!["mention"], 0),
+        "no duplicate mention notification after post-projection recovery"
     );
     th.teardown().await;
 }

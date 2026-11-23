@@ -887,9 +887,9 @@ fn at_its_steps() {
     }
 }
 
-/// Measures the T3 accept-and-remake path in ms: the 1b-2 2,047-session document with
-/// 415 paragraphs deleted and then 600 paragraphs deleted (taken with `remake: true`,
-/// plus remaking via `from_body`), and the `before_the_last` walking update on a
+/// Measures the accept-and-remake path in ms: a 2,047-session document with 415
+/// paragraphs deleted and then 600 paragraphs deleted (taken with `remake: true`, plus
+/// remaking via `from_body`), and the `before_the_last` walking update on a
 /// 49,998-paragraph document.
 #[test]
 #[ignore = "a measurement, run by name in a release build"]
@@ -946,7 +946,7 @@ fn remake_past_steps() {
     assert!(!after_first.remake, "first stays within reading steps");
     let second = deletes(415, 600, Vec::new());
 
-    let (take_t3, taken) =
+    let (take_remake, taken) =
         timed(|| take_update(&after_first.doc, &second, &LIMITS).expect("taken"));
     assert!(taken.remake, "second triggers remake");
     let body = taken.repair.body.expect("body");
@@ -970,8 +970,6 @@ fn remake_past_steps() {
 
     println!("| case | take_update (remake) ms | from_body ms | take + from_body ms |");
     println!("| --- | --- | --- | --- |");
-    println!(
-        "| 1b-2 (2047 sessions, 415+600 del) | {take_t3} | {remake_body} | {take_and_remake} |"
-    );
+    println!("| 2047 sessions, 415+600 del | {take_remake} | {remake_body} | {take_and_remake} |");
     println!("| 49,998 paras + walkers | {walk_take} | {walk_remake} | {walk_total} |");
 }

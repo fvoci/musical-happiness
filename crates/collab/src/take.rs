@@ -92,11 +92,10 @@ pub enum TakeError {
 ///
 /// Returns [`TakeError::Update`] if the update cannot be taken at all (see
 /// [`UpdateError`]: among them one whose changes would take more steps to place than
-/// [`UpdateLimits::placing_steps`], and one that leaves a document that takes more
-/// steps to read than [`UpdateLimits::reading_steps`]), [`TakeError::Body`] if the
-/// document with it is no body and a
-/// repair does not make it one, and [`TakeError::BodyTooLarge`] if its body is past
-/// [`UpdateLimits::body_bytes`].
+/// [`UpdateLimits::placing_steps`], and one that leaves a document needing repair past
+/// [`UpdateLimits::reading_steps`]), [`TakeError::Body`] if the document with it is no
+/// body and a repair does not make it one, and [`TakeError::BodyTooLarge`] if its body
+/// is past [`UpdateLimits::body_bytes`].
 ///
 /// A document keeps what was deleted from it, so it grows with every edit: typing and
 /// deleting 10 kB a hundred times leaves a body of two letters in a state of 1 MB. Once
@@ -179,7 +178,9 @@ fn to_taken(with: Settled, limits: &UpdateLimits) -> Result<Taken, TakeError> {
                 | BodyError::TooManyNodes
                 | BodyError::TableTooLarge { .. }),
             ) => return Err(limit_err.into()),
-            Err(_) => return Err(UpdateError::TooManyReadingSteps { steps, limit }.into()),
+            Err(BodyError::InvalidNode { .. } | BodyError::NotADocument) => {
+                return Err(UpdateError::TooManyReadingSteps { steps, limit }.into());
+            }
         };
         let repair = Repair {
             deleted: 0,
