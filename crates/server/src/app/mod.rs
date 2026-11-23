@@ -258,6 +258,7 @@ impl App {
         let metrics = store_metrics::set_up(&config, &store)?;
         store.set_comment_versions_kept(config.max_comment_versions);
         store.set_body_versions_kept(config.collab.collab_body_versions);
+        store.set_body_versions_max_bytes(config.collab.body_versions_max_bytes);
         store.set_file_versions_kept(config.max_file_versions);
         // The authenticator reads what is no organization's (sessions), and asks the
         // directory whose a shared board is: it is given no organization to reach.

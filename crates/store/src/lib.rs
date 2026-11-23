@@ -107,7 +107,9 @@ pub use blocks::{
 };
 pub use body_digest::body_digest;
 pub use body_docs::{DocAsRead, LoggedUpdate, StoredDoc};
-pub use body_versions::{BodyBefore, ByHand, DEFAULT_BODY_VERSIONS_KEPT, KeptVersion};
+pub use body_versions::{
+    BodyBefore, ByHand, DEFAULT_BODY_VERSIONS_KEPT, DEFAULT_BODY_VERSIONS_MAX_BYTES, KeptVersion,
+};
 pub use category_containers::{ContainerPlace, ContainerVisibility};
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
@@ -290,6 +292,8 @@ struct Inner {
     search_outbox: std::sync::atomic::AtomicBool,
     /// See [`Store::set_body_versions_kept`].
     body_versions_kept: std::sync::atomic::AtomicU32,
+    /// See [`Store::set_body_versions_max_bytes`].
+    body_versions_max_bytes: std::sync::atomic::AtomicU64,
     /// See [`Store::set_file_versions_kept`].
     file_versions_kept: std::sync::atomic::AtomicU32,
     /// Who is told about the calls; see [`Store::observe`].
@@ -450,6 +454,9 @@ impl Store {
                 search_outbox: std::sync::atomic::AtomicBool::new(false),
                 body_versions_kept: std::sync::atomic::AtomicU32::new(
                     body_versions::DEFAULT_BODY_VERSIONS_KEPT,
+                ),
+                body_versions_max_bytes: std::sync::atomic::AtomicU64::new(
+                    body_versions::DEFAULT_BODY_VERSIONS_MAX_BYTES,
                 ),
                 file_versions_kept: std::sync::atomic::AtomicU32::new(
                     file_versions::DEFAULT_FILE_VERSIONS_KEPT,
