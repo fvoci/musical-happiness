@@ -179,6 +179,7 @@ impl Store {
                 container_id: course_id.to_owned(),
                 block_type: new.kind.block_type(),
                 title: new.title.clone(),
+                fields: new.to_fields(),
                 ..Block::default()
             };
             unit.parent_id.clone_from(&new.parent_id);

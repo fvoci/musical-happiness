@@ -134,6 +134,7 @@ fn operations() -> Vec<(String, String, String)> {
         | "deleteBlock"
         | "deletePage"
         | "deleteUnit"
+        | "deleteCourseSchedule"
         | "deleteBoardsAndBlocks"
         | "deleteUpload"
         | "deleteCategory"
@@ -609,6 +610,8 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getUnit",
         "getMyCourseProgress",
         "getCourseProgressSummary",
+        "getCourseSchedule",
+        "getWorkspaceLearningToday",
         "getUnitComments",
         "getUnitCommentVersions",
         "getUnitBodyVersions",

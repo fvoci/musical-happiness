@@ -59,12 +59,22 @@ export function unitDetailOf(unit: Schemas['Unit']): CourseUnitDetail {
   };
 }
 
+function amountUnitOf(value: unknown): Schemas['AmountUnit'] | null {
+  return value === 'minutes' || value === 'pages' || value === 'problems' ? value : null;
+}
+
 /**
  * A unit or chapter as a change message (`UPDATE_BLOCK`) brings it: a block of
- * type `unit` or `chapter` whose `order` is among its `fields`.
+ * type `unit` or `chapter` whose `order` and optional schedule fields are among
+ * its `fields`.
  */
 export function unitOfBlock(block: Schemas['Block']): CourseUnit {
-  const fields = block.fields as { order?: unknown };
+  const fields = block.fields as {
+    order?: unknown;
+    amount?: unknown;
+    amountUnit?: unknown;
+    scheduledDate?: unknown;
+  };
   return unitOf(
     {
       id: block.id,
@@ -72,6 +82,9 @@ export function unitOfBlock(block: Schemas['Block']): CourseUnit {
       parentId: block.parentId,
       title: block.title,
       order: typeof fields.order === 'string' ? fields.order : '',
+      amount: typeof fields.amount === 'number' ? fields.amount : null,
+      amountUnit: amountUnitOf(fields.amountUnit),
+      scheduledDate: typeof fields.scheduledDate === 'string' ? fields.scheduledDate : null,
       createAt: block.createAt,
       updateAt: block.updateAt,
     },
