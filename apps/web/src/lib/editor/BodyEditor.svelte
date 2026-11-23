@@ -22,9 +22,7 @@
 -->
 <script lang="ts">
   import { Editor } from '@tiptap/core';
-  import { Collaboration } from '@tiptap/extension-collaboration';
   import type { Transaction } from '@tiptap/pm/state';
-  import { ySyncPluginKey } from '@tiptap/y-tiptap';
   import { onMount, untrack } from 'svelte';
   import { on } from 'svelte/events';
 
@@ -32,6 +30,7 @@
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
 
   import { BODY_FIELD, type BodyEditorProps, type BodyReferences } from './body-editor.ts';
+  import { CheckedCollaboration, hasInvalidContent } from './content-check.ts';
   import { drawReferences } from './reference-chip.ts';
   import { fromShared, setMayWrite, type DroppedWhy } from './shared-place.ts';
   import { caretsOf } from './carets.ts';
@@ -115,8 +114,7 @@
 
   /** Whether a shared document the editor could not draw fits it again. */
   function fitsAgain(current: Editor): boolean {
-    const sync = ySyncPluginKey.getState(current.state);
-    return sync?.binding.invalidContentError === null;
+    return !hasInvalidContent(current.state);
   }
 
   /** What an editor holds, as it would be stored; `null` for an empty body. */
@@ -213,7 +211,7 @@
 
   /** What binds the editor to a shared document, keeps the reader's moves through what the others do, and shows their carets. */
   const sharing = (shared: NonNullable<BodyEditorProps['collab']>) => [
-    Collaboration.configure({ document: shared, field: BODY_FIELD }),
+    CheckedCollaboration.configure({ document: shared, field: BODY_FIELD }),
     MovesKept.configure({ readsFirst }),
     ...(carets ? [caretsOf({ ...carets, nameOf })] : []),
   ];
@@ -231,9 +229,9 @@
       ...(shared
         ? {
             // What the editor cannot draw (written by a newer version of the app) is
-            // kept, not deleted for everyone: the editor says so and stops editing
-            // until the shared document fits again (the server mends what it may).
-            enableContentCheck: true,
+            // kept, not deleted for everyone: CheckedCollaboration validates the whole
+            // body once on load and changed ranges thereafter, stopping editing until
+            // the shared document fits again (the server mends what it may).
             onContentError: fromEditor(() => {
               unreadable = true;
             }),

@@ -37,6 +37,8 @@ import {
 } from '@tiptap/y-tiptap';
 import * as Y from 'yjs';
 
+import { hasInvalidContent } from './content-check.ts';
+
 type Mapping = NonNullable<ReturnType<typeof ySyncPluginKey.getState>>['binding']['mapping'];
 /** A shared element the editor draws a node from. */
 type Shared = Mapping extends Map<infer Type, unknown> ? Type : never;
@@ -207,7 +209,7 @@ export function setMayWrite(view: EditorView, writer: Writer): void {
  * the editor takes changes (not while it holds what it cannot draw).
  */
 export function mayWrite(view: EditorView): boolean {
-  if (ySyncPluginKey.getState(view.state)?.binding.invalidContentError) return false;
+  if (hasInvalidContent(view.state)) return false;
   return view.editable || (writers.get(view)?.may() ?? false);
 }
 

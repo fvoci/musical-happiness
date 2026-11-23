@@ -17,8 +17,8 @@
  *
  *   ?shape=paragraphs   24,999 paragraphs of a text each (the default)
  *   ?shape=marks        paragraphs of 200 letters, every other with four marks
- *   ?check=1            the editor checks the content of every transaction from the
- *                       shared document, as `BodyEditor` makes it (`enableContentCheck`)
+ *   ?check=1            the editor checks content as `BodyEditor` does (`CheckedCollaboration`)
+ *   ?check=full         full-document `enableContentCheck` on every transaction (pre-T8)
  */
 import { Editor, getSchema } from '@tiptap/core';
 import { Collaboration } from '@tiptap/extension-collaboration';
@@ -28,6 +28,7 @@ import * as Y from 'yjs';
 import '../../src/lib/editor/editor.css';
 
 import { BODY_FIELD } from '$lib/editor/body-editor.ts';
+import { CheckedCollaboration } from '$lib/editor/content-check.ts';
 import { bodyExtensions } from '$lib/editor/extensions.ts';
 import { MovesKept } from '$lib/editor/moves-kept.ts';
 import { MAX_BODY_BYTES, MAX_NODES, toStoredDoc, type DocNode } from '$lib/editor/schema.ts';
@@ -35,7 +36,9 @@ import { MAX_BODY_BYTES, MAX_NODES, toStoredDoc, type DocNode } from '$lib/edito
 import type { Measured, Opened, RemoteSpike, Runs } from './api.ts';
 
 const query = new URLSearchParams(location.search);
-const check = query.get('check') === '1';
+const checkMode = query.get('check');
+const check = checkMode === '1' || checkMode === 'full';
+const fullCheck = checkMode === 'full';
 const shape = query.get('shape') ?? 'paragraphs';
 
 /** What marks an update as the server's: an origin that is not the binding's, as the provider's is not. */
@@ -124,12 +127,15 @@ if (!host) throw new Error('index.html has no #editor element');
 const editor = new Editor({
   element: host,
   injectCSS: false,
-  enableContentCheck: check,
+  enableContentCheck: fullCheck,
   onContentError: ({ error }) => {
     contentErrors.push(error.message);
   },
   extensions: [
-    Collaboration.configure({ document: shared, field: BODY_FIELD }),
+    (check && !fullCheck ? CheckedCollaboration : Collaboration).configure({
+      document: shared,
+      field: BODY_FIELD,
+    }),
     MovesKept.configure({}),
     ...extensions,
   ],
