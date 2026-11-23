@@ -276,7 +276,7 @@ fn a_line_that_the_formatter_does_not_break_is_refused() {
 }
 
 #[test]
-fn what_is_listed_is_held_to_its_ceiling_up_and_down() {
+fn what_is_listed_is_held_to_its_ceiling_as_an_upper_bound() {
     let list = listed("file 1200 crates/a/src/lib.rs\nfunction 150 crates/a/src/lib.rs App::run\n");
     let measured = |file_lines, function_lines| {
         [
@@ -299,29 +299,18 @@ fn what_is_listed_is_held_to_its_ceiling_up_and_down() {
     );
     assert_eq!(
         judge(&measured(1199, 149), &list),
-        [
-            format!(
-                "{EXCEPTIONS}: crates/a/src/lib.rs has 1199 lines now: lower its ceiling of 1200"
-            ),
-            format!(
-                "{EXCEPTIONS}: crates/a/src/lib.rs: fn App::run (line 9) has 149 lines now: lower its ceiling of 150"
-            ),
-        ],
-        "shorter than the ceiling"
+        Vec::<String>::new(),
+        "shorter than the ceiling while still over the limit"
     );
     assert_eq!(
         judge(&measured(1000, 100), &list),
-        [
-            format!(
-                "{EXCEPTIONS}: crates/a/src/lib.rs has 1000 lines now, within the limit of 1000: \
-                 remove its line (1200)"
-            ),
-            format!(
-                "{EXCEPTIONS}: crates/a/src/lib.rs: fn App::run (line 9) has 100 lines now, within the limit of 100: \
-                 remove its line (150)"
-            ),
-        ],
-        "within the limit"
+        Vec::<String>::new(),
+        "shrunk to the limit"
+    );
+    assert_eq!(
+        judge(&measured(900, 50), &list),
+        Vec::<String>::new(),
+        "shrunk below the limit"
     );
 }
 
@@ -355,10 +344,47 @@ fn two_functions_of_one_name_are_told_apart_by_their_lengths() {
     };
     assert_eq!(judge(&two(120, 150), &list), Vec::<String>::new());
     assert_eq!(
+        judge(&two(110, 140), &list),
+        Vec::<String>::new(),
+        "both shorter than their ceilings while still over the limit"
+    );
+    assert_eq!(
+        judge(&two(50, 90), &list),
+        Vec::<String>::new(),
+        "both shrunk within the limit"
+    );
+    assert_eq!(
         judge(&two(121, 150), &list),
         [
             "crates/a/src/lib.rs:1: crates/a/src/lib.rs: fn Wire::new has 121 lines, its ceiling is 120"
         ]
+    );
+    assert_eq!(
+        judge(&two(121, 140), &list),
+        [
+            "crates/a/src/lib.rs:1: crates/a/src/lib.rs: fn Wire::new has 121 lines, its ceiling is 120"
+        ],
+        "longer overload shrinking does not mask shorter overload exceeding its ceiling"
+    );
+    assert_eq!(
+        judge(&two(150, 150), &list),
+        [
+            "crates/a/src/lib.rs:200: crates/a/src/lib.rs: fn Wire::new has 150 lines, its ceiling is 120"
+        ]
+    );
+    assert_eq!(
+        judge(&[function("Wire::new", 150, 1)], &list),
+        [format!(
+            "{EXCEPTIONS}: crates/a/src/lib.rs: fn Wire::new is not in the code: remove its line (120)"
+        )],
+        "a listed overload that was removed still fails"
+    );
+    assert_eq!(
+        judge(&[function("Wire::new", 50, 1)], &list),
+        [format!(
+            "{EXCEPTIONS}: crates/a/src/lib.rs: fn Wire::new is not in the code: remove its line (120)"
+        )],
+        "missing overload fails even when the remaining one shrank within the limit"
     );
     let mut three = two(120, 150);
     three.push(function("Wire::new", 101, 600));
@@ -426,7 +452,9 @@ fn a_list_that_cannot_be_read_or_has_a_needless_line_is_refused() {
         ),
         ("file many crates/a/src/lib.rs", "is no number of lines"),
         ("file 1000 crates/a/src/lib.rs", "within the limit of 1000"),
+        ("file 999 crates/a/src/lib.rs", "within the limit of 1000"),
         ("file 2000 crates/a/tests/it.rs", "within the limit of 2000"),
+        ("file 1999 crates/a/tests/it.rs", "within the limit of 2000"),
         (
             "file 2000 crates/a/src/app/tests.rs",
             "within the limit of 2000",
@@ -436,7 +464,15 @@ fn a_list_that_cannot_be_read_or_has_a_needless_line_is_refused() {
             "within the limit of 100",
         ),
         (
+            "function 99 crates/a/src/lib.rs f",
+            "within the limit of 100",
+        ),
+        (
             "function 200 crates/a/src/lib.rs tests::f",
+            "within the limit of 200",
+        ),
+        (
+            "function 199 crates/a/src/lib.rs tests::f",
             "within the limit of 200",
         ),
         (
@@ -583,16 +619,40 @@ fn planted_long_code_is_found_in_a_workspace_and_the_list_is_rewritten_from_it()
         "a listed function that grows"
     );
     run(&root).expect_err("and the step fails for it");
+
+    write(&root, "crates/a/src/long.rs", &"// a line\n".repeat(1005));
+    rewrite(&root).expect("the list records the longer file");
+    write(&root, "crates/a/src/long.rs", &"// a line\n".repeat(1002));
     write(&root, "crates/a/src/lib.rs", &long("planted", 100));
     assert_eq!(
         differences(&root),
-        [format!(
-            "{EXCEPTIONS}: crates/a/src/lib.rs: fn planted (line 1) has 100 lines now, within the limit of 100: \
-             remove its line (101)"
-        )],
-        "a listed function that came within the limit"
+        Vec::<String>::new(),
+        "a listed file shorter than its ceiling and a listed function within the limit both pass"
     );
-    run(&root).expect_err("and the step fails until its line is removed");
+    run(&root).expect("the step passes when listed items shrink");
+
+    rewrite(&root).expect("measure tightens ceilings and drops unneeded entries");
+    let tightened = std::fs::read_to_string(root.join(EXCEPTIONS)).expect("the list is there");
+    let entries: Vec<&str> = tightened
+        .lines()
+        .filter(|line| line.starts_with("file ") || line.starts_with("function "))
+        .collect();
+    assert_eq!(
+        entries,
+        ["file 1002 crates/a/src/long.rs"],
+        "measure lowers long.rs and removes planted: {tightened}"
+    );
+    run(&root).expect("the step passes after tightening");
+
+    std::fs::remove_file(root.join("crates/a/src/long.rs")).expect("remove listed file");
+    assert_eq!(
+        differences(&root),
+        [format!(
+            "{EXCEPTIONS}: crates/a/src/long.rs is not in the code: remove its line (1002)"
+        )],
+        "a listed file that is gone still fails"
+    );
+    run(&root).expect_err("and the step fails for a missing listed file");
 
     write(
         &root,

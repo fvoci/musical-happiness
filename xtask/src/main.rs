@@ -3,7 +3,8 @@
 //! * `cargo xtask check` — formatting, lints, unit tests, documentation, names, layers,
 //!   lengths, the contract and licenses. Starts no external service.
 //! * `cargo xtask measure` — rewrites the list of what is over the limits of length
-//!   from the code as it is. For the one who merges; no check calls it.
+//!   from the code as it is. Used to tighten ceilings or once after a merge; no check
+//!   calls it.
 //! * `cargo xtask test` — every test on SQLite and on PostgreSQL, and the S3 storage
 //!   test, in units of which none stops the others. Prepares the containers the tests
 //!   need. `--database`, `--part` and `--unit` choose fewer.
@@ -82,9 +83,9 @@ enum Command {
     },
     /// Rewrites `xtask/exceptions/lengths.txt` from the code as it is.
     ///
-    /// Run it once after work that was measured apart is merged, never to make `check`
-    /// pass: a ceiling that goes up with its code is one line changed by hand, with
-    /// evidence (see `xtask/src/lengths.rs`).
+    /// Used to tighten ceilings and drop unneeded entries, or once after work that was
+    /// measured apart is merged, never to make `check` pass: a ceiling that goes up with
+    /// its code is one line changed by hand, with evidence (see `xtask/src/lengths.rs`).
     Measure,
     /// Fails if `contracts/openapi.json` is not the OpenAPI document the server prints
     /// from its route definitions.

@@ -1,11 +1,13 @@
 //! `cargo xtask check`, the step "lengths": how long a Rust file and a function may be.
 //!
 //! The numbers are the constants of this file. What is over them today is listed in
-//! [`EXCEPTIONS`] with its length as a ceiling: it may not grow, and when it shrinks
-//! the step fails until the ceiling is lowered, or the line removed once the length is
-//! within the limit. By hand a line is lowered, removed, or moved with its code to the
-//! file or name the code went to; a moved line is not an added one and needs no
-//! evidence.
+//! [`EXCEPTIONS`] with a ceiling (`<=`): the code may not exceed its ceiling, while
+//! shrinking below it (even back within the limit) still passes so parallel work does
+//! not collide on the list. A listed file or function that is missing from the code, or
+//! a listed ceiling at or below the limit, still fails. Ceilings are lowered and
+//! unneeded lines removed when tightening the list with `cargo xtask measure`, or by
+//! hand; a line moved with its code to the file or name the code went to is not an added
+//! one and needs no evidence.
 //!
 //! Code that would go over is split first. A ceiling goes up, or a line is added, only
 //! where a split would make the code worse, and only with the evidence for that in the
@@ -14,14 +16,15 @@
 //! places, a `match` over every case cut in two, a type opened up for the split alone,
 //! a file with no job of its own). That a split is more work is not evidence. The
 //! number goes in by hand on that one line, in the same commit, and is the length the
-//! step printed, not one line more: the step refuses a ceiling above the code.
+//! step printed, not one line more: do not pad a ceiling above the code.
 //!
 //! The step cannot tell a raised number from a measured one. A raised or added line
 //! shows in the diff of the list, and whoever merges reads it against the evidence and
 //! sends back one whose evidence is missing or does not hold. `cargo xtask measure`
-//! rewrites the whole list from the code, once after work that was measured apart is
-//! merged; what it raises or adds there (it prints each) is held to the same rule: the
-//! body of the merge commit gives the evidence, or the code is split first.
+//! rewrites the whole list from the code — to tighten ceilings and drop unneeded lines
+//! during cleanup, or once after work that was measured apart is merged; what it raises
+//! or adds there (it prints each) is held to the same rule: the body of the merge commit
+//! gives the evidence, or the code is split first.
 
 mod measure;
 
@@ -161,8 +164,9 @@ type Over = BTreeMap<Subject, Vec<usize>>;
 ///
 /// # Errors
 ///
-/// Fails if a file cannot be read, or if what is over a limit is not exactly what the
-/// list has, with the same lengths.
+/// Fails if a file cannot be read, if the list cannot be parsed, if any measured item
+/// exceeds its limit or listed ceiling (`<=`), or if a listed item is missing from the
+/// code.
 pub(crate) fn run(root: &Path) -> Result<()> {
     let measured = measure_all(root)?;
     let path = root.join(EXCEPTIONS);
@@ -174,8 +178,8 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     if problems.is_empty() {
         steps::say(&format!(
             "    every file is within {MAX_FILE_LINES} lines and every function within \
-             {MAX_FUNCTION_LINES} (tests: {MAX_TEST_FILE_LINES} and {MAX_TEST_FUNCTION_LINES}), or at \
-             its listed ceiling ({} listed)",
+             {MAX_FUNCTION_LINES} (tests: {MAX_TEST_FILE_LINES} and {MAX_TEST_FUNCTION_LINES}), \
+             or within its listed ceiling ({} listed)",
             listed.values().map(Vec::len).sum::<usize>()
         ));
         return Ok(());
@@ -186,8 +190,9 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     steps::say(
         "    over a limit or ceiling: shorten the code or split it; where a split would make \
          it worse, raise or add its line by hand to the length above, with the evidence in \
-         the commit body (see xtask/src/lengths.rs). A ceiling above the code goes down to \
-         it. `cargo xtask measure` is for the one who merges, once",
+         the commit body (see xtask/src/lengths.rs). Remove lines whose file or function is \
+         gone. `cargo xtask measure` is only for tightening the list or once after a merge, \
+         never to make a check pass",
     );
     bail!(
         "{} differences between the code and {EXCEPTIONS}",
@@ -197,9 +202,9 @@ pub(crate) fn run(root: &Path) -> Result<()> {
 
 /// `cargo xtask measure`: writes the list anew from the code as it is.
 ///
-/// It is for the moment after a merge of work that was measured apart, and no check
-/// calls it; a ceiling that goes up with its code is one line changed by hand (see the
-/// head of this module).
+/// Used to tighten ceilings and drop unneeded entries, or once after merging work that
+/// was measured apart; no check calls it. A ceiling that goes up with its code is one
+/// line changed by hand (see the head of this module).
 ///
 /// # Errors
 ///
@@ -293,12 +298,14 @@ fn over_limit(measured: &[Length]) -> Over {
 /// The head of the list, which says what it is to whoever opens it.
 const EXCEPTIONS_HEAD: &str = "\
 # Rust files and functions that are over the limit of their length (xtask/src/lengths.rs),
-# each with the number of lines it has: its ceiling.
+# each with an upper-bound line count (`<=`): its ceiling.
 #
-# Written by `cargo xtask measure`. `cargo xtask check` fails when the code is longer
-# than its ceiling, when something not listed is over the limit, and when the code got
-# shorter, until the number here is lowered (or the line removed, once the code is
-# within the limit).
+# Written by `cargo xtask measure`. `cargo xtask check` enforces each ceiling as an upper
+# bound (`<=`): it fails when the code is longer than its ceiling, when something not
+# listed is over the limit, when a listed file or function is missing from the code, or
+# when a listed ceiling is at or below the limit. Code that shrinks below its ceiling
+# still passes; run `cargo xtask measure` when tightening ceilings and dropping unneeded
+# lines.
 #
 # By hand a line is lowered, removed, or moved with its code to the file or name the
 # code went to; a moved line is not an added one.
@@ -307,9 +314,10 @@ const EXCEPTIONS_HEAD: &str = "\
 # commit that brings the code which needs it, to the length the check printed, and with
 # the evidence in that commit's body that a split would make the code worse: what the
 # added code is, the seam, and its cost (xtask/src/lengths.rs). Whoever merges reads
-# every raised or added line here against that evidence. `cargo xtask measure` is run
-# once after work that was measured apart is merged, not to make a check pass; what it
-# raises or adds there is held to the same rule, in the body of the merge commit.
+# every raised or added line here against that evidence. `cargo xtask measure` is for
+# tightening the list or once after work that was measured apart is merged, never to make
+# a check pass; what it raises or adds there is held to the same rule, in the body of the
+# merge commit.
 #
 # file <lines> <path>
 # function <lines> <path> <name>
@@ -383,9 +391,11 @@ fn parse_exceptions(text: &str) -> Result<Over> {
     Ok(listed)
 }
 
-/// Compares what was measured with the list. Each line of the answer is one
-/// difference: something over the limit that is not listed, something longer than its
-/// ceiling, or a ceiling that is higher than the code needs.
+/// Compares what was measured with the list, enforcing each ceiling as an upper bound
+/// (`<=`). Each line of the answer is one failure: something over the limit that is not
+/// listed, something longer than its ceiling, or a listed entry missing from the code.
+/// Duplicate-named functions in a file are paired longest-first and checked by count
+/// against their listed ceilings.
 fn judge(measured: &[Length], listed: &Over) -> Vec<String> {
     let mut found: BTreeMap<&Subject, Vec<&Length>> = BTreeMap::new();
     for length in measured {
@@ -401,26 +411,17 @@ fn judge(measured: &[Length], listed: &Over) -> Vec<String> {
         // The longest is held to the highest ceiling, and so on down; what is left
         // over on either side is new, or gone.
         for (index, length) in lengths.iter().enumerate() {
-            let place = format!("{}:{}", subject.file(), length.at);
             let lines = length.lines;
-            // Which of the functions of one name is meant.
-            let at = match subject {
-                Subject::File(_) => String::new(),
-                Subject::Function { .. } => format!(" (line {})", length.at),
-            };
             match ceilings.get(index) {
-                Some(ceiling) if lines > *ceiling => problems.push(format!(
-                    "{place}: {subject} has {lines} lines, its ceiling is {ceiling}"
-                )),
-                Some(ceiling) if lines < *ceiling && lines > limit => problems.push(format!(
-                    "{EXCEPTIONS}: {subject}{at} has {lines} lines now: lower its ceiling of {ceiling}"
-                )),
-                Some(ceiling) if lines < *ceiling => problems.push(format!(
-                    "{EXCEPTIONS}: {subject}{at} has {lines} lines now, within the limit of {limit}: \
-                     remove its line ({ceiling})"
+                Some(&ceiling) if lines > ceiling => problems.push(format!(
+                    "{}:{}: {subject} has {lines} lines, its ceiling is {ceiling}",
+                    subject.file(),
+                    length.at,
                 )),
                 None if lines > limit => problems.push(format!(
-                    "{place}: {subject} has {lines} lines, the limit is {limit}"
+                    "{}:{}: {subject} has {lines} lines, the limit is {limit}",
+                    subject.file(),
+                    length.at,
                 )),
                 Some(_) | None => {}
             }
