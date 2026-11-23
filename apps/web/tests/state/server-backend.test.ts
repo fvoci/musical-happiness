@@ -455,6 +455,19 @@ describe('changing a card on the server', () => {
     expect(answer.fields.properties).toEqual({ b: '4', c: '3' });
   });
 
+  it('changes a card quietly, as undo and redo do, telling nobody whom it gives the card to', async () => {
+    const { sent } = oneCard({ a: '1' });
+    await serverBackend('').patchCard(
+      'b',
+      'c1',
+      { updatedProperties: { a: '2' } },
+      { quiet: true },
+    );
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
+      'PATCH /api/v1/w/w1/cards/c1?disableNotify=true',
+    ]);
+  });
+
   it('takes away the last value by the card patch, with a new title', async () => {
     const { sent, card } = oneCard({ a: '1' });
     await serverBackend('').patchCard('b', 'c1', { title: 'T', deletedProperties: ['a'] });

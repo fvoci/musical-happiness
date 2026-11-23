@@ -8,7 +8,11 @@ use crate::collab::Deletion;
 use crate::error::AppError;
 
 /// Whether the people a change to a block newly names (those its body mentions, those
-/// a card is given to) are told of it. Bulk operations suppress it.
+/// a card is given to) are told of it. A client that writes again what was said before
+/// (a copy, a change taken back or made again, via `disableNotify`) suppresses it while
+/// its writer watches what it writes new all the same ([`Self::Suppress`]); a bulk copy
+/// from another board (`sourceBoardId`) tells nobody and makes nobody watch
+/// ([`Self::Copied`]).
 ///
 /// Websocket broadcasts and webhooks are not notifications: they happen either way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -16,8 +20,11 @@ pub enum ChangeNotification {
     /// Report the change.
     #[default]
     Send,
-    /// Do not report the change.
+    /// Do not report the change (`disableNotify`): tell nobody, while the writer still
+    /// watches newly written cards, pages or comments.
     Suppress,
+    /// Bulk copy from another board (`sourceBoardId`): tell nobody and make nobody watch.
+    Copied,
 }
 
 /// What happened to a block, as the notification service names it.
@@ -44,7 +51,8 @@ impl App {
     fn store_telling(&self, notification: ChangeNotification) -> fvoci_store::Store {
         match notification {
             ChangeNotification::Send => self.store().clone(),
-            ChangeNotification::Suppress => self.store().telling_nobody(),
+            ChangeNotification::Suppress => self.store().quietly(),
+            ChangeNotification::Copied => self.store().telling_nobody(),
         }
     }
 

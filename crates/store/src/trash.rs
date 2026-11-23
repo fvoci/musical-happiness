@@ -6,14 +6,21 @@
 //! what exists hold without exceptions.
 //!
 //! Blocks that go with one deletion share a `deletion_id` and come back together: a
-//! card with what is on it, a board with all its blocks. A board takes its memberships
-//! and its file records into the trash and brings them back; its sharing, the places
-//! users filed it under and the subscriptions to its blocks end with the deletion.
+//! card with what is on it, a board with all its blocks. A block takes the subscriptions
+//! to it into the trash and brings them back (`watchers.rs`). A board takes its
+//! memberships, its file records and the places users filed it under into the trash and
+//! brings them back; its sharing ends with the deletion.
 //!
 //! What has been in the trash for longer than the retention period is removed for good
-//! by [`Store::purge_trash`].
+//! by [`Store::purge_trash`], and what people were told of it with it (`told.rs`).
 
 mod stored;
+mod told;
+mod watchers;
+
+pub(crate) use watchers::{
+    forget_watcher_of_container, forget_watcher_of_organization, forget_watcher_of_workspace,
+};
 
 use std::collections::{HashMap, HashSet};
 
@@ -22,6 +29,7 @@ use fvoci_model::{
 };
 use serde::de::DeserializeOwned;
 use stored::{StoredFiles, StoredPlace};
+use told::Gone;
 
 use crate::Store;
 use crate::block_derived;
@@ -60,7 +68,7 @@ pub struct DeletedContainer {
 
 impl Store {
     /// Deletes a block and everything below it: moves them to the trash, as one
-    /// deletion. Subscriptions to them end. Deleting a block that does not exist
+    /// deletion, with the subscriptions to them. Deleting a block that does not exist
     /// succeeds.
     ///
     /// # Errors
@@ -183,8 +191,8 @@ impl Store {
     }
 
     /// Restores a block from the trash, with every block that was deleted along with
-    /// it, and returns the block. The restored blocks are marked as modified by
-    /// `user_id` now.
+    /// it and the subscriptions to them, and returns the block. The restored blocks are
+    /// marked as modified by `user_id` now.
     ///
     /// # Errors
     ///
@@ -199,8 +207,8 @@ impl Store {
     }
 
     /// Deletes a board with all its blocks: moves them to the trash, together with the
-    /// board's memberships, file records and the places users filed it under. The
-    /// board's sharing and the subscriptions to its blocks end.
+    /// subscriptions to them and the board's memberships, file records and the places
+    /// users filed it under. The board's sharing ends.
     ///
     /// # Errors
     ///
@@ -304,11 +312,12 @@ impl Store {
     }
 
     /// Restores a board from the trash and returns it: the board, the blocks that were
-    /// deleted with it, its file records, and the memberships and places in the sidebar
-    /// of the users who still exist: under the category the user had filed it under, or
-    /// the user's default category if that category is gone since. The board is marked
-    /// as modified by `user_id` now. Its sharing does not
-    /// come back: a restored board is not shared until someone shares it again.
+    /// deleted with it and the subscriptions to them, its file records, and the
+    /// memberships and places in the sidebar of the users who still exist: under the
+    /// category the user had filed it under, or the user's default category if that
+    /// category is gone since. The board is marked as modified by `user_id` now. Its
+    /// sharing does not come back: a restored board is not shared until someone shares
+    /// it again.
     ///
     /// # Errors
     ///
@@ -328,9 +337,10 @@ impl Store {
     }
 
     /// Removes for good what was deleted before `deleted_before` (milliseconds since
-    /// the Unix epoch), and the deleted blocks of boards that are gone for good. Returns
-    /// how many boards and blocks went, and the file records of the boards that went,
-    /// whose objects are doomed in the same transaction ([`Store::due_doomed_objects`]).
+    /// the Unix epoch), and the deleted blocks of boards that are gone for good, with
+    /// what people were told of them. Returns how many boards and blocks went, and the
+    /// file records of the boards that went, whose objects are doomed in the same
+    /// transaction ([`Store::due_doomed_objects`]).
     ///
     /// # Errors
     ///
@@ -339,8 +349,8 @@ impl Store {
         self.transaction(async |scope| {
             let mut purged = remove_containers(scope, Trashed::Before(deleted_before)).await?;
             let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE deleted_at < ");
-            sql.bind(deleted_before);
-            purged.records += scope.execute(sql).await?;
+            sql.bind(deleted_before).push(" RETURNING id");
+            purged.records += remove_blocks(scope, sql).await?;
             purged.records += remove_what_they_left(scope).await?;
             Ok(purged)
         })
@@ -358,7 +368,8 @@ pub(crate) enum Trashed<'a> {
 }
 
 /// Removes boards from the trash for good and dooms the objects of their files: the
-/// one way a board and its files go. Returns how many went, and their file records.
+/// one way a board and its files go. What people were told of them goes too. Returns
+/// how many went, and their file records.
 pub(crate) async fn remove_containers(
     scope: &mut Scope<'_>,
     which: Trashed<'_>,
@@ -372,16 +383,18 @@ pub(crate) async fn remove_containers(
         Trashed::OfWorkspace(workspace_id) => sql.push_bind("workspace_id = ", Id(workspace_id)),
     };
     sql.push(&format!(
-        " RETURNING files{}",
+        " RETURNING id, files{}",
         org.map_or(String::new(), |column| format!(", {column}"))
     ));
     let containers = scope.fetch_all(sql).await?;
     let records = u64::try_from(containers.len()).unwrap_or(u64::MAX);
+    let mut gone = Vec::with_capacity(containers.len());
     let mut files = Vec::new();
     let mut doomed = Vec::new();
     for row in &containers {
-        let of_container: StoredFiles = from_json(row, 0, "files")?;
-        let org_id = org.map(|_| row.id(1)).transpose()?;
+        gone.push(row.id(0)?);
+        let of_container: StoredFiles = from_json(row, 1, "files")?;
+        let org_id = org.map(|_| row.id(2)).transpose()?;
         for file in Vec::<FileInfo>::from(of_container) {
             // Nothing else says where the file is once the board is gone.
             doomed.push((file.path.clone(), org_id.clone()));
@@ -389,9 +402,23 @@ pub(crate) async fn remove_containers(
         }
     }
     loose_objects::doom(scope, &doomed).await?;
-    let gone: Vec<&str> = files.iter().map(|file| file.id.as_str()).collect();
-    crate::file_versions::forget(scope, &gone).await?;
+    let gone_files: Vec<&str> = files.iter().map(|file| file.id.as_str()).collect();
+    crate::file_versions::forget(scope, &gone_files).await?;
+    told::forget_told_of(scope, Gone::Containers(&gone)).await?;
     Ok(Purged { records, files })
+}
+
+/// Runs `sql`, a statement that removes blocks from the trash for good and returns
+/// their identifiers, and forgets what people were told of them. Returns how many went.
+async fn remove_blocks(scope: &mut Scope<'_>, sql: Sql) -> Result<u64, StoreError> {
+    let gone = scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| row.id(0))
+        .collect::<Result<Vec<String>, _>>()?;
+    told::forget_told_of(scope, Gone::Blocks(&gone)).await?;
+    Ok(u64::try_from(gone.len()).unwrap_or(u64::MAX))
 }
 
 /// Removes what boards that went for good leave behind: the blocks deleted on their
@@ -408,11 +435,11 @@ pub(crate) async fn remove_what_they_left(scope: &mut Scope<'_>) -> Result<u64, 
         ") AND NOT EXISTS (SELECT 1 FROM deleted_containers d \
          WHERE d.id = deleted_blocks.container_id",
         &scope.same_organization(&[("d", "deleted_blocks")]),
-        ")",
+        ") RETURNING id",
     ]
     .concat();
     let sql = scope.sql(&orphans);
-    let records = scope.execute(sql).await?;
+    let records = remove_blocks(scope, sql).await?;
     block_derived::forget_gone_blocks(scope).await?;
     Ok(records)
 }
@@ -447,11 +474,25 @@ pub(crate) fn push_paging(sql: &mut Sql, paging: Option<Paging>) {
 /// it was written, against the allowlist of that time, which a later one may not
 /// accept.
 pub(crate) fn block_from_json(row: &Row, index: usize) -> Result<Block, StoreError> {
+    block_from_value(row.json(index, "block")?)
+}
+
+/// Reads a block and the subscriptions it kept in the trash from one JSON parse.
+fn block_and_watchers_from_json(
+    row: &Row,
+    index: usize,
+) -> Result<(Block, Vec<watchers::StoredWatcher>), StoreError> {
+    let mut value = row.json(index, "block")?;
+    let kept = watchers::take_kept(&mut value)?;
+    Ok((block_from_value(value)?, kept))
+}
+
+/// Decodes a stored trash block JSON value, keeping its body as stored.
+fn block_from_value(mut value: serde_json::Value) -> Result<Block, StoreError> {
     let corrupt = |error: serde_json::Error| StoreError::Corrupt {
         column: "block",
         reason: error.to_string(),
     };
-    let mut value = row.json(index, "block")?;
     let body = value
         .as_object_mut()
         .and_then(|members| members.remove("body"))
@@ -592,11 +633,14 @@ async fn put_blocks_in_trash(
     deleted_at: i64,
     deleted_by: &str,
 ) -> Result<(), StoreError> {
+    let ids: Vec<&str> = blocks.iter().map(|block| block.id.as_str()).collect();
+    let mut watchers = watchers::watchers_of(scope, &ids).await?;
     for block in blocks {
         let in_trash = Block {
             delete_at: deleted_at,
             ..block.clone()
         };
+        let stored = watchers::with_watchers(&in_trash, watchers.remove(&block.id))?;
         let mut sql = scope.sql(
             "INSERT INTO deleted_blocks \
              (id, container_id, parent_id, deleted_at, deleted_by, deletion_id, block) VALUES (",
@@ -607,7 +651,7 @@ async fn put_blocks_in_trash(
             .push_bind(", ", deleted_at)
             .push_bind(", ", OptId(deleted_by))
             .push_bind(", ", Id(deletion_id))
-            .push_bind(", ", Param::json(&in_trash)?)
+            .push_bind(", ", Param::json(&stored)?)
             .push(")");
         scope.execute(sql).await?;
     }
@@ -615,8 +659,8 @@ async fn put_blocks_in_trash(
 }
 
 /// Takes the blocks of one deletion out of the trash and puts them back among the
-/// blocks, marked as modified by `user_id` at `now`, each as `adjust` leaves it.
-/// Returns them.
+/// blocks, marked as modified by `user_id` at `now`, each as `adjust` leaves it, with
+/// the subscriptions they kept. Returns them.
 pub(crate) async fn take_blocks_out_of_trash(
     scope: &mut Scope<'_>,
     deletion_id: &str,
@@ -626,12 +670,14 @@ pub(crate) async fn take_blocks_out_of_trash(
 ) -> Result<Vec<Block>, StoreError> {
     let mut sql = scope.sql("SELECT block FROM deleted_blocks WHERE deletion_id = ");
     sql.bind(Id(deletion_id));
-    let mut restored: Vec<Block> = scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| block_from_json(row, 0))
-        .collect::<Result<_, _>>()?;
+    let rows = scope.fetch_all(sql).await?;
+    let mut restored: Vec<Block> = Vec::with_capacity(rows.len());
+    let mut kept = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let (block, watchers) = block_and_watchers_from_json(row, 0)?;
+        kept.push((block.id.clone(), watchers));
+        restored.push(block);
+    }
     let mut known_users = KnownUsers::default();
     for block in &mut restored {
         adjust(block);
@@ -647,6 +693,9 @@ pub(crate) async fn take_blocks_out_of_trash(
     // they show, the trash kept for them.
     for index in parents_first(&restored) {
         blocks::insert_block_row(scope, &restored[index], NewBodyFiles::Unchecked).await?;
+    }
+    for (block_id, watchers) in &kept {
+        watchers::watch_again(scope, block_id, watchers).await?;
     }
     let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE deletion_id = ");
     sql.bind(Id(deletion_id));

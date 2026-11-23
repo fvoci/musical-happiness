@@ -120,7 +120,7 @@ pub(crate) async fn trash(s: &mut Session) {
     s.post("undelete: again", &format!("{blocks}/{card}/undelete"))
         .user(&alice)
         .await;
-    s.get("subscriptions: not back with the card", &of_alice)
+    s.get("subscriptions: back with the card", &of_alice)
         .user(&alice)
         .await;
 

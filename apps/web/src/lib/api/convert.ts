@@ -34,9 +34,11 @@ import {
   type ContainerRole,
   type CardDetail,
   type CardDraft,
+  type CardPatch,
+  type CardSummary,
+  type CardTelling,
   type Comment,
   type CommentVersion,
-  type CardSummary,
   type Category,
   type Sharing,
   type WorkspaceInfo,
@@ -208,10 +210,10 @@ export function wireBody(doc: DocNode): Schemas['Body'] {
   return doc as unknown as Schemas['Body'];
 }
 
-/** A card to make. */
 /**
  * The request that makes a card of a draft (`createCard`): a quiet one
- * (`quiet`, a copy) tells nobody whom it names or is given to (`disableNotify`).
+ * (`quiet`, a copy or a card made again) tells nobody whom it names or is
+ * given to (`disableNotify`); its writer watches it all the same.
  */
 export function newCardRequest(draft: CardDraft): {
   method: 'POST';
@@ -226,6 +228,28 @@ export function newCardRequest(draft: CardDraft): {
     ...(draft.body ? { body: wireBody(draft.body) } : {}),
   };
   return { method: 'POST', json, query: { disableNotify: draft.quiet ? 'true' : undefined } };
+}
+
+/**
+ * The request that changes a card (`patchCard`): a quiet one (`telling`,
+ * undo or redo) tells nobody whom it gives the card to (`disableNotify`).
+ */
+export function patchCardRequest(
+  patch: CardPatch,
+  telling?: CardTelling,
+): {
+  method: 'PATCH';
+  json: Schemas['CardPatch'];
+  query: { disableNotify: 'true' | undefined };
+} {
+  const json: Schemas['CardPatch'] = {};
+  if (patch.title !== undefined) json.title = patch.title;
+  if (patch.icon !== undefined) json.icon = patch.icon;
+  const updated = patch.updatedProperties ?? {};
+  if (Object.keys(updated).length > 0) json.updatedProperties = updated;
+  const deleted = patch.deletedProperties ?? [];
+  if (deleted.length > 0) json.deletedProperties = deleted;
+  return { method: 'PATCH', json, query: { disableNotify: telling?.quiet ? 'true' : undefined } };
 }
 
 /**
