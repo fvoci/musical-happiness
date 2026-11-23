@@ -240,6 +240,7 @@ export function patchCardOrStored(
     patch,
     propertyValues,
     (card: CardSummary) => ({
+      parentId: card.parentId,
       title: card.title,
       icon: card.fields.icon,
       updatedProperties: card.fields.properties,

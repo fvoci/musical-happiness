@@ -195,21 +195,19 @@ export function createCard(source?: Block): Card {
 export function cardProperty(card: Card, propertyId: string): PropertyValue | undefined {
   return card.fields.properties[propertyId];
 }
-
 /** Every stored property value of the card, by property identifier. */
 export function cardProperties(card: Card): Readonly<Record<string, PropertyValue>> {
   return card.fields.properties;
 }
-
 /** Sets a property value on the card object itself. */
 export function setCardProperty(card: Card, propertyId: string, value: PropertyValue): void {
   card.fields.properties[propertyId] = value;
 }
-
+/** Whether a card is a template for making new cards. */
+export const isCardTemplate = (card: Card): boolean => Boolean(card.fields.isTemplate);
 export function cardContentOrder(card: Card): ContentOrder {
   return card.fields.contentOrder;
 }
-
 export function cardIcon(card: Card): string {
   return card.fields.icon ?? '';
 }

@@ -92,6 +92,8 @@
   >
     {#each cards as card (card.id)}
       {@const badges = badgesOf(card)}
+      {@const subcards = face.hierarchy?.progressOf(card.id)}
+      {@const parentHint = face.hierarchy?.parentOf(card)}
       {@const preview = previews.of(card.id)}
       <li class="group/card relative min-w-0">
         <div
@@ -116,6 +118,9 @@
             hasBody={badges.hasBody}
             tasksTotal={badges.tasksTotal}
             tasksDone={badges.tasksDone}
+            subcardsTotal={subcards?.total ?? 0}
+            subcardsDone={subcards?.done ?? 0}
+            {parentHint}
             size="large"
             previewImage={imageOf(preview?.imageFileId)}
             previewText={preview?.text}

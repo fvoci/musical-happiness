@@ -11,6 +11,8 @@
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import CornerDownRightIcon from '@lucide/svelte/icons/corner-down-right';
+  import ListTreeIcon from '@lucide/svelte/icons/list-tree';
   import SquareCheckIcon from '@lucide/svelte/icons/square-check';
   import TextAlignStartIcon from '@lucide/svelte/icons/text-align-start';
 
@@ -35,6 +37,11 @@
     /** The tasks in the body: how many, and how many are done. */
     tasksTotal?: number;
     tasksDone?: number;
+    /** Direct sub-cards of this card: how many, and how many are completed. */
+    subcardsTotal?: number;
+    subcardsDone?: number;
+    /** Subtle parent card clue when this card is a sub-card. */
+    parentHint?: { number?: number; title: string };
     /** `large`: the card of a gallery. */
     size?: 'small' | 'large';
     /** The id of the title, for the element around the face to be named by. */
@@ -67,6 +74,9 @@
     hasBody = false,
     tasksTotal = 0,
     tasksDone = 0,
+    subcardsTotal = 0,
+    subcardsDone = 0,
+    parentHint,
     size = 'small',
     titleId,
     locale,
@@ -98,6 +108,22 @@
     className,
   ]}
 >
+  {#if parentHint}
+    <p
+      data-slot="card-parent-hint"
+      title={m.card_parent_hint({ title: parentHint.title })}
+      class={[
+        'mb-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground',
+        menuRoom && 'pr-7 roomy:pr-9',
+      ]}
+    >
+      <CornerDownRightIcon class="size-3 shrink-0" aria-hidden="true" />
+      <CardNumber number={parentHint.number} />
+      <span class="sr-only">{m.card_parent_hint({ title: parentHint.title })}</span>
+      <span class="min-w-0 truncate" aria-hidden="true">{parentHint.title}</span>
+    </p>
+  {/if}
+
   <!-- Room at the end of the title for the menu button: 32 pixels, 44 where a finger presses. -->
   <p
     id={titleId}
@@ -168,7 +194,7 @@
     </div>
   {/if}
 
-  {#if hasBody || tasksTotal > 0}
+  {#if hasBody || tasksTotal > 0 || subcardsTotal > 0}
     <div
       data-slot="card-badges"
       class={['flex items-center gap-3 text-xs text-muted-foreground', large ? 'mt-3' : 'mt-2']}
@@ -188,6 +214,19 @@
           <SquareCheckIcon class="size-3.5" aria-hidden="true" />
           <span class="sr-only">{m['CardBadges.title-checkboxes']()}</span>
           {tasksDone}/{tasksTotal}
+        </span>
+      {/if}
+      {#if subcardsTotal > 0}
+        <span
+          data-slot="card-subcards"
+          class="flex items-center gap-1"
+          title={m.card_subcards_badge({ done: subcardsDone, total: subcardsTotal })}
+        >
+          <ListTreeIcon class="size-3.5" aria-hidden="true" />
+          <span class="sr-only">
+            {m.card_subcards_badge({ done: subcardsDone, total: subcardsTotal })}
+          </span>
+          <span aria-hidden="true">{subcardsDone}/{subcardsTotal}</span>
         </span>
       {/if}
     </div>

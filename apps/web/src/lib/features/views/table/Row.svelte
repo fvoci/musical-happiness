@@ -13,6 +13,8 @@
   title in place.
 -->
 <script lang="ts">
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import { tick } from 'svelte';
   import CardPresence from '../CardPresence.svelte';
   import type { BoardStore } from '$lib/state/index.ts';
@@ -55,6 +57,14 @@
     carried: boolean;
     /** The dragged row would land just above this one. */
     dropBefore: boolean;
+    /** Nesting level in the visible table (0, 1, or 2). */
+    level?: number;
+    /** Whether this card has visible sub-cards below it. */
+    hasChildren?: boolean;
+    /** Whether its sub-cards are currently collapsed. */
+    collapsed?: boolean;
+    /** Whether the table displays hierarchy indentation / toggles. */
+    showIndent?: boolean;
   }
 
   let {
@@ -67,6 +77,10 @@
     dragging,
     carried,
     dropBefore,
+    level = 0,
+    hasChildren = false,
+    collapsed = false,
+    showIndent = false,
   }: Props = $props();
 
   /**
@@ -113,6 +127,7 @@
   data-nav-row
   data-row={card.id}
   data-card={card.id}
+  data-level={showIndent ? level : undefined}
   data-drag-item={draggable ? card.id : undefined}
   data-dragging={dragging ? '' : undefined}
   data-drop-before={dropBefore ? '' : undefined}
@@ -160,6 +175,35 @@
         <circle cx="6" cy="8" r="1.1" /><circle cx="10" cy="8" r="1.1" />
         <circle cx="6" cy="12.5" r="1.1" /><circle cx="10" cy="12.5" r="1.1" />
       </svg>
+    {/if}
+    {#if showIndent}
+      {#if level > 0}
+        <span class="shrink-0" style:width="{level * 1.25}rem" aria-hidden="true"></span>
+      {/if}
+      {#if hasChildren}
+        <button
+          type="button"
+          data-inner
+          data-hierarchy-toggle={card.id}
+          tabindex="-1"
+          aria-expanded={!collapsed}
+          aria-label={collapsed
+            ? m.card_hierarchy_expand({ title })
+            : m.card_hierarchy_collapse({ title })}
+          class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background/80 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring roomy:size-touch"
+          onclick={() => {
+            host.toggleParent(card.id);
+          }}
+        >
+          {#if collapsed}
+            <ChevronRightIcon class="size-3.5" aria-hidden="true" />
+          {:else}
+            <ChevronDownIcon class="size-3.5" aria-hidden="true" />
+          {/if}
+        </button>
+      {:else}
+        <span class="size-6 shrink-0 roomy:size-touch" aria-hidden="true"></span>
+      {/if}
     {/if}
     <CardNumber number={card.number} class="ps-1" />
     {#if card.fields.icon}

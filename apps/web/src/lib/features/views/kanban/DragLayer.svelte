@@ -50,6 +50,8 @@
 
 {#snippet faceOf(shown: Card, count: number, lifted: boolean)}
   {@const badges = badgesOf(shown)}
+  {@const subcards = face.hierarchy?.progressOf(shown.id)}
+  {@const parentHint = face.hierarchy?.parentOf(shown)}
   <CardFace
     card={shown}
     templates={face.templates}
@@ -57,6 +59,9 @@
     hasBody={badges.hasBody}
     tasksTotal={badges.tasksTotal}
     tasksDone={badges.tasksDone}
+    subcardsTotal={subcards?.total ?? 0}
+    subcardsDone={subcards?.done ?? 0}
+    {parentHint}
     locale={face.locale}
     regional={face.regional}
     users={face.users}
