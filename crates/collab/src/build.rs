@@ -1,17 +1,35 @@
 //! Making the Y document of a stored body.
 
+mod summary;
+mod wire;
+
 use std::sync::Arc;
 
 use fvoci_model::Body;
 use serde_json::Value;
-use yrs::types::{Attrs, Delta};
+use yrs::updates::decoder::Decode as _;
 use yrs::{
-    Any, ClientID, Doc, In, Number, OffsetKind, Options, Text, Transact, TransactionMut, Xml,
-    XmlElementPrelim, XmlElementRef, XmlFragment, XmlTextPrelim,
+    Any, ClientID, Doc, ID, Number, OffsetKind, Options, Transact as _, TransactionMut, Update,
+    Xml as _, XmlElementPrelim, XmlElementRef, XmlFragment, XmlTextPrelim,
 };
 
-use crate::FIELD;
-use crate::schema::{self, Fallback};
+use self::summary::prefill_block_cache;
+use self::wire::{CacheMode, MAX_WRITER, MIN_RANDOM_WRITER, encode_body_with_plan, scan_body_plan};
+use crate::block_cache::element_id;
+use crate::doc::StateCounts;
+use crate::reading::count_strict_with_cache;
+use crate::take::DocCache;
+use crate::update::{UpdateError, state_of};
+use crate::{FIELD, READING_STEPS};
+
+/// Output of [`build_body_doc_counted`]: a `Doc`, its canonical v1 state bytes, exact
+/// counts, and prefilled incremental caches.
+pub(crate) struct BuiltBodyDoc {
+    pub(crate) doc: Doc,
+    pub(crate) state: Vec<u8>,
+    pub(crate) counts: StateCounts,
+    pub(crate) cache: Option<Box<DocCache>>,
+}
 
 /// An empty Y document for a body, whose root is the fragment the editors are bound to.
 /// A card without a body starts from this: an editor shows its empty paragraph over an
@@ -49,14 +67,14 @@ pub(crate) fn doc_of_client(client: Option<u64>) -> Doc {
 /// written with the value an editor gives it.
 ///
 /// The server makes it when a body is first opened for editing together; no editor does.
-/// The body is written by a client whose identifier is taken at random, anew each
-/// time: an update made against another document, or against an earlier making of
-/// this one, builds on changes this document does not have and is refused
-/// ([`crate::UpdateError::MissingChanges`]) instead of landing somewhere in it.
+/// The body is written by a client (or a small descending run of clients for very large
+/// bodies) whose identifier is taken at random, anew each time: an update made against
+/// another document, or against an earlier making of this one, builds on changes this
+/// document does not have and is refused ([`crate::UpdateError::MissingChanges`]) instead
+/// of landing somewhere in it.
 #[must_use]
 pub fn from_body(body: &Body) -> Doc {
-    // 32 bits, as the editors take theirs.
-    from_body_by(body, ClientID::random().get() & 0xffff_ffff)
+    from_body_by(body, random_writer())
 }
 
 /// [`from_body`] with the identifier of the writing client given. The same body and
@@ -64,14 +82,193 @@ pub fn from_body(body: &Body) -> Doc {
 /// each other's updates as their own, which is why [`from_body`] gives each its own.
 /// A writer is a whole number JavaScript keeps, of 53 bits: the bits above are left
 /// out, as a document by a larger one could not be read again.
+///
+/// Large bodies with more than `MAX_CLIENT_CHANGES / 4` changes split deterministically
+/// across strictly descending client IDs starting from `writer` (shifted upward only when
+/// `writer` is too small to fit the descending run down to zero inclusive), keeping
+/// `reading_steps` at zero.
 #[must_use]
 pub fn from_body_by(body: &Body, writer: u64) -> Doc {
-    const MAX_WRITER: u64 = (1 << 53) - 1;
-    let doc = doc_of_client(Some(writer & MAX_WRITER));
+    let plan = scan_body_plan(body.document());
+    if plan.can_build_direct() {
+        return build_unmarked_doc(body, writer & MAX_WRITER, None);
+    }
+    let encoded = encode_body_with_plan(body, writer, plan, CacheMode::None);
+    doc_from_encoded(&encoded.state, encoded.last_client)
+}
+
+/// Builds a [`Doc`] with prefilled [`DocCache`] when callers do not immediately need the
+/// encoded state bytes or [`StateCounts`] (`BodyDoc::from_body`).
+pub(crate) fn build_body_doc_fast(body: &Body) -> (Doc, Option<Box<DocCache>>) {
+    let plan = scan_body_plan(body.document());
+    if plan.can_build_direct() {
+        let mut top_ids = Vec::new();
+        let doc = build_unmarked_doc(body, random_writer(), Some(&mut top_ids));
+        let cache = prefill_block_cache(body.document(), &top_ids).map(|blocks| {
+            Box::new(DocCache {
+                blocks,
+                reading: None,
+            })
+        });
+        return (doc, cache);
+    }
+    let encoded = encode_body_with_plan(body, random_writer(), plan, CacheMode::Full);
+    let doc = doc_from_encoded(&encoded.state, encoded.last_client);
+    let reading = (!encoded.needs_verify)
+        .then_some(encoded.reading_cache)
+        .flatten();
+    let cache = prefill_block_cache(body.document(), &encoded.top_level_ids)
+        .map(|blocks| Box::new(DocCache { blocks, reading }));
+    (doc, cache)
+}
+
+/// Builds a [`Doc`] together with its canonical v1 state bytes, exact [`StateCounts`],
+/// and prefilled [`DocCache`] (`BlockCache` + `ReadingCache`) in one linear pass.
+///
+/// # Errors
+///
+/// Returns [`UpdateError::Unreadable`] if the resulting state violates `scan` framing
+/// rules (e.g., an unvalidated `Body::from_stored` with >53-bit integers or deeply nested
+/// attributes).
+pub(crate) fn build_body_doc_counted(body: &Body) -> Result<BuiltBodyDoc, UpdateError> {
+    let plan = scan_body_plan(body.document());
+    if plan.can_build_direct() {
+        let mut top_ids = Vec::new();
+        let doc = build_unmarked_doc(body, random_writer(), Some(&mut top_ids));
+        let state = state_of(&doc);
+        let (read, reading) = count_strict_with_cache(&state, READING_STEPS)
+            .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))?;
+        let counts = StateCounts {
+            changes: read.walked.changes,
+            client_changes: read.walked.most,
+            steps_ahead: read.ahead,
+        };
+        let cache = prefill_block_cache(body.document(), &top_ids)
+            .map(|blocks| Box::new(DocCache { blocks, reading }));
+        return Ok(BuiltBodyDoc {
+            doc,
+            state,
+            counts,
+            cache,
+        });
+    }
+    let encoded = encode_body_with_plan(body, random_writer(), plan, CacheMode::Full);
+    let doc = doc_from_encoded(&encoded.state, encoded.last_client);
+    let (state, counts, reading) = if encoded.needs_verify {
+        let state = state_of(&doc);
+        let (read, reading) = count_strict_with_cache(&state, READING_STEPS)
+            .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))?;
+        let counts = StateCounts {
+            changes: read.walked.changes,
+            client_changes: read.walked.most,
+            steps_ahead: read.ahead,
+        };
+        (state, counts, reading)
+    } else {
+        (encoded.state, encoded.counts, encoded.reading_cache)
+    };
+    let cache = prefill_block_cache(body.document(), &encoded.top_level_ids)
+        .map(|blocks| Box::new(DocCache { blocks, reading }));
+    Ok(BuiltBodyDoc {
+        doc,
+        state,
+        counts,
+        cache,
+    })
+}
+
+/// Direct single-transaction `Doc` builder for unmarked single-client bodies, producing
+/// wire bytes identical to [`wire::encode_body_with_plan`] without wire round-tripping.
+fn build_unmarked_doc(body: &Body, client: u64, mut top_ids: Option<&mut Vec<ID>>) -> Doc {
+    let doc = doc_of_client(Some(client));
+    let root = doc.get_or_insert_xml_fragment(FIELD);
     {
-        let root = doc.get_or_insert_xml_fragment(FIELD);
         let mut txn = doc.transact_mut();
-        push_nodes(&mut txn, &root, content_of(body.document()));
+        push_unmarked_nodes(
+            &mut txn,
+            &root,
+            content_of(body.document()),
+            top_ids.as_deref_mut(),
+        );
+    }
+    if let Some(ids) = top_ids {
+        ids.reverse();
+    }
+    doc
+}
+
+fn push_unmarked_nodes(
+    txn: &mut TransactionMut<'_>,
+    parent: &impl XmlFragment,
+    nodes: &[Value],
+    mut top_ids: Option<&mut Vec<ID>>,
+) {
+    let mut rest = nodes;
+    while let Some(last) = rest.last() {
+        let stretch = if is_text(last) {
+            rest.iter().rev().take_while(|node| is_text(node)).count()
+        } else {
+            1
+        };
+        let (before, these) = rest.split_at(rest.len() - stretch);
+        match these {
+            [node] if !is_text(node) => {
+                let kind = node.get("type").and_then(Value::as_str).unwrap_or_default();
+                let element = parent.push_front(txn, XmlElementPrelim::empty(kind));
+                if let Some(ids) = top_ids.as_deref_mut()
+                    && let Some(id) = element_id(&element)
+                {
+                    ids.push(id);
+                }
+                fill_unmarked_element(txn, &element, node);
+            }
+            [only_text] => {
+                parent.push_front(txn, XmlTextPrelim::new(letters_of(only_text)));
+            }
+            texts => {
+                let whole: String = texts.iter().map(letters_of).collect();
+                parent.push_front(txn, XmlTextPrelim::new(whole));
+            }
+        }
+        rest = before;
+    }
+}
+
+fn fill_unmarked_element(txn: &mut TransactionMut<'_>, element: &XmlElementRef, node: &Value) {
+    let kind = node.get("type").and_then(Value::as_str).unwrap_or_default();
+    push_unmarked_nodes(txn, element, content_of(node), None);
+    let given = node.get("attrs");
+    for attribute in crate::schema::node_attributes(kind).unwrap_or(&[]) {
+        let value = match given.and_then(|attrs| attrs.get(attribute.name)) {
+            Some(value) => Some(any_of(value)),
+            None => match attribute.fallback {
+                crate::schema::Fallback::None => None,
+                crate::schema::Fallback::Integer(number) => Some(Any::Number(Number::Int(number))),
+                crate::schema::Fallback::Boolean(truth) => Some(Any::Bool(truth)),
+            },
+        };
+        if let Some(value) = value {
+            element.insert_attribute(txn, attribute.name, value);
+        }
+    }
+}
+
+/// Random 32-bit writer ID with at least `MIN_RANDOM_WRITER` headroom for descending
+/// multi-client splits while remaining within 32 bits (`<= u32::MAX`, strictly below
+/// `repair::FIRST_WRITER`).
+fn random_writer() -> u64 {
+    let span = u64::from(u32::MAX) - MIN_RANDOM_WRITER + 1;
+    MIN_RANDOM_WRITER + ((ClientID::random().get() & 0xffff_ffff) % span)
+}
+
+/// Decodes a freshly self-encoded v1 state into a `Doc` whose own client ID is `client`.
+fn doc_from_encoded(state: &[u8], client: u64) -> Doc {
+    let doc = doc_of_client(Some(client));
+    if state != Update::EMPTY_V1 {
+        let update = Update::decode_v1(state).expect("self-encoded body state decodes");
+        doc.transact_mut()
+            .apply_update(update)
+            .expect("self-encoded body state applies");
     }
     doc
 }
@@ -87,178 +284,9 @@ fn is_text(node: &Value) -> bool {
     node.get("type").and_then(Value::as_str) == Some("text")
 }
 
-/// Fills an empty parent with nodes: an element for each node that is no text, one
-/// text for each stretch of neighbouring text nodes.
-///
-/// The last goes in first and each one before it at the front: the library finds the
-/// front of a parent at once, and its end only by walking to it, which for a parent of
-/// twenty thousand children is two hundred million steps.
-fn push_nodes(txn: &mut TransactionMut<'_>, parent: &impl XmlFragment, nodes: &[Value]) {
-    let mut rest = nodes;
-    while let Some(last) = rest.last() {
-        let stretch = if is_text(last) {
-            rest.iter().rev().take_while(|node| is_text(node)).count()
-        } else {
-            1
-        };
-        let (before, these) = rest.split_at(rest.len() - stretch);
-        match these {
-            [node] if !is_text(node) => push_element(txn, parent, node),
-            texts => push_text(txn, parent, texts),
-        }
-        rest = before;
-    }
-}
-
-fn push_element(txn: &mut TransactionMut<'_>, parent: &impl XmlFragment, node: &Value) {
-    let kind = node.get("type").and_then(Value::as_str).unwrap_or_default();
-    let element = parent.push_front(txn, XmlElementPrelim::empty(kind));
-    fill_element(txn, &element, node);
-}
-
-/// Puts the element of a node, with all it holds, among the children of a parent at
-/// `index`, as [`from_body`] writes one. `index` is at most the parent's length.
-#[cfg(feature = "test-util")]
-pub(crate) fn insert_node(
-    txn: &mut TransactionMut<'_>,
-    parent: &XmlElementRef,
-    index: u32,
-    node: &Value,
-) {
-    let kind = node.get("type").and_then(Value::as_str).unwrap_or_default();
-    let element = parent.insert(txn, index, XmlElementPrelim::empty(kind));
-    fill_element(txn, &element, node);
-}
-
-/// Writes into an empty element the content and the attributes of its node.
-fn fill_element(txn: &mut TransactionMut<'_>, element: &XmlElementRef, node: &Value) {
-    let kind = node.get("type").and_then(Value::as_str).unwrap_or_default();
-    push_nodes(txn, element, content_of(node));
-    let given = node.get("attrs");
-    for attribute in schema::node_attributes(kind).unwrap_or(&[]) {
-        let value = match given.and_then(|attrs| attrs.get(attribute.name)) {
-            Some(value) => Some(any_of(value)),
-            None => match attribute.fallback {
-                Fallback::None => None,
-                Fallback::Integer(number) => Some(Any::Number(Number::Int(number))),
-                Fallback::Boolean(truth) => Some(Any::Bool(truth)),
-            },
-        };
-        if let Some(value) = value {
-            element.insert_attribute(txn, attribute.name, value);
-        }
-    }
-}
-
-/// Puts the text nodes of one stretch at the front of a parent as one text. Each mark
-/// is written in a pass of its own over the text, in the editor's order of marks, so
-/// that what is written does not depend on the order in which a map happens to hand its
-/// members out. A pass goes along the text once: written letter by letter at an index,
-/// the library would walk the text from its start for each (8,000 letters of five
-/// marks took 9 s). Each run of a mark still cuts the text, and the library moves the
-/// writer's changes after a cut, so a paragraph of 49,600 runs takes 0.6 s (release).
-fn push_text(txn: &mut TransactionMut<'_>, parent: &impl XmlFragment, nodes: &[Value]) {
-    let whole: String = nodes.iter().map(letters_of).collect();
-    let text = parent.push_front(txn, XmlTextPrelim::new(whole));
-    let runs: Vec<Run<'_>> = nodes.iter().map(Run::of).collect();
-    let mut names: Vec<(usize, &str)> = runs
-        .iter()
-        .flat_map(|run| run.marks.iter().map(|mark| (mark.rank, mark.name)))
-        .collect();
-    names.sort_unstable();
-    names.dedup();
-    for (_, name) in names {
-        text.apply_delta(txn, formatting(&runs, name));
-    }
-}
-
-/// The letters of a text node, by their length, and its marks.
-struct Run<'node> {
-    length: u32,
-    marks: Vec<Mark<'node>>,
-}
-
-/// A mark of a text node: where the editor puts it among the marks, its name, and its
-/// attributes.
-struct Mark<'node> {
-    rank: usize,
-    name: &'node str,
-    attrs: Any,
-}
-
-impl<'node> Run<'node> {
-    fn of(node: &'node Value) -> Self {
-        let marks = node
-            .get("marks")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|mark| {
-                let name = mark.get("type")?.as_str()?;
-                Some(Mark {
-                    rank: schema::mark_rank(name).unwrap_or(usize::MAX),
-                    name,
-                    attrs: mark.get("attrs").map_or_else(empty_attributes, any_of),
-                })
-            })
-            .collect();
-        Self {
-            length: utf16_length(letters_of(node)),
-            marks,
-        }
-    }
-
-    /// The attributes of its mark `name`, if it has it.
-    fn attrs_of(&self, name: &str) -> Option<&Any> {
-        self.marks
-            .iter()
-            .find(|mark| mark.name == name)
-            .map(|mark| &mark.attrs)
-    }
-}
-
-/// The pass over a text that writes the mark `name` where its runs have it: letters
-/// next to each other that have it with the same attributes are formatted together,
-/// letters without it are passed over, and the pass ends with the last letter that has
-/// it.
-fn formatting(runs: &[Run<'_>], name: &str) -> Vec<Delta<In>> {
-    let mut delta: Vec<Delta<In>> = Vec::new();
-    for run in runs.iter().filter(|run| run.length > 0) {
-        let attrs = run.attrs_of(name);
-        match (delta.last_mut(), attrs) {
-            (Some(Delta::Retain(length, None)), None) => {
-                *length = length.saturating_add(run.length);
-            }
-            (Some(Delta::Retain(length, Some(before))), Some(attrs))
-                if before.get(name) == Some(attrs) =>
-            {
-                *length = length.saturating_add(run.length);
-            }
-            (_, attrs) => delta.push(Delta::Retain(
-                run.length,
-                attrs.map(|attrs| Box::new(Attrs::from([(Arc::from(name), attrs.clone())]))),
-            )),
-        }
-    }
-    if matches!(delta.last(), Some(Delta::Retain(_, None))) {
-        delta.pop();
-    }
-    delta
-}
-
 /// The letters of a text node.
 fn letters_of(node: &Value) -> &str {
     node.get("text").and_then(Value::as_str).unwrap_or_default()
-}
-
-/// The attributes of a mark that has none: an empty object, as the binding writes it.
-fn empty_attributes() -> Any {
-    Any::Map(Arc::default())
-}
-
-/// The length of a text in UTF-16 code units. A body is at most 4 MiB, so it fits.
-fn utf16_length(text: &str) -> u32 {
-    u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX)
 }
 
 /// A JSON value as a value of the shared content. A number that is whole is written as
@@ -280,5 +308,135 @@ fn any_of(value: &Value) -> Any {
                 .map(|(name, member)| (name.clone(), any_of(member)))
                 .collect(),
         )),
+    }
+}
+
+/// Puts the element of an unmarked node, with all it holds, among the children of a
+/// parent at `index`, as [`from_body`] writes one. `index` is at most the parent's length.
+#[cfg(feature = "test-util")]
+pub(crate) fn insert_node(
+    txn: &mut TransactionMut<'_>,
+    parent: &XmlElementRef,
+    index: u32,
+    node: &Value,
+) {
+    debug_assert!(
+        !scan_body_plan(node).has_marks,
+        "insert_node only supports unmarked nodes"
+    );
+    let kind = node.get("type").and_then(Value::as_str).unwrap_or_default();
+    let element = parent.insert(txn, index, XmlElementPrelim::empty(kind));
+    fill_unmarked_element(txn, &element, node);
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn direct_unmarked_path_is_byte_identical_to_wire_encoder() {
+        let doc_json = json!({
+            "type": "doc",
+            "content": [
+                {"type": "heading", "attrs": {"level": 2}, "content": [
+                    {"type": "text", "text": "Title 한글😀"}
+                ]},
+                {"type": "paragraph", "content": [
+                    {"type": "text", "text": "first "},
+                    {"type": "text", "text": "second"},
+                    {"type": "hardBreak"},
+                    {"type": "inlineMath", "attrs": {"latex": "x^2 + y^2"}},
+                    {"type": "mention", "attrs": {"userId": "01930000-0000-7000-8000-00000000c001"}},
+                    {"type": "reference", "attrs": {"id": "01930000-0000-7000-8000-00000000b001"}}
+                ]},
+                {"type": "orderedList", "content": [
+                    {"type": "listItem", "content": [{"type": "paragraph"}]}
+                ]},
+                {"type": "taskList", "content": [
+                    {"type": "taskItem", "attrs": {"checked": true}, "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "done"}]}
+                    ]}
+                ]},
+                {"type": "codeBlock", "attrs": {"language": "rust"}, "content": [
+                    {"type": "text", "text": "fn main() {}"}
+                ]},
+                {"type": "blockMath", "attrs": {"latex": "\\int_0^1 x\\,dx"}},
+                {"type": "image", "attrs": {"fileId": "img-1", "alt": "photo"}},
+                {"type": "file", "attrs": {"fileId": "doc-1"}},
+                {"type": "horizontalRule"},
+                {"type": "table", "content": [
+                    {"type": "tableRow", "content": [
+                        {"type": "tableHeader", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "H"}]}]},
+                        {"type": "tableCell", "attrs": {"colspan": 2}, "content": [{"type": "paragraph"}]}
+                    ]}
+                ]}
+            ]
+        });
+        let body = Body::parse(doc_json)
+            .expect("valid body")
+            .expect("non-empty body");
+        let plan = scan_body_plan(body.document());
+        assert!(
+            plan.can_build_direct(),
+            "unmarked small body uses direct path"
+        );
+
+        for writer in [0_u64, 1, 7, 1_048_576, u64::MAX] {
+            let direct_doc = build_unmarked_doc(&body, writer & MAX_WRITER, None);
+            let direct_state = state_of(&direct_doc);
+            let encoded = encode_body_with_plan(&body, writer, plan, CacheMode::Full);
+            let wire_doc = doc_from_encoded(&encoded.state, encoded.last_client);
+            assert_eq!(
+                direct_state, encoded.state,
+                "writer {writer}: direct state matches wire bytes"
+            );
+            assert_eq!(
+                state_of(&wire_doc),
+                encoded.state,
+                "writer {writer}: wire doc re-encodes identically"
+            );
+        }
+    }
+
+    #[test]
+    fn wire_encoder_matches_state_of_doc_byte_for_byte() {
+        let doc_json = json!({
+            "type": "doc",
+            "content": [
+                {"type": "paragraph", "content": [
+                    {"type": "text", "text": "plain "},
+                    {"type": "text", "text": "bold", "marks": [{"type": "bold"}]},
+                    {"type": "text", "text": " link😀", "marks": [
+                        {"type": "link", "attrs": {"href": "https://example.com/a\"b\\c\n한글"}},
+                        {"type": "bold"},
+                        {"type": "italic"}
+                    ]},
+                    {"type": "text", "text": " next", "marks": [
+                        {"type": "link", "attrs": {"href": "https://example.com/other"}},
+                        {"type": "strike"},
+                        {"type": "code"}
+                    ]},
+                    {"type": "text", "text": " tail"}
+                ]}
+            ]
+        });
+        let body = Body::parse(doc_json)
+            .expect("valid marked body")
+            .expect("non-empty body");
+        let plan = scan_body_plan(body.document());
+        assert!(!plan.can_build_direct(), "marked body uses wire encoder");
+        let encoded = encode_body_with_plan(&body, 42, plan, CacheMode::Full);
+        let doc = doc_from_encoded(&encoded.state, encoded.last_client);
+        assert_eq!(
+            state_of(&doc),
+            encoded.state,
+            "encoded marked state matches doc state byte for byte"
+        );
+        assert!(
+            encoded.reading_cache.is_some(),
+            "reading cache built alongside wire encoding"
+        );
     }
 }

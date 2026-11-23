@@ -6,7 +6,7 @@ use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{Doc, ReadTxn, StateVector, Transact};
 
-use crate::build::{from_body, new_doc};
+use crate::build::{BuiltBodyDoc, build_body_doc_counted, build_body_doc_fast, new_doc};
 use crate::project::to_body;
 use crate::repair::{InPlaceRepair, Repair};
 use crate::settle::{SettlePass, rebuild, replay_tail, settle_keeping};
@@ -156,6 +156,19 @@ pub struct StateCounts {
     pub steps_ahead: u64,
 }
 
+/// A document freshly built from a stored body ([`BodyDoc::from_body_counted`]) together
+/// with its canonical encoded state and counts, avoiding a separate encode and scan pass.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct MadeBody {
+    /// The freshly built document, with its incremental caches prefilled.
+    pub doc: BodyDoc,
+    /// Its canonical whole state ([`BodyDoc::state`]).
+    pub state: Vec<u8>,
+    /// Its change and `steps_ahead` counts ([`state_counts`]).
+    pub counts: StateCounts,
+}
+
 impl Default for BodyDoc {
     fn default() -> Self {
         Self::new()
@@ -174,11 +187,50 @@ impl BodyDoc {
 
     /// The document of a stored body, written by a writer taken at random
     /// ([`crate::from_body`]); the document of no body for `None`.
+    ///
+    /// Prefills the incremental block cache when `body` satisfies the allowlist, and also
+    /// prefills the reading cache for marked or multi-client bodies (unmarked single-client
+    /// bodies defer reading-cache construction until the first [`BodyDoc::take_in_place`]).
     #[must_use]
     pub fn from_body(body: Option<&Body>) -> Self {
-        body.map_or_else(Self::new, |body| Self {
-            doc: from_body(body),
-            cache: None,
+        let Some(body) = body else {
+            return Self::new();
+        };
+        let (doc, cache) = build_body_doc_fast(body);
+        Self { doc, cache }
+    }
+
+    /// As [`BodyDoc::from_body`], also returning the canonical encoded state and
+    /// [`StateCounts`] produced during construction without a separate encode or scan pass,
+    /// with both incremental caches prefilled for allowlist-valid bodies.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UpdateError::Unreadable`] if the built state is outside the framing
+    /// accepted by [`state_counts`] (for example an unvalidated [`Body::from_stored`]
+    /// containing integers past 53 bits or deeply nested attribute values).
+    pub fn from_body_counted(body: Option<&Body>) -> Result<MadeBody, UpdateError> {
+        let Some(body) = body else {
+            return Ok(MadeBody {
+                doc: Self::new(),
+                state: yrs::Update::EMPTY_V1.to_vec(),
+                counts: StateCounts {
+                    changes: 0,
+                    client_changes: 0,
+                    steps_ahead: 0,
+                },
+            });
+        };
+        let BuiltBodyDoc {
+            doc,
+            state,
+            counts,
+            cache,
+        } = build_body_doc_counted(body)?;
+        Ok(MadeBody {
+            doc: Self { doc, cache },
+            state,
+            counts,
         })
     }
 
@@ -369,10 +421,10 @@ impl BodyDoc {
     /// deduplicated in exact document order (matching [`Body::file_ids`]).
     ///
     /// When the incremental block cache is populated (after [`BodyDoc::new`],
-    /// [`BodyDoc::from_state`], [`BodyDoc::take_in_place`], or an unchanged
-    /// [`BodyDoc::settle`]), reads from the cache in `O(1)` when zero or one block holds
-    /// files without projecting the whole document; otherwise falls back to full
-    /// projection.
+    /// [`BodyDoc::from_body`], [`BodyDoc::from_body_counted`], [`BodyDoc::from_state`],
+    /// [`BodyDoc::take_in_place`], or an unchanged [`BodyDoc::settle`]), reads from the
+    /// cache in `O(1)` when zero or one block holds files without projecting the whole
+    /// document; otherwise falls back to full projection.
     #[must_use]
     pub fn file_ids(&self) -> Vec<String> {
         if let Some(cache) = &self.cache {

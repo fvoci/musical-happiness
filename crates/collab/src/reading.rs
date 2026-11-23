@@ -63,7 +63,9 @@ use std::collections::HashMap;
 use crate::placing::{PLACES_PER_STEP, VALUE_PLACES};
 use crate::scan::{self, Change, Content, Id, Parent, Refusal, Walked};
 
-pub(crate) use cache::{FastApply, ReadingCache, count_strict_with_cache};
+pub(crate) use cache::{
+    DirectItem, FastApply, ReadingCache, ReadingCacheBuilder, count_strict_with_cache,
+};
 #[cfg(any(test, feature = "test-util"))]
 pub use inspect::List;
 #[cfg(any(test, feature = "test-util"))]
@@ -76,7 +78,7 @@ pub(crate) use origins::check_update_origins;
 /// read in 1.1 s), so these take 0.18 µs. With it the clients a document may name
 /// ([`crate::MAX_CLIENTS`]), each waiting for the one below, are the steps a document
 /// may take to read ([`crate::READING_STEPS`]): the two limits are of the same time.
-const LOOKED_PER_STEP: u64 = 128;
+pub(crate) const LOOKED_PER_STEP: u64 = 128;
 
 /// How many changes of a client the library moves, cutting one of them, in the time of
 /// a step of its walk: it moves every later one in the client's array, at 0.5 ns each
@@ -167,7 +169,7 @@ fn count_with(state: &[u8], origins: OriginPolicy, steps: StepsMode) -> Result<R
 
 /// What a change holds, as far as the reading asks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Holds {
+pub(crate) enum Holds {
     /// A stretch that was collected: no item.
     Collected,
     /// Deleted content, which is the parent of nothing.
