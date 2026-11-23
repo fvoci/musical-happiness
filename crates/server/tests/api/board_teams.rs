@@ -588,3 +588,104 @@ async fn a_team_role_is_told_what_references_name_until_it_is_taken_off() {
     check_as_nothing(&th.client2, &at, &private.both(), &own.card, "taken off").await;
     th.teardown().await;
 }
+
+#[tokio::test]
+async fn team_members_record_course_progress_and_appear_in_summary() {
+    let th = Setup::native().start().await.init_basic().await;
+    let at = format!("/w/{ROOT_WORKSPACE_ID}");
+    let owner = th.client.me().await.id;
+    let member = th.client2.me().await.id;
+    let course = th
+        .client
+        .post(
+            &format!("{at}/courses"),
+            &json!({"type": "P", "title": "Team Course"}),
+        )
+        .await;
+    course.check_created();
+    let course_id = course.value()["id"].as_str().expect("course id").to_owned();
+    let unit = th
+        .client
+        .post(
+            &format!("{at}/courses/{course_id}/units"),
+            &json!({"title": "U1"}),
+        )
+        .await;
+    unit.check_created();
+    let unit_id = unit.value()["id"].as_str().expect("unit id").to_owned();
+
+    let team = group(&th, &member, "Learners").await;
+    let assigned = format!("{at}/containers/{course_id}/teams/{}", team.id);
+    th.client
+        .put(&assigned, &json!({"role": "viewer"}))
+        .await
+        .check_no_content();
+
+    th.client2
+        .put(
+            &format!("{at}/courses/{course_id}/units/{unit_id}/progress"),
+            &json!({"completed": true}),
+        )
+        .await
+        .check_ok();
+    let summary: fvoci_model::CourseProgressSummary = th
+        .client
+        .get(&format!("{at}/courses/{course_id}/progress/summary"))
+        .await
+        .ok_json();
+    assert_eq!(summary.total_units, 1);
+    assert!(
+        summary
+            .members
+            .iter()
+            .any(|m| m.user_id == member && m.completed_units == 1),
+        "team learner counted in summary: {summary:?}"
+    );
+    assert!(
+        summary
+            .members
+            .iter()
+            .any(|m| m.user_id == owner && m.completed_units == 0),
+        "owner counted in summary: {summary:?}"
+    );
+    assert_eq!(summary.members.len(), 2, "owner + team learner");
+
+    // Holding both a direct role and an inherited team role must not duplicate the member.
+    th.client
+        .post(
+            &format!("{at}/containers/{course_id}/members"),
+            &json!({"userId": member, "role": "viewer"}),
+        )
+        .await
+        .check_ok();
+    let both: fvoci_model::CourseProgressSummary = th
+        .client
+        .get(&format!("{at}/courses/{course_id}/progress/summary"))
+        .await
+        .ok_json();
+    assert_eq!(both.members.len(), 2, "direct + team role deduplicated");
+    assert!(
+        both.members
+            .iter()
+            .any(|m| m.user_id == member && m.completed_units == 1),
+        "deduplicated learner keeps completed count: {both:?}"
+    );
+    th.client
+        .delete(&format!("{at}/containers/{course_id}/members/{member}"))
+        .await
+        .check_no_content();
+
+    th.client.delete(&assigned).await.check_no_content();
+    th.client2
+        .get(&format!("{at}/courses/{course_id}/progress"))
+        .await
+        .check_not_found();
+    let after: fvoci_model::CourseProgressSummary = th
+        .client
+        .get(&format!("{at}/courses/{course_id}/progress/summary"))
+        .await
+        .ok_json();
+    assert_eq!(after.members.len(), 1);
+    assert_eq!(after.members[0].user_id, owner);
+    th.teardown().await;
+}

@@ -52,6 +52,7 @@ mod subscription;
 mod table_grid;
 mod team;
 mod unit;
+mod unit_progress;
 mod upload;
 mod user;
 mod workspace;
@@ -176,6 +177,10 @@ pub use team::{Team, TeamMember, TeamName, team_name, team_name_key};
 pub use unit::{
     CHAPTERS_PER_COURSE, COURSE_DEPTH, CourseLimits, DeletedUnit, NewUnit, NotUnitBlockError,
     UNITS_PER_COURSE, Unit, UnitKind, UnitMove, UnitNode, UnitPatch, sort_units,
+};
+pub use unit_progress::{
+    CompletionChange, CourseProgressSummary, LastPositionChange, MemberCourseProgress,
+    UNIT_PROGRESS_POSITION_MAX_CHARS, UnitProgress, UnitProgressChange, UnitProgressUpdate,
 };
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{LoginOrigin, Me, Session, User, UserPreferencesPatch};

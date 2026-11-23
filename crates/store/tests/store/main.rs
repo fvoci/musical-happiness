@@ -81,6 +81,7 @@ mod tenancy_sources;
 mod tenancy_tables;
 mod trash;
 mod trash_file_race;
+mod unit_progress;
 mod user_row_deletion;
 mod users;
 mod users_at_once;

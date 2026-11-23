@@ -3,8 +3,9 @@
 //! changes nothing, and of two administrators who leave at once one stays.
 
 use fvoci_model::{
-    AuditAction, AuditRecordActor, Block, BlockType, Container, ContainerType, OrgRole,
-    SubscriberType, Subscription, WorkspaceRole, new_id,
+    AuditAction, AuditRecordActor, Block, BlockType, CompletionChange, Container, ContainerKind,
+    ContainerType, CourseLimits, LastPositionChange, NewUnit, OrgRole, SubscriberType,
+    Subscription, UnitProgressChange, WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AuditPlace, DbType, Departure, DepartureRefused, Joining, NewLink, Paging, Store, Tenant,
@@ -59,6 +60,53 @@ async fn board_of(store: &Store, workspace_id: &str, user_id: &str) -> (String, 
         .await
         .expect("the card is stored");
     (board.id, card.id)
+}
+
+/// Creates a course with one unit and records a completed progress row for `learner`.
+async fn course_with_progress(
+    store: &Store,
+    workspace_id: &str,
+    owner: &str,
+    learner: &str,
+    position: &str,
+) {
+    let mut course = Container {
+        id: new_id(),
+        workspace_id: workspace_id.to_owned(),
+        container_type: ContainerType::Private,
+        kind: ContainerKind::Course,
+        title: "course".to_owned(),
+        ..Container::default()
+    };
+    store
+        .insert_container_with_admin(&mut course, owner)
+        .await
+        .expect("course stored");
+    let unit = store
+        .create_unit(
+            &course.id,
+            &NewUnit {
+                title: "unit 1".to_owned(),
+                ..NewUnit::default()
+            },
+            CourseLimits::DEFAULT,
+            owner,
+        )
+        .await
+        .expect("unit stored")
+        .unit;
+    store
+        .upsert_unit_progress(
+            &course.id,
+            &unit.id,
+            learner,
+            &UnitProgressChange {
+                completion: CompletionChange::Complete,
+                last_position: LastPositionChange::Set(position.to_owned()),
+            },
+        )
+        .await
+        .expect("progress stored");
 }
 
 /// The user follows the block.
@@ -145,6 +193,10 @@ async fn places_of(test: &TestStore, org_id: &str, user_id: &str) -> Vec<String>
                  (SELECT id FROM blocks WHERE container_id IN ({of_org_boards}))"
             ),
         ),
+        (
+            "unit_progress",
+            format!("user_id = '{user_id}' AND container_id IN ({of_org_boards})"),
+        ),
     ];
     let system = test.system();
     let mut counted = Vec::new();
@@ -210,6 +262,7 @@ async fn placed_everywhere(test: &TestStore) -> Placed {
     let (founders, founders_card) = board_of(test, &workspace, &founder).await;
     follow(test, &their_card, &leaver).await;
     follow(test, &founders_card, &leaver).await;
+    course_with_progress(test, &workspace, &founder, &leaver, "org-pos").await;
     let team = test
         .create_team(&workspace, "Design", &founder)
         .await
@@ -307,6 +360,8 @@ async fn whoever_leaves_has_nothing_left_in_the_organization_but_what_they_wrote
     )
     .await;
     let other_store = test.for_org(&other).expect("an organization");
+    let other_ws = common::own_workspace(&test, leaver).await;
+    course_with_progress(&other_store, &other_ws, leaver, leaver, "own-pos").await;
     let before = (
         test.visibility_version().await,
         other_store.visibility_version().await,
@@ -337,6 +392,7 @@ async fn whoever_leaves_has_nothing_left_in_the_organization_but_what_they_wrote
             "container_members: 0",
             "team_members: 0",
             "subscriptions: 0",
+            "unit_progress: 0",
         ]
     );
     assert_eq!(
