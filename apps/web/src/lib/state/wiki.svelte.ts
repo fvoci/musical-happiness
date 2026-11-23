@@ -42,7 +42,7 @@ import { ContainerPresence } from './board-presence.svelte.ts';
 import { orderMembers } from './order.ts';
 import { PageStore } from './page.svelte.ts';
 import { TreeWrites } from './tree-writes.ts';
-import { unlessGone } from './wiki-parts.ts';
+import { joinOpenWiki, performPageLooks, performWikiLooks } from './wiki-parts.ts';
 import { memberId } from './user-names.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
@@ -71,6 +71,10 @@ export class WikiStore {
   status = $state<LoadStatus>('idle');
   /** The wiki is not there, or not for the reader: the two look the same. */
   missing = $state(false);
+  /** Whether the full list of pages has been read at least once. */
+  pagesReady = $state(false);
+  /** Page ID speculatively opened from cache before the full page list arrived. */
+  speculativePageId = $state<string | undefined>(undefined);
   /** The reader asked to join and the answer has not come. */
   joining = $state(false);
   wiki = $state.raw<Container | undefined>(undefined);
@@ -154,12 +158,16 @@ export class WikiStore {
     return this.pages.find((page) => page.id === pageId);
   }
 
-  async load(): Promise<void> {
+  async load(options: { pageId?: string; speculative?: boolean } = {}): Promise<void> {
     this.status = 'loading';
     this.missing = false;
+    this.pagesReady = false;
     this.#readings += 1;
     const reading = this.#readings;
     const membersTold = this.#people.told;
+    const mark = this.#writes.forgettings;
+    const initialPageId = options.pageId;
+    const speculative = Boolean(initialPageId && options.speculative);
     try {
       // Listen first: a change made while the lists are being read is not lost.
       this.#stopWatching?.();
@@ -167,49 +175,73 @@ export class WikiStore {
         this.#apply(change);
       });
       const backend = this.workspace.backend;
-      const [wiki, pages, members] = await Promise.all([
-        containerOfWorkspace(backend, this.wikiId, this.workspace.info?.id, 'wiki'),
-        this.#wikis.pages(this.wikiId),
-        backend.members(this.wikiId),
-      ]);
+      const wikiRead = containerOfWorkspace(backend, this.wikiId, this.workspace.info?.id, 'wiki');
+      const membersRead = backend.members(this.wikiId);
+      const pagesRead = this.#wikis.pages(this.wikiId);
+      // Avoid unhandled rejection if container/members reject before pages settles.
+      pagesRead.catch(() => undefined);
+      if (initialPageId) {
+        this.speculativePageId = speculative ? initialPageId : undefined;
+        this.showPage(initialPageId, speculative);
+      } else {
+        this.speculativePageId = undefined;
+      }
+      const [wiki, members] = await Promise.all([wikiRead, membersRead]);
       if (this.#closed || reading !== this.#readings) return;
       void this.workspace.learnUsers(members.map(memberId), { members: true });
-      this.#takeWiki(wiki);
-      this.pages = pages;
+      this.takeWiki(wiki);
       // Members told meanwhile are newer than this reading.
       if (membersTold === this.#people.told) this.members = members;
+      if (initialPageId && (wiki.type === 'O' || this.role !== '')) this.status = 'ready';
+      const pages = await pagesRead;
+      if (this.isClosed() || reading !== this.#readings) return;
+      const read = this.#writes.admitted(pages, mark);
+      this.pages =
+        this.pages.length > 0 ? reread(this.pages, read, [], (p) => this.#writes.receive(p)) : read;
+      this.#writes.remember(this.pages);
+      this.pagesReady = true;
       this.status = 'ready';
+      const remembered = this.workspace.rememberedWikiPage(this.wikiId);
+      if (remembered && !this.page(remembered)) {
+        this.workspace.forgetWikiPage(this.wikiId, remembered);
+      }
+      if (this.speculativePageId && !this.page(this.speculativePageId)) {
+        this.speculativeFailed(this.speculativePageId);
+      } else if (this.openPage?.status === 'ready' && !this.page(this.openPage.pageId)) {
+        this.openPage.gone('others', this.openPage.meta?.title ?? '');
+      }
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
+      this.speculativePageId = undefined;
+      this.openPage?.close();
+      this.openPage = undefined;
       // Not there for the reader, or not to read: the two look the same.
       if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+        this.workspace.evictContainer(this.wikiId);
         this.missing = true;
       } else this.workspace.report('load', error);
       this.status = 'failed';
     }
   }
 
-  /** Joins the open wiki shown (`joinable`) and reads it. False (and told) when that failed. */
-  async join(): Promise<boolean> {
-    if (this.joining) return false;
-    this.joining = true;
-    try {
-      await this.workspace.backend.joinContainer(this.wikiId);
-    } catch (error) {
-      // Made private or deleted meanwhile: there is nothing to join.
-      if (isBackendError(error) && error.status === 404) this.missing = true;
-      else this.workspace.report('save', error);
-      return false;
-    } finally {
-      this.joining = false;
+  /** Called when a speculatively opened page is deleted, forbidden, or fails to load. */
+  speculativeFailed(pageId: string): void {
+    this.workspace.forgetWikiPage(this.wikiId, pageId);
+    if (this.speculativePageId !== pageId) return;
+    this.speculativePageId = undefined;
+    if (this.openPage?.pageId === pageId) {
+      this.openPage.close();
+      this.openPage = undefined;
     }
-    if (this.#closed) return false;
-    await this.load();
-    return this.status === 'ready';
+  }
+
+  /** Joins the open wiki shown (`joinable`) and reads it. False (and told) when that failed. */
+  join(): Promise<boolean> {
+    return joinOpenWiki(this);
   }
 
   /** Asked as a function: `#closed` may change while a reading waits, which TypeScript does not see. */
-  #isClosed(): boolean {
+  isClosed(): boolean {
     return this.#closed;
   }
 
@@ -222,12 +254,13 @@ export class WikiStore {
   }
 
   /** Shows a page: its store is made, and the one before closed. None for `undefined`. */
-  showPage(pageId: string | undefined): PageStore | undefined {
+  showPage(pageId: string | undefined, speculative = false): PageStore | undefined {
+    if (!speculative) this.speculativePageId = undefined;
     // The same page, unless it was found gone: shown again, it is read anew (restored, let back in).
     const open = this.openPage;
     if (open && open.pageId === pageId && !open.missing) return open;
     this.openPage?.close();
-    this.openPage = pageId === undefined ? undefined : new PageStore(this, pageId);
+    this.openPage = pageId === undefined ? undefined : new PageStore(this, pageId, { speculative });
     void this.openPage?.load();
     return this.openPage;
   }
@@ -235,7 +268,7 @@ export class WikiStore {
   // ------------------------------------------------------------ changes
 
   /** Shows `wiki` unless a newer one is shown: a reading may land after a change told meanwhile. */
-  #takeWiki(wiki: Container): void {
+  takeWiki(wiki: Container): void {
     if (!this.wiki || this.wiki.updateAt <= wiki.updateAt) this.wiki = wiki;
   }
 
@@ -245,29 +278,41 @@ export class WikiStore {
         if (change.container.id !== this.wikiId) break;
         // Deleted and brought back, or joined: everything of it is read again.
         if (this.missing) void this.load();
-        else this.#takeWiki(change.container);
+        else this.takeWiki(change.container);
         break;
       case 'containerDeleted':
         if (change.containerId !== this.wikiId) break;
+        this.workspace.evictContainer(this.wikiId);
         // An open wiki may only have been closed to the reader: read again, it may be one to join.
         if (this.wiki?.type === 'O' && !this.#closed) void this.load();
         else [this.missing, this.status] = [true, 'failed'];
         break;
       case 'pages':
-        for (const page of change.pages) this.#receive(page);
+        for (const page of change.pages) this.receivePage(page);
         break;
       case 'blocks':
         for (const block of change.blocks)
           if (isCommentBlock(block)) this.openPage?.comments.receive(block);
         break;
-      case 'blocksDeleted':
+      case 'blocksDeleted': {
         this.#writes.forget(change.blockIds, 'others');
+        const remembered = this.workspace.rememberedWikiPage(this.wikiId);
+        if (
+          remembered &&
+          (change.blockIds.includes(remembered) || (this.pagesReady && !this.page(remembered)))
+        ) {
+          this.workspace.forgetWikiPage(this.wikiId, remembered);
+        }
         this.openPage?.comments.forget(change.blockIds);
         break;
+      }
       case 'members':
         if (change.containerId !== this.wikiId) break;
         this.#people.told += 1;
         this.members = change.members;
+        if (this.workspace.me && !change.members.some((m) => m.userId === this.workspace.me?.id)) {
+          this.workspace.evictContainer(this.wikiId);
+        }
         void this.workspace.learnUsers(change.members.map(memberId), { members: true });
         break;
       case 'resync':
@@ -279,7 +324,7 @@ export class WikiStore {
   }
 
   /** A version of a page from the backend: shown, unless a move of it is under way. */
-  #receive(page: WikiPage): void {
+  receivePage(page: WikiPage): void {
     if (this.#writes.receive(page)) this.#takePage(page);
   }
 
@@ -299,7 +344,7 @@ export class WikiStore {
    * missed (`resync`): the pages merged with what is shown (`reread`).
    */
   async #refresh(): Promise<void> {
-    if (this.status !== 'ready' || this.#closed) return;
+    if (this.status !== 'ready' || !this.pagesReady || this.isClosed()) return;
     this.#readings += 1;
     const reading = this.#readings;
     const before = this.pages.map((page) => page.id);
@@ -311,8 +356,8 @@ export class WikiStore {
         this.#wikis.pages(this.wikiId),
         this.workspace.backend.members(this.wikiId),
       ]);
-      if (this.#isClosed() || reading !== this.#readings) return;
-      this.#takeWiki(wiki);
+      if (this.isClosed() || reading !== this.#readings) return;
+      this.takeWiki(wiki);
       // Members told meanwhile are newer than this reading.
       if (membersTold === this.#people.told) this.members = members;
       const shown = this.openPage;
@@ -326,9 +371,14 @@ export class WikiStore {
         if (!this.#writes.isDeleting(shown.pageId)) shown.gone('others', title);
       } else if (shown) void shown.refresh();
     } catch (error) {
-      if (this.#isClosed() || reading !== this.#readings) return;
+      if (isBackendError(error) && error.status === 401) {
+        this.workspace.report('load', error);
+        return;
+      }
+      if (this.isClosed() || reading !== this.#readings) return;
       // Gone for the reader (deleted, or taken off it): read as on opening.
       if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+        this.workspace.evictContainer(this.wikiId);
         void this.load();
       }
     }
@@ -365,8 +415,13 @@ export class WikiStore {
   }
 
   /** Deletes a page and every page below it; false when it was refused (told). */
-  deletePage(pageId: string): Promise<boolean> {
-    return this.#writes.deletePage(pageId);
+  async deletePage(pageId: string): Promise<boolean> {
+    const done = await this.#writes.deletePage(pageId);
+    const remembered = this.workspace.rememberedWikiPage(this.wikiId);
+    if (done && remembered && !this.page(remembered)) {
+      this.workspace.forgetWikiPage(this.wikiId, remembered);
+    }
+    return done;
   }
 
   /**
@@ -384,78 +439,19 @@ export class WikiStore {
   }
 
   /** Changes the title or the icon of a page: shown at once, undone as one step. */
-  async changePage(pageId: string, looks: PageLooks): Promise<void> {
-    const before = this.page(pageId);
-    if (!before) return;
-    const back: PageLooks = {
-      ...(looks.title === undefined ? {} : { title: before.title }),
-      ...(looks.icon === undefined ? {} : { icon: before.icon }),
-    };
-    if (Object.entries(looks).every(([key, value]) => back[key as keyof PageLooks] === value)) {
-      return;
-    }
-    try {
-      await this.workspace.undo.perform(
-        () => unlessGone(() => this.#writeLooks(pageId, looks, back)),
-        () => unlessGone(() => this.#writeLooks(pageId, back, looks)),
-        looks.title === undefined ? 'changePageIcon' : 'changePageTitle',
-      );
-    } catch (error) {
-      this.workspace.report('save', error);
-    }
-  }
-
-  /** Shows `looks` on the page and writes them; on a refusal shows `back` again and rejects. */
-  async #writeLooks(pageId: string, looks: PageLooks, back: PageLooks): Promise<void> {
-    const shown = (with_: PageLooks): void => {
-      this.pages = this.pages.map((page) => (page.id === pageId ? { ...page, ...with_ } : page));
-    };
-    shown(looks);
-    try {
-      this.#receive(await this.#wikis.patchPage(this.wikiId, pageId, looks));
-    } catch (error) {
-      shown(back);
-      throw error;
-    }
+  changePage(pageId: string, looks: PageLooks): Promise<void> {
+    return performPageLooks(this, this.#wikis, pageId, looks);
   }
 
   /**
    * Changes the wiki's title, description, icon, openness or the role of who
    * joins it: shown at once, undone as one step (`step` names it).
    */
-  async changeWiki(
+  changeWiki(
     looks: WikiLooks,
     step: 'changeWiki' | 'changeBoardType' | 'changeMinimumRole' = 'changeWiki',
   ): Promise<void> {
-    const before = this.wiki;
-    if (!before) return;
-    const back: WikiLooks = {
-      ...(looks.title === undefined ? {} : { title: before.title }),
-      ...(looks.description === undefined ? {} : { description: before.description }),
-      ...(looks.icon === undefined ? {} : { icon: before.icon ?? '' }),
-      ...(looks.type === undefined ? {} : { type: before.type }),
-      ...(looks.minimumRole === undefined ? {} : { minimumRole: before.minimumRole }),
-    };
-    const write = async (to: WikiLooks, from: WikiLooks): Promise<void> => {
-      if (this.wiki) this.wiki = { ...this.wiki, ...to };
-      try {
-        const changed = await this.workspace.backend.patchContainer(this.wikiId, to);
-        this.#takeWiki(changed);
-        this.workspace.receiveContainer(changed);
-      } catch (error) {
-        if (this.wiki) this.wiki = { ...this.wiki, ...from };
-        throw error;
-      }
-    };
-    try {
-      await this.workspace.undo.perform(
-        () => write(looks, back),
-        () => write(back, looks),
-        step,
-      );
-    } catch (error) {
-      this.workspace.report('save', error);
-    }
+    return performWikiLooks(this, looks, step);
   }
 
   // ------------------------------------------------------------ sharing

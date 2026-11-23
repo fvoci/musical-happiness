@@ -127,3 +127,11 @@ export {
   type ProblemAction,
   type WorkspaceOptions,
 } from './workspace.svelte.ts';
+export { MAX_CACHED_BOARDS, BoardCache } from './board-cache.ts';
+export { MAX_CACHED_WIKIS, WikiCache } from './wiki-cache.ts';
+export {
+  MAX_CACHED_WORKSPACES,
+  WorkspaceCache,
+  type WorkspaceSnapshot,
+} from './workspace-cache.ts';
+export type { CacheLimits } from './workspace-caches.ts';

@@ -103,15 +103,20 @@
   }
 
   async function read(): Promise<void> {
-    if (!workspaceId) return;
+    const id = workspaceId;
+    if (!id) return;
     try {
       [members, links, guestsInvited] = await Promise.all([
-        people.members(workspaceId),
-        people.invitations(workspaceId),
-        people.guestInvitations(workspaceId),
+        people.members(id),
+        people.invitations(id),
+        people.guestInvitations(id),
       ]);
       failure = false;
     } catch (error) {
+      if (isBackendError(error) && error.status === 401) workspace.report('load', error);
+      else if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+        workspace.evictWorkspace(id);
+      }
       failure = problemOf(error, m.people_load_failed({ workspace: workspaceName }));
     }
     version += 1;
@@ -121,12 +126,17 @@
 
   /** Does one thing, says so if it is refused, and reads what there is afterwards. */
   async function act(step: (workspaceId: string) => Promise<void>): Promise<void> {
-    if (working || !workspaceId) return;
+    const id = workspaceId;
+    if (working || !id) return;
     working = true;
     problem = undefined;
     try {
-      await step(workspaceId);
+      await step(id);
     } catch (error) {
+      if (isBackendError(error) && error.status === 401) workspace.report('save', error);
+      else if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+        workspace.evictWorkspace(id);
+      }
       problem = problemOf(error, m.people_failed());
     } finally {
       await read();
@@ -151,11 +161,13 @@
   const setRole = (member: WorkspaceMember, role: WorkspaceRole): Promise<void> =>
     act(async (id) => {
       await people.setRole(id, member.userId, role);
+      workspace.evictWorkspace(id);
     });
 
   const remove = (member: WorkspaceMember): Promise<void> =>
     act(async (id) => {
       await people.removeMember(id, member.userId);
+      workspace.evictWorkspace(id);
     });
 
   const inviteGuests = (enabled: boolean): Promise<void> =>

@@ -4,14 +4,20 @@
  * the place of a drop, the card a copy is made as.
  */
 import { valuesOfCopy } from '../logic/dependencies.ts';
+import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
+import { propertyBehavior } from '../logic/properties.ts';
 import {
   cardProperty,
   parseRelationValue,
+  viewGrouping,
+  type BoardView,
   type Container,
   type ContainerKind,
   type ContainerMember,
   type Card,
   type MemberRole,
+  type PropertyTemplate,
+  type PropertyValue,
 } from '../logic/wire.ts';
 
 import type { Backend, ContainerRole, CardDraft } from './backend.ts';
@@ -145,4 +151,46 @@ export interface CardDrop {
    * column (`placeAmongAll`). Left out: `index` counts every card.
    */
   shown?: readonly string[];
+}
+
+/** Returns `card` with `propertyId` set to `value`, or deleted when `value` is empty. */
+export function withCardProperty(
+  card: Card,
+  propertyId: string,
+  value: PropertyValue | undefined,
+): Card {
+  const properties = { ...card.fields.properties };
+  const empty = value === undefined || value === '' || (Array.isArray(value) && !value.length);
+  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- the value of a property is removed by its id
+  if (empty) delete properties[propertyId];
+  else properties[propertyId] = value;
+  return { ...card, fields: { ...card.fields, properties } };
+}
+
+/** The property a view groups its cards by, falling back to the first groupable property on boards. */
+export function groupingPropertyOf(
+  properties: readonly PropertyTemplate[],
+  view: BoardView,
+): PropertyTemplate | undefined {
+  const named = properties.find((template) => template.id === view.fields.groupById);
+  if (view.fields.viewType !== 'board') return named;
+  if (named && propertyBehavior(named.type).canGroup) return named;
+  return properties.find((template) => propertyBehavior(template.type).canGroup);
+}
+
+/** The columns of a view, visible and hidden, for cards already filtered and sorted. */
+export function groupsOfView(
+  properties: readonly PropertyTemplate[],
+  view: BoardView,
+  cards: readonly Card[],
+  noValueLabel: NoValueLabel,
+): BoardGroups {
+  const grouping = viewGrouping(view);
+  return getVisibleAndHiddenGroups(
+    cards,
+    grouping.visibleOptionIds,
+    grouping.hiddenOptionIds,
+    groupingPropertyOf(properties, view),
+    noValueLabel,
+  );
 }

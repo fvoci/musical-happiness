@@ -65,11 +65,18 @@ export class BoardWrites {
         },
       );
     } finally {
-      // Restore even if a held server version is older than a board put on screen directly.
-      if (!answer) host.board = this.#restore(host.board, written, restore);
       const latest = this.#pending.end(host.boardId, answer);
-      if (latest && latest.updateAt >= host.board.updateAt) host.board = latest;
+      const shown = this.#shown();
+      if (shown) {
+        // Restore even if a held server version is older than a board put on screen directly.
+        const current = answer ? shown : this.#restore(shown, written, restore);
+        host.board = latest && latest.updateAt >= current.updateAt ? latest : current;
+      }
     }
+  }
+
+  #shown(): Container | undefined {
+    return this.#host.board;
   }
 
   #restore(shown: Container, written: ContainerPatch, restore: ContainerPatch): Container {

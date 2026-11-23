@@ -86,6 +86,11 @@ export class LastComments {
     if (unknown) void this.#reread('');
   }
 
+  /** Cancels any in-flight comment time re-readings (when the board is parked or closed). */
+  cancel(): void {
+    for (const [key, reading] of this.#readings) this.#readings.set(key, reading + 1);
+  }
+
   /** A mark to tell, when a reading of the board comes back, which comments were heard since it began. */
   begin(): number {
     return this.#count;

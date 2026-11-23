@@ -21,9 +21,11 @@ import type {
  */
 export type OrgStatus = 'loading' | 'ready' | 'missing' | 'sso' | 'failed';
 
-/** What the page around the screen is told: the workspace's `report`. */
+/** What the page around the screen is told: the workspace's `report` and cache eviction. */
 interface Shell {
   report(action: 'load', error: unknown): void;
+  evictWorkspace?(workspaceId: string): void;
+  evictOrg?(orgId: string): void;
 }
 
 /** Why a change was refused, as the screen tells it. */
@@ -88,8 +90,15 @@ export class OrgAdmin {
       this.records = records;
       this.status = 'ready';
     } catch (error) {
-      if (ssoOrgOf(error) !== undefined) this.status = 'sso';
-      else this.status = isBackendError(error) && error.status === 404 ? 'missing' : 'failed';
+      if (ssoOrgOf(error) !== undefined) {
+        this.status = 'sso';
+        this.#shell?.evictOrg?.(this.orgId);
+        return;
+      }
+      if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+        this.#shell?.evictOrg?.(this.orgId);
+      }
+      this.status = isBackendError(error) && error.status === 404 ? 'missing' : 'failed';
       if (this.status === 'failed' && isSignedOut(error)) this.#shell?.report('load', error);
     }
   }
@@ -121,7 +130,9 @@ export class OrgAdmin {
 
   async saveOidcProvider(settings: OidcSettings): Promise<OidcProvider> {
     try {
-      return await this.#api.saveOidcProvider(this.orgId, settings);
+      const saved = await this.#api.saveOidcProvider(this.orgId, settings);
+      this.#shell?.evictOrg?.(this.orgId);
+      return saved;
     } finally {
       await this.load();
     }
@@ -130,6 +141,7 @@ export class OrgAdmin {
   async deleteOidcProvider(): Promise<void> {
     try {
       await this.#api.deleteOidcProvider(this.orgId);
+      this.#shell?.evictOrg?.(this.orgId);
     } finally {
       await this.load();
     }
@@ -146,6 +158,7 @@ export class OrgAdmin {
   async endOidcFormer(createAt: number): Promise<void> {
     try {
       await this.#api.endOidcFormer(this.orgId, createAt);
+      this.#shell?.evictOrg?.(this.orgId);
     } finally {
       await this.load();
     }
@@ -161,7 +174,10 @@ export class OrgAdmin {
   }
 
   deleteWorkspace(workspaceId: string): Promise<boolean> {
-    return this.#change(() => this.#api.deleteWorkspace(this.orgId, workspaceId));
+    return this.#change(async () => {
+      await this.#api.deleteWorkspace(this.orgId, workspaceId);
+      this.#shell?.evictWorkspace?.(workspaceId);
+    });
   }
 
   restoreWorkspace(workspaceId: string): Promise<boolean> {
@@ -173,11 +189,17 @@ export class OrgAdmin {
   }
 
   leaveWorkspace(workspaceId: string): Promise<boolean> {
-    return this.#change(() => this.#api.leaveWorkspace(this.orgId, workspaceId));
+    return this.#change(async () => {
+      await this.#api.leaveWorkspace(this.orgId, workspaceId);
+      this.#shell?.evictWorkspace?.(workspaceId);
+    });
   }
 
   setRole(userId: string, role: OrgRole): Promise<boolean> {
-    return this.#change(() => this.#api.setRole(this.orgId, userId, role));
+    return this.#change(async () => {
+      await this.#api.setRole(this.orgId, userId, role);
+      this.#shell?.evictOrg?.(this.orgId);
+    });
   }
 
   setPublicLinks(on: boolean): Promise<boolean> {
