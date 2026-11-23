@@ -316,14 +316,16 @@ pub(crate) enum Noting {
     Nobody,
 }
 
-/// How many versions the store keeps, as it is set when a scope begins. Two counts in
-/// the room of one `usize`: every call of the store carries a scope.
+/// How many versions and how many body bytes the store keeps, as set when a scope begins.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct VersionsKept {
     /// Earlier versions of a comment ([`crate::Store::set_comment_versions_kept`]).
     pub(crate) of_comments: u32,
     /// Versions of a card's body ([`crate::Store::set_body_versions_kept`]).
     pub(crate) of_bodies: u32,
+    /// Maximum total serialized bytes of kept versions of a card's body
+    /// ([`crate::Store::set_body_versions_max_bytes`]).
+    pub(crate) body_max_bytes: u64,
 }
 
 /// Binds every parameter of `$sql` to `$query` for one database. `$id` turns an
@@ -553,6 +555,11 @@ impl<'c> Scope<'c> {
     /// How many versions of a card's body are kept, at least one.
     pub(crate) fn body_versions_kept(&self) -> i64 {
         i64::from(self.versions_kept.of_bodies)
+    }
+
+    /// Maximum total serialized bytes of kept versions of a card's body, at least one.
+    pub(crate) fn body_versions_max_bytes(&self) -> u64 {
+        self.versions_kept.body_max_bytes
     }
 
     /// The dialect of the connected database.

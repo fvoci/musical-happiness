@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 59] = [
+const STEPS: [Step; 60] = [
     Step {
         version: 1,
         description: "baseline",
@@ -389,7 +389,12 @@ const STEPS: [Step; 59] = [
         sqlite: include_str!("../schema/sqlite/0061_courses.sql"),
         postgres: include_str!("../schema/postgres/0061_courses.sql"),
     },
-    // 62 is other work's.
+    Step {
+        version: 62,
+        description: "body version bytes",
+        sqlite: include_str!("../schema/sqlite/0062_body_version_bytes.sql"),
+        postgres: include_str!("../schema/postgres/0062_body_version_bytes.sql"),
+    },
     Step {
         version: 63,
         description: "unit progress",
@@ -427,7 +432,7 @@ pub(crate) const BEFORE_COURSES_VERSION: i64 = 60;
 
 /// The migration before unit progress (0063).
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_UNIT_PROGRESS_VERSION: i64 = 61;
+pub(crate) const BEFORE_UNIT_PROGRESS_VERSION: i64 = 62;
 
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].

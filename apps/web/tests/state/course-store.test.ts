@@ -7,15 +7,17 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { pageRows } from '$lib/logic/page-tree.ts';
+import { keepVersion, unitVersions } from '$lib/features/card/body-versions.svelte.ts';
 import {
   BackendError,
   CourseStore,
+  referenceTitles,
   Workspace,
   type Change,
   type CourseUnit,
 } from '$lib/state/index.ts';
 
-import { settle, setup } from './support.ts';
+import { settle, setup, text } from './support.ts';
 
 async function openCourse(type: 'O' | 'P' = 'P') {
   const made = setup();
@@ -145,6 +147,56 @@ describe('an open course', () => {
     expect(titles(made.store)).toEqual([]);
     expect(shown?.missing).toBe(true);
     expect(shown?.removed).toEqual({ by: 'others', title: 'Their Unit' });
+    made.store.close();
+  });
+
+  it('loads unit comments, receives live comment changes, toggles watching, and updates reference titles', async () => {
+    const made = await openCourse('O');
+    await made.backend.addMember(made.courseId, made.other.userId, 'editor');
+    const ch = await made.store.createUnit({ kind: 'chapter', title: 'Ch 1' });
+    const u = await made.store.createUnit({ kind: 'unit', title: 'Unit A', parentId: ch?.id });
+    if (!ch || !u) throw new Error('expected unit');
+
+    const shown = made.store.showUnit(u.id);
+    await settle();
+    if (!shown) throw new Error('expected open unit');
+    expect(shown.status).toBe('ready');
+    expect(shown.comments.status).toBe('ready');
+    expect(shown.canWatch).toBe(true);
+    expect(shown.watching).toBe(true);
+
+    // Toggle watching off and back on.
+    await shown.setWatching(false);
+    expect(shown.watching).toBe(false);
+    await shown.setWatching(true);
+    expect(shown.watching).toBe(true);
+
+    // Add comment, receive live comment from other, delete and undo.
+    expect(await shown.comments.addComment(text('Mine'))).toBe(true);
+    const theirs = await made.other.course.createComment(made.courseId, u.id, text('Theirs'));
+    await settle();
+    expect(shown.comments.comments.map((c) => c.id)).toContain(theirs.id);
+
+    const mine = shown.comments.comments.find((c) => c.id !== theirs.id);
+    if (!mine) throw new Error('expected own comment');
+    await shown.comments.deleteComment(mine.id);
+    expect(shown.comments.comments.some((c) => c.id === mine.id)).toBe(false);
+    await made.workspace.undoLast();
+    expect(shown.comments.comments.some((c) => c.id === mine.id)).toBe(true);
+
+    // Keep version works once room is open and writable.
+    const outcome = await keepVersion(unitVersions(shown));
+    expect(outcome).toBe('notNow');
+
+    // ReferenceTitles tracks live renames of units.
+    const titlesStore = referenceTitles(made.workspace);
+    expect(titlesStore.of(u.id)).toBeUndefined();
+    await settle();
+    expect(titlesStore.of(u.id)).toMatchObject({ id: u.id, kind: 'unit', title: 'Unit A' });
+    await made.store.changeUnitTitle(u.id, 'Unit A Renamed');
+    await settle();
+    expect(titlesStore.of(u.id)?.title).toBe('Unit A Renamed');
+
     made.store.close();
   });
 

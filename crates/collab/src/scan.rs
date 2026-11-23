@@ -64,6 +64,9 @@ pub(crate) enum Refusal {
     /// It writes a member of the root, or a member of a node more often than
     /// [`MAX_FIRST_WRITES`] without the value that it replaces.
     Member,
+    /// A change names neighbours or a parent that do not belong together (itself,
+    /// different parents or members, a non-type parent, or inverted inside one change).
+    Origin,
     /// The library read its changes to another length than this walk.
     Lengths,
 }
@@ -78,6 +81,7 @@ impl Refusal {
             Self::Unknown => "it holds content no body has",
             Self::Gap => "it leaves a gap in a client's changes",
             Self::Member => "it writes a member no editor writes so",
+            Self::Origin => "a change names neighbours that do not belong together",
             Self::Lengths => "its changes are not as long as they are written",
         }
     }
@@ -106,8 +110,9 @@ pub(crate) enum Content<'bytes> {
     Letters(&'bytes [u8]),
     /// Values, as many.
     Values(u64),
-    /// What is one place long whatever it holds: bytes, an embedded value, formatting,
-    /// a shared type.
+    /// A shared type (element, text, array, map, fragment), one place long.
+    Type,
+    /// What is one place long and is no shared type: bytes, an embedded value, formatting.
     One,
 }
 
@@ -123,7 +128,7 @@ impl Content<'_> {
                 // of four bytes is two code units.
                 .map(|byte| u64::from(byte & 0xc0 != 0x80) + u64::from(*byte >= 0xf0))
                 .sum(),
-            Self::One => 1,
+            Self::Type | Self::One => 1,
         }
     }
 
@@ -131,7 +136,7 @@ impl Content<'_> {
     fn said(&self) -> u64 {
         match *self {
             Self::Collected(length) | Self::Deleted(length) => length,
-            Self::Letters(_) | Self::Values(_) | Self::One => 0,
+            Self::Letters(_) | Self::Values(_) | Self::Type | Self::One => 0,
         }
     }
 }
@@ -234,6 +239,15 @@ pub(crate) fn walk<'bytes>(
         changes: count,
         most,
     })
+}
+
+/// Whether a change names a place inside `[begin, end)` as a neighbour or as its parent.
+pub(crate) fn names_self(client: u64, begin: u64, end: u64, change: &Change<'_>) -> bool {
+    let inside =
+        |(other_client, clock): Id| other_client == client && (begin..end).contains(&clock);
+    change.left.is_some_and(inside)
+        || change.right.is_some_and(inside)
+        || matches!(change.parent, Some(Parent::Change(id)) if inside(id))
 }
 
 struct Walk<'bytes> {
@@ -388,9 +402,9 @@ impl<'bytes> Walk<'bytes> {
             7 => match self.byte()? {
                 3 => {
                     self.text()?;
-                    Ok(Content::One)
+                    Ok(Content::Type)
                 }
-                0..=2 | 4 | 6 => Ok(Content::One),
+                0..=2 | 4 | 6 => Ok(Content::Type),
                 _ => Err(Refusal::Unknown),
             },
             // Values.
@@ -696,5 +710,48 @@ mod tests {
         subdocument.extend_from_slice(b"default");
         subdocument.extend_from_slice(&[1, b'g', 118, 0, 0]);
         assert_eq!(check(&subdocument), Err(Refusal::Unknown));
+    }
+
+    #[test]
+    fn a_change_that_names_itself_as_neighbour_or_parent_is_detected() {
+        let mut saw = Vec::new();
+        // Client 5, clock 0, text "abc" (clocks 0..3) naming (5, 1) as left origin.
+        let self_left = vec![1, 1, 5, 0, 0x84, 5, 1, 3, b'a', b'b', b'c', 0];
+        walk(&self_left, |(client, begin), change| {
+            saw.push(names_self(
+                client,
+                begin,
+                begin + change.content.length(),
+                change,
+            ));
+        })
+        .expect("walked");
+        assert_eq!(saw, vec![true]);
+        // Same, naming (5, 2) as right origin.
+        saw.clear();
+        let self_right = vec![1, 1, 5, 0, 0x44, 5, 2, 3, b'a', b'b', b'c', 0];
+        walk(&self_right, |(client, begin), change| {
+            saw.push(names_self(
+                client,
+                begin,
+                begin + change.content.length(),
+                change,
+            ));
+        })
+        .expect("walked");
+        assert_eq!(saw, vec![true]);
+        // Naming itself (5, 0) as parent.
+        saw.clear();
+        let self_parent = vec![1, 1, 5, 0, 0x04, 0, 5, 0, 1, b'a', 0];
+        walk(&self_parent, |(client, begin), change| {
+            saw.push(names_self(
+                client,
+                begin,
+                begin + change.content.length(),
+                change,
+            ));
+        })
+        .expect("walked");
+        assert_eq!(saw, vec![true]);
     }
 }

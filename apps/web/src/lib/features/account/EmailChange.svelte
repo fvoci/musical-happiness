@@ -144,6 +144,12 @@
     <p class="text-sm text-muted-foreground">{m.email_change_no_password()}</p>
   {/if}
 
+  {#if hasPassword && mails && email}
+    <p class="text-xs text-muted-foreground" data-testid="email-change-revert-hint">
+      {m.email_change_revert_hint()}
+    </p>
+  {/if}
+
   {#if pending !== undefined}
     <div class="grid gap-2 rounded-md border p-3" data-testid="email-change-pending">
       <p class="text-sm">{m.email_change_pending({ email: pending })}</p>

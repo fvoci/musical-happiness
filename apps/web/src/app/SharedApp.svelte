@@ -26,6 +26,7 @@
   import NotFound from './NotFound.svelte';
   import Problems from './Problems.svelte';
   import type { Router } from './router.svelte.ts';
+  import SharedCourse from './SharedCourse.svelte';
   import SharedWiki from './SharedWiki.svelte';
 
   let { router }: { router: Router } = $props();
@@ -33,21 +34,21 @@
   let workspace = $state.raw<Workspace | undefined>(undefined);
   let backend = $state.raw<Backend | undefined>(undefined);
   /**
-   * What the link opens, once read: a board's screen or a wiki's; `missing` for
-   * nothing (a wrong token, a link turned off), `failed` for a reading that did
-   * not come, to try again.
+   * What the link opens, once read: a board's screen, a wiki's, or a course's;
+   * `missing` for nothing (a wrong token, a link turned off), `failed` for a
+   * reading that did not come, to try again.
    */
   let kind = $state<ContainerKind | 'missing' | 'failed' | undefined>(undefined);
   /** Reads what the link opens (again, after a reading that failed). */
   let readKind: (() => Promise<void>) | undefined;
-  /** The title at the head of the page: the board's, as its screen reads it, or the wiki's. */
-  let wiki = $state.raw<{ title: string; icon: string } | undefined>(undefined);
+  /** The title at the head of the page for a wiki or course. */
+  let meta = $state.raw<{ title: string; icon: string } | undefined>(undefined);
   let place = '';
   /** The screen could not start (its code did not load): nothing is read. */
   let unstarted = $state(false);
 
-  /** The board or wiki read, once it is: its title heads the page. */
-  const container = $derived(kind === 'wiki' ? wiki : workspace?.board?.board);
+  /** The board, wiki, or course read, once it is: its title heads the page. */
+  const container = $derived(kind === 'wiki' || kind === 'course' ? meta : workspace?.board?.board);
 
   onMount(() => {
     const { boardId: containerId, readToken } = router.route;
@@ -83,7 +84,9 @@
             const opened = await read.container(containerId);
             if (isLeft()) return;
             kind = opened.kind ?? 'board';
-            if (opened.kind === 'wiki') wiki = { title: opened.title, icon: opened.icon ?? '' };
+            if (opened.kind === 'wiki' || opened.kind === 'course') {
+              meta = { title: opened.title, icon: opened.icon ?? '' };
+            }
           } catch (error) {
             if (isLeft()) return;
             kind = isBackendError(error) && error.status === 404 ? 'missing' : 'failed';
@@ -112,7 +115,11 @@
     {#if container}
       <h1 class="min-w-0 truncate text-muted-foreground" data-testid="shared-title">
         {container.icon ? `${container.icon} ` : ''}{container.title ||
-          (kind === 'wiki' ? m.wiki_untitled() : m['Sidebar.untitled-board']())}
+          (kind === 'wiki'
+            ? m.wiki_untitled()
+            : kind === 'course'
+              ? m.course_untitled()
+              : m['Sidebar.untitled-board']())}
       </h1>
     {/if}
   </header>
@@ -149,6 +156,10 @@
       </div>
     {:else if kind === 'wiki' && backend}
       <SharedWiki {backend} wikiId={router.route.boardId} {router} />
+    {:else if kind === 'course' && backend}
+      <SharedCourse {backend} courseId={router.route.boardId} {router} />
+    {:else if kind === 'diary'}
+      <NotFound {router} />
     {:else}
       <BoardPage {workspace} {router} />
     {/if}

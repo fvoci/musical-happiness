@@ -322,13 +322,13 @@ async fn id_routes_after_removal(destination: AfterRemoval) {
 
 #[tokio::test]
 async fn identifier_routes_reject_a_user_removed_from_the_workspace() {
-    id_routes_after_removal(AfterRemoval::NoOrganization).await;
+    Box::pin(id_routes_after_removal(AfterRemoval::NoOrganization)).await;
 }
 
 #[tokio::test]
 async fn identifier_routes_reject_a_user_who_now_belongs_only_to_another_org() {
     if db_type_of_the_tests() == DbType::Postgres {
-        id_routes_after_removal(AfterRemoval::OtherOrganization).await;
+        Box::pin(id_routes_after_removal(AfterRemoval::OtherOrganization)).await;
     }
 }
 

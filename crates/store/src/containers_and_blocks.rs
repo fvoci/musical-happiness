@@ -144,6 +144,38 @@ impl Store {
         .await
     }
 
+    /// Atomically inserts every container, records every written file (removing its
+    /// `writing` mark), inserts every block (checking body file references against the
+    /// recorded files), and makes `user_id` an administrator and editor of each
+    /// container, all in one transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::InvalidPath`] for a malformed file path,
+    /// [`StoreError::NotFound`] if `user_id` does not work in a container's workspace or
+    /// a file's writing mark is gone, [`StoreError::InvalidBlock`] for an invalid block,
+    /// or [`StoreError::Database`] if a statement fails. Nothing is written on error.
+    pub async fn create_imported_containers_blocks_and_files(
+        &self,
+        containers_and_blocks: &mut ContainersAndBlocks,
+        files: &[FileInfo],
+        user_id: &str,
+    ) -> Result<Vec<ContainerMember>, StoreError> {
+        for file in files {
+            file_info::check_new_path(&file.path)?;
+        }
+        self.transaction(async |scope| {
+            create_imported_containers_blocks_and_files(
+                scope,
+                containers_and_blocks,
+                files,
+                user_id,
+            )
+            .await
+        })
+        .await
+    }
+
     /// Applies each board patch and each block patch of `patches` to the board or block
     /// at the same position. Returns the patched boards and blocks, in the order of the
     /// request.
@@ -251,9 +283,43 @@ pub(crate) async fn create_containers_and_blocks_with_admin(
     new_files: NewBodyFiles,
 ) -> Result<Vec<ContainerMember>, StoreError> {
     create_containers_and_blocks(scope, containers_and_blocks, user_id, new_files).await?;
+    add_creator_admins(scope, &containers_and_blocks.containers).await
+}
 
-    let mut members = Vec::with_capacity(containers_and_blocks.containers.len());
-    for container in &containers_and_blocks.containers {
+async fn create_imported_containers_blocks_and_files(
+    scope: &mut Scope<'_>,
+    containers_and_blocks: &mut ContainersAndBlocks,
+    files: &[FileInfo],
+    user_id: &str,
+) -> Result<Vec<ContainerMember>, StoreError> {
+    for container in &mut containers_and_blocks.containers {
+        containers::insert_container(scope, container, user_id).await?;
+    }
+    for file in files {
+        if !loose_objects::record_written(scope, file).await? {
+            return Err(StoreError::NotFound(format!(
+                "mark of the imported file {}",
+                file.path
+            )));
+        }
+    }
+    blocks::insert_blocks(
+        scope,
+        &mut containers_and_blocks.blocks,
+        user_id,
+        NewBodyFiles::Recorded,
+        Telling::Nobody,
+    )
+    .await?;
+    add_creator_admins(scope, &containers_and_blocks.containers).await
+}
+
+async fn add_creator_admins(
+    scope: &mut Scope<'_>,
+    containers: &[Container],
+) -> Result<Vec<ContainerMember>, StoreError> {
+    let mut members = Vec::with_capacity(containers.len());
+    for container in containers {
         // As in `insert_container_with_admin`, the administrator is the board's creator:
         // `user_id` for a new board, the stored creator for one that existed.
         members::hold_creator(scope, &container.workspace_id, &container.created_by).await?;

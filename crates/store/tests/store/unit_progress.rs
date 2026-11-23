@@ -69,17 +69,17 @@ async fn save_role(store: &Store, course_id: &str, user_id: &str, role: Option<C
     store.save_member(&member).await.expect("member saved");
 }
 
-/// Upgrading a database seeded at migration 0061 applies 0063 cleanly without altering
+/// Upgrading a database seeded at migration 0062 applies 0063 cleanly without altering
 /// existing course rows, creates `unit_progress` behind PostgreSQL forced RLS, and
 /// supports reading/writing personal progress immediately.
 #[tokio::test]
-async fn migration_0061_to_0063_creates_unit_progress_behind_rls() {
+async fn migration_0062_to_0063_creates_unit_progress_behind_rls() {
     let database = common::empty_database().await;
     fvoci_store::testing::migrate_to_before_unit_progress(&database).await;
     common::execute_raw(&common::raw_connection(&database), "DELETE FROM data_steps").await;
     let pre = Store::open(database.db_type(), database.database_connection())
         .await
-        .expect("open at 0061");
+        .expect("open at 0062");
     let (org_id, workspace_id) = common::organization(&pre, "school").await;
     let scoped = pre.for_org(&org_id).expect("org handle");
     let owner = common::user(&scoped, "teacher").await;

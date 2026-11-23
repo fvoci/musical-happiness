@@ -6,13 +6,17 @@
 
 use std::time::{Duration, Instant};
 
+use fvoci_collab::reading_steps;
 use fvoci_collab::testing::Editor;
+use fvoci_model::ContainerType;
 use fvoci_server::collab::FOLD_AFTER;
-use serde_json::Value;
+use serde_json::{Value, json};
 
+use crate::body_versions::versions;
 use crate::collab::{Editing, body_of, card, editing, editing_app, joined};
-use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
-use crate::rooms::{Peer, paragraphs, table};
+use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
+use crate::notifications::{board_with_owner, card_with, kinds, told};
+use crate::rooms::{Peer, give, paragraphs, table};
 
 /// The state's last update, the log's last, the last one the card holds, and how many
 /// rows the log has.
@@ -279,5 +283,264 @@ async fn large_updates_trigger_fold_before_fold_after_count() {
         folded_early,
         "worker fold signal triggered a server fold before FOLD_AFTER ({FOLD_AFTER}) updates"
     );
+    th.teardown().await;
+}
+
+/// Waits until a saved body version names `actor_id` and returns its stored body JSON.
+async fn wait_version_body(th: &TestServer, card_id: &str, actor_id: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let version = loop {
+        let kept = versions(&th.client, card_id).await;
+        if let Some(newest) = kept.first()
+            && newest["editors"]
+                .as_array()
+                .is_some_and(|editors| editors.iter().any(|editor| editor == &json!(actor_id)))
+        {
+            break newest["version"].as_i64().expect("version number");
+        }
+        assert!(Instant::now() < deadline, "version not kept for {actor_id}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let version_body: Value = th
+        .client
+        .get(&format!(
+            "{TEST_WS}/cards/{card_id}/body-versions/{version}"
+        ))
+        .await
+        .ok_json();
+    version_body["body"].clone()
+}
+
+/// When the settle check fails during a live room fold (`FOLD_AFTER`), the server recovers
+/// via T3 remake without losing any updates, mentions, or versions: peers receive
+/// `DOC_RESET` for epoch 2, the log is cleared, and the remade doc takes 0 reading steps.
+#[tokio::test]
+async fn collab_fold_settle_failure_recovers_via_remake_preserving_body_mentions_and_version() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (a, b) = (th.client.me().await, th.client2.me().await);
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &b.id, "editor").await;
+    let initial = card_with(&th.client, &board.id, &paragraphs(&["start"])).await;
+    let e = Editing {
+        card_id: initial.id.clone(),
+        ..editing_app(&th).await
+    };
+
+    let collab = e.app.collab();
+    let (editor, epoch) = joined(collab, &e.app, &e.card_id, 100).await;
+    let before_fold = usize::try_from(FOLD_AFTER).expect("fits") - 2;
+    for n in 0..before_fold {
+        collab
+            .take(
+                &e.app,
+                &e.card_id,
+                epoch,
+                &a.id,
+                &editor.append_paragraph(&format!("fold-line-{n}")),
+            )
+            .await
+            .expect("taken");
+    }
+
+    let mut one = Peer::connect(&th.client, 101).await;
+    let mut two = Peer::connect(&th.client2, 102).await;
+    one.joined(TEST_WORKSPACE_ID, &e.card_id).await;
+    two.joined(TEST_WORKSPACE_ID, &e.card_id).await;
+
+    let mention = one.editor().append_mention(&b.id);
+    one.send_update(&mention).await;
+    one.text("DOC_ACK").await;
+    two.settle().await;
+
+    // Force the next settle check (triggered by the FOLD_AFTER-th update's fold) to fail.
+    e.app
+        .collab()
+        .fail_next_settle(&e.app, &e.card_id)
+        .await
+        .expect("armed fail_next_settle");
+    e.app.collab().pass_version_time(Duration::from_hours(1));
+
+    let trigger = one.editor().append_paragraph("fold-trigger-line");
+    let expected = one.body().expect("expected body");
+    one.send_update(&trigger).await;
+    one.text("DOC_ACK").await;
+
+    for peer in [&mut one, &mut two] {
+        let reset = peer.text("DOC_RESET").await;
+        assert_eq!(
+            reset,
+            json!({"action": "DOC_RESET", "doc": peer.doc, "epoch": 2}),
+            "peer receives DOC_RESET for remade epoch 2"
+        );
+        peer.settle().await;
+        assert_eq!(peer.epoch, 2);
+        assert_eq!(peer.body().as_ref(), Some(&expected));
+    }
+
+    let doc = e
+        .app
+        .store()
+        .get_body_doc(&e.card_id)
+        .await
+        .expect("read")
+        .expect("body doc");
+    let rows = e
+        .app
+        .store()
+        .logged_body_updates(&e.card_id)
+        .await
+        .expect("rows");
+    assert_eq!(doc.epoch, 2, "remade to epoch 2");
+    assert_eq!(rows, 0, "log cleared after remake");
+    assert_eq!(
+        reading_steps(&doc.state, u64::MAX).expect("steps"),
+        0,
+        "remade doc has 0 reading steps"
+    );
+    assert_eq!(
+        body_of(&card(&th.client, &e.card_id).await),
+        Some(expected.clone())
+    );
+
+    let b_told = told(&th, &th.client2).await;
+    assert_eq!(kinds(&b_told), (vec!["mention"], 0), "{b_told:?}");
+    assert_eq!(b_told[0].subject.as_ref().expect("seen").actor_id, a.id);
+
+    let saved = wait_version_body(&th, &e.card_id, &a.id).await;
+    assert_eq!(saved, expected, "body version holds all updates");
+
+    one.leave().await;
+    two.leave().await;
+    th.teardown().await;
+}
+
+/// When the settle check fails while closing a document (`fold_as_it_closes`), the server
+/// recovers via T3 remake without losing the body, mention notification, or saved version,
+/// clears the log, and stores a 0-step epoch 2 document that reopens cleanly.
+#[tokio::test]
+async fn collab_close_settle_failure_recovers_via_remake_preserving_body_mentions_and_version() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (a, b) = (th.client.me().await, th.client2.me().await);
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &b.id, "editor").await;
+    let initial = card_with(&th.client, &board.id, &paragraphs(&["close-start"])).await;
+    let e = Editing {
+        card_id: initial.id.clone(),
+        ..editing_app(&th).await
+    };
+
+    let mut peer = Peer::connect(&th.client, 201).await;
+    peer.joined(TEST_WORKSPACE_ID, &e.card_id).await;
+    peer.write_acked("close-line-1").await;
+    let mention = peer.editor().append_mention(&b.id);
+    peer.send_update(&mention).await;
+    peer.text("DOC_ACK").await;
+    let expected = peer.body().expect("expected body");
+
+    e.app
+        .collab()
+        .fail_next_settle(&e.app, &e.card_id)
+        .await
+        .expect("armed fail_next_settle");
+    peer.leave().await;
+    folded(&e, "close settle failure recovered via remake").await;
+
+    let doc = e
+        .app
+        .store()
+        .get_body_doc(&e.card_id)
+        .await
+        .expect("read")
+        .expect("body doc");
+    assert_eq!(doc.epoch, 2, "remade to epoch 2 on close");
+    assert_eq!(
+        reading_steps(&doc.state, u64::MAX).expect("steps"),
+        0,
+        "remade doc has 0 reading steps"
+    );
+    assert_eq!(
+        body_of(&card(&th.client, &e.card_id).await),
+        Some(expected.clone())
+    );
+    assert_eq!(
+        reopened(&th, &e.card_id).await,
+        Some(expected.clone()),
+        "reopens with exact body"
+    );
+
+    let b_told = told(&th, &th.client2).await;
+    assert_eq!(kinds(&b_told), (vec!["mention"], 0), "{b_told:?}");
+    assert_eq!(b_told[0].subject.as_ref().expect("seen").actor_id, a.id);
+
+    let saved = wait_version_body(&th, &e.card_id, &a.id).await;
+    assert_eq!(saved, expected, "close version holds all updates");
+    th.teardown().await;
+}
+
+/// When `Collab::open` encounters a settle failure on an already-open document with
+/// unwritten updates, it flushes the body and remakes into a 0-step epoch 2 document
+/// without losing unwritten edits or mentions.
+#[tokio::test]
+async fn collab_open_while_unsettled_settle_failure_remakes_without_losing_edits() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (a, b) = (th.client.me().await, th.client2.me().await);
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &b.id, "editor").await;
+    let initial = card_with(&th.client, &board.id, &paragraphs(&["open-start"])).await;
+    let e = Editing {
+        card_id: initial.id.clone(),
+        ..editing_app(&th).await
+    };
+    let collab = e.app.collab();
+    collab.leave_due_writes();
+
+    let (editor, epoch) = joined(collab, &e.app, &e.card_id, 301).await;
+    collab
+        .take(
+            &e.app,
+            &e.card_id,
+            epoch,
+            &a.id,
+            &editor.append_paragraph("unwritten-before-open"),
+        )
+        .await
+        .expect("taken");
+    collab
+        .take(
+            &e.app,
+            &e.card_id,
+            epoch,
+            &a.id,
+            &editor.append_mention(&b.id),
+        )
+        .await
+        .expect("mention taken");
+    let expected = editor.body().map(|body| body.document().clone());
+
+    collab
+        .fail_next_settle(&e.app, &e.card_id)
+        .await
+        .expect("armed fail_next_settle");
+    let loaded = collab
+        .open(&e.app, &e.card_id)
+        .await
+        .expect("open recovered via remake");
+    assert_eq!(loaded.epoch, 2, "remade to epoch 2");
+    assert_eq!(
+        reading_steps(&loaded.state, u64::MAX).expect("steps"),
+        0,
+        "remade state takes 0 reading steps"
+    );
+    let joined_after = Editor::join(302, &loaded.state);
+    assert_eq!(
+        joined_after.body().map(|body| body.document().clone()),
+        expected,
+        "loaded state keeps unwritten edits"
+    );
+    assert_eq!(body_of(&card(&th.client, &e.card_id).await), expected);
+
+    let b_told = told(&th, &th.client2).await;
+    assert_eq!(kinds(&b_told), (vec!["mention"], 0), "{b_told:?}");
+    assert_eq!(b_told[0].subject.as_ref().expect("seen").actor_id, a.id);
     th.teardown().await;
 }

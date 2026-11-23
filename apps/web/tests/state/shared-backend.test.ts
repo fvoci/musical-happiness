@@ -153,3 +153,66 @@ describe('the backend of a wiki’s public link', () => {
     ]);
   });
 });
+
+describe('the backend of a course’s public link', () => {
+  it('reads the outline and a unit under the course by the token, and refuses every change', async () => {
+    const sent = serve([]);
+    const backend = new SharedBackend('', 'c1', 't');
+    const courses = backend.course;
+    expect(await courses.units('c1')).toEqual([]);
+    sent.length = 0;
+    serve({
+      id: 'u1',
+      courseId: 'c1',
+      kind: 'unit',
+      parentId: '',
+      title: 'Lesson 1',
+      order: 'a',
+      body: null,
+      createdBy: '',
+      modifiedBy: '',
+      createAt: 1,
+      updateAt: 1,
+    });
+    const unit = await courses.unit('c1', 'u1');
+    expect([unit.title, unit.createdBy, unit.kind]).toEqual(['Lesson 1', '', 'unit']);
+    await expect(courses.units('c2')).rejects.toSatisfy(isBackendError);
+    for (const write of [
+      () => courses.createUnit('c1', { title: 'x' }),
+      () => courses.patchUnit('c1', 'u1', { title: 'y' }),
+      () => courses.deleteUnit('c1', 'u1'),
+      () => courses.watchUnit('shared', 'u1', ''),
+      () => courses.unwatchUnit('shared', 'u1', ''),
+    ]) {
+      await expect(write()).rejects.toSatisfy(isBackendError);
+    }
+  });
+
+  it('reads no comments, versions, or subscriptions of a unit, asking the server nothing', async () => {
+    const sent = serve([]);
+    const courses = new SharedBackend('', 'c1', 't').course;
+    expect([
+      await courses.comments('c1', 'u1'),
+      await courses.commentVersions('c1', 'u1', 'cm1'),
+      await courses.bodyVersions.list('c1', 'u1'),
+      await courses.watching('shared', ''),
+    ]).toEqual([[], [], [], []]);
+    expect(sent).toEqual([]);
+    for (const write of [
+      () => courses.createComment('c1', 'u1', { type: 'doc', content: [] }),
+      () => courses.deleteComment('c1', 'u1', 'cm1'),
+      () => courses.restoreComment('c1', 'u1', 'cm1'),
+    ]) {
+      await expect(write()).rejects.toSatisfy(isBackendError);
+    }
+  });
+
+  it('asks the server at the course’s addresses of the link without credentials', async () => {
+    const sent = serve([]);
+    const backend = new SharedBackend('', 'c1', 'to/ken');
+    await backend.course.units('c1');
+    expect(sent.map((one) => [one.url, one.credentials])).toEqual([
+      ['/api/v1/shared/c1/units?readToken=to%2Fken', 'omit'],
+    ]);
+  });
+});

@@ -46,6 +46,6 @@ export function referenceAt(address: string, here: Here): string | undefined {
   const [w, workspaceId, kind, , first, second, ...rest] = segments;
   if (w !== 'w' || workspaceId !== here.workspaceId || rest.length > 0) return undefined;
   if (kind === 'boards') return second;
-  if (kind === 'wikis') return second === undefined ? first : undefined;
+  if (kind === 'wikis' || kind === 'courses') return second === undefined ? first : undefined;
   return undefined;
 }

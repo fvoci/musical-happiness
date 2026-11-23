@@ -5,7 +5,7 @@ use anyhow::bail;
 use serde::Deserialize;
 
 /// The variables of the environment of these keys ([`super::ENV_KEYS`]).
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 14] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 15] = [
     ("collab_workers", super::EnvKind::Number),
     ("collab_documents_per_worker", super::EnvKind::Number),
     ("collab_state_bytes", super::EnvKind::Number),
@@ -19,10 +19,11 @@ pub(super) const ENV_KEYS: [(&str, super::EnvKind); 14] = [
     ("collab_frames_per_second", super::EnvKind::Number),
     ("collab_queue_messages", super::EnvKind::Number),
     ("collab_body_versions", super::EnvKind::Number),
+    ("body_versions_max_bytes", super::EnvKind::Number),
     ("collab_version_minutes", super::EnvKind::Number),
 ];
 
-/// The keys `collab_*` of the configuration, at its top level.
+/// The keys of editing a body together and its version limits, at the top level.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
@@ -65,6 +66,9 @@ pub struct CollabSettings {
     /// How many versions of a card's body are kept, the newest. 2 to 1000: a write of
     /// a whole body keeps the body before and the body after.
     pub collab_body_versions: u32,
+    /// Maximum total uncompressed serialized JSON bytes of kept body versions per card.
+    /// At least 1; the newest version is always kept even if it alone exceeds this limit.
+    pub body_versions_max_bytes: u64,
     /// How many minutes after the first change no version of a body holds the next
     /// version is kept, while the body is edited on. 1 to 1440.
     pub collab_version_minutes: u32,
@@ -171,6 +175,7 @@ impl Default for CollabSettings {
             collab_frames_per_second: 50,
             collab_queue_messages: 512,
             collab_body_versions: fvoci_store::DEFAULT_BODY_VERSIONS_KEPT,
+            body_versions_max_bytes: fvoci_store::DEFAULT_BODY_VERSIONS_MAX_BYTES,
             collab_version_minutes: 10,
             worker_command: None,
         }
@@ -223,8 +228,13 @@ impl CollabSettings {
                 self.collab_update_bytes
             );
         }
-        if self.collab_worker_timeout_ms == 0 {
-            bail!("collab_worker_timeout_ms must be at least 1");
+        for (key, value) in [
+            ("collab_worker_timeout_ms", self.collab_worker_timeout_ms),
+            ("body_versions_max_bytes", self.body_versions_max_bytes),
+        ] {
+            if value == 0 {
+                bail!("{key} must be at least 1");
+            }
         }
         if self.held_bytes() < self.collab_state_bytes {
             bail!(
@@ -237,6 +247,17 @@ impl CollabSettings {
                 self.collab_worker_memory_bytes
             );
         }
+        if self.collab_worker_memory_bytes < LEAST_WORKER_MEMORY_BYTES {
+            bail!(
+                "collab_worker_memory_bytes must be at least {LEAST_WORKER_MEMORY_BYTES}, not {}",
+                self.collab_worker_memory_bytes
+            );
+        }
+        self.check_rooms_and_versions()
+    }
+
+    /// Checks the room concurrency and body version limits.
+    fn check_rooms_and_versions(&self) -> anyhow::Result<()> {
         if !(1..=MOST_RECHECK_SECONDS).contains(&self.collab_recheck_seconds) {
             bail!(
                 "collab_recheck_seconds must be 1 to {MOST_RECHECK_SECONDS}, not {}",
@@ -287,12 +308,6 @@ impl CollabSettings {
                     range.end()
                 );
             }
-        }
-        if self.collab_worker_memory_bytes < LEAST_WORKER_MEMORY_BYTES {
-            bail!(
-                "collab_worker_memory_bytes must be at least {LEAST_WORKER_MEMORY_BYTES}, not {}",
-                self.collab_worker_memory_bytes
-            );
         }
         Ok(())
     }
@@ -427,6 +442,7 @@ mod tests {
     fn the_bounds_of_the_versions_are_checked() {
         let settings = CollabSettings::default();
         assert_eq!(settings.collab_body_versions, 50);
+        assert_eq!(settings.body_versions_max_bytes, 64 * 1024 * 1024);
         assert_eq!(
             settings.version_interval(),
             std::time::Duration::from_mins(10)
@@ -445,6 +461,7 @@ mod tests {
             |s| s.collab_body_versions = MOST_BODY_VERSIONS + 1,
             "collab_body_versions",
         );
+        refused(|s| s.body_versions_max_bytes = 0, "body_versions_max_bytes");
         refused(|s| s.collab_version_minutes = 0, "collab_version_minutes");
         refused(
             |s| s.collab_version_minutes = MOST_VERSION_MINUTES + 1,

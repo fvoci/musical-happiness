@@ -629,7 +629,7 @@ pub async fn migrate_to_before_courses(database: &TestDatabase) {
 }
 
 /// Brings a test database to the schema as a server left it before unit progress
-/// (migration 63): every migration up to 61.
+/// (migration 63): every migration up to 62.
 ///
 /// # Panics
 ///
