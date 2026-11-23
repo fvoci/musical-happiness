@@ -29,6 +29,7 @@
 //! the web app's tests state it (`apps/web/spikes/collab`) and write it down as vectors
 //! (`contracts/ydoc-vectors.json`), and this crate's tests read those.
 
+mod block_cache;
 mod build;
 mod doc;
 mod mend;
@@ -45,10 +46,10 @@ mod update;
 
 pub use build::{from_body, from_body_by, new_doc};
 pub use doc::{
-    BodyDoc, BodyTakeError, Changed, SettleError, SettledDoc, StateCounts, client_changes,
-    reading_steps, state_counts, steps_ahead,
+    BodyDoc, BodyTakeError, Changed, SettleError, SettledDoc, StateCounts, TakenInPlace,
+    client_changes, reading_steps, state_counts, steps_ahead,
 };
-pub use repair::Repair;
+pub use repair::{InPlaceRepair, Repair};
 pub use settle::same_state;
 pub use take::{TakeError, Taken, from_state, take_update};
 pub use update::{
@@ -199,6 +200,88 @@ pub mod testing {
     #[must_use]
     pub fn size_of(body: &Body) -> usize {
         crate::take::size_of(body)
+    }
+
+    /// Handle to the incremental block cache for pass-by-pass benchmarks (`tests/cost.rs`).
+    #[derive(Debug)]
+    pub struct CacheProbe {
+        cache: crate::block_cache::BlockCache,
+    }
+
+    /// Pre-decoded update with its newly inserted shared-type IDs (output of `update::read`,
+    /// prepared outside pass `4b` so `cost.rs` does not double-count `update::read`).
+    #[derive(Debug)]
+    pub struct PreparedUpdate {
+        sent: Update,
+        new_types: Vec<yrs::ID>,
+    }
+
+    /// Captured delta of one in-place update application for [`CacheProbe::validate`].
+    #[derive(Debug)]
+    pub struct AppliedDelta {
+        delta: crate::block_cache::ApplyDelta,
+    }
+
+    /// Outcome of [`CacheProbe::validate`].
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum CacheValidation {
+        /// Valid body with its compact JSON byte length (`None` for an empty body).
+        Valid(Option<usize>),
+        /// Validation failed; repair is needed.
+        NeedsRepair,
+    }
+
+    impl CacheProbe {
+        /// Builds the initial cache from `doc`.
+        ///
+        /// # Errors
+        ///
+        /// Returns why `doc` is not a valid body.
+        pub fn build(doc: &Doc) -> Result<Self, BodyError> {
+            crate::block_cache::BlockCache::build(doc).map(|cache| Self { cache })
+        }
+
+        /// Reads and decodes `update` against `doc` (the part already timed in pass `4a`).
+        ///
+        /// # Errors
+        ///
+        /// Returns why the update cannot be read.
+        pub fn prepare_update(doc: &Doc, update: &[u8]) -> Result<PreparedUpdate, UpdateError> {
+            let (sent, _, flags) = crate::update::read(doc, update)?;
+            Ok(PreparedUpdate {
+                sent,
+                new_types: flags.new_types,
+            })
+        }
+
+        /// Applies a pre-decoded `prepared` update to `doc` in place and captures the
+        /// incremental delta via the production `update::apply_and_capture` helper.
+        ///
+        /// # Errors
+        ///
+        /// Returns why the update cannot be applied.
+        pub fn apply_prepared(
+            doc: &Doc,
+            prepared: PreparedUpdate,
+        ) -> Result<AppliedDelta, UpdateError> {
+            crate::update::apply_and_capture(doc, prepared.sent, prepared.new_types)
+                .map(|delta| AppliedDelta { delta })
+        }
+
+        /// Updates the cache incrementally from `applied`.
+        #[must_use]
+        pub fn validate(&mut self, doc: &Doc, applied: &AppliedDelta) -> CacheValidation {
+            match self.cache.apply_delta(doc, &applied.delta) {
+                Ok(()) => CacheValidation::Valid(self.cache.body_bytes()),
+                Err(_) => CacheValidation::NeedsRepair,
+            }
+        }
+
+        /// Document-order deduplicated file IDs from the cache.
+        #[must_use]
+        pub fn file_ids(&self, doc: &Doc) -> Vec<String> {
+            self.cache.file_ids_in_order(doc)
+        }
     }
 
     pub use crate::reading::List;
