@@ -50,14 +50,7 @@ impl Collab {
                 let written = if closing.deleted.load(Ordering::SeqCst) {
                     Ok(())
                 } else {
-                    let written = collab.write_now(&app, &card_id, &mut slot).await;
-                    if written.is_ok() {
-                        collab.version_as_left(&app, &card_id, &mut slot).await;
-                        collab.remake_worn(&app, &card_id, &mut slot).await;
-                    }
-                    collab.fold_as_it_closes(&app, &card_id, &mut slot).await;
-                    collab.forget(&mut slot).await;
-                    written
+                    collab.close_held(&app, &card_id, &mut slot).await
                 };
                 collab.retire(&mut slot);
                 written

@@ -38,6 +38,9 @@ pub struct Changed {
     /// The most steps the library may take to read it once one more client has
     /// written into it ([`steps_ahead`]); 0 where the limits had no count.
     pub steps_ahead: u64,
+    /// Whether `doc` must be made again from its body ([`BodyDoc::from_body`]) before
+    /// its state is stored or another update is taken ([`crate::Taken::remake`]).
+    pub remake: bool,
 }
 
 impl Default for BodyDoc {
@@ -129,6 +132,7 @@ impl From<crate::Taken> for Changed {
             client_changes: taken.client_changes,
             reading_steps: taken.reading_steps,
             steps_ahead: taken.steps_ahead,
+            remake: taken.remake,
         }
     }
 }
@@ -165,14 +169,17 @@ pub fn reading_steps(state: &[u8], stop_past: u64) -> Result<u64, UpdateError> {
 /// names while changes wait for another client's. A document that thousands of
 /// sessions wrote one after the other is read in few steps, or in none, until a
 /// session whose client is read before the others writes after the last of them:
-/// the update that brings it past [`crate::READING_STEPS`] is refused, though nothing
-/// in it was made to be slow. What holds a document makes it again from its body
+/// the update that brings it past [`crate::READING_STEPS`] forces an immediate remake
+/// from its body ([`Changed::remake`], or is refused if it also needs a repair), though
+/// nothing in it was made to be slow. What holds a document makes it again from its body
 /// while this is far from that limit, before such an update comes.
 ///
 /// It is not the most a later update may leave: each change an update adds, and each
 /// change of the document it cuts in two by writing or deleting inside it, is looked
 /// at for every client as well, a step for every 128 clients. An update of tens of
-/// thousands of those into a document of thousands of clients may still be refused.
+/// thousands of those into a document of thousands of clients can still pass the
+/// limit, and is taken with [`Changed::remake`] set so the document is made again
+/// from its body without losing it (unless it also needs a repair).
 /// Counted no further than a little past [`crate::READING_STEPS`].
 ///
 /// # Errors

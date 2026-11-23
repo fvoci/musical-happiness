@@ -1,7 +1,78 @@
 /** Reads a board's content and learns the names it carries beyond current membership. */
+import type { BoardView, Container, ContainerMember } from '../logic/wire.ts';
+
+import { isBackendError, type CardSummary } from './backend.ts';
 import { assignedIds, authorIds, memberId } from './user-names.ts';
 import { containerOfWorkspace } from './board-parts.ts';
-import type { Workspace } from './workspace.svelte.ts';
+import type { LoadStatus, Workspace } from './workspace.svelte.ts';
+
+/** Target state of a `BoardStore` when a load or refresh fails. */
+export interface BoardFailureHost {
+  readonly workspace: Workspace;
+  readonly boardId: string;
+  readonly openCard: { readonly missing: boolean } | undefined;
+  status: LoadStatus;
+  missing: boolean;
+  joinable: boolean;
+  board: Container | undefined;
+  views: BoardView[];
+  cards: CardSummary[];
+  members: ContainerMember[];
+  closeCard(): void;
+  isClosed(): boolean;
+}
+
+/** Joins an open board and reloads it on success; handles 404 by evicting cache and marking missing. */
+export async function joinOpenBoard(
+  host: BoardFailureHost & { joining: boolean; load(): Promise<void> },
+): Promise<boolean> {
+  if (host.joining) return false;
+  host.joining = true;
+  try {
+    await host.workspace.backend.joinContainer(host.boardId);
+  } catch (error) {
+    if (isBackendError(error) && error.status === 404) {
+      host.workspace.evictContainer(host.boardId);
+      host.joinable = false;
+      host.missing = true;
+    } else host.workspace.report('save', error);
+    return false;
+  } finally {
+    host.joining = false;
+  }
+  if (host.isClosed()) return false;
+  await host.load();
+  return host.status === 'ready';
+}
+
+/** Handles a failed board load or refresh, clearing sensitive cached state on 403/404. */
+export async function handleBoardLoadFailure(
+  host: BoardFailureHost,
+  error: unknown,
+): Promise<void> {
+  host.status = 'failed';
+  if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
+    host.workspace.evictContainer(host.boardId);
+    if (!host.openCard?.missing) host.closeCard();
+    [host.board, host.views, host.cards, host.members] = [undefined, [], [], []];
+    if (error.status === 404) {
+      host.missing = true;
+      return;
+    }
+    const explained = await explainBoardRefusal(host.workspace, host.boardId);
+    if (host.isClosed()) return;
+    if (explained.kind === 'joinable') {
+      host.board = explained.board;
+      host.joinable = true;
+      return;
+    }
+    if (explained.kind === 'missing') {
+      host.missing = true;
+      return;
+    }
+  }
+  host.workspace.report('load', error);
+}
 
 export async function readBoard(workspace: Workspace, boardId: string) {
   const backend = workspace.backend;
@@ -20,4 +91,24 @@ export async function readBoard(workspace: Workspace, boardId: string) {
     void workspace.learnUsers([board.createdBy, ...named, ...memberIds], { members: memberIds });
   }
   return [board, views, cards, members] as const;
+}
+
+/**
+ * Classifies a 403 refusal on a board: an open non-template board of the
+ * workspace may be joined (`joinable`), a 404 or board of another workspace is
+ * `missing`, and anything else is an unexplained refusal (`forbidden`).
+ */
+export async function explainBoardRefusal(
+  workspace: Workspace,
+  boardId: string,
+): Promise<{ kind: 'joinable'; board: Container } | { kind: 'missing' } | { kind: 'forbidden' }> {
+  try {
+    const board = await containerOfWorkspace(workspace.backend, boardId, workspace.info?.id);
+    if (board.type !== 'O' || board.isTemplate) return { kind: 'forbidden' };
+    return { kind: 'joinable', board };
+  } catch (error) {
+    return isBackendError(error) && error.status === 404
+      ? { kind: 'missing' }
+      : { kind: 'forbidden' };
+  }
 }

@@ -104,9 +104,9 @@
 
   const uid = $props.id();
   const open = $derived(new TreeOpen(wiki.workspace.me?.id ?? '', wiki.wikiId));
-  const shown = $derived(page ? wiki.page(page.pageId) : undefined);
+  const shown = $derived(page ? (wiki.page(page.pageId) ?? page.meta) : undefined);
   /** A page is shown (and with it what is told at its head, beside its outline). */
-  const reading = $derived(wiki.pages.length > 0 && !page?.missing && shown !== undefined);
+  const reading = $derived(!page?.missing && shown !== undefined);
   /** The pages above the page shown, as one key: it changes with the page, not with a rename. */
   const above = $derived(page ? ancestorsOf(wiki.pages, page.pageId).join(' ') : '');
   $effect(() => {
@@ -360,7 +360,7 @@
       </div>
     {/if}
     {#if notice && !reading}{@render told(notice)}{/if}
-    {#if wiki.pages.length === 0}
+    {#if wiki.pagesReady && wiki.pages.length === 0}
       <div class="grid h-full place-items-center p-6 text-center" data-testid="wiki-empty">
         <div class="flex max-w-md flex-col items-center gap-3">
           <p class="text-muted-foreground">{m.wiki_no_pages()}</p>
@@ -393,6 +393,10 @@
           />
         {/key}
       </OutlineColumns>
+    {:else if !wiki.pagesReady}
+      <div class="grid h-full place-items-center p-6">
+        <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
+      </div>
     {/if}
   </div>
 </div>

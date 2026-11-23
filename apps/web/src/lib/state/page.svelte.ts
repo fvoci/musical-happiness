@@ -14,7 +14,13 @@
  * (`page-comments.svelte.ts`), read with it.
  */
 import type { DocNode } from '../editor/schema.ts';
-import { isBackendError, type BodyDoc, type BodyDocState, type WikiPage } from './backend.ts';
+import {
+  isBackendError,
+  type BodyDoc,
+  type BodyDocState,
+  type WikiPage,
+  type WikiPageDetail,
+} from './backend.ts';
 import { BodyUploads } from './body-uploads.svelte.ts';
 import { REJOIN_SPACING, afterPutOut } from './card-parts.ts';
 import { PageComments } from './page-comments.svelte.ts';
@@ -37,6 +43,8 @@ export class PageStore {
    * told), or by the reader (deleted, or its making undone). Its title as it was.
    */
   removed = $state.raw<{ by: 'others' | 'reader'; title: string } | undefined>(undefined);
+  /** The page's metadata as read directly, available before the full wiki page list arrives. */
+  meta = $state.raw<WikiPage | undefined>(undefined);
   /** The body as it is stored, as far as this store knows. */
   body = $state.raw<DocNode | null>(null);
   /** The body in its room, while it is open there (`openBody`). */
@@ -48,6 +56,7 @@ export class PageStore {
   #readAt = 0;
   #bodyDoc: BodyDoc | undefined;
   #closed = false;
+  #speculative: boolean;
   #rejoinedAt = -Infinity;
   /** News of the page heard while the body was the room's: read once it is not. */
   #news: WikiPage | undefined;
@@ -59,17 +68,18 @@ export class PageStore {
   /** The comments on the page. */
   readonly comments: PageComments;
 
-  constructor(wiki: WikiStore, pageId: string) {
+  constructor(wiki: WikiStore, pageId: string, options: { speculative?: boolean } = {}) {
     this.wiki = wiki;
     this.pageId = pageId;
-    this.comments = new PageComments(wiki, pageId);
+    this.#speculative = Boolean(options.speculative);
+    this.comments = new PageComments(wiki, pageId, () => this.#speculative);
   }
 
   get #wikiId(): string {
     return this.wiki.wikiId;
   }
 
-  #read(): Promise<{ body: DocNode | null; updateAt: number }> {
+  #read(): Promise<WikiPageDetail> {
     const wikis = this.wiki.workspace.backend.wiki;
     if (!wikis) return Promise.reject(new Error('this backend has no wikis'));
     return wikis.page(this.#wikiId, this.pageId);
@@ -97,19 +107,43 @@ export class PageStore {
       if (this.#closed || reading !== this.#readings) return;
       if (!first && detail.updateAt <= this.#readAt) return;
       this.#readAt = detail.updateAt;
+      this.meta = {
+        id: detail.id,
+        wikiId: detail.wikiId,
+        parentId: detail.parentId,
+        title: detail.title,
+        icon: detail.icon,
+        order: detail.order,
+        createAt: detail.createAt,
+        updateAt: detail.updateAt,
+      };
       if (!sameDoc(detail.body, this.body)) this.body = detail.body;
       // Somebody the page mentions may be no member any more: their name is asked for.
       void this.wiki.workspace.learnUsers(mentionedIn(detail.body));
       [this.status, this.missing] = ['ready', false];
       this.#shown = true;
+      this.#speculative = false;
+      this.wiki.workspace.rememberWikiPage(this.#wikiId, this.pageId);
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
-      if (isBackendError(error) && (error.status === 404 || error.status === 403)) this.gone();
-      else if (first) {
-        this.status = 'failed';
+      if (isBackendError(error) && error.status === 401) {
+        this.wiki.workspace.forgetWikiPage(this.#wikiId, this.pageId);
+        if (first) this.status = 'failed';
         this.wiki.workspace.report('load', error);
+      } else if (isBackendError(error) && (error.status === 404 || error.status === 403)) {
+        this.wiki.workspace.forgetWikiPage(this.#wikiId, this.pageId);
+        if (this.#isSpeculative()) this.wiki.speculativeFailed(this.pageId);
+        else this.gone();
+      } else if (first) {
+        this.status = 'failed';
+        if (this.#isSpeculative()) this.wiki.speculativeFailed(this.pageId);
+        else this.wiki.workspace.report('load', error);
       }
     }
+  }
+
+  #isSpeculative(): boolean {
+    return this.#speculative && this.wiki.speculativePageId === this.pageId;
   }
 
   close(): void {
@@ -134,7 +168,9 @@ export class PageStore {
 
   /** The page changed in the wiki's list: its body is read again unless the room's is shown. */
   pageChanged(page: WikiPage): void {
-    if (page.id !== this.pageId || page.updateAt <= this.#readAt || this.missing) return;
+    if (page.id !== this.pageId || this.missing) return;
+    if (!this.meta || page.updateAt >= this.meta.updateAt) this.meta = page;
+    if (page.updateAt <= this.#readAt) return;
     if (this.#busy()) {
       this.#news = page;
       return;

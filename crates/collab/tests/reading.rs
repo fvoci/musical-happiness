@@ -474,11 +474,12 @@ fn steps_of(doc: &Doc) -> u64 {
 /// Twelve updates, each of as many changes as an update may hold that walk a list of
 /// 49,998 paragraphs every time the document is read, were taken one after the other:
 /// each added three million steps (0.8 s) to every update after it and to every
-/// opening, and after the twelfth no worker opened the document in its time. Each
-/// leaves a document that takes more steps to read than a document may, and is
-/// refused; fewer changes are taken until the document is there, and then no more: the
-/// document is read in the steps it may take whatever was sent, and what is stored of
-/// it is opened.
+/// opening, and after the twelfth no worker opened the document in its time. Now an
+/// update that leaves a valid body past the steps is returned unsettled with `remake`
+/// set so the holder writes its body and makes it again from that (0 steps), while
+/// one that also needs a repair is still refused; fewer changes are taken settled
+/// until the document is at its steps, and then marked for remake: the stored
+/// document stays within its steps and is opened.
 #[test]
 fn updates_at_the_limit_one_after_the_other_leave_a_document_read_in_its_steps() {
     let typed = typed_in_order(CHILDREN);
@@ -489,31 +490,63 @@ fn updates_at_the_limit_one_after_the_other_leave_a_document_read_in_its_steps()
     for round in 0..12 {
         let update = before_the_last(ABOVE, clock, most, CHILDREN);
         assert!(update.len() < 512, "{} bytes", update.len());
-        match take_update(&doc, &update, &SERVED) {
-            Ok(taken) => {
-                doc = taken.doc;
-                clock += most;
-            }
-            Err(TakeError::Update(UpdateError::TooManyReadingSteps { steps, limit })) => {
-                assert_eq!(limit, READING_STEPS);
-                // Counted no further than the change that went past the limit.
-                assert!(steps <= limit + CHILDREN + most, "{steps} steps counted");
-            }
-            Err(other) => panic!("round {round}: {other}"),
-        }
+        let taken = take_update(&doc, &update, &SERVED).expect("taken for remake");
+        assert!(taken.remake, "round {round}: past the steps, must remake");
+        assert!(
+            taken.reading_steps > READING_STEPS
+                && taken.reading_steps <= READING_STEPS + CHILDREN + most,
+            "round {round}: {} steps counted",
+            taken.reading_steps
+        );
+        assert_eq!(taken.repair.deleted, 0);
+        assert_eq!(taken.repair.mended, 0);
+        assert!(taken.repair.update.is_none());
+        let remade = from_body(taken.repair.body.as_ref().expect("a body"));
+        assert_eq!(steps_of(&remade), 0, "round {round}: remade takes no steps");
         let steps = steps_of(&doc);
         assert!(steps <= READING_STEPS, "round {round}: {steps} steps");
     }
     assert_eq!(
         clock, 0,
-        "an update at the limit leaves three times the steps"
+        "none of those updates left an unsettled document held"
+    );
+    // Past the steps with something to repair is still refused.
+    let mut needs_repair: Vec<Change> = (0..most)
+        .map(|_| Change::Item {
+            left: None,
+            right: Some((TYPIST, CHILDREN - 1)),
+            parent: Parent::body(),
+            key: None,
+            content: Content::Deleted(1),
+        })
+        .collect();
+    needs_repair.push(Change::after(
+        (TYPIST, CHILDREN - 1),
+        Content::element("nothing-a-body-has"),
+    ));
+    let refused = take_update(&doc, &Update::of(ABOVE, 0, needs_repair).bytes(), &SERVED)
+        .expect_err("past the steps with a repair is still refused");
+    let TakeError::Update(UpdateError::TooManyReadingSteps { steps, limit }) = refused else {
+        panic!("expected TooManyReadingSteps, got {refused}");
+    };
+    assert_eq!(limit, READING_STEPS);
+    assert!(
+        steps <= limit + CHILDREN + most + 1,
+        "{steps} steps counted"
     );
     // Fewer changes in an update, until the document is at its steps.
     let few = 4;
     let mut taken_updates = 0;
     for round in 0..12 {
         let update = before_the_last(ABOVE, clock, few, CHILDREN);
-        if let Ok(taken) = take_update(&doc, &update, &SERVED) {
+        let taken = take_update(&doc, &update, &SERVED).expect("taken");
+        if taken.remake {
+            assert!(
+                taken.reading_steps > READING_STEPS,
+                "round {round}: {} steps",
+                taken.reading_steps
+            );
+        } else {
             assert_eq!(taken.reading_steps, steps_of(&taken.doc), "round {round}");
             doc = taken.doc;
             clock += few;
@@ -529,12 +562,14 @@ fn updates_at_the_limit_one_after_the_other_leave_a_document_read_in_its_steps()
     );
     let stored = state_of(&doc);
     let opened = from_state(&stored, &STORED).expect("opened");
+    assert!(!opened.remake);
     assert_eq!(opened.reading_steps, steps_of(&doc));
     // What an editor writes is still taken.
     let typed = edited(&doc, |root, txn| {
         root.push_back(txn, XmlElementPrelim::empty("paragraph"));
     });
-    take_update(&doc, &typed, &SERVED).expect("a paragraph typed");
+    let taken = take_update(&doc, &typed, &SERVED).expect("a paragraph typed");
+    assert!(!taken.remake);
 }
 
 /// What was taken before the steps of a reading were counted is stored: a document
@@ -784,4 +819,198 @@ fn what_one_more_session_may_leave_a_document_with_is_counted_before_it_writes()
             sessions - 1
         );
     }
+}
+
+/// A document of 2,047 sessions under the mark at rest (`worn`: 2,048 clients and an
+/// eighth of `READING_STEPS` ahead): clients descend from `2_047` down to `1`, each
+/// writing a paragraph of 100 alternating letters (`ab` repeated) and a trailing
+/// paragraph at clock `102` that the next session writes after. At rest, clients are
+/// read highest-first with 0 reading steps; once a higher client writes after `(1, 102)`,
+/// every session waits behind the one before it until clock `102` is reached.
+fn document_of_2047_sessions() -> Doc {
+    const SESSIONS: u64 = 2_047;
+    let hundred = "ab".repeat(50);
+    let mut runs = Vec::with_capacity(usize::try_from(SESSIONS).expect("fits"));
+    for session in 0..SESSIONS {
+        let client = SESSIONS - session;
+        let paragraph = if session == 0 {
+            Change::under(Parent::body(), Content::element("paragraph"))
+        } else {
+            Change::after((client + 1, 102), Content::element("paragraph"))
+        };
+        let xml_text = Change::under(Parent::Change((client, 0)), Content::xml_text());
+        let letters = Change::under(Parent::Change((client, 1)), Content::text(&hundred));
+        let tail = Change::after((client, 0), Content::element("paragraph"));
+        runs.push(Run {
+            client,
+            clock: 0,
+            changes: vec![paragraph, xml_text, letters, tail],
+        });
+    }
+    let state = Update {
+        runs,
+        deleted: Vec::new(),
+    }
+    .bytes();
+    assert_eq!(
+        reading_steps(&state, u64::MAX).expect("state"),
+        0,
+        "document at rest takes 0 reading steps"
+    );
+    let ahead = steps_ahead(&state).expect("state");
+    assert!(ahead < READING_STEPS / 8, "under mark at rest: {ahead}");
+    from_state(&state, &STORED).expect("opened").doc
+}
+
+/// Whether [`delete_every_other_letter`] also appends a paragraph as a client read
+/// before all 2,047 sessions.
+#[derive(Clone, Copy)]
+enum ReadFirst {
+    Append,
+    None,
+}
+
+/// Deletes every second letter (`b`, odd indices 1, 3, ..., 97) of `paragraphs`
+/// hundred-letter paragraphs belonging to descending sessions starting at
+/// `first_session` (`0` is client `2_047`), and optionally inserts one paragraph as
+/// `READ_FIRST` (`3_000`) after `(1, 102)` so it is read first and forces all 2,047
+/// sessions onto the waiting stack.
+fn delete_every_other_letter(
+    first_session: u64,
+    paragraphs: u64,
+    read_first: ReadFirst,
+) -> Vec<u8> {
+    const SESSIONS: u64 = 2_047;
+    const READ_FIRST: u64 = 3_000;
+    let runs = match read_first {
+        ReadFirst::Append => vec![Run {
+            client: READ_FIRST,
+            clock: 0,
+            changes: vec![Change::after((1, 102), Content::element("paragraph"))],
+        }],
+        ReadFirst::None => Vec::new(),
+    };
+    let deleted = (first_session..first_session + paragraphs)
+        .map(|session| {
+            let client = SESSIONS - session;
+            let stretches = (0..49_u64).map(|odd| (3 + odd * 2, 1)).collect();
+            (client, stretches)
+        })
+        .collect();
+    Update { runs, deleted }.bytes()
+}
+
+/// Two-step deletions into a 2,047-session document under the mark at rest: a session
+/// read before all others deletes every other letter in 415 paragraphs (taken settled,
+/// staying under three quarters of `READING_STEPS` ahead) and then in 600 more
+/// paragraphs. The second update pushes reading steps past `READING_STEPS`: it is
+/// accepted with `remake: true`, its body holds all 1,015 edited paragraphs, and
+/// remaking from that body leaves 0 steps. Combining the same update with an invalid
+/// node (requiring a repair) is still refused, and `client_changes` / `body_bytes`
+/// limits are not bypassed.
+#[test]
+fn two_step_deletions_into_2047_sessions_are_taken_and_marked_for_remake() {
+    let doc = document_of_2047_sessions();
+    let first = delete_every_other_letter(0, 415, ReadFirst::Append);
+    assert!(first.len() <= SERVED.update_bytes, "{} bytes", first.len());
+    let after_first = take_update(&doc, &first, &SERVED).expect("first 415 taken");
+    assert!(!after_first.remake, "first stays within reading steps");
+    assert!(
+        after_first.steps_ahead * 4 < READING_STEPS * 3,
+        "still under three quarters ahead: {}",
+        after_first.steps_ahead
+    );
+
+    let second = delete_every_other_letter(415, 600, ReadFirst::None);
+    assert!(
+        second.len() <= SERVED.update_bytes,
+        "{} bytes",
+        second.len()
+    );
+    let after_second = take_update(&after_first.doc, &second, &SERVED).expect("second 600 taken");
+    assert!(after_second.remake, "second pushes past reading steps");
+    assert!(
+        after_second.reading_steps > READING_STEPS,
+        "{} steps",
+        after_second.reading_steps
+    );
+    assert!(
+        after_second.steps_ahead > READING_STEPS,
+        "{} ahead",
+        after_second.steps_ahead
+    );
+    assert_eq!(after_second.repair.deleted, 0, "no repair deletions");
+    assert!(after_second.repair.update.is_none(), "no repair update");
+
+    let body = after_second.repair.body.as_ref().expect("a body");
+    let expected = format!("{}b", "a".repeat(50));
+    let content = body.document()["content"].as_array().expect("content");
+    assert_eq!(content.len(), 2_047 * 2 + 1, "all paragraphs kept");
+    for index in 0..1_015 {
+        assert_eq!(
+            content[index * 2]["content"][0]["text"].as_str(),
+            Some(expected.as_str()),
+            "paragraph {index} kept its deletions"
+        );
+    }
+
+    let remade = from_body(body);
+    assert_eq!(steps_of(&remade), 0, "remade from body has 0 reading steps");
+    assert_eq!(
+        fvoci_collab::testing::to_body(&remade).expect("body"),
+        Some(body.clone()),
+        "remade document projects the same body"
+    );
+
+    // Limits still hold when `reading_steps` is exceeded: body_bytes and client_changes.
+    let tight_body = UpdateLimits {
+        body_bytes: 1_024,
+        ..SERVED
+    };
+    assert!(
+        matches!(
+            take_update(&after_first.doc, &second, &tight_body),
+            Err(TakeError::BodyTooLarge { .. })
+        ),
+        "body_bytes limit is still enforced"
+    );
+    let tight_changes = UpdateLimits {
+        client_changes: Some(50),
+        ..SERVED
+    };
+    assert!(
+        matches!(
+            take_update(&after_first.doc, &second, &tight_changes),
+            Err(TakeError::Update(UpdateError::TooManyChanges { .. }))
+        ),
+        "client_changes limit is still enforced"
+    );
+
+    // With an invalid node needing repair, the update past reading steps is still refused.
+    let second_with_repair = Update {
+        runs: vec![Run {
+            client: 3_000,
+            clock: 1,
+            changes: vec![Change::after(
+                (3_000, 0),
+                Content::element("nothing-a-body-has"),
+            )],
+        }],
+        deleted: (415..1_015_u64)
+            .map(|session| {
+                let client = 2_047 - session;
+                let stretches = (0..49_u64).map(|odd| (3 + odd * 2, 1)).collect();
+                (client, stretches)
+            })
+            .collect(),
+    };
+    let refused = take_update(&after_first.doc, &second_with_repair.bytes(), &SERVED)
+        .expect_err("repair + reading steps is still refused");
+    assert!(
+        matches!(
+            refused,
+            TakeError::Update(UpdateError::TooManyReadingSteps { .. })
+        ),
+        "{refused}"
+    );
 }

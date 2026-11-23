@@ -84,6 +84,7 @@
   // names the view shown now.
   $effect(() => {
     if (board?.status !== 'ready' || view) return;
+    if (router.route.viewId && board.revalidating) return;
     const first = board.orderedViews[0];
     if (!first) return;
     const went = shownId !== undefined && router.route.viewId === shownId;
