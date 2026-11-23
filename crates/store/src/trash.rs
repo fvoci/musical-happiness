@@ -478,6 +478,8 @@ pub(crate) async fn remove_what_they_left(scope: &mut Scope<'_>) -> Result<u64, 
     let sql = scope.sql(&orphans);
     let records = remove_blocks(scope, sql).await?;
     block_derived::forget_gone_blocks(scope).await?;
+    crate::course_meetings::forget_gone_containers(scope).await?;
+    crate::course_exams::forget_gone_containers(scope).await?;
     crate::course_schedules::forget_gone_containers(scope).await?;
     Ok(records)
 }

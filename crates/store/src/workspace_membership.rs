@@ -286,6 +286,7 @@ async fn remove(
         .await?;
     trash::forget_watcher_of_workspace(scope, workspace_id, user_id).await?;
     crate::unit_progress::forget_user_in_workspace(scope, workspace_id, user_id).await?;
+    crate::course_exams::forget_user_in_workspace(scope, workspace_id, user_id).await?;
     crate::unit_reviews::forget_user_in_workspace(scope, workspace_id, user_id).await?;
     crate::container_team_membership::remove_workspace_teams(scope, workspace_id, user_id).await?;
     let mut sql = scope.sql("DELETE FROM workspace_members WHERE workspace_id = ");

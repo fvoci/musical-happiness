@@ -494,7 +494,7 @@ pub const GLOBAL_TABLES: [&str; 12] = crate::schema::GLOBAL_TABLES;
 
 /// The tables that hold rows of organizations, and the organizations themselves, each
 /// behind the wall on PostgreSQL.
-pub const ORG_TABLES: [&str; 44] = crate::schema::ORG_TABLES;
+pub const ORG_TABLES: [&str; 48] = crate::schema::ORG_TABLES;
 
 /// Brings a test database to the schema as a server left it that knew nothing of
 /// organizations: every migration before theirs, and none of the changes of the data
@@ -706,6 +706,22 @@ pub async fn migrate_to_before_unit_reviews(database: &TestDatabase) {
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(crate::schema::BEFORE_UNIT_REVIEWS_VERSION))
+        .await
+        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
+}
+
+/// Brings a test database to the schema as a server left it before course meetings and
+/// exams (migration 68): every migration up to 67.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_course_events(database: &TestDatabase) {
+    let store = Store::open(database.db_type(), database.database_connection())
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(&store, Some(crate::schema::BEFORE_COURSE_EVENTS_VERSION))
         .await
         .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
     store.close().await;
