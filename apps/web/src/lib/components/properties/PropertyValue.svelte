@@ -166,7 +166,7 @@
   <RelationProperty
     name={template.name}
     cardId={card.id}
-    ids={parseRelationValue(value)}
+    links={parseRelationValue(value)}
     {cards}
     {locale}
     excluded={closingLoop}

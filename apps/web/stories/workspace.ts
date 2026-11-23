@@ -1,6 +1,6 @@
 /** A small, public world using the same memory backend as the application's tests. */
 import { DEFAULT_ACCOUNT_SETTINGS } from '$lib/logic/account-settings.ts';
-import { createBoardView, type Container, type BoardView } from '$lib/logic/wire.ts';
+import { createBoardView, relationLink, type Container, type BoardView } from '$lib/logic/wire.ts';
 import { getLocale } from '$lib/i18n/paraglide/runtime.js';
 import { Workspace } from '$lib/state/index.ts';
 import { MemoryBackend, memberOf } from '$lib/state/memory/backend.ts';
@@ -125,8 +125,10 @@ function seedCards(world: World, count: number, cycle: boolean, late: boolean): 
         to: `2026-11-${String(day + 2).padStart(2, '0')}`,
       };
     }
-    if (index > 1) card.fields.properties.before = [`example-card-${index - 1}`];
-    if (cycle && index === 1 && count >= 3) card.fields.properties.before = ['example-card-3'];
+    if (index > 1) card.fields.properties.before = [relationLink(`example-card-${index - 1}`)];
+    if (cycle && index === 1 && count >= 3) {
+      card.fields.properties.before = [relationLink('example-card-3')];
+    }
     world.blocks.set(card.id, card);
   }
 }
