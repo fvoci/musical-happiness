@@ -23,7 +23,7 @@ afterEach(() => {
 const OLD = 'ada+work@example.com';
 
 function shown(revert: (token: string) => Promise<string | undefined>, token = 'secret') {
-  const resetHref = (email: string | undefined) => forgotPasswordHref('/base/', email);
+  const resetHref = (email: string) => forgotPasswordHref('/base/', email);
   render(RevertEmailPage, { token, revert, homeHref: '/base/', resetHref });
 }
 
@@ -54,16 +54,17 @@ describe('the page of the link that gives the address back', () => {
     expect(screen.queryByRole('button', { name: 'Take the address back' })).toBeNull();
   });
 
-  it('says the account kept its address where another account has the one of the link', async () => {
+  it('says the account address was cleared where another account has the one of the link, and directs to an administrator', async () => {
     shown(() => Promise.resolve(undefined));
     await fireEvent.click(screen.getByRole('button', { name: 'Take the address back' }));
-    expect(await screen.findByTestId('revert-email-done')).toHaveTextContent(
-      'Another account has this address now',
+    const done = await screen.findByTestId('revert-email-done');
+    expect(done).toHaveTextContent(
+      "Another account has this address now, so your account's email address was cleared, and your account is signed out everywhere.",
     );
-    expect(screen.getByTestId('revert-email-reset')).toHaveAttribute(
-      'href',
-      '/base/forgot-password',
+    expect(done).toHaveTextContent(
+      'Ask an administrator of your organization, or the operator of the server, for help.',
     );
+    expect(screen.queryByTestId('revert-email-reset')).toBeNull();
   });
 
   it('offers no button for a link without a token', () => {

@@ -23,7 +23,7 @@ struct Returning {
 
 /// Where the server sent the browser at the end of a sign-in to link.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Ended {
+pub(crate) enum Ended {
     /// To the web app, linked.
     Linked,
     /// To the login page, with the name of what went wrong.
@@ -32,7 +32,7 @@ enum Ended {
 
 /// A browser that links: it follows no redirect by itself and trusts the fake
 /// provider's certificate.
-struct Linker {
+pub(crate) struct Linker {
     http: reqwest::Client,
     base_url: String,
     server_url: String,
@@ -49,7 +49,7 @@ fn cookies_set(response: &reqwest::Response) -> Vec<String> {
 }
 
 impl Linker {
-    fn new(ts: &TestServer, fake: &FakeProvider) -> Self {
+    pub(crate) fn new(ts: &TestServer, fake: &FakeProvider) -> Self {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .tls_certs_merge([
@@ -162,7 +162,7 @@ impl Linker {
     }
 
     /// Links from the session, in one browser, as the provider signs `person` in.
-    async fn link(&self, org_id: &str, session: &str) -> Ended {
+    pub(crate) async fn link(&self, org_id: &str, session: &str) -> Ended {
         let returning = self.go_to_provider(org_id, session).await;
         self.come_back(&returning, Some(&returning.flow), Some(session))
             .await
