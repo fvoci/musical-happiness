@@ -65,9 +65,10 @@ impl Collab {
     ///
     /// # Errors
     ///
-    /// Returns `document_unavailable` if what the editors typed cannot be written
-    /// first, and the error of `write`. What fails after `write` is logged: the cards
-    /// hold what was written, and a document that was not made again is closed.
+    /// Returns a not-found error if a card is gone, a conflict if it kept changing
+    /// concurrently, `document_unavailable` if what the editors typed cannot otherwise
+    /// be written first, and the error of `write`. What fails after `write` is logged:
+    /// the cards hold what was written, and a document that was not made again is closed.
     pub async fn write_whole<R, W, F>(
         &self,
         app: &App,

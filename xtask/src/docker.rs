@@ -218,16 +218,20 @@ fn clean_leftovers(directory: &Path) -> Result<()> {
     cookies.and(env).and(removed)
 }
 
-/// Removes the trial's files: its secrets and the session of a server that is gone.
-/// Each is tried whatever the others did: both hold secrets.
+/// Removes the trial's files: its secrets, the session of a server that is gone, and
+/// any trial backups. Each is tried whatever the others did.
 fn remove_files(trial: &Trial, directory: &Path) -> Result<()> {
-    let env = match fs::remove_file(&trial.env_file) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-            Err(error).context("removing the file of the trial's secrets")
+    let extra_env = if trial.env_file == directory.join("smoke.env") {
+        Ok(())
+    } else {
+        match fs::remove_file(&trial.env_file) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                Err(error).context("removing the file of the trial's secrets")
+            }
+            _ => Ok(()),
         }
-        _ => Ok(()),
     };
-    clean_leftovers(directory).and(env)
+    clean_leftovers(directory).and(extra_env)
 }
 
 /// Builds, starts, tries and takes down the installation.
@@ -492,19 +496,21 @@ fn value_appears_in(secret: &str, text: &str) -> bool {
     }
     if secret.contains(['\\', '"', '\n', '\r'])
         && let Ok(json) = serde_json::to_string(secret)
+        && let Some(inner) = json
+            .strip_prefix('"')
+            .and_then(|rest| rest.strip_suffix('"'))
+        && !inner.is_empty()
+        && text.contains(inner)
     {
-        let inner = json.trim_matches('"');
-        if !inner.is_empty() && text.contains(inner) {
-            return true;
-        }
+        return true;
     }
     for line in secret.lines() {
-        if line.len() >= FRAGMENT && text.contains(line) {
-            return true;
-        }
         let chars: Vec<char> = line.chars().collect();
         if chars.len() < FRAGMENT {
             continue;
+        }
+        if text.contains(line) {
+            return true;
         }
         let mut start = 0;
         while start + FRAGMENT <= chars.len() {
@@ -715,19 +721,27 @@ mod tests {
         assert_eq!(hex(&[0, 0xab, 0x10]), "00ab10");
     }
 
+    struct TempDir(PathBuf);
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn write_private_tightens_existing_looser_permissions() {
         use std::os::unix::fs::PermissionsExt as _;
 
-        let dir = std::env::temp_dir().join(format!("fvoci-xtask-priv-{}", std::process::id()));
-        fs::create_dir_all(&dir).expect("temp dir");
-        let path = dir.join("secret.env");
+        let dir =
+            TempDir(std::env::temp_dir().join(format!("fvoci-xtask-priv-{}", std::process::id())));
+        fs::create_dir_all(&dir.0).expect("temp dir");
+        let path = dir.0.join("secret.env");
         fs::write(&path, "old").expect("seed file");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("loosen mode");
 
         write_private(&path, "new secret").expect("write_private");
         let mode = fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
-        let _ = fs::remove_dir_all(&dir);
         assert_eq!(
             mode, 0o600,
             "existing file mode must be tightened to 0600, got {mode:#o}"
@@ -776,23 +790,32 @@ mod tests {
             no_values_in(&["abc$def12345"], "dollar", "abc$$def12345").is_err(),
             "compose-escaped $$ secret must be caught"
         );
+        // Trailing quote in a secret keeps its escaped quote rather than collapsing to `\`.
+        assert!(
+            no_values_in(&["token\""], "escaped-quote", r#"value="token\"""#).is_err(),
+            "JSON-escaped trailing quote must be caught"
+        );
+        assert!(
+            no_values_in(&["\""], "lone-backslash", r"path\to\file").is_ok(),
+            "escaped quote must not collapse to a lone backslash"
+        );
     }
 
     #[test]
     fn clean_leftovers_removes_stale_smoke_env_cookies_and_backups() {
-        let dir = std::env::temp_dir().join(format!("fvoci-xtask-clean-{}", std::process::id()));
-        let stale_backup = backup::folder(&dir).join("old-run");
+        let dir =
+            TempDir(std::env::temp_dir().join(format!("fvoci-xtask-clean-{}", std::process::id())));
+        let stale_backup = backup::folder(&dir.0).join("old-run");
         fs::create_dir_all(&stale_backup).expect("backup dir");
-        fs::write(dir.join("smoke.env"), "FVOCI_SECRET_KEY=stale").expect("env");
-        fs::write(dir.join("cookies.txt"), "session=stale").expect("cookies");
+        fs::write(dir.0.join("smoke.env"), "FVOCI_SECRET_KEY=stale").expect("env");
+        fs::write(dir.0.join("cookies.txt"), "session=stale").expect("cookies");
         fs::write(stale_backup.join("env"), "FVOCI_SECRET_KEY=stale").expect("backup env");
 
-        clean_leftovers(&dir).expect("clean_leftovers");
-        assert!(!dir.join("smoke.env").exists());
-        assert!(!dir.join("cookies.txt").exists());
-        assert!(!backup::folder(&dir).exists());
+        clean_leftovers(&dir.0).expect("clean_leftovers");
+        assert!(!dir.0.join("smoke.env").exists());
+        assert!(!dir.0.join("cookies.txt").exists());
+        assert!(!backup::folder(&dir.0).exists());
         // Calling again when absent succeeds cleanly.
-        clean_leftovers(&dir).expect("clean_leftovers when absent");
-        let _ = fs::remove_dir_all(&dir);
+        clean_leftovers(&dir.0).expect("clean_leftovers when absent");
     }
 }

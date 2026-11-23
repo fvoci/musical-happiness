@@ -620,6 +620,14 @@ fn check_private(backups: &Path, backup: &Path, trial: &Trial) -> Result<()> {
             && names.iter().any(|name| name.ends_with("/files.tar")),
         "the backup lacks the database or the files: {names:?}"
     );
+    let record = std::fs::read_to_string(backup.join("made")).context("reading made")?;
+    ensure!(
+        record
+            .lines()
+            .any(|line| line == format!("project={}", trial.project))
+            && record.lines().any(|line| line == "file_storage=local"),
+        "backup made lacks project or file_storage=local: {record}"
+    );
     no_secret_in(trial, "a backup's name", &names.join(" "))
 }
 
@@ -645,7 +653,15 @@ fn backs_up_no_files_from_s3(trial: &Trial, directory: &Path) -> Result<()> {
     let backup = only_backup(&backups)?;
     let files = backup.join("files.tar").exists();
     let dump = backup.join("db.dump").exists();
+    let made_file = std::fs::read_to_string(backup.join("made")).context("reading made")?;
     std::fs::remove_dir_all(&backups).context("removing the backup of S3's settings")?;
+    ensure!(
+        made_file
+            .lines()
+            .any(|line| line == format!("project={}", trial.project))
+            && made_file.lines().any(|line| line == "file_storage=s3"),
+        "S3 backup made lacks project or file_storage=s3: {made_file}"
+    );
     ensure!(
         dump && !files && made.contains("they are in S3, whose bucket is yours to back up"),
         "with S3, backup.sh did not dump the database alone, saying so: {made}"

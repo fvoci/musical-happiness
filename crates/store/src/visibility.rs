@@ -165,7 +165,7 @@ impl Visibility {
 
     /// The count of an organization, if already created and its map lock is unpoisoned.
     fn try_org(&self, org: Uuid) -> Option<Guarded> {
-        self.orgs.lock().ok()?.get(&org).cloned()
+        self.orgs.lock().ok()?.get(&org).map(Arc::clone)
     }
 
     pub(crate) fn writing(&self, tenant: Tenant) -> Writing<'_> {
@@ -924,7 +924,8 @@ mod tests {
         }));
         assert!(cross.is_err(), "poisoned named org panics on start");
 
-        // The healthy organization's writer count was properly released on unwind.
+        // The healthy organization's writer count and `every` writer count were both
+        // released on unwind.
         let healthy_version = visibility.version(Tenant::Org(healthy_org)).await;
         assert!(
             !healthy_version.cacheable(),
@@ -933,5 +934,16 @@ mod tests {
         let mut dispatched = false;
         assert!(visibility.if_current(healthy_version, || dispatched = true));
         assert!(dispatched);
+
+        let every_version = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            visibility.version(Tenant::Unset),
+        )
+        .await
+        .expect("every writer count released on unwind");
+        assert!(
+            !every_version.cacheable(),
+            "abandoned write unsettles every"
+        );
     }
 }

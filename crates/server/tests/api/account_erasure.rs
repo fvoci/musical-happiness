@@ -439,9 +439,6 @@ async fn erasing_an_account_removes_its_own_space_files(ts: &TestServer) {
         .expect("wait elapsed");
 
     fvoci_server::keep_house(&ts.app).await;
-    // Run doomed-object removal as well in case housekeeping ran file removal before
-    // erasure in a single pass.
-    let _ = crate::loose_objects::remove_doomed(ts, fvoci_server::auth::now_millis()).await;
 
     assert!(
         !crate::loose_objects::exists(ts, &own2_path).await,

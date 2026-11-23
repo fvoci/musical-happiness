@@ -24,7 +24,7 @@ pub struct Entered {
     /// What the user is in the workspace.
     pub role: WorkspaceRole,
     /// What the user is in the workspace's organization; `None` for somebody who is in
-    /// the workspace without belonging to the organization.
+    /// the workspace without belonging to the organization, and for a user's own space.
     pub org_role: Option<OrgRole>,
     /// What the workspace's organization is: one that people work in together, or the
     /// user's own space.

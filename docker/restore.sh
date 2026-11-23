@@ -6,7 +6,8 @@
 # migrates a backup of an older version), makes the search index anew and compares the
 # files with the records. compose.yaml's header says more.
 #
-# <backup folder> is trusted input: pg_restore runs SQL as PostgreSQL's superuser.
+# <backup folder> is trusted input: pg_restore runs SQL as PostgreSQL's superuser,
+# and tar extracts members from files.tar.
 #
 #   docker/restore.sh [-p project] [-f compose.yaml]... [--env-file .env]
 #                     [--profile name]... [--key-not-checked] [--other-project]
@@ -53,8 +54,8 @@ check_shared_options
 started=$(now_ms)
 storage=$(file_storage)
 if [ -f "$backup/made" ]; then
-    made_project=$(awk -v key="project=" 'index($0, key) == 1 { v = substr($0, length(key) + 1); sub(/\r$/, "", v); print v; exit }' "$backup/made")
-    made_storage=$(awk -v key="file_storage=" 'index($0, key) == 1 { v = substr($0, length(key) + 1); sub(/\r$/, "", v); print v; exit }' "$backup/made")
+    made_project=$(awk -v key="project=" 'index($0, key) == 1 { v = substr($0, length(key) + 1); sub(/\r$/, "", v); print v; exit }' <"$backup/made")
+    made_storage=$(awk -v key="file_storage=" 'index($0, key) == 1 { v = substr($0, length(key) + 1); sub(/\r$/, "", v); print v; exit }' <"$backup/made")
     if [ -n "$made_project" ] && [ "$made_project" != "$project" ]; then
         if [ "$other_project" = yes ]; then
             say "warning: $backup was made for project $made_project, restoring into project $project (--other-project)"
