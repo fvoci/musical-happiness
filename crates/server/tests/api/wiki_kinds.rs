@@ -173,6 +173,17 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getMyCourseProgress", Reaches::COURSES),
     ("putUnitProgress", Reaches::COURSES),
     ("getCourseProgressSummary", Reaches::COURSES),
+    ("listCourseMeetings", Reaches::COURSES),
+    ("createCourseMeeting", Reaches::COURSES),
+    ("patchCourseMeeting", Reaches::COURSES),
+    ("deleteCourseMeeting", Reaches::COURSES),
+    ("putMeetingAttendance", Reaches::COURSES),
+    ("listCourseExams", Reaches::COURSES),
+    ("createCourseExam", Reaches::COURSES),
+    ("patchCourseExam", Reaches::COURSES),
+    ("deleteCourseExam", Reaches::COURSES),
+    ("putMyExamScore", Reaches::COURSES),
+    ("deleteMyExamScore", Reaches::COURSES),
     ("listMyCourseReviews", Reaches::COURSES),
     ("scheduleUnitReview", Reaches::COURSES),
     ("completeUnitReview", Reaches::COURSES),
@@ -202,11 +213,13 @@ const REACHED: &[(&str, Reaches)] = &[
 ];
 
 /// The parameters of a path that name a container or something that is of one.
-const NAMING: [&str; 15] = [
+const NAMING: [&str; 17] = [
     "{diaryId}",
     "{entryId}",
     "{courseId}",
     "{unitId}",
+    "{meetingId}",
+    "{examId}",
     "{reviewId}",
     "{noteId}",
     "{containerId}",
@@ -231,6 +244,10 @@ struct Things {
     block: String,
     /// A comment on the card; on the page.
     comment: String,
+    /// A study meeting of a course (otherwise an unknown identifier).
+    meeting: String,
+    /// An exam of a course (otherwise an unknown identifier).
+    exam: String,
     /// A review on a course unit; `UNKNOWN_ID` for other kinds.
     review: String,
     /// A note on a course unit; `UNKNOWN_ID` for other kinds.
@@ -252,6 +269,8 @@ impl Things {
             container: UNKNOWN_ID.to_owned(),
             block: UNKNOWN_ID.to_owned(),
             comment: UNKNOWN_ID.to_owned(),
+            meeting: UNKNOWN_ID.to_owned(),
+            exam: UNKNOWN_ID.to_owned(),
             review: UNKNOWN_ID.to_owned(),
             note: UNKNOWN_ID.to_owned(),
             file: "missing-file".to_owned(),
@@ -378,22 +397,50 @@ impl World {
             ContainerKind::Course => self.course_unit_with_a_comment(&container).await,
             _ => self.card_with_a_comment(&container).await,
         };
-        let (review, note) = if kind == ContainerKind::Course {
-            self.course_review_and_note(&container, &block).await
+        let (meeting, exam, review, note) = if kind == ContainerKind::Course {
+            let (m, e) = self.course_meeting_and_exam(&container).await;
+            let (r, n) = self.course_review_and_note(&container, &block).await;
+            (m, e, r, n)
         } else {
-            (UNKNOWN_ID.to_owned(), UNKNOWN_ID.to_owned())
+            (
+                UNKNOWN_ID.to_owned(),
+                UNKNOWN_ID.to_owned(),
+                UNKNOWN_ID.to_owned(),
+                UNKNOWN_ID.to_owned(),
+            )
         };
         Things {
             workspace: ROOT_WORKSPACE_ID.to_owned(),
             container,
             block,
             comment,
+            meeting,
+            exam,
             review,
             note,
             file: text(&uploaded.value(), "fileId"),
             upload: text(&opened.value(), "uploadId"),
             token,
         }
+    }
+
+    async fn course_meeting_and_exam(&self, course: &str) -> (String, String) {
+        let client = &self.ts.client;
+        let meeting = client
+            .post(
+                &format!("{ROOT_WS}/courses/{course}/meetings"),
+                &json!({"title": "study", "startsAt": 1_800_000_000_000_i64}),
+            )
+            .await;
+        meeting.check_done();
+        let exam = client
+            .post(
+                &format!("{ROOT_WS}/courses/{course}/exams"),
+                &json!({"title": "midterm", "maxScore": 100.0}),
+            )
+            .await;
+        exam.check_done();
+        (text(&meeting.value(), "id"), text(&exam.value(), "id"))
     }
 
     async fn course_unit_with_a_comment(&self, course: &str) -> (String, String) {
@@ -550,6 +597,8 @@ impl World {
             .replace("{entryId}", block)
             .replace("{courseId}", &things.container)
             .replace("{unitId}", block)
+            .replace("{meetingId}", &things.meeting)
+            .replace("{examId}", &things.exam)
             .replace("{reviewId}", &things.review)
             .replace("{noteId}", &things.note)
             .replace("{monthDay}", "11-21")
@@ -612,6 +661,14 @@ impl World {
             "createUnit" => json!({"title": "another unit"}),
             "moveUnit" => json!({"parentId": ""}),
             "putUnitProgress" => json!({"completed": true, "lastPosition": "section-1"}),
+            "createCourseMeeting" => {
+                json!({"title": "another study", "startsAt": 1_800_000_000_000_i64})
+            }
+            "patchCourseMeeting" => json!({"title": "changed study"}),
+            "putMeetingAttendance" => json!({"status": "present"}),
+            "createCourseExam" => json!({"title": "another exam", "maxScore": 100.0}),
+            "patchCourseExam" => json!({"title": "changed exam"}),
+            "putMyExamScore" => json!({"score": 90.0}),
             "scheduleUnitReview" => json!({"intervalDays": 7}),
             "createUnitNote" => json!({"kind": "mistake", "content": "check edge case"}),
             "patchUnitNote" => json!({"kind": "review", "content": "updated note"}),
@@ -858,15 +915,11 @@ async fn make_in_own_space(world: &World, own: &str) -> [Things; 4] {
             .await;
         opened.check_done();
         made.push(Things {
-            workspace: own.to_owned(),
             container,
             block,
-            comment: UNKNOWN_ID.to_owned(),
-            review: UNKNOWN_ID.to_owned(),
-            note: UNKNOWN_ID.to_owned(),
             file: text(&uploaded.value(), "fileId"),
             upload: text(&opened.value(), "uploadId"),
-            token: "no-token".to_owned(),
+            ..Things::nothing_in(own)
         });
     }
     made.try_into().expect("four were made")

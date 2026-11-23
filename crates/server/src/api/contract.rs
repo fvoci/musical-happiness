@@ -272,7 +272,9 @@ again if the deletion is cancelled.
 
 While people edit a card's body together the server holds it as a Y document. What it \
 refuses of an editor has the reason `update_refused`, `update_out_of_step`, \
-`update_too_large` or `document_too_large`; `too_many_documents` and \
+`update_too_large`, `document_too_large` or `table_too_large` (`table_too_large` also \
+comes from writing a body whole over HTTP when a table has more than 200 rows or more \
+than 20 columns); `too_many_documents` and \
 `document_unavailable` say that it cannot take the document for now. A write of a card's \
 whole body here (a patch of the card or of blocks, a card stored again) first writes to the \
 card what its editors typed: a `readAt` from before that is refused with 409, and if it \
@@ -527,6 +529,17 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("UnitProgressUpdate", Members::Only(&[])),
     ("MemberCourseProgress", Members::All),
     ("CourseProgressSummary", Members::All),
+    ("AttendanceStatus", Members::AsWritten),
+    ("MeetingAttendance", Members::All),
+    ("CourseMeeting", Members::All),
+    ("NewCourseMeeting", Members::Only(&["title", "startsAt"])),
+    ("CourseMeetingPatch", Members::Only(&[])),
+    ("MeetingAttendanceUpdate", Members::All),
+    ("MyExamScore", Members::All),
+    ("CourseExam", Members::All),
+    ("NewCourseExam", Members::Only(&["title", "maxScore"])),
+    ("CourseExamPatch", Members::Only(&[])),
+    ("MyExamScoreUpdate", Members::Only(&["score"])),
     ("UnitReview", Members::All),
     ("ScheduleUnitReview", Members::Only(&[])),
     ("CompleteUnitReview", Members::Only(&[])),

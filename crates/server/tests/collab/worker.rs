@@ -665,3 +665,103 @@ fn is_alive(pid: u32) -> bool {
     );
     false
 }
+
+/// Updates that push a table past 200 rows or 20 columns are refused over worker IPC
+/// with `Refusal::TableTooLarge` while keeping the held document clean for later edits.
+#[tokio::test]
+async fn oversized_table_updates_return_table_too_large_over_worker_ipc() {
+    let worker = roomy();
+    let cell = json!({"type": "tableCell", "content": [{"type": "paragraph"}]});
+    let row_1 = json!({"type": "tableRow", "content": [&cell]});
+    let max_rows = json!({
+        "type": "doc",
+        "content": [{"type": "table", "content": vec![row_1; usize::from(fvoci_model::TABLE_MAX_ROWS)]}],
+    });
+    let row_20 = json!({
+        "type": "tableRow",
+        "content": vec![cell; usize::from(fvoci_model::TABLE_MAX_COLUMNS)],
+    });
+    let max_cols = json!({
+        "type": "doc",
+        "content": [{"type": "table", "content": [&row_20, &row_20]}],
+    });
+
+    let (generation, opened_rows) = worker
+        .call(None, &open_body(1, &max_rows))
+        .await
+        .expect("opened 200-row doc");
+    let Answer::Opened {
+        state: Some(rows_state),
+        ..
+    } = opened_rows
+    else {
+        panic!("expected initial state");
+    };
+    let rows_editor = Editor::join(201, &rows_state);
+    let rows_refused = worker
+        .call(
+            Some(generation),
+            &Request::Take {
+                doc: 1,
+                update: rows_editor.add_table_row(1),
+            },
+        )
+        .await;
+    assert_eq!(refusal(rows_refused), Refusal::TableTooLarge);
+    assert_eq!(
+        body_of(&worker, generation, 1).await,
+        max_rows,
+        "200-row table stays unpolluted"
+    );
+
+    let (_, opened_cols) = worker
+        .call(Some(generation), &open_body(2, &max_cols))
+        .await
+        .expect("opened 20-col doc");
+    let Answer::Opened {
+        state: Some(cols_state),
+        ..
+    } = opened_cols
+    else {
+        panic!("expected initial state");
+    };
+    let cols_editor = Editor::join(202, &cols_state);
+    let cols_refused = worker
+        .call(
+            Some(generation),
+            &Request::Take {
+                doc: 2,
+                update: cols_editor.add_table_column(),
+            },
+        )
+        .await;
+    assert_eq!(refusal(cols_refused), Refusal::TableTooLarge);
+    assert_eq!(
+        body_of(&worker, generation, 2).await,
+        max_cols,
+        "20-col table stays unpolluted"
+    );
+
+    // Subsequent valid edits succeed on both documents.
+    worker
+        .call(
+            Some(generation),
+            &Request::Take {
+                doc: 1,
+                update: Editor::join(203, &rows_state).append_paragraph("ok rows"),
+            },
+        )
+        .await
+        .expect("valid edit after 201-row refusal");
+    worker
+        .call(
+            Some(generation),
+            &Request::Take {
+                doc: 2,
+                update: Editor::join(204, &cols_state).append_paragraph("ok cols"),
+            },
+        )
+        .await
+        .expect("valid edit after 21-col refusal");
+    worker.end().await;
+}

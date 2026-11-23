@@ -9,6 +9,7 @@
  * body edited together in its room via `Backend.openDoc`).
  */
 import type { DocNode } from '../editor/schema.ts';
+import type { AmountUnit } from '../logic/course-schedule.ts';
 import type { Container, ContainerType, MemberRole } from '../logic/wire.ts';
 
 import type { BodyWrite, Comment, CommentVersion } from './backend.ts';
@@ -17,6 +18,25 @@ import type { DeletedItem, Paging } from './trash-reads.ts';
 import type { CourseReviews } from './unit-review-types.ts';
 
 export * from './unit-review-types.ts';
+
+export {
+  AMOUNT_UNITS,
+  MAX_SCHEDULE_SPAN_DAYS,
+  STUDY_DAYS_ALL,
+  STUDY_DAYS_FRIDAY,
+  STUDY_DAYS_MONDAY,
+  STUDY_DAYS_SATURDAY,
+  STUDY_DAYS_SUNDAY,
+  STUDY_DAYS_THURSDAY,
+  STUDY_DAYS_TUESDAY,
+  STUDY_DAYS_WEDNESDAY,
+  STUDY_DAYS_WEEKDAYS,
+  STUDY_WEEKDAYS,
+  UNIT_AMOUNT_MAX,
+  UNIT_AMOUNT_MIN,
+  type AmountUnit,
+  type StudyWeekdayKey,
+} from '../logic/course-schedule.ts';
 
 /** Whether an outline entry is a unit (with a body) or a chapter (a top-level heading). */
 export type UnitKind = 'unit' | 'chapter';
@@ -34,6 +54,12 @@ export interface CourseUnit {
    * by `id` (`logic/page-tree.ts`). The backend makes it; screens only sort by it.
    */
   order: string;
+  /** Optional study amount (`1..=100_000`, units only; always `null`/absent for chapters). */
+  amount?: number | null;
+  /** Optional unit of study amount (`minutes`, `pages`, `problems`; units only). */
+  amountUnit?: AmountUnit | null;
+  /** Optional shared scheduled date (`YYYY-MM-DD`; units only). */
+  scheduledDate?: string | null;
   createAt: number;
   updateAt: number;
 }
@@ -64,6 +90,12 @@ export interface UnitDraft {
   parentId?: string;
   /** The sibling it goes right after: empty for the first place, left out for the last. */
   after?: string;
+  /** Optional study amount (`1..=100_000`, units only; forbidden on chapters). */
+  amount?: number | null;
+  /** Optional study amount unit (`minutes`, `pages`, `problems`; units only). */
+  amountUnit?: AmountUnit | null;
+  /** Optional shared scheduled date (`YYYY-MM-DD`, units only). */
+  scheduledDate?: string | null;
 }
 
 /** Where a unit or chapter moves within its course. Chapters stay at the top (`parentId` empty). */
@@ -72,10 +104,16 @@ export interface UnitMove {
   after?: string;
 }
 
-/** What a unit or chapter is changed to; omitted fields stay. Chapters take no `body`. */
+/** What a unit or chapter is changed to; omitted fields stay. Chapters take no `body` or schedule fields. */
 export interface UnitPatch {
   title?: string;
   body?: DocNode | null;
+  /** Tri-state study amount: omitted = keep, `null` = clear, integer `1..=100_000` = set. */
+  amount?: number | null;
+  /** Tri-state study amount unit: omitted = keep, `null` = clear, value = set. */
+  amountUnit?: AmountUnit | null;
+  /** Tri-state shared scheduled date (`YYYY-MM-DD`): omitted = keep, `null` = clear, date = set. */
+  scheduledDate?: string | null;
   /** The `updateAt` the unit was read at: 409 if the unit changed since. */
   readAt?: number;
 }
@@ -126,6 +164,80 @@ export interface MemberCourseProgress {
 export interface CourseProgressSummary {
   totalUnits: number;
   members: MemberCourseProgress[];
+}
+
+/** Saved shared study schedule of a course. */
+export interface CourseSchedule {
+  startDate: string;
+  targetDate: string;
+  /** Weekday bitmask (`1..=127`; bit 0 = Monday .. bit 6 = Sunday). */
+  studyDays: number;
+  updateAt: number;
+}
+
+/** Payload for saving a course's shared schedule (`putCourseSchedule`). */
+export interface CourseScheduleUpdate {
+  startDate: string;
+  targetDate: string;
+  studyDays: number;
+  autoAssign?: boolean;
+}
+
+/** One live unit in a course's schedule view, combining shared and caller's personal dates. */
+export interface ScheduledUnit {
+  unitId: string;
+  parentId: string;
+  title: string;
+  amount: number | null;
+  amountUnit: AmountUnit | null;
+  scheduledDate: string | null;
+  myPlannedDate: string | null;
+  effectiveDate: string | null;
+  completed: boolean;
+  overdue: boolean;
+}
+
+/** Full schedule view of a course for the calling user. */
+export interface CourseScheduleView {
+  schedule: CourseSchedule | null;
+  /** Caller's today (`YYYY-MM-DD`) in `UserSettings.timeZone` (UTC when `auto`). */
+  today: string;
+  todayCount: number;
+  overdueCount: number;
+  units: ScheduledUnit[];
+}
+
+/** Optional window overrides for manual shared or personal redistribution. */
+export interface RedistributeScheduleRequest {
+  fromDate?: string | null;
+  targetDate?: string | null;
+  studyDays?: number | null;
+}
+
+/** Personal planned-date override update (`plannedDate` is required on the wire; `null` clears). */
+export interface UnitScheduleUpdate {
+  plannedDate: string | null;
+}
+
+/** One incomplete unit due today or overdue in a workspace's today learning feed. */
+export interface LearningTodayItem {
+  courseId: string;
+  courseTitle: string;
+  unitId: string;
+  parentId: string;
+  title: string;
+  amount: number | null;
+  amountUnit: AmountUnit | null;
+  scheduledDate: string | null;
+  myPlannedDate: string | null;
+  effectiveDate: string;
+}
+
+/** Caller's incomplete units due today and overdue across enrolled live courses in a workspace. */
+export interface WorkspaceLearningToday {
+  today: string;
+  todayUnits: LearningTodayItem[];
+  overdueUnits: LearningTodayItem[];
 }
 
 export interface Courses {
@@ -192,6 +304,39 @@ export interface Courses {
 
   // Personal spaced-repetition reviews, workspace today reviews, and personal study notes.
   readonly reviews: CourseReviews;
+
+  // Study schedule, manual redistribution, personal planned dates & today's learning (never on public links).
+  /** Course schedule view in outline tree order for the caller (unjoined gets `myPlannedDate: null`). */
+  schedule(courseId: string, workspaceId?: string): Promise<CourseScheduleView>;
+  /** Saves the course's shared schedule and optionally auto-assigns unit `scheduledDate`s. */
+  putSchedule(
+    courseId: string,
+    update: CourseScheduleUpdate,
+    workspaceId?: string,
+  ): Promise<CourseScheduleView>;
+  /** Clears the saved course schedule row without changing unit or personal dates. */
+  deleteSchedule(courseId: string, workspaceId?: string): Promise<void>;
+  /** Redistributes shared `scheduledDate` across all live units (editors/admins only). */
+  redistributeSchedule(
+    courseId: string,
+    request: RedistributeScheduleRequest,
+    workspaceId?: string,
+  ): Promise<CourseScheduleView>;
+  /** Redistributes only caller's incomplete units into personal `plannedDate` (any enrolled member). */
+  redistributeMySchedule(
+    courseId: string,
+    request: RedistributeScheduleRequest,
+    workspaceId?: string,
+  ): Promise<CourseScheduleView>;
+  /** Sets or clears (`null`) caller's personal `plannedDate` on a live unit (any enrolled member). */
+  putUnitSchedule(
+    courseId: string,
+    unitId: string,
+    update: UnitScheduleUpdate,
+    workspaceId?: string,
+  ): Promise<UnitProgress>;
+  /** Caller's incomplete today and overdue units across enrolled live courses of a workspace. */
+  learningToday(workspaceId: string): Promise<WorkspaceLearningToday>;
 }
 
 /** Where a backend keeps its courses. One by a public link reads only its course's outline and units. */

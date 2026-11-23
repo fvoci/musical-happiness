@@ -222,6 +222,38 @@ export class CourseWrites {
     this.#host.reread();
   }
 
+  /** Changes the title of a chapter or unit: shown at once, undone as one step. */
+  async changeUnitTitle(unitId: string, title: string): Promise<void> {
+    const before = this.#unit(unitId);
+    if (!before || before.title === title) return;
+    const previous = before.title;
+    try {
+      await this.#host.workspace.undo.perform(
+        () => unlessGone(() => this.#writeTitle(unitId, title, previous)),
+        () => unlessGone(() => this.#writeTitle(unitId, previous, title)),
+        'changeUnitTitle',
+      );
+    } catch (error) {
+      this.#host.workspace.report('save', error);
+    }
+  }
+
+  async #writeTitle(unitId: string, title: string, back: string): Promise<void> {
+    const show = (next: string): void => {
+      this.#host.setUnits(
+        this.#host.units().map((unit) => (unit.id === unitId ? { ...unit, title: next } : unit)),
+      );
+    };
+    show(title);
+    try {
+      const updated = await this.#host.courses().patchUnit(this.#host.courseId, unitId, { title });
+      if (this.receive(updated)) this.#host.takeUnit(updated);
+    } catch (error) {
+      show(back);
+      throw error;
+    }
+  }
+
   moveUnit(unitId: string, to: PagePlace): Promise<boolean> {
     const turn =
       this.#queued === 0

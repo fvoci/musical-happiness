@@ -93,18 +93,35 @@ export { createWiki } from './wiki-parts.ts';
 export { shownWiki } from './shown-wiki.svelte.ts';
 export type { PageDraft, PageMove, WikiDraft, WikiPage, WikiPageDetail } from './wiki-types.ts';
 export { CourseStore, type CourseLooks } from './course.svelte.ts';
+export { CourseScheduleState, type ScheduleWriteResult } from './course-schedule.svelte.ts';
+export { LearningTodayStore } from './learning-today.svelte.ts';
+export { syncDeviceTimeZone } from './time-zone-sync.ts';
 export { UnitStore } from './unit.svelte.ts';
 export type { UnitComments } from './unit-comments.svelte.ts';
 export { createCourse } from './course-parts.ts';
 export { shownCourse } from './shown-course.svelte.ts';
 export {
+  AMOUNT_UNITS,
   courseReviewIntervals,
   DEFAULT_REVIEW_INTERVALS,
   hasControlChars,
   hasDisallowedNoteControlChars,
   MAX_REVIEW_INTERVAL_DAYS,
+  MAX_SCHEDULE_SPAN_DAYS,
   MIN_REVIEW_INTERVAL_DAYS,
+  STUDY_DAYS_ALL,
+  STUDY_DAYS_FRIDAY,
+  STUDY_DAYS_MONDAY,
+  STUDY_DAYS_SATURDAY,
+  STUDY_DAYS_SUNDAY,
+  STUDY_DAYS_THURSDAY,
+  STUDY_DAYS_TUESDAY,
+  STUDY_DAYS_WEDNESDAY,
+  STUDY_DAYS_WEEKDAYS,
+  STUDY_WEEKDAYS,
   suggestedNextIntervalDays,
+  UNIT_AMOUNT_MAX,
+  UNIT_AMOUNT_MIN,
   UNIT_NOTE_CONTENT_MAX_CHARS,
   UNIT_NOTE_KINDS,
   UNIT_PROGRESS_POSITION_MAX_CHARS,
@@ -117,20 +134,28 @@ export {
   TodayReviewsStore,
 } from './unit-reviews.svelte.ts';
 export type {
+  AmountUnit,
   CompletedUnitReview,
   CompleteUnitReview,
   CourseDraft,
   CourseProgressSummary,
   CourseReviews,
+  CourseSchedule,
+  CourseScheduleUpdate,
+  CourseScheduleView,
   Courses,
   CourseUnit,
   CourseUnitDetail,
   CreateUnitNote,
+  LearningTodayItem,
   ListCourseReviewsQuery,
   MemberCourseProgress,
   PatchUnitNote,
+  RedistributeScheduleRequest,
   ReviewStatusFilter,
+  ScheduledUnit,
   ScheduleUnitReview,
+  StudyWeekdayKey,
   TodayReviewItem,
   UnitDraft,
   UnitKind,
@@ -142,6 +167,8 @@ export type {
   UnitProgress,
   UnitProgressUpdate,
   UnitReview,
+  UnitScheduleUpdate,
+  WorkspaceLearningToday,
 } from './course-types.ts';
 export type { PresenceSource, TreeItem, TreeSource } from './tree-source.ts';
 export {

@@ -279,6 +279,7 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 | `update_out_of_step` | `DOC_NACK` | 방의 세대와 다른 `epoch`, 또는 문서에 없는 변경 위에 얹은 변경 |
 | `update_too_large` | `DOC_NACK` | 업데이트가 `collab_update_bytes`를 넘는다 |
 | `document_too_large` | `DOC_NACK` | 받아들이면 문서나 본문이 한도를 넘는다(크기, 그리고 문서를 읽는 데 드는 걸음: `docs/configuration.md`의 `collab_update_bytes`) |
+| `table_too_large` | `DOC_NACK` | 받아들이면 표가 한도(200행, 20열)를 넘는다 |
 | `document_read_only` | `DOC_NACK` | `read`로 든 연결의 변경 |
 | `too_many_documents` | `DOC_REFUSED`, `DOC_NACK`, `DOC_LEFT` | 서버가 쥘 수 있는 문서가 다 찼다 |
 | `document_unavailable` | `DOC_REFUSED`, `DOC_NACK`, `DOC_LEFT` | 지금 그 문서를 다룰 수 없다(작업자가 죽었거나 답하지 않았다, 문서가 잠시 닫혔다, 서버가 멈추는 중이다). 그 변경은 문서에 없다 |

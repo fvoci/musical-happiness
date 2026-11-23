@@ -58,6 +58,8 @@
     headerActions?: Snippet | undefined;
     /** Optional leading indicator rendered inside each non-chapter row (e.g. course completion check). */
     itemLeading?: Snippet<[P]> | undefined;
+    /** Optional trailing indicator rendered inside each non-chapter row (e.g. study amount/date badge). */
+    itemTrailing?: Snippet<[P]> | undefined;
     /** Root `data-testid`; defaults to `page-tree` for wikis. */
     testId?: string;
     /** A creation is under way: no other is asked for meanwhile. */
@@ -80,6 +82,7 @@
     labels = WIKI_TREE_LABELS,
     headerActions,
     itemLeading,
+    itemTrailing,
     testId = 'page-tree',
     busy = false,
   }: Props = $props();
@@ -390,9 +393,10 @@
                     >{page.icon}</span
                   >
                 {/if}
-                <span class={['min-w-0 truncate', !page.title && 'text-muted-foreground']}>
+                <span class={['min-w-0 flex-1 truncate', !page.title && 'text-muted-foreground']}>
                   {title}
                 </span>
+                {@render itemTrailing?.(page)}
               </a>
               <PageViewers
                 {wiki}

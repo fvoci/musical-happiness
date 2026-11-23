@@ -45,6 +45,8 @@ export function notificationText(
         : m.notifications_comment({ who, title });
     case 'review_due':
       return m.notifications_review_due({ title });
+    case 'meeting_upcoming':
+      return title;
   }
 }
 

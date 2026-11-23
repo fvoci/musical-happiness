@@ -257,8 +257,12 @@
     router.go({ meTime: true });
   };
   const openReviewsToday = (): void => {
-    const workspaceId = workspace?.info?.id;
+    const workspaceId = workspace?.info?.id ?? router.route.workspaceId;
     if (workspaceId) router.go({ workspaceId, reviewsToday: true });
+  };
+  const openLearningToday = (): void => {
+    const workspaceId = workspace?.info?.id ?? router.route.workspaceId;
+    if (workspaceId) router.go({ workspaceId, learningToday: true });
   };
 </script>
 
@@ -420,8 +424,12 @@
     meTime={router.route.meTime === true}
     timeHref={workspace.backend.time ? router.href({ meTime: true }) : undefined}
     onOpenTime={openTime}
-    reviewsToday={router.route.reviewsToday === true}
-    onOpenReviewsToday={workspace.backend.course ? openReviewsToday : undefined}
+    reviewsToday={workspace.backend.course
+      ? { active: router.route.reviewsToday === true, onOpen: openReviewsToday }
+      : undefined}
+    learningToday={workspace.backend.course
+      ? { active: router.route.learningToday === true, onOpen: openLearningToday }
+      : undefined}
     containerHref={(container: ContainerPlace) => router.href(placeRoute(container))}
     sharedHref={(containerId: string, readToken: string) =>
       router.href({ boardId: containerId, readToken })}

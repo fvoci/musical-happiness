@@ -84,8 +84,10 @@
     /** The address of the personal "My time" screen, when time tracking is available. */
     timeHref?: string | undefined;
     onOpenTime?: (() => void) | undefined;
-    reviewsToday?: boolean;
-    onOpenReviewsToday?: (() => void) | undefined;
+    /** Workspace "Today's reviews" entry, when courses are available. */
+    reviewsToday?: { active: boolean; onOpen: () => void } | undefined;
+    /** Workspace "Today's learning" entry, when courses are available. */
+    learningToday?: { active: boolean; onOpen: () => void } | undefined;
     /** The address of a board or a wiki, for a link to it. */
     containerHref: (container: ContainerPlace) => string;
     /** The address of a board's or a wiki's public link with its read token. */
@@ -127,8 +129,8 @@
     meTime = false,
     timeHref,
     onOpenTime,
-    reviewsToday = false,
-    onOpenReviewsToday,
+    reviewsToday,
+    learningToday,
     containerHref,
     sharedHref,
     onOpenContainer,
@@ -233,6 +235,16 @@
 
   const closeDrawerThen = (action?: () => void) =>
     action ? () => (action(), (sidebar.drawerOpen = false), undefined) : undefined;
+  const drawerEntry = (entry?: { active: boolean; onOpen: () => void }) =>
+    entry && {
+      active: entry.active,
+      onOpen: () => {
+        entry.onOpen();
+        sidebar.drawerOpen = false;
+      },
+    };
+  const reviewsEntry = $derived(drawerEntry(reviewsToday));
+  const todayEntry = $derived(drawerEntry(learningToday));
 
   /**
    * Opens the settings; a drawer they were asked for from closes first.
@@ -260,41 +272,26 @@
     sidebar.drawerOpen = false;
   }
 
-  /** "Add board" asks: an empty board, or one from a template. */
   let picking = $state(false);
-
-  function addBoard(): void {
+  let namingWiki = $state(false);
+  let namingCourse = $state(false);
+  const addBoard = (): void => {
     picking = true;
-  }
-
-  /**
-   * An empty board with one view (the workspace makes the two together,
-   * because a board without a view has nothing to show), and the page goes
-   * to it.
-   */
+  };
   async function addEmptyBoard(): Promise<void> {
     const made = await whileHere(workspace, () =>
       workspace.createBoard({ title: '' }, m['View.NewBoardTitle'](), m.shell_new_board_status()),
     );
     if (made) openContainer(made);
   }
-
-  /** "New wiki" asks for its name and who finds it. */
-  let namingWiki = $state(false);
-
   async function addWiki(draft: WikiDraft): Promise<void> {
     const made = await whileHere(workspace, () => createWiki(workspace, draft));
     if (made) openContainer(made);
   }
-
-  /** "New course" asks for its name and (in a shared workspace) who finds it. */
-  let namingCourse = $state(false);
-
   async function addCourse(draft: CourseDraft): Promise<void> {
     const made = await whileHere(workspace, () => createCourse(workspace, draft));
     if (made) openContainer(made);
   }
-
   async function addBoardFromTemplate(template: Container): Promise<void> {
     const made = await whileHere(workspace, () => workspace.duplicateContainer(template.id));
     if (made) openContainer(made);
@@ -332,8 +329,8 @@
     {meTime}
     {timeHref}
     onOpenTime={closeDrawerThen(onOpenTime)}
-    {reviewsToday}
-    onOpenReviewsToday={closeDrawerThen(onOpenReviewsToday)}
+    reviewsToday={reviewsEntry}
+    learningToday={todayEntry}
     {containerHref}
     hidden={!layout.strip}
     inert={drawerOut || paneCovered()}
@@ -387,8 +384,8 @@
       {meTime}
       {timeHref}
       onOpenTime={closeDrawerThen(onOpenTime)}
-      {reviewsToday}
-      onOpenReviewsToday={closeDrawerThen(onOpenReviewsToday)}
+      reviewsToday={reviewsEntry}
+      learningToday={todayEntry}
       {containerHref}
       beside={layout.list === 'beside'}
       onOpenContainer={openContainer}
@@ -412,7 +409,8 @@
       {workspace}
       {containerId}
       {meTime}
-      {reviewsToday}
+      reviewsToday={reviewsToday?.active === true}
+      learningToday={learningToday?.active === true}
       {sharedHref}
       menuButton={layout.menuButton}
       onOpenSidebar={openDrawer}

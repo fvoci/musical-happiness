@@ -18,13 +18,18 @@ import type {
   CourseDraft,
   CourseProgressSummary,
   Courses,
+  CourseScheduleUpdate,
+  CourseScheduleView,
   CourseUnit,
   CourseUnitDetail,
+  RedistributeScheduleRequest,
   UnitDraft,
   UnitMove,
   UnitPatch,
   UnitProgress,
   UnitProgressUpdate,
+  UnitScheduleUpdate,
+  WorkspaceLearningToday,
 } from '../state/course-types.ts';
 import type { DeletedItem, Paging } from '../state/trash-reads.ts';
 
@@ -37,6 +42,15 @@ import {
   wireBody,
   type Schemas,
 } from './convert.ts';
+import {
+  deleteCourseSchedule,
+  getCourseSchedule,
+  getWorkspaceLearningToday,
+  putCourseSchedule,
+  putUnitSchedule as sendUnitSchedule,
+  redistributeCourseSchedule,
+  redistributeMyCourseSchedule,
+} from './course-schedules.ts';
 import {
   getCourseProgressSummary,
   getMyCourseProgress,
@@ -54,6 +68,9 @@ export function unitOf(node: Schemas['UnitNode'], courseId: string): CourseUnit 
     parentId: node.parentId,
     title: node.title,
     order: node.order,
+    amount: node.kind === 'unit' ? (node.amount ?? null) : null,
+    amountUnit: node.kind === 'unit' ? (node.amountUnit ?? null) : null,
+    scheduledDate: node.kind === 'unit' ? (node.scheduledDate ?? null) : null,
     createAt: node.createAt,
     updateAt: node.updateAt,
   };
@@ -126,6 +143,9 @@ function unitPatchOf(patch: UnitPatch): Schemas['UnitPatch'] {
   return {
     ...(patch.title === undefined ? {} : { title: patch.title }),
     ...body,
+    ...(patch.amount === undefined ? {} : { amount: patch.amount }),
+    ...(patch.amountUnit === undefined ? {} : { amountUnit: patch.amountUnit }),
+    ...(patch.scheduledDate === undefined ? {} : { scheduledDate: patch.scheduledDate }),
     ...(patch.readAt === undefined ? {} : { readAt: patch.readAt }),
   };
 }
@@ -183,6 +203,9 @@ export class ServerCourses implements Courses {
       ...(draft.title ? { title: draft.title } : {}),
       ...(draft.parentId ? { parentId: draft.parentId } : {}),
       ...(draft.after === undefined ? {} : { after: draft.after }),
+      ...(draft.amount === undefined ? {} : { amount: draft.amount }),
+      ...(draft.amountUnit === undefined ? {} : { amountUnit: draft.amountUnit }),
+      ...(draft.scheduledDate === undefined ? {} : { scheduledDate: draft.scheduledDate }),
     };
     return unitDetailOf(
       await this.#request<Schemas['Unit']>(
@@ -364,5 +387,50 @@ export class ServerCourses implements Courses {
 
   progressSummary(courseId: string, workspaceId?: string): Promise<CourseProgressSummary> {
     return getCourseProgressSummary(this.#request, workspaceId, courseId);
+  }
+
+  schedule(courseId: string, workspaceId?: string): Promise<CourseScheduleView> {
+    return getCourseSchedule(this.#request, workspaceId, courseId);
+  }
+
+  putSchedule(
+    courseId: string,
+    update: CourseScheduleUpdate,
+    workspaceId?: string,
+  ): Promise<CourseScheduleView> {
+    return putCourseSchedule(this.#request, workspaceId, courseId, update);
+  }
+
+  deleteSchedule(courseId: string, workspaceId?: string): Promise<void> {
+    return deleteCourseSchedule(this.#request, workspaceId, courseId);
+  }
+
+  redistributeSchedule(
+    courseId: string,
+    request: RedistributeScheduleRequest,
+    workspaceId?: string,
+  ): Promise<CourseScheduleView> {
+    return redistributeCourseSchedule(this.#request, workspaceId, courseId, request);
+  }
+
+  redistributeMySchedule(
+    courseId: string,
+    request: RedistributeScheduleRequest,
+    workspaceId?: string,
+  ): Promise<CourseScheduleView> {
+    return redistributeMyCourseSchedule(this.#request, workspaceId, courseId, request);
+  }
+
+  putUnitSchedule(
+    courseId: string,
+    unitId: string,
+    update: UnitScheduleUpdate,
+    workspaceId?: string,
+  ): Promise<UnitProgress> {
+    return sendUnitSchedule(this.#request, workspaceId, courseId, unitId, update);
+  }
+
+  learningToday(workspaceId: string): Promise<WorkspaceLearningToday> {
+    return getWorkspaceLearningToday(this.#request, workspaceId);
   }
 }
