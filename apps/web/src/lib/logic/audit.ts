@@ -10,6 +10,7 @@ export const AUDIT_ACTIONS = [
   'org_admin_revoked',
   'org_admin_granted',
   'org_admin_removed',
+  'org_member_removed',
   'workspace_created',
   'workspace_renamed',
   'workspace_deleted',

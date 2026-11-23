@@ -6,7 +6,7 @@ use axum::body::Bytes;
 use axum::extract::{Extension, Path, State};
 use fvoci_model::{
     ContainerMember, LinkedIdentity, Me, PersonNameChange, Problem, UnlinkRequest, User,
-    UserPreferencesPatch, UserSettings, UserSettingsPatch,
+    UserOrganization, UserPreferencesPatch, UserSettings, UserSettingsPatch,
 };
 use fvoci_store::{InstanceRole, Preference};
 use serde::Deserialize;
@@ -30,6 +30,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_get_me, handle_patch_me))
         .routes(routes!(handle_get_my_memberships))
+        .routes(routes!(handle_get_my_organizations))
         .routes(routes!(handle_get_client_state, handle_patch_client_state))
         .routes(routes!(
             handle_get_user_settings,
@@ -137,6 +138,29 @@ async fn handle_get_my_memberships(
 ) -> ApiResult {
     let members = app.container_memberships(&session).await?;
     Ok(json_response(&members))
+}
+
+/// The organizations the user is a member of
+///
+/// The organizations that people work in together of which the user of the session is a
+/// member, with their name and the user's role in each. Includes organizations in which
+/// the user is in no workspace, and leaves out the user's own space and organizations
+/// where the user is only a guest of a workspace. Asked of any session: an organization
+/// that takes only sessions made through its provider is still listed so the user can
+/// see it in settings and leave it (`leaveOrganization`). Oldest first.
+#[utoipa::path(
+    get,
+    path = "/users/me/organizations",
+    operation_id = "getMyOrganizations",
+    tag = tag::USERS,
+    responses((status = 200, description = "The organizations.", body = Vec<UserOrganization>)),
+)]
+async fn handle_get_my_organizations(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+) -> ApiResult {
+    let organizations = app.organizations_of_user(&session.user_id).await?;
+    Ok(json_response(&organizations))
 }
 
 /// The identities linked to the account

@@ -5,10 +5,11 @@
 use fvoci_model::{
     AuditAction, AuditRecordActor, Block, BlockType, CompletionChange, Container, ContainerKind,
     ContainerType, CourseLimits, LastPositionChange, NewUnit, OrgRole, SubscriberType,
-    Subscription, UnitProgressChange, WorkspaceRole, new_id,
+    Subscription, UnitProgressChange, UserOrganization, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::{
-    AuditPlace, DbType, Departure, DepartureRefused, Joining, NewLink, Paging, Store, Tenant,
+    AuditPlace, DbType, Departure, DepartureRefused, Joining, MemberRemoval, NewLink, Paging,
+    RemovalRefused, Store, Tenant,
 };
 
 use crate::common::{self, TestStore};
@@ -142,6 +143,16 @@ async fn link_by(store: &Store, workspace_id: &str, user_id: &str, digest: &str)
         .create_invitation(&link)
         .await
         .expect("the link is made");
+}
+
+/// Gives the user a stored password hash, so [`Store::leave_organization`] does not
+/// refuse them as a passwordless SSO-only account.
+async fn give_password(test: &TestStore, user_id: &str) {
+    test.execute_unchecked(&format!(
+        "UPDATE users SET password_hash = '$argon2id$stub' WHERE id = '{user_id}'"
+    ))
+    .await
+    .expect("password set");
 }
 
 /// Makes the user what `role` says in the handle's organization, past the routes.
@@ -346,6 +357,7 @@ async fn what_stays(test: &TestStore, placed: &Placed) {
 async fn whoever_leaves_has_nothing_left_in_the_organization_but_what_they_wrote() {
     let test = common::setup().await;
     let placed = placed_everywhere(&test).await;
+    give_password(&test, &placed.leaver).await;
     let Placed {
         founder,
         leaver,
@@ -448,6 +460,7 @@ async fn who_leaves_the_instances_organization_administers_the_instance_no_more(
     let test = common::setup().await;
     let founder = common::user(&test, "founder").await;
     let leaver = common::user(&test, "leaver").await;
+    give_password(&test, &leaver).await;
     set_org_role(&test, &test.org_id, &leaver, OrgRole::Admin).await;
     administers_the_instance(&test, &leaver).await;
     let theirs = common::workspace(&test).await;
@@ -480,6 +493,7 @@ async fn who_leaves_the_instances_organization_administers_the_instance_no_more(
 async fn what_stands_in_the_way_of_leaving_changes_nothing() {
     let test = common::setup().await;
     let founder = common::user(&test, "founder").await;
+    give_password(&test, &founder).await;
     let mut asked = Vec::new();
     let mut ask = async |user_id: &str, people: &str| {
         let before = (counts(&test).await, test.visibility_version().await);
@@ -491,6 +505,7 @@ async fn what_stands_in_the_way_of_leaving_changes_nothing() {
 
     ask(&founder, "the instance's administrator, alone").await;
     let colleague = common::user(&test, "colleague").await;
+    give_password(&test, &colleague).await;
     ask(&founder, "the instance's administrator").await;
     // Somebody else runs the server, from outside the organization.
     let operator = common::user(&test.scoped(Tenant::Unset), "operator").await;
@@ -547,6 +562,8 @@ async fn of_two_administrators_who_leave_at_once_one_stays() {
     let test = common::setup().await;
     let first = common::user(&test, "first").await;
     let second = common::user(&test, "second").await;
+    give_password(&test, &first).await;
+    give_password(&test, &second).await;
     common::user(&test, "member").await;
     set_org_role(&test, &test.org_id, &second, OrgRole::Admin).await;
     // Neither is the instance's only administrator: what is asked is the organization's.
@@ -639,4 +656,735 @@ async fn nobody_leaves_what_they_are_no_member_of() {
     );
     assert_eq!(counts(&test).await, before, "nothing changes");
     test.teardown().await;
+}
+
+/// An account without a password cannot leave on its own (`PasswordRequired`, asked
+/// right after membership so it precedes standing refusals, changing nothing), while
+/// an administrator can still remove that passwordless account.
+#[tokio::test]
+async fn an_account_without_a_password_cannot_leave_but_can_be_removed() {
+    let test = common::setup().await;
+    // Founder has no password and is also the sole/last instance admin: PasswordRequired
+    // is checked before standing refusals.
+    let founder = common::user(&test, "founder").await;
+    let before = (counts(&test).await, test.visibility_version().await);
+    assert_eq!(
+        test.leave_organization(&founder).await.expect("asked"),
+        Departure::Refused(DepartureRefused::PasswordRequired),
+        "password_required precedes standing refusals"
+    );
+    assert_eq!(
+        (counts(&test).await, test.visibility_version().await),
+        before,
+        "nothing changes on password_required"
+    );
+
+    // Non-member without a password still gets NotAMember first.
+    let stranger = common::user(&test.scoped(Tenant::Unset), "stranger").await;
+    assert_eq!(
+        test.leave_organization(&stranger).await.expect("asked"),
+        Departure::NotAMember
+    );
+
+    // Passwordless regular member cannot leave on their own, but admin can remove them.
+    give_password(&test, &founder).await;
+    let sso_only = common::user(&test, "sso_only").await;
+    let before = (counts(&test).await, test.visibility_version().await);
+    assert_eq!(
+        test.leave_organization(&sso_only).await.expect("asked"),
+        Departure::Refused(DepartureRefused::PasswordRequired)
+    );
+    assert_eq!(
+        (counts(&test).await, test.visibility_version().await),
+        before
+    );
+    let removed = test
+        .remove_org_member(&sso_only, &founder)
+        .await
+        .expect("removed");
+    assert!(
+        matches!(removed, MemberRemoval::Removed(_)),
+        "admin removes passwordless member: {removed:?}"
+    );
+    assert_eq!(
+        places_of(&test, &test.org_id, &sso_only).await,
+        [
+            "organization_members: 0",
+            "workspace_members: 0",
+            "container_members: 0",
+            "team_members: 0",
+            "subscriptions: 0",
+            "unit_progress: 0",
+        ]
+    );
+    test.teardown().await;
+}
+
+/// An administrator removes another member (including an admin of the instance's org):
+/// every place, role, team, joining, follow and unused link goes, sole-admin boards
+/// pass on under the removing admin as actor, joinings record `OrgAdminRevoked`, the
+/// org audit log records `OrgMemberRemoved`, `is_admin` is cleared on the instance org,
+/// and only this organization's visibility advances.
+#[tokio::test]
+async fn an_administrator_removes_a_member_completely_and_records_audit() {
+    let test = common::setup().await;
+    let placed = placed_everywhere(&test).await;
+    let Placed {
+        founder,
+        leaver,
+        joined,
+        theirs,
+        ..
+    } = &placed;
+    administers_the_instance(&test, leaver).await;
+    let other = one(
+        &test,
+        &format!("SELECT CAST(id AS TEXT) FROM organizations WHERE owner_id = '{leaver}'"),
+    )
+    .await;
+    let other_store = test.for_org(&other).expect("an organization");
+    let before = (
+        test.visibility_version().await,
+        other_store.visibility_version().await,
+    );
+    let theirs_elsewhere = places_of(&test, &other, leaver).await;
+
+    let left = match test
+        .remove_org_member(leaver, founder)
+        .await
+        .expect("removed")
+    {
+        MemberRemoval::Removed(left) => left,
+        other => panic!("removed: {other:?}"),
+    };
+
+    let mut workspaces = vec![test.workspace_id.clone(), joined.clone()];
+    workspaces.sort_unstable();
+    assert_eq!(left.left, workspaces, "the joined workspace is left too");
+    let handed: Vec<(&str, &str)> = left
+        .handed_over
+        .iter()
+        .map(|passed| (passed.container_id.as_str(), passed.heir_id.as_str()))
+        .collect();
+    assert_eq!(handed, [(theirs.as_str(), founder.as_str())]);
+    assert!(!runs_the_instance(&test, leaver).await, "is_admin cleared");
+    assert!(runs_the_instance(&test, founder).await, "founder stays");
+    assert_eq!(
+        places_of(&test, &test.org_id, leaver).await,
+        [
+            "organization_members: 0",
+            "workspace_members: 0",
+            "container_members: 0",
+            "team_members: 0",
+            "subscriptions: 0",
+            "unit_progress: 0",
+        ]
+    );
+    assert_eq!(places_of(&test, &other, leaver).await, theirs_elsewhere);
+    what_stays(&test, &placed).await;
+    assert_removal_audits(&test, &placed).await;
+
+    let after = (
+        test.visibility_version().await,
+        other_store.visibility_version().await,
+    );
+    assert_ne!(after.0, before.0, "org visibility advances");
+    assert_eq!(after.1, before.1, "other org visibility untouched");
+    test.teardown().await;
+}
+
+/// Checks the three audit logs written by [`Store::remove_org_member`]:
+/// `OrgAdminRevoked` in the joined workspace, `AddedToContainer` in the root workspace
+/// for the handed-over board, and `OrgMemberRemoved` in the organization audit log.
+async fn assert_removal_audits(test: &TestStore, placed: &Placed) {
+    let Placed {
+        founder,
+        leaver,
+        joined,
+        theirs,
+        ..
+    } = placed;
+    let joined_audit = test
+        .audit_records(AuditPlace::Workspace(joined), EVERY)
+        .await
+        .expect("read");
+    let revoked = joined_audit
+        .iter()
+        .find(|record| record.action == AuditAction::OrgAdminRevoked)
+        .expect("joining revocation recorded");
+    assert!(
+        matches!(&revoked.actor, AuditRecordActor::Person(p) if &p.id == founder),
+        "{revoked:?}"
+    );
+    assert_eq!(
+        revoked.subject.as_ref().map(|p| p.id.as_str()),
+        Some(leaver.as_str()),
+        "revoked joining names the removed member"
+    );
+
+    let root_audit = test
+        .audit_records(AuditPlace::Workspace(&test.workspace_id), EVERY)
+        .await
+        .expect("read");
+    let handover = root_audit
+        .iter()
+        .find(|record| {
+            record.action == AuditAction::AddedToContainer && record.target_id == *theirs
+        })
+        .expect("handover recorded");
+    assert!(
+        matches!(&handover.actor, AuditRecordActor::Person(p) if &p.id == founder),
+        "{handover:?}"
+    );
+
+    let org_audit = test
+        .audit_records(AuditPlace::Organization, EVERY)
+        .await
+        .expect("read");
+    let removed_record = org_audit
+        .iter()
+        .find(|record| record.action == AuditAction::OrgMemberRemoved)
+        .expect("org member removal recorded");
+    assert!(
+        matches!(&removed_record.actor, AuditRecordActor::Person(p) if &p.id == founder),
+        "{removed_record:?}"
+    );
+    assert_eq!(
+        removed_record.subject.as_ref().map(|p| p.id.as_str()),
+        Some(leaver.as_str()),
+        "org audit names the removed member"
+    );
+    assert_eq!(
+        removed_record.target_id, test.org_id,
+        "org audit targets the organization"
+    );
+}
+
+/// Self-removal, non-admin callers, own spaces, non-members, and standing guardrails
+/// (`LastInstanceAdmin`, `SoleAdmin`) all refuse without changing anything.
+#[tokio::test]
+async fn remove_org_member_refuses_self_non_admin_non_member_and_guardrails() {
+    let test = common::setup().await;
+    let founder = common::user(&test, "founder").await;
+    let member = common::user(&test, "member").await;
+    let stranger = common::user(&test.scoped(Tenant::Unset), "stranger").await;
+    let guest = common::user(&test.scoped(Tenant::Unset), "guest").await;
+    test.add_workspace_member(&test.workspace_id, &guest, WorkspaceRole::Guest)
+        .await
+        .expect("guest");
+    let space = one(
+        &test,
+        &format!("SELECT CAST(id AS TEXT) FROM organizations WHERE owner_id = '{founder}'"),
+    )
+    .await;
+    let space_store = test.for_org(&space).expect("own space");
+
+    let before = (counts(&test).await, test.visibility_version().await);
+    assert_eq!(
+        test.remove_org_member(&founder, &founder)
+            .await
+            .expect("self"),
+        MemberRemoval::CannotRemoveSelf
+    );
+    assert_eq!(
+        test.remove_org_member(&founder, &member)
+            .await
+            .expect("member"),
+        MemberRemoval::NotAnAdmin
+    );
+    assert_eq!(
+        test.remove_org_member(&stranger, &founder)
+            .await
+            .expect("stranger"),
+        MemberRemoval::NotAMember
+    );
+    assert_eq!(
+        test.remove_org_member(&guest, &founder)
+            .await
+            .expect("guest"),
+        MemberRemoval::NotAMember
+    );
+    assert_eq!(
+        space_store
+            .remove_org_member(&founder, &founder)
+            .await
+            .expect("own space"),
+        MemberRemoval::NotAnAdmin
+    );
+    assert_eq!(
+        (counts(&test).await, test.visibility_version().await),
+        before
+    );
+
+    // Standing guardrails: if an admin whose account is pending deletion tries to
+    // remove the sole remaining active admin, LastInstanceAdmin then SoleAdmin hold.
+    set_org_role(&test, &test.org_id, &member, OrgRole::Admin).await;
+    administers_the_instance(&test, &member).await;
+    test.execute_unchecked(&format!(
+        "UPDATE users SET delete_at = {T0} WHERE id = '{founder}'"
+    ))
+    .await
+    .expect("pending deletion");
+    let before = (counts(&test).await, test.visibility_version().await);
+    assert_eq!(
+        test.remove_org_member(&member, &founder)
+            .await
+            .expect("last instance"),
+        MemberRemoval::Refused(RemovalRefused::LastInstanceAdmin)
+    );
+    assert_eq!(
+        (counts(&test).await, test.visibility_version().await),
+        before
+    );
+
+    let operator = common::user(&test.scoped(Tenant::Unset), "operator").await;
+    administers_the_instance(&test, &operator).await;
+    let before = (counts(&test).await, test.visibility_version().await);
+    assert_eq!(
+        test.remove_org_member(&member, &founder)
+            .await
+            .expect("sole admin"),
+        MemberRemoval::Refused(RemovalRefused::SoleAdmin)
+    );
+    assert_eq!(
+        (counts(&test).await, test.visibility_version().await),
+        before
+    );
+    test.teardown().await;
+}
+
+/// Two administrators concurrently removing each other serialize under the organization
+/// lock: the first commits and the second sees it is no longer an administrator, so the
+/// organization never drops to zero administrators.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn of_two_administrators_who_remove_each_other_at_once_one_stays() {
+    let test = common::setup().await;
+    let first = common::user(&test, "first").await;
+    let second = common::user(&test, "second").await;
+    common::user(&test, "member").await;
+    set_org_role(&test, &test.org_id, &second, OrgRole::Admin).await;
+    let operator = common::user(&test.scoped(Tenant::Unset), "operator").await;
+    administers_the_instance(&test, &operator).await;
+
+    let (first_res, second_res) = if common::db_type() == DbType::Postgres {
+        let mut gate = Gate::before(
+            &test,
+            "DELETE",
+            "organization_members",
+            &format!("OLD.user_id = '{second}'"),
+        )
+        .await;
+        let remover_a = test.store.clone();
+        let remover_b = gate.second_store(&test).await;
+        let (a1, b1) = (first.clone(), second.clone());
+        let task_a = tokio::spawn(async move { remover_a.remove_org_member(&b1, &a1).await });
+        let held = gate.stopped(&task_a).await;
+        let (a2, b2) = (first.clone(), second.clone());
+        let task_b = tokio::spawn(async move { remover_b.remove_org_member(&a2, &b2).await });
+        gate.waits_for(held, &task_b).await;
+        gate.open().await;
+        (ended(task_a).await, ended(task_b).await)
+    } else {
+        (
+            test.remove_org_member(&second, &first).await,
+            test.remove_org_member(&first, &second).await,
+        )
+    };
+
+    assert!(
+        matches!(first_res.expect("first"), MemberRemoval::Removed(_)),
+        "first removal succeeds"
+    );
+    assert_eq!(
+        second_res.expect("second"),
+        MemberRemoval::NotAnAdmin,
+        "second removal sees caller is no longer an admin"
+    );
+    let admins = one(
+        &test,
+        &format!(
+            "SELECT CAST(count(*) AS TEXT) FROM organization_members \
+             WHERE org_id = '{}' AND role = 'admin'",
+            test.org_id
+        ),
+    )
+    .await;
+    assert_eq!(admins, "1", "the organization keeps one administrator");
+    test.teardown().await;
+}
+
+/// Removing the second administrator while the first simultaneously leaves serializes
+/// under the organization lock so the leave is refused with `SoleAdmin`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_remove_and_leave_serialize_so_one_admin_stays() {
+    let test = common::setup().await;
+    let first = common::user(&test, "first").await;
+    let second = common::user(&test, "second").await;
+    common::user(&test, "member").await;
+    give_password(&test, &first).await;
+    set_org_role(&test, &test.org_id, &second, OrgRole::Admin).await;
+    let operator = common::user(&test.scoped(Tenant::Unset), "operator").await;
+    administers_the_instance(&test, &operator).await;
+
+    let (remove_res, leave_res) = if common::db_type() == DbType::Postgres {
+        let mut gate = Gate::before(
+            &test,
+            "DELETE",
+            "organization_members",
+            &format!("OLD.user_id = '{second}'"),
+        )
+        .await;
+        let remover = test.store.clone();
+        let leaver = gate.second_store(&test).await;
+        let (a1, t1) = (first.clone(), second.clone());
+        let task_r = tokio::spawn(async move { remover.remove_org_member(&t1, &a1).await });
+        let held = gate.stopped(&task_r).await;
+        let a2 = first.clone();
+        let task_l = tokio::spawn(async move { leaver.leave_organization(&a2).await });
+        gate.waits_for(held, &task_l).await;
+        gate.open().await;
+        (ended(task_r).await, ended(task_l).await)
+    } else {
+        (
+            test.remove_org_member(&second, &first).await,
+            test.leave_organization(&first).await,
+        )
+    };
+    assert!(matches!(
+        remove_res.expect("removed"),
+        MemberRemoval::Removed(_)
+    ));
+    assert_eq!(
+        leave_res.expect("left"),
+        Departure::Refused(DepartureRefused::SoleAdmin)
+    );
+    test.teardown().await;
+}
+
+/// `organizations_of_user` returns shared organizations oldest-first with real name and
+/// role, including organizations where the user has zero workspaces left, while
+/// excluding personal spaces, guest-only organizations, deleted organizations, and
+/// system organizations.
+#[tokio::test]
+async fn organizations_of_user_lists_shared_orgs_including_zero_workspace_orgs() {
+    let test = common::setup().await;
+    let founder = common::user(&test, "founder").await;
+    let member = common::user(&test, "member").await;
+    let guest = common::user(&test.scoped(Tenant::Unset), "guest").await;
+    test.add_workspace_member(&test.workspace_id, &guest, WorkspaceRole::Guest)
+        .await
+        .expect("guest");
+
+    // Rename the first shared org to confirm real org name is returned.
+    test.execute_unchecked(&format!(
+        "UPDATE organizations SET name = 'First Org' WHERE id = '{}'",
+        test.org_id
+    ))
+    .await
+    .expect("renamed");
+
+    // Remove member from ALL workspaces of First Org, keeping organization_members.
+    test.execute_unchecked(&format!(
+        "DELETE FROM workspace_members WHERE user_id = '{member}' AND workspace_id = '{}'",
+        test.workspace_id
+    ))
+    .await
+    .expect("removed from workspace");
+
+    assert_eq!(
+        test.organizations_of_user(&founder).await.expect("listed"),
+        vec![UserOrganization {
+            id: test.org_id.clone(),
+            name: "First Org".to_owned(),
+            role: OrgRole::Admin,
+        }],
+        "personal space excluded"
+    );
+    assert_eq!(
+        test.organizations_of_user(&member).await.expect("listed"),
+        vec![UserOrganization {
+            id: test.org_id.clone(),
+            name: "First Org".to_owned(),
+            role: OrgRole::Member,
+        }],
+        "org with zero workspaces still included"
+    );
+    assert_eq!(
+        test.organizations_of_user(&guest).await.expect("listed"),
+        Vec::<UserOrganization>::new(),
+        "guest-only org excluded"
+    );
+
+    // Multi-org ordering (oldest first) and exclusion of deleted orgs (SQLite holds
+    // one shared organization; PostgreSQL holds several).
+    if common::db_type() == DbType::Postgres {
+        let second_ws = Workspace {
+            id: new_id(),
+            ..Workspace::default()
+        };
+        let second_org = test
+            .create_organization("Second Org", &second_ws)
+            .await
+            .expect("second org");
+        test.for_org(&second_org)
+            .expect("org")
+            .execute_unchecked(&format!(
+                "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+                 VALUES ('{second_org}', '{founder}', 'member', 2)"
+            ))
+            .await
+            .expect("member of second org");
+        let third_ws = Workspace {
+            id: new_id(),
+            ..Workspace::default()
+        };
+        let deleted_org = test
+            .create_organization("Deleted Org", &third_ws)
+            .await
+            .expect("deleted org");
+        test.for_org(&deleted_org)
+            .expect("org")
+            .execute_unchecked(&format!(
+                "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+                 VALUES ('{deleted_org}', '{founder}', 'admin', 3)"
+            ))
+            .await
+            .expect("member of deleted org");
+        test.system()
+            .execute_unchecked(&format!(
+                "UPDATE organizations SET delete_at = {T0} WHERE id = '{deleted_org}'"
+            ))
+            .await
+            .expect("deleted");
+        assert_eq!(
+            test.organizations_of_user(&founder).await.expect("listed"),
+            vec![
+                UserOrganization {
+                    id: test.org_id.clone(),
+                    name: "First Org".to_owned(),
+                    role: OrgRole::Admin,
+                },
+                UserOrganization {
+                    id: second_org,
+                    name: "Second Org".to_owned(),
+                    role: OrgRole::Member,
+                },
+            ],
+            "oldest first, deleted org excluded"
+        );
+    }
+    test.teardown().await;
+}
+
+/// Migration 65 (`0065_audit_org_member_removed.sql`) preserves every pre-existing audit
+/// record, keeps the immutability and 0044 identity-erasure triggers intact on both
+/// SQLite and PostgreSQL, allows `org_member_removed` at organization scope, and keeps
+/// refusing unknown or misplaced actions.
+#[tokio::test]
+async fn migration_0065_keeps_audit_rows_and_erasure_guard_and_allows_org_member_removed() {
+    let database = common::empty_database().await;
+    fvoci_store::testing::migrate_to_before_audit_org_member_removed(&database).await;
+    let pre = Store::open(database.db_type(), database.database_connection())
+        .await
+        .expect("pre-65 database opens");
+    let (org, ws) = common::organization(&pre, "org").await;
+    let pre_org = pre.for_org(&org).expect("org scope");
+    let actor = common::user(&pre_org, "actor").await;
+    let subject = common::user(&pre_org, "subject").await;
+    let (ws_row, lapsed, carried) = (new_id(), new_id(), new_id());
+    pre_org
+        .execute_unchecked(&format!(
+            "INSERT INTO audit_log (id, org_id, workspace_id, actor_id, actor_kind, action, \
+             target_id, create_at) VALUES ('{ws_row}', '{org}', '{ws}', '{actor}', 'person', \
+             'org_admin_joined', '{ws}', 6)"
+        ))
+        .await
+        .expect("workspace audit row");
+    pre_org
+        .execute_unchecked(&format!(
+            "INSERT INTO audit_log (id, org_id, actor_kind, action, target_id, create_at, \
+             detail) VALUES ('{lapsed}', '{org}', 'server', 'oidc_former_provider_lapsed', \
+             '{org}', 7, 'https://old.example.test')"
+        ))
+        .await
+        .expect("server audit row");
+    pre_org
+        .execute_unchecked(&format!(
+            "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, \
+             subject_id, create_at, detail, identity) VALUES ('{carried}', '{org}', '{actor}', \
+             'person', 'oidc_identity_carried_over', '{org}', '{actor}', 8, \
+             'https://new.example.test', 'who@example.test')"
+        ))
+        .await
+        .expect("identity audit row");
+    pre.close().await;
+
+    let store = Store::connect(database.db_type(), database.database_connection())
+        .await
+        .expect("migration 65 applies cleanly");
+    let ours = store.for_org(&org).expect("org scope");
+    assert_migration_0065_preserved_rows(&ours, &ws, &ws_row, &lapsed, &carried).await;
+    assert_migration_0065_guards_hold(&store, &ours, &org, &actor, &subject, &carried).await;
+
+    store.close().await;
+    database.remove().await;
+}
+
+async fn assert_migration_0065_preserved_rows(
+    ours: &Store,
+    ws: &str,
+    ws_row: &str,
+    lapsed_id: &str,
+    carried_id: &str,
+) {
+    let ws_records = ours
+        .audit_records(AuditPlace::Workspace(ws), EVERY)
+        .await
+        .expect("workspace audit records");
+    assert!(
+        ws_records
+            .iter()
+            .any(|r| r.id == ws_row && r.action == AuditAction::OrgAdminJoined),
+        "workspace audit row survives migration 65: {ws_records:?}"
+    );
+    let org_records = ours
+        .audit_records(AuditPlace::Organization, EVERY)
+        .await
+        .expect("org audit records");
+    let find = |id: &str| {
+        org_records
+            .iter()
+            .find(|r| r.id == id)
+            .unwrap_or_else(|| panic!("org audit row {id} survives migration 65: {org_records:?}"))
+    };
+    let lapsed = find(lapsed_id);
+    assert_eq!(
+        lapsed.actor,
+        AuditRecordActor::Server,
+        "server actor preserved"
+    );
+    assert_eq!(
+        lapsed.action,
+        AuditAction::OidcFormerProviderLapsed,
+        "lapsed action preserved"
+    );
+    assert_eq!(
+        lapsed.detail.as_deref(),
+        Some("https://old.example.test"),
+        "lapsed detail preserved"
+    );
+    let carried = find(carried_id);
+    assert_eq!(
+        carried.action,
+        AuditAction::OidcIdentityCarriedOver,
+        "carried action preserved"
+    );
+    assert_eq!(
+        carried.detail.as_deref(),
+        Some("https://new.example.test"),
+        "carried detail preserved"
+    );
+    assert_eq!(
+        carried.identity.as_deref(),
+        Some("who@example.test"),
+        "carried identity preserved"
+    );
+    assert_eq!(carried.create_at, 8, "carried timestamp preserved");
+}
+
+async fn assert_migration_0065_guards_hold(
+    store: &Store,
+    ours: &Store,
+    org: &str,
+    actor: &str,
+    subject: &str,
+    carried_id: &str,
+) {
+    // 1. `org_member_removed` is accepted at organization scope.
+    let removed_id = new_id();
+    ours.execute_unchecked(&format!(
+        "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, \
+         subject_id, create_at) VALUES ('{removed_id}', '{org}', '{actor}', 'person', \
+         'org_member_removed', '{org}', '{subject}', 9)"
+    ))
+    .await
+    .expect("org_member_removed is accepted");
+    let org_records = ours
+        .audit_records(AuditPlace::Organization, EVERY)
+        .await
+        .expect("org audit records after insert");
+    assert!(
+        org_records
+            .iter()
+            .any(|r| r.id == removed_id && r.action == AuditAction::OrgMemberRemoved),
+        "org_member_removed reads back: {org_records:?}"
+    );
+
+    // 2. Unknown actions and workspace-only actions without workspace_id stay refused.
+    assert!(
+        ours.execute_unchecked(&format!(
+            "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, \
+             create_at) VALUES ('{}', '{org}', '{actor}', 'person', 'not_an_action', '{org}', 10)",
+            new_id()
+        ))
+        .await
+        .is_err(),
+        "unknown action is refused"
+    );
+    assert!(
+        ours.execute_unchecked(&format!(
+            "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, \
+             create_at) VALUES ('{}', '{org}', '{actor}', 'person', 'added_to_container', \
+             '{org}', 11)",
+            new_id()
+        ))
+        .await
+        .is_err(),
+        "workspace-only action at org scope is refused"
+    );
+
+    // 3. Immutability trigger refuses edits and deletes while org exists.
+    let mut_err = ours
+        .execute_unchecked(&format!(
+            "UPDATE audit_log SET action = 'org_admin_removed' WHERE id = '{removed_id}'"
+        ))
+        .await
+        .expect_err("audit_log mutation refused")
+        .to_string();
+    assert!(
+        mut_err.contains("a record of the audit log is not changed or removed"),
+        "immutability error on UPDATE: {mut_err}"
+    );
+    let del_err = ours
+        .execute_unchecked(&format!("DELETE FROM audit_log WHERE id = '{removed_id}'"))
+        .await
+        .expect_err("audit_log deletion refused")
+        .to_string();
+    assert!(
+        del_err.contains("a record of the audit log is not changed or removed"),
+        "immutability error on DELETE: {del_err}"
+    );
+
+    // 4. 0044 identity-erasure guard stays enforced: refused before erase_started_at > 0,
+    // allowed once the user's erasure has started.
+    assert!(
+        ours.execute_unchecked(&format!(
+            "UPDATE audit_log SET identity = NULL WHERE id = '{carried_id}'"
+        ))
+        .await
+        .is_err(),
+        "identity clearing is refused before account erasure starts"
+    );
+    store
+        .system()
+        .execute_unchecked(&format!(
+            "UPDATE users SET delete_at = 1, erase_started_at = 1 WHERE id = '{actor}'"
+        ))
+        .await
+        .expect("mark actor erasing");
+    ours.execute_unchecked(&format!(
+        "UPDATE audit_log SET identity = NULL WHERE id = '{carried_id}'"
+    ))
+    .await
+    .expect("0044 identity erasure guard allows clearing identity during erasure");
 }
