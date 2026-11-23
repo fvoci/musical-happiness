@@ -3921,7 +3921,7 @@ async fn an_update_that_would_put_a_block_below_itself_is_refused() {
         ("text", "other card", MoveBy::Write),
         ("below", "", MoveBy::Patch),
         ("below", "", MoveBy::Write),
-        ("card", "text", MoveBy::Write),
+        ("card", "other card", MoveBy::Write),
     ] {
         let parent_id = if onto.is_empty() { "" } else { id(onto) };
         move_block(store, id(moved), parent_id, user_id, by)
@@ -3940,14 +3940,14 @@ async fn an_update_that_would_put_a_block_below_itself_is_refused() {
         names_with_parents(&moved),
         [
             ("below", ""),
-            ("card", "text"),
+            ("card", "other card"),
             ("other card", ""),
             ("text", "other card")
         ],
         "every block is where it was moved to, and the others where they were"
     );
 
-    // The card is now two levels below the other card.
+    // The card is now below the other card.
     for by in [MoveBy::Write, MoveBy::Patch] {
         let what = format!("moving the other card onto the card by {by:?}");
         let outcome = move_block(store, id("other card"), id("card"), user_id, by).await;

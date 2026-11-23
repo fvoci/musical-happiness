@@ -24,6 +24,7 @@ mod body_links;
 mod body_versions;
 mod body_versions_budget;
 mod builtin_templates;
+mod card_hierarchy;
 mod card_numbers;
 mod categories;
 mod category_boards;

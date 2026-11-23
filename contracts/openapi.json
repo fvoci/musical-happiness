@@ -753,6 +753,10 @@
               "null"
             ]
           },
+          "parentId": {
+            "description": "The identifier of the parent card on the same board; empty for a top-level card\n(depth 1). A card template has no parent.",
+            "type": "string"
+          },
           "preview": {
             "oneOf": [
               {
@@ -804,6 +808,7 @@
           "lastCommentAt",
           "modifiedBy",
           "number",
+          "parentId",
           "properties",
           "tasksDone",
           "tasksTotal",
@@ -844,6 +849,13 @@
           },
           "icon": {
             "description": "The new icon; at most one grapheme.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentId": {
+            "description": "The new parent card identifier on the same board; `\"\"` or `null` moves the card\nto the top level (depth 1). Left out, the parent stays as it is.",
             "type": [
               "string",
               "null"
@@ -2896,6 +2908,13 @@
             "description": "Whether the card is a template.",
             "type": "boolean"
           },
+          "parentId": {
+            "description": "The identifier of the parent card on the same board; left out, empty, or `null`\nfor a top-level card (depth 1). At most three levels deep; templates cannot have a\nparent or sub-cards.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "properties": {
             "additionalProperties": true,
             "description": "Property values by property identifier: a string, a list of strings, or `null`.",
@@ -4692,6 +4711,11 @@
             "reason": "page_too_deep",
             "title": "Page too deep",
             "type": "/problems/page-too-deep"
+          },
+          {
+            "reason": "card_too_deep",
+            "title": "Card too deep",
+            "type": "/problems/card-too-deep"
           },
           {
             "reason": "too_many_pages",
@@ -11255,7 +11279,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator and the times. For editors.\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof other cards of the board, in the trash or not, each once, at most 50 (a value over\nit from before may be written with fewer of its cards, not with another). Any other is\n400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,\n`relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board\nthat is no card) or `relation_card_not_found`: no card of that identifier on the\nboard, which is also the answer for a card of another board. Every write of a card\nchecks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it\nchanges, and does not ask again for a card that a value named before.",
+        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof other cards of the board, in the trash or not, each once, at most 50 (a value over\nit from before may be written with fewer of its cards, not with another). Any other is\n400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,\n`relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board\nthat is no card) or `relation_card_not_found`: no card of that identifier on the\nboard, which is also the answer for a card of another board. Every write of a card\nchecks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it\nchanges, and does not ask again for a card that a value named before.",
         "operationId": "createCard",
         "parameters": [
           {
@@ -11584,7 +11608,7 @@
         ]
       },
       "patch": {
-        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card. The relation values it changes are checked as `createCard` says.",
+        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card. The relation values it changes are checked as `createCard` says.\n`parentId` reparents the card within the same board (empty or `null` moves it to the\ntop level; left out keeps its current parent), checked for cycles and maximum depth 3\nincluding any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).",
         "operationId": "patchCard",
         "parameters": [
           {

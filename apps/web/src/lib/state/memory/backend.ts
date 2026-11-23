@@ -87,9 +87,9 @@ import { readableBlob, readableFile, storeUpload } from './files.ts';
 import { userFound, usersAmong, usersNamed } from './users.ts';
 import { changeName, keepSettings, settingsOf } from './account.ts';
 import { archiveOf, exportableContainers, readArchive } from './archive.ts';
-import { checkedBody, checkedComment, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
+import { checkedComment, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, MemoryReferences } from './references.ts';
-import { numberBlock } from './card-numbers.ts';
+import { checkArchiveCards, checkCardParent, storeNewCard } from './card-hierarchy.ts';
 import { MemoryContentSearch } from './content-search.ts';
 import { MemoryNotifications, noteComment } from './notifications.ts';
 import { searchBoardsOf } from './search.ts';
@@ -514,6 +514,7 @@ export class MemoryBackend implements Backend {
     const { containers, blocks } = await readArchive(file);
     options?.onProgress?.({ sentBytes: file.size, totalBytes: file.size });
     checkDiariesComing(this.world, this.userId, workspaceId, { containers, blocks });
+    checkArchiveCards(containers, blocks);
     for (const board of containers) {
       this.#insertContainer(
         board,
@@ -724,19 +725,10 @@ export class MemoryBackend implements Backend {
   async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
     await this.#enter('createCard');
     const board = this.#container(boardId, 'board');
-    const block = this.#newBlock(boardId, '', 'card');
-    block.title = draft.title ?? '';
-    block.fields = {
-      icon: draft.icon ?? '',
-      isTemplate: draft.isTemplate ?? false,
-      properties: copy(draft.properties ?? {}),
-    };
-    block.body = checkedBody(this.world, boardId, draft.body ?? null);
-    checkRelations(this.world, board, block, undefined, 'properties');
-    numberBlock(this.world, block);
-    this.world.blocks.set(block.id, block);
-    this.#tellBlocks(boardId, [block]);
-    return this.#commented(summaryOf(block as StoredCard));
+    const block = this.#newBlock(boardId, draft.parentId ?? '', 'card');
+    const stored = storeNewCard(this.world, board, block, draft);
+    this.#tellBlocks(boardId, [stored]);
+    return this.#commented(summaryOf(stored));
   }
 
   /** Tells nobody of a change of a card, quiet or not: only comments are told here. */
@@ -749,6 +741,7 @@ export class MemoryBackend implements Backend {
     await this.#enter('patchCard');
     const before = this.#block(boardId, cardId, 'card') as StoredCard;
     const card = applyCardPatch(before, patch);
+    checkCardParent(this.world, boardId, card, card.parentId, false, before);
     checkRelations(this.world, this.#container(boardId), card, before, 'updatedProperties');
     this.world.blocks.set(cardId, card);
     this.#touch(card);

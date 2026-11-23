@@ -183,6 +183,7 @@ export interface Attachment extends Block {
 
 /** What a card is made from. The server gives it its identifier and times. */
 export interface CardDraft {
+  parentId?: string;
   title?: string;
   icon?: string;
   properties?: Card['fields']['properties'];
@@ -205,6 +206,7 @@ export interface CardTelling {
 }
 
 export interface CardPatch {
+  parentId?: string | null;
   title?: string;
   icon?: string;
   /** Properties to set. */
