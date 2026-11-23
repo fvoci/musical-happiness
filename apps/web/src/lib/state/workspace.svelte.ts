@@ -34,17 +34,21 @@ import {
   type WorkspaceInfo,
   type User,
 } from './backend.ts';
-import { isCacheableBoard } from './board-cache.ts';
 import { BoardStore } from './board.svelte.ts';
 import { hiddenContainersOf, sidebarOf, withoutContainer, type SidebarCategory } from './order.ts';
 import { SidebarWrites } from './sidebar-writes.ts';
 import { Transfers } from './transfers.svelte.ts';
 import { UserNames, type Learning } from './user-names.ts';
 import type { WorkspaceSnapshot } from './workspace-cache.ts';
-import { enterCachedWorkspace, WorkspaceCaches, type CacheLimits } from './workspace-caches.ts';
+import {
+  enterCachedWorkspace,
+  refreshWorkspaceSidebar,
+  rememberWorkspaceSnapshot,
+  WorkspaceCaches,
+  type CacheLimits,
+} from './workspace-caches.ts';
 import { WorkspaceCategories } from './workspace-categories.ts';
 import * as entry from './workspace-entry.ts';
-import { reread } from './write.ts';
 
 /** `signedOut`: nobody is signed in (401); `leaving`: the account waits to be deleted (its session opens only taking that back). */
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut' | 'leaving';
@@ -132,10 +136,15 @@ export class Workspace {
   #problemCount = 0;
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
   #refreshing = 0;
+  /** Session generation: invalidates in-flight reads after sign-out or reload. */
+  #sessionGen = 0;
+  /** Visit eviction generation: blocks pre-eviction reads from re-caching the visit. */
+  #visitEvictionGen = 0;
   /** Navigation caches: recent workspaces, boards and wiki last-opened pages. */
   readonly #caches: WorkspaceCaches<BoardStore>;
-  /** Workspace currently being fetched by `#enter`, so a concurrent `resync` does not double-fetch. */
+  /** Workspace currently being fetched by `#enter`, so a concurrent `resync` coalesces. */
   #enteringWorkspaceId: string | undefined;
+  #pendingResync = false;
   /** Whether the currently shown workspace snapshot is valid to save back into cache on leave. */
   #cacheableVisit = false;
 
@@ -172,6 +181,10 @@ export class Workspace {
    * Where `leaves` says of the settings that the page loads again for them, nothing more is read.
    */
   async load(workspaceId?: string, leaves?: (settings: AccountSettings) => boolean): Promise<void> {
+    this.#sessionGen += 1;
+    const session = this.#sessionGen;
+    this.#entering += 1;
+    this.#refreshing += 1;
     this.#caches.clear();
     this.#leave(undefined, false);
     this.workspaces = [];
@@ -182,6 +195,7 @@ export class Workspace {
         this.backend.workspaces(),
         this.backend.settings(),
       ]);
+      if (session !== this.#sessionGen) return;
       this.me = me;
       this.workspaces = workspaces;
       this.#takeSettings(settings);
@@ -191,8 +205,10 @@ export class Workspace {
       const chosen = workspaceId ?? this.firstChoice();
       if (chosen === undefined) this.#leave(undefined, false);
       else await this.#enter(chosen, true);
+      if (session !== this.#sessionGen) return;
       this.status = 'ready';
     } catch (error) {
+      if (session !== this.#sessionGen) return;
       const over = sessionOver(error);
       if (over) {
         this.#over(over);
@@ -216,12 +232,11 @@ export class Workspace {
    */
   async enter(workspaceId: string, again = false): Promise<void> {
     if (!again && this.asked === workspaceId && this.entered !== 'failed') return;
-    const turn = this.#entering + 1;
+    const [turn, session] = [this.#entering + 1, this.#sessionGen];
     try {
       await this.#enter(workspaceId, again);
     } catch (error) {
-      if (this.ends(error, true)) return;
-      if (turn !== this.#entering) return;
+      if (session !== this.#sessionGen || this.ends(error, true) || turn !== this.#entering) return;
       this.entered = 'failed';
       this.report('load', error);
     }
@@ -232,7 +247,7 @@ export class Workspace {
 
   async #enter(workspaceId: string, again = false): Promise<void> {
     this.#entering += 1;
-    const turn = this.#entering;
+    const [turn, session] = [this.#entering, this.#sessionGen];
     this.#leave(workspaceId, true);
     const workspace = this.workspaces.find((one) => one.id === workspaceId);
     if (!workspace) {
@@ -243,18 +258,20 @@ export class Workspace {
     const cached =
       !again && this.me ? this.#caches.workspaces.get(this.me.id, workspaceId) : undefined;
     if (cached && entry.isOpen(workspace)) {
-      await this.#enterCached(turn, workspace, cached);
+      await this.#enterCached(session, turn, workspace, cached);
       return;
     }
     this.info = { ...workspace }; // Each entry its own: a way back is not "still there".
     this.entered = 'loading';
     this.#enteringWorkspaceId = workspaceId;
+    const evictionGen = this.#visitEvictionGen;
     let read: entry.Entered;
     try {
       read = await entry.enterWorkspace(this.backend, workspace);
     } finally {
       if (turn === this.#entering) this.#enteringWorkspaceId = undefined;
     }
+    if (session !== this.#sessionGen) return;
     if (read.status !== 'ready') {
       this.#caches.evictForEntered(this.workspaces, workspaceId, read, this.board);
     }
@@ -264,31 +281,37 @@ export class Workspace {
     if (read.status === 'ready') {
       ({ users: this.users, containers: this.containers, categories: this.categories } = read);
       this.workspaceUsers = read.users;
-      this.#cacheableVisit = true;
-      this.#rememberWorkspace();
+      if (this.#visitEvictionGen === evictionGen) {
+        this.#cacheableVisit = true;
+        this.#rememberWorkspace();
+      }
       this.#caches.pruneContainers(workspaceId, this.containers, this.board);
+      this.#flushPendingResync(turn, workspaceId);
     }
   }
 
   async #enterCached(
+    session: number,
     turn: number,
     workspace: WorkspaceInfo,
     cached: WorkspaceSnapshot,
   ): Promise<void> {
     this.#enteringWorkspaceId = workspace.id;
+    const evictionGen = this.#visitEvictionGen;
     this.#cacheableVisit = true;
     try {
       await enterCachedWorkspace(
         this,
         this.#caches,
         {
+          sidebarWrites: this.#sidebarWrites,
+          isSession: (s) => s === this.#sessionGen,
           isCurrent: (t, visit) => t === this.#entering && this.info === visit,
-          sidebarBegun: () => this.#sidebarWrites.begun,
-          sidebarReading: (begun) => this.#sidebarWrites.reading(begun),
           refreshSidebar: () => {
-            void this.#refresh();
+            this.#pendingResync = true;
           },
           rememberWorkspace: () => {
+            if (this.#visitEvictionGen !== evictionGen) return;
             this.#cacheableVisit = true;
             this.#rememberWorkspace();
           },
@@ -296,36 +319,39 @@ export class Workspace {
             this.#leave(asked, false);
           },
         },
+        session,
         turn,
         workspace,
         cached,
       );
     } finally {
-      if (turn === this.#entering) this.#enteringWorkspaceId = undefined;
+      if (turn === this.#entering) {
+        this.#enteringWorkspaceId = undefined;
+        this.#flushPendingResync(turn, workspace.id);
+      }
     }
   }
 
+  #flushPendingResync(turn: number, workspaceId: string): void {
+    if (!this.#pendingResync) return;
+    this.#pendingResync = false;
+    if (turn === this.#entering && this.info?.id === workspaceId) void this.#refresh();
+  }
+
   #rememberWorkspace(): void {
-    if (!this.#cacheableVisit || !this.me || !this.info || this.entered !== 'ready') return;
-    this.#caches.workspaces.set({
-      userId: this.me.id,
-      workspaceId: this.info.id,
-      users: this.users,
-      workspaceUsers: this.workspaceUsers,
-      containers: this.containers,
-      categories: this.categories,
-    });
+    rememberWorkspaceSnapshot(this.#caches, this, this.#cacheableVisit);
   }
 
   /** Lets go of the workspace shown, saving its sidebar snapshot when `cache` is true. */
   #leave(asked: string | undefined, cache = false): void {
     if (cache) {
       this.#rememberWorkspace();
-      this.#parkBoard();
+      this.#caches.parkBoard(this);
     } else {
-      this.#dropBoard();
+      this.#caches.dropBoard(this);
     }
     this.#cacheableVisit = false;
+    this.#pendingResync = false;
     this.undo.clear();
     this.asked = asked;
     [this.info, this.closed] = [undefined, undefined];
@@ -338,6 +364,7 @@ export class Workspace {
    * more and every navigation cache is wiped so nothing survives across sessions.
    */
   #over(status: 'signedOut' | 'leaving'): void {
+    this.#sessionGen += 1;
     this.status = status;
     this.#leave(undefined, false);
     this.workspaces = [];
@@ -346,8 +373,12 @@ export class Workspace {
 
   /** Stops listening and clears every cache. For a test, or when the reader signs out. */
   close(): void {
+    this.#entering += 1;
+    this.#refreshing += 1;
+    this.#pendingResync = false;
+    this.#enteringWorkspaceId = undefined;
     this.#stopWatching?.();
-    this.#dropBoard();
+    this.#caches.dropBoard(this);
     this.#caches.clear();
   }
 
@@ -409,39 +440,33 @@ export class Workspace {
    */
   async #refresh(): Promise<void> {
     const workspace = this.info;
-    if (this.status !== 'ready' || !workspace || this.#enteringWorkspaceId === workspace.id) return;
-    this.#refreshing += 1;
-    const reading = this.#refreshing;
-    const before = this.containers.map((board) => board.id);
-    const begun = this.#sidebarWrites.begun;
-    try {
-      const [boards, categories] = await Promise.all([
-        entry.modulesOf(this.backend, workspace),
-        this.backend.categories(workspace.id),
-      ]);
-      // Superseded, or another workspace was entered meanwhile.
-      if (reading !== this.#refreshing || this.info !== workspace) return;
-      this.containers = reread(this.containers, boards, before);
-      this.#caches.pruneContainers(workspace.id, this.containers, this.board);
-      // Not over a sidebar write under way, or one begun since this reading was.
-      const verdict = this.#sidebarWrites.reading(begun);
-      if (verdict === 'show') this.categories = categories;
-      else if (verdict === 'again') void this.#refresh();
-      this.#cacheableVisit = true;
-      this.#rememberWorkspace();
-    } catch (error) {
-      if (isBackendError(error) && error.status === 401) {
-        this.report('load', error);
-        return;
-      }
-      if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
-        this.#caches.evictWorkspace(workspace.id, this.board);
-        if (reading === this.#refreshing && this.info === workspace) {
-          this.#leave(this.asked, false);
-          this.entered = 'missing';
-        }
-      }
+    if (this.status !== 'ready' || !workspace) return;
+    if (this.#enteringWorkspaceId === workspace.id) {
+      this.#pendingResync = true;
+      return;
     }
+    this.#refreshing += 1;
+    const [session, reading] = [this.#sessionGen, this.#refreshing];
+    await refreshWorkspaceSidebar(
+      this,
+      this.#caches,
+      {
+        sidebarWrites: this.#sidebarWrites,
+        isSession: (s) => s === this.#sessionGen,
+        isCurrent: (r, ws) => r === this.#refreshing && this.info === ws,
+        refreshAgain: () => void this.#refresh(),
+        rememberWorkspace: () => {
+          this.#cacheableVisit = true;
+          this.#rememberWorkspace();
+        },
+        leaveWithoutCaching: (asked) => {
+          this.#leave(asked, false);
+        },
+      },
+      session,
+      reading,
+      workspace,
+    );
   }
 
   /**
@@ -471,13 +496,7 @@ export class Workspace {
     const closing = entry.closedBy(this.workspaces, this.info, error);
     if (closing) {
       if (reading && this.showing && closing.entered === 'password') return true;
-      this.#caches.evictForClosing(
-        this.workspaces,
-        error,
-        closing.entered,
-        closing.closed?.id,
-        this.board,
-      );
+      this.#caches.evictForClosing(this, error, closing);
       this.workspaces = closing.workspaces;
       if (!closing.closed) return true;
       this.#entering += 1; // What is still being read of it does not open it again.
@@ -545,7 +564,7 @@ export class Workspace {
     if (this.board?.boardId === boardId && this.board.status !== 'failed' && !this.board.missing) {
       return this.board;
     }
-    this.#parkBoard();
+    this.#caches.parkBoard(this);
     const cached =
       this.me && this.info
         ? this.#caches.boards.take(this.me.id, this.info.id, boardId)
@@ -553,63 +572,40 @@ export class Workspace {
     if (cached) {
       this.board = cached;
       await cached.resume();
-      this.#trackBoard(cached);
+      this.#caches.trackBoard(this, cached);
       return cached;
     }
     const store = new BoardStore(this, boardId);
     this.board = store;
     await store.load();
-    this.#trackBoard(store);
+    this.#caches.trackBoard(this, store);
     return store;
   }
 
   /** Parks the open board in cache if reusable, else closes it. */
   closeBoard(): void {
-    this.#parkBoard();
-  }
-
-  #parkBoard(): void {
-    const open = this.board;
-    this.board = undefined;
-    if (!open) return;
-    if (isCacheableBoard(open) && this.me && this.info) {
-      open.park();
-      this.#caches.boards.track(this.me.id, this.info.id, open);
-    } else {
-      this.#caches.boards.delete(open.boardId);
-      open.close();
-    }
-  }
-
-  #dropBoard(): void {
-    const open = this.board;
-    this.board = undefined;
-    if (!open) return;
-    this.#caches.boards.delete(open.boardId);
-    open.close();
-  }
-
-  #trackBoard(store: BoardStore): void {
-    if (this.board === store && isCacheableBoard(store) && this.me && this.info) {
-      this.#caches.boards.track(this.me.id, this.info.id, store);
-    }
+    this.#caches.parkBoard(this);
   }
 
   // ------------------------------------------------------------- caches
 
+  #invalidateVisit(): void {
+    this.#visitEvictionGen += 1;
+    this.#refreshing += 1;
+    this.#cacheableVisit = false;
+    this.board?.markEvicted();
+  }
+
   evictWorkspace(workspaceId: string): void {
-    if (this.info?.id === workspaceId) {
-      this.#cacheableVisit = false;
-      this.board?.markEvicted();
+    if (this.info?.id === workspaceId || this.#enteringWorkspaceId === workspaceId) {
+      this.#invalidateVisit();
     }
     this.#caches.evictWorkspace(workspaceId, this.board);
   }
 
   evictOrg(orgId: string): void {
-    if (this.info?.orgId === orgId) {
-      this.#cacheableVisit = false;
-      this.board?.markEvicted();
-    }
+    const entering = this.workspaces.find((one) => one.id === this.#enteringWorkspaceId);
+    if (this.info?.orgId === orgId || entering?.orgId === orgId) this.#invalidateVisit();
     this.#caches.evictOrg(this.workspaces, orgId, this.board);
   }
 
@@ -618,6 +614,8 @@ export class Workspace {
   }
 
   pruneWorkspaces(): void {
+    const current = this.info && this.workspaces.find((one) => one.id === this.info?.id);
+    if (this.info && (!current || !entry.isOpen(current))) this.#invalidateVisit();
     this.#caches.pruneWorkspaces(this.workspaces, this.board);
   }
 

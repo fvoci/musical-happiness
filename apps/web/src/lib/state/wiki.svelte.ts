@@ -165,6 +165,7 @@ export class WikiStore {
     this.#readings += 1;
     const reading = this.#readings;
     const membersTold = this.#people.told;
+    const mark = this.#writes.forgettings;
     const initialPageId = options.pageId;
     const speculative = Boolean(initialPageId && options.speculative);
     try {
@@ -194,7 +195,10 @@ export class WikiStore {
       if (initialPageId && (wiki.type === 'O' || this.role !== '')) this.status = 'ready';
       const pages = await pagesRead;
       if (this.isClosed() || reading !== this.#readings) return;
-      this.pages = pages;
+      const read = this.#writes.admitted(pages, mark);
+      this.pages =
+        this.pages.length > 0 ? reread(this.pages, read, [], (p) => this.#writes.receive(p)) : read;
+      this.#writes.remember(this.pages);
       this.pagesReady = true;
       this.status = 'ready';
       const remembered = this.workspace.rememberedWikiPage(this.wikiId);
@@ -340,7 +344,7 @@ export class WikiStore {
    * missed (`resync`): the pages merged with what is shown (`reread`).
    */
   async #refresh(): Promise<void> {
-    if (this.status !== 'ready' || this.#closed) return;
+    if (this.status !== 'ready' || !this.pagesReady || this.isClosed()) return;
     this.#readings += 1;
     const reading = this.#readings;
     const before = this.pages.map((page) => page.id);

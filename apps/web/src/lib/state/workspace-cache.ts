@@ -109,16 +109,26 @@ export class WorkspaceCache {
 
 /**
  * Merges a freshly read workspace user list into `current`: fresh members replace
- * older copies, people removed from `cachedWorkspaceUsers` are dropped, and
- * extra users learned during the visit (such as card authors) are kept.
+ * unchanged copies from `baseline`, any member already updated during the visit
+ * keeps their newer record, removed members from `cachedWorkspaceUsers` are
+ * dropped, and extra users learned during the visit (such as card authors) stay.
  */
 export function mergeWorkspaceUsers(
   current: readonly User[],
   cachedWorkspaceUsers: readonly User[],
   freshWorkspaceUsers: readonly User[],
+  baseline: ReadonlyMap<string, User> = new Map(
+    cachedWorkspaceUsers.map((user) => [user.id, user]),
+  ),
 ): User[] {
+  const currentById = new Map(current.map((user) => [user.id, user]));
   const freshIds = new Set(freshWorkspaceUsers.map((user) => user.id));
   const oldWorkspaceIds = new Set(cachedWorkspaceUsers.map((user) => user.id));
+  const merged = freshWorkspaceUsers.map((fresh) => {
+    const now = currentById.get(fresh.id);
+    const before = baseline.get(fresh.id);
+    return now !== undefined && now !== before ? now : fresh;
+  });
   const extras = current.filter((user) => !freshIds.has(user.id) && !oldWorkspaceIds.has(user.id));
-  return [...freshWorkspaceUsers, ...extras];
+  return [...merged, ...extras];
 }

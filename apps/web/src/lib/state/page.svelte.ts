@@ -132,14 +132,18 @@ export class PageStore {
         this.wiki.workspace.report('load', error);
       } else if (isBackendError(error) && (error.status === 404 || error.status === 403)) {
         this.wiki.workspace.forgetWikiPage(this.#wikiId, this.pageId);
-        if (this.#speculative) this.wiki.speculativeFailed(this.pageId);
+        if (this.#isSpeculative()) this.wiki.speculativeFailed(this.pageId);
         else this.gone();
       } else if (first) {
         this.status = 'failed';
-        if (this.#speculative) this.wiki.speculativeFailed(this.pageId);
+        if (this.#isSpeculative()) this.wiki.speculativeFailed(this.pageId);
         else this.wiki.workspace.report('load', error);
       }
     }
+  }
+
+  #isSpeculative(): boolean {
+    return this.#speculative && this.wiki.speculativePageId === this.pageId;
   }
 
   close(): void {

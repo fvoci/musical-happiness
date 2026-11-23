@@ -103,24 +103,25 @@
    * says whose name the step sends, if it sends one.
    */
   async function act(step: (place: string) => Promise<unknown>, naming?: string): Promise<boolean> {
-    if (!workspaceId || working) return false;
+    const place = workspaceId;
+    if (!place || working) return false;
     working = true;
     problem = '';
     refusedName = undefined;
     try {
-      await step(workspaceId);
-      workspace.evictWorkspace(workspaceId);
+      await step(place);
+      workspace.evictWorkspace(place);
       return true;
     } catch (error) {
       if (isBackendError(error) && error.status === 401) workspace.report('save', error);
       else if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
-        workspace.evictWorkspace(workspaceId);
+        workspace.evictWorkspace(place);
       }
       problem = told(error);
       if (aboutName(error)) refusedName = naming;
       return false;
     } finally {
-      await read(workspaceId, managing);
+      await read(place, managing);
       working = false;
     }
   }

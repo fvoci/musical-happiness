@@ -6,7 +6,7 @@
  * - Strict security, isolation & invalidation on 401/403/404, role change,
  *   member removal, org leaving, SSO/password lock, logout and account switch
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   BackendError,
@@ -24,6 +24,19 @@ import { OrgAdmin } from '$lib/state/org-admin.svelte.ts';
 import type { Organizations } from '$lib/state/organization.ts';
 
 import { settle, setup, SMALL, text, type Setup } from './support.ts';
+
+const closers: (() => void)[] = [];
+
+afterEach(() => {
+  while (closers.length > 0) closers.pop()?.();
+});
+
+function track<T extends { close(): void }>(store: T): T {
+  closers.push(() => {
+    store.close();
+  });
+  return store;
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -64,11 +77,13 @@ function multiWorkspaceSetup(
     .spyOn(backend.wiki, 'wikis')
     .mockImplementation((id) => (extras.has(id) ? Promise.resolve([]) : realWikis(id)));
 
-  const workspace = new Workspace({
-    backend,
-    locale: () => 'en',
-    cacheLimits: options.cacheLimits,
-  });
+  const workspace = track(
+    new Workspace({
+      backend,
+      locale: () => 'en',
+      cacheLimits: options.cacheLimits,
+    }),
+  );
 
   return {
     ...made,
@@ -164,7 +179,7 @@ describe('workspace sidebar cache (stale-while-revalidate + LRU)', () => {
     workspace.close();
   });
 
-  it('does not double-fetch when resync fires while enter for the same workspace is in flight', async () => {
+  it('coalesces resync while enter is in flight and runs one follow-up refresh after enter finishes', async () => {
     const { workspace, backend, world, first, boardsSpy } = multiWorkspaceSetup([]);
     await workspace.load();
     boardsSpy.mockClear();
@@ -173,11 +188,49 @@ describe('workspace sidebar cache (stale-while-revalidate + LRU)', () => {
     boardsSpy.mockReturnValueOnce(gate.promise);
     const reentering = workspace.enter(first.id, true);
     world.tellUsers([backend.userId], { kind: 'resync' });
+    world.tellUsers([backend.userId], { kind: 'resync' });
     await settle();
     expect(boardsSpy).toHaveBeenCalledTimes(1);
+
+    const followUp = deferred<never[]>();
+    boardsSpy.mockReturnValueOnce(followUp.promise);
     gate.resolve([]);
     await reentering;
-    workspace.close();
+    await vi.waitFor(() => {
+      expect(boardsSpy).toHaveBeenCalledTimes(2);
+    });
+    followUp.resolve([]);
+    await settle();
+  });
+
+  it('preserves user updates received in-flight during cached workspace revalidation', async () => {
+    const ws2: WorkspaceInfo = { id: 'ws-2', title: 'Two' };
+    const { workspace, backend, world, first, usersSpy } = multiWorkspaceSetup([ws2]);
+    await workspace.load();
+    const initialUser = workspace.users[0];
+    if (!initialUser) throw new Error('expected workspace user');
+    await workspace.enter(ws2.id);
+
+    const staleUsers = [{ ...initialUser, username: 'stale-copy' }];
+    const updatedUser = { ...initialUser, username: 'live-updated' };
+    const usersGate = deferred<typeof staleUsers>();
+    usersSpy.mockReturnValueOnce(usersGate.promise);
+    vi.spyOn(backend, 'usersById').mockResolvedValueOnce([updatedUser]);
+
+    const entering = workspace.enter(first.id);
+    expect(workspace.entered).toBe('ready');
+    // Live user update arrives while cached revalidation is still in flight.
+    world.tellUsers([backend.userId], { kind: 'user', userId: initialUser.id });
+    await vi.waitFor(() => {
+      expect(workspace.user(initialUser.id)?.username).toBe('live-updated');
+    });
+
+    usersGate.resolve(staleUsers);
+    await entering;
+    expect(workspace.user(initialUser.id)?.username).toBe('live-updated');
+    expect(workspace.workspaceUsers.find((u) => u.id === initialUser.id)?.username).toBe(
+      'live-updated',
+    );
   });
 });
 
@@ -206,7 +259,7 @@ describe('wiki fast first-page open and fallback', () => {
     const { workspace, backend, wiki, p2 } = await setupWiki();
 
     // First visit opens p2 and remembers it.
-    const firstVisit = new WikiStore(workspace, wiki.id);
+    const firstVisit = track(new WikiStore(workspace, wiki.id));
     await firstVisit.load();
     firstVisit.showPage(p2.id);
     await settle();
@@ -218,7 +271,7 @@ describe('wiki fast first-page open and fallback', () => {
     const pagesGate = deferred<typeof allPages>();
     vi.spyOn(backend.wiki, 'pages').mockReturnValueOnce(pagesGate.promise);
 
-    const secondVisit = new WikiStore(workspace, wiki.id);
+    const secondVisit = track(new WikiStore(workspace, wiki.id));
     const remembered = workspace.rememberedWikiPage(wiki.id);
     const loading = secondVisit.load({ pageId: remembered, speculative: true });
     await vi.waitFor(() => {
@@ -237,8 +290,6 @@ describe('wiki fast first-page open and fallback', () => {
     await loading;
     expect(secondVisit.pagesReady).toBe(true);
     expect(secondVisit.pages).toHaveLength(2);
-    secondVisit.close();
-    workspace.close();
   });
 
   it('falls back cleanly when the remembered page was deleted (404) before the list arrives', async () => {
@@ -250,7 +301,7 @@ describe('wiki fast first-page open and fallback', () => {
     const pagesGate = deferred<typeof remaining>();
     vi.spyOn(backend.wiki, 'pages').mockReturnValueOnce(pagesGate.promise);
 
-    const store = new WikiStore(workspace, wiki.id);
+    const store = track(new WikiStore(workspace, wiki.id));
     const loading = store.load({ pageId: p2.id, speculative: true });
 
     await vi.waitFor(() => {
@@ -264,8 +315,6 @@ describe('wiki fast first-page open and fallback', () => {
     await loading;
     expect(store.pagesReady).toBe(true);
     expect(store.pages.map((page) => page.id)).toEqual([p1.id]);
-    store.close();
-    workspace.close();
   });
 
   it('cancels speculative page if the list resolves first without it', async () => {
@@ -276,15 +325,13 @@ describe('wiki fast first-page open and fallback', () => {
     const pageGate = deferred<never>();
     vi.spyOn(backend.wiki, 'page').mockReturnValueOnce(pageGate.promise);
 
-    const store = new WikiStore(workspace, wiki.id);
+    const store = track(new WikiStore(workspace, wiki.id));
     await store.load({ pageId: p2.id, speculative: true });
     expect(store.pagesReady).toBe(true);
     expect(store.speculativePageId).toBeUndefined();
     expect(store.openPage).toBeUndefined();
     expect(workspace.rememberedWikiPage(wiki.id)).toBeUndefined();
     expect(store.pages.map((page) => page.id)).toEqual([p1.id]);
-    store.close();
-    workspace.close();
   });
 
   it('closes speculative page and evicts wiki cache when wiki access is refused (403)', async () => {
@@ -292,14 +339,12 @@ describe('wiki fast first-page open and fallback', () => {
     workspace.rememberWikiPage(wiki.id, p1.id);
     vi.spyOn(backend.wiki, 'pages').mockRejectedValueOnce(new BackendError(403));
 
-    const store = new WikiStore(workspace, wiki.id);
+    const store = track(new WikiStore(workspace, wiki.id));
     await store.load({ pageId: p1.id, speculative: true });
     expect(store.missing).toBe(true);
     expect(store.status).toBe('failed');
     expect(store.openPage).toBeUndefined();
     expect(workspace.rememberedWikiPage(wiki.id)).toBeUndefined();
-    store.close();
-    workspace.close();
   });
 });
 
@@ -370,10 +415,12 @@ describe('recent BoardStore cache (cap 2, instant resume, zero leaks)', () => {
     const reopening = workspace.openBoard(b1.id);
     expect(workspace.board).toBe(store1);
     expect(store1.status).toBe('ready');
+    expect(store1.revalidating).toBe(true);
     expect(activeWatchers).toBe(1);
 
     cardsGate.resolve(await realCards(b1.id));
     expect(await reopening).toBe(store1);
+    expect(store1.revalidating).toBe(false);
     expect(store1.card(card.id)?.title).toBe('Updated While Parked');
 
     // Board -> Wiki (`closeBoard`) -> Board: parks with 0 watchers, then resumes instantly.
@@ -418,17 +465,24 @@ describe('recent BoardStore cache (cap 2, instant resume, zero leaks)', () => {
     if (!b1 || !b2) throw new Error('expected 2 boards');
 
     const store1 = await workspace.openBoard(b1.id);
-    backend.latency = 20;
+    const gate = deferred<Awaited<ReturnType<typeof backend.createCard>>>();
+    const realCreate = backend.createCard.bind(backend);
+    vi.spyOn(backend, 'createCard').mockReturnValueOnce(gate.promise);
     const creating = whileHere(store1, () => store1.createCard({ title: 'Stale' }));
+
     await workspace.openBoard(b2.id);
-    await workspace.openBoard(b1.id);
+    const returned = await workspace.openBoard(b1.id);
+    expect(returned).toBe(store1);
+    expect(workspace.board).toBe(store1);
+
+    // Release the card creation only AFTER returning to the same store1 instance.
+    gate.resolve(await realCreate(b1.id, { title: 'Stale' }));
     expect(await creating).toBeUndefined();
-    workspace.close();
   });
 });
 
 describe('strict security, isolation and cache invalidation', () => {
-  it('clears all caches on logout, session expiry (401), and account switch', async () => {
+  it('clears all caches immediately on 401 before load() and keeps User B isolated', async () => {
     const ws2: WorkspaceInfo = { id: 'ws-2', title: 'Two' };
     const { workspace, backend, first, boardsSpy } = multiWorkspaceSetup([ws2]);
     await workspace.load();
@@ -437,12 +491,25 @@ describe('strict security, isolation and cache invalidation', () => {
     const store1 = await workspace.openBoard(b1.id);
     const close1 = vi.spyOn(store1, 'close');
     workspace.rememberWikiPage('wiki-1', 'page-1');
+    expect(workspace.rememberedWikiPage('wiki-1')).toBe('page-1');
     await workspace.enter(ws2.id);
 
-    // 401 session expired wipes ALL caches and closes parked boards.
+    // 401 session expired wipes ALL caches and closes parked boards BEFORE load() runs.
     workspace.report('save', new BackendError(401, { detail: 'expired' }));
     expect(workspace.status).toBe('signedOut');
     expect(close1).toHaveBeenCalled();
+
+    // Verify User A's cached sidebar and wiki page were already evicted by 401 (without calling load).
+    workspace.workspaces = [first, ws2];
+    const preLoadGate = deferred<never[]>();
+    boardsSpy.mockReturnValueOnce(preLoadGate.promise);
+    const preLoadEnter = workspace.enter(first.id);
+    expect(workspace.entered).toBe('loading');
+    expect(workspace.containers).toEqual([]);
+    expect(workspace.rememberedWikiPage('wiki-1')).toBeUndefined();
+    preLoadGate.resolve([]);
+    await preLoadEnter;
+    expect(workspace.rememberedWikiPage('wiki-1')).toBeUndefined();
 
     // Another user signs in on the same Workspace instance: zero cached data from User A!
     if (!workspace.me) throw new Error('expected signed-in user');
@@ -458,7 +525,6 @@ describe('strict security, isolation and cache invalidation', () => {
     expect(workspace.rememberedWikiPage('wiki-1')).toBeUndefined();
     gate.resolve([]);
     await loadingB;
-    workspace.close();
   });
 
   it('evicts cached workspace, boards and wiki pages immediately when 403/404 arrives on return or resync', async () => {
@@ -480,12 +546,15 @@ describe('strict security, isolation and cache invalidation', () => {
     expect(close1).toHaveBeenCalled();
     expect(workspace.rememberedWikiPage('wiki-1')).toBeUndefined();
 
-    // Next attempt to enter `first` is a cache miss (not served stale).
-    boardsSpy.mockRejectedValueOnce(new BackendError(403));
-    const retry = workspace.enter(first.id, true);
+    // Normal (non-`again`) return from ws2 -> first must be a cache miss (no stale snapshot shown).
+    await workspace.enter(ws2.id);
+    const retryGate = deferred<never[]>();
+    boardsSpy.mockReturnValueOnce(retryGate.promise);
+    const retry = workspace.enter(first.id);
     expect(workspace.entered).toBe('loading');
+    expect(workspace.containers).toEqual([]);
+    retryGate.resolve([]);
     await retry;
-    expect(workspace.entered).toBe('missing');
 
     // Also on resync (#refresh) getting 403 while inside a workspace: evict and mark missing.
     await workspace.enter(ws2.id);
@@ -494,7 +563,6 @@ describe('strict security, isolation and cache invalidation', () => {
     await vi.waitFor(() => {
       expect(workspace.entered).toBe('missing');
     });
-    workspace.close();
   });
 
   it('evicts cached board and clears its content immediately when refresh returns 403 or 404', async () => {
@@ -547,9 +615,20 @@ describe('strict security, isolation and cache invalidation', () => {
     await enteringA;
     expect(workspace.rememberedWikiPage('wiki-a')).toBeUndefined();
 
-    // Leaving org-a evicts org-a immediately.
+    // Leaving org-a evicts org-a's cached snapshot directly (even if org-a is re-listed).
     await workspace.enter(orgB.id);
     await leaveOrganization(workspace, () => Promise.resolve(), 'org-a');
+    workspace.workspaces = [...workspace.workspaces, orgA];
+    const gateAfterLeaveOrg = deferred<never[]>();
+    boardsSpy.mockReturnValueOnce(gateAfterLeaveOrg.promise);
+    const enterAfterLeaveOrg = workspace.enter(orgA.id);
+    expect(workspace.entered).toBe('loading');
+    expect(workspace.containers).toEqual([]);
+    gateAfterLeaveOrg.resolve([]);
+    await enterAfterLeaveOrg;
+
+    // OrgAdmin.leaveWorkspace evicts org-b; normal enter (without `again`) must be a cache miss.
+    await workspace.enter(orgB.id);
     const orgApi = {
       organization: () => Promise.resolve({ id: 'org-b', name: 'B', publicLinks: false }),
       workspaces: () => Promise.resolve([]),
@@ -560,12 +639,12 @@ describe('strict security, isolation and cache invalidation', () => {
     } as unknown as Organizations;
     const admin = new OrgAdmin(orgApi, 'org-b', workspace);
     await admin.leaveWorkspace(orgB.id);
-
-    // org-b was evicted too -> re-entering goes through 'loading'.
+    await workspace.enter(orgA.id);
     const gateB = deferred<never[]>();
     boardsSpy.mockReturnValueOnce(gateB.promise);
-    const reenterB = workspace.enter(orgB.id, true);
+    const reenterB = workspace.enter(orgB.id);
     expect(workspace.entered).toBe('loading');
+    expect(workspace.containers).toEqual([]);
     gateB.resolve([]);
     await reenterB;
 
@@ -605,16 +684,52 @@ describe('strict security, isolation and cache invalidation', () => {
     expect(wikiCache.size).toBe(0);
     // Keep unused backend reference satisfied cleanly.
     expect(backend).toBeDefined();
-    workspace.close();
   });
 
-  it('evicts cached workspace on evictWorkspace (e.g. member removal / role downgrade)', async () => {
+  it('evicts all sibling workspaces of an org on OrgAdmin.setRole()', async () => {
+    const orgA1: WorkspaceInfo = { id: 'ws-a1', title: 'Org A1', orgId: 'org-a', kind: 'team' };
+    const orgA2: WorkspaceInfo = { id: 'ws-a2', title: 'Org A2', orgId: 'org-a', kind: 'team' };
+    const orgB: WorkspaceInfo = { id: 'ws-b', title: 'Org B', orgId: 'org-b', kind: 'team' };
+    const { workspace, boardsSpy } = multiWorkspaceSetup([orgA1, orgA2, orgB]);
+    await workspace.load(orgA1.id);
+    await workspace.enter(orgA2.id);
+    await workspace.enter(orgB.id);
+
+    const orgApi = {
+      organization: () => Promise.resolve({ id: 'org-a', name: 'A', publicLinks: false }),
+      workspaces: () => Promise.resolve([]),
+      members: () => Promise.resolve([]),
+      records: () => Promise.resolve([]),
+      setRole: () => Promise.resolve({} as never),
+    } as unknown as Organizations;
+    const admin = new OrgAdmin(orgApi, 'org-a', workspace);
+    await admin.setRole('user-1', 'member');
+
+    // Both org-a workspaces were evicted -> normal enters hit 'loading'.
+    const gateA1 = deferred<never[]>();
+    boardsSpy.mockReturnValueOnce(gateA1.promise);
+    const enterA1 = workspace.enter(orgA1.id);
+    expect(workspace.entered).toBe('loading');
+    gateA1.resolve([]);
+    await enterA1;
+
+    const gateA2 = deferred<never[]>();
+    boardsSpy.mockReturnValueOnce(gateA2.promise);
+    const enterA2 = workspace.enter(orgA2.id);
+    expect(workspace.entered).toBe('loading');
+    gateA2.resolve([]);
+    await enterA2;
+  });
+
+  it('evicts cached workspace on evictWorkspace and discards an in-flight #refresh()', async () => {
     const ws2: WorkspaceInfo = { id: 'ws-2', title: 'Two' };
-    const { workspace, first, boardsSpy } = multiWorkspaceSetup([ws2]);
+    const { workspace, backend, world, first, boardsSpy, categoriesSpy } = multiWorkspaceSetup([
+      ws2,
+    ]);
     await workspace.load();
     await workspace.enter(ws2.id);
 
-    // Evict `first` (e.g. after removing a member or downgrading a role).
+    // Evict `first` while parked (e.g. after removing a member or downgrading a role).
     workspace.evictWorkspace(first.id);
     const gate = deferred<never[]>();
     boardsSpy.mockReturnValueOnce(gate.promise);
@@ -622,7 +737,63 @@ describe('strict security, isolation and cache invalidation', () => {
     expect(workspace.entered).toBe('loading');
     gate.resolve([]);
     await entering;
-    workspace.close();
+
+    // Now trigger an in-flight #refresh() on active `first` and evict mid-flight.
+    const initialContainers = workspace.containers;
+    const initialCategories = workspace.categories;
+    const boardsGate = deferred<Awaited<ReturnType<typeof backend.boards>>>();
+    const catsGate = deferred<Awaited<ReturnType<typeof backend.categories>>>();
+    boardsSpy.mockReturnValueOnce(boardsGate.promise);
+    categoriesSpy.mockReturnValueOnce(catsGate.promise);
+    world.tellUsers([backend.userId], { kind: 'resync' });
+    await settle();
+
+    workspace.evictWorkspace(first.id);
+    boardsGate.resolve([
+      {
+        id: 'stale-board',
+        workspaceId: first.id,
+        title: 'Stale',
+        type: 'O',
+        module: 'boards',
+        createAt: 1,
+        updateAt: 1,
+      } as never,
+    ]);
+    catsGate.resolve([{ id: 'stale-cat', name: 'Stale', containerIds: [] } as never]);
+    await settle();
+
+    // In-flight pre-eviction #refresh() was discarded and did NOT re-cache `first`.
+    expect(workspace.containers).toBe(initialContainers);
+    expect(workspace.categories).toBe(initialCategories);
+    await workspace.enter(ws2.id);
+    const reenterGate = deferred<never[]>();
+    boardsSpy.mockReturnValueOnce(reenterGate.promise);
+    const reentering = workspace.enter(first.id);
+    expect(workspace.entered).toBe('loading');
+    reenterGate.resolve([]);
+    await reentering;
+  });
+
+  it('does not re-cache the active workspace on leave after pruneWorkspaces sees it removed or locked', async () => {
+    const ws2: WorkspaceInfo = { id: 'ws-2', title: 'Two' };
+    const { workspace, first, boardsSpy } = multiWorkspaceSetup([ws2]);
+    await workspace.load(first.id);
+    workspace.workspaces = workspace.workspaces.map((w) =>
+      w.id === first.id ? { ...w, ssoRequired: true } : w,
+    );
+    workspace.pruneWorkspaces();
+
+    await workspace.enter(ws2.id);
+    workspace.workspaces = workspace.workspaces.map((w) =>
+      w.id === first.id ? { ...w, ssoRequired: false } : w,
+    );
+    const gate = deferred<never[]>();
+    boardsSpy.mockReturnValueOnce(gate.promise);
+    const returning = workspace.enter(first.id);
+    expect(workspace.entered).toBe('loading');
+    gate.resolve([]);
+    await returning;
   });
 
   it('signs out and clears caches when WikiStore or PageStore encounters 401', async () => {
@@ -633,7 +804,7 @@ describe('strict security, isolation and cache invalidation', () => {
       type: 'P',
     });
     const page = await made.backend.wiki.createPage(wiki.id, { title: 'P1' });
-    const store = new WikiStore(made.workspace, wiki.id);
+    const store = track(new WikiStore(made.workspace, wiki.id));
     await store.load();
     const shown = store.showPage(page.id);
     await settle();
@@ -776,11 +947,12 @@ describe('strict security, isolation and cache invalidation', () => {
     const p1 = await made.backend.wiki.createPage(wiki.id, { title: 'Keep' });
     const p2 = await made.backend.wiki.createPage(wiki.id, { title: 'Soon Gone' });
 
-    // Early title edit before pages() resolves updates meta and persists.
-    const pagesGate1 = deferred<Awaited<ReturnType<typeof made.backend.wiki.pages>>>();
+    // Early title edit before pages() resolves updates meta and survives a pre-rename pages() snapshot.
     const realPages = made.backend.wiki.pages.bind(made.backend.wiki);
+    const preRenamePages = await realPages(wiki.id);
+    const pagesGate1 = deferred<typeof preRenamePages>();
     vi.spyOn(made.backend.wiki, 'pages').mockReturnValueOnce(pagesGate1.promise);
-    const store1 = new WikiStore(made.workspace, wiki.id);
+    const store1 = track(new WikiStore(made.workspace, wiki.id));
     const load1 = store1.load({ pageId: p1.id, speculative: false });
     await vi.waitFor(() => {
       expect(store1.status).toBe('ready');
@@ -788,15 +960,15 @@ describe('strict security, isolation and cache invalidation', () => {
     });
     await store1.changePage(p1.id, { title: 'Renamed Early' });
     expect(store1.openPage?.meta?.title).toBe('Renamed Early');
-    pagesGate1.resolve(await realPages(wiki.id));
+    pagesGate1.resolve(preRenamePages);
     await load1;
     expect(store1.page(p1.id)?.title).toBe('Renamed Early');
     store1.close();
 
     // Speculative page confirmed before pages() finishes, then absent from pages() -> marked removed.
-    const pagesGate2 = deferred<Awaited<ReturnType<typeof made.backend.wiki.pages>>>();
+    const pagesGate2 = deferred<typeof preRenamePages>();
     vi.spyOn(made.backend.wiki, 'pages').mockReturnValueOnce(pagesGate2.promise);
-    const store2 = new WikiStore(made.workspace, wiki.id);
+    const store2 = track(new WikiStore(made.workspace, wiki.id));
     const load2 = store2.load({ pageId: p2.id, speculative: true });
     await vi.waitFor(() => {
       expect(store2.openPage?.status).toBe('ready');

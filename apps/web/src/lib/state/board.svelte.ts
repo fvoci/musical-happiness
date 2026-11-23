@@ -166,43 +166,33 @@ export class BoardStore {
   visit = 0;
   /** Set when cache invalidation detaches this store while active so leaving closes it instead of re-caching. */
   evicted = false;
+  #evictionGen = 0;
 
   async load(): Promise<void> {
     this.visit += 1;
-    this.#parked = false;
-    this.evicted = false;
-    this.status = 'loading';
-    this.missing = false;
-    this.joinable = false;
+    [this.#parked, this.revalidating, this.evicted] = [false, false, false];
+    [this.status, this.missing, this.joinable] = ['loading', false, false];
     try {
       // Listen first: a change made while the lists are being read is not lost.
       this.#listen();
       const [board, views, cards, members] = await readBoard(this.workspace, this.boardId);
       if (this.#isInactive()) return;
-      this.board = board;
-      this.views = views;
-      this.cards = cards;
-      this.members = members;
+      [this.board, this.views, this.cards, this.members] = [board, views, cards, members];
       this.status = 'ready';
     } catch (error) {
       if (this.isClosed()) return;
-      await this.#failLoad(error);
+      await handleBoardLoadFailure(this, error);
     }
   }
 
   markEvicted(): void {
+    this.#evictionGen += 1;
     this.evicted = true;
   }
 
   #listen(): void {
     this.#stopWatching?.();
-    this.#stopWatching = this.#backend.watchContainer(this.boardId, (change) => {
-      this.#apply(change);
-    });
-  }
-
-  #failLoad(error: unknown): Promise<void> {
-    return handleBoardLoadFailure(this, error);
+    this.#stopWatching = this.#backend.watchContainer(this.boardId, this.#apply.bind(this));
   }
 
   isClosed(): boolean {
@@ -229,26 +219,33 @@ export class BoardStore {
 
   /** The reader asked to join (`join`) and the answer has not come. */
   joining = $state(false);
+  /** True while a cached board is revalidating in the background after `resume()`. */
+  revalidating = $state(false);
   #closed = false;
   #parked = false;
 
   /** Detaches listeners, open card rooms and timers while keeping the board cached. */
   park(): void {
-    this.#parked = true;
+    [this.#parked, this.revalidating] = [true, false];
     this.#detach();
   }
 
   /** Re-attaches live listening and refreshes cached data in the background. */
   async resume(): Promise<void> {
     if (this.#closed) return;
-    this.#parked = false;
+    [this.#parked, this.revalidating] = [false, true];
     this.visit += 1;
+    const visit = this.visit;
     this.#listen();
-    await this.#refresh();
+    try {
+      await this.#refresh();
+    } finally {
+      if (this.visit === visit) this.revalidating = false;
+    }
   }
 
   close(): void {
-    [this.#closed, this.#parked] = [true, false];
+    [this.#closed, this.#parked, this.revalidating] = [true, false, false];
     this.#detach();
   }
 
@@ -356,6 +353,7 @@ export class BoardStore {
     this.#refreshing += 1;
     const heard = this.#lastComments.begin();
     const reading = this.#refreshing;
+    const evictionGen = this.#evictionGen;
     const cardsBefore = this.cards.map((card) => card.id);
     const viewsBefore = this.views.map((view) => view.id);
     const membersTold = this.#people.told;
@@ -372,7 +370,7 @@ export class BoardStore {
         this.members = members;
         void this.workspace.learnUsers(members.map(memberId), { members: true });
       }
-      this.evicted = false;
+      if (this.#evictionGen === evictionGen) this.evicted = false;
       const open = this.openCard;
       if (open) {
         const card = this.card(open.cardId);
@@ -390,7 +388,7 @@ export class BoardStore {
       }
       if (reading !== this.#refreshing || this.#isInactive()) return;
       if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
-        await this.#failLoad(error);
+        await handleBoardLoadFailure(this, error);
       } else {
         this.workspace.report('load', error);
       }
