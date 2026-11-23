@@ -174,6 +174,23 @@ async fn open_course_unjoined_member_reads_comments_only() {
         "unjoined open-course reader"
     );
 
+    // Unjoined workspace guest gets 404 on open-course comments, and cannot see them.
+    let guest = th.add_user("open-course-comment-guest").await;
+    let guest_id = guest.me().await.id;
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = 'guest' \
+             WHERE workspace_id = '{TEST_WORKSPACE_ID}' AND user_id = '{guest_id}'"
+        ))
+        .await
+        .expect("demote to guest");
+    assert_eq!(
+        on_theirs(&guest, TEST_WS, &open, &unit, &theirs).await,
+        [404; 5],
+        "workspace guest gets 404 on open course comments"
+    );
+
     // Join -> write & delete own comment -> leave -> cannot undelete own comment while unjoined.
     th.client2
         .post_empty(&format!("{TEST_WS}/containers/{open}/join"))
@@ -190,6 +207,32 @@ async fn open_course_unjoined_member_reads_comments_only() {
         .post_empty(&format!("{at_mine}/undelete"))
         .await
         .check_forbidden();
+
+    // Deleting a commented unit, then deleting its chapter, then undeleting the unit
+    // promotes the unit to the top level while keeping its comment attached.
+    let at_unit = format!("{TEST_WS}/courses/{open}/units/{unit}");
+    let ch_id = th.client.get(&at_unit).await.value()["parentId"]
+        .as_str()
+        .expect("chapter id")
+        .to_owned();
+    th.client.delete(&at_unit).await.check_no_content();
+    th.client
+        .delete(&format!("{TEST_WS}/courses/{open}/units/{ch_id}"))
+        .await
+        .check_no_content();
+    let restored = th
+        .client
+        .post_empty(&format!("{at_unit}/undelete"))
+        .await
+        .value();
+    assert_eq!(restored["parentId"], "", "promoted to top level");
+    let after = th
+        .client
+        .get(&comments_of(TEST_WS, &open, &unit))
+        .await
+        .value();
+    assert_eq!(after.as_array().map(Vec::len), Some(1), "{after}");
+    assert_eq!(after[0]["id"], id(&theirs));
     th.teardown().await;
 }
 

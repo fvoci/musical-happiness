@@ -109,9 +109,10 @@ fn not_shared() -> AppError {
 }
 
 impl InSharedContainer {
-    /// Whether what the link opens is of `kind`: a wiki's link reads no blocks or cards,
-    /// a board's no pages, which are as not there (404) as anything not shared. Every
-    /// route but the board itself and its files asks it.
+    /// Whether what the link opens is of `kind`: a board's link reads only blocks and
+    /// cards, a wiki's only pages, and a course's only units; any other kind's routes
+    /// answer as not there (404). Every route but the container itself and its files
+    /// asks it.
     fn require_kind(&self, kind: ContainerKind) -> Result<(), AppError> {
         if self.app.kinds().holds(kind) {
             Ok(())
@@ -155,7 +156,7 @@ async fn handle_get_shared_container(shared: InSharedContainer) -> ApiResult {
 /// The blocks of a shared board
 ///
 /// What `getBlocks` gives of the board, with the same parameters, read with its read
-/// token as `getSharedContainer` is; a wiki's token reads no blocks (404). No block names a
+/// token as `getSharedContainer` is; a wiki's or a course's token reads no blocks (404). No block names a
 /// user: `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in
 /// a body, and so is each user that
 /// the board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)
@@ -200,7 +201,7 @@ async fn handle_get_shared_blocks(
 /// The cards of a shared board
 ///
 /// What `getCards` gives of the board, read with its read token as `getSharedContainer` is;
-/// a wiki's token reads no cards (404).
+/// a wiki's or a course's token reads no cards (404).
 /// No card names a user: `createdBy` and `modifiedBy` are empty, the values of person
 /// properties are emptied, and values of properties the board does not define are left
 /// out. The preview's text has no mentions in it, and its image `getSharedFile` gives.
@@ -279,7 +280,7 @@ async fn handle_get_shared_file_info(
 ///
 /// What `getPageTree` gives of the wiki, read with its read token as `getSharedContainer`
 /// is: every page without its body, naming nobody. By `order` as strings compare by
-/// code unit, then by `id`. A board's token reads no pages (404).
+/// code unit, then by `id`. A board's or a course's token reads no pages (404).
 #[utoipa::path(
     get,
     path = "/shared/{containerId}/pages",
@@ -304,7 +305,7 @@ async fn handle_get_shared_page_tree(shared: InSharedContainer) -> ApiResult {
 /// its `id` if it names a page of this wiki, and has an empty one for anything else: of
 /// what is elsewhere in the workspace nothing is told, nor whether there is anything.
 /// Its comments and its versions are not read by the link. A page of another wiki, one
-/// in the trash, and a board's token are 404.
+/// in the trash, and a board's or a course's token are 404.
 #[utoipa::path(
     get,
     path = "/shared/{containerId}/pages/{pageId}",

@@ -125,12 +125,9 @@ async fn handle_create_subscription(InLinked(ws): InLinked, body: Bytes) -> ApiR
             AppError::forbidden("a user subscribes for themselves only").with_field("subscriberId")
         );
     }
-    // The request names a block and no container: a block of one the user may not read,
-    // or a chapter (which has no body or comments), does not exist for them.
+    // The request names a block and no container: check authorization before inspecting
+    // the block type so an unauthorized caller cannot distinguish a chapter from a unit.
     let block = ws.app.block(&subscription.block_id).await?;
-    if block.block_type == BlockType::Chapter {
-        return Err(AppError::not_found("block"));
-    }
     require_permission_through(
         &ws.app,
         &ws.session.user_id,
@@ -140,6 +137,9 @@ async fn handle_create_subscription(InLinked(ws): InLinked, body: Bytes) -> ApiR
         "block",
     )
     .await?;
+    if block.block_type == BlockType::Chapter {
+        return Err(AppError::not_found("block"));
+    }
 
     let subscription = ws.app.create_subscription(subscription).await?;
     tracing::debug!(

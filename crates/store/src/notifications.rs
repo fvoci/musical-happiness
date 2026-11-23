@@ -387,7 +387,7 @@ fn place_from_row(row: &Row) -> Result<NotificationPlace, StoreError> {
     let block_type = BlockType::from(row.text(1)?.as_str());
     let block_kind = SearchKind::of_block(&block_type).ok_or_else(|| StoreError::Corrupt {
         column: "type",
-        reason: format!("a block of type {block_type} is no card and no page"),
+        reason: format!("a block of type {block_type} is no card, page or unit"),
     })?;
     let container_kind = crate::container_kinds::kind_from_text(&row.text(4)?)?;
     Ok(NotificationPlace {

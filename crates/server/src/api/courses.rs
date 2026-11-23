@@ -440,7 +440,8 @@ async fn handle_get_deleted_units(
 /// `too_many_chapters` (each with the `limit`) if restoring would exceed them. A block
 /// not in this course's trash, or a unit that went with its chapter (it comes back with
 /// that chapter), is 404. The course's listeners are told with `UPDATE_BLOCK` of each
-/// block that came back (a chapter before its units) and each sibling numbered anew.
+/// block that came back (a chapter before its units, and each unit before its comments)
+/// and each sibling numbered anew.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}/undelete",

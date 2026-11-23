@@ -124,9 +124,26 @@ async fn unit_body_versions_roles_keep_by_hand_and_restore() {
     let recent = th.client2.post_empty(&versions).await;
     recent.check_ok();
     assert_eq!(recent.value()["outcome"], "recent");
-    peer.leave().await;
 
-    // Open course unjoined reader can read versions (200) and cannot keep/restore (403).
+    // Restoring while the collab room is open flushes and sends DOC_RESET to the peer.
+    let reset_restore = th
+        .client2
+        .post_empty(&format!("{versions}/{manual_num}/restore"))
+        .await;
+    reset_restore.check_ok();
+    let reset = peer.text("DOC_RESET").await;
+    assert_eq!(reset["action"], "DOC_RESET", "{reset}");
+    peer.settle().await;
+    assert_eq!(peer.lines(), ["first", "typed in room"]);
+    peer.leave().await;
+    th.teardown().await;
+}
+
+/// Open course: unjoined workspace members read body versions (200) and cannot keep or
+/// restore (403); workspace guests get 404 across all 4 body-version operations.
+#[tokio::test]
+async fn open_course_versions_distinguish_unjoined_member_and_guest() {
+    let th = Setup::native().start().await.init_basic().await;
     let (open, _, open_unit) = course_with_unit(&th.client, "O").await;
     write_bodies(&th.client, &open, &open_unit, &[paragraphs(&["open"])]).await;
     let open_versions = versions_path(TEST_WS, &open, &open_unit);
@@ -143,6 +160,27 @@ async fn unit_body_versions_roles_keep_by_hand_and_restore() {
         .post_empty(&format!("{open_versions}/1/restore"))
         .await
         .check_forbidden();
+
+    let guest = th.add_user("open-course-version-guest").await;
+    let guest_id = guest.me().await.id;
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = 'guest' \
+             WHERE workspace_id = '{TEST_WORKSPACE_ID}' AND user_id = '{guest_id}'"
+        ))
+        .await
+        .expect("demote to guest");
+    guest.get(&open_versions).await.check_not_found();
+    guest
+        .get(&format!("{open_versions}/1"))
+        .await
+        .check_not_found();
+    guest.post_empty(&open_versions).await.check_not_found();
+    guest
+        .post_empty(&format!("{open_versions}/1/restore"))
+        .await
+        .check_not_found();
     th.teardown().await;
 }
 

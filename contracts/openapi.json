@@ -7085,7 +7085,7 @@
     },
     "/api/v1/notifications": {
       "get": {
-        "description": "One page of what the user of the session was told, in every organization the\nsession opens, the newest first (by `updateAt`): that somebody mentioned them in a\ncard, a page or a comment (`mention`), gave them a card (`assignment`), or commented\non a card or a page they watch (`comment`; one named in that comment is told of the\nmention alone). Nobody is told of their own doing, nor of anything in a user's own\nspace, nor of a kind they switched off (`notifyMentions`, `notifyAssignments`,\n`notifyComments` of `patchUserSettings`): what is off is not made at all.\n\nWhoever writes a card or a page, is given a card, or comments on either watches it\n(`createSubscription`), until they end that (`deleteSubscription`). What happens to\none card or page, of one kind, within an hour of the first of it, is one\nnotification: `times` and `people` count it, `actorId` and `commentId` say the\nlatest, and it is unread again. One person makes a hundred new ones for another\nwithin an hour at most; past that, what they do joins only those there.\n\nA notification is made only for somebody who reads the card or the page at that\ntime, and each one listed is asked again: its `subject` says what it is about, as\nthat is now, only where the user reads it now with this session. Where they do not\n(it is in the trash or gone, or they left the board or the workspace) `subject` is\n`null`, and nothing says what it was about, where or by whom. Such a one is still\nlisted, and counted while unread.\n\nWhat an organization that takes only sessions made through its provider told the\nuser is left out for a session made otherwise, as `getMyMemberships` leaves its\nboards out: it is not listed, not counted, and not marked as read by such a\nsession, and it is there again for a session made through the provider.\n\nA notification that was read is kept for ninety days, and a user has ten thousand\nat most: past that the oldest go, those that were read first.",
+        "description": "One page of what the user of the session was told, in every organization the\nsession opens, the newest first (by `updateAt`): that somebody mentioned them in a\ncard, a page, a unit or a comment (`mention`), gave them a card (`assignment`), or\ncommented on a card, a page or a unit they watch (`comment`; one named in that comment\nis told of the mention alone). Nobody is told of their own doing, nor of anything in a\nuser's own space, nor of a kind they switched off (`notifyMentions`,\n`notifyAssignments`, `notifyComments` of `patchUserSettings`): what is off is not made\nat all.\n\nWhoever writes a card, a page or a unit, is given a card, or comments on one watches\nit (`createSubscription`), until they end that (`deleteSubscription`). What happens to\none card, page or unit, of one kind, within an hour of the first of it, is one\nnotification: `times` and `people` count it, `actorId` and `commentId` say the\nlatest, and it is unread again. One person makes a hundred new ones for another\nwithin an hour at most; past that, what they do joins only those there.\n\nA notification is made only for somebody who reads the card, page or unit at that\ntime, and each one listed is asked again: its `subject` says what it is about, as\nthat is now, only where the user reads it now with this session. Where they do not\n(it is in the trash or gone, or they left the container or the workspace) `subject` is\n`null`, and nothing says what it was about, where or by whom. Such a one is still\nlisted, and counted while unread.\n\nWhat an organization that takes only sessions made through its provider told the\nuser is left out for a session made otherwise, as `getMyMemberships` leaves its\nboards out: it is not listed, not counted, and not marked as read by such a\nsession, and it is there again for a session made through the provider.\n\nA notification that was read is kept for ninety days, and a user has ten thousand\nat most: past that the oldest go, those that were read first.",
         "operationId": "getNotifications",
         "parameters": [
           {
@@ -8581,7 +8581,7 @@
     },
     "/api/v1/shared/{containerId}/blocks": {
       "get": {
-        "description": "What `getBlocks` gives of the board, with the same parameters, read with its read\ntoken as `getSharedContainer` is; a wiki's token reads no blocks (404). No block names a\nuser: `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in\na body, and so is each user that\nthe board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)\nname in a card's `fields.properties` and in the clauses of a view's `fields.filter`;\na list keeps its length, so how many people a card has still shows. A card's values\nof properties the board does not define are left out, and a view grouped by a person\nproperty keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and\n`kanbanCalculations` only the group of the cards without a value (`\"\"`). A reference\nin a body keeps its `id` if it names a card of this board, and has an empty one for\nanything else: of what is elsewhere in the workspace nothing is told, nor whether\nthere is anything. Oldest\nfirst; the blocks that one request made come in the order that request had them in.",
+        "description": "What `getBlocks` gives of the board, with the same parameters, read with its read\ntoken as `getSharedContainer` is; a wiki's or a course's token reads no blocks (404). No block names a\nuser: `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in\na body, and so is each user that\nthe board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)\nname in a card's `fields.properties` and in the clauses of a view's `fields.filter`;\na list keeps its length, so how many people a card has still shows. A card's values\nof properties the board does not define are left out, and a view grouped by a person\nproperty keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and\n`kanbanCalculations` only the group of the cards without a value (`\"\"`). A reference\nin a body keeps its `id` if it names a card of this board, and has an empty one for\nanything else: of what is elsewhere in the workspace nothing is told, nor whether\nthere is anything. Oldest\nfirst; the blocks that one request made come in the order that request had them in.",
         "operationId": "getSharedBlocks",
         "parameters": [
           {
@@ -8675,7 +8675,7 @@
     },
     "/api/v1/shared/{containerId}/cards": {
       "get": {
-        "description": "What `getCards` gives of the board, read with its read token as `getSharedContainer` is;\na wiki's token reads no cards (404).\nNo card names a user: `createdBy` and `modifiedBy` are empty, the values of person\nproperties are emptied, and values of properties the board does not define are left\nout. The preview's text has no mentions in it, and its image `getSharedFile` gives.\nA card comes without its body, so with nothing a body names. Oldest first; the\npages cut that order.",
+        "description": "What `getCards` gives of the board, read with its read token as `getSharedContainer` is;\na wiki's or a course's token reads no cards (404).\nNo card names a user: `createdBy` and `modifiedBy` are empty, the values of person\nproperties are emptied, and values of properties the board does not define are left\nout. The preview's text has no mentions in it, and its image `getSharedFile` gives.\nA card comes without its body, so with nothing a body names. Oldest first; the\npages cut that order.",
         "operationId": "getSharedCards",
         "parameters": [
           {
@@ -8907,7 +8907,7 @@
     },
     "/api/v1/shared/{containerId}/pages": {
       "get": {
-        "description": "What `getPageTree` gives of the wiki, read with its read token as `getSharedContainer`\nis: every page without its body, naming nobody. By `order` as strings compare by\ncode unit, then by `id`. A board's token reads no pages (404).",
+        "description": "What `getPageTree` gives of the wiki, read with its read token as `getSharedContainer`\nis: every page without its body, naming nobody. By `order` as strings compare by\ncode unit, then by `id`. A board's or a course's token reads no pages (404).",
         "operationId": "getSharedPageTree",
         "parameters": [
           {
@@ -8965,7 +8965,7 @@
     },
     "/api/v1/shared/{containerId}/pages/{pageId}": {
       "get": {
-        "description": "What `getPage` gives of a page of the wiki, read with its read token as\n`getSharedContainer` is. No page names a user: `createdBy` and `modifiedBy` are empty,\nand so is the `userId` of every mention in its body. A reference in the body keeps\nits `id` if it names a page of this wiki, and has an empty one for anything else: of\nwhat is elsewhere in the workspace nothing is told, nor whether there is anything.\nIts comments and its versions are not read by the link. A page of another wiki, one\nin the trash, and a board's token are 404.",
+        "description": "What `getPage` gives of a page of the wiki, read with its read token as\n`getSharedContainer` is. No page names a user: `createdBy` and `modifiedBy` are empty,\nand so is the `userId` of every mention in its body. A reference in the body keeps\nits `id` if it names a page of this wiki, and has an empty one for anything else: of\nwhat is elsewhere in the workspace nothing is told, nor whether there is anything.\nIts comments and its versions are not read by the link. A page of another wiki, one\nin the trash, and a board's or a course's token are 404.",
         "operationId": "getSharedPage",
         "parameters": [
           {
@@ -12613,7 +12613,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is.",
+            "description": "The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -15402,7 +15402,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/undelete": {
       "post": {
-        "description": "Restores the unit from the course's trash, or restores the chapter together with the\nunits deleted along with it, for editors of the course: below the chapter it was\nbelow at the place it had (right after the siblings before it if a sibling took that\nplace since), or, if that chapter is gone (in the trash or purged), last at the top\nof the course. Held to the course's limits: 400 with the reason `too_many_units` or\n`too_many_chapters` (each with the `limit`) if restoring would exceed them. A block\nnot in this course's trash, or a unit that went with its chapter (it comes back with\nthat chapter), is 404. The course's listeners are told with `UPDATE_BLOCK` of each\nblock that came back (a chapter before its units) and each sibling numbered anew.",
+        "description": "Restores the unit from the course's trash, or restores the chapter together with the\nunits deleted along with it, for editors of the course: below the chapter it was\nbelow at the place it had (right after the siblings before it if a sibling took that\nplace since), or, if that chapter is gone (in the trash or purged), last at the top\nof the course. Held to the course's limits: 400 with the reason `too_many_units` or\n`too_many_chapters` (each with the `limit`) if restoring would exceed them. A block\nnot in this course's trash, or a unit that went with its chapter (it comes back with\nthat chapter), is 404. The course's listeners are told with `UPDATE_BLOCK` of each\nblock that came back (a chapter before its units, and each unit before its comments)\nand each sibling numbered anew.",
         "operationId": "undeleteUnit",
         "parameters": [
           {

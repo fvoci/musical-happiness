@@ -57,6 +57,7 @@ parameter!(BoardId: Path "boardId", String, True, "The identifier of the board."
 parameter!(ContainerId: Path "containerId", String, True, "The identifier of the board, the wiki, the diary or the course.");
 parameter!(PeopleContainerId: Path "containerId", String, True, "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it.");
 parameter!(LinkedContainerId: Path "containerId", String, True, "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is.");
+parameter!(CopiedContainerId: Path "containerId", String, True, "The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is.");
 parameter!(OwnWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.");
 parameter!(DiaryId: Path "diaryId", String, True, "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.");
 parameter!(EntryId: Path "entryId", String, True, "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.");

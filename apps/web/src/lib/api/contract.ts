@@ -585,23 +585,24 @@ export interface paths {
          * The notifications of the user
          * @description One page of what the user of the session was told, in every organization the
          *     session opens, the newest first (by `updateAt`): that somebody mentioned them in a
-         *     card, a page or a comment (`mention`), gave them a card (`assignment`), or commented
-         *     on a card or a page they watch (`comment`; one named in that comment is told of the
-         *     mention alone). Nobody is told of their own doing, nor of anything in a user's own
-         *     space, nor of a kind they switched off (`notifyMentions`, `notifyAssignments`,
-         *     `notifyComments` of `patchUserSettings`): what is off is not made at all.
+         *     card, a page, a unit or a comment (`mention`), gave them a card (`assignment`), or
+         *     commented on a card, a page or a unit they watch (`comment`; one named in that comment
+         *     is told of the mention alone). Nobody is told of their own doing, nor of anything in a
+         *     user's own space, nor of a kind they switched off (`notifyMentions`,
+         *     `notifyAssignments`, `notifyComments` of `patchUserSettings`): what is off is not made
+         *     at all.
          *
-         *     Whoever writes a card or a page, is given a card, or comments on either watches it
-         *     (`createSubscription`), until they end that (`deleteSubscription`). What happens to
-         *     one card or page, of one kind, within an hour of the first of it, is one
+         *     Whoever writes a card, a page or a unit, is given a card, or comments on one watches
+         *     it (`createSubscription`), until they end that (`deleteSubscription`). What happens to
+         *     one card, page or unit, of one kind, within an hour of the first of it, is one
          *     notification: `times` and `people` count it, `actorId` and `commentId` say the
          *     latest, and it is unread again. One person makes a hundred new ones for another
          *     within an hour at most; past that, what they do joins only those there.
          *
-         *     A notification is made only for somebody who reads the card or the page at that
+         *     A notification is made only for somebody who reads the card, page or unit at that
          *     time, and each one listed is asked again: its `subject` says what it is about, as
          *     that is now, only where the user reads it now with this session. Where they do not
-         *     (it is in the trash or gone, or they left the board or the workspace) `subject` is
+         *     (it is in the trash or gone, or they left the container or the workspace) `subject` is
          *     `null`, and nothing says what it was about, where or by whom. Such a one is still
          *     listed, and counted while unread.
          *
@@ -1366,7 +1367,7 @@ export interface paths {
         /**
          * The blocks of a shared board
          * @description What `getBlocks` gives of the board, with the same parameters, read with its read
-         *     token as `getSharedContainer` is; a wiki's token reads no blocks (404). No block names a
+         *     token as `getSharedContainer` is; a wiki's or a course's token reads no blocks (404). No block names a
          *     user: `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in
          *     a body, and so is each user that
          *     the board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)
@@ -1399,7 +1400,7 @@ export interface paths {
         /**
          * The cards of a shared board
          * @description What `getCards` gives of the board, read with its read token as `getSharedContainer` is;
-         *     a wiki's token reads no cards (404).
+         *     a wiki's or a course's token reads no cards (404).
          *     No card names a user: `createdBy` and `modifiedBy` are empty, the values of person
          *     properties are emptied, and values of properties the board does not define are left
          *     out. The preview's text has no mentions in it, and its image `getSharedFile` gives.
@@ -1468,7 +1469,7 @@ export interface paths {
          * The pages of a shared wiki
          * @description What `getPageTree` gives of the wiki, read with its read token as `getSharedContainer`
          *     is: every page without its body, naming nobody. By `order` as strings compare by
-         *     code unit, then by `id`. A board's token reads no pages (404).
+         *     code unit, then by `id`. A board's or a course's token reads no pages (404).
          */
         get: operations["getSharedPageTree"];
         put?: never;
@@ -1494,7 +1495,7 @@ export interface paths {
          *     its `id` if it names a page of this wiki, and has an empty one for anything else: of
          *     what is elsewhere in the workspace nothing is told, nor whether there is anything.
          *     Its comments and its versions are not read by the link. A page of another wiki, one
-         *     in the trash, and a board's token are 404.
+         *     in the trash, and a board's or a course's token are 404.
          */
         get: operations["getSharedPage"];
         put?: never;
@@ -3823,7 +3824,8 @@ export interface paths {
          *     `too_many_chapters` (each with the `limit`) if restoring would exceed them. A block
          *     not in this course's trash, or a unit that went with its chapter (it comes back with
          *     that chapter), is 404. The course's listeners are told with `UPDATE_BLOCK` of each
-         *     block that came back (a chapter before its units) and each sibling numbered anew.
+         *     block that came back (a chapter before its units, and each unit before its comments)
+         *     and each sibling numbered anew.
          */
         post: operations["undeleteUnit"];
         delete?: never;
@@ -12630,7 +12632,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is. */
+                /** @description The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is. */
                 containerId: string;
             };
             cookie?: never;

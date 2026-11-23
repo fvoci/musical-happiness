@@ -246,10 +246,11 @@ pub enum BlockError {
     /// The block's new parent is the block itself or a block below it.
     #[error("the parent is the block itself or below it")]
     ParentBelowBlock,
-    /// A comment that is new, newly a comment or moved is not below a card or a page of
-    /// its board: a comment is on a card of a board or on a page of a wiki
-    /// ([`BlockType::takes_comments`]).
-    #[error("the parent of a comment is a card of the board or a page of the wiki")]
+    /// A comment that is new, newly a comment or moved is not below a card, a page or a
+    /// unit of its container ([`BlockType::takes_comments`]).
+    #[error(
+        "the parent of a comment is a card of the board, a page of the wiki or a unit of the course"
+    )]
     CommentNotOnCardOrPage,
     /// A block that is new or moved is below a comment: a comment has no blocks below
     /// it.
@@ -397,8 +398,9 @@ pub enum BlockError {
     /// A unit or chapter is stored on a container that is no course.
     #[error("a unit or a chapter is a block of a course")]
     UnitOffCourse,
-    /// A block that is neither a unit nor a chapter is stored on a course.
-    #[error("the blocks of a course are its chapters and units")]
+    /// A block that is neither a chapter, a unit nor a comment on a unit is stored on a
+    /// course.
+    #[error("the blocks of a course are its chapters, its units and the comments on its units")]
     NotUnitOnCourse,
     /// A unit is stored below a block that is no chapter of its course.
     #[error("the parent of a unit is a chapter of its course")]
