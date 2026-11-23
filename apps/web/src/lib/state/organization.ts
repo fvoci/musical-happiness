@@ -6,8 +6,9 @@
  * not offered there.
  */
 import type { PersonName } from '../logic/person-names.ts';
+import type { OrgRole } from './workspace-types.ts';
 
-export type OrgRole = 'admin' | 'member';
+export type { OrgRole };
 
 /** What somebody is in a workspace, as the organization lists it. */
 export type OrgWorkspaceRole = 'admin' | 'member' | 'guest';
@@ -96,6 +97,8 @@ export interface Organizations {
   /** Its members, the oldest first. */
   members(orgId: string): Promise<OrgMember[]>;
   setRole(orgId: string, userId: string, role: OrgRole): Promise<void>;
+  /** Removes a member from the organization. */
+  removeMember(orgId: string, userId: string): Promise<void>;
   /** Every workspace, in use and in the trash, the oldest first. */
   workspaces(orgId: string): Promise<OrgWorkspace[]>;
   createWorkspace(orgId: string, name: string): Promise<OrgWorkspace>;

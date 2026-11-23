@@ -1,15 +1,16 @@
-//! What a transaction of one organization asks of all of them: one read each, with the
-//! wall of the transaction opened for that read and closed again before anything else
-//! runs in it. Each read here names what it asks for (the oldest organization, the
-//! organizations one account made), and nothing is written past the wall.
+//! What asks across all organizations: single-organization transactions open the wall
+//! for one read and close it again before anything else runs ([`open_wall`],
+//! [`close_wall`], [`is_the_instances_organization`], [`organizations_made_by`],
+//! [`of_people`]), while [`organizations_of_user`] reads directly under a
+//! `Tenant::System` scope. Nothing is written past the wall.
 //!
 //! The opening and the closing are here too ([`open_wall`], [`close_wall`]), for the
 //! one other place that opens a transaction's wall: a registration's statement on the
 //! one link it was made by (`signups.rs`).
 
-use fvoci_model::OrgKind;
+use fvoci_model::{OrgKind, UserOrganization};
 
-use super::oldest_organization;
+use super::{oldest_organization, role};
 use crate::db::{Dialect, Id, Scope, Sql};
 use crate::error::StoreError;
 
@@ -123,6 +124,36 @@ pub(crate) async fn organizations_made_by(
         }
     })
     .await
+}
+
+/// Every organization in use that people work in together of which `user_id` is a
+/// member, oldest first: includes organizations where the account is in no workspace,
+/// and leaves out personal spaces and organizations where it is only a workspace guest.
+/// Called in a scope that reaches every organization.
+pub(super) async fn organizations_of_user(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<Vec<UserOrganization>, StoreError> {
+    let mut sql = scope.sql(
+        "SELECT o.id, o.name, om.role FROM organization_members AS om \
+         JOIN organizations AS o ON o.id = om.org_id WHERE om.user_id = ",
+    );
+    sql.bind(Id(user_id))
+        .push(" AND o.delete_at = 0 AND o.is_system = false")
+        .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
+        .push(" ORDER BY o.create_at, o.id");
+    scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| {
+            Ok(UserOrganization {
+                id: row.id(0)?,
+                name: row.text(1)?,
+                role: role(row, 2)?,
+            })
+        })
+        .collect()
 }
 
 /// Appends the condition that `kind`, the column of an organization's kind, says one
