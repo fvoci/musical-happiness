@@ -1,19 +1,66 @@
-//! Copying a block of a board with what is directly below it.
+//! Copying a block of a board with what is below it.
+
+use std::collections::HashSet;
 
 use fvoci_model::{Block, BlockType, generate_block_ids};
 use serde_json::Value;
 
-use crate::blocks::{DuplicateAs, OLDEST_FIRST, fetch_blocks, insert_blocks, select_blocks};
+use crate::blocks::{DuplicateAs, OLDEST_FIRST, block_read_columns, fetch_blocks, insert_blocks};
 use crate::db::Id;
 use crate::file_refs::NewBodyFiles;
 use crate::notification_noting::Telling;
+use crate::trash::with_tree_of;
 use crate::{Store, StoreError, card_values, containers};
 
+/// Whether [`reachable_descendants`] includes nested card subtrees.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Subcards {
+    Include,
+    Omit,
+}
+
+/// Keeps direct non-comment children of `root_id` and (when `subcards` is
+/// [`Subcards::Include`]) recursively descends through nested [`BlockType::Card`]
+/// descendants and their direct non-comment children, without descending through non-card
+/// blocks.
+fn reachable_descendants(root_id: &str, candidates: Vec<Block>, subcards: Subcards) -> Vec<Block> {
+    let include = subcards == Subcards::Include;
+    let mut allowed: HashSet<String> = HashSet::from([root_id.to_owned()]);
+    let mut remaining: Vec<Block> = candidates
+        .into_iter()
+        .filter(|block| include || block.block_type != BlockType::Card)
+        .collect();
+    let mut kept = Vec::with_capacity(remaining.len());
+    loop {
+        let mut next = Vec::new();
+        let before = kept.len();
+        for block in remaining {
+            if allowed.contains(&block.parent_id) {
+                if include && block.block_type == BlockType::Card {
+                    allowed.insert(block.id.clone());
+                }
+                kept.push(block);
+            } else {
+                next.push(block);
+            }
+        }
+        if kept.len() == before {
+            return kept;
+        }
+        remaining = next;
+    }
+}
+
 impl Store {
-    /// Copies a block of a board and its direct children, except comments, under new
+    /// Copies a block of a board and its descendants, except comments, under new
     /// identifiers. Returns the copies, the copy of the block itself first.
     ///
     /// The copy of the block gets its `isTemplate` field set according to `duplicate_as`.
+    /// An ordinary copy of a card keeps its `parent_id` (becoming a sibling under the same
+    /// parent card) and copies its nested sub-cards and non-comment attachments. A
+    /// template copy of a card clears its `parent_id` (top-level template) and omits
+    /// descendant cards (and their attachments), since card templates neither belong to a
+    /// parent nor hold sub-cards.
     ///
     /// # Errors
     ///
@@ -26,11 +73,13 @@ impl Store {
         duplicate_as: DuplicateAs,
     ) -> Result<Vec<Block>, StoreError> {
         self.transaction(async |scope| {
-            let mut sql = select_blocks(scope);
-            sql.push_bind(" WHERE (id = ", Id(block_id))
-                .push_bind(" OR parent_id = ", Id(block_id))
-                .push_bind(") AND container_id = ", Id(container_id))
-                .push(OLDEST_FIRST);
+            let mut sql = with_tree_of(scope, block_id);
+            sql.push(&format!(
+                "SELECT {} FROM blocks WHERE id IN (SELECT id FROM tree) AND container_id = ",
+                block_read_columns()
+            ))
+            .bind(Id(container_id))
+            .push(OLDEST_FIRST);
             let family = fetch_blocks(scope, sql).await?;
             let not_found = || {
                 StoreError::not_found(format_args!(
@@ -38,15 +87,21 @@ impl Store {
                 ))
             };
 
-            let (roots, children): (Vec<Block>, Vec<Block>) = family
+            let (roots, others): (Vec<Block>, Vec<Block>) = family
                 .into_iter()
                 .filter(|block| block.block_type != BlockType::Comment)
                 .partition(|block| block.id == block_id);
             let mut root = roots.into_iter().next().ok_or_else(not_found)?;
-            root.fields.insert(
-                "isTemplate".to_owned(),
-                Value::Bool(duplicate_as == DuplicateAs::Template),
-            );
+            let as_template = duplicate_as == DuplicateAs::Template;
+            root.fields
+                .insert("isTemplate".to_owned(), Value::Bool(as_template));
+            let subcards = if as_template && root.block_type == BlockType::Card {
+                root.parent_id.clear();
+                Subcards::Omit
+            } else {
+                Subcards::Include
+            };
+            let children = reachable_descendants(block_id, others, subcards);
 
             let mut copies = Vec::with_capacity(children.len() + 1);
             copies.push(root);

@@ -13,6 +13,8 @@ use fvoci_model::{
 use serde_json::Value;
 
 use crate::Store;
+// Re-exported through `containers` so newer modules avoid naming the legacy table module.
+pub(crate) use crate::container_team_access::inherited_members_source;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::{container_kinds, members, subscriptions};

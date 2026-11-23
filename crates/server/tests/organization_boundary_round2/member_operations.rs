@@ -635,6 +635,8 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getCourses",
         "getUnitTree",
         "getUnit",
+        "getMyCourseProgress",
+        "getCourseProgressSummary",
         "getUnitComments",
         "getUnitCommentVersions",
         "getUnitBodyVersions",

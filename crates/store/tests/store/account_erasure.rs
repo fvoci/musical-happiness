@@ -3,8 +3,9 @@
 //! has nobody else goes with it, and an erasing that was cut off is taken up again.
 
 use fvoci_model::{
-    AuditAction, Block, BlockType, Category, Container, ContainerType, Credential, NameShown,
-    OrgRole, PersonName, Session, Title, User, WorkspaceRole, new_id,
+    AuditAction, Block, BlockType, Category, CompletionChange, Container, ContainerKind,
+    ContainerType, CourseLimits, Credential, LastPositionChange, NameShown, NewUnit, OrgRole,
+    PersonName, Session, Title, UnitProgressChange, User, WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AuditPlace, DbType, DeletionAsking, Erasing, ErasureEnd, ErasureStart, Identity, LeftFrom,
@@ -629,6 +630,47 @@ async fn check_what_stays(test: &TestStore, leaver: &str, board: &str, card: &st
     );
 }
 
+/// Records a personal unit progress row for `learner` in a course owned by `owner`.
+async fn record_course_progress(store: &Store, workspace_id: &str, owner: &str, learner: &str) {
+    let mut course = Container {
+        id: new_id(),
+        workspace_id: workspace_id.to_owned(),
+        container_type: ContainerType::Private,
+        kind: ContainerKind::Course,
+        title: "erasure course".to_owned(),
+        ..Container::default()
+    };
+    store
+        .insert_container_with_admin(&mut course, owner)
+        .await
+        .expect("a course is stored");
+    let unit = store
+        .create_unit(
+            &course.id,
+            &NewUnit {
+                title: "lesson".to_owned(),
+                ..NewUnit::default()
+            },
+            CourseLimits::DEFAULT,
+            owner,
+        )
+        .await
+        .expect("a unit is stored")
+        .unit;
+    store
+        .upsert_unit_progress(
+            &course.id,
+            &unit.id,
+            learner,
+            &UnitProgressChange {
+                completion: CompletionChange::Complete,
+                last_position: LastPositionChange::Set("leaver-shelf".to_owned()),
+            },
+        )
+        .await
+        .expect("progress is stored");
+}
+
 /// Nothing of the person is in any column of any table once the account is erased;
 /// the row keeps its identifier, and what the person wrote and the records about them
 /// stay, pointing at it.
@@ -668,6 +710,7 @@ async fn an_erased_account_leaves_its_identifier_and_nothing_of_the_person() {
     test.add_team_member(&test.workspace_id, &people, &leaver, &founder)
         .await
         .expect("the leaver is in it");
+    record_course_progress(&test, &test.workspace_id, &founder, &leaver).await;
     leave_traces(&test, &founder, &leaver, &board).await;
     // The organization is of the leaver's making, as one they started is.
     made_by(&test, &test.org_id, &leaver).await;

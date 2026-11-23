@@ -6,8 +6,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use fvoci_model::{
-    AuditAction, BlockType, Category, Container, ContainerMember, SubscriberType, Subscription,
-    Upload, UploadPart, WorkspaceRole, new_id,
+    AuditAction, BlockType, Category, CompletionChange, Container, ContainerKind, ContainerMember,
+    ContainerType, CourseLimits, LastPositionChange, NewUnit, SubscriberType, Subscription,
+    UnitProgressChange, Upload, UploadPart, WorkspaceRole, new_id,
 };
 use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
 use fvoci_store::{AuditEntry, DbType, SYSTEM_ORG_ID, SharingChange, Store, Tenant};
@@ -410,6 +411,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
     in_the_files(store, &user_id, &board_id, username).await;
     a_body_edited_together(store, &board_id, &user_id).await;
     a_team_on_board(store, &board, &user_id).await;
+    a_course_with_progress(store, &board.workspace_id, &user_id).await;
     told_and_to_be_told(store, &board_id, &user_id).await;
     a_time_entry(store, &board, &comment.parent_id, &user_id).await;
     // The trash: a card of the live board, and a whole board.
@@ -628,6 +630,48 @@ async fn a_team_on_board(store: &Store, board: &Container, user_id: &str) {
         "INSERT INTO container_teams (container_id, team_id, workspace_id, role) VALUES ('{}', '{group}', '{}', 'editor')",
         board.id, board.workspace_id
     )).await.expect("the team has a board role");
+}
+
+/// A course with one unit and a personal progress row, so `unit_progress` sits behind
+/// the organization wall in `what_two_organizations_store_stays_apart_in_every_table`.
+async fn a_course_with_progress(store: &Store, workspace_id: &str, user_id: &str) {
+    let mut course = Container {
+        id: new_id(),
+        workspace_id: workspace_id.to_owned(),
+        container_type: ContainerType::Private,
+        kind: ContainerKind::Course,
+        title: "a course".to_owned(),
+        ..Container::default()
+    };
+    store
+        .insert_container_with_admin(&mut course, user_id)
+        .await
+        .expect("a course is stored");
+    let unit = store
+        .create_unit(
+            &course.id,
+            &NewUnit {
+                title: "unit 1".to_owned(),
+                ..NewUnit::default()
+            },
+            CourseLimits::DEFAULT,
+            user_id,
+        )
+        .await
+        .expect("a unit is stored")
+        .unit;
+    store
+        .upsert_unit_progress(
+            &course.id,
+            &unit.id,
+            user_id,
+            &UnitProgressChange {
+                completion: CompletionChange::Complete,
+                last_position: LastPositionChange::Set("p1".to_owned()),
+            },
+        )
+        .await
+        .expect("unit progress is stored");
 }
 
 /// The store tells whether the wall holds the role it connects as: the role of the

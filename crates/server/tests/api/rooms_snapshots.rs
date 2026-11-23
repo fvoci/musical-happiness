@@ -134,7 +134,9 @@ async fn a_copy_recovers_updates_whose_document_is_no_longer_open() {
     th.teardown().await;
 }
 
-/// The duplication API also copies direct child cards, whose rooms may be open.
+/// The duplication API also copies nested child cards, whose rooms may be open.
+/// Template copies omit sub-cards (templates cannot hold sub-cards) while still flushing
+/// the copied card's own room.
 #[tokio::test]
 async fn copying_a_card_or_template_includes_pending_bodies_of_child_cards() {
     let th = Setup::native().start().await.init_basic().await;
@@ -156,33 +158,58 @@ async fn copying_a_card_or_template_includes_pending_bodies_of_child_cards() {
         .await
         .created_json();
     let child_id = &children[0].id;
+    let mut parent_writer = Peer::connect(&th.client, 102).await;
+    parent_writer
+        .joined(TEST_WORKSPACE_ID, &table.card_id)
+        .await;
     let mut writer = Peer::connect(&th.client, 103).await;
     writer.joined(TEST_WORKSPACE_ID, child_id).await;
-    for template in ["false", "true"] {
-        writer.write_acked(template).await;
-        let wanted = writer.body();
-        assert_ne!(
-            body_of(&card(&th.client, child_id).await),
-            wanted,
-            "the child has a pending update"
-        );
-        let copies: Vec<Block> = th
-            .client
-            .post_empty(&format!(
-                "/w/{TEST_WORKSPACE_ID}/boards/{}/blocks/{}/duplicate?asTemplate={template}",
-                table.board_id, table.card_id
-            ))
-            .await
-            .created_json();
-        let child_copy = copies
-            .iter()
-            .find(|block| block.title == "Child")
-            .expect("the copied child");
-        assert_eq!(
-            child_copy.body.as_ref().map(|body| body.document().clone()),
-            wanted
-        );
-    }
+
+    writer.write_acked("false").await;
+    let wanted_child = writer.body();
+    assert_ne!(
+        body_of(&card(&th.client, child_id).await),
+        wanted_child,
+        "the child has a pending update"
+    );
+    let copies: Vec<Block> = th
+        .client
+        .post_empty(&format!(
+            "/w/{TEST_WORKSPACE_ID}/boards/{}/blocks/{}/duplicate?asTemplate=false",
+            table.board_id, table.card_id
+        ))
+        .await
+        .created_json();
+    let child_copy = copies
+        .iter()
+        .find(|block| block.title == "Child")
+        .expect("the copied child");
+    assert_eq!(
+        child_copy.body.as_ref().map(|body| body.document().clone()),
+        wanted_child
+    );
+
+    parent_writer.write_acked("true").await;
+    let wanted_parent = parent_writer.body();
+    let template_copies: Vec<Block> = th
+        .client
+        .post_empty(&format!(
+            "/w/{TEST_WORKSPACE_ID}/boards/{}/blocks/{}/duplicate?asTemplate=true",
+            table.board_id, table.card_id
+        ))
+        .await
+        .created_json();
+    assert!(
+        template_copies.iter().all(|block| block.title != "Child"),
+        "a template copy omits child cards"
+    );
+    assert_eq!(
+        template_copies[0]
+            .body
+            .as_ref()
+            .map(|body| body.document().clone()),
+        wanted_parent
+    );
     th.teardown().await;
 }
 

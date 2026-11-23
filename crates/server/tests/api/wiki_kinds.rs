@@ -169,6 +169,9 @@ const REACHED: &[(&str, Reaches)] = &[
     ("moveUnit", Reaches::COURSES),
     ("getDeletedUnits", Reaches::COURSES),
     ("undeleteUnit", Reaches::COURSES),
+    ("getMyCourseProgress", Reaches::COURSES),
+    ("putUnitProgress", Reaches::COURSES),
+    ("getCourseProgressSummary", Reaches::COURSES),
     // What names a card, page or unit from a body.
     ("getReferencesTo", Reaches::LINKED),
     // What the holder of a read token reads.
@@ -557,6 +560,7 @@ impl World {
             }
             "createUnit" => json!({"title": "another unit"}),
             "moveUnit" => json!({"parentId": ""}),
+            "putUnitProgress" => json!({"completed": true, "lastPosition": "section-1"}),
             "createDiaryEntry" => json!({"date": "2020-02-29"}),
             "patchDiaryEntry" => json!({"mood": "good"}),
             "addMember" | "updateMember" => {
@@ -617,7 +621,10 @@ fn operations_that_name_one() -> Vec<(Method, String, String)> {
     .expect("the contract is JSON");
     let mut found = Vec::new();
     for (path, methods) in contract["paths"].as_object().expect("paths") {
-        if !NAMING.iter().any(|parameter| path.contains(parameter)) {
+        // Personal time entry routes use `{entryId}` for a time entry, not a diary entry.
+        if path.starts_with("/api/v1/users/me/time/")
+            || !NAMING.iter().any(|parameter| path.contains(parameter))
+        {
             continue;
         }
         for (method, operation) in methods.as_object().expect("operations") {

@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 60] = [
+const STEPS: [Step; 61] = [
     Step {
         version: 1,
         description: "baseline",
@@ -395,7 +395,12 @@ const STEPS: [Step; 60] = [
         sqlite: include_str!("../schema/sqlite/0062_body_version_bytes.sql"),
         postgres: include_str!("../schema/postgres/0062_body_version_bytes.sql"),
     },
-    // 63 is reserved by parallel work.
+    Step {
+        version: 63,
+        description: "unit progress",
+        sqlite: include_str!("../schema/sqlite/0063_unit_progress.sql"),
+        postgres: include_str!("../schema/postgres/0063_unit_progress.sql"),
+    },
     Step {
         version: 64,
         description: "time entries",
@@ -431,6 +436,10 @@ pub(crate) const BEFORE_DIARIES_VERSION: i64 = 54;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_COURSES_VERSION: i64 = 60;
 
+/// The migration before unit progress (0063).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_UNIT_PROGRESS_VERSION: i64 = 62;
+
 /// The migration version right before `time_entries` (64).
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_TIME_ENTRIES_VERSION: i64 = 63;
@@ -458,7 +467,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 12] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 40] = [
+pub(crate) const ORG_TABLES: [&str; 41] = [
     "audit_log",
     "blocks",
     "body_docs",
@@ -495,6 +504,7 @@ pub(crate) const ORG_TABLES: [&str; 40] = [
     "team_members",
     "teams",
     "time_entries",
+    "unit_progress",
     "upload_parts",
     "uploads",
     "workspace_members",
@@ -947,6 +957,17 @@ mod tests {
             .find(|step| step.version == BEFORE_COURSES_VERSION + 1)
             .expect("the migration after BEFORE_COURSES_VERSION is in the list");
         assert_eq!(step.description, "courses");
+    }
+
+    /// Migration 63 is unit progress, following `BEFORE_UNIT_PROGRESS_VERSION`.
+    #[test]
+    fn migration_63_is_unit_progress() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == 63)
+            .expect("migration 63 is in the list");
+        assert_eq!(step.description, "unit progress");
+        assert!(BEFORE_UNIT_PROGRESS_VERSION < step.version);
     }
 
     /// The migration right after `BEFORE_TIME_ENTRIES_VERSION` is the one of time entries.

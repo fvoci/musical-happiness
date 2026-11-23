@@ -22,7 +22,7 @@ pub(crate) use watchers::{
     forget_watcher_of_container, forget_watcher_of_organization, forget_watcher_of_workspace,
 };
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use fvoci_model::{
     Block, Body, Container, ContainerKinds, ContainerMember, ContainerType, FileInfo, new_id,
@@ -34,8 +34,8 @@ use told::Gone;
 use crate::Store;
 use crate::block_derived;
 use crate::blocks::{self, Paging, parents_first};
+use crate::card_hierarchy;
 use crate::category_containers::{self, ContainerPlace};
-use crate::comment_places;
 use crate::containers;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
@@ -75,6 +75,22 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if a statement fails; nothing is deleted then.
     pub async fn delete_block(&self, block_id: &str, user_id: &str) -> Result<(), StoreError> {
+        self.delete_block_family(block_id, user_id)
+            .await
+            .map(|_| ())
+    }
+
+    /// Deletes a block and everything below it as [`Store::delete_block`] does, returning
+    /// every block that moved to the trash (empty if the block did not exist).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails; nothing is deleted then.
+    pub async fn delete_block_family(
+        &self,
+        block_id: &str,
+        user_id: &str,
+    ) -> Result<Vec<Block>, StoreError> {
         self.transaction(async |scope| delete_block(scope, block_id, user_id).await)
             .await
     }
@@ -192,16 +208,37 @@ impl Store {
 
     /// Restores a block from the trash, with every block that was deleted along with
     /// it and the subscriptions to them, and returns the block. The restored blocks are
-    /// marked as modified by `user_id` now.
+    /// marked as modified by `user_id` now. A top-level card in the deletion whose parent
+    /// card is no longer live is re-rooted to the top level (`parent_id == ""`).
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if no block of that identifier is in the trash,
     /// or there is nothing to restore it to: its board does not exist (any more, or is
-    /// in the trash itself), or the block it was on does not. Returns
-    /// [`StoreError::NotRestorable`] if a block at the top would come back where it may
-    /// not be: a comment off a card, or any block below a comment.
+    /// in the trash itself), or (for non-card blocks) the block it was on does not.
+    /// Returns [`StoreError::NotRestorable`] if a block at the top would come back where
+    /// it may not be: a comment off a card, any block below a comment, or a card whose
+    /// live parent is on another board, is not a non-template card, or would push the
+    /// restored card subtree past [`fvoci_model::MAX_CARD_DEPTH`].
     pub async fn undelete_block(&self, block_id: &str, user_id: &str) -> Result<Block, StoreError> {
+        let restored = self.undelete_block_family(block_id, user_id).await?;
+        restored
+            .into_iter()
+            .find(|block| block.id == block_id)
+            .ok_or_else(block_not_in_trash)
+    }
+
+    /// Restores a block from the trash with every block deleted along with it, returning
+    /// all restored blocks in parents-first order.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::undelete_block`].
+    pub async fn undelete_block_family(
+        &self,
+        block_id: &str,
+        user_id: &str,
+    ) -> Result<Vec<Block>, StoreError> {
         self.transaction(async |scope| undelete_block(scope, block_id, user_id).await)
             .await
     }
@@ -583,7 +620,7 @@ pub(crate) fn from_json<T: DeserializeOwned>(
 /// defines `tree`, the identifiers of those blocks.
 ///
 /// `UNION` and not `UNION ALL`: it also ends the recursion if parents ever form a cycle.
-fn with_tree_of(scope: &Scope<'_>, block_id: &str) -> crate::db::Sql {
+pub(crate) fn with_tree_of(scope: &Scope<'_>, block_id: &str) -> crate::db::Sql {
     let mut sql = scope.sql("WITH RECURSIVE tree(id) AS (SELECT id FROM blocks WHERE id = ");
     sql.bind(Id(block_id))
         .push(" UNION SELECT b.id FROM blocks AS b JOIN tree ON b.parent_id = tree.id) ");
@@ -594,13 +631,13 @@ pub(crate) async fn delete_block(
     scope: &mut Scope<'_>,
     block_id: &str,
     user_id: &str,
-) -> Result<(), StoreError> {
+) -> Result<Vec<Block>, StoreError> {
     // The block says which board it is on, and the board is then held: what is below
     // the block is read, written to the trash and deleted without anything being added
     // or taken away in between. Read again under the lock, the block may be gone.
     let Some(block) = blocks::find_block(scope, block_id).await? else {
         tracing::debug!(block_id, "delete_block: block not found");
-        return Ok(());
+        return Ok(Vec::new());
     };
     containers::lock_container(scope, &block.container_id).await?;
     let mut sql = with_tree_of(scope, block_id);
@@ -611,7 +648,7 @@ pub(crate) async fn delete_block(
     let doomed = blocks::fetch_blocks(scope, sql).await?;
     if doomed.is_empty() {
         tracing::debug!(block_id, "delete_block: block deleted meanwhile");
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     put_blocks_in_trash(scope, &doomed, &new_id(), now_millis(), user_id).await?;
@@ -622,7 +659,7 @@ pub(crate) async fn delete_block(
     let mut sql = with_tree_of(scope, block_id);
     sql.push("DELETE FROM blocks WHERE id IN (SELECT id FROM tree)");
     scope.execute(sql).await?;
-    Ok(())
+    Ok(doomed)
 }
 
 /// Writes the blocks into the trash as one deletion.
@@ -707,7 +744,7 @@ pub(crate) async fn undelete_block(
     scope: &mut Scope<'_>,
     block_id: &str,
     user_id: &str,
-) -> Result<Block, StoreError> {
+) -> Result<Vec<Block>, StoreError> {
     // The trash says which board the block was on. The board must be there to come back
     // to, and is then held: read again under the lock, the block may be restored already.
     let mut sql = scope.sql("SELECT container_id FROM deleted_blocks WHERE id = ");
@@ -727,8 +764,8 @@ pub(crate) async fn undelete_block(
         .ok_or_else(block_not_in_trash)?;
     let deletion_id = row.id(0)?;
 
-    // For the blocks at the top of what was deleted, the block they were on must be
-    // there too, and still one they may be on.
+    // For the blocks at the top of what was deleted, validate parent rules and re-root
+    // cards whose parent card is no longer live.
     let mut sql = scope.sql("SELECT block FROM deleted_blocks WHERE deletion_id = ");
     sql.bind(Id(&deletion_id));
     let family: Vec<Block> = scope
@@ -737,34 +774,24 @@ pub(crate) async fn undelete_block(
         .iter()
         .map(|row| block_from_json(row, 0))
         .collect::<Result<_, StoreError>>()?;
-    let coming_back: HashSet<&str> = family.iter().map(|block| block.id.as_str()).collect();
-    for block in &family {
-        if coming_back.contains(block.parent_id.as_str()) {
-            continue;
-        }
-        let parent = if block.parent_id.is_empty() {
-            None
-        } else {
-            let Some(parent) = blocks::find_block(scope, &block.parent_id).await? else {
-                return Err(block_not_in_trash());
-            };
-            Some(parent)
-        };
-        let parent_type = parent.as_ref().map(|parent| &parent.block_type);
-        if let Some(source) = comment_places::restore_refusal(&block.block_type, parent_type) {
-            return Err(StoreError::NotRestorable {
-                id: block.id.clone(),
-                source,
-            });
-        }
-    }
+    let rerooted = card_hierarchy::check_restore(scope, &family).await?;
 
-    let restored =
-        take_blocks_out_of_trash(scope, &deletion_id, user_id, now_millis(), |_| {}).await?;
-    restored
+    let restored = take_blocks_out_of_trash(scope, &deletion_id, user_id, now_millis(), |block| {
+        if rerooted.contains(&block.id) {
+            block.parent_id.clear();
+        }
+    })
+    .await?;
+    if !restored.iter().any(|block| block.id == block_id) {
+        return Err(block_not_in_trash());
+    }
+    let order = parents_first(&restored);
+    let mut slots: Vec<Option<Block>> = restored.into_iter().map(Some).collect();
+    let ordered: Vec<Block> = order
         .into_iter()
-        .find(|block| block.id == block_id)
-        .ok_or_else(block_not_in_trash)
+        .filter_map(|index| slots[index].take())
+        .collect();
+    Ok(ordered)
 }
 
 pub(crate) async fn delete_container(
