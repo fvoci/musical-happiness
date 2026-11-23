@@ -128,6 +128,40 @@ impl Pace {
         self.changed.notify_waiters();
     }
 
+    /// Waits for a turn of the pace and takes it without sending, returning immediately
+    /// if the way is closed or closes while waiting: so a passed turn never consumes a
+    /// closed-way probe turn meant for a real delivery attempt.
+    pub(super) async fn pass_turn(&self, kind: MailKind) {
+        let _waiting = kind.goes_first().then(|| ResetWaiting::new(self));
+        loop {
+            let mut changed = pin!(self.changed.notified());
+            changed.as_mut().enable();
+            let wait = {
+                let mut state = self.state();
+                if state.next_probe.is_some() {
+                    return;
+                }
+                let now = Instant::now();
+                let wait = state.wait_of(kind, now);
+                if matches!(wait, Wait::Nothing) {
+                    state.next = state.next.max(now) + self.interval;
+                }
+                wait
+            };
+            match wait {
+                Wait::Nothing => break,
+                Wait::Until(at) => {
+                    tokio::select! {
+                        () = &mut changed => {}
+                        () = tokio::time::sleep_until(at) => {}
+                    }
+                }
+                Wait::Others => changed.await,
+            }
+        }
+        self.changed.notify_waiters();
+    }
+
     /// Learns from what an attempt became: the way asking for later, again and again,
     /// holds invitations back; a closed way holds all mail but one attempt now and then;
     /// a message it took lets them go again. Returns how the way as a whole changed.
@@ -340,5 +374,34 @@ mod tests {
         }
         let taken = turns(&pace, &[MailKind::Invitation]).await;
         assert_eq!(taken[0].1, LONGEST_PAUSE.as_secs());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn pass_turn_leaves_when_the_way_closes_and_steals_no_probe_turn() {
+        let pace = Arc::new(Pace::new(1));
+        pace.turn(MailKind::PasswordReset).await;
+        let passing = {
+            let pace = Arc::clone(&pace);
+            tokio::spawn(async move { pace.pass_turn(MailKind::PasswordReset).await })
+        };
+        // Yield so `pass_turn` enters its sleep waiting for the next second.
+        tokio::task::yield_now().await;
+        assert!(!passing.is_finished(), "waiting for the next pace turn");
+        assert_eq!(
+            pace.observe(Outcome::PathDown { code: Some(535) }),
+            Some(PathChange::Closed)
+        );
+        // Closing the way wakes `pass_turn`, which leaves without waiting for the probe.
+        tokio::time::timeout(Duration::from_millis(100), passing)
+            .await
+            .expect("pass_turn exits promptly when the way closes")
+            .expect("task joined");
+        let start = Instant::now();
+        pace.turn(MailKind::PasswordReset).await;
+        assert_eq!(
+            start.elapsed().as_secs(),
+            PROBE_INTERVAL.as_secs(),
+            "the first probe turn is still available after one minute"
+        );
     }
 }

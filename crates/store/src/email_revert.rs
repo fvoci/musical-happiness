@@ -5,7 +5,7 @@
 
 use crate::db::{Dialect, Id, Scope};
 use crate::email_change::{self, EMAIL_CHANGE_LIFETIME_MILLIS};
-use crate::{Store, StoreError, password_reset, sessions, signups, users};
+use crate::{Store, StoreError, oidc_identities, password_reset, sessions, signups, users};
 
 /// A link that gives an address back stands this long from the change it was mailed
 /// for, in milliseconds: as long as a change of address waits to be confirmed.
@@ -21,19 +21,24 @@ pub struct EmailReverted {
     /// The address it had before the link was used.
     pub before: String,
     /// The address the link gave back, or none where another account or a registration
-    /// had it by then and the account kept `before`.
+    /// had it by then and the account's email address was cleared instead.
     pub restored: Option<String>,
+    /// How many SSO identities linked after this revert link was created were removed.
+    pub unlinked_identities: u64,
 }
 
 impl Store {
     /// Uses the link under `digest`, all of it or none: the address it was mailed to is
     /// the account's again, unless another account or a registration that has not
-    /// ended at `now` has it, and in any case the account's sessions end, its password
-    /// is locked (`users::lock_password`), and what was asked or mailed under the
-    /// account as it was goes: the change of address that waited, the reset links, and
-    /// the links of this kind made after this one. Those made before it stand. Works
-    /// for an account that waits to be deleted, as a reset link does. Returns none for
-    /// a link that is unknown, used, ended or of an account whose erasing began.
+    /// ended at `now` has it — in which case the account's email address is cleared so
+    /// the address set after the change cannot recover it. In any case the account's
+    /// sessions end, its password is locked (`users::lock_password`), any SSO identity
+    /// linked after this link was created is removed (those linked at or before stay),
+    /// and what was asked or mailed under the account as it was goes: the change of
+    /// address that waited, the reset links, and the links of this kind made after this
+    /// one. Those made before it stand. Works for an account that waits to be deleted,
+    /// as a reset link does. Returns none for a link that is unknown, used, ended or of
+    /// an account whose erasing began.
     ///
     /// # Errors
     ///
@@ -74,11 +79,14 @@ impl Store {
             scope.execute(later).await?;
             let restored =
                 if email_change::is_held(scope, &link.email, Some(&link.user_id), now).await? {
+                    email_change::set_address(scope, &link.user_id, "", now).await?;
                     None
                 } else {
                     email_change::set_address(scope, &link.user_id, &link.email, now).await?;
                     Some(link.email)
                 };
+            let unlinked_identities =
+                oidc_identities::remove_linked_after(scope, &link.user_id, link.create_at).await?;
             password_reset::end_links_of_user(scope, &link.user_id).await?;
             users::lock_password(scope, &link.user_id, now).await?;
             sessions::delete_sessions_of_user(scope, &link.user_id).await?;
@@ -87,6 +95,7 @@ impl Store {
                 username,
                 before,
                 restored,
+                unlinked_identities,
             }))
         })
         .await
@@ -154,10 +163,29 @@ async fn hold_account(
         .transpose()
 }
 
+/// A timestamp strictly after every revert link of `user_id` currently in `email_reverts`
+/// (and at least `now`): so an identity tied after an email change is never mistaken for
+/// one tied before it, even in the same millisecond or under minor clock skew.
+pub(crate) async fn after_latest(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    now: i64,
+) -> Result<i64, StoreError> {
+    let mut latest = scope.sql("SELECT MAX(create_at) FROM email_reverts WHERE user_id = ");
+    latest.bind(Id(user_id));
+    let latest = match scope.fetch_optional(latest).await? {
+        Some(row) => row.opt_int(0)?,
+        None => None,
+    };
+    Ok(latest.map_or(now, |latest| now.max(latest.saturating_add(1))))
+}
+
 /// Stores the link under `digest` that gives the account `user_id`, whose row the
-/// transaction holds, the address `email` back. It is made at `now`, or else just
-/// after the latest link of the account: which of two links came later is never in
-/// doubt, also of two made at the same moment.
+/// transaction holds, the address `email` back. It is made at `now`, or else strictly
+/// after the latest link of the account and at least as late as every identity already
+/// tied to the account: ordering among links is strict even at the same moment, and
+/// pre-existing identities stay at or before this link even under lock contention or
+/// clock step-back.
 pub(crate) async fn insert(
     scope: &mut Scope<'_>,
     user_id: &str,
@@ -165,13 +193,9 @@ pub(crate) async fn insert(
     digest: &str,
     now: i64,
 ) -> Result<(), StoreError> {
-    let mut latest = scope.sql("SELECT MAX(create_at) FROM email_reverts WHERE user_id = ");
-    latest.bind(Id(user_id));
-    let latest = match scope.fetch_optional(latest).await? {
-        Some(row) => row.opt_int(0)?,
-        None => None,
-    };
-    let made = latest.map_or(now, |latest| now.max(latest.saturating_add(1)));
+    let after_reverts = after_latest(scope, user_id, now).await?;
+    let latest_identity = oidc_identities::latest_create_at(scope, user_id).await?;
+    let made = after_reverts.max(latest_identity.unwrap_or(i64::MIN));
     let mut sql = scope.sql(
         "INSERT INTO email_reverts (token_hash, user_id, email, create_at, expires_at) VALUES (",
     );
