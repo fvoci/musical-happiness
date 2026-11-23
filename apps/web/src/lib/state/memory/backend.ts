@@ -1,16 +1,7 @@
 /**
- * The backend that keeps everything in memory.
- *
- * It behaves the way the server design says the server will, as far as a
- * screen can tell: it makes the identifiers, checks a body against the
- * allow-list, refuses a stale body with 409, moves deleted things to a trash
- * they can come back from, and tells every listener about every change.
- * Lists come back in no useful order on purpose (see `scramble`): a screen
- * that leans on the order of an answer is caught here, not in production.
- *
- * Besides the interface it has a few handles for tests and for the
- * development page: `as` (the same world seen by another user), `failNext`
- * and `latency`.
+ * In-memory backend matching the server contract for tests and standalone mode.
+ * Lists are scrambled (`scramble`) so screens cannot rely on backend order.
+ * Helpers for tests: `as`, `failNext`, `latency`.
  */
 import { cardPreviewOf, type CardPreview } from '../../editor/card-preview.ts';
 import type { FileDetails } from '../../editor/files.ts';
@@ -52,6 +43,7 @@ import {
   type Paging,
   type Sharing,
   type SharingChange,
+  type UserOrganization,
   type WorkspaceInfo,
   type UploadedFile,
   type UploadOptions,
@@ -78,7 +70,7 @@ import { MemoryDiaries } from './diaries.ts';
 import { MemoryCourses } from './courses.ts';
 import { checkDiariesComing } from './diary-places.ts';
 import { MemoryCategories, fileAsNew } from './categories.ts';
-import { checkWorkspace, confirmPassword, workersOf, workspacesOf } from './spaces.ts';
+import * as spaces from './spaces.ts';
 import { copiedBlocks, copyTitle, insertCopy } from './copies.ts';
 import { memberRole, memberFileUrl } from './container-access.ts';
 import { MemoryFileVersions } from './file-versions.ts';
@@ -164,7 +156,7 @@ export class MemoryBackend implements Backend {
   /** `#enter`, then 404 unless `workspaceId` names a workspace of the reader's (`spaces.ts`). */
   async #enterWorkspace(method: MethodName, workspaceId: string): Promise<void> {
     await this.#enter(method);
-    checkWorkspace(this.world, this.userId, workspaceId);
+    spaces.checkWorkspace(this.world, this.userId, workspaceId);
   }
 
   /**
@@ -273,17 +265,22 @@ export class MemoryBackend implements Backend {
 
   async confirmPassword(password: string): Promise<void> {
     await this.#enter('confirmPassword');
-    confirmPassword(this.world, this.userId, password);
+    spaces.confirmPassword(this.world, this.userId, password);
   }
 
   async workspaces(): Promise<WorkspaceInfo[]> {
     await this.#enter('workspaces');
-    return workspacesOf(this.world, this.userId);
+    return spaces.workspacesOf(this.world, this.userId);
+  }
+
+  async organizations(): Promise<UserOrganization[]> {
+    await this.#enter('organizations');
+    return spaces.organizationsOf(this.world, this.userId);
   }
 
   async users(workspaceId: string): Promise<User[]> {
     await this.#enterWorkspace('users', workspaceId);
-    return usersAmong(this.world, workersOf(this.world, workspaceId));
+    return usersAmong(this.world, spaces.workersOf(this.world, workspaceId));
   }
 
   /** Names visible members and authors, without offering departed authors among people. */
@@ -504,7 +501,7 @@ export class MemoryBackend implements Backend {
 
   async exportWorkspace(workspaceId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     await this.#enter('exportWorkspace', options?.signal);
-    checkWorkspace(this.world, this.userId, workspaceId);
+    spaces.checkWorkspace(this.world, this.userId, workspaceId);
     return archiveOf(
       this.world,
       exportableContainers(this.world, workspaceId, this.userId),
@@ -514,7 +511,7 @@ export class MemoryBackend implements Backend {
 
   async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
     await this.#enter('importArchive', options?.signal);
-    checkWorkspace(this.world, this.userId, workspaceId);
+    spaces.checkWorkspace(this.world, this.userId, workspaceId);
     const { containers, blocks } = await readArchive(file);
     options?.onProgress?.({ sentBytes: file.size, totalBytes: file.size });
     checkDiariesComing(this.world, this.userId, workspaceId, { containers, blocks });
@@ -532,7 +529,7 @@ export class MemoryBackend implements Backend {
     await this.#enter('joinContainer');
     const board = this.#container(id);
     if (board.isTemplate) fail(403, 'a template cannot be joined');
-    const works = workersOf(this.world, board.workspaceId).has(this.userId);
+    const works = spaces.workersOf(this.world, board.workspaceId).has(this.userId);
     if (board.type !== 'O' || !works) fail(404, 'no such open board');
     const members = this.world.members.get(id) ?? [];
     const existing = members.find((member) => member.userId === this.userId);
@@ -552,7 +549,8 @@ export class MemoryBackend implements Backend {
   async addMember(id: string, userId: string, role: ContainerRole): Promise<ContainerMember> {
     await this.#enter('addMember');
     const into = this.#container(id, 'shared').workspaceId;
-    if (!workersOf(this.world, into).has(userId)) fail(400, 'no such user', { field: 'userId' });
+    if (!spaces.workersOf(this.world, into).has(userId))
+      fail(400, 'no such user', { field: 'userId' });
     const members = this.world.members.get(id) ?? [];
     const existing = members.find((member) => member.userId === userId);
     // As the server: somebody who is a member already keeps their role.

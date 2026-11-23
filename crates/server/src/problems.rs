@@ -260,6 +260,7 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::SoleOrgAdmin
         | Reason::AloneInOrganization
         | Reason::LastInstanceAdmin
+        | Reason::CannotRemoveSelf
         | Reason::PasswordSignInRequired
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
         // The rest are the reasons of uploads and archives, of the search of bodies, of
@@ -519,22 +520,30 @@ fn describe_organization(reason: Reason) -> Option<&'static str> {
              way: it goes with the account."
         }
         Reason::SoleOrgAdmin => {
-            "Status 409, leaving an organization (`leaveOrganization`): the account is its \
-             only administrator, and other people are in it. Make another member its \
+            "Status 409, leaving or removing a member from an organization \
+             (`leaveOrganization`, `removeOrgMember`): the account is its only \
+             administrator, and other people are in it. Make another member its \
              administrator first (`putOrgRole`); where the others are guests of its \
              workspaces only, invite a member first. Nothing changed."
         }
         Reason::AloneInOrganization => {
-            "Status 409, leaving an organization (`leaveOrganization`): nobody else is in \
-             it, and it would be left empty. Invite somebody to stay with it first. An \
-             organization of one goes with its account when that is deleted \
+            "Status 409, leaving or removing a member from an organization \
+             (`leaveOrganization`, `removeOrgMember`): nobody else is in it, and it \
+             would be left empty. Invite somebody to stay with it first. An organization \
+             of one goes with its account when that is deleted \
              (`requestAccountDeletion`), but the server's own first one. Nothing changed."
         }
         Reason::LastInstanceAdmin => {
-            "Status 409, leaving the server's own first organization (`leaveOrganization`): \
-             the account is the server's only administrator, which it is as an \
-             administrator of that organization. Make somebody else an administrator of \
-             the organization first. Nothing changed."
+            "Status 409, leaving or removing a member from the server's own first \
+             organization (`leaveOrganization`, `removeOrgMember`): the account is the \
+             server's only administrator, which it is as an administrator of that \
+             organization. Make somebody else an administrator of the organization \
+             first. Nothing changed."
+        }
+        Reason::CannotRemoveSelf => {
+            "Status 409, removing a member from an organization (`removeOrgMember`): an \
+             administrator cannot remove themselves here. Leave the organization through \
+             `leaveOrganization` instead. Nothing changed."
         }
         Reason::PublicLinksOff => {
             "Status 403. The organization has turned its public links off: no board of it is \
@@ -685,7 +694,9 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
              the request again with `password`, the password the registration was made \
              with. The link stays as it was. Only who registered finishes a registration, \
              so that nobody is signed in to an account whose password somebody else \
-             chose; `errors` names `password`."
+             chose; `errors` names `password`. Status 409 from `leaveOrganization`: the \
+             account has no password (`hasPassword` of `getMe` is false) and must set one \
+             (`setPassword`) before leaving an organization. Nothing changed."
         }
         Reason::SecretKeyRequired => {
             "Status 409. The server seals the client secret of a provider with its key, \

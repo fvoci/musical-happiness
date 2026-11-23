@@ -8,6 +8,17 @@ import type { WorkspaceRole } from './people-types.ts';
  */
 export type OrgKind = 'team' | 'personal';
 
+/** What a member of an organization is in it. */
+export type OrgRole = 'admin' | 'member';
+
+/** A shared organization the reader is a member of (`GET /users/me/organizations`). */
+export interface UserOrganization {
+  id: string;
+  /** Empty if it was given none. */
+  name: string;
+  role: OrgRole;
+}
+
 export interface WorkspaceInfo {
   id: string;
   /** Empty if it was given none, as the reader's own space always is: a screen names that one. */

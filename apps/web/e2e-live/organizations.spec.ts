@@ -302,3 +302,88 @@ test('a member who leaves an organization finds it no more, and its only adminis
   expect(errors).toEqual([]);
   await Promise.all([api.dispose(), theirApi.dispose(), theirs.close()]);
 });
+
+test('an organization administrator removes a member and a zero-workspace member still sees and leaves the renamed organization', async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  await founded(base, person('before-remove'), 'Earlier org');
+  const founder = person('remove-founder');
+  await founded(base, founder, 'Remove studio');
+  const api = await signedIn(base, founder);
+  const [workspace] = (await (
+    await api.get('/api/v1/users/me/workspaces')
+  ).json()) as Schemas['UserWorkspace'][];
+  const workspaceId = workspace?.id ?? '';
+  const orgId = workspace?.orgId ?? '';
+  // Rename the organization distinctly from its workspace name.
+  expect((await api.patch(`/api/v1/org/${orgId}`, { data: { name: 'Renamed Corp' } })).ok()).toBe(
+    true,
+  );
+
+  const removed = await joinedBy(base, api, workspaceId);
+  const stranded = await joinedBy(base, api, workspaceId);
+  const strandedApi = await signedIn(base, stranded);
+  const strandedMe = (await (await strandedApi.get('/api/v1/users/me')).json()) as { id: string };
+
+  // Remove `stranded` from the workspace only: zero workspaces left, still in the org.
+  expect((await api.delete(`/api/v1/w/${workspaceId}/members/${strandedMe.id}`)).status()).toBe(
+    204,
+  );
+
+  // `stranded` sees the real organization name in Account settings and can leave it.
+  const strandedCtx = await browser.newContext({ locale: 'en-US', baseURL: base });
+  const strandedPage = await strandedCtx.newPage();
+  const strandedErrors = watchErrors(strandedPage);
+  await openedAt(strandedPage, stranded, '/');
+  const left = await leaveInSettings(strandedPage, 'Renamed Corp');
+  await expect(left.dialog).toBeHidden();
+  await expect(left.section.getByRole('status')).toHaveText('You left Renamed Corp.');
+  expect(strandedErrors).toEqual([]);
+  await strandedApi.dispose();
+  await strandedCtx.close();
+
+  // `removed` opens a live board tab, then founder removes them from the organization screen.
+  const board = await makeBoard(api, {
+    title: 'Active work',
+    workspaceId,
+    members: [{ who: removed, role: 'editor' }],
+  });
+  const address = addressOf({ workspaceId, boardId: board.boardId, viewId: board.viewId });
+  const memberCtx = await browser.newContext({ locale: 'en-US', baseURL: base });
+  const memberPage = await memberCtx.newPage();
+  const memberFrames: string[] = [];
+  memberPage.on('websocket', (socket) =>
+    socket.on('framereceived', ({ payload }) => memberFrames.push(String(payload))),
+  );
+  await openedAt(memberPage, removed, address);
+  await expect(memberPage.getByTestId('board-page')).toBeVisible();
+
+  const errors = watchErrors(page);
+  await openedAt(page, founder, '/');
+  await page.goto(`/org/${orgId}`);
+  const orgScreen = page.getByTestId('org-page');
+  await expect(orgScreen).toBeVisible();
+  const ownRow = orgScreen.locator(`[data-username="${founder.username}"]`);
+  await expect(ownRow.getByRole('button', { name: /Remove/ })).toHaveCount(0);
+
+  const memberRow = orgScreen.locator(`[data-username="${removed.username}"]`);
+  await memberRow.getByRole('button', { name: /Remove/ }).click();
+  const confirm = page.getByRole('alertdialog');
+  await expect(confirm).toContainText(`@${removed.username}`);
+  await confirm.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(memberRow).toHaveCount(0);
+  await expect(
+    orgScreen.getByTestId('org-records').locator('[data-action="org_member_removed"]').first(),
+  ).toBeVisible();
+
+  await expect
+    .poll(() => memberFrames.some((frame) => frame.includes('UNSUBSCRIBED_WORKSPACE')))
+    .toBe(true);
+  await memberPage.goto(address);
+  await expect(memberPage.getByTestId('not-found')).toBeVisible();
+  expect(errors).toEqual([]);
+  await Promise.all([api.dispose(), memberCtx.close()]);
+});

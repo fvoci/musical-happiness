@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 58] = [
+const STEPS: [Step; 59] = [
     Step {
         version: 1,
         description: "baseline",
@@ -389,6 +389,13 @@ const STEPS: [Step; 58] = [
         sqlite: include_str!("../schema/sqlite/0061_courses.sql"),
         postgres: include_str!("../schema/postgres/0061_courses.sql"),
     },
+    // 62–64 are reserved for other work.
+    Step {
+        version: 65,
+        description: "audit org member removed",
+        sqlite: include_str!("../schema/sqlite/0065_audit_org_member_removed.sql"),
+        postgres: include_str!("../schema/postgres/0065_audit_org_member_removed.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -417,6 +424,10 @@ pub(crate) const BEFORE_DIARIES_VERSION: i64 = 54;
 /// The migration before the one of the courses, which widens the kinds of a container.
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_COURSES_VERSION: i64 = 60;
+
+/// The migration before the one that adds `org_member_removed` to `audit_log`.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION: i64 = 64;
 
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
@@ -929,5 +940,15 @@ mod tests {
             .find(|step| step.version == BEFORE_COURSES_VERSION + 1)
             .expect("the migration after BEFORE_COURSES_VERSION is in the list");
         assert_eq!(step.description, "courses");
+    }
+
+    /// The migration right after `BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION` is 65.
+    #[test]
+    fn the_migration_after_before_audit_org_member_removed_is_the_one() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION + 1)
+            .expect("the migration after BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION is in the list");
+        assert_eq!(step.description, "audit org member removed");
     }
 }

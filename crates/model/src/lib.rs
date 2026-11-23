@@ -143,7 +143,8 @@ pub use org_admin::{
 };
 pub use org_kind::{OrgKind, UnknownOrgKind};
 pub use organization::{
-    OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
+    OrgRole, UnknownRole, UserOrganization, UserWorkspace, WorkspaceMember, WorkspaceRole,
+    WorkspaceRoleChange,
 };
 pub use page::{
     DeletedPage, NewPage, OrderError, PAGE_ICON_FIELD, PAGE_ORDER_FIELD, Page, PageDuplicate,

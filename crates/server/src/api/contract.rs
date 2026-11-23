@@ -429,6 +429,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("PersonName", Members::All),
     ("UserSettings", Members::AsWritten),
     ("UnreadNotifications", Members::All),
+    ("UserOrganization", Members::All),
     ("UserWorkspace", Members::All),
     ("WorkspaceMember", Members::All),
     ("WorkspaceRole", Members::AsWritten),

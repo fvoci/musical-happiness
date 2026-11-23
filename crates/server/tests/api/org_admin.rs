@@ -110,6 +110,7 @@ fn org_routes(
         ("GET", org.clone(), Value::Null),
         ("PATCH", org.clone(), json!({ "publicLinks": false })),
         ("GET", format!("{org}/members"), Value::Null),
+        ("DELETE", format!("{org}/members/{user_id}"), Value::Null),
         (
             "PUT",
             format!("{org}/members/{user_id}/role"),

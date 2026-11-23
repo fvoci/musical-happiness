@@ -122,6 +122,9 @@ pub enum AuditAction {
     /// An administrator of the organization (the subject) was made a member. The
     /// target is the organization.
     OrgAdminRemoved,
+    /// A member of the organization (the subject) was taken out of it by an
+    /// administrator. The target is the organization.
+    OrgMemberRemoved,
     /// A workspace (the target) was made.
     WorkspaceCreated,
     /// A workspace (the target) was renamed.
@@ -183,7 +186,7 @@ pub enum AuditAction {
 
 impl AuditAction {
     /// Every action, in the order of the declaration.
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 29] = [
         Self::SelfAddedToContainer,
         Self::AddedToContainer,
         Self::OrgAdminJoined,
@@ -191,6 +194,7 @@ impl AuditAction {
         Self::OrgAdminRevoked,
         Self::OrgAdminGranted,
         Self::OrgAdminRemoved,
+        Self::OrgMemberRemoved,
         Self::WorkspaceCreated,
         Self::WorkspaceRenamed,
         Self::WorkspaceDeleted,
@@ -225,6 +229,7 @@ impl AuditAction {
             Self::OrgAdminRevoked => "org_admin_revoked",
             Self::OrgAdminGranted => "org_admin_granted",
             Self::OrgAdminRemoved => "org_admin_removed",
+            Self::OrgMemberRemoved => "org_member_removed",
             Self::WorkspaceCreated => "workspace_created",
             Self::WorkspaceRenamed => "workspace_renamed",
             Self::WorkspaceDeleted => "workspace_deleted",

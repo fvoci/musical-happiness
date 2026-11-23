@@ -84,6 +84,19 @@ impl FromStr for WorkspaceRole {
 #[error("{0:?} is no role")]
 pub struct UnknownRole(pub String);
 
+/// An organization that people work in together, as one of its members finds it
+/// among theirs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UserOrganization {
+    /// The organization's identifier.
+    pub id: String,
+    /// The organization's name; empty if it was given none.
+    pub name: String,
+    /// What the user is in the organization.
+    pub role: OrgRole,
+}
+
 /// A workspace as one of its members finds it among theirs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]

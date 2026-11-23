@@ -146,7 +146,7 @@ pub use oidc_held::{CarriedOver, CarryOver, CarryOverRefusal, HeldSignIn};
 pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, TiedIdentity, Unlinked};
 pub use oidc_pending::{Applied, Binding, PendingProvider, PendingSettings, Trial, Tried};
 pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
-pub use org_leaving::{Departure, DepartureRefused};
+pub use org_leaving::{Departure, DepartureRefused, MemberRemoval, RemovalRefused};
 pub use page_copies::PageCopies;
 pub use page_trash::PageRestore;
 pub use pages::PageWrite;

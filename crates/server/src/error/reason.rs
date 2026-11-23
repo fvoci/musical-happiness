@@ -52,7 +52,7 @@ reasons! {
     /// yet: there is no account until it is.
     EmailUnverified => "email_unverified", "Email address not confirmed";
     /// A confirmation link was opened in another browser than its registration was made
-    /// from: the password of the registration is to come with it.
+    /// from, or an account without a password asks to leave an organization.
     PasswordRequired => "password_required", "Password required";
     /// The change would leave the board, the workspace or the instance without an
     /// administrator.
@@ -197,14 +197,18 @@ reasons! {
     DefaultWorkspace => "default_workspace", "Default workspace";
     /// The change would leave the organization without an administrator.
     LastOrgAdmin => "last_org_admin", "Last administrator of the organization";
-    /// The account that would leave the organization is its only administrator, and
-    /// other people are in it.
+    /// The account that would leave or be taken out of the organization is its only
+    /// administrator, and other people are in it.
     SoleOrgAdmin => "sole_org_admin", "Only administrator of the organization";
-    /// The account that would leave the organization is the only person in it.
+    /// The account that would leave or be taken out of the organization is the only
+    /// person in it.
     AloneInOrganization => "alone_in_organization", "Only person in the organization";
-    /// The account that would leave the server's own organization is the server's only
-    /// administrator.
+    /// The account that would leave or be taken out of the server's own organization is
+    /// the server's only administrator.
     LastInstanceAdmin => "last_instance_admin", "Last administrator of the server";
+    /// An administrator tried to remove themselves through `removeOrgMember` instead of
+    /// `leaveOrganization`.
+    CannotRemoveSelf => "cannot_remove_self", "Cannot remove yourself";
     /// The organization has turned its public links off.
     PublicLinksOff => "public_links_off", "Public links turned off";
     /// An invitation mail request names more recipients than one may.

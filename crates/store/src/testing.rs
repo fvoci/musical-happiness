@@ -628,6 +628,25 @@ pub async fn migrate_to_before_courses(database: &TestDatabase) {
     store.close().await;
 }
 
+/// Brings a test database to the schema as a server left it before migration 65
+/// (`org_member_removed` in `audit_log`): every migration before that one.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_audit_org_member_removed(database: &TestDatabase) {
+    let store = Store::open(database.db_type(), database.database_connection())
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(
+        &store,
+        Some(crate::schema::BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
+}
+
 /// Brings a test database to the schema as a server left it before the organization's
 /// management (migration 23): every migration before that one, and none of the changes
 /// of the data that follow the migrations.

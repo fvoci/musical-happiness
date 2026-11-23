@@ -880,6 +880,17 @@ pub(crate) async fn patch_user_preferences(
     Ok(preferences)
 }
 
+/// Whether the account `user_id` has a password to sign in with, by the same rule as
+/// [`User::has_password`].
+pub(crate) async fn has_password(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT password_hash FROM users WHERE id = ");
+    sql.bind(Id(user_id));
+    match scope.fetch_optional(sql).await? {
+        Some(row) => Ok(User::has_password_hash(&row.text(0)?)),
+        None => Ok(false),
+    }
+}
+
 /// Holds the instance's row to the end of the transaction: the changes of who
 /// administers the instance are made one at a time. On SQLite a transaction that writes
 /// holds the whole database.
