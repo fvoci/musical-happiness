@@ -77,6 +77,7 @@ mod tenancy;
 mod tenancy_before;
 mod tenancy_sources;
 mod tenancy_tables;
+mod time_entries;
 mod trash;
 mod trash_file_race;
 mod user_row_deletion;

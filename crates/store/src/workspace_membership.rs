@@ -290,6 +290,27 @@ async fn remove(
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
     scope.execute(sql).await?;
+    // A workspace guest is never in `organization_members`: once removed from their last
+    // workspace in this organization, they can no longer leave the organization, so wipe
+    // their time entries in it (including any active timer) to prevent orphans. Hold the
+    // user's row first to serialize with concurrent `start_time_entry` / `create_time_entry`.
+    crate::users::hold_user_for_cleanup(scope, user_id).await?;
+    let org = scope.org()?;
+    let mut sql = scope.sql("DELETE FROM time_entries WHERE user_id = ");
+    sql.bind(Id(user_id))
+        .push_bind(" AND org_id = ", org.clone())
+        .push(" AND NOT EXISTS (SELECT 1 FROM organization_members WHERE user_id = ")
+        .bind(Id(user_id))
+        .push_bind(" AND org_id = ", org.clone())
+        .push(
+            ") AND NOT EXISTS (SELECT 1 FROM workspace_members AS wm \
+               JOIN workspaces AS w ON w.id = wm.workspace_id WHERE wm.user_id = ",
+        )
+        .bind(Id(user_id))
+        .push_bind(" AND w.org_id = ", org)
+        .push(&scope.same_organization(&[("wm", "w")]))
+        .push(")");
+    scope.execute(sql).await?;
     Ok(Some(MembershipChange::Done { taken_over }))
 }
 

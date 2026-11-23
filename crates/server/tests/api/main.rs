@@ -192,6 +192,8 @@ mod teams;
 mod template_copies;
 mod template_stock;
 mod templates;
+mod time_entries;
+mod time_entries_isolation;
 mod unit_comments;
 mod unit_notifications;
 mod unit_references;
