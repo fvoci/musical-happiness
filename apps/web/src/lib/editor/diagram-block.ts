@@ -59,6 +59,18 @@ let lastId = 0;
 const sameFailure = (one: DiagramFailed | undefined, other: DiagramFailed | undefined): boolean =>
   one?.reason === other?.reason && one?.detail === other?.detail;
 
+/**
+ * The last picture drawn for an open diagram's editing place, keyed by the
+ * place's anchor object so it survives ProseMirror rebuilding a dirty or
+ * remotely replaced node view and is collected once the place closes.
+ */
+interface KeptDiagram {
+  picture: SVGSVGElement;
+  source: string;
+  look: string | null;
+}
+const keptPictures = new WeakMap<object, KeptDiagram>();
+
 class DiagramView implements NodeView {
   readonly dom: HTMLElement;
   readonly contentDOM: HTMLElement;
@@ -70,8 +82,11 @@ class DiagramView implements NodeView {
   readonly #stopWatching: () => void;
   #source: string;
   #open = false;
+  #anchor: object | undefined;
   #shown: Shown = 'pending';
   #picture: SVGSVGElement | undefined;
+  #drawnSource: string | undefined;
+  #drawnLook: string | null | undefined;
   #failure: DiagramFailed | undefined;
   #timer: ReturnType<typeof setTimeout> | undefined;
   /** The source being drawn now, if a drawing is under way. */
@@ -98,7 +113,16 @@ class DiagramView implements NodeView {
     this.#view = view;
     this.#getPos = getPos;
     this.#source = node.textContent;
-    this.#open = placeIn(decorations) !== undefined;
+    const place = placeIn(decorations);
+    this.#open = place !== undefined;
+    this.#anchor = place?.anchor;
+    const kept = this.#anchor ? keptPictures.get(this.#anchor) : undefined;
+    if (kept) {
+      this.#picture = kept.picture;
+      this.#drawnSource = kept.source;
+      this.#drawnLook = kept.look;
+      this.#shown = this.#source.trim() === '' ? 'empty' : 'drawn';
+    }
     const page = this.#page;
 
     this.dom = element(page, 'div', { class: 'doc-diagram-block' });
@@ -140,7 +164,9 @@ class DiagramView implements NodeView {
       this.#schedule(0);
     });
     this.refresh();
-    this.#schedule(0);
+    const look = page.documentElement.getAttribute('class');
+    if (kept?.look !== look) this.#schedule(0);
+    else if (kept.source !== this.#source) this.#schedule(DIAGRAM_REDRAW_DELAY);
   }
 
   /** A press on the picture or its button: the place opens. */
@@ -149,11 +175,31 @@ class DiagramView implements NodeView {
     if (pos !== undefined && !this.#open) openPlace(this.#view, pos);
   }
 
+  #rememberPicture(): void {
+    if (
+      this.#anchor &&
+      this.#picture &&
+      this.#drawnSource !== undefined &&
+      this.#drawnLook !== undefined
+    ) {
+      keptPictures.set(this.#anchor, {
+        picture: this.#picture,
+        source: this.#drawnSource,
+        look: this.#drawnLook,
+      });
+    }
+  }
+
   update(node: DocumentNode, decorations: readonly Decoration[]): boolean {
     if (!isDiagramNode(node)) return false;
-    const open = placeIn(decorations) !== undefined;
+    const place = placeIn(decorations);
+    const open = place !== undefined;
     const source = node.textContent;
     const changed = source !== this.#source;
+    if (place?.anchor !== this.#anchor) {
+      this.#anchor = place?.anchor;
+      this.#rememberPicture();
+    }
     if (!changed && open === this.#open) return true;
     this.#source = source;
     this.#open = open;
@@ -201,6 +247,7 @@ class DiagramView implements NodeView {
       return;
     }
     const source = this.#source;
+    const look = this.#page.documentElement.getAttribute('class');
     this.#drawing = source;
     this.#again = false;
     let result: DiagramResult;
@@ -220,8 +267,11 @@ class DiagramView implements NodeView {
     }
     if (result.ok) {
       this.#picture = result.picture;
+      this.#drawnSource = source;
+      this.#drawnLook = look;
       this.#failure = undefined;
       this.#shown = 'drawn';
+      this.#rememberPicture();
     } else {
       this.#failure = result;
       this.#shown = 'error';

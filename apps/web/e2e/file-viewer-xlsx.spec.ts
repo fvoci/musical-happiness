@@ -323,10 +323,28 @@ async function holdWorkbookWorker(page: Page): Promise<() => Promise<void>> {
   await page.addInitScript(() => {
     if (!location.pathname.endsWith('/viewer-frame.html')) return;
     const NativeWorker = globalThis.Worker;
+    type OnMessage = InstanceType<typeof NativeWorker>['onmessage'];
     let held = true;
     const queued: (() => void)[] = [];
     class HeldWorker extends NativeWorker {
       #terminated = false;
+      #onmessage: OnMessage = null;
+      override get onmessage(): OnMessage {
+        return this.#onmessage;
+      }
+      override set onmessage(handler: OnMessage) {
+        this.#onmessage = handler;
+        super.onmessage = handler
+          ? (event: MessageEvent) => {
+              const deliver = (): void => {
+                if (this.#terminated || this.#onmessage !== handler) return;
+                handler.call(this, event);
+              };
+              if (held) queued.push(deliver);
+              else deliver();
+            }
+          : null;
+      }
       override addEventListener(
         type: string,
         listener: EventListenerOrEventListenerObject,

@@ -403,7 +403,11 @@ describe('editing the source', () => {
   it('makes a new line of every Enter, empty lines too, without leaving the source', () => {
     const target = create(BODY);
     figure(target).click();
-    for (let line = 0; line < 3; line += 1) press(target, { key: 'Enter' });
+    const before = block(target);
+    for (let line = 0; line < 3; line += 1) {
+      expect(press(target, { key: 'Enter' })).toBe(true);
+    }
+    expect(block(target)).toBe(before);
     type(target, '  B --> C');
     expect(isOpen(target)).toBe(true);
     expect(stored(target)).toEqual(
@@ -413,6 +417,67 @@ describe('editing the source', () => {
         paragraph(text('after')),
       ),
     );
+  });
+
+  it('leaves composing Enter to the input method while editing a diagram source', () => {
+    const target = create(BODY);
+    figure(target).click();
+    target.view.dom.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    expect(press(target, { key: 'Enter' })).toBe(false);
+    expect(press(target, { key: 'Enter', isComposing: true })).toBe(false);
+    target.view.dom.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- Safari marks IME-confirming Enter with keyCode 229
+    expect(press(target, { key: 'Enter', keyCode: 229 })).toBe(false);
+    expect(stored(target)).toEqual(BODY);
+  });
+
+  it('redraws for a changed theme when an open diagram view is rebuilt mid-switch', async () => {
+    const target = create(BODY);
+    await vi.waitFor(() => {
+      expect(block(target).getAttribute('data-state')).toBe('drawn');
+    });
+    expect(drawDiagram).toHaveBeenCalledTimes(1);
+    document.documentElement.classList.add('dark');
+    try {
+      // Opening while the dark redraw is still pending must keep the light look recorded at draw time.
+      figure(target).click();
+      const original = block(target);
+      const nodeDesc = (original as HTMLElement & { pmViewDesc?: { dirty: number } }).pmViewDesc;
+      if (!nodeDesc) throw new Error('no view desc');
+      nodeDesc.dirty = 3;
+      // Trigger a ProseMirror update without changing the diagram source.
+      target.view.dispatch(target.state.tr.insertText(' ', 1));
+      expect(block(target)).not.toBe(original);
+      await vi.waitFor(() => {
+        expect(drawDiagram).toHaveBeenCalledTimes(2);
+      });
+    } finally {
+      document.documentElement.classList.remove('dark');
+    }
+  });
+
+  it('keeps the last picture when an open diagram view is rebuilt before an invalid edit', async () => {
+    const target = create(BODY);
+    await vi.waitFor(() => {
+      expect(block(target).getAttribute('data-state')).toBe('drawn');
+    });
+    figure(target).click();
+    const original = block(target);
+    // Simulate ProseMirror marking the node view NODE_DIRTY (for example after native DOM mutation
+    // or a remote block replacement) so the node view is destroyed and reconstructed while open.
+    const nodeDesc = (original as HTMLElement & { pmViewDesc?: { dirty: number } }).pmViewDesc;
+    if (!nodeDesc) throw new Error('no view desc');
+    nodeDesc.dirty = 3;
+    type(target, '\n');
+    expect(block(target)).not.toBe(original);
+    expect(block(target).getAttribute('data-state')).toBe('drawn');
+    expect(figure(target).querySelector('svg')?.getAttribute('data-source')).toBe(FLOW);
+    type(target, '  bad -->');
+    await vi.waitFor(() => {
+      expect(block(target).getAttribute('data-state')).toBe('error');
+    });
+    expect(figure(target).hasAttribute('data-stale')).toBe(true);
+    expect(figure(target).querySelector('svg')?.getAttribute('data-source')).toBe(FLOW);
   });
 
   it('makes a new line of Shift+Enter too, and stays open while a selection is drawn out of it', () => {
