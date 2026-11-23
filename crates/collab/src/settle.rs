@@ -5,7 +5,7 @@ use yrs::updates::decoder::Decode;
 use yrs::{ClientID, Doc, ReadTxn, Transact, Update};
 
 use crate::build::doc_of_client;
-use crate::reading;
+use crate::reading::{self, ReadingCache};
 use crate::scan::{self, Refusal};
 use crate::update::{
     Outcome, Settled, UpdateError, UpdateLimits, check_applied, check_client_changes, state_of,
@@ -61,6 +61,8 @@ struct Counted {
     reading_steps: u64,
     /// The most steps it may take once one more client has written; 0 likewise.
     steps_ahead: u64,
+    /// Synchronized Pass 5–6 cache built during the strict count pass, if cacheable.
+    reading_cache: Option<Box<ReadingCache>>,
 }
 
 /// What [`count_and_read`] did with a state.
@@ -105,9 +107,11 @@ fn count_and_read(
             client_changes: read.walked.most,
             reading_steps: 0,
             steps_ahead: 0,
+            reading_cache: None,
         }));
     };
-    let read = reading::count_strict(state, limit).map_err(unreadable)?;
+    let (read, reading_cache) =
+        reading::count_strict_with_cache(state, limit).map_err(unreadable)?;
     check_client_changes(read.walked.most, limits)?;
     if read.steps > limit {
         return Ok(ReadOutcome::PastLimit {
@@ -129,6 +133,7 @@ fn count_and_read(
         client_changes: read.walked.most,
         reading_steps: read.steps,
         steps_ahead: read.ahead,
+        reading_cache,
     }))
 }
 
@@ -144,23 +149,25 @@ fn count_and_read_fresh(state: &[u8], limits: &UpdateLimits) -> Result<Counted, 
         });
     }
     let unreadable = |refusal: Refusal| UpdateError::LeavesUnreadable(refusal.reason().to_owned());
-    let (read, reading_steps, steps_ahead) = if let Some(limit) = limits.reading_steps {
-        let read = reading::count_strict(state, limit).map_err(unreadable)?;
-        check_client_changes(read.walked.most, limits)?;
-        if read.steps > limit {
-            return Err(UpdateError::TooManyReadingSteps {
-                steps: read.steps,
-                limit,
-            });
-        }
-        let steps = read.steps;
-        let ahead = read.ahead;
-        (read, steps, ahead)
-    } else {
-        let read = reading::check_origins(state).map_err(unreadable)?;
-        check_client_changes(read.walked.most, limits)?;
-        (read, 0, 0)
-    };
+    let (read, reading_steps, steps_ahead, reading_cache) =
+        if let Some(limit) = limits.reading_steps {
+            let (read, reading_cache) =
+                reading::count_strict_with_cache(state, limit).map_err(unreadable)?;
+            check_client_changes(read.walked.most, limits)?;
+            if read.steps > limit {
+                return Err(UpdateError::TooManyReadingSteps {
+                    steps: read.steps,
+                    limit,
+                });
+            }
+            let steps = read.steps;
+            let ahead = read.ahead;
+            (read, steps, ahead, reading_cache)
+        } else {
+            let read = reading::check_origins(state).map_err(unreadable)?;
+            check_client_changes(read.walked.most, limits)?;
+            (read, 0, 0, None)
+        };
     let doc = read_walked(state, &read.walked, None).map_err(UpdateError::LeavesUnreadable)?;
     check_applied(&doc)?;
     check_ends(&doc, &read.ends).map_err(unreadable)?;
@@ -170,6 +177,7 @@ fn count_and_read_fresh(state: &[u8], limits: &UpdateLimits) -> Result<Counted, 
         client_changes: read.walked.most,
         reading_steps,
         steps_ahead,
+        reading_cache,
     })
 }
 
@@ -206,8 +214,9 @@ pub(crate) fn from_state_settled(
         Refusal::Gap => UpdateError::MissingChanges,
         other => UpdateError::Unreadable(other.reason().to_owned()),
     };
-    let (read, steps, ahead) = if let Some(limit) = limits.reading_steps {
-        let read = reading::count_strict(state, limit).map_err(map_refusal)?;
+    let (read, steps, ahead, reading_cache) = if let Some(limit) = limits.reading_steps {
+        let (read, reading_cache) =
+            reading::count_strict_with_cache(state, limit).map_err(map_refusal)?;
         if read.steps > limit {
             return Err(UpdateError::TooManyReadingSteps {
                 steps: read.steps,
@@ -216,10 +225,10 @@ pub(crate) fn from_state_settled(
         }
         let steps = read.steps;
         let ahead = read.ahead;
-        (read, steps, ahead)
+        (read, steps, ahead, reading_cache)
     } else {
         let read = reading::check_origins(state).map_err(map_refusal)?;
-        (read, 0, 0)
+        (read, 0, 0, None)
     };
     if let Some(limit) = limits.clients
         && read.walked.begins.len() > limit
@@ -243,9 +252,12 @@ pub(crate) fn from_state_settled(
         .map_err(|refusal| UpdateError::LeavesUnreadable(refusal.reason().to_owned()))?;
     let encoded = state_of(&doc);
     if same_state(&encoded, state) {
+        let state_bytes = encoded.len();
+        let reading_cache = reading_cache.filter(|rc| rc.state_bytes() == state_bytes);
         return Ok(Settled {
             doc,
-            state: encoded,
+            state: Some(encoded),
+            state_bytes,
             changes: read.walked.changes,
             client_changes: read.walked.most,
             reading_steps: steps,
@@ -254,18 +266,18 @@ pub(crate) fn from_state_settled(
             needs_settle: read.needs_settle,
             doc_rebuilt: true,
             delta: None,
+            mutated: true,
+            placing_steps: 0,
+            reading_cache,
         });
     }
     settled_from(doc, encoded, limits)
 }
 
-/// Rebuilds a document from a checkpoint `base` and the accepted updates and repairs
-/// `since` it.
-pub(crate) fn rebuild<U: AsRef<[u8]>>(base: &[u8], since: &[U]) -> Result<Doc, UpdateError> {
+/// Replays accepted updates `since` onto a checkpoint `base` in a single decode pass
+/// without performing extra canonicalizing re-decodes.
+pub(crate) fn replay_tail<U: AsRef<[u8]>>(base: &[u8], since: &[U]) -> Result<Doc, UpdateError> {
     let doc = doc_of_state(base, None).map_err(UpdateError::DocumentUnreadable)?;
-    if since.is_empty() {
-        return Ok(doc);
-    }
     for entry in since {
         let bytes = entry.as_ref();
         scan::check(bytes)
@@ -279,14 +291,37 @@ pub(crate) fn rebuild<U: AsRef<[u8]>>(base: &[u8], since: &[U]) -> Result<Doc, U
             return Err(UpdateError::MissingChanges);
         }
     }
+    Ok(doc)
+}
+
+/// Rebuilds a document from a checkpoint `base` and the accepted updates and repairs
+/// `since` it, enforcing [`crate::READING_STEPS`] before every canonicalizing re-decode.
+pub(crate) fn rebuild<U: AsRef<[u8]>>(base: &[u8], since: &[U]) -> Result<Doc, UpdateError> {
+    let doc = replay_tail(base, since)?;
+    if since.is_empty() {
+        return Ok(doc);
+    }
     let state = state_of(&doc);
     drop(doc);
+    let check_steps = |bytes: &[u8]| -> Result<(), UpdateError> {
+        let (read, _) = reading::count_strict_with_cache(bytes, crate::READING_STEPS)
+            .map_err(|refusal| UpdateError::LeavesUnreadable(refusal.reason().to_owned()))?;
+        if read.steps > crate::READING_STEPS {
+            return Err(UpdateError::TooManyReadingSteps {
+                steps: read.steps,
+                limit: crate::READING_STEPS,
+            });
+        }
+        Ok(())
+    };
+    check_steps(&state)?;
     let again = doc_of_state(&state, None).map_err(UpdateError::LeavesUnreadable)?;
     let state_again = state_of(&again);
     if same_state(&state_again, &state) {
         return Ok(again);
     }
     drop(again);
+    check_steps(&state_again)?;
     let twice = doc_of_state(&state_again, None).map_err(UpdateError::LeavesUnreadable)?;
     let state_settled = state_of(&twice);
     if !same_state(&state_settled, &state_again) {
@@ -389,9 +424,14 @@ pub(crate) fn settled_from(
 }
 
 fn rebuilt_settled(counted: Counted, state: Vec<u8>, prior_client_changes: u64) -> Settled {
+    let state_bytes = state.len();
+    let reading_cache = counted
+        .reading_cache
+        .filter(|rc| rc.state_bytes() == state_bytes);
     Settled {
         doc: counted.doc,
-        state,
+        state: Some(state),
+        state_bytes,
         changes: counted.changes,
         client_changes: counted.client_changes.max(prior_client_changes),
         reading_steps: counted.reading_steps,
@@ -400,6 +440,9 @@ fn rebuilt_settled(counted: Counted, state: Vec<u8>, prior_client_changes: u64) 
         needs_settle: false,
         doc_rebuilt: true,
         delta: None,
+        mutated: true,
+        placing_steps: 0,
+        reading_cache,
     }
 }
 
@@ -412,9 +455,11 @@ fn rebuilt_remake(
     steps_ahead: u64,
     limit: u64,
 ) -> Settled {
+    let state_bytes = state.len();
     Settled {
         doc,
-        state,
+        state: Some(state),
+        state_bytes,
         changes,
         client_changes,
         reading_steps: steps,
@@ -423,6 +468,9 @@ fn rebuilt_remake(
         needs_settle: true,
         doc_rebuilt: true,
         delta: None,
+        mutated: true,
+        placing_steps: 0,
+        reading_cache: None,
     }
 }
 

@@ -202,10 +202,11 @@ pub mod testing {
         crate::take::size_of(body)
     }
 
-    /// Handle to the incremental block cache for pass-by-pass benchmarks (`tests/cost.rs`).
+    /// Handle to the incremental block + reading caches for pass-by-pass benchmarks (`tests/cost.rs`).
     #[derive(Debug)]
     pub struct CacheProbe {
         cache: crate::block_cache::BlockCache,
+        reading: Option<Box<crate::reading::ReadingCache>>,
     }
 
     /// Pre-decoded update with its newly inserted shared-type IDs (output of `update::read`,
@@ -216,10 +217,14 @@ pub mod testing {
         new_types: Vec<yrs::ID>,
     }
 
-    /// Captured delta of one in-place update application for [`CacheProbe::validate`].
+    /// Captured delta and transaction update of one in-place update application for
+    /// [`CacheProbe::count_reading`] and [`CacheProbe::validate`].
     #[derive(Debug)]
     pub struct AppliedDelta {
         delta: crate::block_cache::ApplyDelta,
+        txn_update: Vec<u8>,
+        before_sv: yrs::StateVector,
+        after_sv: yrs::StateVector,
     }
 
     /// Outcome of [`CacheProbe::validate`].
@@ -232,13 +237,17 @@ pub mod testing {
     }
 
     impl CacheProbe {
-        /// Builds the initial cache from `doc`.
+        /// Builds the initial block + reading caches from `doc` and its encoded `state`.
         ///
         /// # Errors
         ///
         /// Returns why `doc` is not a valid body.
-        pub fn build(doc: &Doc) -> Result<Self, BodyError> {
-            crate::block_cache::BlockCache::build(doc).map(|cache| Self { cache })
+        pub fn build(doc: &Doc, state: &[u8]) -> Result<Self, BodyError> {
+            let cache = crate::block_cache::BlockCache::build(doc)?;
+            let reading = crate::reading::count_strict_with_cache(state, crate::READING_STEPS)
+                .ok()
+                .and_then(|(_, rc)| rc);
+            Ok(Self { cache, reading })
         }
 
         /// Reads and decodes `update` against `doc` (the part already timed in pass `4a`).
@@ -255,7 +264,7 @@ pub mod testing {
         }
 
         /// Applies a pre-decoded `prepared` update to `doc` in place and captures the
-        /// incremental delta via the production `update::apply_and_capture` helper.
+        /// incremental delta + committed transaction update via `update::apply_and_capture`.
         ///
         /// # Errors
         ///
@@ -264,8 +273,44 @@ pub mod testing {
             doc: &Doc,
             prepared: PreparedUpdate,
         ) -> Result<AppliedDelta, UpdateError> {
-            crate::update::apply_and_capture(doc, prepared.sent, prepared.new_types)
-                .map(|delta| AppliedDelta { delta })
+            let applied = crate::update::apply_and_capture(
+                doc,
+                prepared.sent,
+                prepared.new_types,
+                crate::update::CaptureMode {
+                    delta: crate::update::DeltaMode::Capture,
+                    txn_update: crate::update::TxnUpdateMode::Capture,
+                },
+            )?;
+            Ok(AppliedDelta {
+                delta: applied.delta.expect("delta requested"),
+                txn_update: applied.txn_update.expect("txn_update requested"),
+                before_sv: applied.before_sv,
+                after_sv: applied.after_sv,
+            })
+        }
+
+        /// Runs the incremental Pass 5–6 reading cache update for `applied`, returning
+        /// `(state_bytes, reading_steps)` or `None` if it fell back.
+        #[must_use]
+        pub fn count_reading(
+            &mut self,
+            applied: &AppliedDelta,
+            limits: &UpdateLimits,
+        ) -> Option<(usize, u64)> {
+            let rc = self.reading.take()?;
+            match rc.try_apply(
+                &applied.txn_update,
+                &applied.before_sv,
+                &applied.after_sv,
+                limits,
+            ) {
+                Ok(crate::reading::FastApply::Accepted { cache, summary }) => {
+                    self.reading = cache;
+                    Some((summary.state_bytes, summary.reading_steps))
+                }
+                _ => None,
+            }
         }
 
         /// Updates the cache incrementally from `applied`.
