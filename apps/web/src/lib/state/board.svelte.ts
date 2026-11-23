@@ -8,18 +8,16 @@
  * arrives through the backend's change messages and is applied the same way
  * as the answers to the reader's own writes.
  */
-import { cardsOfView } from '../logic/card-list.ts';
 import type { BoardGroups, NoValueLabel } from '../logic/group.ts';
-import {
-  viewQuery,
-  type BlockPatch,
-  type Container,
-  type ContainerMember,
-  type BoardView,
-  type Card,
-  type MemberRole,
-  type PropertyTemplate,
-  type PropertyValue,
+import type {
+  BlockPatch,
+  Container,
+  ContainerMember,
+  BoardView,
+  Card,
+  MemberRole,
+  PropertyTemplate,
+  PropertyValue,
 } from '../logic/wire.ts';
 
 import {
@@ -39,9 +37,15 @@ import { CardStore } from './card.svelte.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
 import { authorIds, memberId } from './user-names.ts';
-import { handleBoardLoadFailure, joinOpenBoard, readBoard } from './board-load.ts';
+import {
+  handleBoardLoadFailure,
+  handleBoardRefreshFailure,
+  joinOpenBoard,
+  readBoard,
+} from './board-load.ts';
 import {
   canChangeComment,
+  cardsOfBoardView,
   groupingPropertyOf,
   groupsOfView,
   roleOf,
@@ -259,18 +263,7 @@ export class BoardStore {
 
   /** The cards a view shows, in its order, for a search text. */
   cardsOf(view: BoardView, searchText = ''): Card[] {
-    return cardsOfView(
-      this.realCards,
-      this.board?.cardProperties ?? [],
-      viewQuery(view),
-      searchText,
-      {
-        usernameOf: (userId) => this.workspace.userName(userId),
-        locale: this.workspace.locale,
-        timeZone: this.workspace.regional.timeZone,
-        cardTitle: (cardId) => this.cardsById.get(cardId)?.title,
-      },
-    );
+    return cardsOfBoardView(this, view, searchText);
   }
 
   /** The property a view groups its cards by (`groupingPropertyOf`). */
@@ -379,19 +372,11 @@ export class BoardStore {
         void open.refresh();
       }
     } catch (error) {
-      if (isBackendError(error) && error.status === 401) {
-        this.workspace.report('load', error);
-        return;
-      }
-      if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
-        this.workspace.evictContainer(this.boardId);
-      }
-      if (reading !== this.#refreshing || this.#isInactive()) return;
-      if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
-        await handleBoardLoadFailure(this, error);
-      } else {
-        this.workspace.report('load', error);
-      }
+      await handleBoardRefreshFailure(
+        this,
+        error,
+        () => reading === this.#refreshing && !this.#isInactive(),
+      );
     }
   }
 
@@ -445,6 +430,8 @@ export class BoardStore {
   /**
    * Changes a card: `change` gets the card as it is and returns it as it
    * should be (a new object). Nothing is sent when the two say the same.
+   * Undo and redo write what was said before, quietly: nobody the card is
+   * given to again is told of it twice.
    */
   async changeCard(
     cardId: string,
@@ -456,9 +443,13 @@ export class BoardStore {
     if (!current) return;
     const [forward, backward] = cardPatches(change(current), current);
     if (isEmptyCardPatch(forward)) return;
+    let said = false;
     await this.#perform(
-      () => this.#cardWrites.write(cardId, forward, backward),
-      () => this.#cardWrites.write(cardId, backward, forward),
+      async () => {
+        await this.#cardWrites.write(cardId, forward, backward, said);
+        said = true;
+      },
+      () => this.#cardWrites.write(cardId, backward, forward, true),
       description,
       groupId,
       this.#cardWrites.keep(cardId, backward),
@@ -491,11 +482,20 @@ export class BoardStore {
     );
   }
 
-  /** Makes a card. Undo deletes it; redo makes it again (with a new identifier). */
+  /**
+   * Makes a card. Undo deletes it; redo makes it again (with a new
+   * identifier), quietly: nobody it names or is given to is told twice, and
+   * its writer watches it as before.
+   */
   async createCard(draft: CardDraft, groupId?: string): Promise<CardSummary | undefined> {
+    let made = false;
     return this.#perform(
       async () => {
-        const card = await this.#backend.createCard(this.boardId, draft);
+        const card = await this.#backend.createCard(
+          this.boardId,
+          made ? { ...draft, quiet: true } : draft,
+        );
+        made = true;
         void this.workspace.learnUsers(authorIds([card]));
         this.cards = take(this.cards, card);
         return card;

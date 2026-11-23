@@ -825,16 +825,39 @@ async fn a_subscription_to_no_block_or_by_no_user_is_refused() {
     test.teardown().await;
 }
 
-/// The subscriptions to a block end when the block is deleted, alone or below what is
-/// deleted, and do not come back when it is restored. Subscriptions to other blocks
-/// stay.
+/// The identifiers of the subscribers of a block, sorted.
+async fn block_subscribers(store: &Store, block_id: &str) -> Vec<String> {
+    let mut subscribers: Vec<String> = store
+        .get_subscribers_for_block(block_id)
+        .await
+        .expect("the subscribers are listed")
+        .into_iter()
+        .map(|subscriber| subscriber.subscriber_id)
+        .collect();
+    subscribers.sort();
+    subscribers
+}
+
+/// Marks a user row as erased for tests that verify erased subscribers do not return.
+async fn mark_erased(test: &common::TestStore, user_id: &str) {
+    test.system()
+        .execute_unchecked(&format!(
+            "UPDATE users SET delete_at = 1, erase_started_at = 1, erased_at = 1 WHERE id = '{user_id}'"
+        ))
+        .await
+        .expect("the account is erased");
+}
+
+/// The subscriptions to a block go into the trash with the block, alone or below what
+/// is deleted, and come back with it as they were: but that of a subscriber whose
+/// account was erased meanwhile. Subscriptions to other blocks stay where they are.
 #[tokio::test]
-async fn deleting_a_block_ends_the_subscriptions_to_it_for_good() {
+async fn deleting_a_block_takes_the_subscriptions_to_it_into_the_trash_and_back() {
     let test = common::setup().await;
     let store = &test.store;
 
-    let users = create_test_users(store, 2).await;
-    let (author, reader) = (&users[0], &users[1]);
+    let users = create_test_users(store, 3).await;
+    let (author, reader, erased) = (&users[0], &users[1], &users[2]);
     let card = first_block(store, &author.id).await;
     let mut below = vec![Block {
         parent_id: card.id.clone(),
@@ -847,7 +870,7 @@ async fn deleting_a_block_ends_the_subscriptions_to_it_for_good() {
     common::insert_blocks(store, &mut others, &author.id).await;
     let other_card = &others[0];
 
-    for user in [author, reader] {
+    for user in [author, reader, erased] {
         for block in [&card, paragraph, other_card] {
             store
                 .create_subscription(subscription(block, user))
@@ -855,24 +878,31 @@ async fn deleting_a_block_ends_the_subscriptions_to_it_for_good() {
                 .expect("the user subscribes");
         }
     }
+    let before = store
+        .get_subscriptions(&reader.id)
+        .await
+        .expect("the subscriptions are listed");
 
     // The card goes, and the text on it with it.
     common::delete_blocks(store, std::slice::from_ref(&card), &author.id).await;
-
     for user in [author, reader] {
         assert_eq!(
             subscribed_blocks(store, user).await,
             std::slice::from_ref(&other_card.id),
-            "only the subscription to the block that exists is left"
+            "only the subscription to the block that exists is listed"
         );
     }
     for gone in [&card, paragraph] {
-        let count = store
-            .get_subscribers_count_for_block(&gone.id)
-            .await
-            .expect("the subscribers are counted");
-        assert_eq!(count, 0, "a deleted block has no subscribers");
+        assert_eq!(
+            store
+                .get_subscribers_count_for_block(&gone.id)
+                .await
+                .expect("the subscribers are counted"),
+            0,
+            "a deleted block has no subscribers"
+        );
     }
+    mark_erased(&test, &erased.id).await;
 
     let restored = store
         .undelete_block(&card.id, &author.id)
@@ -887,35 +917,53 @@ async fn deleting_a_block_ends_the_subscriptions_to_it_for_good() {
         common::contains_block_with_id(&on_the_board, &paragraph.id),
         "the text came back with its card: {on_the_board:?}"
     );
+    let mut all = vec![card.id.clone(), paragraph.id.clone(), other_card.id.clone()];
+    all.sort();
     for user in [author, reader] {
         assert_eq!(
             subscribed_blocks(store, user).await,
-            std::slice::from_ref(&other_card.id),
-            "the restored blocks come back without their subscriptions"
+            all,
+            "the restored blocks come back with their subscriptions"
+        );
+    }
+    assert_eq!(
+        store
+            .get_subscriptions(&reader.id)
+            .await
+            .expect("the subscriptions are listed"),
+        before,
+        "as they were made, and last notified"
+    );
+    let mut expected = vec![author.id.clone(), reader.id.clone()];
+    expected.sort();
+    for back in [&card, paragraph] {
+        assert_eq!(
+            block_subscribers(store, &back.id).await,
+            expected,
+            "but whose account was erased"
         );
     }
 
-    // What is restored can be subscribed to as anything else.
+    // Deleted again and gone for good, they go with it.
+    common::delete_blocks(store, std::slice::from_ref(&card), &author.id).await;
     store
-        .create_subscription(subscription(&card, reader))
+        .purge_trash(i64::MAX)
         .await
-        .expect("the user subscribes to the restored card");
-    let mut expected = vec![card.id.clone(), other_card.id.clone()];
-    expected.sort();
+        .expect("the trash is emptied");
     assert_eq!(
         subscribed_blocks(store, reader).await,
-        expected,
-        "subscribed again"
+        std::slice::from_ref(&other_card.id),
+        "only the subscription to the block that exists is left"
     );
 
     test.teardown().await;
 }
 
-/// The subscriptions to the blocks of a board end when the board is deleted, and do not
+/// The subscriptions to the blocks of a board go into the trash with the board, and
 /// come back when it is restored with its blocks. Subscriptions to the blocks of other
 /// boards stay.
 #[tokio::test]
-async fn deleting_a_board_ends_the_subscriptions_to_its_blocks_for_good() {
+async fn deleting_a_board_takes_the_subscriptions_to_its_blocks_into_the_trash_and_back() {
     let test = common::setup().await;
     let store = &test.store;
 
@@ -941,7 +989,7 @@ async fn deleting_a_board_ends_the_subscriptions_to_its_blocks_for_good() {
         assert_eq!(
             subscribed_blocks(store, user).await,
             std::slice::from_ref(&elsewhere.id),
-            "only the subscription on the other board is left"
+            "only the subscription on the other board is listed"
         );
     }
 
@@ -958,18 +1006,15 @@ async fn deleting_a_board_ends_the_subscriptions_to_its_blocks_for_good() {
         std::slice::from_ref(&doomed.id),
         "the block came back with its board"
     );
+    let mut both = vec![doomed.id.clone(), elsewhere.id.clone()];
+    both.sort();
     for user in [author, reader] {
         assert_eq!(
             subscribed_blocks(store, user).await,
-            std::slice::from_ref(&elsewhere.id),
-            "the restored board's blocks come back without their subscriptions"
+            both,
+            "the restored board's blocks come back with their subscriptions"
         );
     }
-    let count = store
-        .get_subscribers_count_for_block(&doomed.id)
-        .await
-        .expect("the subscribers are counted");
-    assert_eq!(count, 0, "the restored block has no subscribers");
 
     test.teardown().await;
 }

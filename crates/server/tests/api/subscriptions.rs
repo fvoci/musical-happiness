@@ -81,8 +81,8 @@ fn sorted(mut subscriptions: Vec<Subscription>) -> Vec<Subscription> {
 }
 
 /// Inserts a card block on the board through the blocks route, quietly
-/// (`disableNotify`): its writer would watch it otherwise, and these tests make and
-/// end every subscription themselves.
+/// (`disableNotify`), and ends its writer's watching of it, which a quiet write makes
+/// all the same: these tests make and end every subscription themselves.
 async fn insert_card(client: &Client, board_id: &str) -> Block {
     let mut inserted: Vec<Block> = client
         .post(
@@ -91,7 +91,12 @@ async fn insert_card(client: &Client, board_id: &str) -> Block {
         )
         .await
         .created_json();
-    inserted.pop().expect("one block was inserted")
+    let card = inserted.pop().expect("one block was inserted");
+    let writer = client.me().await.id;
+    unsubscribe(client, &card.id, &writer)
+        .await
+        .check_no_content();
+    card
 }
 
 /// `createTestSubscriptions`: a board of the client's user with `count` cards, and the
@@ -520,24 +525,25 @@ async fn delete_subscription_twice() {
     th.teardown().await;
 }
 
-/// A subscription ends with its block: it is not listed any more and there is nothing
-/// left to end. Restoring the block does not bring the subscription back.
+/// A subscription goes into the trash with its block: while the block is there it is
+/// not listed and there is nothing to subscribe to or end. Restoring the block brings
+/// the subscription back as it was.
 #[tokio::test]
-async fn a_subscription_ends_with_its_block() {
+async fn a_subscription_goes_to_the_trash_with_its_block_and_comes_back_with_it() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
     let board = th
         .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
         .await;
     let card = insert_card(&th.client, &board.id).await;
-    subscribe(&th.client, &card.id, &me).await;
+    let created = subscribe(&th.client, &card.id, &me).await;
     let block_path = format!("{TEST_WS}/boards/{}/blocks/{}", board.id, card.id);
     th.client.delete(&block_path).await.check_no_content();
 
     assert_eq!(
         subscriptions_of(&th.client, &me).await,
         [],
-        "the subscription went with the block"
+        "the subscription went into the trash with the block"
     );
     let response = th.client.post(PATH, &request(&card.id, &me)).await;
     check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
@@ -550,8 +556,8 @@ async fn a_subscription_ends_with_its_block() {
         .check_ok();
     assert_eq!(
         subscriptions_of(&th.client, &me).await,
-        [],
-        "and does not come back with it"
+        [created],
+        "and comes back with it as it was"
     );
     th.teardown().await;
 }
