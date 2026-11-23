@@ -98,8 +98,9 @@ async fn trash_before_diaries(
 
 /// A database of the schema before the diaries, with an organization that has a board
 /// and a wiki, each with blocks, members and a link, a template, and a board in the
-/// trash; and the identifier of the board. Blocks and the trashed board are written
-/// directly against that schema (later migrations added columns the current store writes).
+/// trash; and the identifier of the board. The account, blocks, and the trashed board
+/// are written directly against that schema (later migrations added tables or columns
+/// the current store uses).
 async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String) {
     let database = common::empty_database().await;
     fvoci_store::testing::migrate_to_before_diaries(&database).await;
@@ -111,7 +112,17 @@ async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String
         .expect("the database opens");
     let (org_id, workspace_id) = common::organization(&store, "people").await;
     let store = store.for_org(&org_id).expect("an identifier");
-    let user_id = common::user(&store, "member").await;
+    // The account is written in the columns of then: the store of now also asks of an
+    // address what later migrations keep (`email_reverts`).
+    let user_id = new_id();
+    common::execute_raw(
+        &common::raw_connection(&database),
+        &format!(
+            "INSERT INTO users (id, username, email, password_hash, create_at, update_at) \
+             VALUES ('{user_id}', 'member', 'member@example.com', '', 1, 1);"
+        ),
+    )
+    .await;
     common::works_in(&store, &workspace_id, &user_id).await;
     let mut kept = String::new();
     for (kind, is_template, trashed) in [

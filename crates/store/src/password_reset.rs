@@ -89,9 +89,12 @@ impl Store {
                 return Ok(None);
             }
             end_links_of_user(scope, &user_id).await?;
+            // Who holds the link reads the address: the new password is theirs, and a
+            // lock on the one before ends ([`users::lock_password`]).
             let mut change = scope.sql("UPDATE users SET password_hash = ");
             change
                 .bind(password_hash)
+                .push_bind(", password_locked_at = ", 0_i64)
                 .push_bind(", update_at = ", now)
                 .push_bind(" WHERE id = ", Id(&user_id));
             scope.execute(change).await?;

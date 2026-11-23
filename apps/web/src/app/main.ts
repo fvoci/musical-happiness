@@ -11,6 +11,7 @@ import { watchSystemTheme } from '$lib/theme.svelte.js';
 import App from './App.svelte';
 import ConfirmEmailApp from './ConfirmEmailApp.svelte';
 import ResetPasswordApp from './ResetPasswordApp.svelte';
+import RevertEmailApp from './RevertEmailApp.svelte';
 import SharedApp from './SharedApp.svelte';
 import VerifyEmailApp from './VerifyEmailApp.svelte';
 import { startLocale } from './locale.ts';
@@ -42,6 +43,8 @@ export default router.route.passwordReset || router.route.passwordForgot
     ? mount(VerifyEmailApp, { target, props: { router } })
     : router.route.emailConfirm
       ? mount(ConfirmEmailApp, { target, props: { router } })
-      : router.route.shared
-        ? mount(SharedApp, { target, props: { router } })
-        : mount(App, { target, props: { router } });
+      : router.route.emailRevert
+        ? mount(RevertEmailApp, { target, props: { router } })
+        : router.route.shared
+          ? mount(SharedApp, { target, props: { router } })
+          : mount(App, { target, props: { router } });

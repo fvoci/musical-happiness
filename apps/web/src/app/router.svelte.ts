@@ -32,6 +32,8 @@ export interface Route {
   emailVerify?: true;
   /** The page the link that changes an account's address opens; its token is in the fragment. */
   emailConfirm?: true;
+  /** The page the link that gives an account its address back opens; its token is in the fragment. */
+  emailRevert?: true;
   /** The organization whose screen is shown; then nothing else is. */
   orgId?: string | undefined;
   workspaceId: string | undefined;
@@ -114,6 +116,9 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
   }
   if (segments[0] === 'confirm-email' && segments.length === 1) {
     return { ...NOWHERE, emailConfirm: true };
+  }
+  if (segments[0] === 'revert-email' && segments.length === 1) {
+    return { ...NOWHERE, emailRevert: true };
   }
   if (segments[0] === 'invite' && segments.length === 2) {
     return { ...NOWHERE, invitation: segments[1] };
@@ -281,6 +286,7 @@ export class Router {
         next.passwordForgot === now.passwordForgot &&
         next.emailVerify === now.emailVerify &&
         next.emailConfirm === now.emailConfirm &&
+        next.emailRevert === now.emailRevert &&
         next.orgId === now.orgId &&
         next.workspaceId === now.workspaceId &&
         next.boardId === now.boardId &&

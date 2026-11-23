@@ -376,18 +376,48 @@ pub(crate) enum SignedInto {
     Waiting,
 }
 
+/// What a sign-in that holds an account was proved by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Proof {
+    /// The account's password, which a locked one is not.
+    Password,
+    /// A provider's word, which a lock on the password does not reach.
+    Provider,
+}
+
 /// Holds the row of an account somebody can sign in to (one in use, or one that waits
 /// to be deleted) whose password hash is still `seen_password_hash`, till the end of
-/// the transaction, and says which of the two it is; `None` for anybody else. A reset
-/// of the password waits for this, or this for it. On SQLite a transaction that writes
-/// holds the whole database.
+/// the transaction, and says which of the two it is; `None` for anybody else, and for
+/// an account whose password is locked: the password was what proved it. A reset of
+/// the password waits for this, or this for it, and so does the link that locks it. On
+/// SQLite a transaction that writes holds the whole database.
 pub(crate) async fn hold_unchanged_account(
     scope: &mut Scope<'_>,
     user_id: &str,
     seen_password_hash: &str,
 ) -> Result<Option<SignedInto>, StoreError> {
+    hold_account_proved_by(scope, user_id, seen_password_hash, Proof::Password).await
+}
+
+/// As [`hold_unchanged_account`], for a sign-in through a provider: a locked password
+/// is no part of what proved it.
+pub(crate) async fn hold_unchanged_account_for_provider(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    seen_password_hash: &str,
+) -> Result<Option<SignedInto>, StoreError> {
+    hold_account_proved_by(scope, user_id, seen_password_hash, Proof::Provider).await
+}
+
+async fn hold_account_proved_by(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    seen_password_hash: &str,
+    proof: Proof,
+) -> Result<Option<SignedInto>, StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT password_hash, delete_at FROM users WHERE (delete_at = 0 OR ({})) AND id = ",
+        "SELECT password_hash, delete_at, password_locked_at FROM users \
+         WHERE (delete_at = 0 OR ({})) AND id = ",
         crate::users::WAITS
     ));
     sql.bind(Id(user_id));
@@ -397,7 +427,7 @@ pub(crate) async fn hold_unchanged_account(
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(None);
     };
-    if row.text(0)? != seen_password_hash {
+    if row.text(0)? != seen_password_hash || (proof == Proof::Password && row.int(2)? != 0) {
         return Ok(None);
     }
     Ok(Some(if row.int(1)? == 0 {

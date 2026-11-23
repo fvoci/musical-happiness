@@ -507,6 +507,11 @@ async fn leave_traces(test: &TestStore, founder: &str, leaver: &str, board: &str
             id = new_id(),
             org = test.org_id
         ),
+        // The link back to an address they had before.
+        format!(
+            "INSERT INTO email_reverts (token_hash, user_id, email, create_at, expires_at) \
+             VALUES ('back', '{leaver}', 'Earlier-Leaver-Mail@example.com', {T0}, {T0})"
+        ),
     ] {
         test.execute_unchecked(&statement)
             .await

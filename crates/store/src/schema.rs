@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 56] = [
+const STEPS: [Step; 57] = [
     Step {
         version: 1,
         description: "baseline",
@@ -376,6 +376,12 @@ const STEPS: [Step; 56] = [
         sqlite: include_str!("../schema/sqlite/0058_card_numbers.sql"),
         postgres: include_str!("../schema/postgres/0058_card_numbers.sql"),
     },
+    Step {
+        version: 59,
+        description: "the link that gives an account its address back, and a locked password",
+        sqlite: include_str!("../schema/sqlite/0059_email_reverts.sql"),
+        postgres: include_str!("../schema/postgres/0059_email_reverts.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -404,10 +410,11 @@ pub(crate) const BEFORE_DIARIES_VERSION: i64 = 54;
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const GLOBAL_TABLES: [&str; 11] = [
+pub(crate) const GLOBAL_TABLES: [&str; 12] = [
     "_sqlx_migrations",
     "data_steps",
     "email_changes",
+    "email_reverts",
     "instance",
     "preferences",
     "password_resets",

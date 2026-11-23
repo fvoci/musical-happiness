@@ -1,6 +1,7 @@
 //! An account changes its email address: asked for with the account's password, and
 //! made by the link mailed to the new address, or at once where the server sends no
-//! mail and so confirms no address.
+//! mail and so confirms no address; and the link mailed to the address before gives it
+//! back.
 
 use std::net::IpAddr;
 use std::sync::Mutex;
@@ -8,12 +9,12 @@ use std::time::Instant;
 
 use futures_util::future::BoxFuture;
 use fvoci_model::{Me, Session};
-use fvoci_store::EmailChanged;
+use fvoci_store::EmailReverted;
 
 use super::App;
 use super::auth::{WrongPassword, account_error};
 use super::language::Language;
-use super::mail::{Content, Letter};
+use super::mail::{Content, Letter, Queued};
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
@@ -109,7 +110,8 @@ impl App {
                 .await
                 .map_err(account_error)?
                 .ok_or_else(changed_meanwhile)?;
-            self.after_email_change(changed);
+            // Without mail the address before is told nothing, and no link gives it back.
+            self.broadcast_person_change_in_background(changed.user_id);
             return Ok(Box::pin(async {}));
         }
         if !self
@@ -183,7 +185,8 @@ impl App {
 
     /// Makes the address a link was mailed to the address of its account, for whoever
     /// holds the link's `token`: nobody is signed in by it. The account's reset links
-    /// end, and the address it had is told that it is the account's no more.
+    /// end, and the address it had is told that it is the account's no more, with the
+    /// link that gives it back ([`App::revert_email_change`]).
     ///
     /// # Errors
     ///
@@ -201,9 +204,20 @@ impl App {
         let invalid = || {
             AppError::bad_request("the confirmation link is invalid or expired").with_field("token")
         };
+        // The notice that carries the link back is on its way before the change is made,
+        // or the change is not made: the link has no other way to its address.
+        let notice = if self.config().mail_enabled() {
+            Some(self.inner.mail.queue_email_changed().map_err(|_| {
+                tracing::warn!("a change of address waits: the queue of its notice is full");
+                AppError::service_unavailable("the server cannot change an address now; try again")
+            })?)
+        } else {
+            None
+        };
+        let revert = new_secret();
         let changed = match self
             .store()
-            .confirm_email_change(&token_digest(token), now_millis())
+            .confirm_email_change(&token_digest(token), &token_digest(&revert), now_millis())
             .await
         {
             Ok(changed) => changed.ok_or_else(invalid)?,
@@ -211,21 +225,68 @@ impl App {
             Err(fvoci_store::StoreError::Conflict(_)) => return Err(invalid()),
             Err(error) => return Err(error.into()),
         };
-        self.after_email_change(changed);
+        self.broadcast_person_change_in_background(changed.user_id.clone());
+        let Some(notice) = notice.filter(|_| !changed.old_email.is_empty()) else {
+            return Ok(());
+        };
+        // Fragments never reach HTTP request targets, proxy logs or Referer headers.
+        let link = format!(
+            "{}/revert-email#{revert}",
+            self.config().server_url.trim_end_matches('/')
+        );
+        let app = self.clone();
+        self.spawn_background(async move {
+            let language = app.mail_language(&changed.user_id, None).await;
+            let content = Content::email_changed(&link, &changed.username, language);
+            app.deliver_notice(notice, &changed.old_email, content)
+                .await;
+        });
         Ok(())
     }
 
-    /// What follows a change of address: whoever follows the account reads it again,
-    /// and the address it had is told, where the server sends mail and it had one.
-    fn after_email_change(&self, changed: EmailChanged) {
-        self.broadcast_person_change_in_background(changed.user_id.clone());
-        if !self.config().mail_enabled() || changed.old_email.is_empty() {
-            return;
+    /// Gives the account of the link `token` the address the link was mailed to back,
+    /// for whoever holds it: nobody is signed in by it. The account's sessions end and
+    /// their connections close, and its password is taken nowhere until it is set
+    /// anew ([`fvoci_store::Store::revert_email_change`] says what else goes). The
+    /// address it had until then is told. Returns the address the account has again,
+    /// or none where somebody else had it by now and the account kept the one it had.
+    ///
+    /// # Errors
+    ///
+    /// Returns 429 for too many requests from `address`, and 400 naming `token` for a
+    /// link that changes nothing: unknown, used, ended, or of an account whose erasing
+    /// began. Which of them it was is not said.
+    pub async fn revert_email_change(
+        &self,
+        token: &str,
+        address: Option<IpAddr>,
+    ) -> Result<Option<String>, AppError> {
+        let _attempt = self.admit_registration(address)?;
+        let reverted = self
+            .store()
+            .revert_email_change(&token_digest(token), now_millis())
+            .await?
+            .ok_or_else(|| {
+                AppError::bad_request("the link is invalid or expired").with_field("token")
+            })?;
+        self.ws().close_user(&reverted.user_id);
+        tracing::info!(
+            user_id = %reverted.user_id,
+            restored = reverted.restored.is_some(),
+            "a link gave an account the address it had back"
+        );
+        self.broadcast_person_change_in_background(reverted.user_id.clone());
+        let restored = reverted.restored.clone();
+        if self.config().mail_enabled() && is_told(&reverted) {
+            let app = self.clone();
+            self.spawn_background(async move {
+                let language = app.mail_language(&reverted.user_id, None).await;
+                let content = Content::email_reverted(&reverted.username, language);
+                app.mail_notice(&reverted.user_id, &reverted.before, content)
+                    .await;
+            });
         }
-        let app = self.clone();
-        self.spawn_background(async move {
-            app.mail_email_notice(&changed).await;
-        });
+        Ok(restored)
     }
 
     /// The language of a mail to the account: the one of its settings if the mail is
@@ -244,29 +305,16 @@ impl App {
     /// Mails the link that confirms the change the account waits for to its new
     /// address, unless somebody has that address: then nothing is mailed, and the
     /// account goes on waiting, so that what it is answered tells nothing. Every
-    /// asking is one of the account's hour before anything is known of the address, so
-    /// that the mail the account gets afterwards tells nothing either. What became of
-    /// the message is logged, never told.
+    /// asking is one of the account's hour, and of the address's, before anything is
+    /// known of the address, and one that mails nothing takes the turn of the pace a
+    /// message would, so that the mail the account or anybody gets afterwards, and
+    /// when, tells nothing either. What became of the message is logged, never told.
     async fn mail_email_change(&self, waiting: &Waiting, requested: Option<Language>) {
         if !self.inner.mail.count_email_change(&waiting.user_id) {
             tracing::info!("address change mail dropped: the account's hourly limit");
             return;
         }
-        match self
-            .store()
-            .email_is_held(&waiting.email, now_millis())
-            .await
-        {
-            Ok(false) => {}
-            Ok(true) => {
-                tracing::info!("no link mailed for a change of address: the address is held");
-                return;
-            }
-            Err(error) => {
-                tracing::warn!(%error, "the link of a change of address was not mailed");
-                return;
-            }
-        }
+        // Counted at the address, and in the queue, before anything is known of it.
         let queued = match self.inner.mail.queue_email_change(&waiting.email) {
             Ok(queued) => queued,
             Err(ResetMailDrop::AccountLimit) => {
@@ -278,6 +326,24 @@ impl App {
                 return;
             }
         };
+        match self
+            .store()
+            .email_is_held(&waiting.email, &waiting.user_id, now_millis())
+            .await
+        {
+            Ok(false) => {}
+            Ok(true) => {
+                tracing::info!("no link mailed for a change of address: the address is held");
+                // The turn of the pace a link would have taken is taken: how long the
+                // next message to anybody waits tells nothing either.
+                queued.pass(&self.inner.mail).await;
+                return;
+            }
+            Err(error) => {
+                tracing::warn!(%error, "the link of a change of address was not mailed");
+                return;
+            }
+        }
         let language = self.mail_language(&waiting.user_id, requested).await;
         // The digest of the link the message carries, once it is written: a retry is
         // sent only while that link still confirms the change.
@@ -332,28 +398,32 @@ impl App {
         }
     }
 
-    /// Tells the address the account had that it is the account's no more. The
-    /// message names the account and nothing of the new address.
-    async fn mail_email_notice(&self, changed: &EmailChanged) {
-        let queued = match self.inner.mail.queue_email_notice(&changed.user_id) {
+    /// Mails `content`, a notice about the account `user_id`, to `to`, within the
+    /// account's hour of notices.
+    async fn mail_notice(&self, user_id: &str, to: &str, content: Content) {
+        let queued = match self.inner.mail.queue_email_notice(user_id) {
             Ok(queued) => queued,
             Err(ResetMailDrop::AccountLimit) => {
-                tracing::warn!("notice of a changed address dropped: the account's hourly limit");
+                tracing::warn!("notice of an address dropped: the account's hourly limit");
                 return;
             }
             Err(ResetMailDrop::QueueFull) => {
-                tracing::warn!("notice of a changed address dropped: its queue is full");
+                tracing::warn!("notice of an address dropped: its queue is full");
                 return;
             }
         };
-        let language = self.mail_language(&changed.user_id, None).await;
+        self.deliver_notice(queued, to, content).await;
+    }
+
+    /// Mails `content`, a notice about an account, to `to` in the place `queued`.
+    async fn deliver_notice(&self, queued: Queued, to: &str, content: Content) {
         let delivered = queued
             .deliver(
                 &self.inner.mail,
                 || async {
                     Ok::<_, AppError>(Letter {
-                        to: changed.old_email.clone(),
-                        content: Content::email_changed(&changed.username, language),
+                        to: to.to_owned(),
+                        content,
                     })
                 },
                 // What it tells of has happened, and stays so.
@@ -361,7 +431,17 @@ impl App {
             )
             .await;
         if let Err(error) = delivered {
-            tracing::warn!(%error, "the notice of a changed address was not mailed");
+            tracing::warn!(%error, "the notice of an address was not mailed");
         }
     }
+}
+
+/// Whether the address an account had until a link gave it another back is told so:
+/// where there was one, and the account has another now.
+fn is_told(reverted: &EmailReverted) -> bool {
+    !reverted.before.is_empty()
+        && reverted
+            .restored
+            .as_deref()
+            .is_some_and(|now| !now.eq_ignore_ascii_case(&reverted.before))
 }

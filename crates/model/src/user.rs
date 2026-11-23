@@ -77,6 +77,12 @@ pub struct User {
     /// The hash of the password, as a PHC string.
     #[serde(skip)]
     pub password_hash: String,
+    /// Since when the password is taken nowhere, in milliseconds since the Unix epoch;
+    /// zero while it is taken. A link mailed to an address the account had gave that
+    /// address back then, and a new password set through a reset link or by the
+    /// operator ends it. The account still has a password.
+    #[serde(skip)]
+    pub password_locked_at: i64,
     /// Creation time in milliseconds since the Unix epoch; zero for a deleted account
     /// (an empty `username`).
     pub create_at: i64,
@@ -104,6 +110,14 @@ pub struct User {
     pub roles: String,
 }
 
+impl User {
+    /// Whether the password is taken nowhere ([`Self::password_locked_at`]).
+    #[must_use]
+    pub fn password_is_locked(&self) -> bool {
+        self.password_locked_at != 0
+    }
+}
+
 impl fmt::Debug for User {
     /// Leaves out the password hash.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -112,6 +126,7 @@ impl fmt::Debug for User {
             .field("username", &self.username)
             .field("display_name", &self.display_name)
             .field("email", &self.email)
+            .field("password_locked_at", &self.password_locked_at)
             .field("name", &self.name)
             .field("create_at", &self.create_at)
             .field("update_at", &self.update_at)

@@ -521,6 +521,9 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "requestEmailVerification",
     "requestPasswordReset",
     "resendEmailChange",
+    // Giving an account the address it had back asks for no session: whoever holds the
+    // link mailed to that address uses it (`email_revert`).
+    "revertEmailChange",
     // The first password of an account that has none is the account's own, as
     // changing one is.
     "setPassword",

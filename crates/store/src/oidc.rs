@@ -719,7 +719,8 @@ pub(crate) async fn admit(
             // Held, the account waits for an unlinking under way, which ends the
             // sessions of the identity: one made after it is refused here.
             let Some(signed_into) =
-                sessions::hold_unchanged_account(scope, user_id, password_hash).await?
+                sessions::hold_unchanged_account_for_provider(scope, user_id, password_hash)
+                    .await?
             else {
                 return Ok(Err(OidcRefusal::AccountChanged));
             };

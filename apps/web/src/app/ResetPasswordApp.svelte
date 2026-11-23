@@ -3,6 +3,7 @@
   import RequestPasswordPage from '$lib/features/account/RequestPasswordPage.svelte';
   import ResetPasswordPage from '$lib/features/account/ResetPasswordPage.svelte';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
+  import { emailOfForgotPassword } from './recovery-links.ts';
   import type { Router } from './router.svelte.ts';
 
   let { router }: { router: Router } = $props();
@@ -27,7 +28,12 @@
 
 <svelte:window {onhashchange} />
 {#if router.route.passwordForgot}
-  <RequestPasswordPage {available} {request} homeHref={router.href({})} />
+  <RequestPasswordPage
+    {available}
+    {request}
+    email={emailOfForgotPassword(location.hash)}
+    homeHref={router.href({})}
+  />
 {:else}
   {#key token}
     <ResetPasswordPage {token} homeHref={router.href({})} {complete} />

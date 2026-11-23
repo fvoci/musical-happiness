@@ -526,6 +526,7 @@ fn user_json_hides_credentials_and_carries_the_name() {
         },
         email: "alice@example.com".to_owned(),
         password_hash: "hash".to_owned(),
+        password_locked_at: 7,
         create_at: 0,
         update_at: 5,
         delete_at: 0,

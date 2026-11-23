@@ -118,7 +118,7 @@ pub(super) async fn exercise(
         "instance authority stays as assigned"
     );
     case.record("setUserAdmin", &response);
-    address(case, server, smtp).await;
+    let back = address(case, server, smtp).await;
     // A session made with the password gives it once more, and goes on under a new
     // cookie as the session it was.
     let confirmed = case
@@ -137,6 +137,25 @@ pub(super) async fn exercise(
     leaving(case, server).await;
     // The session of an account that left an organization stays.
     case.run("logout", &[], json!({})).await;
+    // The link mailed to the address before stood through all of that, and gives it
+    // back: last, as it ends every session of the account and locks its password.
+    let reverted = server
+        .anonymous()
+        .post("/email-change/revert", &json!({"token": back.token}))
+        .await;
+    assert_eq!(
+        reverted.value()["email"],
+        back.email,
+        "the address before is the account's again: {}",
+        reverted.text()
+    );
+    case.record("revertEmailChange", &reverted);
+}
+
+/// The link that gives an account an address back, and that address.
+struct Back {
+    token: String,
+    email: String,
 }
 
 /// The founder leaves the organization once somebody else administers it, and the
@@ -449,8 +468,11 @@ async fn recovery(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) {
 
 /// The founder moves the account to another address: asks under the password, has the
 /// link mailed again and takes the asking back; asks for another, and confirms it by
-/// the link mailed there, in a browser that is not signed in.
-async fn address(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) {
+/// the link mailed there, in a browser that is not signed in. Returns the link mailed
+/// to the address before, which gives it back.
+async fn address(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) -> Back {
+    let me: fvoci_model::Me = case.client.get("/users/me").await.ok_json();
+    let before = me.email;
     let ask = |email: String| json!({"email": email, "password": PASSWORD});
     case.run(
         "requestEmailChange",
@@ -477,6 +499,20 @@ async fn address(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) {
     case.record("confirmEmailChange", &confirmed);
     let me = case.run("getMe", &[], json!({})).await.value();
     assert_eq!(me["email"], moved, "the address is the confirmed one: {me}");
+    let notice = mail_to(case, smtp, &before, "/revert-email#").await;
+    let link = notice
+        .lines()
+        .find(|line| line.starts_with("http") && line.contains("/revert-email#"))
+        .expect("the notice has the link back");
+    Back {
+        token: link
+            .split_once('#')
+            .expect("a fragment")
+            .1
+            .trim()
+            .to_owned(),
+        email: before,
+    }
 }
 
 /// The decoded mail to `recipient` that holds `containing`, which must name nothing of

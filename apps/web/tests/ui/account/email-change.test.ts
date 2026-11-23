@@ -1,7 +1,8 @@
 /**
  * The account's address in the settings: asked to change with the password,
  * what a change that waits offers, what a refusal says and where; the page
- * of the link that changes it; and the line of the reader's own space.
+ * of the link that changes it, which waits for its button; and the line of
+ * the reader's own space.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import type { ComponentProps } from 'svelte';
@@ -251,35 +252,55 @@ describe('the page of the link that changes the address', () => {
     expect(parseRoute('/confirm-email/secret', '').unknown).toBe(true);
   });
 
-  it('says the address is changed, and leads on', async () => {
-    render(ConfirmEmailPage, { confirming: Promise.resolve(), homeHref: '/base' });
+  it('changes nothing until the button is pressed, then says the address is changed', async () => {
+    const confirm = vi.fn((_token: string) => Promise.resolve());
+    render(ConfirmEmailPage, { token: 'secret', confirm, homeHref: '/base' });
+    expect(screen.getByText(/Opening the link changed nothing/)).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+    expect(confirm).toHaveBeenCalledExactlyOnceWith('secret');
     expect(await screen.findByTestId('confirm-email-done')).toHaveTextContent(
       'Your address is changed.',
     );
+    expect(screen.queryByRole('button', { name: 'Confirm' })).toBeNull();
     expect(screen.getByRole('link', { name: 'Continue' })).toHaveAttribute('href', '/base');
   });
 
+  it('offers no button for a link without a token', () => {
+    const confirm = vi.fn((_token: string) => Promise.resolve());
+    render(ConfirmEmailPage, { token: '', confirm, homeHref: '/' });
+    expect(screen.getByRole('alert')).toHaveTextContent('This link changes nothing.');
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
   it.each([
-    { refusal: undefined, says: 'This link changes nothing.' },
     {
       refusal: new BackendError(400, {
         errors: [{ pointer: '/token', reason: 'invalid', detail: 'internal words' }],
       }),
       says: 'This link changes nothing.',
+      again: false,
     },
     {
       refusal: new BackendError(429, { detail: 'internal words' }),
       says: 'Too many tries. Wait a moment and try again.',
+      again: true,
     },
-  ])('says "$says" of a link or a request that changed nothing', async ({ refusal, says }) => {
-    // No refusal: the link had no token, and nothing was sent.
-    const confirming = refusal ? Promise.reject(refusal) : undefined;
-    render(ConfirmEmailPage, { confirming, homeHref: '/' });
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent(says);
-    expect(alert).not.toHaveTextContent('internal words');
-    expect(screen.queryByTestId('confirm-email-done')).toBeNull();
-  });
+  ])(
+    'says "$says" of a link or a request that changed nothing',
+    async ({ refusal, says, again }) => {
+      const confirm = vi.fn((_token: string) => Promise.reject(refusal));
+      render(ConfirmEmailPage, { token: 'secret', confirm, homeHref: '/' });
+      await fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(says);
+      expect(alert).not.toHaveTextContent('internal words');
+      expect(screen.queryByTestId('confirm-email-done')).toBeNull();
+      // Only a request that failed is asked again; a refused link is not.
+      expect(screen.queryByRole('button', { name: 'Confirm' }) !== null).toBe(again);
+    },
+  );
 });
 
 describe("the line about the address, in the reader's own space", () => {

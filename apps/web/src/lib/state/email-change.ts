@@ -25,4 +25,14 @@ export interface EmailChange {
    * became somebody else's) is 400 at `/token`.
    */
   confirm(token: string): Promise<void>;
+  /**
+   * Uses the link mailed to the address the account had before a change, by
+   * its token, signed in or not: the account has that address again, unless
+   * another account has it by then, and in any case every session of the
+   * account ends and its password works no more until a reset sets a new one.
+   * Answers the address given back, or `undefined` where the account kept the
+   * one it had. A link that changes nothing (used, ended, or one mailed later
+   * than another that was used) is 400 at `/token`, which says no more.
+   */
+  revert(token: string): Promise<string | undefined>;
 }

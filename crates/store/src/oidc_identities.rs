@@ -151,17 +151,20 @@ impl Store {
         identity: Identity<'_>,
     ) -> Result<Unlinked, StoreError> {
         self.transaction(async |scope| {
-            let mut sql =
-                scope.sql("SELECT password_hash FROM users WHERE delete_at = 0 AND id = ");
+            let mut sql = scope.sql(
+                "SELECT password_hash, password_locked_at FROM users WHERE delete_at = 0 AND id = ",
+            );
             sql.bind(Id(user_id));
             if scope.dialect() == Dialect::Postgres {
                 sql.push(" FOR UPDATE");
             }
-            let password_hash = match scope.fetch_optional(sql).await? {
-                Some(row) => row.text(0)?,
+            let (password_hash, locked) = match scope.fetch_optional(sql).await? {
+                Some(row) => (row.text(0)?, row.int(1)? != 0),
                 None => return Ok(Unlinked::AccountChanged),
             };
-            if password_hash != seen_password_hash {
+            // The password was checked against the hash: a lock since leaves it proving
+            // nothing.
+            if password_hash != seen_password_hash || (locked && !password_hash.is_empty()) {
                 return Ok(Unlinked::AccountChanged);
             }
             let mut sql = scope.sql("SELECT issuer, subject FROM user_identities WHERE user_id = ");
