@@ -8,6 +8,7 @@ import type { Container, ContainerMember } from '../../logic/wire.ts';
 import type { DeletedItem, Paging } from '../backend.ts';
 
 import { categoriesIn, tellCategories } from './categories.ts';
+import { checkCardRestore } from './card-hierarchy.ts';
 import { mayRemoveComments, type Role } from './comments.ts';
 import { checkDiaryRoom } from './diary-places.ts';
 import { pageOf } from './paging.ts';
@@ -268,12 +269,15 @@ export function takeBlockBack(
   } else if (!mayRemoveComments(memberRole(), userId, deleted)) {
     fail(403, "access denied to undelete other users' comments");
   }
-  const parent = top?.parentId;
-  if (parent && !world.blocks.has(parent)) {
+  let reroot = false;
+  if (top?.type === 'card') {
+    reroot = checkCardRestore(world, boardId, deleted.blocks);
+  } else if (top?.parentId && !world.blocks.has(top.parentId)) {
     fail(404, 'the parent of the block is gone');
   }
   ensureBoard();
   world.deletedBlocks.delete(blockId);
+  if (reroot && top) top.parentId = '';
   for (const block of deleted.blocks) {
     block.updateAt = world.now();
     block.modifiedBy = userId;

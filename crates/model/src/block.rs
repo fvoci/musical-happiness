@@ -415,6 +415,27 @@ pub enum BlockError {
         /// The most units the course may have.
         limit: u32,
     },
+    /// The parent of a card is no ordinary card of its board.
+    #[error("the parent of a card is a card of its board")]
+    CardNotBelowCard,
+    /// A card is placed below a template card.
+    #[error("a card template cannot be the parent of a card")]
+    CardBelowTemplate,
+    /// A template card is given a parent card.
+    #[error("a card template cannot have a parent card")]
+    TemplateCardBelowBlock,
+    /// A card that has sub-cards is turned into a template card.
+    #[error("a card with sub-cards cannot become a template")]
+    TemplateCardHasChildren,
+    /// A card with sub-cards is changed to another block type.
+    #[error("the type would leave a sub-card off a card")]
+    TypeStrandsCards,
+    /// A card, or a sub-card below it, would be deeper on its board than the limit.
+    #[error("the card would be deeper on its board than {limit}")]
+    CardTooDeep {
+        /// The deepest a card may be.
+        limit: u32,
+    },
     /// The course would have more chapters than it may, those in the trash not counted.
     #[error("the course would have more than {limit} chapters")]
     TooManyChapters {

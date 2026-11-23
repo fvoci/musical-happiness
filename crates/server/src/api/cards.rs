@@ -70,6 +70,12 @@ async fn card_with_permission(
 ///
 /// The server chooses the identifier, the creator and the times. For editors.
 ///
+/// `parentId` places an ordinary card below another live, non-template card of the same
+/// board, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,
+/// `null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot
+/// have a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`
+/// (depth > 3 with reason `card_too_deep` and `limit: 3`).
+///
 /// The value of a card relation property (of the `type` `relation`) is `null` or a list
 /// of other cards of the board, in the trash or not, each once, at most 50 (a value over
 /// it from before may be written with fewer of its cards, not with another). Any other is
@@ -185,6 +191,9 @@ pub(super) async fn cards_page(
 ///
 /// For editors of the card's board. To a user who is no member of that board there is
 /// no such card. The relation values it changes are checked as `createCard` says.
+/// `parentId` reparents the card within the same board (empty or `null` moves it to the
+/// top level; left out keeps its current parent), checked for cycles and maximum depth 3
+/// including any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).
 #[utoipa::path(
     patch,
     path = "/w/{workspaceId}/cards/{cardId}",

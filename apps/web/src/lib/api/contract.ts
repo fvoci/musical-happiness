@@ -2461,6 +2461,12 @@ export interface paths {
          * Make a card
          * @description The server chooses the identifier, the creator and the times. For editors.
          *
+         *     `parentId` places an ordinary card below another live, non-template card of the same
+         *     board, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,
+         *     `null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot
+         *     have a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`
+         *     (depth > 3 with reason `card_too_deep` and `limit: 3`).
+         *
          *     The value of a card relation property (of the `type` `relation`) is `null` or a list
          *     of other cards of the board, in the trash or not, each once, at most 50 (a value over
          *     it from before may be written with fewer of its cards, not with another). Any other is
@@ -2574,6 +2580,9 @@ export interface paths {
          * Change a card
          * @description For editors of the card's board. To a user who is no member of that board there is
          *     no such card. The relation values it changes are checked as `createCard` says.
+         *     `parentId` reparents the card within the same board (empty or `null` moves it to the
+         *     top level; left out keeps its current parent), checked for cycles and maximum depth 3
+         *     including any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).
          */
         patch: operations["patchCard"];
         trace?: never;
@@ -5682,6 +5691,11 @@ export interface components {
              *     ignored, whatever it is.
              */
             number: number | null;
+            /**
+             * @description The identifier of the parent card on the same board; empty for a top-level card
+             *     (depth 1). A card template has no parent.
+             */
+            parentId: string;
             preview?: components["schemas"]["CardPreview"] | null;
             /**
              * @description Property values keyed by property identifier: a string, a list of strings, or
@@ -5725,6 +5739,11 @@ export interface components {
             deletedProperties?: string[];
             /** @description The new icon; at most one grapheme. */
             icon?: string | null;
+            /**
+             * @description The new parent card identifier on the same board; `""` or `null` moves the card
+             *     to the top level (depth 1). Left out, the parent stays as it is.
+             */
+            parentId?: string | null;
             /**
              * Format: int64
              * @description The `updateAt` of the card as the client read it: if the card has changed since,
@@ -6840,6 +6859,12 @@ export interface components {
             icon?: string;
             /** @description Whether the card is a template. */
             isTemplate?: boolean;
+            /**
+             * @description The identifier of the parent card on the same board; left out, empty, or `null`
+             *     for a top-level card (depth 1). At most three levels deep; templates cannot have a
+             *     parent or sub-cards.
+             */
+            parentId?: string | null;
             /** @description Property values by property identifier: a string, a list of strings, or `null`. */
             properties?: {
                 [key: string]: unknown;

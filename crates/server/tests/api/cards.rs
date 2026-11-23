@@ -826,7 +826,7 @@ async fn create_card_answer_and_stored_block() {
         response.value(),
         json!({
             "id": card.id,
-            "boardId": board.id,
+            "boardId": board.id, "parentId": "",
             "number": null,
             "createdBy": me.id,
             "modifiedBy": me.id,
@@ -890,7 +890,7 @@ async fn create_card_without_members() {
         response.value(),
         json!({
             "id": card.id,
-            "boardId": board.id,
+            "boardId": board.id, "parentId": "",
             "number": 1,
             "createdBy": me.id,
             "modifiedBy": me.id,
@@ -1404,7 +1404,7 @@ async fn get_card_permissions_and_refusals() {
         response.value(),
         json!({
             "id": bare.id,
-            "boardId": board_id,
+            "boardId": board_id, "parentId": "",
             "number": 2,
             "createdBy": bare.created_by,
             "modifiedBy": bare.modified_by,

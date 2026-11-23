@@ -170,7 +170,7 @@ export function cardOf(card: Schemas['Card']): CardSummary {
     ...createCard({
       id: card.id,
       containerId: card.boardId,
-      parentId: '',
+      parentId: card.parentId,
       createdBy: card.createdBy,
       modifiedBy: card.modifiedBy,
       schema: 1,
@@ -221,6 +221,7 @@ export function newCardRequest(draft: CardDraft): {
   query: { disableNotify: 'true' | undefined };
 } {
   const json: Schemas['NewCard'] = {
+    ...(draft.parentId ? { parentId: draft.parentId } : {}),
     title: draft.title ?? '',
     icon: draft.icon ?? '',
     isTemplate: draft.isTemplate ?? false,
@@ -243,6 +244,7 @@ export function patchCardRequest(
   query: { disableNotify: 'true' | undefined };
 } {
   const json: Schemas['CardPatch'] = {};
+  if (patch.parentId !== undefined) json.parentId = patch.parentId;
   if (patch.title !== undefined) json.title = patch.title;
   if (patch.icon !== undefined) json.icon = patch.icon;
   const updated = patch.updatedProperties ?? {};

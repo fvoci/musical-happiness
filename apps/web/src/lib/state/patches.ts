@@ -23,6 +23,10 @@ import type { CardPatch } from './backend.ts';
 export function cardPatches(next: Card, prev: Card): [CardPatch, CardPatch] {
   const forward: CardPatch = {};
   const backward: CardPatch = {};
+  if (next.parentId !== prev.parentId) {
+    forward.parentId = next.parentId;
+    backward.parentId = prev.parentId;
+  }
   if (next.title !== prev.title) {
     forward.title = next.title;
     backward.title = prev.title;
@@ -51,6 +55,7 @@ export function cardPatches(next: Card, prev: Card): [CardPatch, CardPatch] {
 
 export function isEmptyCardPatch(patch: CardPatch): boolean {
   return (
+    patch.parentId === undefined &&
     patch.title === undefined &&
     patch.icon === undefined &&
     Object.keys(patch.updatedProperties ?? {}).length === 0 &&
@@ -66,6 +71,7 @@ export function applyCardPatch<T extends Card>(card: T, patch: CardPatch): T {
   }
   return {
     ...card,
+    parentId: patch.parentId === undefined ? card.parentId : (patch.parentId ?? ''),
     title: patch.title ?? card.title,
     fields: { ...card.fields, icon: patch.icon ?? card.fields.icon, properties },
   };

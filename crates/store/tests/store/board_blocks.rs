@@ -26,6 +26,29 @@ async fn stored(store: &Store, mut block: Block, user_id: &str) -> Block {
     block
 }
 
+/// Stores a legacy card directly below a legacy `board` block, bypassing current
+/// card-hierarchy validation to seed pre-migration database state.
+async fn stored_card_below_legacy(
+    test: &TestStore,
+    store: &Store,
+    board_id: &str,
+    legacy_id: &str,
+    fields: serde_json::Value,
+    user_id: &str,
+) -> Block {
+    let mut card = stored(store, block(board_id, "card", "", fields), user_id).await;
+    common::execute_raw(
+        &test.database_connection(),
+        &format!(
+            "UPDATE blocks SET parent_id = '{legacy_id}' WHERE id = '{}'",
+            card.id
+        ),
+    )
+    .await;
+    card.parent_id = legacy_id.to_owned();
+    card
+}
+
 /// A test store with a user and one board: the store, the user and the board.
 async fn a_board() -> (TestStore, String, String) {
     let test = common::setup().await;
@@ -76,16 +99,13 @@ async fn the_step_deletes_them_with_what_is_below_them() {
     let attachment = stored(&test, attachment, &user_id).await;
     let trashed_card = stored(&test, block(&board, "card", "", none.clone()), &user_id).await;
     let legacy = stored(&test, block(&board, "board", "", none.clone()), &user_id).await;
-    let below = stored(
-        &test,
-        block(&board, "card", &legacy.id, none.clone()),
-        &user_id,
-    )
-    .await;
+    let below =
+        stored_card_below_legacy(&test, &test, &board, &legacy.id, none.clone(), &user_id).await;
     let further = block(&board, "attachment", &below.id, file("42gone.png"));
     let further = stored(&test, further, &user_id).await;
     let trashed = stored(&test, block(&board, "board", "", none.clone()), &user_id).await;
-    let trashed_below = stored(&test, block(&board, "card", &trashed.id, none), &user_id).await;
+    let trashed_below =
+        stored_card_below_legacy(&test, &test, &board, &trashed.id, none, &user_id).await;
     for id in [&trashed_card.id, &trashed.id] {
         test.delete_block(id, &user_id).await.expect("to the trash");
     }
@@ -131,12 +151,8 @@ async fn a_block_trashed_below_a_board_block_goes_and_the_board_is_noted_for_the
     let (test, user_id, board) = a_board().await;
     let none = serde_json::json!({});
     let legacy = stored(&test, block(&board, "board", "", none.clone()), &user_id).await;
-    let below = stored(
-        &test,
-        block(&board, "card", &legacy.id, none.clone()),
-        &user_id,
-    )
-    .await;
+    let below =
+        stored_card_below_legacy(&test, &test, &board, &legacy.id, none.clone(), &user_id).await;
     let further = stored(&test, block(&board, "card", &below.id, none), &user_id).await;
     test.delete_block(&below.id, &user_id)
         .await
@@ -186,8 +202,8 @@ async fn every_organization_loses_its_board_blocks_and_only_its_own() {
         (&other_org, &other, other_board),
     ] {
         let legacy = stored(store, block(board, "board", "", none.clone()), &user_id).await;
-        let below = block(board, "card", &legacy.id, none.clone());
-        let below = stored(store, below, &user_id).await;
+        let below =
+            stored_card_below_legacy(&test, store, board, &legacy.id, none.clone(), &user_id).await;
         let card = stored(store, block(board, "card", "", none.clone()), &user_id).await;
         gone.push((org_id.clone(), [legacy, below]));
         kept.push((org_id.clone(), card));

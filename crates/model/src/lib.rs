@@ -82,7 +82,7 @@ pub use body_version::{
     BodyVersion, BodyVersionCause, BodyVersionContent, KeptBodyVersion, KeptOutcome,
     ParseBodyVersionCauseError,
 };
-pub use card::{CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview};
+pub use card::{CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview, MAX_CARD_DEPTH};
 pub use card_property::{
     CardPropertyError, DATE_PROPERTY_TYPE, PersonProperties, assigned_users,
     clear_values_of_another_kind, validate_block_properties, validate_card_property_definitions,
