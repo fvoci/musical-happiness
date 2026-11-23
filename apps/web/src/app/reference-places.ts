@@ -18,6 +18,7 @@ function routeOf(router: Router, linked: LinkedBlock): Partial<Route> | undefine
   if (route.shared) return undefined;
   const { workspaceId } = route;
   if (linked.kind === 'page') return { workspaceId, wikiId: linked.containerId, pageId: linked.id };
+  if (linked.kind === 'unit') return undefined;
   return { workspaceId, boardId: linked.containerId, viewId: ANY_VIEW, cardId: linked.id };
 }
 

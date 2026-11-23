@@ -8,17 +8,17 @@ import type { ContainerKind } from '../logic/wire.ts';
 import type { VersionsOfBodies } from './body-versions.ts';
 import type { Paging } from './trash-reads.ts';
 
-/** A card or a page as a reference shows it: what it is, what it is called, and where it is. */
+/** A card, page or unit as a reference shows it: what it is, what it is called, and where it is. */
 export interface LinkedBlock {
   id: string;
-  kind: 'card' | 'page';
+  kind: 'card' | 'page' | 'unit';
   title: string;
   /** Its icon; empty for none. */
   icon: string;
-  /** The board or the wiki it is on. No reference names an entry of a diary. */
+  /** The board, wiki or course it is on. No reference names an entry of a diary. */
   containerId: string;
   containerKind: ContainerKind;
-  /** A card's number on its board; none for a page. */
+  /** A card's number on its board; none for a page or a unit. */
   number?: number;
 }
 

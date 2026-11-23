@@ -98,10 +98,10 @@ const TAGS: [(&str, &str); 19] = [
     (
         tag::COURSES,
         "Courses and their chapters and units. A course is a container of the kind \
-         `course`: who is on it, its groups, invitations, files, place in the sidebar \
-         and trash, and export and import work under `/containers/{containerId}` with \
-         the course's identifier. Open courses are read and searched without joining, \
-         as open wikis are.",
+         `course`: who is on it, its groups, invitations, sharing, files, place in the \
+         sidebar and trash, and export and import work under `/containers/{containerId}` \
+         with the course's identifier. Open courses are read and searched without \
+         joining, as open wikis are.",
     ),
     (tag::MEMBERS, "Who is on a board, and with which role."),
     (tag::SHARING, "Sharing a board with whoever has its link."),
@@ -112,9 +112,9 @@ const TAGS: [(&str, &str); 19] = [
     (tag::CARDS, "The blocks of type `card`, as cards."),
     (
         tag::REFERENCES,
-        "What the bodies of a workspace name: a body holds the identifier of a card or a \
-         page (the node `reference`), and what that is called is told here, to each \
-         user what they read.",
+        "What the bodies of a workspace name: a body holds the identifier of a card, a \
+         page or a unit (the node `reference`), and what that is called is told here, to \
+         each user what they read.",
     ),
     (
         tag::SIDEBAR,
@@ -501,6 +501,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewUnit", Members::Only(&[])),
     ("UnitMove", Members::Only(&[])),
     ("UnitPatch", Members::Only(&[])),
+    ("NewUnitComment", Members::Only(&["body"])),
+    ("UnitCommentPatch", Members::Only(&["body", "readAt"])),
     ("NewCard", Members::AsWritten),
     ("NewCategory", Members::AsWritten),
     ("NewFileVersion", Members::AsWritten),

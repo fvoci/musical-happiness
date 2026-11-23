@@ -103,11 +103,11 @@ impl BlockType {
         Ok(())
     }
 
-    /// Returns `true` for the types a comment may be on: a card of a board and a page of
-    /// a wiki. An entry of a diary takes none.
+    /// Returns `true` for the types a comment may be on: a card of a board, a page of
+    /// a wiki and a unit of a course. A diary entry and a chapter take none.
     #[must_use]
     pub fn takes_comments(&self) -> bool {
-        matches!(self, Self::Card | Self::Page)
+        matches!(self, Self::Card | Self::Page | Self::Unit)
     }
 
     /// Returns `true` for the types whose body has a room ([`Self::WITH_ROOM`]).

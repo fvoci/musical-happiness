@@ -151,10 +151,10 @@ impl Place<'_> {
 
 /// Checks that a block is of a type a board of `kind` takes: of a board, what a write of
 /// blocks makes and no page, entry, unit or chapter; of a wiki, a page or a comment; of a
-/// diary, an entry; of a course, a chapter or a unit.
+/// diary, an entry; of a course, a chapter, a unit or a comment.
 fn check_type(block: &Block, kind: ContainerKind) -> Result<(), AppError> {
     let refusal = match (kind, &block.block_type) {
-        (ContainerKind::Course, BlockType::Unit | BlockType::Chapter)
+        (ContainerKind::Course, BlockType::Unit | BlockType::Chapter | BlockType::Comment)
         | (ContainerKind::Diary, BlockType::Entry) => None,
         (ContainerKind::Course, _) => Some(BlockError::NotUnitOnCourse),
         (ContainerKind::Diary, _) => Some(BlockError::NotEntryOnDiary),
@@ -300,7 +300,12 @@ fn check_course(course_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
             twice.id
         )));
     }
-    let tree: PageTree = blocks
+    let outline: Vec<&Block> = blocks
+        .iter()
+        .copied()
+        .filter(|block| matches!(block.block_type, BlockType::Unit | BlockType::Chapter))
+        .collect();
+    let tree: PageTree = outline
         .iter()
         .map(|block| PageNode {
             id: block.id.clone(),
@@ -312,14 +317,14 @@ fn check_course(course_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
     for top in tree.siblings("", "") {
         reached.extend(tree.below(&top.id));
     }
-    if let Some(looped) = blocks
+    if let Some(looped) = outline
         .iter()
         .find(|block| !reached.contains(block.id.as_str()))
     {
         return Err(refused(looped, BlockError::ParentBelowBlock));
     }
     let max_depth = usize::try_from(COURSE_DEPTH).unwrap_or(usize::MAX);
-    if let Some(deep) = blocks
+    if let Some(deep) = outline
         .iter()
         .find(|block| tree.depth(&block.id) > max_depth)
     {
@@ -509,14 +514,17 @@ mod tests {
     fn a_course_outline_within_limits_is_taken_and_violations_are_refused() {
         let chapter = || BlockType::Chapter;
         let unit = || BlockType::Unit;
+        let comment = || BlockType::Comment;
         let valid = [
             ("ch1", "", chapter()),
             ("u1", "ch1", unit()),
             ("u2", "", unit()),
+            ("cm1", "u1", comment()),
+            ("cm2", "u2", comment()),
         ];
         assert!(check(&of("c", ContainerKind::Course, &valid), LIMITS).is_ok());
 
-        let cases: [(Blocks<'_>, BlockError); 6] = [
+        let cases: [(Blocks<'_>, BlockError); 9] = [
             (&[("a", "", BlockType::Card)], BlockError::NotUnitOnCourse),
             (&[("a", "", BlockType::Page)], BlockError::NotUnitOnCourse),
             (
@@ -534,6 +542,22 @@ mod tests {
             (
                 &[("u1", "missing", unit())],
                 BlockError::ParentNotOnContainer,
+            ),
+            (
+                &[("cm1", "", comment())],
+                BlockError::CommentNotOnCardOrPage,
+            ),
+            (
+                &[("ch1", "", chapter()), ("cm1", "ch1", comment())],
+                BlockError::CommentNotOnCardOrPage,
+            ),
+            (
+                &[
+                    ("u1", "", unit()),
+                    ("cm1", "u1", comment()),
+                    ("cm2", "cm1", comment()),
+                ],
+                BlockError::CommentNotOnCardOrPage,
             ),
         ];
         for (blocks, said) in cases {

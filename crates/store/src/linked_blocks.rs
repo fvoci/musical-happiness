@@ -40,8 +40,8 @@ fn shown_block(row: &Row) -> Result<Block, StoreError> {
     })
 }
 
-/// Starts the query for the cards and pages on the boards of `container_ids`, of which
-/// there is at least one, without their bodies. More `AND` conditions may follow.
+/// Starts the query for the cards, pages and units on the containers of `container_ids`,
+/// of which there is at least one, without their bodies. More `AND` conditions may follow.
 fn select_named_on(scope: &Scope<'_>, container_ids: &[&str]) -> crate::db::Sql {
     let mut sql = scope.sql(&format!(
         "SELECT {SHOWN_COLUMNS} FROM blocks WHERE container_id IN ("
@@ -49,6 +49,7 @@ fn select_named_on(scope: &Scope<'_>, container_ids: &[&str]) -> crate::db::Sql 
     sql.bind_list(container_ids.iter().map(|id| Id(id)))
         .push_bind(") AND type IN (", BlockType::Card.as_str())
         .push_bind(", ", BlockType::Page.as_str())
+        .push_bind(", ", BlockType::Unit.as_str())
         .push(")");
     sql
 }

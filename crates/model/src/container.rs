@@ -118,8 +118,9 @@ impl ContainerKinds {
     /// Boards, wikis and courses: what people work on together, with members, groups and
     /// invitations. A diary is its owner's alone and has none of those.
     pub const SHARED: Self = Self(Self::BOARD | Self::WIKI | Self::COURSE);
-    /// Boards and wikis: what may be shared by a public link or named by a reference.
-    pub const LINKED: Self = Self(Self::BOARD | Self::WIKI);
+    /// Boards, wikis and courses: what may be shared by a public link or named by a
+    /// reference. A diary is never shared or referenced.
+    pub const LINKED: Self = Self(Self::BOARD | Self::WIKI | Self::COURSE);
     /// Boards and wikis: what may be copied whole (`duplicateContainer`).
     pub const COPIED: Self = Self(Self::BOARD | Self::WIKI);
     /// Wikis and courses: open containers that whoever works in the workspace reads and

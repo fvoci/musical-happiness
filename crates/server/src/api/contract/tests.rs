@@ -117,8 +117,8 @@ const NO_SESSION: [&str; 18] = [
     "startOidcCarryOver",
     "startOidcLogin",
 ];
-/// The operations that read a shared board with its read token, and look at no session.
-const READ_TOKEN: [&str; 7] = [
+/// The operations that read a shared container with its read token, and look at no session.
+const READ_TOKEN: [&str; 9] = [
     "getSharedBlocks",
     "getSharedCards",
     "getSharedContainer",
@@ -126,6 +126,8 @@ const READ_TOKEN: [&str; 7] = [
     "getSharedFileInfo",
     "getSharedPage",
     "getSharedPageTree",
+    "getSharedUnit",
+    "getSharedUnitTree",
 ];
 /// The operations that take a session and do without one: the acceptance of an
 /// invitation, which makes an account for whoever has none.
@@ -568,6 +570,10 @@ const ORDERS: &[(&str, &str)] = &[
         "By `order` as strings compare by code unit, then by `id`",
     ),
     (
+        "getSharedUnitTree",
+        "By `order` as strings compare by code unit, then by `id`",
+    ),
+    (
         "getSubscriptions",
         "Oldest first, and by the identifier of the block",
     ),
@@ -576,6 +582,9 @@ const ORDERS: &[(&str, &str)] = &[
         "ordered by name in any letter case, by code point",
     ),
     ("getTemplates", "Each of the two oldest first"),
+    ("getUnitBodyVersions", "the newest first"),
+    ("getUnitCommentVersions", "the first one first"),
+    ("getUnitComments", "oldest first"),
     (
         "getUnitTree",
         "By `order` as strings compare by code unit, then by `id`",

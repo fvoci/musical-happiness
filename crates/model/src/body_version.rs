@@ -17,10 +17,11 @@ pub enum BodyVersionCause {
     /// or a copy. Every version kept before the cause was kept is one of these.
     #[default]
     Auto,
-    /// By an editor who asked for it then (`keepCardBodyVersion`, `keepPageBodyVersion`).
+    /// By an editor who asked for it then (`keepCardBodyVersion`, `keepPageBodyVersion`,
+    /// `keepUnitBodyVersion`).
     Manual,
     /// The body a version was gone back to, by who went back to it
-    /// (`restoreCardBodyVersion`, `restorePageBodyVersion`).
+    /// (`restoreCardBodyVersion`, `restorePageBodyVersion`, `restoreUnitBodyVersion`).
     Restored,
 }
 

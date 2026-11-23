@@ -2474,30 +2474,30 @@
         "type": "object"
       },
       "LinkedBlock": {
-        "description": "A card or a page as a reference shows it: what it is called, and where it is.",
+        "description": "A card, a page or a unit as a reference shows it: what it is called, and where it is.",
         "properties": {
           "containerId": {
-            "description": "The identifier of the board the card is on, or of the wiki the page is of.",
+            "description": "The identifier of the board, wiki or course it belongs to.",
             "type": "string"
           },
           "containerKind": {
             "$ref": "#/components/schemas/ContainerKind",
-            "description": "Whether that is a board or a wiki."
+            "description": "Whether that is a board, a wiki or a course."
           },
           "icon": {
             "description": "Its icon, at most one grapheme; empty for none.",
             "type": "string"
           },
           "id": {
-            "description": "The identifier of the card or the page.",
+            "description": "The identifier of the card, the page or the unit.",
             "type": "string"
           },
           "kind": {
             "$ref": "#/components/schemas/LinkedKind",
-            "description": "Whether it is a card or a page."
+            "description": "Whether it is a card, a page or a unit."
           },
           "number": {
-            "description": "A card's number on its board, as `Card.number` gives it; absent for a page and\nfor a template of the board's cards.",
+            "description": "A card's number on its board, as `Card.number` gives it; absent for a page, a\nunit, and a template of the board's cards.",
             "format": "int32",
             "minimum": 1,
             "type": [
@@ -2555,10 +2555,11 @@
         "type": "object"
       },
       "LinkedKind": {
-        "description": "What a reference may name: a card of a board or a page of a wiki.",
+        "description": "What a reference may name: a card of a board, a page of a wiki or a unit of a course.",
         "enum": [
           "card",
-          "page"
+          "page",
+          "unit"
         ],
         "type": "string"
       },
@@ -3234,6 +3235,20 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "NewUnitComment": {
+        "additionalProperties": false,
+        "description": "A comment to write on a unit.",
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/Body",
+            "description": "The comment's text, as a unit's body is written; neither empty nor `null`."
+          }
+        },
+        "required": [
+          "body"
+        ],
         "type": "object"
       },
       "NewUpload": {
@@ -5394,6 +5409,26 @@
           "parentId",
           "title",
           "updateAt"
+        ],
+        "type": "object"
+      },
+      "UnitCommentPatch": {
+        "additionalProperties": false,
+        "description": "What a comment on a unit is changed to: its text, written over the comment as it was\nread.",
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/Body",
+            "description": "The comment's new text, as a unit's body is written; neither empty nor `null`."
+          },
+          "readAt": {
+            "description": "The `updateAt` of the comment as the client read it: if the comment has changed\nsince, the patch is refused with 409 and changes nothing.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "body",
+          "readAt"
         ],
         "type": "object"
       },
@@ -8491,7 +8526,7 @@
     },
     "/api/v1/shared/{containerId}": {
       "get": {
-        "description": "The board or the wiki (its `kind` says which) whose read token the request has; no\nsession is needed, and one that comes along is not looked at. Who made it or\nchanged it last is not told (`createdBy` and `modifiedBy` are empty), nor its\nworkspace (`workspaceId` is empty). 404 unless the token is its own and it is shared\nand not in the trash, and its organization has public links on; 429 for an address\nthat has had many such answers within a minute.",
+        "description": "The board, wiki or course (its `kind` says which) whose read token the request has; no\nsession is needed, and one that comes along is not looked at. Who made it or\nchanged it last is not told (`createdBy` and `modifiedBy` are empty), nor its\nworkspace (`workspaceId` is empty). 404 unless the token is its own and it is shared\nand not in the trash, and its organization has public links on; 429 for an address\nthat has had many such answers within a minute.",
         "operationId": "getSharedContainer",
         "parameters": [
           {
@@ -8522,7 +8557,7 @@
                 }
               }
             },
-            "description": "The board or the wiki."
+            "description": "The board, wiki or course."
           },
           "default": {
             "content": {
@@ -8538,7 +8573,7 @@
         "security": [
           {}
         ],
-        "summary": "A shared board or wiki",
+        "summary": "A shared board, wiki or course",
         "tags": [
           "sharing"
         ]
@@ -8730,7 +8765,7 @@
     },
     "/api/v1/shared/{containerId}/files/{fileId}": {
       "get": {
-        "description": "What `getFile` gives of a file of the board or the wiki, read with its read token as\n`getSharedContainer` is: a file of another board or wiki is not there.",
+        "description": "What `getFile` gives of a file of the board, wiki or course, read with its read token\nas `getSharedContainer` is: a file of another container is not there.",
         "operationId": "getSharedFile",
         "parameters": [
           {
@@ -8800,7 +8835,7 @@
         "security": [
           {}
         ],
-        "summary": "A file of a shared board or wiki",
+        "summary": "A file of a shared board, wiki or course",
         "tags": [
           "sharing"
         ]
@@ -8808,7 +8843,7 @@
     },
     "/api/v1/shared/{containerId}/files/{fileId}/info": {
       "get": {
-        "description": "What `getFileInfo` gives of a file of the board or the wiki, read with its read\ntoken as `getSharedContainer` is.",
+        "description": "What `getFileInfo` gives of a file of the board, wiki or course, read with its read\ntoken as `getSharedContainer` is.",
         "operationId": "getSharedFileInfo",
         "parameters": [
           {
@@ -8864,7 +8899,7 @@
         "security": [
           {}
         ],
-        "summary": "What is known about a file of a shared board or wiki",
+        "summary": "What is known about a file of a shared board, wiki or course",
         "tags": [
           "sharing"
         ]
@@ -8987,6 +9022,128 @@
           {}
         ],
         "summary": "A page of a shared wiki",
+        "tags": [
+          "sharing"
+        ]
+      }
+    },
+    "/api/v1/shared/{containerId}/units": {
+      "get": {
+        "description": "What `getUnitTree` gives of the course, read with its read token as\n`getSharedContainer` is: every chapter and unit without its body, naming nobody. By\n`order` as strings compare by code unit, then by `id`. A board's or a wiki's token\nreads no units (404).",
+        "operationId": "getSharedUnitTree",
+        "parameters": [
+          {
+            "description": "The identifier of the board, the wiki, the diary or the course.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The read token of the board, as `getSharing` answers it while the board is shared.",
+            "in": "query",
+            "name": "readToken",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UnitNode"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The chapters and units."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "The chapters and units of a shared course",
+        "tags": [
+          "sharing"
+        ]
+      }
+    },
+    "/api/v1/shared/{containerId}/units/{unitId}": {
+      "get": {
+        "description": "What `getUnit` gives of a unit of the course, read with its read token as\n`getSharedContainer` is. No unit names a user: `createdBy` and `modifiedBy` are\nempty, and so is the `userId` of every mention in its body. A reference in the body\nkeeps its `id` if it names a unit of this course, and has an empty one for anything\nelse: of what is elsewhere in the workspace nothing is told, nor whether there is\nanything. Its comments and its versions are not read by the link. A chapter, a unit\nof another course, one in the trash, and a board's or wiki's token are 404.",
+        "operationId": "getSharedUnit",
+        "parameters": [
+          {
+            "description": "The identifier of the board, the wiki, the diary or the course.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The read token of the board, as `getSharing` answers it while the board is shared.",
+            "in": "query",
+            "name": "readToken",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unit"
+                }
+              }
+            },
+            "description": "The unit."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "A unit of a shared course",
         "tags": [
           "sharing"
         ]
@@ -12456,7 +12613,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is.",
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -13636,7 +13793,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is.",
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -13686,7 +13843,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is.",
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -14485,6 +14642,688 @@
           }
         },
         "summary": "Change a unit or chapter",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/body-versions": {
+      "get": {
+        "description": "As `getPageBodyVersions` gives a page's: the newest first, each with when it was kept\nand who wrote the body up to it, without the bodies (`getUnitBodyVersion`). For who\nreads the course, whatever their role: its members, and of an open course whoever\nworks in the workspace. A chapter or a unit in the trash is not there (404); a unit's\nversions are kept while it is in the trash, and go when it is gone for good.",
+        "operationId": "getUnitBodyVersions",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BodyVersion"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The versions, the newest first."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The versions kept of a unit's body",
+        "tags": [
+          "courses"
+        ]
+      },
+      "post": {
+        "description": "As `keepPageBodyVersion` keeps a page's: the body the unit has, with what those who\nedit it together typed, by hand; nothing of a body that is its newest version already\n(`unchanged`), nor within a minute of a version kept by hand (`recent`). For editors\nof the course (403 for its other members and for who reads an open course unjoined).\nA chapter or a unit in the trash is not there (404).",
+        "operationId": "keepUnitBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptBodyVersion"
+                }
+              }
+            },
+            "description": "What became of the body."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Keep a unit's body as a version now",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/body-versions/{version}": {
+      "get": {
+        "description": "The version with its body, as `getUnit` gives a body. For whom `getUnitBodyVersions`\nis for. A chapter, or a number the unit has no version of (or has none of any more),\nis 404.",
+        "operationId": "getUnitBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the version of the unit's body, as `getUnitBodyVersions` lists it.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BodyVersionContent"
+                }
+              }
+            },
+            "description": "The version."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "A version kept of a unit's body",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/body-versions/{version}/restore": {
+      "post": {
+        "description": "Writes the body of the version to the unit again, as `restorePageBodyVersion` does to\na page: those who edit the unit together are sent the body as a new document, the\nbody it replaces is kept as a version first, and the body written is the unit's\nnewest version, by the caller. A unit that has that body already is left as it is. For\neditors of the course (403 for its other members). A chapter, or a number the unit\nhas no version of (or has none of any more), is 404; a version whose body may not be\nstored any more, or names a file (an image, a file block) the course no longer has,\nis 409.",
+        "operationId": "restoreUnitBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the version of the unit's body, as `getUnitBodyVersions` lists it.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unit"
+                }
+              }
+            },
+            "description": "The unit as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Go back to a version of a unit's body",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments": {
+      "get": {
+        "description": "Every comment on the unit, oldest first, as blocks of the `type` `comment` whose\nparent is the unit; each says who wrote it (`createdBy`), and one whose text was\nchanged when that last happened (`editedAt`). For who reads the course: its members,\nand of an open course whoever works in the workspace. A chapter or a unit in the\ntrash is not there (404).",
+        "operationId": "getUnitComments",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Block"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The comments, oldest first."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The comments on a unit",
+        "tags": [
+          "courses"
+        ]
+      },
+      "post": {
+        "description": "For the course's members from the commenter's role up (whoever reads an open course\nwithout joining it is refused with 403). The server chooses the identifier, the\nauthor and the times. Every image of the text shows a file of the course (400\notherwise), and the text has no file block (400). A chapter takes no comments (404).\nWho reads the course is told with `UPDATE_BLOCK`, as of a comment on a card or page.",
+        "operationId": "createUnitComment",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewUnitComment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            },
+            "description": "The comment as it was stored."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Write a comment on a unit",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}": {
+      "delete": {
+        "description": "The comment goes to the trash, as a comment on a card or page does: by its author\nfrom the commenter's role up, and the comment of somebody else by the course's admins\nonly (403, `access denied to delete other users' comments`). Who reads the course is\ntold with `UPDATE_BLOCK` whose `deleteAt` is not 0.",
+        "operationId": "deleteUnitComment",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the comment: a comment on the unit of the path. 404 for a comment on another unit, and for a block that is no comment.",
+            "in": "path",
+            "name": "commentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The comment is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete a comment on a unit",
+        "tags": [
+          "courses"
+        ]
+      },
+      "patch": {
+        "description": "Writes a new text over the comment, as a card's or page's comments are changed: by\nits author from the commenter's role up, and the comment of somebody else by the\ncourse's admins only (403, `access denied to change other users' comments`); an\neditor may not change it. The text it had is kept (`getUnitCommentVersions`), and the\ncomment's `editedAt` says when it last changed. The text has no file block (400).",
+        "operationId": "patchUnitComment",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the comment: a comment on the unit of the path. 404 for a comment on another unit, and for a block that is no comment.",
+            "in": "path",
+            "name": "commentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitCommentPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            },
+            "description": "The comment as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Change a comment on a unit",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/undelete": {
+      "post": {
+        "description": "A comment deleted on its own comes back onto its unit, as `undeletePageComment`\nbrings a page's comment back: for its author from the commenter's role up if they\ndeleted it themselves, and for the course's admins whoever wrote or deleted it (403,\n`access denied to undelete other users' comments`, and for the author of a comment\nsomebody else deleted, `a comment somebody else deleted is brought back by the\nboard's admins`). A comment that went to the trash with its unit comes back with the\nunit (`undeleteUnit`), not on its own; that one, one not in the trash, and one of\nanother unit are not there (404), nor is any while the unit is in the trash. Who\nreads the course is told with `UPDATE_BLOCK`.",
+        "operationId": "undeleteUnitComment",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the comment: a comment on the unit of the path. 404 for a comment on another unit, and for a block that is no comment.",
+            "in": "path",
+            "name": "commentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            },
+            "description": "The comment as it is again."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Bring a deleted comment on a unit back",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/versions": {
+      "get": {
+        "description": "The earlier texts of the comment, as `getPageCommentVersions` gives a page's\ncomment's: every version but the one it has now, the first one first, with who wrote\nit and when. For who reads the course (as `getUnitComments`), also of a comment in\nthe trash while its unit is there: the versions go only when the comment is gone for\ngood. A chapter or a unit in the trash is not there (404).",
+        "operationId": "getUnitCommentVersions",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the comment: a comment on the unit of the path. 404 for a comment on another unit, and for a block that is no comment.",
+            "in": "path",
+            "name": "commentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CommentVersion"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The earlier versions, the first one first."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "What a comment on a unit said before",
         "tags": [
           "courses"
         ]
@@ -15966,7 +16805,7 @@
     },
     "/api/v1/w/{workspaceId}/references/resolve": {
       "post": {
-        "description": "A body names a card or a page by its identifier alone (the node `reference`), and no\nbody, however it is read, says what that is called: this does, for the user who\nasks and as things are now. Of the identifiers of the body, the cards and pages of\nthis workspace on a board or a wiki the user reads (as `getCard` and `getPage` ask),\neach once, in the order they were first named.\n\nWhatever else an identifier names is left out, and the answer does not tell why:\nnothing at all, something in the trash, something of another workspace or\norganization, a card or a page the user does not read, or a block that is neither.\nThe body names at most 100 identifiers (more is 400, as an entry that has not the\nform of an identifier is); an empty list answers an empty list.",
+        "description": "A body names a card, a page or a unit by its identifier alone (the node `reference`),\nand no body, however it is read, says what that is called: this does, for the user who\nasks and as things are now. Of the identifiers of the body, the cards, pages and units\nof this workspace on a board, a wiki or a course the user reads (as `getCard`,\n`getPage` and `getUnit` ask), each once, in the order they were first named.\n\nWhatever else an identifier names is left out, and the answer does not tell why:\nnothing at all, something in the trash, something of another workspace or\norganization, a card, a page or a unit the user does not read, or a block that is none\nof those (such as a chapter of a course).\nThe body names at most 100 identifiers (more is 400, as an entry that has not the\nform of an identifier is); an empty list answers an empty list.",
         "operationId": "resolveReferences",
         "parameters": [
           {
@@ -16022,7 +16861,7 @@
     },
     "/api/v1/w/{workspaceId}/references/search": {
       "get": {
-        "description": "The cards and pages of this workspace, on a board or a wiki the user reads, whose\ntitle has every word of `q` in it, as spaces divide it and whatever the case of the\nletters (of every letter, not only ASCII); `%` and `_` are characters like any\nother. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, and a block\nwhose `isTemplate` is `true` (for a card, a template of its board's cards) are never\nfound. A `q` of more than 200\ncharacters is 400.",
+        "description": "The cards, pages and units of this workspace, on a board, a wiki or a course the user\nreads, whose title has every word of `q` in it, as spaces divide it and whatever the\ncase of the letters (of every letter, not only ASCII); `%` and `_` are characters like\nany other. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, a chapter of\na course, and a block whose `isTemplate` is `true` (for a card, a template of its\nboard's cards) are never found. A `q` of more than 200 characters is 400.",
         "operationId": "searchReferences",
         "parameters": [
           {
@@ -16077,7 +16916,7 @@
     },
     "/api/v1/w/{workspaceId}/references/to/{blockId}": {
       "get": {
-        "description": "The cards and pages of this workspace whose body names the block of the path with a\nreference, or which have a comment whose body does, on a board or a wiki the user\nreads; the block itself is never among them. Oldest first. What names it from where the user does not\nread is left out and takes no place in a page: the answer does not say how many\nthere are, nor whether there are any.\n\n404 unless the block is a card or a page the user reads, as `resolveReferences`\ntells of it: for anything else, as for an identifier of nothing.",
+        "description": "The cards, pages and units of this workspace whose body names the block of the path\nwith a reference, or which have a comment whose body does, on a board, a wiki or a\ncourse the user reads; the block itself is never among them. Oldest first. What names\nit from where the user does not read is left out and takes no place in a page: the\nanswer does not say how many there are, nor whether there are any.\n\n404 unless the block is a card, a page or a unit the user reads, as\n`resolveReferences` tells of it: for anything else, as for an identifier of nothing.",
         "operationId": "getReferencesTo",
         "parameters": [
           {
@@ -16147,7 +16986,7 @@
             "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
           }
         },
-        "summary": "What names a card or a page",
+        "summary": "What names a card, a page or a unit",
         "tags": [
           "references"
         ]
@@ -16229,7 +17068,7 @@
     },
     "/api/v1/w/{workspaceId}/subscriptions": {
       "post": {
-        "description": "Subscribes the user of the session to a block of a board, or a page of a wiki, they\nmay read: whoever writes a card or a page watches it, and may stop and start again. A\n`subscriberId` that is not the user of the session is 403, and a `subscriberType`\nother than `user` is 400. The `blockType` is stored as it is sent, and not compared\nwith the block. Subscribing again is no error: the subscription stays as it was\nmade, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.",
+        "description": "Subscribes the user of the session to a block of a board, a page of a wiki, or a unit\nof a course they may read: whoever writes a card, a page or a unit watches it, and\nmay stop and start again. A chapter of a course takes no subscriptions (404). A\n`subscriberId` that is not the user of the session is 403, and a `subscriberType`\nother than `user` is 400. The `blockType` is stored as it is sent, and not compared\nwith the block. Subscribing again is no error: the subscription stays as it was\nmade, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.",
         "operationId": "createSubscription",
         "parameters": [
           {
@@ -18657,7 +19496,7 @@
       "name": "diaries"
     },
     {
-      "description": "Courses and their chapters and units. A course is a container of the kind `course`: who is on it, its groups, invitations, files, place in the sidebar and trash, and export and import work under `/containers/{containerId}` with the course's identifier. Open courses are read and searched without joining, as open wikis are.",
+      "description": "Courses and their chapters and units. A course is a container of the kind `course`: who is on it, its groups, invitations, sharing, files, place in the sidebar and trash, and export and import work under `/containers/{containerId}` with the course's identifier. Open courses are read and searched without joining, as open wikis are.",
       "name": "courses"
     },
     {
@@ -18677,7 +19516,7 @@
       "name": "cards"
     },
     {
-      "description": "What the bodies of a workspace name: a body holds the identifier of a card or a page (the node `reference`), and what that is called is told here, to each user what they read.",
+      "description": "What the bodies of a workspace name: a body holds the identifier of a card, a page or a unit (the node `reference`), and what that is called is told here, to each user what they read.",
       "name": "references"
     },
     {

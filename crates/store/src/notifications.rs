@@ -295,9 +295,17 @@ impl Store {
                     "b.id, b.type, b.title, b.container_id, bo.kind, bo.workspace_id",
                 );
                 sql.push(" AND b.type IN (")
-                    .bind_list([BlockType::Card.as_str(), BlockType::Page.as_str()])
+                    .bind_list([
+                        BlockType::Card.as_str(),
+                        BlockType::Page.as_str(),
+                        BlockType::Unit.as_str(),
+                    ])
                     .push(") AND bo.kind IN (")
-                    .bind_list([ContainerKind::Board.as_str(), ContainerKind::Wiki.as_str()])
+                    .bind_list([
+                        ContainerKind::Board.as_str(),
+                        ContainerKind::Wiki.as_str(),
+                        ContainerKind::Course.as_str(),
+                    ])
                     .push(") AND b.id IN (")
                     .bind_list(batch.iter().map(|id| Id(id)))
                     .push(")");
