@@ -44,6 +44,7 @@ import type { NotificationsOfBackend } from './notification-types.ts';
 import type { WikisOfBackend } from './wiki-types.ts';
 import type { DiariesOfBackend } from './diary-types.ts';
 import type { CoursesOfBackend } from './course-types.ts';
+import type { TimeOfBackend } from './time-types.ts';
 import type { WorkspaceInfo } from './workspace-types.ts';
 
 export type {
@@ -278,6 +279,7 @@ export interface Backend
     CoursesOfBackend,
     ContentSearchOfBackend,
     NotificationsOfBackend,
+    TimeOfBackend,
     VersionsOfFiles {
   // The reader and the people around them.
   me(): Promise<User>;

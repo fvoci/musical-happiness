@@ -13,7 +13,7 @@
   open) says so and can be closed.
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { CardFrame } from '$lib/layout/presentation.ts';
@@ -50,9 +50,11 @@
     cardHref: (cardId: string) => string;
     onClose: () => void;
     onOpenCard?: (cardId: string) => void;
+    /** Extra actions in the card header (e.g. personal timer), supplied by the app shell. */
+    headerActions?: Snippet<[CardStore]> | undefined;
   }
 
-  let { board, view, card, frame, cardHref, onClose, onOpenCard }: Props = $props();
+  let { board, view, card, frame, cardHref, onClose, onOpenCard, headerActions }: Props = $props();
 
   const references = $derived(bodyReferences(board, card.cardId));
 
@@ -130,6 +132,7 @@
   onDuplicate={() => void duplicate()}
   onVersions={showVersions}
   onDelete={() => void remove()}
+  extraActions={headerActions}
 />
 <BodyVersions bind:open={versionsOpen} reading={versions} container={board} />
 

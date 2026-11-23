@@ -22,6 +22,7 @@ import { reads } from './container-access.ts';
 import type { KeptOfCard } from './body-versions.ts';
 import type { StoredNotification } from './notifications.ts';
 import type { ContainerPlace } from './trash.ts';
+import type { TimeEntry } from '../time-types.ts';
 
 /** A view, card, comment or attachment as the world stores it. */
 export interface StoredBlock extends Block {
@@ -140,6 +141,8 @@ export class World {
   readonly notifications = new Map<string, StoredNotification[]>();
   /** Explicit unit watch overrides per user (`userId -> Map<unitId, boolean>`). */
   readonly unitWatchers = new Map<string, Map<string, boolean>>();
+  /** Personal time entries, by user (`time.ts`). */
+  readonly timeEntries = new Map<string, TimeEntry[]>();
 
   /**
    * The name of the channel the rooms of the bodies share with the worlds of

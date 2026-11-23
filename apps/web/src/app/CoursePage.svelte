@@ -46,6 +46,7 @@
   import NotFound from './NotFound.svelte';
   import { referencePlaces } from './reference-places.ts';
   import type { Router } from './router.svelte.ts';
+  import TimeTargetControl from './TimeTargetControl.svelte';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
 
@@ -406,6 +407,15 @@
         {#snippet unitActions(unit: UnitStore)}
           {@const shown = store.unit(unit.unitId)}
           {#if shown?.kind === 'unit'}
+            {#if !router.route.shared && !store.course?.isTemplate && workspace.backend.time && workspace.me?.id}
+              <TimeTargetControl
+                {workspace}
+                workspaceId={store.course?.workspaceId}
+                containerId={store.courseId}
+                blockId={unit.unitId}
+                defaultKind="lecture"
+              />
+            {/if}
             <UnitMenu
               unit={shown}
               onVersions={() => {
