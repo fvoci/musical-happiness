@@ -4712,7 +4712,11 @@ export interface paths {
          *     workspace that the user has a role on, their own or a team's, the pages of its open
          *     wikis and the units of its open courses for who works there (an open board they have
          *     not joined is not searched), and, in the workspace of the user's own space, the
-         *     entries of its diaries, whose title and body together hold every word of `q`. The
+         *     entries of its diaries, whose title and body together hold every word of `q`. When
+         *     `q` is `#` followed only by ASCII digits (such as `#12`, or `#00012` normalized to
+         *     `12`) and `kind` is omitted or `card`, it matches non-template cards across every
+         *     readable board of the workspace whose `number` equals that positive integer; any
+         *     other text (including non-digits mixed in) or other `kind` runs ordinary word search. The
          *     title of an entry is its day (`2026-11-21`). Chapters, comments, property values and
          *     attached files are not searched, and neither are templates. How words match depends
          *     on the server: with a search server, Korean is matched by its words, whatever
@@ -4721,7 +4725,8 @@ export interface paths {
          *     or the body as it is written there, ASCII letters in either case ("환불" finds
          *     "환불규정을", "배포하다" does not find "배포합니다"). Each hit is the card, the page,
          *     the entry or the unit as it is now: its `kind`, its `title`, the container it is in
-         *     (`containerId`, and `containerKind`, by which a client tells their addresses apart),
+         *     (`containerId`, `containerKind`, and `containerTitle`, by which a client tells their
+         *     addresses and names apart),
          *     and `snippet`, a piece of its body in stretches of plain text, those that matched
          *     marked; the snippet is empty for a body that changed a moment ago, or has nothing to
          *     show. The best match first (without a search server: those whose title holds every
@@ -5923,9 +5928,10 @@ export interface components {
              *     made on the board, never given again, also once the card is gone. A card keeps it
              *     while it is one; a copy and an import are new cards with new numbers, and a card
              *     that comes back from the trash has its own. `null` for a template of the board's
-             *     cards (`isTemplate`): a card made a template loses its number, and takes the next
-             *     one if it is made a card again. The server gives it: what a request sends here is
-             *     ignored, whatever it is.
+             *     cards (`isTemplate`): a card made a template hides its number while keeping it
+             *     stored, and regains its old number without consuming a new one if made a card
+             *     again; a template created without a number takes the next number when made a card.
+             *     The server gives it: what a request sends here is ignored, whatever it is.
              */
             number: number | null;
             /**
@@ -8079,6 +8085,8 @@ export interface components {
             containerId: string;
             /** @description What its container is: a board, a wiki, a diary or a course. */
             containerKind: components["schemas"]["ContainerKind"];
+            /** @description The title of the board, wiki, diary or course the match is in; empty if untitled. */
+            containerTitle: string;
             /** @description The identifier of the card, the page, the entry or the unit. */
             id: string;
             /** @description What it is. */
@@ -16175,7 +16183,7 @@ export interface operations {
     searchWorkspaceContent: {
         parameters: {
             query?: {
-                /** @description The words to find, at most 200 characters. Without it nothing is found. */
+                /** @description The words to find, or `#12` (`#00012` normalized to `12`) to match cards by their number across readable boards, at most 200 characters. Without it nothing is found. */
                 q?: string;
                 /** @description The kind of thing to find: `card`, `page`, `entry` or `unit`. Left out, every kind. Anything else is 400. */
                 kind?: string;

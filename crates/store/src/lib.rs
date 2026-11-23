@@ -160,7 +160,7 @@ pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
 pub use person_names::ChangedName;
 pub use search_docs::SearchDocument;
 pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, SearchTarget};
-pub use search_text::{TextFound, TextSearch};
+pub use search_text::{NumberSearch, TextFound, TextSearch};
 pub use server_lock::ServerLock;
 pub use sessions::ConfirmedPassword;
 pub use sharing::SharingChange;

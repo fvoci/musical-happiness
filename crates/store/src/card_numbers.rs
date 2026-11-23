@@ -9,7 +9,7 @@
 //! number is never given again, also once its card is gone for good. The trash keeps a
 //! card's number with the card and a board's next number with the board.
 
-use fvoci_model::Block;
+use fvoci_model::{Block, BlockType};
 
 use crate::Store;
 use crate::blocks::{fetch_blocks, select_blocks};
@@ -41,37 +41,45 @@ impl Store {
 
 /// Gives `block` the number it is stored with: that of the block as it was stored,
 /// `stored` (`None` for a new block); the board's next one if that had none and the
-/// block takes one; none for a block that takes none. What the block came with is not
-/// asked: a new block, also a copy or an import, is a new card. Its board is held.
+/// block takes one; for a card template, whatever number `stored` already held (so
+/// turning an ordinary card into a template preserves its number in storage and turning
+/// it back restores it without consuming a new one, while a template created from
+/// scratch stays unnumbered); and none for any other block. What the block came with is
+/// not asked: a new block, also a copy or an import, is a new card. Its board is held.
 pub(crate) async fn number_written(
     scope: &mut Scope<'_>,
     block: &mut Block,
     stored: Option<&Block>,
 ) -> Result<(), StoreError> {
-    block.number = if !block.takes_number() {
-        None
-    } else if let Some(number) = stored.and_then(|stored| stored.number) {
-        Some(number)
+    block.number = if block.takes_number() {
+        match stored.and_then(|stored| stored.number) {
+            Some(number) => Some(number),
+            None => Some(take_next(scope, &block.container_id).await?),
+        }
+    } else if block.block_type == BlockType::Card && block.is_template() {
+        stored.and_then(|stored| stored.number)
     } else {
-        Some(take_next(scope, &block.container_id).await?)
+        None
     };
     Ok(())
 }
 
 /// Gives the blocks of one deletion that come back from the trash the numbers they
-/// come back with: each its own, and the board's next ones, in the order they were
-/// made, to the cards that went to the trash before cards had numbers. Their board is
-/// held.
+/// come back with: each its own (including a preserved number on a card template), and
+/// the board's next ones, in the order they were made, to the ordinary cards that went
+/// to the trash before cards had numbers. Their board is held.
 pub(crate) async fn number_restored(
     scope: &mut Scope<'_>,
     restored: &mut [Block],
 ) -> Result<(), StoreError> {
     let mut unnumbered: Vec<&mut Block> = Vec::new();
     for block in restored.iter_mut() {
-        if !block.takes_number() {
+        if block.takes_number() {
+            if block.number.is_none() {
+                unnumbered.push(block);
+            }
+        } else if !(block.block_type == BlockType::Card && block.is_template()) {
             block.number = None;
-        } else if block.number.is_none() {
-            unnumbered.push(block);
         }
     }
     unnumbered.sort_by(|a, b| (a.create_at, &a.id).cmp(&(b.create_at, &b.id)));

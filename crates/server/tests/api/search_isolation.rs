@@ -389,3 +389,222 @@ async fn the_database_shows_nobody_what_they_do_not_read() {
 
     each_found_what_they_read(&world, &answers);
 }
+
+/// Sets up multiple boards in the test workspace with cards numbered `#1` and `#2`,
+/// including a private board, an unjoined open board, a team-accessible board, a
+/// guest-invited board, a template converted from a numbered card, a trashed card,
+/// and a non-digit text card holding `#2abc`.
+struct NumberedWorld {
+    guest: Client,
+    alpha_card_2: String,
+    beta_card_2: String,
+    team_card_2: String,
+    invited_card_2: String,
+    text_card: String,
+    page_with_hash_2: String,
+    alpha_title: String,
+    beta_title: String,
+}
+
+async fn numbered_world(th: &TestServer) -> NumberedWorld {
+    let user1 = th.client.me().await.id;
+    let user2 = th.client2.me().await.id;
+    set_role(th, &user1, "admin").await;
+    let guest = th.add_user("num-guest").await;
+    let guest_id = guest.me().await.id;
+    set_role(th, &guest_id, "guest").await;
+
+    let alpha_title = "Alpha Board".to_owned();
+    let beta_title = "Beta Board".to_owned();
+    let alpha = private_board(&th.client, &alpha_title).await;
+    let beta: Container = th
+        .client
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Open,
+            &beta_title,
+        ))
+        .await
+        .created_json();
+    th.client2
+        .post_empty(&format!("{TEST_WS}/containers/{}/join", beta.id))
+        .await
+        .check_ok();
+    let unjoined: Container = th
+        .client
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Open,
+            "Unjoined Board",
+        ))
+        .await
+        .created_json();
+    let invited = private_board(&th.client, "Guest Board").await;
+    th.client
+        .add_member(&ContainerMember {
+            scheme_viewer: true,
+            ..member(&invited.id, &guest_id)
+        })
+        .await
+        .check_ok();
+    let (teamed, _) = card_read_through_a_team(th, &user2).await;
+
+    // Board Alpha: #1 (ordinary), #2 (ordinary), #3 (contains "#2abc" in body)
+    let alpha_1 = new_card(&th.client, &alpha.id, "Alpha first", "body").await;
+    let alpha_2 = new_card(&th.client, &alpha.id, "Alpha second", "body").await;
+    let text_card = new_card(&th.client, &alpha.id, "Release note", "see #2abc details").await;
+    // Convert Alpha #1 into a template: DB preserves number 1, search must exclude it.
+    th.client
+        .patch(
+            &format!("{TEST_WS}/boards/{}/blocks/{}", alpha.id, alpha_1.id),
+            &json!({"updatedFields": {"isTemplate": true}}),
+        )
+        .await
+        .check_no_content();
+
+    // Board Beta: #1 (ordinary), #2 (ordinary)
+    new_card(&th.client, &beta.id, "Beta first", "body").await;
+    let beta_2 = new_card(&th.client, &beta.id, "Beta second", "body").await;
+
+    // Unjoined open board: #1, #2 (user2 did NOT join; must be hidden from user2)
+    new_card(&th.client, &unjoined.id, "Unjoined first", "body").await;
+    new_card(&th.client, &unjoined.id, "Unjoined second", "body").await;
+
+    // Guest-invited private board: #1, #2
+    new_card(&th.client, &invited.id, "Guest first", "body").await;
+    let invited_2 = new_card(&th.client, &invited.id, "Guest second", "body").await;
+
+    // Team-shared private board already has #1 from helper; add #2.
+    let team_2 = new_card(&th.client, &teamed, "Team second", "body").await;
+
+    // Trashed board with #2: excluded.
+    let trashed = private_board(&th.client, "Trashed Board").await;
+    new_card(&th.client, &trashed.id, "Trashed first", "body").await;
+    new_card(&th.client, &trashed.id, "Trashed second", "body").await;
+    th.client
+        .delete(&format!("{TEST_WS}/containers/{}", trashed.id))
+        .await
+        .check_no_content();
+
+    // Wiki page mentioning `#2` in its body: returned by `q=#2&kind=page`, never by `q=#2` card number search.
+    let notes_wiki = new_wiki(&th.client).await;
+    let page_with_hash_2 = new_page(&th.client, &notes_wiki, "", "Sprint notes", "see #2 notes")
+        .await
+        .id;
+
+    // Another organization's #2 card on Postgres: excluded.
+    if db_type_of_the_tests() == DbType::Postgres {
+        let (theirs, _, their_board) = another_organization(th).await;
+        stored_card(&theirs, &their_board, "Other org 1").await;
+        stored_card(&theirs, &their_board, "Other org 2").await;
+    }
+
+    NumberedWorld {
+        guest,
+        alpha_card_2: alpha_2.id,
+        beta_card_2: beta_2.id,
+        team_card_2: team_2.id,
+        invited_card_2: invited_2.id,
+        text_card: text_card.id,
+        page_with_hash_2,
+        alpha_title,
+        beta_title,
+    }
+}
+
+async fn check_numbered_search(th: &TestServer, w: &NumberedWorld) {
+    // `#2` and `#0002` normalize to 2 and return cards across every readable board,
+    // with `number: Some(2)` and `containerTitle` populated.
+    for query in ["#2", "#0002"] {
+        let member_hits: Vec<SearchHit> = search(&th.client2, TEST_WS, query).await.ok_json();
+        assert_eq!(
+            sorted(
+                &member_hits
+                    .iter()
+                    .map(|hit| hit.id.as_str())
+                    .collect::<Vec<_>>()
+            ),
+            sorted(&[&w.beta_card_2, &w.team_card_2]),
+            "member finds #2 on joined open board and team board only ({query})"
+        );
+        for hit in &member_hits {
+            assert_eq!(hit.number, Some(2), "hit reports card number 2");
+            assert!(!hit.container_title.is_empty(), "{hit:?}");
+        }
+        let beta_hit = member_hits
+            .iter()
+            .find(|hit| hit.id == w.beta_card_2)
+            .expect("beta hit");
+        assert_eq!(
+            beta_hit.container_title, w.beta_title,
+            "beta hit reports its board title"
+        );
+
+        let guest_hits: Vec<SearchHit> = search(&w.guest, TEST_WS, query).await.ok_json();
+        assert_eq!(
+            guest_hits
+                .iter()
+                .map(|hit| hit.id.as_str())
+                .collect::<Vec<_>>(),
+            [w.invited_card_2.as_str()],
+            "guest finds #2 only on invited board ({query})"
+        );
+    }
+
+    let owner_hits: Vec<SearchHit> = search(&th.client, TEST_WS, "#2").await.ok_json();
+    let alpha_hit = owner_hits
+        .iter()
+        .find(|hit| hit.id == w.alpha_card_2)
+        .expect("owner finds Alpha #2");
+    assert_eq!(
+        alpha_hit.container_title, w.alpha_title,
+        "alpha hit reports its board title"
+    );
+    assert_eq!(alpha_hit.number, Some(2), "alpha hit reports card number 2");
+
+    // Converted template (Alpha #1, preserved DB number 1) must NOT appear in `#1`.
+    let owner_ones: Vec<SearchHit> = search(&th.client, TEST_WS, "#1").await.ok_json();
+    assert!(
+        owner_ones.iter().all(|hit| hit.title != "Alpha first"),
+        "template with preserved #1 is excluded: {owner_ones:?}"
+    );
+
+    // Non-digit characters mixed in (`#2abc`) stay ordinary text search.
+    let mixed: Vec<SearchHit> = search(&th.client, TEST_WS, "#2abc").await.ok_json();
+    assert_eq!(
+        mixed.iter().map(|hit| hit.id.as_str()).collect::<Vec<_>>(),
+        [w.text_card.as_str()],
+        "#2abc stays text search"
+    );
+
+    // `kind=page` with `#2` runs text search and returns pages mentioning `#2`, never cards.
+    let pages: Vec<SearchHit> =
+        crate::content_search::search_with(&th.client, TEST_WS, &[("q", "#2"), ("kind", "page")])
+            .await
+            .ok_json();
+    assert_eq!(
+        pages.iter().map(|hit| hit.id.as_str()).collect::<Vec<_>>(),
+        [w.page_with_hash_2.as_str()],
+        "kind=page runs text search for #2 and returns no cards: {pages:?}"
+    );
+}
+
+#[tokio::test]
+async fn hash_number_search_finds_cards_across_boards_with_isolation_via_search_server() {
+    let fake = FakeSearch::start().await;
+    let th = started(&fake).await;
+    let w = numbered_world(&th).await;
+    fvoci_server::search::tend(&th.app).await;
+
+    check_numbered_search(&th, &w).await;
+    th.teardown().await;
+}
+
+#[tokio::test]
+async fn hash_number_search_finds_cards_across_boards_with_isolation_via_database() {
+    let th = Setup::native().start().await.init_basic().await;
+    let w = numbered_world(&th).await;
+
+    check_numbered_search(&th, &w).await;
+    th.teardown().await;
+}

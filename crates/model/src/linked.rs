@@ -80,7 +80,7 @@ impl LinkedBlock {
             id: block.id.clone(),
             kind,
             title: block.title.clone(),
-            number: block.number,
+            number: block.shown_number(),
             icon,
             container_id: container.id.clone(),
             container_kind: container.kind,

@@ -1646,7 +1646,7 @@
   "search_kind_cards": "카드",
   "search_kind_pages": "페이지",
   "search_results": "찾은 것",
-  "search_hint": "카드나 페이지에 있는 낱말을 입력하세요.",
+  "search_hint": "카드나 페이지의 낱말을 입력하거나, #12처럼 번호로 카드를 찾으세요.",
   "search_searching": "찾는 중…",
   "search_found": "찾은 것 {count}개",
   "search_none": "찾은 것이 없습니다.",

@@ -28,7 +28,15 @@ impl App {
             })
             .await;
         match kind {
-            Ok(OrgKind::Team) => self.inner.webhook.notify_update(block).await,
+            Ok(OrgKind::Team) => {
+                if !block.takes_number() && block.number.is_some() {
+                    let mut hidden = block.clone();
+                    hidden.hide_inactive_number();
+                    self.inner.webhook.notify_update(&hidden).await;
+                } else {
+                    self.inner.webhook.notify_update(block).await;
+                }
+            }
             Ok(OrgKind::Personal) => {}
             Err(error) => {
                 tracing::warn!(

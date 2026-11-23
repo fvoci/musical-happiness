@@ -1,18 +1,16 @@
 /**
- * The search with a card's number: `#12` or `12`, asked where a board is
- * shown and for cards (all kinds, or cards alone), finds that board's card
- * numbered 12 (`References.numbered`) and puts it first, before what the
- * words find, which does not list it again. Elsewhere, or for another text,
- * what the words find alone. A number no card of the board has, or one the
- * reader may not see, adds nothing; so does a number that cannot be asked
- * for: the words still answer.
+ * The search with a card's number: `#12` (or `#00012`) finds matching `#12`
+ * cards across all readable boards of the workspace (`ContentSearch.find`),
+ * and where a board is shown (also for bare `12`), puts that board's card
+ * numbered 12 first (`References.numbered`) without listing it twice.
+ * Elsewhere, or for another text, what `ContentSearch.find` answers alone.
  */
-import { cardNumberOf } from '$lib/logic/card-numbers.ts';
+import { cardNumberOf, hashCardNumberOf } from '$lib/logic/card-numbers.ts';
 import type { SearchAsk, SearchHit } from '$lib/state/content-search.ts';
 import type { LinkedBlock } from '$lib/state/references.ts';
 
 export interface NumberedSearch {
-  /** The search of the words (`ContentSearch.find`). */
+  /** The search of the words and `#N` card numbers (`ContentSearch.find`). */
   find: (ask: SearchAsk) => Promise<SearchHit[]>;
   /** The card of the board with the number, if the reader may see it. */
   numbered: (boardId: string, number: number) => Promise<LinkedBlock | undefined>;
@@ -20,9 +18,9 @@ export interface NumberedSearch {
   boardShown: () => string | undefined;
 }
 
-/** What the search finds, with the card of the board shown that the words number. */
+/** What the search finds, with the card of the board shown that the words number placed first. */
 export async function findNumbered(search: NumberedSearch, ask: SearchAsk): Promise<SearchHit[]> {
-  const number = cardNumberOf(ask.query);
+  const number = hashCardNumberOf(ask.query) ?? cardNumberOf(ask.query);
   const boardId = search.boardShown();
   if (
     number === undefined ||
@@ -35,16 +33,26 @@ export async function findNumbered(search: NumberedSearch, ask: SearchAsk): Prom
     search.find(ask),
     search.numbered(boardId, number).catch(() => undefined),
   ]);
-  if (!card) return hits;
-  const first: SearchHit = {
-    id: card.id,
-    kind: 'card',
-    containerId: card.containerId,
-    containerKind: 'board',
-    title: card.title,
-    number,
-    snippet: [],
-  };
+  if (!card) {
+    const isCurrentNumbered = (hit: SearchHit): boolean =>
+      hit.containerId === boardId && hit.kind === 'card' && hit.number === number;
+    const onBoard = hits.filter(isCurrentNumbered);
+    if (onBoard.length === 0) return hits;
+    const elsewhere = hits.filter((hit) => !isCurrentNumbered(hit));
+    return [...onBoard, ...elsewhere];
+  }
+  const existing = hits.find((hit) => hit.id === card.id);
+  const first: SearchHit = existing
+    ? { ...existing, number }
+    : {
+        id: card.id,
+        kind: 'card',
+        containerId: card.containerId,
+        containerKind: 'board',
+        title: card.title,
+        number,
+        snippet: [],
+      };
   const rest = hits.filter((hit) => hit.id !== card.id);
   return [first, ...rest].slice(0, ask.limit ?? rest.length + 1);
 }

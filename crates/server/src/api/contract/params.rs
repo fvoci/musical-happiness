@@ -122,7 +122,7 @@ parameter!(PerPage: Query "perPage", PerPageCount, False, "How many a page has, 
 parameter!(SearchTerm: Query "q", String, False, "What to look for. Without it nothing is found.");
 parameter!(TitleTerm: Query "q", String, False, "The words to look for in titles, at most 200 characters. Without it, what was changed last is found.");
 parameter!(SearchField: Query "field", String, False, "What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400.");
-parameter!(ContentText: Query "q", String, False, "The words to find, at most 200 characters. Without it nothing is found.");
+parameter!(ContentText: Query "q", String, False, "The words to find, or `#12` (`#00012` normalized to `12`) to match cards by their number across readable boards, at most 200 characters. Without it nothing is found.");
 parameter!(ContentKind: Query "kind", String, False, "The kind of thing to find: `card`, `page`, `entry` or `unit`. Left out, every kind. Anything else is 400.");
 parameter!(DaysFrom: Query "from", String, True, "The first day to list, as `2026-11-01`. 400 for what is no day, and where it is left out.");
 parameter!(DaysTo: Query "to", String, True, "The last day to list, as `2026-11-30`, at most 365 days after the first. 400 for what is no day, and where it is left out.");

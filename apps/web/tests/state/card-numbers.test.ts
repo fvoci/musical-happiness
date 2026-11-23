@@ -129,6 +129,48 @@ describe('the numbers of cards, in memory', () => {
     await backend.removeMember(boardId, other.userId);
     expect(await other.references.numbered(workspaceId, boardId, 2)).toBeUndefined();
   });
+
+  it('hides a preserved card number while a card is a template across reads, lookup and export, and restores it when ordinary again', async () => {
+    const { backend, world, boardId, betaId } = small();
+    const workspaceId = world.workspace.id;
+    const setTemplate = (id: string, isTemplate: boolean): void => {
+      const before = world.blocks.get(id);
+      if (!before) throw new Error(`missing block ${id}`);
+      world.blocks.set(id, { ...before, fields: { ...before.fields, isTemplate } });
+    };
+
+    // Stored block keeps preserved #2 while marked as template; every read/lookup/export hides it.
+    setTemplate(betaId, true);
+    expect(world.blocks.get(betaId)?.number).toBe(2);
+    expect((await backend.card(boardId, betaId)).fields.isTemplate).toBe(true);
+    expect((await backend.card(boardId, betaId)).number).toBeUndefined();
+    expect((await numbersOf(backend, boardId)).Beta).toBeUndefined();
+    expect(await backend.references.numbered(workspaceId, boardId, 2)).toBeUndefined();
+
+    // Archive export omits `number` for the converted template.
+    const exported = await (await backend.exportContainer(boardId)).bytes.text();
+    const betaLine = exported
+      .split('\n')
+      .filter((line) => line.includes(betaId))
+      .map((line) => JSON.parse(line) as { data: { number?: number } })[0];
+    expect(betaLine?.data.number).toBeUndefined();
+
+    // New card takes #4 (never reusing #2).
+    const delta = await backend.createCard(boardId, { title: 'Delta' });
+    expect(delta.number).toBe(4);
+
+    // Trash and restore while template still keeps the preserved number hidden.
+    await backend.deleteBlock(boardId, betaId);
+    await backend.restoreBlock(boardId, betaId);
+    expect((await backend.card(boardId, betaId)).number).toBeUndefined();
+
+    // Turning it back into an ordinary card shows #2 again without consuming #5.
+    setTemplate(betaId, false);
+    expect((await backend.card(boardId, betaId)).fields.isTemplate).toBe(false);
+    expect((await backend.card(boardId, betaId)).number).toBe(2);
+    expect((await backend.references.numbered(workspaceId, boardId, 2))?.id).toBe(betaId);
+    expect((await backend.createCard(boardId, { title: 'Epsilon' })).number).toBe(5);
+  });
 });
 
 describe('the numbers of cards, from the server', () => {

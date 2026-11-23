@@ -9,6 +9,7 @@ import {
   cardNumberOf,
   cardNumberText,
   cardsNamed,
+  hashCardNumberOf,
   NAMED_AT_MOST,
 } from '$lib/logic/card-numbers.ts';
 import { searchFilterCards } from '$lib/logic/search.ts';
@@ -57,6 +58,29 @@ describe('the number a text names', () => {
 
   it('is shown with its sign', () => {
     expect(cardNumberText(7)).toBe('#7');
+  });
+
+  it('normalizes `#N` and `#00N` for workspace-wide card number search, rejecting bare digits and mixed text', () => {
+    expect(hashCardNumberOf('#12')).toBe(12);
+    expect(hashCardNumberOf('#0012')).toBe(12);
+    expect(hashCardNumberOf('  #003 ')).toBe(3);
+    expect(hashCardNumberOf('#2147483647')).toBe(2_147_483_647);
+    for (const text of [
+      '',
+      '12',
+      '#',
+      '#0',
+      '#000',
+      '#-1',
+      '#+1',
+      '# 1',
+      '##1',
+      '#12abc',
+      '#12 plan',
+      '#2147483648',
+    ]) {
+      expect(hashCardNumberOf(text), text).toBeUndefined();
+    }
   });
 });
 

@@ -1646,7 +1646,7 @@
   "search_kind_cards": "Cards",
   "search_kind_pages": "Pages",
   "search_results": "What was found",
-  "search_hint": "Type the words a card or a page says.",
+  "search_hint": "Type words from a card or page, or #12 to find cards by number.",
   "search_searching": "Searching…",
   "search_found": "Found: {count}",
   "search_none": "Nothing found.",
