@@ -186,6 +186,20 @@ pub(crate) fn walk<'bytes>(
     update: &'bytes [u8],
     mut each: impl FnMut(Id, &Change<'bytes>),
 ) -> Result<Walked, Refusal> {
+    walk_detailed(update, |id, change, _| each(id, change), |_, _, _| {})
+}
+
+/// Walks an update as [`walk`] does, also passing each change's exact wire byte length
+/// and each `(client, start, len)` range of the delete set.
+///
+/// # Errors
+///
+/// As [`check`].
+pub(crate) fn walk_detailed<'bytes>(
+    update: &'bytes [u8],
+    mut each_change: impl FnMut(Id, &Change<'bytes>, usize),
+    mut each_delete: impl FnMut(u64, u32, u32),
+) -> Result<Walked, Refusal> {
     let mut walk = Walk {
         bytes: update,
         at: 0,
@@ -208,8 +222,10 @@ pub(crate) fn walk<'bytes>(
         let mut long = 0_u64;
         let mut at = clock;
         for _ in 0..changes {
+            let start = walk.at;
             let change = walk.change()?;
-            each((client, at), &change);
+            let wire_bytes = walk.at - start;
+            each_change((client, at), &change, wire_bytes);
             long = long.saturating_add(change.content.said());
             at = at.saturating_add(change.content.length());
         }
@@ -225,13 +241,18 @@ pub(crate) fn walk<'bytes>(
     }
     // What was deleted: for each client, stretches of its clock.
     for _ in 0..walk.count()? {
-        walk.number(MAX_CLIENT)?;
+        let del_client = walk.number(MAX_CLIENT)?;
         for _ in 0..walk.count()? {
             let clock = walk.number(MAX_CLOCK)?;
             let stretch = walk.number(MAX_CLOCK)?;
             if clock + stretch > MAX_CLOCK {
                 return Err(Refusal::Number);
             }
+            each_delete(
+                del_client,
+                u32::try_from(clock).unwrap_or(u32::MAX),
+                u32::try_from(stretch).unwrap_or(u32::MAX),
+            );
         }
     }
     Ok(Walked {

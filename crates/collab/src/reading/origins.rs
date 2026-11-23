@@ -9,24 +9,24 @@ use super::{Holds, NO_ID, NONE, Named, OriginPolicy, Piece, Replay, StepsMode, i
 use crate::scan::{self, Change, Content, Id, Parent, Refusal};
 
 /// An incoming change from an update trimmed against the document's known state vector.
-struct PendingChange<'bytes> {
-    begin: u64,
-    change: Change<'bytes>,
+pub(super) struct PendingChange<'bytes> {
+    pub(super) begin: u64,
+    pub(super) change: Change<'bytes>,
 }
 
 /// Trimmed incoming changes and partial-overlap anchors collected from one update.
-struct CollectedIncoming<'bytes> {
-    changes: HashMap<u64, Vec<PendingChange<'bytes>>>,
-    overlaps: Vec<OverlapParent<'bytes>>,
+pub(super) struct CollectedIncoming<'bytes> {
+    pub(super) changes: HashMap<u64, Vec<PendingChange<'bytes>>>,
+    pub(super) overlaps: Vec<OverlapParent<'bytes>>,
 }
 
 /// A partial overlap whose original parent/member or left origin must agree with the
 /// document item at `(client, known - 1)` where `yrs`'s `BlockSet::exclude` re-anchors it.
-struct OverlapParent<'bytes> {
-    anchor: Id,
-    parent: Option<Parent<'bytes>>,
-    member: Option<&'bytes [u8]>,
-    left: Option<Id>,
+pub(super) struct OverlapParent<'bytes> {
+    pub(super) anchor: Id,
+    pub(super) parent: Option<Parent<'bytes>>,
+    pub(super) member: Option<&'bytes [u8]>,
+    pub(super) left: Option<Id>,
 }
 
 impl<'bytes> Replay<'bytes> {
@@ -170,7 +170,7 @@ pub(crate) fn check_update_origins(
 
 /// Walks `update`, trimming changes against `known` as `yrs`'s `BlockSet::exclude` does
 /// and recording partial overlaps whose original placement must match their new anchor.
-fn collect_incoming<'bytes>(
+pub(super) fn collect_incoming<'bytes>(
     known: &StateVector,
     update: &'bytes [u8],
 ) -> Result<CollectedIncoming<'bytes>, Refusal> {

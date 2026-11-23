@@ -7,13 +7,14 @@ use yrs::{Doc, ReadTxn as _, Transact as _};
 
 use crate::block_cache::BlockCache;
 use crate::project::{json_size_of, to_body};
+use crate::reading::{FastApply, ReadingCache};
 use crate::repair::{
     InPlaceRepair, Repair, build_or_repair_cache, repaired, validate_or_repair_in_place,
 };
 use crate::settle::{from_state_settled, settled_sized};
 use crate::update::{
-    DeltaMode, Outcome, Settled, UpdateError, UpdateInPlaceError, UpdateLimits, counted_sized,
-    with_update_in_place, with_update_sized,
+    DeltaMode, InPlaceDoc, Outcome, Settled, UpdateError, UpdateInPlaceError, UpdateLimits,
+    counted_sized, state_of, with_update_in_place, with_update_sized,
 };
 
 /// Whether post-repair validation only encodes and counts in place (`CountOnly`, used on
@@ -77,29 +78,48 @@ pub enum TakeError {
     },
 }
 
+/// Synchronized incremental caches carried by a [`crate::BodyDoc`]: top-level block
+/// summaries ([`BlockCache`]) and Pass 5–6 wire/reading state ([`ReadingCache`]).
+#[derive(Debug)]
+pub(crate) struct DocCache {
+    pub(crate) blocks: BlockCache,
+    pub(crate) reading: Option<Box<ReadingCache>>,
+}
+
+impl DocCache {
+    pub(crate) fn empty() -> Self {
+        Self {
+            blocks: BlockCache::new(),
+            reading: Some(Box::new(ReadingCache::empty())),
+        }
+    }
+}
+
 /// Why [`take_update_in_place`] refused an update.
 pub(crate) enum TakeInPlaceError {
     /// Refused before `doc` was changed; the untouched document and cache come back.
-    Untouched(Doc, Option<Box<BlockCache>>, TakeError),
+    Untouched(Doc, Option<Box<DocCache>>, TakeError),
     /// Refused while or after applying the update or repairing; `doc` may have been
     /// changed and was dropped.
     Dirty(TakeError),
 }
 
 /// Result of an in-place or cached-open operation: holds the validated `Doc` and its
-/// synchronized [`BlockCache`] without materializing a full [`Body`] JSON tree.
+/// synchronized [`DocCache`] without materializing a full [`Body`] JSON tree.
 #[derive(Debug)]
 pub(crate) struct TakenCache {
     pub(crate) doc: Doc,
-    pub(crate) cache: Box<BlockCache>,
+    pub(crate) cache: Box<DocCache>,
     pub(crate) repair: InPlaceRepair,
-    pub(crate) state: Vec<u8>,
+    pub(crate) state: Option<Vec<u8>>,
     pub(crate) state_bytes: usize,
     pub(crate) changes: u64,
     pub(crate) client_changes: u64,
     pub(crate) reading_steps: u64,
     pub(crate) steps_ahead: u64,
     pub(crate) remake: bool,
+    pub(crate) mutated: bool,
+    pub(crate) placing_steps: u64,
 }
 
 /// Takes a client's update into a document, as the server does with every one: the
@@ -162,28 +182,45 @@ pub fn take_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Ta
 /// and must rebuild `doc` from their checkpoint on [`TakeInPlaceError::Dirty`].
 pub(crate) fn take_update_in_place(
     doc: Doc,
-    cache: Option<Box<BlockCache>>,
-    prior_state: &[u8],
+    cache: Option<Box<DocCache>>,
+    prior_state: Option<&[u8]>,
     prior_changes: u64,
     update: &[u8],
     limits: &UpdateLimits,
 ) -> Result<TakenCache, TakeInPlaceError> {
-    let delta_mode = if cache.is_some() {
+    let (blocks, reading) = match cache {
+        Some(boxed) => {
+            let DocCache { blocks, reading } = *boxed;
+            (Some(blocks), reading)
+        }
+        None => (None, None),
+    };
+    let delta_mode = if blocks.is_some() {
         DeltaMode::Capture
     } else {
         DeltaMode::Skip
     };
-    let with =
-        match with_update_in_place(doc, prior_state, prior_changes, update, limits, delta_mode) {
-            Ok(settled) => settled,
-            Err(UpdateInPlaceError::Untouched(doc, error)) => {
-                return Err(TakeInPlaceError::Untouched(doc, cache, error.into()));
-            }
-            Err(UpdateInPlaceError::Dirty(error)) => {
-                return Err(TakeInPlaceError::Dirty(error.into()));
-            }
-        };
-    to_taken_in_place(with, cache, limits, SettleMode::CountOnly).map_err(TakeInPlaceError::Dirty)
+    let with = match with_update_in_place(
+        InPlaceDoc {
+            doc,
+            reading_cache: reading,
+            prior_state,
+            prior_changes,
+        },
+        update,
+        limits,
+        delta_mode,
+    ) {
+        Ok(settled) => settled,
+        Err(UpdateInPlaceError::Untouched(doc, reading, error)) => {
+            let restored = blocks.map(|blocks| Box::new(DocCache { blocks, reading }));
+            return Err(TakeInPlaceError::Untouched(doc, restored, error.into()));
+        }
+        Err(UpdateInPlaceError::Dirty(error)) => {
+            return Err(TakeInPlaceError::Dirty(error.into()));
+        }
+    };
+    to_taken_in_place(with, blocks, limits, SettleMode::CountOnly).map_err(TakeInPlaceError::Dirty)
 }
 
 /// Opens a stored state directly into a cached [`TakenCache`] (block-by-block validation,
@@ -291,24 +328,26 @@ fn to_taken(with: Settled, limits: &UpdateLimits, mode: SettleMode) -> Result<Ta
 /// avoiding whole-document projection and JSON tree materialization on the hot path.
 fn to_taken_in_place(
     mut with: Settled,
-    cache: Option<Box<BlockCache>>,
+    blocks: Option<BlockCache>,
     limits: &UpdateLimits,
     mode: SettleMode,
 ) -> Result<TakenCache, TakeError> {
     let delta = with.delta.take();
-    let (mut cache, repair) = match (cache, delta, with.doc_rebuilt) {
-        (Some(mut cache), Some(delta), false) => {
-            let repair = validate_or_repair_in_place(&with.doc, &mut cache, &delta)?;
-            (cache, repair)
+    let placing_steps = with.placing_steps;
+    let mut mutated = with.mutated;
+    let (mut blocks, repair, repair_ds) = match (blocks, delta, with.doc_rebuilt) {
+        (Some(mut blocks), Some(delta), false) => {
+            let (repair, repair_ds) = validate_or_repair_in_place(&with.doc, &mut blocks, &delta)?;
+            (blocks, repair, repair_ds)
         }
-        (old_cache, _, _) => {
+        (old_blocks, _, _) => {
             // Drop any prior cache before rebuilding so two caches are never live at once.
-            drop(old_cache);
-            let (cache, repair) = build_or_repair_cache(&with.doc)?;
-            (Box::new(cache), repair)
+            drop(old_blocks);
+            build_or_repair_cache(&with.doc)?
         }
     };
     let settled = if repair.update.is_some() {
+        mutated = true;
         if repair.mended > 0
             && let Some(limit) = limits.clients
         {
@@ -322,26 +361,18 @@ fn to_taken_in_place(
         } else {
             mode
         };
-        match effective_mode {
-            SettleMode::CountOnly => {
-                let again = counted_sized(with.doc, limits)?;
-                if again.doc_rebuilt {
-                    *cache = BlockCache::build(&again.doc)?;
-                }
-                again
-            }
-            SettleMode::Settle => {
-                // Free the pre-settle cache before re-decoding so peak memory stays minimal.
-                cache.clear();
-                let again = settled_sized(with.doc, limits)?;
-                *cache = BlockCache::build(&again.doc)?;
-                again
-            }
-        }
+        recount_after_repair(
+            with,
+            &mut blocks,
+            &repair,
+            &repair_ds,
+            limits,
+            effective_mode,
+        )?
     } else {
         with
     };
-    if let Some(size) = cache.body_bytes()
+    if let Some(size) = blocks.body_bytes()
         && size > limits.body_bytes
     {
         return Err(TakeError::BodyTooLarge {
@@ -349,19 +380,91 @@ fn to_taken_in_place(
             limit: limits.body_bytes,
         });
     }
-    let state_bytes = settled.state.len();
     Ok(TakenCache {
         doc: settled.doc,
-        cache,
+        cache: Box::new(DocCache {
+            blocks,
+            reading: settled.reading_cache,
+        }),
         repair,
         state: settled.state,
-        state_bytes,
+        state_bytes: settled.state_bytes,
         changes: settled.changes,
         client_changes: settled.client_changes,
         reading_steps: settled.reading_steps,
         steps_ahead: settled.steps_ahead,
         remake: matches!(settled.outcome, Outcome::Remake { .. }),
+        mutated,
+        placing_steps,
     })
+}
+
+/// Re-validates Pass 5–6 after an in-place repair, using [`ReadingCache::try_apply_deletions`]
+/// on deletion-only repairs (`repair.mended == 0`) before falling back to full `counted_sized`.
+fn recount_after_repair(
+    mut with: Settled,
+    blocks: &mut BlockCache,
+    repair: &InPlaceRepair,
+    repair_ds: &yrs::IdSet,
+    limits: &UpdateLimits,
+    mode: SettleMode,
+) -> Result<Settled, TakeError> {
+    match mode {
+        SettleMode::CountOnly => {
+            if repair.mended == 0
+                && let Some(rc) = with.reading_cache.take()
+            {
+                match rc.try_apply_deletions(repair_ds, limits) {
+                    Ok(FastApply::Accepted { cache, summary }) => {
+                        let outcome = if summary.remake {
+                            Outcome::Remake {
+                                steps: summary.reading_steps,
+                                limit: limits.reading_steps.unwrap_or_default(),
+                            }
+                        } else {
+                            Outcome::Settled
+                        };
+                        return Ok(Settled {
+                            doc: with.doc,
+                            state: None,
+                            state_bytes: summary.state_bytes,
+                            changes: summary.changes,
+                            client_changes: summary.client_changes,
+                            reading_steps: summary.reading_steps,
+                            steps_ahead: summary.steps_ahead,
+                            outcome,
+                            needs_settle: false,
+                            doc_rebuilt: false,
+                            delta: None,
+                            mutated: true,
+                            placing_steps: with.placing_steps,
+                            reading_cache: cache,
+                        });
+                    }
+                    Ok(FastApply::TooLarge { size, limit }) => {
+                        return Err(UpdateError::DocumentTooLarge { size, limit }.into());
+                    }
+                    Ok(FastApply::TooManyChanges { changes, limit }) => {
+                        return Err(UpdateError::TooManyChanges { changes, limit }.into());
+                    }
+                    Ok(FastApply::Fallback) | Err(_) => {}
+                }
+            }
+            let again = counted_sized(with.doc, limits)?;
+            if again.doc_rebuilt {
+                *blocks = BlockCache::build(&again.doc)?;
+            }
+            Ok(again)
+        }
+        SettleMode::Settle => {
+            // Free the pre-settle caches before re-decoding so peak memory stays minimal.
+            blocks.clear();
+            drop(with.reading_cache);
+            let again = settled_sized(with.doc, limits)?;
+            *blocks = BlockCache::build(&again.doc)?;
+            Ok(again)
+        }
+    }
 }
 
 /// Checks `repair.body` against [`UpdateLimits::body_bytes`] and builds [`Taken`].
@@ -379,11 +482,12 @@ fn finish_taken(
             });
         }
     }
-    let state_bytes = settled.state.len();
+    let state = settled.state.unwrap_or_else(|| state_of(&settled.doc));
+    let state_bytes = state.len();
     Ok(Taken {
         doc: settled.doc,
         repair,
-        state: settled.state,
+        state,
         state_bytes,
         changes: settled.changes,
         client_changes: settled.client_changes,

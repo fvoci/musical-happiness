@@ -107,17 +107,42 @@ pub(crate) struct Sent<'bytes> {
 /// as the library read it: the neighbours a change names would be found in another
 /// place here than there.
 pub(crate) fn charge(held: &Held<'_>, sent: &Sent<'_>, limit: u64) -> Result<u64, Refusal> {
-    let update = Placed::read(sent, held.ends)?;
+    charge_with_state(held.changes, held.ends, None, || held.state, sent, limit)
+}
+
+/// As [`charge`], using `cut_inside_cached` (when `Some`) to compute cut costs in
+/// `O(|cuts| log N)` without encoding or scanning `state`, and computing the document's
+/// encoded state lazily via `state_bytes` only if `Lists::of` or uncached cut lookup is
+/// needed.
+pub(crate) fn charge_lazy<'a>(
+    changes: u64,
+    ends: &StateVector,
+    cut_inside_cached: Option<&dyn Fn(Id) -> Option<u64>>,
+    state_bytes: impl FnOnce() -> &'a [u8],
+    sent: &Sent<'_>,
+    limit: u64,
+) -> Result<u64, Refusal> {
+    charge_with_state(changes, ends, cut_inside_cached, state_bytes, sent, limit)
+}
+
+fn charge_with_state<'a>(
+    changes: u64,
+    ends: &StateVector,
+    cut_inside_cached: Option<&dyn Fn(Id) -> Option<u64>>,
+    state_bytes: impl FnOnce() -> &'a [u8],
+    sent: &Sent<'_>,
+    limit: u64,
+) -> Result<u64, Refusal> {
+    let update = Placed::read(sent, ends)?;
     let cuts = cuts(&update, sent.deleted);
     // No change of the document is longer than the most it has of a client.
-    let longest = held
-        .ends
+    let longest = ends
         .iter()
         .map(|(_, clock)| u64::from(*clock))
         .chain(update.clocks.ends.iter().copied())
         .max()
         .unwrap_or(0);
-    let walks = update.at_most(held.changes);
+    let walks = update.at_most(changes);
     let at_most = walks.saturating_add(steps_of(
         count(cuts.len())
             .saturating_mul(longest)
@@ -126,10 +151,29 @@ pub(crate) fn charge(held: &Held<'_>, sent: &Sent<'_>, limit: u64) -> Result<u64
     if at_most <= limit {
         return Ok(at_most);
     }
+    if let Some(cut_fn) = cut_inside_cached {
+        let cutting = steps_of(
+            cuts.iter()
+                .map(|cut| {
+                    let known = u64::from(ends.get(&ClientID::new(cut.0)));
+                    if cut.1 < known {
+                        cut_fn(*cut)
+                    } else {
+                        update.new_item_of(*cut).and(update.clocks.cut_inside(*cut))
+                    }
+                    .unwrap_or(0)
+                })
+                .fold(0, u64::saturating_add),
+        );
+        if walks.saturating_add(cutting) <= limit {
+            return Ok(walks.saturating_add(cutting));
+        }
+    }
+    let state = state_bytes();
     let clocks = Clocks::read(
-        held.state,
+        state,
         |_, _| {},
-        |run| u64::from(held.ends.get(&ClientID::new(run.client))) == run.end,
+        |run| u64::from(ends.get(&ClientID::new(run.client))) == run.end,
     )?;
     let cutting = steps_of(
         cuts.iter()
@@ -139,7 +183,7 @@ pub(crate) fn charge(held: &Held<'_>, sent: &Sent<'_>, limit: u64) -> Result<u64
     if walks.saturating_add(cutting) <= limit {
         return Ok(walks.saturating_add(cutting));
     }
-    Ok(Lists::of(held.state, &clocks, &update)?
+    Ok(Lists::of(state, &clocks, &update)?
         .charge()
         .saturating_add(cutting))
 }

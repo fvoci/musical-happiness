@@ -30,7 +30,7 @@ use fvoci_collab::testing::{
 };
 use fvoci_collab::{
     BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, UpdateLimits,
-    from_body, from_state, new_doc, reading_steps, state_of, take_update,
+    from_body, from_state, new_doc, state_of, take_update,
 };
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_NODES, Body};
 use serde_json::json;
@@ -90,7 +90,7 @@ fn times() {
         let (taken, with) = timed_with(
             || BodyDoc::from_state(&state, &LIMITS).expect("opened").doc,
             |held| {
-                held.take_in_place(&state, changes, &update, &LIMITS)
+                held.take_in_place(None, changes, &update, &LIMITS)
                     .expect("taken")
             },
         );
@@ -99,7 +99,7 @@ fn times() {
         let (repaired, with) = timed_with(
             || BodyDoc::from_state(&state, &LIMITS).expect("opened").doc,
             |held| {
-                held.take_in_place(&state, changes, &update, &LIMITS)
+                held.take_in_place(None, changes, &update, &LIMITS)
                     .expect("repaired")
             },
         );
@@ -197,9 +197,10 @@ fn take_by_passes(
     let applied = passes.time("4b. the update applied in place (+ delta)", take, || {
         CacheProbe::apply_prepared(&doc, prepared).expect("the update applies")
     });
-    let state = passes.time("5. state_of the document", take, || state_of(&doc));
-    let read_steps = passes.time("6. reading::count", take, || {
-        reading_steps(&state, READING_STEPS).expect("a state")
+    let (state_bytes, read_steps) = passes.time("5–6. incremental reading cache", take, || {
+        probe
+            .count_reading(&applied, &LIMITS)
+            .expect("incremental reading cache succeeds")
     });
     assert!(
         read_steps <= READING_STEPS,
@@ -214,6 +215,8 @@ fn take_by_passes(
     let files = passes.time("14. file_ids (cached)", Paid::ByTheWorker, || {
         probe.file_ids(&doc)
     });
+    let state = state_of(&doc);
+    assert_eq!(state_bytes, state.len(), "incremental state_bytes exact");
     let body = passes.time("Request::Body: to_body and JSON", Paid::ByTheWorker, || {
         let body = to_body(&doc).expect("a body");
         if let Some(body) = &body {
@@ -264,13 +267,13 @@ fn passes() {
                 let held = BodyDoc::from_state(&state, &LIMITS).expect("opened").doc;
                 let start = Instant::now();
                 let taken = held
-                    .take_in_place(&state, changes, &update, &LIMITS)
+                    .take_in_place(None, changes, &update, &LIMITS)
                     .expect("taken");
                 (start.elapsed(), taken)
             };
             let by_passes = || {
                 let fresh = from_state(&state, &LIMITS).expect("opened").doc;
-                let probe = CacheProbe::build(&fresh).expect("cached");
+                let probe = CacheProbe::build(&fresh, &state).expect("cached");
                 take_by_passes(fresh, probe, &state, changes, &update)
             };
             let ((took, taken), (passes, got_state, body, files)) = if round % 2 == 0 {
@@ -284,20 +287,10 @@ fn passes() {
             let with = with_update(&doc, &update, &LIMITS).expect("taken");
             let with_update = start.elapsed();
             assert_eq!(taken.repair.deleted, 0, "{name}: nothing to repair");
-            assert!(
-                got_state == taken.state,
-                "{name}: the passes leave its state"
-            );
-            assert_eq!(
-                body,
-                taken.doc.body().expect("a body"),
-                "{name}: the passes leave its body"
-            );
-            assert_eq!(
-                files,
-                taken.doc.file_ids(),
-                "{name}: the passes leave its file_ids"
-            );
+            assert_eq!(got_state.len(), taken.state_bytes, "{name}: state_bytes");
+            assert!(got_state == taken.doc.state(), "{name}: same state");
+            assert_eq!(body, taken.doc.body().expect("a body"), "{name}: same body");
+            assert_eq!(files, taken.doc.file_ids(), "{name}: same file_ids");
             drop((taken, with));
             wholes.push((took, with_update, passes.in_the_take()));
             rounds.push(passes);
@@ -378,7 +371,7 @@ fn honest() {
                         .doc
                 },
                 |doc| {
-                    doc.take_in_place(&edit_state, edit_changes, &edit.update, &LIMITS)
+                    doc.take_in_place(None, edit_changes, &edit.update, &LIMITS)
                         .expect("taken")
                 },
             );
@@ -687,7 +680,7 @@ fn memory() {
         drop(opened.state);
         let holding = allocated().saturating_sub(before);
         let taking = most_during(|| {
-            doc.take_in_place(&state, changes, &typed, &LIMITS)
+            doc.take_in_place(None, changes, &typed, &LIMITS)
                 .expect("taken")
         });
 
@@ -697,7 +690,7 @@ fn memory() {
         drop(opened.repair);
         drop(opened.state);
         let repairing = most_during(|| {
-            doc.take_in_place(&state, changes, &unknown, &LIMITS)
+            doc.take_in_place(None, changes, &unknown, &LIMITS)
                 .expect("repaired")
         });
 
