@@ -750,6 +750,7 @@ impl From<StoreError> for AppError {
             | StoreError::BlockNotInDeletedContainers { .. } => Self::bad_request(error),
             StoreError::InvalidCategory(refused) => Self::from(refused),
             StoreError::InvalidSubscription(refused) => Self::from(refused),
+            StoreError::Refused(refused) => Self::from(refused),
             StoreError::InvalidContainer(refused) => Self::from_container_error(refused),
             // Whatever else the store refuses of a block names the member at fault and
             // the block. A parent that is no block of the board, whether it is none at all

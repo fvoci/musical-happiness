@@ -17,6 +17,7 @@
   import { onDestroy } from 'svelte';
 
   import BuildingIcon from '@lucide/svelte/icons/building-2';
+  import ClockIcon from '@lucide/svelte/icons/clock';
   import NotebookPenIcon from '@lucide/svelte/icons/notebook-pen';
   import PanelLeftCloseIcon from '@lucide/svelte/icons/panel-left-close';
   import PlusIcon from '@lucide/svelte/icons/plus';
@@ -59,6 +60,9 @@
     workspace: Workspace;
     /** The board or wiki on the page. */
     containerId: string | undefined;
+    meTime?: boolean;
+    timeHref?: string | undefined;
+    onOpenTime?: (() => void) | undefined;
     containerHref: (container: ContainerPlace) => string;
     /** The sidebar is a column beside the board: its button folds it. Otherwise it closes the drawer. */
     beside: boolean;
@@ -77,6 +81,9 @@
   let {
     workspace,
     containerId,
+    meTime = false,
+    timeHref,
+    onOpenTime,
     containerHref,
     beside,
     onOpenContainer,
@@ -367,6 +374,20 @@
     >
       <UsersIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
       <span class="min-w-0 flex-1 truncate">{m.people_title()}</span>
+    </button>
+  {/if}
+  {#if timeHref && workspace.me?.id}
+    <button
+      type="button"
+      data-testid="open-my-time"
+      aria-current={meTime ? 'page' : undefined}
+      class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium roomy:min-h-touch"
+      onclick={() => {
+        onOpenTime?.();
+      }}
+    >
+      <ClockIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
+      <span class="min-w-0 flex-1 truncate">{m.time_title()}</span>
     </button>
   {/if}
   {#if orgHref && !ownSpace}

@@ -11,7 +11,9 @@ use fvoci_model::{
     AuditAction, AuditRecord, ContainerKinds, MAX_NAME_CHARS, OrgMember, OrgRole, OrgWorkspace,
     Organization, OrganizationPatch, Workspace, is_id, new_id,
 };
-use fvoci_store::{AuditPlace, Joining, OrgRoleChange, StoreError, Taken, WorkspaceTrashing};
+use fvoci_store::{
+    AuditPlace, Joining, MemberRemoval, OrgRoleChange, StoreError, Taken, WorkspaceTrashing,
+};
 
 use super::App;
 use super::list_page::ListPage;
@@ -157,6 +159,46 @@ impl App {
             .with_reason(Reason::LastOrgAdmin)),
             Err(error) if error.is_not_found() => Err(AppError::not_found("organization")),
             Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Takes a member out of the organization on behalf of `actor_id`
+    /// ([`fvoci_store::Store::remove_org_member`]), and tells their open connections
+    /// and rooms (`App::after_leaving`). Does not require `user_id` to have a password.
+    ///
+    /// # Errors
+    ///
+    /// Returns a 404 (`organization`) if `actor_id` no longer administers the
+    /// organization, a 404 (`member`) if `user_id` is no member, a 409 with the reason
+    /// `cannot_remove_self`, `last_instance_admin`, `sole_org_admin`, or
+    /// `alone_in_organization` for what stands in the way, and the store's error.
+    pub async fn remove_org_member(
+        &self,
+        org_id: &str,
+        user_id: &str,
+        actor_id: &str,
+    ) -> Result<(), AppError> {
+        if !is_id(user_id) {
+            return Err(AppError::not_found("member"));
+        }
+        match self.store().remove_org_member(user_id, actor_id).await? {
+            MemberRemoval::Removed(left) => {
+                tracing::info!(
+                    org_id,
+                    user_id,
+                    actor_id,
+                    "a member was taken out of an organization"
+                );
+                self.after_leaving(org_id, user_id, &left).await;
+                Ok(())
+            }
+            MemberRemoval::NotAnAdmin => Err(AppError::not_found("organization")),
+            MemberRemoval::NotAMember => Err(AppError::not_found("member")),
+            MemberRemoval::CannotRemoveSelf => Err(AppError::conflict(
+                "an administrator cannot remove themselves: use leaveOrganization instead",
+            )
+            .with_reason(Reason::CannotRemoveSelf)),
+            MemberRemoval::Refused(refused) => Err(super::organizations::removal_refusal(refused)),
         }
     }
 

@@ -180,6 +180,12 @@ const REACHED: &[(&str, Reaches)] = &[
     ("createUnitNote", Reaches::COURSES),
     ("patchUnitNote", Reaches::COURSES),
     ("deleteUnitNote", Reaches::COURSES),
+    ("getCourseSchedule", Reaches::COURSES),
+    ("putCourseSchedule", Reaches::COURSES),
+    ("deleteCourseSchedule", Reaches::COURSES),
+    ("redistributeCourseSchedule", Reaches::COURSES),
+    ("redistributeMyCourseSchedule", Reaches::COURSES),
+    ("putUnitSchedule", Reaches::COURSES),
     // What names a card, page or unit from a body.
     ("getReferencesTo", Reaches::LINKED),
     // What the holder of a read token reads.
@@ -608,6 +614,13 @@ impl World {
             "scheduleUnitReview" => json!({"intervalDays": 7}),
             "createUnitNote" => json!({"kind": "mistake", "content": "check edge case"}),
             "patchUnitNote" => json!({"kind": "review", "content": "updated note"}),
+            "putCourseSchedule" => {
+                json!({"startDate": "2026-11-01", "targetDate": "2026-11-30", "studyDays": 31})
+            }
+            "redistributeCourseSchedule" | "redistributeMyCourseSchedule" => {
+                json!({"fromDate": "2026-11-01", "targetDate": "2026-11-30", "studyDays": 31})
+            }
+            "putUnitSchedule" => json!({"plannedDate": "2026-11-24"}),
             "createDiaryEntry" => json!({"date": "2020-02-29"}),
             "patchDiaryEntry" => json!({"mood": "good"}),
             "addMember" | "updateMember" => {

@@ -1,8 +1,8 @@
 //! Users and their preferences.
 
 use fvoci_model::{
-    ContainerKinds, ContainerMember, PersonNameChange, Session, User, UserPreferencesPatch,
-    UserSettings, UserSettingsPatch, WorkspaceRole,
+    ContainerKinds, ContainerMember, PersonNameChange, Session, User, UserOrganization,
+    UserPreferencesPatch, UserSettings, UserSettingsPatch, WorkspaceRole,
 };
 use fvoci_store::{AdminChange, InstanceRole, Looking, Preference, Sight};
 
@@ -28,6 +28,20 @@ impl App {
             .store()
             .container_memberships_of_user(&session.user_id, session.into(), ContainerKinds::EVERY)
             .await?)
+    }
+
+    /// The organizations that people work in together of which `user_id` is a member,
+    /// oldest first: includes organizations where the account is in no workspace, and
+    /// leaves out personal spaces and organizations where it is only a workspace guest.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if they cannot be read.
+    pub async fn organizations_of_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<UserOrganization>, AppError> {
+        Ok(self.store().organizations_of_user(user_id).await?)
     }
 
     /// Changes what `change` names of the user's name, and so the name they are shown

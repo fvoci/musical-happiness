@@ -381,7 +381,7 @@ async fn count_live_units(
     Ok(count_u32(count))
 }
 
-fn progress_from_row(row: &Row) -> Result<UnitProgress, StoreError> {
+pub(crate) fn progress_from_row(row: &Row) -> Result<UnitProgress, StoreError> {
     Ok(UnitProgress {
         unit_id: row.id(0)?,
         completed_at: row.opt_int(1)?,

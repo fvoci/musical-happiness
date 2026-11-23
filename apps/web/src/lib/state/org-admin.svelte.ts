@@ -30,7 +30,15 @@ interface Shell {
 
 /** Why a change was refused, as the screen tells it. */
 export type OrgRefusal =
-  'name_taken' | 'default_workspace' | 'last_org_admin' | 'not_found' | 'failed';
+  | 'name_taken'
+  | 'default_workspace'
+  | 'last_org_admin'
+  | 'cannot_remove_self'
+  | 'last_instance_admin'
+  | 'sole_org_admin'
+  | 'alone_in_organization'
+  | 'not_found'
+  | 'failed';
 
 export function refusalOf(error: unknown): OrgRefusal {
   if (!isBackendError(error)) return 'failed';
@@ -41,6 +49,14 @@ export function refusalOf(error: unknown): OrgRefusal {
       return 'default_workspace';
     case 'last_org_admin':
       return 'last_org_admin';
+    case 'cannot_remove_self':
+      return 'cannot_remove_self';
+    case 'last_instance_admin':
+      return 'last_instance_admin';
+    case 'sole_org_admin':
+      return 'sole_org_admin';
+    case 'alone_in_organization':
+      return 'alone_in_organization';
     default:
       return error.status === 404 ? 'not_found' : 'failed';
   }
@@ -198,6 +214,13 @@ export class OrgAdmin {
   setRole(userId: string, role: OrgRole): Promise<boolean> {
     return this.#change(async () => {
       await this.#api.setRole(this.orgId, userId, role);
+      this.#shell?.evictOrg?.(this.orgId);
+    });
+  }
+
+  removeMember(userId: string): Promise<boolean> {
+    return this.#change(async () => {
+      await this.#api.removeMember(this.orgId, userId);
       this.#shell?.evictOrg?.(this.orgId);
     });
   }

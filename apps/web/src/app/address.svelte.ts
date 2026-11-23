@@ -16,6 +16,13 @@ export function followAddress(routerOf: () => Router, shown: () => Workspace | u
     const [router, workspace] = [routerOf(), shown()];
     if (workspace?.status !== 'ready' || router.route.unknown || router.route.workspaceId) return;
     if (router.route.invitation !== undefined || router.route.orgId) return;
+    if (router.route.meTime) {
+      if (!workspace.asked) {
+        const chosen = workspace.firstChoice();
+        if (chosen) void workspace.enter(chosen);
+      }
+      return;
+    }
     const chosen = workspace.firstChoice();
     if (chosen) router.go({ workspaceId: chosen }, { replace: true });
   });

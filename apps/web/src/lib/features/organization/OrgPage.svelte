@@ -45,11 +45,18 @@
     name_taken: m.org_refused_name_taken,
     default_workspace: m.org_refused_default_workspace,
     last_org_admin: m.org_refused_last_admin,
+    cannot_remove_self: m.org_refused_cannot_remove_self,
+    last_instance_admin: m.org_refused_last_instance_admin,
+    sole_org_admin: m.org_refused_sole_org_admin,
+    alone_in_organization: m.org_refused_alone_in_organization,
     not_found: m.org_refused_not_found,
     failed: m.org_refused_failed,
   };
 
   let stepDownOpen = $state(false);
+  let removing = $state.raw<OrgMember | undefined>(undefined);
+  let removeOpen = $state(false);
+  let membersHeading: HTMLElement | null = null;
 
   /** Sends the browser to sign in through the pending settings; it comes back to this page. */
   async function tryPending(): Promise<void> {
@@ -121,11 +128,23 @@
     {/key}
 
     <section class="flex flex-col gap-3" aria-labelledby="org-members">
-      <h2 id="org-members" class="text-base font-semibold">{m.org_members()}</h2>
+      <h2
+        id="org-members"
+        tabindex="-1"
+        class="text-base font-semibold outline-none"
+        {@attach (node: HTMLElement) => {
+          membersHeading = node;
+          return () => {
+            membersHeading = null;
+          };
+        }}
+      >
+        {m.org_members()}
+      </h2>
       <ul class="flex flex-col gap-2" data-testid="org-members">
         {#each admin.members as member (member.userId)}
           <li
-            class="flex items-center gap-2 rounded-md border px-3 py-2"
+            class="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2"
             data-username={member.username}
           >
             <span class="flex min-w-0 flex-1">
@@ -161,6 +180,20 @@
                   : m.org_make_member()
                 : m.org_make_admin()}
             </Button>
+            {#if meId !== undefined && member.userId !== meId}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={admin.busy}
+                aria-label={m.org_remove_member_named({ name: named(member) })}
+                onclick={() => {
+                  removing = member;
+                  removeOpen = true;
+                }}
+              >
+                {m.org_remove_member()}
+              </Button>
+            {/if}
           </li>
         {/each}
       </ul>
@@ -200,5 +233,17 @@
   destructive
   onConfirm={() => {
     if (meId) void admin.setRole(meId, 'member');
+  }}
+/>
+
+<ConfirmDialog
+  bind:open={removeOpen}
+  title={m.org_remove_member_title({ name: removing ? named(removing) : '' })}
+  description={m.org_remove_member_info()}
+  confirmLabel={m.org_remove_member()}
+  destructive
+  focusAfter={() => membersHeading}
+  onConfirm={() => {
+    if (removing) void admin.removeMember(removing.userId);
   }}
 />

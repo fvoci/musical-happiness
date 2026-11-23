@@ -8,8 +8,8 @@ use std::path::Path;
 use fvoci_model::{
     AuditAction, BlockType, Category, CompletionChange, Container, ContainerKind, ContainerMember,
     ContainerType, CourseLimits, LastPositionChange, NewUnit, NewUnitNote, NewUnitReview,
-    SubscriberType, Subscription, UnitNoteKind, UnitProgressChange, Upload, UploadPart,
-    WorkspaceRole, new_id,
+    STUDY_DAYS_WEEKDAYS, StudyDays, SubscriberType, Subscription, UnitNoteKind, UnitProgressChange,
+    Upload, UploadPart, ValidatedCourseSchedule, WorkspaceRole, new_id,
 };
 use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
 use fvoci_store::{AuditEntry, DbType, SYSTEM_ORG_ID, SharingChange, Store, Tenant};
@@ -697,6 +697,19 @@ async fn a_course_with_progress(store: &Store, workspace_id: &str, user_id: &str
         )
         .await
         .expect("unit note is stored");
+    store
+        .upsert_course_schedule(
+            &course.id,
+            &ValidatedCourseSchedule {
+                start_date: "2026-11-01".parse().expect("start date"),
+                target_date: "2026-11-30".parse().expect("target date"),
+                study_days: StudyDays::try_new(STUDY_DAYS_WEEKDAYS).expect("weekdays"),
+                auto_assign: false,
+            },
+            user_id,
+        )
+        .await
+        .expect("course schedule is stored");
 }
 
 /// The store tells whether the wall holds the role it connects as: the role of the

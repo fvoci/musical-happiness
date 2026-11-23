@@ -55,7 +55,7 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 46] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 47] = [
     // No workspace of an organization has a diary: a diary is of a user's own space.
     "getDiaries",
     "createDiary",
@@ -87,6 +87,7 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 46] = [
     "patchOrganization",
     "putOidcProvider",
     "putOrgRole",
+    "removeOrgMember",
     "renameOrgWorkspace",
     "restoreOrgWorkspace",
     "startOidcTrial",
@@ -141,6 +142,7 @@ fn operations() -> Vec<(String, String, String)> {
         | "deleteUnit"
         | "deleteUnitReview"
         | "deleteUnitNote"
+        | "deleteCourseSchedule"
         | "deleteBoardsAndBlocks"
         | "deleteUpload"
         | "deleteCategory"
@@ -631,8 +633,8 @@ async fn log_in(server: &TestServer, name: &str) -> Client {
     )
 }
 
-/// Reads a plain member succeeds on in both organizations.
-const MEMBER_READS: &[&str] = &[
+/// Read operations a plain member reaches with 200 in their workspace in both organizations.
+const MEMBER_READ_OPERATIONS: &[&str] = &[
     "getWorkspace",
     "getCategories",
     "getWorkspaceBoards",
@@ -653,6 +655,8 @@ const MEMBER_READS: &[&str] = &[
     "listMyCourseReviews",
     "listMyUnitNotes",
     "getWorkspaceTodayReviews",
+    "getCourseSchedule",
+    "getWorkspaceLearningToday",
     "getUnitComments",
     "getUnitCommentVersions",
     "getUnitBodyVersions",
@@ -676,6 +680,7 @@ const MEMBER_READS: &[&str] = &[
     "getReferencesTo",
     "searchReferences",
     "getMyMemberships",
+    "getMyOrganizations",
     "getActiveTimeEntry",
     "listTimeEntries",
 ];
@@ -703,9 +708,9 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
     );
     // What a member reads of their workspace and its board is there for them in the
     // second one too.
-    for read in MEMBER_READS {
+    for &read in MEMBER_READ_OPERATIONS {
         assert_eq!(
-            of_second.get(*read),
+            of_second.get(read),
             Some(&200),
             "{read} for a member: {of_second:?}"
         );
