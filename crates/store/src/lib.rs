@@ -84,6 +84,7 @@ mod teams;
 #[cfg(feature = "test-util")]
 pub mod testing;
 mod trash;
+mod unit_progress;
 mod uploads;
 mod users;
 mod users_by_id;

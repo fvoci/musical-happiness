@@ -245,9 +245,12 @@ async fn migration_0061_preserves_rows_keys_and_triggers_and_allows_courses() {
         "{old_keys:?}"
     );
 
-    let store = Store::connect(pre.database.db_type(), pre.database.database_connection())
-        .await
-        .expect("migration 0061 applies cleanly");
+    fvoci_store::testing::migrate_up_to(
+        pre.database.db_type(),
+        pre.database.database_connection(),
+        61,
+    )
+    .await;
     let new = by_column(&dump(&pre.database).await);
     assert_eq!(
         new.keys().collect::<Vec<_>>(),
@@ -263,6 +266,10 @@ async fn migration_0061_preserves_rows_keys_and_triggers_and_allows_courses() {
         old_keys,
         "every foreign key is preserved"
     );
+
+    let store = Store::connect(pre.database.db_type(), pre.database.database_connection())
+        .await
+        .expect("migrations up to latest apply cleanly");
 
     // Courses can now be stored in both workspaces of people and personal spaces.
     for (org_id, workspace_id) in [

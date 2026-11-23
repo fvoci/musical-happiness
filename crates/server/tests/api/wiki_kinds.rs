@@ -169,6 +169,9 @@ const REACHED: &[(&str, Reaches)] = &[
     ("moveUnit", Reaches::COURSES),
     ("getDeletedUnits", Reaches::COURSES),
     ("undeleteUnit", Reaches::COURSES),
+    ("getMyCourseProgress", Reaches::COURSES),
+    ("putUnitProgress", Reaches::COURSES),
+    ("getCourseProgressSummary", Reaches::COURSES),
     // What names a card, page or unit from a body.
     ("getReferencesTo", Reaches::LINKED),
     // What the holder of a read token reads.
@@ -557,6 +560,7 @@ impl World {
             }
             "createUnit" => json!({"title": "another unit"}),
             "moveUnit" => json!({"parentId": ""}),
+            "putUnitProgress" => json!({"completed": true, "lastPosition": "section-1"}),
             "createDiaryEntry" => json!({"date": "2020-02-29"}),
             "patchDiaryEntry" => json!({"mood": "good"}),
             "addMember" | "updateMember" => {
