@@ -1,10 +1,9 @@
 /**
- * Unpacks the archive the frame wrote of a presentation's parts
+ * Unpacks the archive checked and rewritten of a presentation's parts
  * (`zip-guard.ts` `repack`), in the PowerPoint worker: each part's bytes by
- * its name. That archive holds only parts the frame counted, under their
- * true sizes, stored or deflated, so what is unpacked here is what was held
- * to the limits; a part that unpacks past its size stops the file all the
- * same.
+ * its name. That archive holds only parts counted under their true sizes,
+ * stored or deflated, so what is unpacked here is what was held to the limits;
+ * a part that unpacks past its size stops the file all the same.
  */
 import { zipEntries, type ZipEntry } from '$lib/file-viewer/zip-directory.ts';
 

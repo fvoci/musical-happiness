@@ -34,8 +34,11 @@ import {
   textBox,
 } from '../support/viewer-pptx.ts';
 
-/** The archive as the frame hands it to the worker: counted and written anew. */
-const repacked = (file: Buffer): Promise<ArrayBuffer> => repack(Uint8Array.from(file).buffer);
+/** The raw bytes of a deck, as the frame hands them to the PowerPoint worker. */
+const raw = (file: Buffer): ArrayBuffer => Uint8Array.from(file).buffer;
+
+/** The archive after `zip-guard` checks and rewrites it (used where `unpack` is called directly). */
+const repacked = (file: Buffer): Promise<ArrayBuffer> => repack(raw(file));
 
 const sorted = async (file: Buffer): Promise<Sorted> =>
   sortParts(await unpack(await repacked(file)));
@@ -57,7 +60,7 @@ describe('a presentation is told apart by its first bytes', () => {
 
 describe('the PowerPoint worker reads a presentation into the parts the renderer takes', () => {
   it('the Korean sample: its slides, picture and text; no chart, no link outside', async () => {
-    const answer = await readPresentation(await repacked(koreanPptx()));
+    const answer = await readPresentation(raw(koreanPptx()));
     if (answer.kind !== 'read') throw new Error(JSON.stringify(answer));
     const { parts } = answer;
     expect([...parts.slides.keys()].sort()).toEqual([
@@ -134,7 +137,7 @@ describe('the PowerPoint worker reads a presentation into the parts the renderer
   });
 
   it('the answer says the pixels of the pictures each slide shows', async () => {
-    const answer = await readPresentation(await repacked(koreanPptx()));
+    const answer = await readPresentation(raw(koreanPptx()));
     if (answer.kind !== 'read') throw new Error(answer.reason);
     expect([...answer.pixels.keys()].sort()).toEqual([...answer.parts.slides.keys()].sort());
     expect(answer.pixels.get('ppt/slides/slide1.xml')).toBe(300 * 150);
@@ -157,7 +160,7 @@ describe('the PowerPoint worker reads a presentation into the parts the renderer
         slide('show="1" p:show="0"'),
       ],
     });
-    const answer = await readPresentation(await repacked(file));
+    const answer = await readPresentation(raw(file));
     if (answer.kind !== 'read') throw new Error(answer.reason);
     expect(answer.hidden.sort()).toEqual(
       [1, 3, 4, 6].map((number) => `ppt/slides/slide${number}.xml`),
@@ -179,7 +182,7 @@ describe('each ceiling stops the deck that passes it, and only that one', () => 
   it('a deck past a ceiling is refused as too large', async () => {
     for (const ceiling of ['text', 'slide size'] as const) {
       const file = HOSTILE_PPTX[ceiling]?.() ?? Buffer.alloc(0);
-      expect(await readPresentation(await repacked(file))).toEqual({
+      expect(await readPresentation(raw(file))).toEqual({
         kind: 'failed',
         reason: 'too-large',
       });
@@ -219,13 +222,15 @@ describe('each ceiling stops the deck that passes it, and only that one', () => 
 describe('a deck in disguise is stopped as its plain twin is', () => {
   for (const [disguise, { ceiling, make }] of Object.entries(DISGUISED_PPTX)) {
     it(`${disguise}: ${ceiling}`, async () => {
-      const packed = await repacked(make());
-      const answer = await readPresentation(packed);
+      const file = make();
+      const answer = await readPresentation(raw(file));
       if (ceiling === 'unreadable') {
         expect(answer).toEqual({ kind: 'failed', reason: 'unreadable' });
         return;
       }
-      expect(measureCeilings(sortParts(await unpack(packed))).over).toEqual([ceiling]);
+      expect(measureCeilings(sortParts(await unpack(await repacked(file)))).over).toEqual([
+        ceiling,
+      ]);
       expect(answer).toEqual({ kind: 'failed', reason: 'too-large' });
     });
   }
@@ -306,14 +311,14 @@ describe('the relationships the frame gets are the ones the worker counted', () 
 
 describe('a part the frame would read otherwise than the worker stops the file', () => {
   it('a document type, with entities', async () => {
-    expect(await readPresentation(await repacked(doctypePptx()))).toEqual({
+    expect(await readPresentation(raw(doctypePptx()))).toEqual({
       kind: 'failed',
       reason: 'unreadable',
     });
   });
 
   it('XML that is not well formed', async () => {
-    expect(await readPresentation(await repacked(malformedPptx()))).toEqual({
+    expect(await readPresentation(raw(malformedPptx()))).toEqual({
       kind: 'failed',
       reason: 'unreadable',
     });
@@ -321,7 +326,56 @@ describe('a part the frame would read otherwise than the worker stops the file',
 
   it('an archive without a presentation', async () => {
     const archive = zip([{ name: 'ppt/slides/slide1.xml', data: Buffer.from('<p:sld/>') }]);
-    expect(await readPresentation(await repacked(archive))).toEqual({
+    expect(await readPresentation(raw(archive))).toEqual({
+      kind: 'failed',
+      reason: 'unreadable',
+    });
+  });
+
+  it('a raw archive checked in the worker itself: stored size lie, backslash name, and overlapping parts', async () => {
+    const baseEntries = async (): Promise<
+      { name: string; data: Buffer; stored?: boolean; said?: number }[]
+    > =>
+      [...(await unpack(raw(deck({ slides: [{ shapes: '' }] }))))].map(([name, bytes]) => ({
+        name,
+        data: Buffer.from(bytes),
+        stored: true,
+      }));
+    const base = await baseEntries();
+
+    // Stored size lie: `pptx-unpack` does not check `entry.size` on stored entries; only `repack` catches it.
+    const sizeLie = zip([
+      ...base,
+      { name: 'ppt/extra.bin', data: Buffer.alloc(1024, 0x41), stored: true, said: 10 },
+    ]);
+    expect((await unpack(raw(sizeLie))).has('ppt/slides/slide1.xml')).toBe(true);
+    expect(await readPresentation(raw(sizeLie))).toEqual({
+      kind: 'failed',
+      reason: 'unreadable',
+    });
+
+    // Backslash entry name alongside a valid deck: `sortParts` would ignore it; only `repack` rejects it.
+    const backslash = zip([
+      ...base,
+      { name: 'ppt\\extra.txt', data: Buffer.from('x'), stored: true },
+    ]);
+    expect((await unpack(raw(backslash))).has('ppt/slides/slide1.xml')).toBe(true);
+    expect(await readPresentation(raw(backslash))).toEqual({
+      kind: 'failed',
+      reason: 'unreadable',
+    });
+
+    // Overlapping stored parts alongside a valid deck: `pptx-unpack` reads both; only `repack` rejects overlap.
+    const overlapping = zip([
+      { name: 'ppt/a.bin', data: Buffer.from('same-bytes'), stored: true },
+      { name: 'ppt/b.bin', data: Buffer.from('same-bytes'), stored: true },
+      ...base,
+    ]);
+    const directory = overlapping.readUInt32LE(overlapping.length - 6);
+    const second = directory + 46 + 'ppt/a.bin'.length;
+    overlapping.writeUInt32LE(0, second + 42);
+    expect((await unpack(raw(overlapping))).has('ppt/slides/slide1.xml')).toBe(true);
+    expect(await readPresentation(raw(overlapping))).toEqual({
       kind: 'failed',
       reason: 'unreadable',
     });
@@ -409,7 +463,7 @@ describe('the answer of the worker is taken only in its shape', () => {
   });
 
   it('not parts with a field of another type', async () => {
-    const answer = await readPresentation(await repacked(koreanPptx()));
+    const answer = await readPresentation(raw(koreanPptx()));
     if (answer.kind !== 'read') throw new Error('not read');
     const slides = new Map<string, unknown>([['ppt/slides/slide1.xml', 42]]);
     expect(readFromPptxWorker({ ...answer, parts: { ...answer.parts, slides } })).toBeUndefined();
