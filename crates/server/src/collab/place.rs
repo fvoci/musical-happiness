@@ -86,6 +86,11 @@ pub(super) struct OpenDoc {
     /// client has written into it ([`fvoci_collab::steps_ahead`]): no fewer than it
     /// takes now.
     pub(super) steps_ahead: u64,
+    /// Whether the held document was not read back from its state because reading it
+    /// would take more steps than [`fvoci_collab::READING_STEPS`]: its body must be
+    /// written to its card and the document made again from it before its state is
+    /// folded or another update is taken.
+    pub(super) must_remake: bool,
     /// Who sent the last update; what writes the body writes it as them.
     pub(super) last_writer: String,
     /// When the first update whose body is not written was taken.
@@ -127,28 +132,22 @@ impl OpenDoc {
     /// each client: 10,034 clients are three quarters of the steps), so the mark of
     /// the clients is for limits without a count of steps.
     pub(super) fn crowded(&self) -> bool {
-        crowded(self.clients, self.client_changes, self.steps_ahead)
+        self.must_remake || crowded(self.clients, self.client_changes, self.steps_ahead)
     }
 
     /// Whether it is made again from its body as it is closed with nobody in its
-    /// room, where no editor has to load it anew: it names an eighth of the clients a
-    /// document may name, or one more client may leave it with an eighth of the steps
-    /// to read that an update may leave it with. A room that empties now and then
-    /// keeps its document far from where it is made again under its editors
-    /// ([`Self::crowded`]) and from where an update is refused. From here a change a
-    /// session writes, or cuts in two, is a step for every 128 clients, 16 at the
-    /// most, so it takes updates of tens of thousands of them to come there: of a
-    /// document of 2,047 sessions, every other letter deleted in 600 paragraphs of a
-    /// hundred letters (58,800 more changes, 62 kB) was taken and had it made again
-    /// under its editor, and the same in 415 paragraphs and then in 600 had the second
-    /// update refused.
+    /// room, where no editor has to load it anew: it must be remade, it names an
+    /// eighth of the clients a document may name, or one more client may leave it with
+    /// an eighth of the steps to read that an update may leave it with. A room that
+    /// empties now and then keeps its document far from where it is made again under
+    /// its editors ([`Self::crowded`]).
     ///
     /// For the bodies of the most changes (320,000) that is every 52 sessions at the
     /// latest, for a body of 10,000 changes every 1,677, and for smaller ones every
     /// 2,048. A body's own document, of one client, is far under it, so none is made
     /// again each time it is closed.
     pub(super) fn worn(&self) -> bool {
-        worn(self.clients, self.steps_ahead)
+        self.must_remake || worn(self.clients, self.steps_ahead)
     }
 
     /// The share of its worker's documents it is counted in.
@@ -459,7 +458,13 @@ impl Collab {
                     // Stored or logged under a larger limit: its body is written to the
                     // card, and it is made again from that.
                     // Boxed: the remake asks the open document, through here.
-                    Box::pin(self.remake_and_tell(app, card_id, slot)).await;
+                    Box::pin(self.remake_and_tell(
+                        app,
+                        card_id,
+                        slot,
+                        super::upkeep::OnForget::Quiet,
+                    ))
+                    .await;
                     if slot.open.is_none() {
                         // The remake failed and closed it: the store holds it.
                         return Err(refusals::unavailable());
