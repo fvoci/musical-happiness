@@ -475,12 +475,18 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     // Starting an organization is the account's own: the new one is no part of the
     // organization the session does not open, and nothing of that one is read for it.
     "createOrganization",
+    // Personal time entries live across organizations, leaving out any organization the
+    // session does not open (`time_entries_obey_the_sso_wall`, `time_entries_isolation`):
+    // `startTimeEntry` and `createTimeEntry` stay in the sweep below targeting the walled
+    // organization's card.
+    "deleteTimeEntry",
     // The two ends of a sign-in held for a browser come before there is a session, as
     // the sign-in itself does: they look at the browser's cookie of it, and at none.
     "finishHeldOidcLogin",
     "finishOidcLogin",
     "getClientConfig",
     "getAccountDeletion",
+    "getActiveTimeEntry",
     "getClientState",
     "getLoginOptions",
     "getMe",
@@ -512,10 +518,12 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     // Leaving an organization is the account's own, as deleting the account takes it
     // out of one: the session that leaves need not open it.
     "leaveOrganization",
+    "listTimeEntries",
     "login",
     "logout",
     "patchClientState",
     "patchMe",
+    "patchTimeEntry",
     "patchUserSettings",
     "ping",
     // What a link leads into is shown to whoever holds it, signed in or not.
@@ -539,6 +547,7 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "setPassword",
     "startOidcCarryOver",
     "startOidcLogin",
+    "stopTimeEntry",
     "unlinkIdentity",
 ];
 
@@ -587,6 +596,18 @@ impl Named {
             "createBlocks" | "reorderCardProperties" => json!([]),
             "importArchive" => json!({ "uploadId": self.upload_id }),
             "acceptInvitation" | "previewInvitation" => json!({ "token": self.invitation }),
+            "startTimeEntry" => json!({
+                "workspaceId": ROOT_WORKSPACE_ID,
+                "blockId": self.card_id,
+                "kind": "work",
+            }),
+            "createTimeEntry" => json!({
+                "workspaceId": ROOT_WORKSPACE_ID,
+                "blockId": self.card_id,
+                "kind": "work",
+                "startedAt": 1_000,
+                "endedAt": 2_000,
+            }),
             _ => json!({}),
         }
     }
@@ -1330,4 +1351,142 @@ async fn a_guest_signs_in_through_the_provider_as_a_guest() {
         ts.teardown().await;
         fake.stop();
     }
+}
+
+/// Time entries obey the SSO wall: a password session is refused with 401 `sso_required`
+/// when starting or logging time on a card or course unit of an SSO-required organization
+/// (whether `workspaceId` is sent or omitted), and sees nothing of entries recorded there
+/// across `active`, `entries`, `stop`, `patch`, and `delete`.
+#[tokio::test]
+async fn time_entries_obey_the_sso_wall() {
+    let fake = FakeProvider::start().await;
+    let (ts, named, admin) = walled(&fake).await;
+
+    // Password session cannot start or log time on either a card or a unit behind the wall,
+    // whether workspaceId is supplied or resolved from blockId.
+    for body in [
+        json!({"workspaceId": ROOT_WORKSPACE_ID, "blockId": named.card_id, "kind": "work"}),
+        json!({"blockId": named.card_id, "kind": "work"}),
+        json!({"workspaceId": ROOT_WORKSPACE_ID, "blockId": named.unit_id, "kind": "study"}),
+        json!({"blockId": named.unit_id, "kind": "study"}),
+    ] {
+        check_sso_required(
+            &ts.client.post("/users/me/time/start", &body).await,
+            &named.org_id,
+        );
+    }
+    for body in [
+        json!({
+            "workspaceId": ROOT_WORKSPACE_ID,
+            "blockId": named.card_id,
+            "kind": "work",
+            "startedAt": 1_000,
+            "endedAt": 2_000,
+        }),
+        json!({
+            "blockId": named.unit_id,
+            "kind": "lecture",
+            "startedAt": 3_000,
+            "endedAt": 4_000,
+        }),
+    ] {
+        check_sso_required(
+            &ts.client.post("/users/me/time/entries", &body).await,
+            &named.org_id,
+        );
+    }
+
+    // Provider session succeeds for both manual log and active timer.
+    let manual: Value = admin
+        .post(
+            "/users/me/time/entries",
+            &json!({
+                "blockId": named.unit_id,
+                "kind": "lecture",
+                "startedAt": 1_000,
+                "endedAt": 6_000,
+                "note": "sso unit",
+            }),
+        )
+        .await
+        .created_json();
+    let active_started: Value = admin
+        .post(
+            "/users/me/time/start",
+            &json!({"blockId": named.card_id, "kind": "work", "note": "sso active"}),
+        )
+        .await
+        .created_json();
+    let manual_id = manual["id"].as_str().expect("manual id");
+    let active_id = active_started["entry"]["id"].as_str().expect("active id");
+
+    // Password session sees nothing of the walled organization's entries and cannot
+    // stop, edit, or delete them.
+    assert_sso_time_entries_hidden(&ts.client, manual_id, active_id).await;
+
+    // Provider session sees both its entries intact (active one now stopped) and none of
+    // the password-protected personal space entry.
+    let list_sso: Value = admin.get("/users/me/time/entries").await.ok_json();
+    assert_eq!(
+        list_sso["summary"]["count"], 2,
+        "provider session sees both org entries"
+    );
+    assert_eq!(
+        list_sso["entries"]
+            .as_array()
+            .expect("entries")
+            .iter()
+            .filter(|entry| entry["id"] == manual_id && entry["note"] == "sso unit")
+            .count(),
+        1,
+        "provider session sees intact manual entry"
+    );
+
+    ts.teardown().await;
+    fake.stop();
+}
+
+async fn assert_sso_time_entries_hidden(client: &Client, manual_id: &str, active_id: &str) {
+    let active_pw: Value = client.get("/users/me/time/active").await.ok_json();
+    assert_eq!(active_pw["entry"], Value::Null, "hidden active timer");
+    let list_pw: Value = client.get("/users/me/time/entries").await.ok_json();
+    assert_eq!(list_pw["entries"], json!([]), "hidden list");
+    assert_eq!(
+        list_pw["summary"]["totalMs"], 0,
+        "hidden summary totalMs for password session"
+    );
+    assert_eq!(
+        list_pw["summary"]["count"], 0,
+        "hidden summary count for password session"
+    );
+    client
+        .post_empty("/users/me/time/stop")
+        .await
+        .check_not_found();
+    client
+        .patch(
+            &format!("/users/me/time/entries/{manual_id}"),
+            &json!({"note": "tampered"}),
+        )
+        .await
+        .check_not_found();
+    client
+        .delete(&format!("/users/me/time/entries/{manual_id}"))
+        .await
+        .check_not_found();
+    client
+        .delete(&format!("/users/me/time/entries/{active_id}"))
+        .await
+        .check_not_found();
+
+    // Starting a timer in personal space with the password session stops the walled active
+    // timer in the DB (keeping the 1-active invariant) without leaking it in `stopped`.
+    let own_started: Value = client
+        .post("/users/me/time/start", &json!({"kind": "study"}))
+        .await
+        .created_json();
+    assert!(
+        own_started.get("stopped").is_none(),
+        "must not leak closed org timer in stopped: {own_started}"
+    );
 }

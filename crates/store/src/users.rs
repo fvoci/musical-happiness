@@ -780,6 +780,22 @@ pub(crate) async fn lock_user(scope: &mut Scope<'_>, user_id: &str) -> Result<()
     }
 }
 
+/// Holds the user's row (`FOR NO KEY UPDATE` on PostgreSQL) regardless of `delete_at`,
+/// so cleanup on organization departure or guest removal serializes with concurrent
+/// per-user `time_entries` writes (`lock_user` / `hold_in_use`) without deadlocking
+/// against the `organizations -> workspaces -> containers -> users` lock order.
+pub(crate) async fn hold_user_for_cleanup(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    if scope.dialect() == Dialect::Postgres {
+        let mut sql = scope.sql("SELECT id FROM users WHERE id = ");
+        sql.bind(Id(user_id)).push(" FOR NO KEY UPDATE");
+        scope.fetch_optional(sql).await?;
+    }
+    Ok(())
+}
+
 /// Holds the row of the account against being put out of use until the transaction
 /// ends, and says whether it is in use: an asking to delete it waits for this, or
 /// this finds it asked.

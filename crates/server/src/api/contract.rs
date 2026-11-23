@@ -48,11 +48,12 @@ pub(crate) mod tag {
     pub(crate) const ARCHIVES: &str = "archives";
     pub(crate) const SUBSCRIPTIONS: &str = "subscriptions";
     pub(crate) const NOTIFICATIONS: &str = "notifications";
+    pub(crate) const TIME: &str = "time";
     pub(crate) const ORGANIZATION: &str = "organization";
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 19] = [
+const TAGS: [(&str, &str); 20] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -126,6 +127,11 @@ const TAGS: [(&str, &str); 19] = [
     (
         tag::NOTIFICATIONS,
         "What the user was told inside the application: mentions and cards given to them.",
+    ),
+    (
+        tag::TIME,
+        "Personal time tracking entries and the single active timer of the user of the \
+         session. Every entry is private to its owner across all organizations.",
     ),
     (
         tag::ORGANIZATION,
@@ -396,6 +402,14 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Notification", Members::All),
     ("NotificationKind", Members::AsWritten),
     ("NotificationSubject", Members::All),
+    ("TimeEntry", Members::All),
+    ("TimeEntryKind", Members::AsWritten),
+    ("TimeTargetKind", Members::AsWritten),
+    ("ActiveTimeEntry", Members::All),
+    ("StartedTimeEntry", Members::AllBut(&["stopped"])),
+    ("TimeEntryKindTotals", Members::All),
+    ("TimeEntrySummary", Members::All),
+    ("TimeEntryList", Members::All),
     (
         "Problem",
         Members::Only(&["type", "title", "status", "detail"]),
@@ -541,6 +555,12 @@ const SCHEMAS: &[(&str, Members)] = &[
         "UnlinkRequest",
         Members::Only(&["issuer", "subject", "password"]),
     ),
+    ("StartTimeEntryRequest", Members::Only(&["kind"])),
+    (
+        "CreateTimeEntryRequest",
+        Members::Only(&["kind", "startedAt", "endedAt"]),
+    ),
+    ("TimeEntryPatch", Members::Only(&[])),
     ("ReferenceIds", Members::AsWritten),
     ("UserIds", Members::AsWritten),
     ("UserPreferencesPatch", Members::Only(&[])),

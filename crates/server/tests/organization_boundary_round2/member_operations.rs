@@ -44,13 +44,15 @@ struct Named {
     team: String,
     /// What the member was told: that the founder named them in a card of the board.
     notification: String,
+    /// A running time entry the member started on the card.
+    time_entry: String,
 }
 
 /// What a plain member who is on the board is answered 404 in the first organization
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 46] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 47] = [
     // No workspace of an organization has a diary: a diary is of a user's own space.
     "getDiaries",
     "createDiary",
@@ -82,6 +84,7 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 46] = [
     "patchOrganization",
     "putOidcProvider",
     "putOrgRole",
+    "removeOrgMember",
     "renameOrgWorkspace",
     "restoreOrgWorkspace",
     "startOidcTrial",
@@ -137,6 +140,7 @@ fn operations() -> Vec<(String, String, String)> {
         | "deleteBoardsAndBlocks"
         | "deleteUpload"
         | "deleteCategory"
+        | "deleteTimeEntry"
         | "removeWorkspaceMember"
         | "removeMember" => 1,
         _ => 0,
@@ -161,6 +165,11 @@ impl Named {
         } else {
             &self.comment
         };
+        let entry_id = if template.starts_with("/api/v1/users/me/time/") {
+            &self.time_entry
+        } else {
+            &self.card
+        };
         template
             .trim_start_matches("/api/v1")
             .replace("{workspaceId}", &self.workspace)
@@ -177,7 +186,7 @@ impl Named {
             // No workspace of an organization has a diary: the board named as one is
             // none, in either organization.
             .replace("{diaryId}", &self.board)
-            .replace("{entryId}", &self.card)
+            .replace("{entryId}", entry_id)
             .replace("{monthDay}", "02-29")
             .replace("{fileId}", &self.file)
             .replace("{uploadId}", &self.upload)
@@ -203,6 +212,17 @@ impl Named {
             "importArchive" => json!({ "uploadId": self.upload }),
             "previewInvitation" => json!({ "token": self.invitation }),
             "patchMe" => json!({ "customName": "a member" }),
+            "startTimeEntry" => {
+                json!({ "workspaceId": self.workspace, "blockId": self.card, "kind": "work" })
+            }
+            "createTimeEntry" => json!({
+                "workspaceId": self.workspace,
+                "blockId": self.unit,
+                "kind": "lecture",
+                "startedAt": 1_000,
+                "endedAt": 2_000,
+            }),
+            "patchTimeEntry" => json!({ "note": "updated" }),
             _ => json!({}),
         }
     }
@@ -327,6 +347,14 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         .await
         .value();
     let team = team_on_board(&founder, &at, &board, &member_id).await;
+    let started_time = member
+        .post(
+            "/users/me/time/start",
+            &json!({"workspaceId": workspace, "blockId": card_id, "kind": "work"}),
+        )
+        .await
+        .value();
+    let time_entry = text(&started_time["entry"], "id");
     plain_member(server, &member_id, &workspace).await;
     Named {
         member,
@@ -351,6 +379,7 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         course_comment,
         team,
         notification,
+        time_entry,
     }
 }
 
@@ -632,6 +661,9 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getReferencesTo",
         "searchReferences",
         "getMyMemberships",
+        "getMyOrganizations",
+        "getActiveTimeEntry",
+        "listTimeEntries",
     ] {
         assert_eq!(
             of_second.get(read),

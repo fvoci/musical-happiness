@@ -55,6 +55,54 @@ async fn notifications(case: &mut Case, server: &TestServer) {
     case.run("readNotifications", &[], json!({})).await;
 }
 
+/// The founder starts, stops, edits, manually logs, lists, and deletes personal time
+/// entries in their organization's workspace.
+async fn time_entries(case: &mut Case) {
+    case.run("getActiveTimeEntry", &[], json!({})).await;
+    let started = case
+        .run(
+            "startTimeEntry",
+            &[],
+            json!({
+                "workspaceId": case.workspace,
+                "kind": "work",
+                "note": format!("{} timer", case.label),
+            }),
+        )
+        .await
+        .value();
+    let started_id = case.remember(&started["entry"], "id");
+    case.run("stopTimeEntry", &[], json!({})).await;
+    case.run(
+        "patchTimeEntry",
+        &[("entryId", &started_id)],
+        json!({
+            "startedAt": 1_000,
+            "endedAt": 4_000,
+            "note": format!("{} patched", case.label),
+        }),
+    )
+    .await;
+    let manual = case
+        .run(
+            "createTimeEntry",
+            &[],
+            json!({
+                "workspaceId": case.workspace,
+                "kind": "study",
+                "startedAt": 5_000,
+                "endedAt": 10_000,
+                "note": format!("{} manual", case.label),
+            }),
+        )
+        .await
+        .value();
+    let manual_id = case.remember(&manual, "id");
+    case.present("listTimeEntries", &[], &manual_id).await;
+    case.run("deleteTimeEntry", &[("entryId", &manual_id)], json!({}))
+        .await;
+}
+
 pub(super) async fn exercise(
     case: &mut Case,
     server: &TestServer,
@@ -67,6 +115,7 @@ pub(super) async fn exercise(
     account(case).await;
     organization(case).await;
     notifications(case, server).await;
+    time_entries(case).await;
     shared::exercise(case).await;
     shared::exercise_wiki(case).await;
     shared::exercise_course(case).await;
@@ -237,6 +286,8 @@ async fn account(case: &mut Case) {
     case.present("getMe", &[], &user).await;
     let workspace = case.workspace.clone();
     case.present("getMyWorkspaces", &[], &workspace).await;
+    let org = case.org.clone();
+    case.present("getMyOrganizations", &[], &org).await;
     let memberships = case.run("getMyMemberships", &[], json!({})).await.value();
     assert!(
         !memberships.as_array().expect("memberships").is_empty(),
@@ -360,6 +411,22 @@ async fn invitation(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) {
         "invitation joins its own workspace"
     );
     case.record("completeEmailVerification", &confirmed);
+    let invited_username = format!("{}-invited", case.label);
+    let members = case
+        .client
+        .get(&format!("/org/{}/members", case.org))
+        .await
+        .value();
+    let invited_id = members
+        .as_array()
+        .expect("org members")
+        .iter()
+        .find(|m| m["username"] == invited_username)
+        .and_then(|m| m["userId"].as_str())
+        .expect("invited member in org")
+        .to_owned();
+    case.run("removeOrgMember", &[("userId", &invited_id)], json!({}))
+        .await;
 }
 
 /// Confirms the registration of `recipient` by the newest of the `count` confirmation

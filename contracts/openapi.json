@@ -198,6 +198,26 @@
         ],
         "type": "object"
       },
+      "ActiveTimeEntry": {
+        "description": "The caller's currently running timer, if any.",
+        "properties": {
+          "entry": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TimeEntry",
+                "description": "The running entry visible to this session, or `null` if no timer is running."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "entry"
+        ],
+        "type": "object"
+      },
       "AdminChange": {
         "description": "Whether a user is to be an administrator of the instance.",
         "properties": {
@@ -1530,6 +1550,57 @@
         "required": [
           "members",
           "totalUnits"
+        ],
+        "type": "object"
+      },
+      "CreateTimeEntryRequest": {
+        "additionalProperties": false,
+        "description": "Request body for manually logging a completed time entry (`POST /users/me/time/entries`).",
+        "properties": {
+          "blockId": {
+            "description": "Optional card (non-template) or unit identifier to link.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "containerId": {
+            "description": "Optional board or course identifier of the target.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "description": "End timestamp in milliseconds since the Unix epoch (`>= startedAt`).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TimeEntryKind",
+            "description": "Activity category (`lecture`, `study`, `work`, `other`)."
+          },
+          "note": {
+            "description": "Optional note (at most 1000 characters).",
+            "type": "string"
+          },
+          "startedAt": {
+            "description": "Start timestamp in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "workspaceId": {
+            "description": "Optional workspace identifier of the target.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "startedAt",
+          "endedAt"
         ],
         "type": "object"
       },
@@ -5275,6 +5346,62 @@
         ],
         "type": "object"
       },
+      "StartTimeEntryRequest": {
+        "additionalProperties": false,
+        "description": "Request body for starting a live timer (`POST /users/me/time/start`).",
+        "properties": {
+          "blockId": {
+            "description": "Optional card (non-template) or unit identifier to track time against.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "containerId": {
+            "description": "Optional board or course identifier of the target.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TimeEntryKind",
+            "description": "Activity category (`lecture`, `study`, `work`, `other`)."
+          },
+          "note": {
+            "description": "Optional note (at most 1000 characters).",
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "Optional workspace identifier of the target.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "StartedTimeEntry": {
+        "description": "Result of starting a timer: the newly started entry and, if a previous active timer\nin an organization open to this session was stopped automatically, that stopped entry.",
+        "properties": {
+          "entry": {
+            "$ref": "#/components/schemas/TimeEntry",
+            "description": "The newly started active timer (`endedAt` is `null`)."
+          },
+          "stopped": {
+            "$ref": "#/components/schemas/TimeEntry",
+            "description": "The previous active timer that was stopped in the same transaction, if one was\nrunning in an organization open to this session."
+          }
+        },
+        "required": [
+          "entry"
+        ],
+        "type": "object"
+      },
       "SubscriberType": {
         "description": "The kind of entity that subscribes.",
         "enum": [
@@ -5402,6 +5529,223 @@
           "auto",
           "light",
           "dark"
+        ],
+        "type": "string"
+      },
+      "TimeEntry": {
+        "description": "One personal time tracking entry.",
+        "properties": {
+          "blockId": {
+            "description": "The card or unit linked to this entry, or `null` if none. Preserved even if\nthe target block is later moved to the trash or permanently deleted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "containerId": {
+            "description": "The board or course of the linked target, or `null` if none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "endedAt": {
+            "description": "When the entry ended, in milliseconds since the Unix epoch; `null` while running.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "The entry's identifier.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TimeEntryKind",
+            "description": "Activity category (`lecture`, `study`, `work`, `other`)."
+          },
+          "note": {
+            "description": "Optional note written by the user (at most 1000 characters).",
+            "type": "string"
+          },
+          "startedAt": {
+            "description": "When the entry started, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "targetKind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TimeTargetKind",
+                "description": "What kind of resource the entry was linked to (`card`, `unit`, `board`, `course`),\nor `null` for a targetless or workspace-only entry."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targetTitle": {
+            "description": "Snapshot of the target's title taken when the entry was recorded, or `null` if\ntargetless. Preserved when the target is later deleted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "workspaceId": {
+            "description": "The workspace of the linked target, or `null` for a targetless entry.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "blockId",
+          "containerId",
+          "createAt",
+          "endedAt",
+          "id",
+          "kind",
+          "note",
+          "startedAt",
+          "targetKind",
+          "targetTitle",
+          "updateAt",
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "TimeEntryKind": {
+        "description": "What kind of activity a time entry records.",
+        "enum": [
+          "lecture",
+          "study",
+          "work",
+          "other"
+        ],
+        "type": "string"
+      },
+      "TimeEntryKindTotals": {
+        "description": "Total completed duration in milliseconds broken down by `TimeEntryKind`.",
+        "properties": {
+          "lecture": {
+            "description": "Completed milliseconds logged as `lecture`.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "other": {
+            "description": "Completed milliseconds logged as `other`.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "study": {
+            "description": "Completed milliseconds logged as `study`.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "work": {
+            "description": "Completed milliseconds logged as `work`.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lecture",
+          "other",
+          "study",
+          "work"
+        ],
+        "type": "object"
+      },
+      "TimeEntryList": {
+        "description": "One page of personal time entries paired with the aggregate summary of the full filter.",
+        "properties": {
+          "entries": {
+            "description": "The requested page of entries, ordered newest first (`startedAt DESC, id DESC`).",
+            "items": {
+              "$ref": "#/components/schemas/TimeEntry"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/TimeEntrySummary",
+            "description": "Totals across every entry matching the query filters."
+          }
+        },
+        "required": [
+          "entries",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "TimeEntryPatch": {
+        "additionalProperties": false,
+        "description": "Request body for editing one of the user's time entries (`PATCH /users/me/time/entries/{entryId}`).",
+        "properties": {
+          "endedAt": {
+            "description": "New end timestamp in milliseconds since the Unix epoch. Setting this on a running\ntimer stops it at the given timestamp.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TimeEntryKind",
+            "description": "New activity category."
+          },
+          "note": {
+            "description": "New note (at most 1000 characters).",
+            "type": "string"
+          },
+          "startedAt": {
+            "description": "New start timestamp in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "TimeEntrySummary": {
+        "description": "Aggregated summary across all matching entries (across all pages).",
+        "properties": {
+          "byKind": {
+            "$ref": "#/components/schemas/TimeEntryKindTotals",
+            "description": "Completed duration in milliseconds per activity kind."
+          },
+          "count": {
+            "description": "Total number of matching entries across all pages (including any running entry).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "totalMs": {
+            "description": "Total completed duration in milliseconds (running timers contribute 0 until stopped).",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "byKind",
+          "count",
+          "totalMs"
+        ],
+        "type": "object"
+      },
+      "TimeTargetKind": {
+        "description": "What kind of resource a time entry was linked to when created.",
+        "enum": [
+          "card",
+          "unit",
+          "board",
+          "course"
         ],
         "type": "string"
       },
@@ -10158,6 +10502,350 @@
         "summary": "Change the user's settings",
         "tags": [
           "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/time/active": {
+      "get": {
+        "description": "Returns `{ \"entry\": TimeEntry }` if the user of the session has a running timer in an\norganization the session opens, or `{ \"entry\": null }` otherwise. Timers running in an\norganization closed to this session (`sso_required` or unconfirmed personal space) are\nhidden.",
+        "operationId": "getActiveTimeEntry",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveTimeEntry"
+                }
+              }
+            },
+            "description": "The currently running timer, or null."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The caller's currently running timer",
+        "tags": [
+          "time"
+        ]
+      }
+    },
+    "/api/v1/users/me/time/entries": {
+      "get": {
+        "description": "Returns one page of the user's own time entries across every organization open to this\nsession, newest first (`startedAt DESC, id DESC`), together with `summary` totals over\nevery matching entry across all pages. Completed entries contribute `endedAt - startedAt`\nto `summary`; a running entry (`endedAt` is `null`) is counted in `summary.count` and\ncontributes `0` milliseconds until stopped.\n\nOptional filters: `from` (`startedAt >= from`), `to` (`startedAt <= to`), `kind`,\n`blockId`, `containerId`, plus standard `page` and `perPage` pagination.",
+        "operationId": "listTimeEntries",
+        "parameters": [
+          {
+            "description": "Inclusive lower bound on `startedAt`, in milliseconds since the Unix epoch.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Inclusive upper bound on `startedAt`, in milliseconds since the Unix epoch. Must be greater than or equal to `from` when both are given.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Narrows the list to entries of this kind: `lecture`, `study`, `work` or `other`. Anything else is 400.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "description": "What kind of activity a time entry records.",
+              "enum": [
+                "lecture",
+                "study",
+                "work",
+                "other"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Narrows the list to entries linked to this card or unit identifier.",
+            "in": "query",
+            "name": "blockId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Narrows the list to entries linked to this board or course identifier.",
+            "in": "query",
+            "name": "containerId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeEntryList"
+                }
+              }
+            },
+            "description": "Matching entries and aggregate summary."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "List the caller's time entries and totals",
+        "tags": [
+          "time"
+        ]
+      },
+      "post": {
+        "description": "Creates a completed time entry (`endedAt >= startedAt`) for the user of the session\nwithout stopping or modifying any currently running timer. Target validation and\norganization session walls work the same way as `startTimeEntry`.",
+        "operationId": "createTimeEntry",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTimeEntryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeEntry"
+                }
+              }
+            },
+            "description": "The created time entry."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Manually log a completed time entry",
+        "tags": [
+          "time"
+        ]
+      }
+    },
+    "/api/v1/users/me/time/entries/{entryId}": {
+      "delete": {
+        "description": "Permanently deletes one of the user's own time entries in an organization open to this\nsession. Answers 404 for another user's entry, a missing identifier, or an entry in an\norganization closed to this session.",
+        "operationId": "deleteTimeEntry",
+        "parameters": [
+          {
+            "description": "The identifier of the time entry: one of the user of the session.",
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The time entry was deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete one of the caller's time entries",
+        "tags": [
+          "time"
+        ]
+      },
+      "patch": {
+        "description": "Updates `kind`, `startedAt`, `endedAt` and/or `note` on one of the user's own entries\nin an organization open to this session. Setting `endedAt` on a running timer stops it.\nAnswers 400 if `endedAt < startedAt` or any field is invalid, and 404 for another\nuser's entry, a missing identifier, or an entry in an organization closed to this\nsession.",
+        "operationId": "patchTimeEntry",
+        "parameters": [
+          {
+            "description": "The identifier of the time entry: one of the user of the session.",
+            "in": "path",
+            "name": "entryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TimeEntryPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeEntry"
+                }
+              }
+            },
+            "description": "The updated time entry."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Edit one of the caller's time entries",
+        "tags": [
+          "time"
+        ]
+      }
+    },
+    "/api/v1/users/me/time/start": {
+      "post": {
+        "description": "Starts a running timer for the user of the session. At most one timer may run per\naccount across all organizations: if another timer is already running (in the same\norganization or another), it is stopped automatically in the same transaction and\nreturned in `stopped` when its organization is open to this session.\n\nOptional `workspaceId`, `containerId` and `blockId` link the entry to a readable\nnon-template card or course unit (or board/course container). Passing `workspaceId`\nalone creates a workspace-scoped entry with `targetKind: null` (refused with 404 for\nworkspace guests). Linking to an unreadable, trashed, template, or non-card/non-unit\nblock answers 404. Linking to a target in an organization closed to this session\nanswers 401 (`sso_required` or `password_sign_in_required`). Targetless timers are\nstored in the user's own space.",
+        "operationId": "startTimeEntry",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartTimeEntryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartedTimeEntry"
+                }
+              }
+            },
+            "description": "The newly started timer and any previously running timer that was stopped."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Start a live timer",
+        "tags": [
+          "time"
+        ]
+      }
+    },
+    "/api/v1/users/me/time/stop": {
+      "post": {
+        "description": "Stops the running timer visible to this session (`endedAt` set to now) and returns the\ncompleted entry. Answers 404 if no timer is running in an organization open to this\nsession.",
+        "operationId": "stopTimeEntry",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeEntry"
+                }
+              }
+            },
+            "description": "The stopped time entry."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Stop the caller's currently running timer",
+        "tags": [
+          "time"
         ]
       }
     },
@@ -19954,6 +20642,10 @@
     {
       "description": "What the user was told inside the application: mentions and cards given to them.",
       "name": "notifications"
+    },
+    {
+      "description": "Personal time tracking entries and the single active timer of the user of the session. Every entry is private to its owner across all organizations.",
+      "name": "time"
     },
     {
       "description": "What an organization's administrators manage: the organization, its members' roles, its workspaces and their trash, joining a workspace, and the audit logs.",
