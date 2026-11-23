@@ -98,22 +98,45 @@ fn the_wall_of_a_transaction_is_moved_in_one_place() {
     let store = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
     rust_sources(&store, &mut files);
-    let mut moving = Vec::new();
+    let mut callers = Vec::new();
+    let mut setting = Vec::new();
     for file in files {
         let text = std::fs::read_to_string(&file).expect("a source file");
-        let moves = text
+        let name = file
+            .strip_prefix(&store)
+            .expect("under the sources")
+            .to_string_lossy()
+            .replace('\\', "/");
+        for line in text
             .lines()
-            .filter(|line| !line.trim_start().starts_with("//"))
-            .any(|line| line.contains("in_new_organization(") || line.contains("ORG_SETTING"));
-        if moves {
-            let name = file.strip_prefix(&store).expect("under the sources");
-            moving.push(name.to_string_lossy().replace('\\', "/"));
+            .take_while(|line| !line.trim_start().starts_with("mod tests"))
+        {
+            let code = line.trim_start();
+            if code.starts_with("//") {
+                continue;
+            }
+            if !code.starts_with("pub(crate) async fn in_new_organization") {
+                for _ in code.matches("in_new_organization(") {
+                    callers.push(name.clone());
+                }
+            }
+            if !code.starts_with("pub(crate) const ORG_SETTING") {
+                for _ in code.matches("ORG_SETTING") {
+                    setting.push(name.clone());
+                }
+            }
         }
     }
-    moving.sort();
-    // The setting is named where a transaction begins (`lib.rs`) and where it is
-    // moved (`db.rs`); `accounts.rs` is the caller.
-    assert_eq!(moving, ["accounts.rs", "db.rs", "lib.rs"]);
+    callers.sort();
+    setting.sort();
+    // One caller (`accounts.rs`) and two uses of the setting: where a transaction begins
+    // (`lib.rs`) and where `in_new_organization` moves it (`db.rs`).
+    assert_eq!(
+        callers,
+        ["accounts.rs"],
+        "call sites of in_new_organization"
+    );
+    assert_eq!(setting, ["db.rs", "lib.rs"], "uses of ORG_SETTING");
 }
 
 /// The files of the server that say whose rows a handle reaches: the way into a

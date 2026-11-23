@@ -19,6 +19,7 @@ import {
   frameOf,
   frameReaches,
   recordTicks,
+  settlePageFonts,
   sharesThread,
   ticks,
   openCard,
@@ -408,30 +409,140 @@ test('an old PowerPoint file (not a ZIP archive) is offered as a download', asyn
   );
 });
 
+/**
+ * Holds `{ kind: 'read' }` replies coming back from the PowerPoint worker inside
+ * `viewer-frame.html`, while forwarding any failure reply immediately. The real
+ * worker still runs and checks/parses the deck on its own thread, while a fast
+ * engine cannot finish and leave `data-status="opening"` before the test checks
+ * responsiveness and clicks "Close".
+ */
+async function holdPptxWorker(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    if (!location.pathname.endsWith('/viewer-frame.html')) return;
+    const NativeWorker = globalThis.Worker;
+    const isReadReply = (event: Event): boolean => {
+      const data = (event as MessageEvent<unknown>).data;
+      return (
+        typeof data === 'object' && data !== null && (data as { kind?: unknown }).kind === 'read'
+      );
+    };
+    class HeldWorker extends NativeWorker {
+      #onmessage: ((this: Worker, event: MessageEvent) => unknown) | null = null;
+      override get onmessage(): ((this: Worker, event: MessageEvent) => unknown) | null {
+        return this.#onmessage;
+      }
+      override set onmessage(handler: ((this: Worker, event: MessageEvent) => unknown) | null) {
+        this.#onmessage = handler;
+        super.onmessage = handler
+          ? function (this: Worker, event: MessageEvent) {
+              if (!isReadReply(event)) return handler.call(this, event);
+              return undefined;
+            }
+          : null;
+      }
+      override addEventListener(
+        type: string,
+        listener: EventListenerOrEventListenerObject,
+        options?: boolean | AddEventListenerOptions,
+      ): void {
+        if (type !== 'message') {
+          super.addEventListener(type, listener, options);
+          return;
+        }
+        const wrapped: EventListener = (event) => {
+          if (isReadReply(event)) return;
+          if (typeof listener === 'function') listener.call(this, event);
+          else listener.handleEvent(event);
+        };
+        super.addEventListener(type, wrapped, options);
+      }
+    }
+    globalThis.Worker = HeldWorker;
+  });
+}
+
 test('while a deck is read, the app answers and "Close" closes the viewer', async ({ page }) => {
+  await holdPptxWorker(page);
   await openCard(page);
+  await settlePageFonts(page);
   // Megabytes of XML under every ceiling: the worker reads it for seconds.
-  await open(page, 'long.pptx', slowPptx(900, 3_000));
+  const row = await attach(page, 'long.pptx', slowPptx(900, 3_000), PPTX_TYPE);
+  const started = page.waitForEvent('worker');
+  await row.getByRole('link', { name: 'long.pptx' }).click();
+  await started;
   await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
   expect(await timerLateness(page)).toBeLessThan(500);
   await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
   await page.getByTestId('file-viewer-close').click();
   await expect(viewer(page)).toHaveCount(0, { timeout: 2000 });
+  await expect.poll(() => page.workers().length).toBe(0);
 });
 
-/** The slides drawn, and those near the frame's view (where it draws them) not drawn yet. */
-function drawing(page: Page): Promise<{ drawn: number; waiting: number }> {
-  return viewerFrame(page).evaluate(() => {
-    const boxes = [...document.querySelectorAll('.slide')];
-    const near = (box: Element): boolean => {
-      const { top, bottom } = box.getBoundingClientRect();
-      return bottom > -innerHeight && top < 2 * innerHeight;
+/**
+ * Holds `IntersectionObserver` deliveries inside `viewer-frame.html` until the
+ * returned function is called. `drawFirst()` still draws slide 1 and reports
+ * `shown`, while the remaining near slides stay queued until release: releasing
+ * synchronously starts `#drawInView()` (drawing slide 2 and scheduling the rest)
+ * and reports the live `{ drawn, waiting }` counts with no IPC gap.
+ */
+async function holdSlideSight(
+  page: Page,
+): Promise<() => Promise<{ drawn: number; waiting: number }>> {
+  await page.addInitScript(() => {
+    if (!location.pathname.endsWith('/viewer-frame.html')) return;
+    const NativeObserver = globalThis.IntersectionObserver;
+    let held = true;
+    const queued: (() => void)[] = [];
+    let notifyFirst: (() => void) | undefined;
+    class HeldObserver extends NativeObserver {
+      constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+        super((entries, observer) => {
+          const deliver = (): void => {
+            callback(entries, observer);
+          };
+          if (held) {
+            queued.push(deliver);
+            notifyFirst?.();
+            notifyFirst = undefined;
+          } else {
+            deliver();
+          }
+        }, options);
+      }
+    }
+    globalThis.IntersectionObserver = HeldObserver;
+    const hook = window as unknown as {
+      __releaseSlideSight?: () => Promise<{ drawn: number; waiting: number }>;
     };
-    return {
-      drawn: boxes.filter((box) => box.childElementCount > 0).length,
-      waiting: boxes.filter((box) => box.childElementCount === 0 && near(box)).length,
+    hook.__releaseSlideSight = async () => {
+      if (held && queued.length === 0) {
+        await new Promise<void>((resolve) => {
+          notifyFirst = resolve;
+        });
+      }
+      held = false;
+      for (const deliver of queued.splice(0)) deliver();
+      const boxes = [...document.querySelectorAll('.slide')];
+      const near = (box: Element): boolean => {
+        const { top, bottom } = box.getBoundingClientRect();
+        return bottom > -innerHeight && top < 2 * innerHeight;
+      };
+      return {
+        drawn: boxes.filter((box) => box.childElementCount > 0).length,
+        waiting: boxes.filter((box) => box.childElementCount === 0 && near(box)).length,
+      };
     };
   });
+  return () =>
+    viewerFrame(page).evaluate(() => {
+      const release = (
+        window as unknown as {
+          __releaseSlideSight?: () => Promise<{ drawn: number; waiting: number }>;
+        }
+      ).__releaseSlideSight;
+      if (!release) throw new Error('slide sight hold hook not installed');
+      return release();
+    });
 }
 
 /** Starts noting, in the frame, when each slide is put in its box (the times as `recordTicks`'). */
@@ -463,6 +574,7 @@ const boxes = (perSlide = 80): Buffer => heavyPptx(40, perSlide, { cx: 3_048_000
 
 test('while slides are drawn, the app answers', async ({ page }) => {
   await openCard(page);
+  await settlePageFonts(page);
   await recordTicks(page);
   await open(page, 'boxes.pptx', boxes());
   await recordDrawn(page);
@@ -485,11 +597,15 @@ test('while slides are drawn, the app answers', async ({ page }) => {
 });
 
 test('while slides are drawn, "Close" closes the viewer', async ({ page }) => {
+  const release = await holdSlideSight(page);
   await openCard(page);
+  await settlePageFonts(page);
   // Slides that take longer, so that some near the view are still to draw once the viewer shows.
   await open(page, 'boxes.pptx', boxes(120));
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
-  expect((await drawing(page)).waiting).toBeGreaterThan(0);
+  const started = await release();
+  expect(started.drawn).toBeGreaterThanOrEqual(2);
+  expect(started.waiting).toBeGreaterThan(0);
   await page.getByTestId('file-viewer-close').click();
   await expect(viewer(page)).toHaveCount(0, { timeout: 2000 });
 });

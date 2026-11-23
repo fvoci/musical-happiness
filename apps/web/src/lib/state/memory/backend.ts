@@ -59,6 +59,7 @@ import {
   type ViewDraft,
 } from '../backend.ts';
 import { applyContainerPatch, applyCardPatch, applyViewPatch } from '../patches.ts';
+import { BlockTurns } from '../write.ts';
 
 import {
   noteChange,
@@ -77,7 +78,7 @@ import { MemoryDiaries } from './diaries.ts';
 import { checkDiariesComing } from './diary-places.ts';
 import { MemoryCategories, fileAsNew } from './categories.ts';
 import { checkWorkspace, confirmPassword, workersOf, workspacesOf } from './spaces.ts';
-import { copiedBlocks, copyTitle, giveCopiesFiles } from './copies.ts';
+import { copiedBlocks, copyTitle, insertCopy } from './copies.ts';
 import { memberRole, memberFileUrl } from './container-access.ts';
 import { MemoryFileVersions } from './file-versions.ts';
 import { readableBlob, readableFile, storeUpload } from './files.ts';
@@ -85,7 +86,8 @@ import { userFound, usersAmong, usersNamed } from './users.ts';
 import { changeName, keepSettings, settingsOf } from './account.ts';
 import { archiveLines, archiveOf, blockOfLine } from './archive.ts';
 import { checkedBody, checkedComment, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
-import { checkRelations, MemoryReferences, renameCopied } from './references.ts';
+import { checkRelations, MemoryReferences } from './references.ts';
+import { numberBlock } from './card-numbers.ts';
 import { MemoryContentSearch } from './content-search.ts';
 import { MemoryNotifications, noteComment } from './notifications.ts';
 import { searchBoardsOf } from './search.ts';
@@ -136,6 +138,7 @@ export class MemoryBackend implements Backend {
   /** Milliseconds every call waits before it answers. */
   latency = 0;
   readonly #failures = new Map<MethodName, BackendError>();
+  readonly #viewTurns = new BlockTurns();
 
   constructor(world: World, userId: string) {
     this.world = world;
@@ -366,11 +369,11 @@ export class MemoryBackend implements Backend {
 
   async reorderCardProperties(boardId: string, propertyIds: string[]): Promise<string[]> {
     await this.#enter('reorderCardProperties');
-    const role = this.#memberRole(boardId);
-    if (role !== 'admin' && role !== 'editor') {
+    const current = this.#container(boardId, 'board');
+    if (!['admin', 'editor'].includes(this.#memberRole(boardId))) {
       fail(403, 'access denied to modifying board properties');
     }
-    const board = inPropertyOrder(this.#container(boardId), propertyIds);
+    const board = inPropertyOrder(current, propertyIds);
     board.updateAt = this.world.now();
     board.modifiedBy = this.userId;
     this.world.containers.set(boardId, board);
@@ -464,48 +467,13 @@ export class MemoryBackend implements Backend {
     return this.#insertContainer({ ...source, isTemplate: asTemplate, title }, blocks, to);
   }
 
-  /**
-   * Stores a board and its blocks under new identifiers, the reader its
-   * admin. As on the server, only the references it renames follow: a
-   * block's board and parent, and what `renameCopied` renames.
-   */
+  /** Stores a copy of a board and its blocks (`insertCopy`), and tells of it. */
   #insertContainer(
     source: Container,
     blocks: readonly StoredBlock[],
     workspaceId: string,
   ): Container {
-    const now = this.world.now();
-    const ids = new Map<string, string>([[source.id, this.world.newId()]]);
-    for (const block of blocks) ids.set(block.id, this.world.newId());
-    const renamed = (id: string): string => ids.get(id) ?? id;
-    const cardIds = new Set(blocks.filter((block) => block.type === 'card').map(({ id }) => id));
-    const board: Container = {
-      ...copy(source),
-      id: renamed(source.id),
-      workspaceId,
-      createdBy: this.userId,
-      modifiedBy: this.userId,
-      type: 'P',
-      isBuiltin: false,
-      createAt: now,
-      updateAt: now,
-    };
-    this.world.containers.set(board.id, board);
-    this.world.members.set(board.id, [memberOf(board.id, this.userId, 'admin')]);
-    fileAsNew(this.world, this.userId, board);
-    for (const block of blocks) {
-      const made = copy(block);
-      renameCopied(source, made, ids, cardIds);
-      this.world.blocks.set(renamed(block.id), {
-        ...made,
-        id: renamed(block.id),
-        containerId: board.id,
-        parentId: renamed(made.parentId),
-        createAt: now,
-        updateAt: now,
-      });
-    }
-    giveCopiesFiles(this.world, source.id, board.id);
+    const board = insertCopy(this.world, this.userId, { source, blocks, workspaceId });
     this.#tellContainer(board);
     return copy(board);
   }
@@ -719,14 +687,19 @@ export class MemoryBackend implements Backend {
     return viewOf(block);
   }
 
-  async patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
-    await this.#enter('patchView');
-    const stored = this.#block(boardId, viewId, 'view') as StoredView;
-    const view: StoredView = { ...stored, ...applyViewPatch(stored, patch) };
-    this.world.blocks.set(viewId, view);
-    this.#touch(view);
-    this.#tellBlocks(boardId, [view]);
-    return viewOf(view);
+  patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
+    return this.#viewTurns.patchView(viewId, patch, async (sent) => {
+      await this.#enter('patchView');
+      const stored = this.#block(boardId, viewId, 'view') as StoredView;
+      if (sent.readAt !== undefined && stored.updateAt !== sent.readAt) {
+        fail(409, 'the block has changed since it was read');
+      }
+      const view: StoredView = { ...stored, ...applyViewPatch(stored, sent) };
+      this.world.blocks.set(viewId, view);
+      this.#touch(view);
+      this.#tellBlocks(boardId, [view]);
+      return { before: viewOf(stored), after: viewOf(view) };
+    });
   }
 
   // -------------------------------------------------------------- cards
@@ -764,6 +737,7 @@ export class MemoryBackend implements Backend {
     };
     block.body = checkedBody(this.world, boardId, draft.body ?? null);
     checkRelations(this.world, board, block, undefined, 'properties');
+    numberBlock(this.world, block);
     this.world.blocks.set(block.id, block);
     this.#tellBlocks(boardId, [block]);
     return this.#commented(summaryOf(block as StoredCard));

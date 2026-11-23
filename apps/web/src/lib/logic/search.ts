@@ -1,4 +1,5 @@
 /** The search box of a view: which cards mention the text. */
+import { cardNumberOf } from './card-numbers.ts';
 import { foldCase } from './text.ts';
 import { cardProperties, plainPropertyValue, type Card, type PropertyTemplate } from './wire.ts';
 
@@ -6,6 +7,7 @@ import { cardProperties, plainPropertyValue, type Card, type PropertyTemplate } 
  * The cards whose title or one of whose property values contains the text,
  * without regard to case (see `foldCase`). A select or multi-select value is
  * searched by the labels of its options. Date and relation values are not searched.
+ * A number (`12` or `#12`) finds the card with that number too.
  */
 export function searchFilterCards(
   cards: readonly Card[],
@@ -14,11 +16,13 @@ export function searchFilterCards(
 ): Card[] {
   const needle = foldCase(searchText);
   if (!needle) return cards.slice();
+  const numbered = cardNumberOf(searchText);
   const mentions = (text: string | undefined): boolean =>
     text !== undefined && foldCase(text).includes(needle);
 
   return cards.filter((card) => {
     if (mentions(card.title)) return true;
+    if (numbered !== undefined && card.number === numbered) return true;
 
     for (const [propertyId, value] of Object.entries(cardProperties(card))) {
       const template = templates.find((candidate) => candidate.id === propertyId);

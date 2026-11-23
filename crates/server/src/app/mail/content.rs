@@ -66,23 +66,47 @@ impl Content {
     }
 
     /// The notice to the address the account `username` had, that it is the account's
-    /// no more. It names nothing of the new address, and carries no link: whoever
+    /// no more, with the link that gives the account that address back (`link`), for
+    /// a change its owner did not make. It names nothing of the new address: whoever
     /// reads the old mailbox learns that the address changed, not where to.
-    pub(crate) fn email_changed(username: &str, language: Language) -> Self {
-        let (subject, said, ending) = match language {
+    pub(crate) fn email_changed(link: &str, username: &str, language: Language) -> Self {
+        let (subject, intro, ending) = match language {
             Language::English => (
                 "The email address of your fvoci account was changed",
                 format!(
-                    "The email address of the fvoci account {username} was changed. This address is no longer the account's: mail for it, a password reset link too, goes to the new address from now on."
+                    "The email address of the fvoci account {username} was changed. This address is no longer the account's: mail for it, a password reset link too, goes to the new address from now on. If you did not change it, somebody else knows the account's password: this link gives the account this address back and signs it out everywhere:"
                 ),
-                "If you did not change it, somebody else knows the account's password: ask an administrator of your organization, or the operator of the server, for help.",
+                "The link works for seven days and once, and opening it changes nothing until you press the button on its page. If you changed the address yourself, ignore this message.",
             ),
             Language::Korean => (
                 "fvoci 계정의 이메일 주소가 바뀌었습니다",
                 format!(
-                    "fvoci 계정 {username}의 이메일 주소가 바뀌었습니다. 이 주소는 더 이상 계정의 주소가 아닙니다. 비밀번호 재설정 링크를 비롯한 계정의 메일은 이제 새 주소로 갑니다."
+                    "fvoci 계정 {username}의 이메일 주소가 바뀌었습니다. 이 주소는 더 이상 계정의 주소가 아닙니다. 비밀번호 재설정 링크를 비롯한 계정의 메일은 이제 새 주소로 갑니다. 직접 바꾸지 않았다면 다른 사람이 계정의 비밀번호를 알고 있는 것입니다. 다음 링크로 계정의 주소를 이 주소로 되돌리고 모든 기기에서 로그아웃하세요:"
                 ),
-                "직접 바꾸지 않았다면 다른 사람이 계정의 비밀번호를 알고 있는 것입니다. 조직의 관리자나 서버 운영자에게 도움을 요청하세요.",
+                "이 링크는 7일 동안 한 번만 쓸 수 있고, 링크를 열기만 해서는 아무것도 바뀌지 않습니다. 열린 페이지의 단추를 눌러야 합니다. 직접 바꿨다면 이 메일을 무시하세요.",
+            ),
+        };
+        Self::link(subject, &intro, ending, link, language)
+    }
+
+    /// The notice to the address the account `username` had until a link mailed to an
+    /// address before gave it that one back. It names nothing of the address the
+    /// account has now, and carries no link.
+    pub(crate) fn email_reverted(username: &str, language: Language) -> Self {
+        let (subject, said, ending) = match language {
+            Language::English => (
+                "The email address of your fvoci account was given back",
+                format!(
+                    "The email address of the fvoci account {username} was given back to the one it had before, by the link mailed there. This address is no longer the account's, the account was signed out everywhere, and its password works no more until it is reset."
+                ),
+                "If you did not ask for this, whoever reads the account's earlier address did: ask an administrator of your organization, or the operator of the server, for help.",
+            ),
+            Language::Korean => (
+                "fvoci 계정의 이메일 주소가 되돌려졌습니다",
+                format!(
+                    "예전 주소로 보낸 링크로 fvoci 계정 {username}의 이메일 주소가 예전 주소로 되돌려졌습니다. 이 주소는 더 이상 계정의 주소가 아니고, 계정은 모든 기기에서 로그아웃되었으며, 비밀번호는 재설정할 때까지 쓸 수 없습니다."
+                ),
+                "요청한 적이 없다면 계정의 예전 주소를 읽는 사람이 한 것입니다. 조직의 관리자나 서버 운영자에게 도움을 요청하세요.",
             ),
         };
         let tag = language.tag();
@@ -260,10 +284,28 @@ mod tests {
                 link.plain
             );
             assert!(link.html.contains("#t&lt;"), "{}", link.html);
-            let notice = Content::email_changed("a<b", language);
-            assert!(!notice.plain.contains("http"), "no link: {}", notice.plain);
+            let notice =
+                Content::email_changed("https://example.test/revert-email#r<", "a<b", language);
+            assert!(
+                notice
+                    .plain
+                    .contains("https://example.test/revert-email#r<"),
+                "the link back: {}",
+                notice.plain
+            );
             assert!(!notice.plain.contains('@'), "no address: {}", notice.plain);
-            for content in [&link, &notice] {
+            let reverted = Content::email_reverted("a<b", language);
+            assert!(
+                !reverted.plain.contains("http"),
+                "no link: {}",
+                reverted.plain
+            );
+            assert!(
+                !reverted.plain.contains('@'),
+                "no address: {}",
+                reverted.plain
+            );
+            for content in [&link, &notice, &reverted] {
                 assert!(content.plain.contains("a<b"), "{}", content.plain);
                 assert!(content.html.contains("a&lt;b"), "escaped: {}", content.html);
                 assert!(

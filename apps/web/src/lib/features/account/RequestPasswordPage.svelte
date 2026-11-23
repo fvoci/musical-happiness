@@ -8,13 +8,18 @@
   let {
     available,
     request,
+    email: given = '',
     homeHref,
   }: {
     available: Promise<boolean>;
     request: (email: string) => Promise<void>;
+    /** The address the form starts with: the one a link gave back, say. */
+    email?: string;
     homeHref: string;
   } = $props();
-  let email = $state('');
+  // Filled in once; what the reader types from then on is theirs.
+  // svelte-ignore state_referenced_locally
+  let email = $state(given);
   let working = $state(false);
   let done = $state(false);
   let problem = $state<string | undefined>(undefined);

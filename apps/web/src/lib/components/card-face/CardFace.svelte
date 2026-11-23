@@ -1,5 +1,5 @@
 <!--
-  The face of a card: its icon and title, the properties the view turned on,
+  The face of a card: its number, icon and title, the properties the view turned on,
   and what its body holds (that there is one, how its tasks stand). A kanban
   column and a gallery draw the same face, the gallery a larger one with a
   preview of the body: its first picture and the beginning of its text.
@@ -14,6 +14,7 @@
   import SquareCheckIcon from '@lucide/svelte/icons/square-check';
   import TextAlignStartIcon from '@lucide/svelte/icons/text-align-start';
 
+  import CardNumber from '$lib/components/card-number/CardNumber.svelte';
   import { PropertyValue, type PropertyUser } from '$lib/components/properties/index.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Regional } from '$lib/logic/regional.ts';
@@ -108,6 +109,7 @@
       !card.title && 'text-muted-foreground',
     ]}
   >
+    <CardNumber number={card.number} />
     {#if card.fields.icon}
       <span data-slot="card-icon" class="shrink-0" aria-hidden="true">{card.fields.icon}</span>
     {/if}

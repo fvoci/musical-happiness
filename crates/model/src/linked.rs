@@ -44,6 +44,11 @@ pub struct LinkedBlock {
     pub kind: LinkedKind,
     /// Its title; empty for one without.
     pub title: String,
+    /// A card's number on its board, as `Card.number` gives it; absent for a page and
+    /// for a template of the board's cards.
+    #[schema(minimum = 1)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<u32>,
     /// Its icon, at most one grapheme; empty for none.
     pub icon: String,
     /// The identifier of the board the card is on, or of the wiki the page is of.
@@ -66,6 +71,7 @@ impl LinkedBlock {
             id: block.id.clone(),
             kind,
             title: block.title.clone(),
+            number: block.number,
             icon: block
                 .fields
                 .get(icon_field)
@@ -112,8 +118,17 @@ mod tests {
                 "title": "Plan", "icon": "📌",
                 "containerId": "0197a5a0-0000-7000-8000-000000000002", "containerKind": "wiki"}),
         );
-        let card = LinkedBlock::of(&block(BlockType::Card), &container).expect("a card is shown");
+        let numbered = Block {
+            number: Some(12),
+            ..block(BlockType::Card)
+        };
+        let card = LinkedBlock::of(&numbered, &container).expect("a card is shown");
         assert_eq!(card.kind, LinkedKind::Card);
+        assert_eq!(
+            serde_json::to_value(&card).expect("serialized")["number"],
+            json!(12),
+            "with its number"
+        );
         for other in [
             BlockType::Comment,
             BlockType::View,

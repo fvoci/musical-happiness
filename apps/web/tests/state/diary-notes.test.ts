@@ -381,6 +381,55 @@ describe('the notes of a day on its page', () => {
     store.close();
   });
 
+  it('send nothing twice when an in-flight note settles before leave’s combined write', async () => {
+    const { store, backend, diary, today } = await aPage();
+    const there = await backend.diary.createEntry(diary.id, today);
+    await store.show(monthDayOf(today));
+    const entry = store.day(today);
+    const patch = backend.diary.patchEntry.bind(backend.diary);
+    let releaseFirst = (): void => undefined;
+    let releaseLeave = (): void => undefined;
+    const patching = vi
+      .spyOn(backend.diary, 'patchEntry')
+      .mockImplementationOnce(
+        (...args) =>
+          new Promise((resolve, reject) => {
+            releaseFirst = () => {
+              patch(...args).then(resolve, reject);
+            };
+          }),
+      )
+      .mockImplementationOnce(
+        (...args) =>
+          new Promise((resolve, reject) => {
+            releaseLeave = () => {
+              patch(...args).then(resolve, reject);
+            };
+          }),
+      );
+    entry.mark({ weather: '비' }, 'later');
+    entry.sendNotes();
+    entry.mark({ place: '집' }, 'later');
+    store.leave(true);
+    // S1 answers BEFORE leave's combined write L: S1 must not resend `{ place }` or clear `#sending`.
+    releaseFirst();
+    await settle();
+    expect(patching).toHaveBeenCalledTimes(2);
+    releaseLeave();
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed).toMatchObject({ weather: '비', place: '집' });
+    });
+    await settle();
+    expect(patching).toHaveBeenCalledTimes(2);
+    // After L settles, `pending` is false so remote changes are heard.
+    await backend.as(backend.userId).diary.patchEntry(diary.id, there.id, { weather: '눈' });
+    await vi.waitFor(() => {
+      expect(entry.notes.weather).toBe('눈');
+    });
+    store.close();
+  });
+
   it('send what was emptied in a day left blank whose deletion is refused', async () => {
     const { store, backend, diary, today } = await aPage();
     const entry = store.day(today);
@@ -510,6 +559,103 @@ describe('the notes of a day on its page', () => {
     store.close();
   });
 
+  it('drop only blank keys from a mixed patch on 404, and send the kept keys immediately to the next entry', async () => {
+    const { store, backend, diary, today } = await aPage();
+    const there = await backend.diary.createEntry(diary.id, today);
+    await backend.diary.patchEntry(diary.id, there.id, { mood: 'bad' });
+    await store.show(monthDayOf(today));
+    const entry = store.day(today);
+    await vi.waitFor(() => {
+      expect(entry.entry?.mood).toBe('bad');
+    });
+    let refuse = (): void => undefined;
+    const patching = vi.spyOn(backend.diary, 'patchEntry').mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          refuse = () => {
+            reject(new BackendError(404, { detail: 'no such entry' }));
+          };
+        }),
+    );
+    // Mixed patch: sets weather AND clears mood in one write.
+    entry.mark({ weather: '비', mood: null });
+    const elsewhere = backend.as(backend.userId).diary;
+    await elsewhere.deleteEntry(diary.id, there.id);
+    const again = await elsewhere.createEntry(diary.id, today);
+    await elsewhere.patchEntry(diary.id, again.id, { mood: 'good' });
+    await vi.waitFor(() => {
+      expect(entry.entry?.id).toBe(again.id);
+    });
+    refuse();
+    // Immediately sends `{ weather: '비' }` (without `mood: null`) to `again`, preserving `mood: 'good'`.
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed).toMatchObject({ weather: '비', mood: 'good' });
+    });
+    expect(patching).toHaveBeenLastCalledWith(
+      diary.id,
+      again.id,
+      { weather: '비' },
+      { keepalive: true },
+    );
+    store.close();
+  });
+
+  it('drop only blank keys from mixed waiting notes when an entry is replaced', async () => {
+    const { store, backend, diary, today } = await aPage();
+    const there = await backend.diary.createEntry(diary.id, today);
+    await backend.diary.patchEntry(diary.id, there.id, { mood: 'bad' });
+    await store.show(monthDayOf(today));
+    const entry = store.day(today);
+    await vi.waitFor(() => {
+      expect(entry.entry?.mood).toBe('bad');
+    });
+    vi.spyOn(backend.diary, 'patchEntry').mockRejectedValueOnce(
+      new BackendError(500, { detail: 'down' }),
+    );
+    entry.mark({ weather: '비', mood: null });
+    await settle();
+    const elsewhere = backend.as(backend.userId).diary;
+    await elsewhere.deleteEntry(diary.id, there.id);
+    const again = await elsewhere.createEntry(diary.id, today);
+    await elsewhere.patchEntry(diary.id, again.id, { mood: 'good' });
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed).toMatchObject({ id: again.id, weather: '비', mood: 'good' });
+    });
+    store.close();
+  });
+
+  it('do not let a permanently refused draft block notes from being sent', async () => {
+    const { store, backend, diary, today } = await aPage();
+    const entry = store.day(today);
+    entry.openBody();
+    entry.write(text('too big'));
+    await vi.waitFor(() => {
+      expect(entry.entry).toBeDefined();
+    });
+    // The draft flush is permanently refused (413), leaving `entry.draft` and `entry.unsaved = true`.
+    vi.spyOn(backend.diary, 'patchEntry').mockRejectedValueOnce(
+      new BackendError(413, { detail: 'body too large' }),
+    );
+    entry.mark({ weather: '맑음' }, 'later');
+    entry.closeBody();
+    await vi.waitFor(() => {
+      expect(entry.unsaved).toBe(true);
+    });
+    // Held notes are sent on their own once the draft is refused, and later marks go right through.
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed?.weather).toBe('맑음');
+    });
+    entry.mark({ mood: 'great' });
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed).toMatchObject({ weather: '맑음', mood: 'great' });
+    });
+    store.close();
+  });
+
   it('write the body after the notes of a day left before its entry was made', async () => {
     const { store, backend, diary, today } = await aPage();
     const entry = store.day(today);
@@ -598,6 +744,63 @@ describe('the calendar of a diary', () => {
     await vi.waitFor(() => {
       expect(store.calendar.runs).toEqual([{ from: today, to: today, days: 1 }]);
     });
+    store.close();
+  });
+
+  it('waits for resync when a later recount is refused, instead of asking on every edit', async () => {
+    const { store: first, backend, diary, today, workspace } = await aPage();
+    first.close();
+    const store = new DiaryStore(workspace, diary.id);
+    const reading = vi.spyOn(backend.diary, 'runs');
+    await store.show(monthDayOf(today));
+    await vi.waitFor(() => {
+      expect(store.calendar.counted).toBe(true);
+    });
+    expect(reading).toHaveBeenCalledTimes(1);
+    // Next recount (triggered by a new entry) is refused with 500.
+    reading.mockRejectedValueOnce(new BackendError(500, { detail: 'down' }));
+    const made = await backend.as(backend.userId).diary.createEntry(diary.id, today);
+    await vi.waitFor(() => {
+      expect(reading).toHaveBeenCalledTimes(2);
+    });
+    await settle();
+    // Repeated edits on that day do not re-trigger `runs` while refused.
+    store.calendar.heard([made]);
+    store.calendar.heard([made]);
+    await settle();
+    expect(reading).toHaveBeenCalledTimes(2);
+    // Resync retries and clears the refused state.
+    store.calendar.resync();
+    await vi.waitFor(() => {
+      expect(store.calendar.runs).toEqual([{ from: today, to: today, days: 1 }]);
+    });
+    expect(reading).toHaveBeenCalledTimes(3);
+    store.close();
+  });
+
+  it('still retries after a failing in-flight count when resync arrived meanwhile', async () => {
+    const { store: first, backend, diary, today, workspace } = await aPage();
+    first.close();
+    await backend.diary.createEntry(diary.id, today);
+    let rejectInFlight = (): void => undefined;
+    const reading = vi.spyOn(backend.diary, 'runs').mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectInFlight = () => {
+            reject(new BackendError(500, { detail: 'connection dropped' }));
+          };
+        }),
+    );
+    const store = new DiaryStore(workspace, diary.id);
+    await store.show(monthDayOf(today));
+    expect(reading).toHaveBeenCalledTimes(1);
+    // Resync arrives while the first (doomed) count is still in flight.
+    store.calendar.resync();
+    rejectInFlight();
+    await vi.waitFor(() => {
+      expect(store.calendar.runs).toEqual([{ from: today, to: today, days: 1 }]);
+    });
+    expect(reading).toHaveBeenCalledTimes(2);
     store.close();
   });
 

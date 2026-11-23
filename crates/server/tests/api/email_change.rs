@@ -184,7 +184,8 @@ async fn a_change_waits_and_the_account_keeps_its_address() {
 
 /// The link mailed to the new address changes it, for whoever holds it, once: the
 /// session goes on, the reset link mailed to the old address is dead and none goes
-/// there again, and the old address is told without a word of the new one.
+/// there again, and the old address is told without a word of the new one, with the
+/// link that gives it back.
 #[tokio::test]
 async fn the_link_changes_the_address_and_ends_what_went_to_the_old_one() {
     let smtp = FakeSmtp::start_on(0).await;
@@ -234,7 +235,9 @@ async fn the_link_changes_the_address_and_ends_what_went_to_the_old_one() {
     assert_eq!(old_mail.len(), 2, "the reset link, and the notice");
     let notice = &old_mail[1].decoded;
     assert!(notice.contains(USER1_USERNAME), "{notice}");
-    for unsaid in ["moved", "example.test", "http"] {
+    // Its one link gives the address back (`email_revert`).
+    token_in(&old_mail[1], "/revert-email#");
+    for unsaid in ["moved", "example.test", "/confirm-email#"] {
         assert!(!notice.contains(unsaid), "{unsaid} in the notice: {notice}");
     }
     for email in [OLD, NEW] {

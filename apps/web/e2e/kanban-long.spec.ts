@@ -254,24 +254,49 @@ test('a long column moved among the others keeps its place and its cards in sigh
   await list(page).evaluate((element) => {
     element.scrollTop += 20_000;
   });
-  await expect(list(page).locator('[data-card]').first()).toBeAttached();
+  const cardInSight = (): Promise<boolean> =>
+    list(page).evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return [...element.querySelectorAll('[data-card]')].some((each) => {
+        const cardBox = each.getBoundingClientRect();
+        return cardBox.bottom > box.top && cardBox.top < box.bottom;
+      });
+    });
+  // Wait for the window at the new scroll depth to mount and settle ResizeObserver anchoring.
+  await expect(card(page, longTitle(1))).toHaveCount(0);
+  await expect.poll(cardInSight).toBe(true);
+  await list(page).evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            resolve();
+          });
+        });
+      }),
+  );
   const before = await scrollTop(page);
   const heading = column(page, LONG_COLUMN).locator('[data-column-heading]');
   await heading.focus();
+
+  // Carrying the column with the keyboard and cancelling keeps its scroll and cards in sight.
+  await page.keyboard.press('Space');
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(async () => Math.abs((await scrollTop(page)) - before)).toBeLessThanOrEqual(1);
+  expect(await cardInSight()).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(heading).toBeFocused();
+  await expect.poll(async () => Math.abs((await scrollTop(page)) - before)).toBeLessThanOrEqual(1);
+  expect(await cardInSight()).toBe(true);
+
+  // Moving and dropping it keeps its scroll and cards in sight too.
   await page.keyboard.press('Space');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Space');
   await expect(heading).toBeFocused();
   // Within a pixel: at three pixels to a point, WebKit rounds where it scrolls to.
   await expect.poll(async () => Math.abs((await scrollTop(page)) - before)).toBeLessThanOrEqual(1);
-  const shown = await list(page).evaluate((element) => {
-    const box = element.getBoundingClientRect();
-    return [...element.querySelectorAll('[data-card]')].some((each) => {
-      const card = each.getBoundingClientRect();
-      return card.bottom > box.top && card.top < box.bottom;
-    });
-  });
-  expect(shown).toBe(true);
+  expect(await cardInSight()).toBe(true);
 });
 
 test.describe('dragging down a column of 400 cards', () => {

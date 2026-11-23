@@ -8,6 +8,7 @@
  */
 import { tick } from 'svelte';
 
+import { copyCardLink } from '$lib/components/card-number/card-link.ts';
 import type { MenuAction } from '$lib/components/menu/actions.ts';
 import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';
 import { readerPointer } from '$lib/components/drag/reader-pointer.ts';
@@ -440,7 +441,7 @@ export class TableController {
     link.href = this.#source.cardHref(card.id);
     const address = link.href;
     try {
-      await navigator.clipboard.writeText(address);
+      await copyCardLink(address, card);
     } catch {
       // The browser refused (no permission, not a secure page): nothing was copied, and nothing is said.
       return;

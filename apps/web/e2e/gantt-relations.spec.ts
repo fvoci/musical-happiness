@@ -48,9 +48,9 @@ test('a new Gantt view reads the first card relation, and draws one arrow for ea
   ]);
   // A bar says which cards it comes after.
   await expect(bar(page, 'Filter and sort cards')).toHaveAccessibleName(
-    'Filter and sort cards, December 3 – December 4. After Share a board and Drag cards.',
+    'number 7, Filter and sort cards, December 3 – December 4. After Share a board and Drag cards.',
   );
-  await expect(bar(page, 'Drag cards')).toHaveAccessibleName('Drag cards, November 12');
+  await expect(bar(page, 'Drag cards')).toHaveAccessibleName('number 1, Drag cards, November 12');
 });
 
 test('an arrow goes from the end of the card that comes first to the start of the one after', async ({
@@ -187,7 +187,7 @@ test('a card that starts before a card it comes after has ended is marked, count
   await expect(row.locator('[data-row-title] [data-mark="late"]')).toBeVisible();
   await expect(gantt(page).locator('[data-mark]')).toHaveCount(1);
   await expect(bar(page, 'Filter and sort cards')).toHaveAccessibleName(
-    'Filter and sort cards, November 20 – November 21. After Share a board and Drag cards. Out of order: starts before the end of Share a board.',
+    'number 7, Filter and sort cards, November 20 – November 21. After Share a board and Drag cards. Out of order: starts before the end of Share a board.',
   );
   // The row above the chart counts them, and goes to the card.
   const count = page.getByTestId('gantt-late');
@@ -219,7 +219,7 @@ test('a card that starts before a card it comes after has ended is marked, count
   await expect(gantt(page).locator('[data-bar][data-late]')).toHaveCount(1);
   await expect(gantt(page).locator('[data-mark]')).toHaveCount(1);
   await expect(bar(page, 'Filter and sort cards')).toHaveAccessibleName(
-    'Filter and sort cards, November 11. After Share a board and Drag cards. Out of order: starts before the end of Share a board and Drag cards.',
+    'number 7, Filter and sort cards, November 11. After Share a board and Drag cards. Out of order: starts before the end of Share a board and Drag cards.',
   );
 
   // Put back in order while the count has the focus: the count stays, at
@@ -291,7 +291,7 @@ test('cards on a loop are marked, counted and said, the arrows between them dott
   await expect(page.getByTestId('gantt-problems')).toHaveText('Out of order: 1. On a loop: 3.');
   await expect(bar(page, 'Drag cards')).not.toHaveAttribute('data-loop');
   await expect(bar(page, 'Share a board')).toHaveAccessibleName(
-    'Share a board, November 12 – November 23. After Create a new card. On a loop: following what it comes after leads back to it.',
+    'number 4, Share a board, November 12 – November 23. After Create a new card. On a loop: following what it comes after leads back to it.',
   );
   const count = page.getByTestId('gantt-loops');
   await expect(count).toHaveAccessibleName('On a loop: 3. Show the next.');
@@ -317,7 +317,7 @@ test('a loop through a card without a date still marks the cards that have a bar
   await expect(bar(page, 'Drag cards')).toHaveAttribute('data-loop', '');
   // The title and the days are a sentence of their own before what follows.
   await expect(bar(page, 'Drag cards')).toHaveAccessibleName(
-    'Drag cards, November 12. On a loop: following what it comes after leads back to it.',
+    'number 1, Drag cards, November 12. On a loop: following what it comes after leads back to it.',
   );
   await expect(page.getByTestId('gantt-loops')).toHaveAccessibleName(
     'On a loop: 1. Show the next.',

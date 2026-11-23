@@ -66,6 +66,7 @@ parameter!(CardId: Path "cardId", String, True, "The identifier of the card.");
 parameter!(WikiId: Path "wikiId", String, True, "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.");
 parameter!(PageId: Path "pageId", String, True, "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.");
 parameter!(CommentId: Path "commentId", String, True, "The identifier of the comment: a comment on the page of the path. 404 for a comment on another page, and for a block that is no comment.");
+parameter!(CardNumber: Path "number", i64, True, "The number of the card on the board, as `Card.number` gives it. One that no card of the board has, and what is no number, is 404.");
 parameter!(BodyVersionNumber: Path "version", i64, True, "The number of the version of the card's body, as `getCardBodyVersions` lists it.");
 parameter!(PageVersionNumber: Path "version", i64, True, "The number of the version of the page's body, as `getPageBodyVersions` lists it.");
 parameter!(FileVersionNumber: Path "version", i64, True, "The number of the version of the file, as `getFileVersions` lists it.");

@@ -17,6 +17,7 @@ mod body_digest;
 mod body_docs;
 mod body_links;
 mod body_versions;
+mod card_numbers;
 mod card_values;
 mod categories;
 mod category_containers;
@@ -37,6 +38,7 @@ mod db;
 mod diaries;
 mod directory;
 mod email_change;
+mod email_revert;
 mod error;
 mod file_info;
 mod file_refs;
@@ -119,6 +121,7 @@ pub use directory::{
 pub use email_change::{
     EMAIL_CHANGE_LIFETIME_MILLIS, EMAIL_CHANGE_LINK_LIFETIME_MILLIS, EmailChanged,
 };
+pub use email_revert::{EMAIL_REVERT_LIFETIME_MILLIS, EmailReverted};
 pub use error::{StoreError, Taken};
 pub use file_refs::NewBodyFiles;
 pub use file_versions::{

@@ -536,7 +536,9 @@ impl Collab {
             card_id,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
-                let written = collab.write_first(app, card_id, slot).await;
+                let written = collab
+                    .write_pending(app, card_id, slot, whole::DueVersion::Keep)
+                    .await;
                 collab.retire(slot);
                 written
             },

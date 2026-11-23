@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use fvoci_model::{
-    Block, BlockType, Container, ContainerKind, ContainerType, DiaryDate, DiaryMaking,
-    ENTRIES_PER_DIARY, MonthDay, NewDiaryEntry, new_id,
+    BlockType, Container, ContainerKind, ContainerType, DiaryDate, DiaryMaking, ENTRIES_PER_DIARY,
+    MonthDay, NewDiaryEntry, new_id,
 };
 use fvoci_store::{DbType, SharingChange, Store};
 use sqlx::Connection as _;
@@ -44,10 +44,63 @@ async fn columns_of(system: &Store, table: &str) -> Vec<String> {
     system.texts_unchecked(&query).await.expect("read")
 }
 
+/// Moves a container and its blocks to the trash tables against the pre-diary schema
+/// (before migration 58 added `next_card_number` and `blocks.number`).
+async fn trash_before_diaries(
+    store: &Store,
+    container: &Container,
+    block_type: &BlockType,
+    block_ids: &[(String, &str)],
+    user_id: &str,
+) {
+    let deletion_id = new_id();
+    let container_json = serde_json::to_string(container).expect("container json");
+    store
+        .execute_unchecked(&format!(
+            "INSERT INTO deleted_containers (id, workspace_id, deleted_at, deleted_by, \
+             deletion_id, container, members, files) VALUES ('{}', '{}', 1, \
+             '{user_id}', '{deletion_id}', '{container_json}', '[]', '[]')",
+            container.id, container.workspace_id
+        ))
+        .await
+        .expect("deleted container");
+    for (block_id, title) in block_ids {
+        let block_json = format!(
+            r#"{{"id":"{block_id}","containerId":"{}","type":"{}","title":"{title}"}}"#,
+            container.id,
+            block_type.as_str()
+        );
+        store
+            .execute_unchecked(&format!(
+                "INSERT INTO deleted_blocks (id, container_id, parent_id, deleted_at, \
+                 deleted_by, deletion_id, block) VALUES ('{block_id}', '{}', NULL, 1, \
+                 '{user_id}', '{deletion_id}', '{block_json}')",
+                container.id
+            ))
+            .await
+            .expect("deleted block");
+    }
+    store
+        .execute_unchecked(&format!(
+            "DELETE FROM blocks WHERE container_id = '{}'",
+            container.id
+        ))
+        .await
+        .expect("deleted blocks");
+    store
+        .execute_unchecked(&format!(
+            "DELETE FROM containers WHERE id = '{}'",
+            container.id
+        ))
+        .await
+        .expect("deleted");
+}
+
 /// A database of the schema before the diaries, with an organization that has a board
 /// and a wiki, each with blocks, members and a link, a template, and a board in the
-/// trash; and the identifier of the board. Everything is stored by the store itself,
-/// which writes that schema as it writes the one after it.
+/// trash; and the identifier of the board. The account, blocks, and the trashed board
+/// are written directly against that schema (later migrations added tables or columns
+/// the current store uses).
 async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String) {
     let database = common::empty_database().await;
     fvoci_store::testing::migrate_to_before_diaries(&database).await;
@@ -59,7 +112,17 @@ async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String
         .expect("the database opens");
     let (org_id, workspace_id) = common::organization(&store, "people").await;
     let store = store.for_org(&org_id).expect("an identifier");
-    let user_id = common::user(&store, "member").await;
+    // The account is written in the columns of then: the store of now also asks of an
+    // address what later migrations keep (`email_reverts`).
+    let user_id = new_id();
+    common::execute_raw(
+        &common::raw_connection(&database),
+        &format!(
+            "INSERT INTO users (id, username, email, password_hash, create_at, update_at) \
+             VALUES ('{user_id}', 'member', 'member@example.com', '', 1, 1);"
+        ),
+    )
+    .await;
     common::works_in(&store, &workspace_id, &user_id).await;
     let mut kept = String::new();
     for (kind, is_template, trashed) in [
@@ -82,24 +145,23 @@ async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String
             ContainerKind::Wiki => BlockType::Page,
             _ => BlockType::Card,
         };
+        let mut block_ids = Vec::new();
         for title in ["one", "two"] {
-            let mut block = Block {
-                id: new_id(),
-                container_id: container.id.clone(),
-                block_type: block_type.clone(),
-                title: title.to_owned(),
-                ..Block::default()
-            };
+            let block_id = new_id();
             store
-                .insert_block(&mut block, &user_id)
+                .execute_unchecked(&format!(
+                    "INSERT INTO blocks (id, container_id, parent_id, created_by, modified_by, \
+                     \"schema\", type, title, fields, create_at, update_at) VALUES ('{block_id}', \
+                     '{}', NULL, '{user_id}', '{user_id}', 1, '{}', '{title}', '{{}}', 1, 1)",
+                    container.id,
+                    block_type.as_str()
+                ))
                 .await
                 .expect("stored");
+            block_ids.push((block_id, title));
         }
         if trashed {
-            store
-                .delete_container(&container.id, &user_id)
-                .await
-                .expect("deleted");
+            trash_before_diaries(&store, &container, &block_type, &block_ids, &user_id).await;
         } else if !is_template {
             store
                 .set_sharing(&container.id, SharingChange::On, &new_id(), &user_id)
@@ -207,15 +269,11 @@ async fn a_database_from_before_keeps_every_row_and_takes_diaries() {
         "{old_keys:?}"
     );
 
-    let store = Store::connect(database.db_type(), database.database_connection())
-        .await
-        .expect("the database is migrated");
+    // Up to this migration, and not past it: what later ones add is theirs to test.
+    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 55)
+        .await;
     let mut new = by_column(&dump(&database).await);
-    // Migrations 55–57 add these tables after the pre-diary snapshot.
-    let added = ["diary_days", "notification_outbox", "notifications"];
-    for table in added {
-        assert_eq!(new.remove(table), Some(Vec::new()), "{table} is empty");
-    }
+    assert_eq!(new.remove("diary_days"), Some(Vec::new()));
     assert_eq!(
         new.keys().collect::<Vec<_>>(),
         old.keys().collect::<Vec<_>>(),
@@ -227,8 +285,11 @@ async fn a_database_from_before_keeps_every_row_and_takes_diaries() {
     assert_eq!(broken_keys(&database).await, Vec::<String>::new());
 
     let mut new_keys = keys(&database).await;
-    new_keys.retain(|key| !added.iter().any(|table| key.starts_with(table)));
+    new_keys.retain(|key| !key.starts_with("diary_days"));
     assert_eq!(new_keys, old_keys, "every key there was is as it was");
+    let store = Store::connect(database.db_type(), database.database_connection())
+        .await
+        .expect("the database is migrated");
     let system = store.system();
 
     // A diary is stored now, and the check still refuses a kind there is none of.
@@ -307,10 +368,12 @@ async fn the_migration_on_sqlite_is_timed_by_the_rows_it_rewrites() {
         store.close().await;
 
         let started = Instant::now();
-        let store = Store::connect(database.db_type(), database.database_connection())
-            .await
-            .expect("the database is migrated");
+        fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 55)
+            .await;
         let took = started.elapsed();
+        let store = Store::open(database.db_type(), database.database_connection())
+            .await
+            .expect("the database opens");
         let rows = store
             .system()
             .count_rows("containers")
@@ -422,6 +485,11 @@ async fn fill(test: &common::TestStore, own: &Store, diary_id: &str, user_id: &s
     }
 }
 
+/// Index of the runs query in [`Store::plans_of_diary_reads`]: only it scans a subquery
+/// of its own (`written`), so changing the order in `plans_of_diary_reads` requires
+/// updating this constant.
+const RUNS_READ: usize = 2;
+
 /// What the plan of a read of a diary must say, the entries of a month and day first,
 /// the days of a month second and the days alone (for the runs) third: the days are
 /// found by the index the read is for, an entry by its own key and not by going through
@@ -431,7 +499,7 @@ async fn fill(test: &common::TestStore, own: &Store, diary_id: &str, user_id: &s
 fn check_plan(read: usize, plan: &str) {
     // Only the runs (the third read) go through a subquery of their own.
     let own = |line: &str| {
-        read == 2 && (line.contains("SCAN written") || line.contains("SCAN (subquery-"))
+        read == RUNS_READ && (line.contains("SCAN written") || line.contains("SCAN (subquery-"))
     };
     let through = |line: &str| match db_type() {
         DbType::Sqlite => line.contains("SCAN ") && !own(line),
@@ -588,7 +656,7 @@ async fn a_full_diary_of_every_other_day_answers_its_runs_from_the_key() {
         .plans_of_diary_reads(&diary_id, at, day("2000-11-01"), day("2000-11-30"))
         .await
         .expect("explained");
-    check_plan(2, &plan.join("\n"));
+    check_plan(RUNS_READ, &plan.join("\n"));
     let answer = serde_json::to_vec(&runs).expect("serialized").len();
     println!(
         "the runs of {ENTRIES_PER_DIARY} entries a day apart on {:?}: {:?} a read, \

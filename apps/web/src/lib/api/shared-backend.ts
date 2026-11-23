@@ -106,6 +106,7 @@ export class SharedBackend implements Backend {
     },
     to: nothing,
     search: nothing,
+    numbered: () => Promise.resolve(undefined),
   };
   /**
    * A wiki's link reads its tree and its pages, naming nobody, and nothing
@@ -184,6 +185,7 @@ export class SharedBackend implements Backend {
       icon: card.fields.icon ?? '',
       containerId,
       containerKind: 'board',
+      ...(card.number === undefined ? {} : { number: card.number }),
     };
   }
 

@@ -63,6 +63,7 @@ mod tests {
             kind: SearchKind::Card,
             title: "제목".to_owned(),
             text: "본문".to_owned(),
+            number: Some(1),
         };
         let version = crate::search::version::Versions::default().next();
         let source = source(&document, version);

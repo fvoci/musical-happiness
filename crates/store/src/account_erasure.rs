@@ -37,7 +37,8 @@ use crate::db::{Dialect, Id, Param, Scope};
 use crate::error::StoreError;
 use crate::trash::{self, Purged, TrashedRoles};
 use crate::{
-    Store, link_locks, members, org_admin, password_reset, sessions, users, workspace_membership,
+    Store, email_revert, link_locks, members, org_admin, password_reset, sessions, users,
+    workspace_membership,
 };
 
 /// On whose word an account is erased.
@@ -413,11 +414,12 @@ impl Store {
 /// when their account is erased, whichever organization a row is of. An upload that
 /// was open is not among them: nobody sends its parts any more, and its clean-up needs
 /// the row to throw away what was sent (`uploads.rs`).
-const PERSONAL: [(&str, &str); 10] = [
+const PERSONAL: [(&str, &str); 11] = [
     ("notifications", "recipient_id"),
     ("notification_outbox", "recipient_id"),
     ("user_identities", "user_id"),
     ("email_changes", "user_id"),
+    ("email_reverts", "user_id"),
     ("sessions", "user_id"),
     ("preferences", "user_id"),
     ("password_resets", "user_id"),
@@ -452,6 +454,7 @@ async fn mark(
     }
     sessions::delete_sessions_of_user(scope, user_id).await?;
     password_reset::end_links_of_user(scope, user_id).await?;
+    email_revert::end_of_user(scope, user_id).await?;
     Ok(true)
 }
 

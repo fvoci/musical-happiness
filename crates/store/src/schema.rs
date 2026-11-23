@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 55] = [
+const STEPS: [Step; 57] = [
     Step {
         version: 1,
         description: "baseline",
@@ -370,6 +370,18 @@ const STEPS: [Step; 55] = [
         sqlite: include_str!("../schema/sqlite/0057_notification_lines.sql"),
         postgres: include_str!("../schema/postgres/0057_notification_lines.sql"),
     },
+    Step {
+        version: 58,
+        description: "card numbers",
+        sqlite: include_str!("../schema/sqlite/0058_card_numbers.sql"),
+        postgres: include_str!("../schema/postgres/0058_card_numbers.sql"),
+    },
+    Step {
+        version: 59,
+        description: "the link that gives an account its address back, and a locked password",
+        sqlite: include_str!("../schema/sqlite/0059_email_reverts.sql"),
+        postgres: include_str!("../schema/postgres/0059_email_reverts.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -398,10 +410,11 @@ pub(crate) const BEFORE_DIARIES_VERSION: i64 = 54;
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const GLOBAL_TABLES: [&str; 11] = [
+pub(crate) const GLOBAL_TABLES: [&str; 12] = [
     "_sqlx_migrations",
     "data_steps",
     "email_changes",
+    "email_reverts",
     "instance",
     "preferences",
     "password_resets",
@@ -885,5 +898,15 @@ mod tests {
             step.postgres.contains("CREATE POLICY org_wall"),
             "it puts up the wall"
         );
+    }
+
+    /// The migration right after `BEFORE_DIARIES_VERSION` is the one of the diaries.
+    #[test]
+    fn the_migration_after_before_diaries_is_the_diaries_one() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_DIARIES_VERSION + 1)
+            .expect("the migration after BEFORE_DIARIES_VERSION is in the list");
+        assert_eq!(step.description, "diaries");
     }
 }

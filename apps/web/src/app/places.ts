@@ -3,6 +3,8 @@
  * from a notification. A card opens over the view of its board that is
  * shown, or else over the board's first view; a page at its wiki's address.
  */
+import { parseCalendarDate } from '$lib/logic/dates.ts';
+
 import type { Route, Router } from './router.svelte.ts';
 
 /**
@@ -27,7 +29,13 @@ export interface Place {
 export function routeOfPlace(router: Router, place: Place): Partial<Route> {
   const { workspaceId, containerId, id } = place;
   if (place.kind === 'entry') {
-    return { workspaceId, diaryId: containerId, monthDay: (place.title ?? '').slice(5) };
+    const date = parseCalendarDate(place.title ?? '');
+    return {
+      workspaceId,
+      diaryId: containerId,
+      monthDay: date ? date.slice(5) : (place.title ?? '').slice(5),
+      ...(date ? { year: date.slice(0, 4) } : {}),
+    };
   }
   if (place.kind === 'page') return { workspaceId, wikiId: containerId, pageId: id };
   const { boardId, viewId } = router.route;
@@ -48,6 +56,8 @@ export function goToPlace(router: Router, place: Place): void {
     router.openPage(place.id);
   } else if (place.kind === 'card' && route.viewId !== ANY_VIEW) {
     router.openCard(place.id);
+  } else if (place.kind === 'entry' && router.route.diaryId === place.containerId) {
+    router.go(route);
   } else {
     const kind = ({ card: 'board', page: 'wiki', entry: 'diary' } as const)[place.kind];
     router.openContainer({ id: place.containerId, workspaceId: place.workspaceId ?? '', kind });

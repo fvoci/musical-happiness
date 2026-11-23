@@ -3,8 +3,8 @@
 //! has nobody else goes with it, and an erasing that was cut off is taken up again.
 
 use fvoci_model::{
-    AuditAction, Block, BlockType, Category, Container, ContainerType, Credential, FileInfo,
-    NameShown, OrgRole, PersonName, Session, Title, User, WorkspaceRole, new_id,
+    AuditAction, Block, BlockType, Category, Container, ContainerType, Credential, NameShown,
+    OrgRole, PersonName, Session, Title, User, WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AuditPlace, DbType, DeletionAsking, Erasing, ErasureEnd, ErasureStart, Identity, LeftFrom,
@@ -14,10 +14,10 @@ use fvoci_store::{
 use crate::common::{self, TestStore};
 
 /// A time in milliseconds that the tests count from.
-const T0: i64 = 1_800_000_000_000;
+pub(crate) const T0: i64 = 1_800_000_000_000;
 
 /// No column, and nobody.
-const NOBODY: [String; 0] = [];
+pub(crate) const NOBODY: [String; 0] = [];
 
 /// Every record, on one page.
 const EVERY: Paging = Paging {
@@ -26,7 +26,7 @@ const EVERY: Paging = Paging {
 };
 
 /// The wait the tests ask for.
-const WAIT: i64 = 30 * 24 * 60 * 60 * 1000;
+pub(crate) const WAIT: i64 = 30 * 24 * 60 * 60 * 1000;
 
 /// What is the person's of the account [`person`] makes: none of it is anywhere once
 /// the account is erased.
@@ -85,7 +85,7 @@ async fn set_org_role(store: &Store, user_id: &str, role: OrgRole) {
 }
 
 /// The first user of the instance, who administers it and the test's organization.
-async fn founder(test: &TestStore) -> String {
+pub(crate) async fn founder(test: &TestStore) -> String {
     common::user(test, "founder").await
 }
 
@@ -170,7 +170,7 @@ async fn person(store: &Store) -> String {
 }
 
 /// A private board of the workspace whose admin is `user_id`, with a card they wrote.
-async fn board_of(store: &Store, workspace_id: &str, user_id: &str) -> (String, String) {
+pub(crate) async fn board_of(store: &Store, workspace_id: &str, user_id: &str) -> (String, String) {
     let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
@@ -200,7 +200,7 @@ async fn board_of(store: &Store, workspace_id: &str, user_id: &str) -> (String, 
 }
 
 /// A link into the workspace made by `user_id`, under the digest.
-async fn link_by(store: &Store, workspace_id: &str, user_id: &str, digest: &str) {
+pub(crate) async fn link_by(store: &Store, workspace_id: &str, user_id: &str, digest: &str) {
     let link = NewLink {
         workspace_id,
         guest_of: None,
@@ -228,7 +228,12 @@ async fn made_by(test: &TestStore, org_id: &str, user_id: &str) {
 
 /// Erases the account through every step, on the operator's word, and returns what
 /// became of it in each organization.
-async fn erase(test: &TestStore, user_id: &str, erasing: Erasing, now: i64) -> Vec<LeftFrom> {
+pub(crate) async fn erase(
+    test: &TestStore,
+    user_id: &str,
+    erasing: Erasing,
+    now: i64,
+) -> Vec<LeftFrom> {
     let begun = test
         .begin_account_erasure(user_id, now, erasing)
         .await
@@ -245,7 +250,7 @@ async fn erase(test: &TestStore, user_id: &str, erasing: Erasing, now: i64) -> V
     erased
 }
 
-async fn erase_from_organizations(
+pub(crate) async fn erase_from_organizations(
     test: &TestStore,
     user_id: &str,
     erasing: Erasing,
@@ -327,7 +332,7 @@ async fn columns(system: &Store) -> Vec<Column> {
 /// case: as text, a value of any type, JSON included; in a column of bytes, the bytes
 /// of the needle as it is written and in small letters, whatever bytes are around
 /// them (SQLite reads bytes as text up to the first zero byte only).
-async fn holding(system: &Store, needle: &str) -> Vec<String> {
+pub(crate) async fn holding(system: &Store, needle: &str) -> Vec<String> {
     let small = needle.to_lowercase();
     let mut found = Vec::new();
     for column in columns(system).await {
@@ -362,7 +367,7 @@ async fn holding(system: &Store, needle: &str) -> Vec<String> {
 }
 
 /// How many rows each table holds, of every organization.
-async fn rows_of_every_table(system: &Store) -> std::collections::BTreeMap<String, i64> {
+pub(crate) async fn rows_of_every_table(system: &Store) -> std::collections::BTreeMap<String, i64> {
     let mut rows = std::collections::BTreeMap::new();
     for column in columns(system).await {
         if rows.contains_key(&column.table) {
@@ -377,7 +382,7 @@ async fn rows_of_every_table(system: &Store) -> std::collections::BTreeMap<Strin
 
 /// What somebody leaves on a card of theirs besides the card: a comment with a version
 /// they wrote, a kept version of the body they edited, and that they follow the card.
-async fn work_on(store: &Store, board: &str, card: &str, user_id: &str) {
+pub(crate) async fn work_on(store: &Store, board: &str, card: &str, user_id: &str) {
     let mut comment = Block {
         id: new_id(),
         container_id: board.to_owned(),
@@ -422,7 +427,7 @@ async fn work_on(store: &Store, board: &str, card: &str, user_id: &str) {
 
 /// How many rows of each table that names its organization (`org_id`) are the
 /// organization's.
-async fn rows_of(system: &Store, org_id: &str) -> Vec<(String, i64)> {
+pub(crate) async fn rows_of(system: &Store, org_id: &str) -> Vec<(String, i64)> {
     let mut rows = Vec::new();
     for column in columns(system).await {
         if column.name != "org_id" {
@@ -442,7 +447,7 @@ async fn rows_of(system: &Store, org_id: &str) -> Vec<(String, i64)> {
     rows
 }
 
-async fn count(store: &Store, query: &str) -> i64 {
+pub(crate) async fn count(store: &Store, query: &str) -> i64 {
     store.texts_unchecked(query).await.expect("counted")[0]
         .parse()
         .expect("a number")
@@ -501,6 +506,11 @@ async fn leave_traces(test: &TestStore, founder: &str, leaver: &str, board: &str
              'https://provider.example', 'leaver-at-the-provider@example.com')",
             id = new_id(),
             org = test.org_id
+        ),
+        // The link back to an address they had before.
+        format!(
+            "INSERT INTO email_reverts (token_hash, user_id, email, create_at, expires_at) \
+             VALUES ('back', '{leaver}', 'Earlier-Leaver-Mail@example.com', {T0}, {T0})"
         ),
     ] {
         test.execute_unchecked(&statement)
@@ -1211,650 +1221,6 @@ async fn an_erasing_that_was_cut_off_is_taken_up_and_ends() {
             .await
             .expect("asked"),
         ErasureStart::NotThere
-    );
-    test.teardown().await;
-}
-
-fn file_of(board_id: &str) -> FileInfo {
-    FileInfo {
-        id: new_id(),
-        container_id: board_id.to_owned(),
-        stored_name: "stored.png".to_owned(),
-        name: "a picture".to_owned(),
-        extension: ".png".to_owned(),
-        size: 2048,
-        path: format!("boards/{board_id}/stored.png"),
-        create_at: 1,
-        version: 1,
-        created_by: String::new(),
-    }
-}
-
-/// Tables that hold rows of an organization in use: of the one that goes, they hold
-/// none afterwards.
-const HELD_BY_AN_ORGANIZATION: [&str; 11] = [
-    "audit_log",
-    "blocks",
-    "containers",
-    "container_members",
-    "deleted_containers",
-    "file_info",
-    "invitations",
-    "oidc_providers",
-    "organization_members",
-    "workspace_members",
-    "workspaces",
-];
-
-/// Where the identifier of an organization that went is still found: what the file
-/// storage is yet to be told, which its job takes away once the objects are removed.
-/// (SQLite, which holds one organization, does not name it there.)
-fn keeps_the_organization() -> &'static [&'static str] {
-    match common::db_type() {
-        DbType::Postgres => &["loose_objects.org_id"],
-        DbType::Sqlite => &[],
-    }
-}
-
-/// An account that is alone in an organization it administers.
-struct Alone {
-    leaver: String,
-    org: String,
-    /// The organization's default workspace, which the leaver administers.
-    workspace: String,
-    /// On PostgreSQL, an organization of others; the test's own is somebody else's
-    /// too, with the leaver a member of it. SQLite holds one organization, the
-    /// leaver's.
-    third: Option<String>,
-}
-
-/// Makes the account that is alone in an organization, and somebody who administers
-/// the instance from outside of it: the instance keeps an administrator.
-async fn alone_in_an_organization(test: &TestStore) -> Alone {
-    let system = test.system();
-    let operator = common::user(&system, "operator").await;
-    system
-        .execute_unchecked(&format!(
-            "UPDATE users SET is_admin = true WHERE id = '{operator}'"
-        ))
-        .await
-        .expect("set");
-    let several = common::db_type() == DbType::Postgres;
-    let (alone, alone_workspace, third) = if several {
-        // The test's organization is somebody else's, the leaver a member of it; a
-        // second is the leaver's alone, and a third nobody's of them.
-        founder(test).await;
-        let (alone, alone_workspace) = common::organization(&system, "Alone").await;
-        let (third, third_workspace) = common::organization(&system, "Third").await;
-        let third_store = test.for_org(&third).expect("an organization");
-        let elsewhere = common::user(&third_store, "elsewhere").await;
-        board_of(&third_store, &third_workspace, &elsewhere).await;
-        link_by(
-            &third_store,
-            &third_workspace,
-            &elsewhere,
-            "a link of the third",
-        )
-        .await;
-        (alone, alone_workspace, Some(third))
-    } else {
-        (test.org_id.clone(), test.workspace_id.clone(), None)
-    };
-    let alone_store = test.for_org(&alone).expect("an organization");
-    let leaver = common::user(test, "leaver").await;
-    if several {
-        board_of(test, &test.workspace_id, &leaver).await;
-        alone_store
-            .add_organization_member(&leaver, OrgRole::Admin)
-            .await
-            .expect("its administrator");
-        alone_store
-            .add_workspace_member(&alone_workspace, &leaver, WorkspaceRole::Admin)
-            .await
-            .expect("let in");
-    } else {
-        // The one organization is the leaver's alone, who administers it and not the
-        // instance: the operator, who is in no organization, does that.
-        for statement in [
-            format!("UPDATE users SET is_admin = false WHERE id = '{leaver}'"),
-            format!("UPDATE organization_members SET role = 'admin' WHERE user_id = '{leaver}'"),
-            format!("UPDATE workspace_members SET role = 'admin' WHERE user_id = '{leaver}'"),
-            format!(
-                "DELETE FROM workspace_members WHERE user_id = '{operator}' \
-                 AND workspace_id = '{alone_workspace}'"
-            ),
-            format!(
-                "DELETE FROM organization_members WHERE user_id = '{operator}' \
-                 AND org_id = '{alone}'"
-            ),
-        ] {
-            system.execute_unchecked(&statement).await.expect("set");
-        }
-    }
-    Alone {
-        leaver,
-        org: alone,
-        workspace: alone_workspace,
-        third,
-    }
-}
-
-/// Begins erasing the account that is alone in `org` at `now`, as its wait running out
-/// begins it. SQLite's one organization is the instance's own, which goes with no
-/// account: the first step refuses there, and what it would write is written here, so
-/// that the statements that take an organization away are held to both databases.
-async fn begin_alone(test: &TestStore, leaver: &str, org: &str, now: i64) {
-    if common::db_type() == DbType::Postgres {
-        let begun = test
-            .begin_account_erasure(leaver, now, Erasing::AfterTheWait)
-            .await
-            .expect("asked");
-        assert_eq!(begun, ErasureStart::Begun, "the erasing begins");
-        return;
-    }
-    // Its asking was refused too: the operator's word is refused the same way.
-    let begun = test
-        .begin_account_erasure(leaver, now, Erasing::AtOnce)
-        .await
-        .expect("asked");
-    let ErasureStart::Refused(standing) = begun else {
-        panic!("the instance's own organization was to go: {begun:?}");
-    };
-    assert_eq!(standing.sole_admin_of[0].id, org, "{standing:?}");
-    for statement in [
-        format!(
-            "UPDATE users SET delete_at = {now}, delete_after = {now}, \
-             erase_started_at = {now} WHERE id = '{leaver}'"
-        ),
-        format!("UPDATE organizations SET delete_at = {now} WHERE id = '{org}'"),
-    ] {
-        test.system()
-            .execute_unchecked(&statement)
-            .await
-            .unwrap_or_else(|error| panic!("{statement}: {error}"));
-    }
-}
-
-/// Fills an organization with what one holds: a board with a card and a file, what
-/// its person wrote on the card and a group of people they are in, a board and a
-/// workspace in the trash, a link, a provider, and a record.
-async fn fill(alone_store: &Store, alone: &str, alone_workspace: &str, leaver: &str) {
-    let (board, card) = board_of(alone_store, alone_workspace, leaver).await;
-    work_on(alone_store, &board, &card, leaver).await;
-    let people = alone_store
-        .create_team(alone_workspace, "some people", leaver)
-        .await
-        .expect("a team of the workspace");
-    alone_store
-        .add_team_member(alone_workspace, &people, leaver, leaver)
-        .await
-        .expect("the leaver is in it");
-    alone_store
-        .save_file_info(&file_of(&board))
-        .await
-        .expect("a file");
-    let (in_the_trash, _) = board_of(alone_store, alone_workspace, leaver).await;
-    alone_store
-        .delete_container(&in_the_trash, leaver)
-        .await
-        .expect("to the trash");
-    let trashed = common::workspace(alone_store).await;
-    alone_store
-        .add_workspace_member(&trashed, leaver, WorkspaceRole::Admin)
-        .await
-        .expect("let in");
-    board_of(alone_store, &trashed, leaver).await;
-    alone_store
-        .execute_unchecked(&format!(
-            "UPDATE workspaces SET delete_at = {T0} WHERE id = '{trashed}'"
-        ))
-        .await
-        .expect("the workspace is in the trash");
-    link_by(alone_store, alone_workspace, leaver, "a link into it").await;
-    alone_store
-        .execute_unchecked(&format!(
-            "INSERT INTO oidc_providers (id, org_id, issuer, client_id, client_secret, \
-             auto_join, enabled, create_at, update_at) VALUES ('{}', '{alone}', \
-             'https://provider.example', 'client', '', true, true, {T0}, {T0})",
-            new_id()
-        ))
-        .await
-        .expect("a provider");
-    alone_store
-        .execute_unchecked(&format!(
-            "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, \
-             create_at) VALUES ('{}', '{alone}', '{leaver}', 'person', \
-             'oidc_provider_configured', '{alone}', {T0})",
-            new_id()
-        ))
-        .await
-        .expect("a record");
-}
-
-/// Fills the own space of `owner` with what one holds, a board with a card and a file
-/// and what its owner wrote on the card, and returns the space's organization.
-async fn fill_the_space_of(test: &TestStore, owner: &str) -> String {
-    let query = format!("SELECT CAST(id AS TEXT) FROM organizations WHERE owner_id = '{owner}'");
-    let found = test.system().texts_unchecked(&query).await;
-    let org = found.expect("read").remove(0);
-    let workspace = common::own_workspace(test, owner).await;
-    let space = test.for_org(&org).expect("an organization");
-    let (board, card) = board_of(&space, &workspace, owner).await;
-    work_on(&space, &board, &card, owner).await;
-    let saved = space.save_file_info(&file_of(&board)).await;
-    saved.expect("a file of the space");
-    // A diary of the space: the entry of a day, one in the trash, and a file.
-    let diary = crate::diaries::new_diary(&workspace);
-    let made = space.create_diary(diary, owner, fvoci_model::DiaryMaking::Another);
-    let diary = made.await.expect("a diary of the space").diary.id;
-    crate::diaries::written(&space, &diary, "2024-02-29", owner).await;
-    let gone = crate::diaries::written(&space, &diary, "2024-03-01", owner).await;
-    let deleted = space.delete_block(&gone.id, owner).await;
-    deleted.expect("an entry in the trash");
-    let saved = space.save_file_info(&file_of(&diary)).await;
-    saved.expect("a file of the diary");
-    org
-}
-
-/// No column of any table names the space `org` any more, but what the storage is
-/// still to be told.
-async fn check_nothing_names(system: &Store, org: &str) {
-    assert_eq!(
-        holding(system, org).await,
-        keeps_the_organization(),
-        "nothing names the space but what the storage is to be told"
-    );
-}
-
-/// The organization of others, and the test's own, hold the rows they held (`kept`,
-/// in that order), but for the leaver's own membership of the test's.
-async fn check_the_others_keep(test: &TestStore, third: &str, kept: Vec<Vec<(String, i64)>>) {
-    let after = vec![
-        rows_of(&test.system(), third).await,
-        rows_of(&test.system(), &test.org_id).await,
-    ];
-    // The leaver's own membership of the test's organization went with the account.
-    let mut expected = kept;
-    for (table, rows) in &mut expected[1] {
-        if [
-            "organization_members",
-            "workspace_members",
-            "container_members",
-        ]
-        .contains(&table.as_str())
-        {
-            *rows -= 1;
-        }
-    }
-    assert_eq!(after, expected, "the other organizations keep every row");
-    assert!(
-        test.count_rows("blocks").await.expect("counted") > 0,
-        "what the account wrote in the organization that stays, stays"
-    );
-}
-
-/// An organization that has nobody but the account goes with it, and everything in
-/// it: no column of any table names it afterwards, but what the storage is still to be
-/// told, and no table holds more rows than before it was filled. The other
-/// organizations of the account, and those of others, keep every row. SQLite's one
-/// organization is the instance's own, which is not asked to go: it is taken away
-/// here all the same ([`begin_alone`]).
-#[tokio::test]
-async fn an_organization_that_has_nobody_else_goes_with_the_account() {
-    let test = common::setup().await;
-    let system = test.system();
-    let Alone {
-        leaver,
-        org: alone,
-        workspace: alone_workspace,
-        third,
-    } = alone_in_an_organization(&test).await;
-    let several = third.is_some();
-    let alone_store = test.for_org(&alone).expect("an organization");
-    let before = rows_of_every_table(&system).await;
-    fill(&alone_store, &alone, &alone_workspace, &leaver).await;
-    let space = fill_the_space_of(&test, &leaver).await;
-    for table in HELD_BY_AN_ORGANIZATION {
-        assert!(
-            alone_store.count_rows(table).await.expect("counted") > 0,
-            "{table} holds rows of it before"
-        );
-    }
-    let kept = match &third {
-        Some(third) => vec![
-            rows_of(&system, third).await,
-            rows_of(&system, &test.org_id).await,
-        ],
-        None => Vec::new(),
-    };
-
-    let standing = test.account_deletion_standing(&leaver).await.expect("read");
-    // The instance's own organization stays, whoever is in it.
-    let (goes, stays) = if several {
-        (&standing.alone_in, &standing.sole_admin_of)
-    } else {
-        (&standing.sole_admin_of, &standing.alone_in)
-    };
-    assert_eq!(goes.len(), 1, "{standing:?}");
-    assert_eq!(goes[0].id, alone, "{standing:?}");
-    assert!(stays.is_empty(), "{standing:?}");
-    let counted = alone_store
-        .leaving_organization(goes[0].clone())
-        .await
-        .expect("counted");
-    assert_eq!(
-        (counted.boards, counted.wikis, counted.files),
-        (Some(1), Some(0), Some(1)),
-        "what is in use is counted"
-    );
-    let asked = test
-        .request_account_deletion(&leaver, "", T0, T0 + WAIT)
-        .await
-        .expect("asked");
-    assert_eq!(
-        matches!(asked, DeletionAsking::Asked(_)),
-        several,
-        "asked where the organization goes: {asked:?}"
-    );
-
-    begin_alone(&test, &leaver, &alone, T0 + WAIT).await;
-    let erased = erase(&test, &leaver, Erasing::AfterTheWait, T0 + WAIT).await;
-
-    let removed: Vec<&LeftFrom> = erased
-        .iter()
-        .filter(|from| from.removed.is_some())
-        .collect();
-    // The organization, and the leaver's own space with what it holds.
-    assert_eq!(removed.len(), 2, "two organizations went: {erased:?}");
-    let files: Vec<_> = removed
-        .iter()
-        .flat_map(|from| &from.removed.as_ref().expect("removed").files)
-        .collect();
-    // The file of the organization's board, of the space's board and of its diary.
-    assert_eq!(files.len(), 3, "the files of each are doomed: {files:?}");
-    check_nothing_names(&system, &space).await;
-    assert_eq!(
-        holding(&system, &alone).await,
-        keeps_the_organization(),
-        "nothing names the organization but what the storage is to be told"
-    );
-    for table in HELD_BY_AN_ORGANIZATION {
-        // SQLite holds the system's organization too, which has a workspace, and
-        // the space of the operator, who is in it and in its workspace. The leaver's
-        // own space went with the account.
-        let others = match (several, table) {
-            (false, "workspaces") => 2,
-            (false, "organization_members" | "workspace_members") => 1,
-            _ => 0,
-        };
-        assert_eq!(
-            alone_store.count_rows(table).await.expect("counted"),
-            others,
-            "{table} holds nothing of it afterwards"
-        );
-    }
-    // Nothing of what filled it is left, in a table that names an organization or in
-    // one that does not: but for the records of the leaving where the account was a
-    // member besides, and what the storage is to be told, no table has grown.
-    for (table, rows) in rows_of_every_table(&system).await {
-        if ["audit_log", "loose_objects"].contains(&table.as_str()) {
-            continue;
-        }
-        assert!(
-            rows <= before[&table],
-            "{table} holds {rows} rows, and held {} before the organization was filled",
-            before[&table]
-        );
-    }
-    if let Some(third) = &third {
-        check_the_others_keep(&test, third, kept).await;
-    }
-    test.teardown().await;
-}
-
-/// Somebody who came into the organization during the wait keeps it: the account is
-/// then the only administrator of an organization with other people, and is not
-/// erased.
-#[tokio::test]
-async fn an_organization_somebody_came_into_during_the_wait_stays() {
-    if common::db_type() != DbType::Postgres {
-        return;
-    }
-    let test = common::setup().await;
-    let system = test.system();
-    founder(&test).await;
-    let (alone, _) = common::organization(&system, "Alone").await;
-    let alone_store = test.for_org(&alone).expect("an organization");
-    let leaver = common::user(&test, "leaver").await;
-    alone_store
-        .add_organization_member(&leaver, OrgRole::Admin)
-        .await
-        .expect("its administrator");
-    assert!(matches!(
-        test.request_account_deletion(&leaver, "", T0, T0 + WAIT)
-            .await
-            .expect("asked"),
-        DeletionAsking::Asked(_)
-    ));
-    let newcomer = common::user(&system, "newcomer").await;
-    alone_store
-        .add_organization_member(&newcomer, OrgRole::Member)
-        .await
-        .expect("let in");
-
-    let ErasureStart::Refused(standing) = test
-        .begin_account_erasure(&leaver, T0 + WAIT, Erasing::AfterTheWait)
-        .await
-        .expect("asked")
-    else {
-        panic!("the only administrator of an organization with a newcomer was erased");
-    };
-    assert_eq!(standing.sole_admin_of[0].id, alone);
-    assert_eq!(
-        alone_store
-            .count_rows("organizations")
-            .await
-            .expect("counted"),
-        1,
-        "the organization stays"
-    );
-    assert_eq!(
-        count(
-            &alone_store,
-            "SELECT CAST(count(*) AS TEXT) FROM organizations WHERE delete_at = 0"
-        )
-        .await,
-        1,
-        "in use"
-    );
-    test.teardown().await;
-}
-
-/// Somebody who comes into an organization after it was put out of use to go, past the
-/// question the erasing began with, keeps it: it is in use again, the account leaves
-/// it as it leaves any other, and whoever runs the server is to be told that it has
-/// no administrator.
-#[tokio::test]
-async fn an_organization_somebody_came_into_past_the_mark_is_in_use_again() {
-    let test = common::setup().await;
-    let system = test.system();
-    let Alone { leaver, org, .. } = alone_in_an_organization(&test).await;
-    let in_use = format!(
-        "SELECT CAST(count(*) AS TEXT) FROM organizations \
-         WHERE delete_at = 0 AND CAST(id AS TEXT) = '{org}'"
-    );
-    if common::db_type() == DbType::Postgres {
-        assert!(matches!(
-            test.request_account_deletion(&leaver, "", T0 - WAIT, T0)
-                .await
-                .expect("asked"),
-            DeletionAsking::Asked(_)
-        ));
-    }
-    begin_alone(&test, &leaver, &org, T0).await;
-    assert_eq!(count(&system, &in_use).await, 0, "out of use, to go");
-    let newcomer = common::user(&system, "newcomer").await;
-    system
-        .execute_unchecked(&format!(
-            "INSERT INTO organization_members (org_id, user_id, role, create_at) \
-             VALUES ('{org}', '{newcomer}', 'member', {T0}) ON CONFLICT DO NOTHING"
-        ))
-        .await
-        .expect("somebody comes in");
-
-    let erased = erase_from_organizations(&test, &leaver, Erasing::AfterTheWait).await;
-
-    let kept: Vec<&LeftFrom> = erased
-        .iter()
-        .filter(|from| from.kept_for_newcomer)
-        .collect();
-    assert_eq!(kept.len(), 1, "the organization is kept: {erased:?}");
-    assert_eq!(kept[0].removed, None, "nothing of it is removed");
-    assert_eq!(count(&system, &in_use).await, 1, "in use again");
-    assert_eq!(
-        test.finish_account_erasure(&leaver, T0 + 1)
-            .await
-            .expect("finished"),
-        ErasureEnd::Erased,
-        "the account is erased all the same"
-    );
-    assert_eq!(
-        system
-            .texts_unchecked(&format!(
-                "SELECT CAST(user_id AS TEXT) FROM organization_members \
-                 WHERE CAST(org_id AS TEXT) = '{org}'"
-            ))
-            .await
-            .expect("read"),
-        [newcomer],
-        "the newcomer is in it, alone"
-    );
-    test.teardown().await;
-}
-
-/// The instance's own organization goes with no account, whoever is in it: the
-/// organization after it would be the instance's then, and its administrators the
-/// instance's. Its only administrator is not erased, alone in it or not.
-#[tokio::test]
-async fn the_instances_own_organization_does_not_go_with_an_account() {
-    let test = common::setup().await;
-    let system = test.system();
-    let (alone, others) = if common::db_type() == DbType::Postgres {
-        // The founder is alone in the test's organization, the oldest; somebody of
-        // another administers the instance too.
-        let founder = founder(&test).await;
-        let (elsewhere, _) = common::organization(&system, "Elsewhere").await;
-        let elsewhere_store = test.for_org(&elsewhere).expect("an organization");
-        let operator = common::user(&elsewhere_store, "operator").await;
-        system
-            .execute_unchecked(&format!(
-                "UPDATE users SET is_admin = true WHERE id = '{operator}'"
-            ))
-            .await
-            .expect("set");
-        (founder, vec![elsewhere])
-    } else {
-        (alone_in_an_organization(&test).await.leaver, Vec::new())
-    };
-
-    let standing = test.account_deletion_standing(&alone).await.expect("read");
-    assert!(!standing.last_instance_admin, "{standing:?}");
-    assert_eq!(standing.alone_in, [], "it does not go: {standing:?}");
-    assert_eq!(standing.sole_admin_of.len(), 1, "{standing:?}");
-    assert_eq!(standing.sole_admin_of[0].id, test.org_id, "{standing:?}");
-    assert!(matches!(
-        test.request_account_deletion(&alone, "", T0, T0 + WAIT)
-            .await
-            .expect("asked"),
-        DeletionAsking::Refused(_)
-    ));
-    assert!(matches!(
-        test.begin_account_erasure(&alone, T0, Erasing::AtOnce)
-            .await
-            .expect("asked"),
-        ErasureStart::Refused(_)
-    ));
-    // The organization the instance's administrators are of is the one it was.
-    let in_use = system
-        .texts_unchecked(
-            "SELECT CAST(id AS TEXT) FROM organizations \
-             WHERE delete_at = 0 AND is_system = false AND owner_id IS NULL \
-             ORDER BY create_at, id",
-        )
-        .await
-        .expect("read");
-    assert_eq!(in_use[0], test.org_id, "the oldest in use");
-    assert_eq!(in_use.len(), 1 + others.len(), "none went");
-    test.teardown().await;
-}
-
-/// An organization that is out of use to go with one account is not taken along, nor
-/// put back in use, by the erasing of another that has something left in it: it is
-/// the first's to go with.
-#[tokio::test]
-async fn an_organization_goes_with_the_account_it_was_put_out_of_use_for() {
-    if common::db_type() != DbType::Postgres {
-        return;
-    }
-    let test = common::setup().await;
-    let system = test.system();
-    let Alone {
-        leaver,
-        org,
-        workspace,
-        ..
-    } = alone_in_an_organization(&test).await;
-    let org_store = test.for_org(&org).expect("an organization");
-    let (board, _) = board_of(&org_store, &workspace, &leaver).await;
-    // Somebody of another organization kept a role on a board of this one.
-    let other = common::user(&test, "other").await;
-    system
-        .execute_unchecked(&format!(
-            "INSERT INTO container_members (container_id, user_id, org_id, scheme_admin, \
-             scheme_editor, scheme_commenter, scheme_viewer) \
-             VALUES ('{board}', '{other}', '{org}', false, true, false, false)"
-        ))
-        .await
-        .expect("a role is left");
-    assert!(matches!(
-        test.request_account_deletion(&leaver, "", T0 - WAIT, T0)
-            .await
-            .expect("asked"),
-        DeletionAsking::Asked(_)
-    ));
-    begin_alone(&test, &leaver, &org, T0).await;
-    let out_of_use = format!(
-        "SELECT CAST(count(*) AS TEXT) FROM organizations \
-         WHERE delete_at > 0 AND CAST(id AS TEXT) = '{org}'"
-    );
-
-    let of_other = erase(&test, &other, Erasing::AtOnce, T0 + 1).await;
-
-    // The other's own space goes with the other, and holds nothing.
-    let gone: Vec<_> = of_other
-        .iter()
-        .filter_map(|from| from.removed.as_ref())
-        .collect();
-    assert!(
-        matches!(gone[..], [own] if own.files.is_empty())
-            && of_other.iter().all(|from| !from.kept_for_newcomer),
-        "the other's erasing neither takes the organization nor keeps it: {of_other:?}"
-    );
-    assert_eq!(count(&system, &out_of_use).await, 1, "still to go");
-    let of_leaver = erase(&test, &leaver, Erasing::AfterTheWait, T0 + 2).await;
-    assert_eq!(
-        of_leaver
-            .iter()
-            .filter(|from| from.removed.is_some())
-            .count(),
-        2,
-        "it goes with the account it was put out of use for, as the account's own \
-         space does: {of_leaver:?}"
-    );
-    assert_eq!(
-        holding(&system, &org).await,
-        NOBODY,
-        "nothing names the organization: it held no file"
     );
     test.teardown().await;
 }

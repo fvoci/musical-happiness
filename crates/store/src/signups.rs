@@ -435,6 +435,7 @@ impl Store {
                 links.push(")");
                 scope.execute(links).await?;
                 crate::email_change::delete_expired(scope, now).await?;
+                crate::email_revert::delete_expired(scope, now).await?;
                 Ok(removed)
             })
             .await
@@ -509,13 +510,17 @@ async fn holder_of_names(
 /// # Errors
 ///
 /// Returns [`StoreError::Conflict`] if an account, deleted or not, or a registration
-/// that has not ended has the name or the address.
+/// that has not ended has the name or the address, or a link that gives an account its
+/// address back holds the address ([`crate::email_revert`]): as if that account had it.
 pub(crate) async fn hold_names(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError> {
     claim_account_names(scope).await?;
     if let Some(taken) =
         holder_of_names(scope, Holders::Accounts, &signup.username, &signup.email).await?
     {
         return Err(StoreError::Conflict(taken));
+    }
+    if crate::email_revert::holds(scope, &signup.email, None, signup.create_at).await? {
+        return Err(StoreError::Conflict(Taken::Email));
     }
     insert(scope, signup).await
 }

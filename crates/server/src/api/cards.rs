@@ -13,7 +13,7 @@ use utoipa_axum::routes;
 use super::contract::bodies::NewCard;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{
-    BoardId, BodyVersionNumber, CardId, DisableNotify, Page, PerPage, Preview,
+    BoardId, BodyVersionNumber, CardId, CardNumber, DisableNotify, Page, PerPage, Preview,
 };
 use super::contract::tag;
 use super::workspace::InWorkspace;
@@ -32,6 +32,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_create_card, handle_get_cards))
         .routes(routes!(handle_get_card, handle_patch_card))
+        .routes(routes!(handle_get_card_by_number))
         .routes(routes!(
             handle_get_card_body_versions,
             handle_keep_card_body_version
@@ -252,6 +253,48 @@ async fn handle_get_card(ws: InWorkspace, Path((_, card_id)): Path<(String, Stri
     .await?;
     let card = ws.app.card_of_block(&block).await?;
     tracing::debug!(board_id = %card.board_id, card_id = %card.id, user_id, "GetCard");
+    Ok(json_response(&card))
+}
+
+/// A card by its number
+///
+/// The card of the board that has the number (`Card.number`, as `#12` names the card),
+/// for the members of the board, as `getCard` gives it. One answer, 404, says that there
+/// is no such card, whatever the reason: no card of the board has the number (the card
+/// is in the trash, is gone for good, or is a template of the board's cards), the
+/// number is none, the board is one the user does not read (a private board they are
+/// no member of, one they only manage, one they are no guest of), or is no board of
+/// this workspace (of another workspace or organization, a wiki, or none at all).
+#[utoipa::path(
+    get,
+    path = "/w/{workspaceId}/boards/{boardId}/cards/by-number/{number}",
+    operation_id = "getCardByNumber",
+    tag = tag::CARDS,
+    params(MemberWorkspaceId, BoardId, CardNumber),
+    responses((status = 200, description = "The card.", body = Card)),
+)]
+async fn handle_get_card_by_number(
+    ws: InWorkspace,
+    Path((_, board_id, number)): Path<(String, String, String)>,
+) -> ApiResult {
+    const WHAT: &str = "card";
+    let user_id = ws.session.user_id.as_str();
+    let denial = "access denied to fetch card";
+    let view = ContainerPermission::View;
+    require_permission_through(&ws.app, user_id, &board_id, view, denial, WHAT).await?;
+    // A number as `Card.number` writes it, so that a card has one path: not `+7` or `07`.
+    let number = number
+        .parse::<u32>()
+        .ok()
+        .filter(|parsed| parsed.to_string() == number)
+        .ok_or_else(|| AppError::not_found(WHAT))?;
+    let block = ws
+        .app
+        .card_by_number(&board_id, number)
+        .await?
+        .ok_or_else(|| AppError::not_found(WHAT))?;
+    let card = ws.app.card_of_block(&block).await?;
+    tracing::debug!(board_id, card_id = %card.id, user_id, "GetCardByNumber");
     Ok(json_response(&card))
 }
 

@@ -79,6 +79,13 @@ export class Placed {
     return card.title || m['CalendarCard.untitled']();
   }
 
+  /** The title as a screen reader hears it: after the card's number, where it has one. */
+  saidTitle(card: Card): string {
+    const title = this.title(card);
+    if (card.number === undefined) return title;
+    return m.card_number_and_title({ number: card.number, title });
+  }
+
   /**
    * The time a card starts at, on the reader's clock: only for a date
    * property whose value carries one. A time of creation is not written on
@@ -133,15 +140,15 @@ export class Placed {
 
   /**
    * What a screen reader hears for a bar: what the bar shows (the time, where
-   * the value has one, and the title), then its day or days. A bar stands
-   * apart from the cells of its days, so it says them itself.
+   * the value has one, the number and the title), then its day or days. A bar
+   * stands apart from the cells of its days, so it says them itself.
    */
   name(card: Card): string {
     const span = this.#spanOf.get(card.id);
     const time = this.time(card);
     const title = time
-      ? m.calendar_time_title({ time, title: this.title(card) })
-      : this.title(card);
+      ? m.calendar_time_title({ time, title: this.saidTitle(card) })
+      : this.saidTitle(card);
     if (!span) return title;
     return m.calendar_card_days({
       title,

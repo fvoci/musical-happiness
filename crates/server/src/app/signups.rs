@@ -293,6 +293,7 @@ impl App {
             let holder = PasswordHolder {
                 username: &signup.username,
                 password_hash: &signup.password_hash,
+                locked: false,
             };
             if !self
                 .is_password_of(holder, registrant.password, attempt)

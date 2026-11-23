@@ -63,6 +63,8 @@ export interface CardLine {
   bar: BarBox;
   /** What the row and the bar show. */
   title: string;
+  /** The card's number on its board, which the row shows; none for a template. */
+  number?: number;
   /**
    * What a screen reader hears for the bar: the title, the days, the cards
    * it comes after, what is wrong with that (out of order, on a loop), and
@@ -303,8 +305,8 @@ export class GanttChart {
     if (known !== undefined) return known;
     const time = this.placed.time(card);
     const title = time
-      ? m.calendar_time_title({ time, title: this.placed.title(card) })
-      : this.placed.title(card);
+      ? m.calendar_time_title({ time, title: this.placed.saidTitle(card) })
+      : this.placed.saidTitle(card);
     const span = this.placed.span(card.id);
     const name = span
       ? m.calendar_card_days({
@@ -376,6 +378,7 @@ export class GanttChart {
           id: row.id,
           bar: { x: bar.x, width: bar.width, fromBefore: bar.fromBefore, toAfter: bar.toAfter },
           title: this.placed.title(card),
+          ...(card.number === undefined ? {} : { number: card.number }),
           name: this.#name(card),
           late: this.#lateBefore(row.id).length > 0,
           loop: this.relations.loopCards.has(row.id),

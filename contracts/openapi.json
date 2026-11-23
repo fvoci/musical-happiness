@@ -446,6 +446,15 @@
             "description": "The identifier of the user who last modified the block.",
             "type": "string"
           },
+          "number": {
+            "description": "A card's number on its board, as `Card.number` gives it; absent for a template\nof the board's cards and for every other block. The server gives it and ignores\na client's, whatever it is.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "parentId": {
             "description": "The identifier of the parent block; empty for root blocks.",
             "type": "string"
@@ -735,6 +744,15 @@
             "description": "The identifier of the user who last modified the card.",
             "type": "string"
           },
+          "number": {
+            "description": "The card's number on its board, as `#12` names it: from 1, one more for each card\nmade on the board, never given again, also once the card is gone. A card keeps it\nwhile it is one; a copy and an import are new cards with new numbers, and a card\nthat comes back from the trash has its own. `null` for a template of the board's\ncards (`isTemplate`): a card made a template loses its number, and takes the next\none if it is made a card again. The server gives it: what a request sends here is\nignored, whatever it is.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "preview": {
             "oneOf": [
               {
@@ -785,6 +803,7 @@
           "isTemplate",
           "lastCommentAt",
           "modifiedBy",
+          "number",
           "properties",
           "tasksDone",
           "tasksTotal",
@@ -2425,6 +2444,15 @@
           "kind": {
             "$ref": "#/components/schemas/LinkedKind",
             "description": "Whether it is a card or a page."
+          },
+          "number": {
+            "description": "A card's number on its board, as `Card.number` gives it; absent for a page and\nfor a template of the board's cards.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "title": {
             "description": "Its title; empty for one without.",
@@ -4722,6 +4750,31 @@
         },
         "type": "object"
       },
+      "RevertEmailChange": {
+        "properties": {
+          "token": {
+            "description": "The secret from the fragment of the link mailed with the notice of a change.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "RevertedEmailChange": {
+        "description": "What became of the address of an account a link was used for.",
+        "properties": {
+          "email": {
+            "description": "The address the account has again: the one the link was mailed to. Left out\nwhere another account or a registration had it by then, and the account kept\nthe address it had.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "SearchHit": {
         "description": "One thing a search found: the user reads it now.",
         "properties": {
@@ -4740,6 +4793,15 @@
           "kind": {
             "$ref": "#/components/schemas/SearchKind",
             "description": "What it is."
+          },
+          "number": {
+            "description": "A card's number on its board, as `Card.number` gives it; absent for a page.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "snippet": {
             "description": "A piece of its body around what matched, in stretches that follow one\nanother; empty where the body has changed since it was indexed, or has nothing\nto show.",
@@ -6112,7 +6174,7 @@
     },
     "/api/v1/email-change/confirm": {
       "post": {
-        "description": "Consumes the token of the link mailed by `requestEmailChange`, within a day of\nthe mail and seven days of the request: the address the link was mailed to becomes\nthe account's. No session is needed and none is made: the link shows that its\nholder reads the new address, and the password was given when the change was\nasked for. From then on reset links go to the new address and `login` finds the\naccount by it; the reset links mailed to the address before end, and that address\nis mailed a notice that it is the account's no more, which names the account and\nnothing of the new address. The account's sessions go on.\n\nA link is used once. A token that is missing, used, ended, replaced by a newer\nmail or request, or taken back (`cancelEmailChange`), one of an account that is no\nlonger in use or whose password was set anew since, and one whose address somebody\nelse took meanwhile are all answered 400 naming `token` in `errors`, and change\nnothing: which of them it was is not said. Requests are counted by where they come\nfrom, as registrations are, and too many are 429.",
+        "description": "Consumes the token of the link mailed by `requestEmailChange`, within a day of\nthe mail and seven days of the request: the address the link was mailed to becomes\nthe account's. No session is needed and none is made: the link shows that its\nholder reads the new address, and the password was given when the change was\nasked for. From then on reset links go to the new address and `login` finds the\naccount by it; the reset links mailed to the address before end, and that address\nis mailed a notice that it is the account's no more, which names the account and\nnothing of the new address, with a link that gives the account that address back\n(`revertEmailChange`). The account's sessions go on.\n\nA link is used once. A token that is missing, used, ended, replaced by a newer\nmail or request, or taken back (`cancelEmailChange`), one of an account that is no\nlonger in use or whose password was set anew since, and one whose address somebody\nelse took meanwhile are all answered 400 naming `token` in `errors`, and change\nnothing: which of them it was is not said. Requests are counted by where they come\nfrom, as registrations are, and too many are 429. While the server's queue of\nrecovery mail has no place for the notice, the change is not made and the answer\nis 503: the link stays as it was.",
         "operationId": "confirmEmailChange",
         "requestBody": {
           "content": {
@@ -6148,6 +6210,16 @@
               }
             }
           },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The notice to the address before has no place yet: nothing was changed."
+          },
           "default": {
             "content": {
               "application/problem+json": {
@@ -6163,6 +6235,71 @@
           {}
         ],
         "summary": "Confirm the new email address of an account",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/email-change/revert": {
+      "post": {
+        "description": "Consumes the token of the link mailed, with the notice of `confirmEmailChange`, to\nthe address the account had until then (`<server_url>/revert-email#<token>`, for\nseven days from the change, used once): for the owner of an account whose address\nwas moved by somebody who knew the password. No session is needed and none is made.\nOpening the page of the link changes nothing; this request does, all of it at once:\n\n- the address the link was mailed to is the account's again and is answered as\n  `email`, unless another account or a registration has it by now: then the\n  account keeps the address it has, and `email` is left out;\n- every session of the account ends, and its live connections close;\n- the account's password is locked: `login`, and every request that asks for the\n  password, refuses it as a wrong one, until a new one is set through a reset link\n  (`requestPasswordReset`, mailed to the address the account has) or by the\n  operator. Sign-ins through a provider go on as they did, and open no more;\n- the change of address that waited ends, and so do the account's reset links and\n  the links of this kind mailed after this one. Those mailed before it stand.\n\nThe address the account had until then is mailed a notice that names nothing of\nthe address it has now. No reset link is mailed by this request.\n\nWhile a link stands, the address it was mailed to is held for the account: another\naccount's change of address, `register` and `acceptInvitation` are answered as for\nan address an account has. Nothing ends a link but its use, its seven days and the\nerasing of the account: not a newer change of address, nor taking a change back,\nnor a password changed, set or reset, nor asking to delete the account.\n\nA token that is missing, used, ended, of a link mailed after one that was used, or\nof an account that is being erased, is 400 naming `token` in `errors`, and changes\nnothing: which of them it was is not said. Requests are counted by where they come\nfrom, as registrations are, and too many are 429.",
+        "operationId": "revertEmailChange",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevertEmailChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevertedEmailChange"
+                }
+              }
+            },
+            "description": "The account's sessions ended and its password is locked, and it has the address back unless `email` is left out."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests from where this one comes from.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Give an account the email address it had back",
         "tags": [
           "auth"
         ]
@@ -10736,6 +10873,68 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/by-number/{number}": {
+      "get": {
+        "description": "The card of the board that has the number (`Card.number`, as `#12` names the card),\nfor the members of the board, as `getCard` gives it. One answer, 404, says that there\nis no such card, whatever the reason: no card of the board has the number (the card\nis in the trash, is gone for good, or is a template of the board's cards), the\nnumber is none, the board is one the user does not read (a private board they are\nno member of, one they only manage, one they are no guest of), or is no board of\nthis workspace (of another workspace or organization, a wiki, or none at all).",
+        "operationId": "getCardByNumber",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the card on the board, as `Card.number` gives it. One that no card of the board has, and what is no number, is 404.",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Card"
+                }
+              }
+            },
+            "description": "The card."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "A card by its number",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/boards/{boardId}/property-order": {
       "put": {
         "description": "The body names every card property of the board (`cardProperties`, by `id`) once,\nin the new order, as `reorderCategories` names categories; one left out, one named\ntwice or one the board does not have is 400, and nothing changes. For who may manage\nthe board's properties, as `patchContainer`. The board's listeners get `UPDATE_CONTAINER`, as\nfor any change of the board.",
@@ -14925,7 +15124,7 @@
     },
     "/api/v1/w/{workspaceId}/references/search": {
       "get": {
-        "description": "The cards and pages of this workspace, on a board or a wiki the user reads, whose\ntitle has every word of `q` in it, as spaces divide it and whatever the case of the\nletters (of every letter, not only ASCII); `%` and `_` are characters like any\nother. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, and a card\nthat is a template of its board's cards are never found. A `q` of more than 200\ncharacters is 400.",
+        "description": "The cards and pages of this workspace, on a board or a wiki the user reads, whose\ntitle has every word of `q` in it, as spaces divide it and whatever the case of the\nletters (of every letter, not only ASCII); `%` and `_` are characters like any\nother. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, and a block\nwhose `isTemplate` is `true` (for a card, a template of its board's cards) are never\nfound. A `q` of more than 200\ncharacters is 400.",
         "operationId": "searchReferences",
         "parameters": [
           {

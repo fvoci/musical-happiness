@@ -13,12 +13,15 @@
 //! What has been in the trash for longer than the retention period is removed for good
 //! by [`Store::purge_trash`].
 
+mod stored;
+
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
     Block, Body, Container, ContainerKinds, ContainerMember, ContainerType, FileInfo, new_id,
 };
 use serde::de::DeserializeOwned;
+use stored::{StoredFiles, StoredPlace};
 
 use crate::Store;
 use crate::block_derived;
@@ -641,6 +644,7 @@ pub(crate) async fn take_blocks_out_of_trash(
             .forget_if_gone(scope, &mut block.created_by)
             .await?;
     }
+    crate::card_numbers::number_restored(scope, &mut restored).await?;
     // A statement per block: each is checked on its own, so a parent goes first. What
     // they show, the trash kept for them.
     for index in parents_first(&restored) {
@@ -759,6 +763,7 @@ pub(crate) async fn delete_container(
         .push_bind(", ", Param::json(&places)?)
         .push(")");
     scope.execute(sql).await?;
+    crate::card_numbers::keep_with_trashed(scope, container_id).await?;
 
     crate::container_team_trash::keep(scope, container_id).await?;
     block_derived::container_trashed(scope, container_id).await?;
@@ -807,6 +812,7 @@ pub(crate) async fn undelete_container(
         .forget_if_gone(scope, &mut container.created_by)
         .await?;
     containers::insert_container_row(scope, &container).await?;
+    crate::card_numbers::bring_back(scope, container_id).await?;
 
     for member in &members {
         // A membership of a user whose row is gone since does not come back.
@@ -892,107 +898,5 @@ impl KnownUsers {
             user_id.clear();
         }
         Ok(())
-    }
-}
-
-/// A [`ContainerPlace`] as the trash keeps it, in `deleted_containers.places`. Its own type, so
-/// that what is stored does not change with the store's interface.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StoredPlace {
-    user_id: String,
-    category_id: String,
-    sort_order: i64,
-    hidden: bool,
-}
-
-impl From<ContainerPlace> for StoredPlace {
-    fn from(place: ContainerPlace) -> Self {
-        Self {
-            user_id: place.user_id,
-            category_id: place.category_id,
-            sort_order: place.sort_order,
-            hidden: place.hidden,
-        }
-    }
-}
-
-impl From<StoredPlace> for ContainerPlace {
-    fn from(place: StoredPlace) -> Self {
-        Self {
-            user_id: place.user_id,
-            category_id: place.category_id,
-            sort_order: place.sort_order,
-            hidden: place.hidden,
-        }
-    }
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-/// The file records of a board as they are kept with the board in the trash. A file
-/// record's own JSON form is the one for clients, which leaves out where the file is.
-struct StoredFiles(Vec<StoredFile>);
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct StoredFile {
-    id: String,
-    container_id: String,
-    stored_name: String,
-    name: String,
-    extension: String,
-    size: i64,
-    path: String,
-    create_at: i64,
-    /// The file's newest version; 1 in what was stored before files had versions.
-    #[serde(default = "first_version")]
-    version: i64,
-    #[serde(default)]
-    created_by: String,
-}
-
-const fn first_version() -> i64 {
-    1
-}
-
-impl From<Vec<FileInfo>> for StoredFiles {
-    fn from(files: Vec<FileInfo>) -> Self {
-        Self(
-            files
-                .into_iter()
-                .map(|file| StoredFile {
-                    id: file.id,
-                    container_id: file.container_id,
-                    stored_name: file.stored_name,
-                    name: file.name,
-                    extension: file.extension,
-                    size: file.size,
-                    path: file.path,
-                    create_at: file.create_at,
-                    version: file.version,
-                    created_by: file.created_by,
-                })
-                .collect(),
-        )
-    }
-}
-
-impl From<StoredFiles> for Vec<FileInfo> {
-    fn from(files: StoredFiles) -> Self {
-        files
-            .0
-            .into_iter()
-            .map(|file| FileInfo {
-                id: file.id,
-                container_id: file.container_id,
-                stored_name: file.stored_name,
-                name: file.name,
-                extension: file.extension,
-                size: file.size,
-                path: file.path,
-                create_at: file.create_at,
-                version: file.version,
-                created_by: file.created_by,
-            })
-            .collect()
     }
 }

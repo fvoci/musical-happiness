@@ -76,6 +76,7 @@ describe('references, in memory', () => {
         icon: '',
         containerId: boardId,
         containerKind: 'board',
+        number: 1,
       },
       {
         id: beta.id,
@@ -84,6 +85,7 @@ describe('references, in memory', () => {
         icon: '',
         containerId: boardId,
         containerKind: 'board',
+        number: 2,
       },
     ]);
 
