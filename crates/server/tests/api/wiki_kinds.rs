@@ -36,7 +36,7 @@ impl Reaches {
     const COURSES: Self = Self(ContainerKinds::COURSES);
     /// Boards, wikis and courses alike; a diary named there is not there.
     const SHARED: Self = Self(ContainerKinds::SHARED);
-    /// Boards and wikis alike; a diary or a course named there is not there.
+    /// Boards, wikis and courses alike; a diary named there is not there.
     const LINKED: Self = Self(ContainerKinds::LINKED);
     /// Boards and wikis alike; a diary or a course named there is not there.
     const COPIED: Self = Self(ContainerKinds::COPIED);
@@ -156,10 +156,20 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getUnit", Reaches::COURSES),
     ("patchUnit", Reaches::COURSES),
     ("deleteUnit", Reaches::COURSES),
+    ("getUnitComments", Reaches::COURSES),
+    ("createUnitComment", Reaches::COURSES),
+    ("patchUnitComment", Reaches::COURSES),
+    ("deleteUnitComment", Reaches::COURSES),
+    ("getUnitCommentVersions", Reaches::COURSES),
+    ("undeleteUnitComment", Reaches::COURSES),
+    ("getUnitBodyVersions", Reaches::COURSES),
+    ("getUnitBodyVersion", Reaches::COURSES),
+    ("restoreUnitBodyVersion", Reaches::COURSES),
+    ("keepUnitBodyVersion", Reaches::COURSES),
     ("moveUnit", Reaches::COURSES),
     ("getDeletedUnits", Reaches::COURSES),
     ("undeleteUnit", Reaches::COURSES),
-    // What names a card or a page from a body: a card and a page name each other.
+    // What names a card, page or unit from a body.
     ("getReferencesTo", Reaches::LINKED),
     // What the holder of a read token reads.
     ("getSharedContainer", Reaches::LINKED),
@@ -169,6 +179,8 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getSharedFileInfo", Reaches::LINKED),
     ("getSharedPageTree", Reaches::WIKIS),
     ("getSharedPage", Reaches::WIKIS),
+    ("getSharedUnitTree", Reaches::COURSES),
+    ("getSharedUnit", Reaches::COURSES),
 ];
 
 /// The parameters of a path that name a container or something that is of one.
@@ -337,21 +349,7 @@ impl World {
                 comment.check_done();
                 (page_id, text(&comment.value(), "id"))
             }
-            ContainerKind::Course => {
-                let units = format!("{ROOT_WS}/courses/{container}/units");
-                let unit = client.post(&units, &json!({"title": "a unit"})).await;
-                unit.check_done();
-                let unit = unit.value();
-                let unit_id = text(&unit, "id");
-                client
-                    .patch(
-                        &format!("{units}/{unit_id}"),
-                        &json!({"readAt": unit["updateAt"], "body": said()}),
-                    )
-                    .await
-                    .check_ok();
-                (unit_id, UNKNOWN_ID.to_owned())
-            }
+            ContainerKind::Course => self.course_unit_with_a_comment(&container).await,
             _ => self.card_with_a_comment(&container).await,
         };
         Things {
@@ -363,6 +361,30 @@ impl World {
             upload: text(&opened.value(), "uploadId"),
             token,
         }
+    }
+
+    async fn course_unit_with_a_comment(&self, course: &str) -> (String, String) {
+        let client = &self.ts.client;
+        let units = format!("{ROOT_WS}/courses/{course}/units");
+        let unit = client.post(&units, &json!({"title": "a unit"})).await;
+        unit.check_done();
+        let unit = unit.value();
+        let unit_id = text(&unit, "id");
+        client
+            .patch(
+                &format!("{units}/{unit_id}"),
+                &json!({"readAt": unit["updateAt"], "body": said()}),
+            )
+            .await
+            .check_ok();
+        let comment = client
+            .post(
+                &format!("{units}/{unit_id}/comments"),
+                &json!({ "body": said() }),
+            )
+            .await;
+        comment.check_done();
+        (unit_id, text(&comment.value(), "id"))
     }
 
     async fn card_with_a_comment(&self, board: &str) -> (String, String) {
@@ -441,6 +463,13 @@ impl World {
                     things.container, things.block
                 );
                 self.ts.client.delete(&unit).await
+            }
+            "undeleteUnitComment" => {
+                let comment = format!(
+                    "{ROOT_WS}/courses/{}/units/{}/comments/{}",
+                    things.container, things.block, things.comment
+                );
+                self.ts.client.delete(&comment).await
             }
             _ => return,
         };
@@ -545,8 +574,8 @@ impl World {
             }
             "createBlocks" | "reorderCardProperties" => json!([]),
             "createCard" => json!({"title": "another card"}),
-            "createPageComment" => json!({"body": said()}),
-            "patchPageComment" => json!({"body": said(), "readAt": 1}),
+            "createPageComment" | "createUnitComment" => json!({"body": said()}),
+            "patchPageComment" | "patchUnitComment" => json!({"body": said(), "readAt": 1}),
             _ => json!({}),
         }
     }
@@ -1198,8 +1227,8 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
             .check_done();
     }
 
-    // Nor is a course unit a block to subscribe to.
-    assert_unit_subscription_refused(&world, &course.block).await;
+    // A course unit accepts subscriptions; a chapter does not.
+    assert_course_subscriptions(&world, &course.container, &course.block).await;
 
     // The wiki is as it was, and so is the board's card.
     let read = client
@@ -1215,29 +1244,55 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
     world.ts.teardown().await;
 }
 
-async fn assert_unit_subscription_refused(world: &World, unit_id: &str) {
-    let subscribe = |block: &str| {
+async fn assert_course_subscriptions(world: &World, course_id: &str, unit_id: &str) {
+    let chapter = world
+        .ts
+        .client
+        .post(
+            &format!("{ROOT_WS}/courses/{course_id}/units"),
+            &json!({"kind": "chapter", "title": "a chapter"}),
+        )
+        .await;
+    chapter.check_done();
+    let chapter_id = text(&chapter.value(), "id");
+    let subscribe = |block: &str, block_type: &str| {
         json!({
-            "blockId": block, "blockType": "unit", "subscriberId": world.me, "subscriberType": "user",
+            "blockId": block, "blockType": block_type, "subscriberId": world.me,
+            "subscriberType": "user",
         })
     };
-    let (to_unit, to_nothing) = (
+    world
+        .ts
+        .client
+        .post(
+            &format!("{ROOT_WS}/subscriptions"),
+            &subscribe(unit_id, "unit"),
+        )
+        .await
+        .check_done();
+    let (to_chapter, to_nothing) = (
         world
             .ts
             .client
-            .post(&format!("{ROOT_WS}/subscriptions"), &subscribe(unit_id))
+            .post(
+                &format!("{ROOT_WS}/subscriptions"),
+                &subscribe(&chapter_id, "chapter"),
+            )
             .await,
         world
             .ts
             .client
-            .post(&format!("{ROOT_WS}/subscriptions"), &subscribe(UNKNOWN_ID))
+            .post(
+                &format!("{ROOT_WS}/subscriptions"),
+                &subscribe(UNKNOWN_ID, "chapter"),
+            )
             .await,
     );
-    to_unit.check_not_found();
+    to_chapter.check_not_found();
     assert_eq!(
-        to_unit.problem(),
+        to_chapter.problem(),
         to_nothing.problem(),
-        "a course unit is refused for subscriptions as a missing block"
+        "a course chapter is refused for subscriptions as a missing block"
     );
 }
 

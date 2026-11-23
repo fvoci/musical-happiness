@@ -379,6 +379,56 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("PATCH", "/courses/{courseId}/units/{unitId}", "patchUnit"),
     ("DELETE", "/courses/{courseId}/units/{unitId}", "deleteUnit"),
     (
+        "GET",
+        "/courses/{courseId}/units/{unitId}/comments",
+        "getUnitComments",
+    ),
+    (
+        "POST",
+        "/courses/{courseId}/units/{unitId}/comments",
+        "createUnitComment",
+    ),
+    (
+        "PATCH",
+        "/courses/{courseId}/units/{unitId}/comments/{commentId}",
+        "patchUnitComment",
+    ),
+    (
+        "DELETE",
+        "/courses/{courseId}/units/{unitId}/comments/{commentId}",
+        "deleteUnitComment",
+    ),
+    (
+        "GET",
+        "/courses/{courseId}/units/{unitId}/comments/{commentId}/versions",
+        "getUnitCommentVersions",
+    ),
+    (
+        "POST",
+        "/courses/{courseId}/units/{unitId}/comments/{commentId}/undelete",
+        "undeleteUnitComment",
+    ),
+    (
+        "GET",
+        "/courses/{courseId}/units/{unitId}/body-versions",
+        "getUnitBodyVersions",
+    ),
+    (
+        "POST",
+        "/courses/{courseId}/units/{unitId}/body-versions",
+        "keepUnitBodyVersion",
+    ),
+    (
+        "GET",
+        "/courses/{courseId}/units/{unitId}/body-versions/{version}",
+        "getUnitBodyVersion",
+    ),
+    (
+        "POST",
+        "/courses/{courseId}/units/{unitId}/body-versions/{version}/restore",
+        "restoreUnitBodyVersion",
+    ),
+    (
         "POST",
         "/courses/{courseId}/units/{unitId}/move",
         "moveUnit",
@@ -431,6 +481,16 @@ const REACHED_BY_ITEM: &[&str] = &[
     "getUnit",
     "patchUnit",
     "deleteUnit",
+    "getUnitComments",
+    "createUnitComment",
+    "patchUnitComment",
+    "deleteUnitComment",
+    "getUnitCommentVersions",
+    "undeleteUnitComment",
+    "getUnitBodyVersions",
+    "keepUnitBodyVersion",
+    "getUnitBodyVersion",
+    "restoreUnitBodyVersion",
     "moveUnit",
     "getDeletedUnits",
     "undeleteUnit",
@@ -1101,6 +1161,8 @@ pub(super) struct Items<'a> {
     pub(super) entry: Option<&'a Block>,
     /// A unit of a course of the same workspace; its `container_id` is the course.
     pub(super) unit: &'a Block,
+    /// A comment on the unit.
+    pub(super) unit_comment: &'a Block,
     pub(super) file: &'a str,
     pub(super) upload_id: &'a str,
     pub(super) category: &'a str,
@@ -1136,6 +1198,11 @@ impl Items<'_> {
         } else {
             self.subscriber.0
         };
+        let comment_id = if template.contains("/courses/") {
+            &self.unit_comment.id
+        } else {
+            &self.comment.id
+        };
         let number = self.card.number.expect("the card has a number").to_string();
         template
             .trim_start_matches("/api/v1")
@@ -1146,7 +1213,7 @@ impl Items<'_> {
             .replace("{blockId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{wikiId}", &pick(&self.page.container_id, UNKNOWN_ID))
             .replace("{pageId}", &pick(&self.page.id, UNKNOWN_ID))
-            .replace("{commentId}", &pick(&self.comment.id, UNKNOWN_ID))
+            .replace("{commentId}", &pick(comment_id, UNKNOWN_ID))
             .replace(
                 "{diaryId}",
                 &pick(
@@ -1488,6 +1555,7 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     let page = a_page_in(ts.app.store(), &board.workspace_id, &board.created_by).await;
     let unit = a_unit_in(ts.app.store(), &board.workspace_id, &board.created_by).await;
     let comment = a_comment_on(ts.app.store(), &page).await;
+    let unit_comment = a_comment_on(ts.app.store(), &unit).await;
     let items = Items {
         board: &board,
         card: &card,
@@ -1495,6 +1563,7 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
         comment: &comment,
         entry: None,
         unit: &unit,
+        unit_comment: &unit_comment,
         file: &file,
         upload_id: &upload.id,
         category: &category,
@@ -1849,6 +1918,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
     let invitation = a_link_into(&ts, TEST_WORKSPACE_ID, &me).await;
     let team = a_team_in(&ts, &board.workspace_id, &board.created_by).await;
     let comment = a_comment_on(ts.app.store(), &page).await;
+    let unit_comment = a_comment_on(ts.app.store(), &unit).await;
     let items = Items {
         board: &board,
         card: &card,
@@ -1856,6 +1926,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         comment: &comment,
         entry: None,
         unit: &unit,
+        unit_comment: &unit_comment,
         file: &file,
         upload_id: &upload.id,
         category: &category,

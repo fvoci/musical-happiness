@@ -116,3 +116,51 @@ pub(super) async fn exercise_wiki(case: &mut Case) {
         );
     }
 }
+
+/// A course's link reads its outline and its units, of this organization, naming nobody.
+pub(super) async fn exercise_course(case: &mut Case) {
+    let made = case
+        .run(
+            "createCourse",
+            &[],
+            json!({"title": format!("{} shared course", case.label), "type": "P"}),
+        )
+        .await
+        .value();
+    let course = case.remember(&made, "id");
+    let made = case
+        .run(
+            "createUnit",
+            &[("courseId", course.as_str())],
+            json!({"title": format!("{} shared unit", case.label)}),
+        )
+        .await
+        .value();
+    let unit = case.remember(&made, "id");
+    let at = &[("containerId", course.as_str())];
+    let sharing = case
+        .run("setSharing", at, json!({"enabled": true}))
+        .await
+        .value();
+    let token = sharing["token"].as_str().expect("read token");
+    let of_unit = &[("containerId", course.as_str()), ("unitId", unit.as_str())];
+    for (operation, params, expected) in [
+        ("getSharedUnitTree", &at[..], &unit),
+        ("getSharedUnit", &of_unit[..], &unit),
+    ] {
+        let request = super::with_query(case.request(operation, params), "readToken", token);
+        let response = case.send(operation, request).await;
+        assert!(
+            response.text().contains(expected.as_str()),
+            "{operation} returns its own content"
+        );
+        assert!(
+            !response.text().contains(&case.user),
+            "{operation} hides user IDs even with a session"
+        );
+        assert!(
+            !response.text().contains(&case.workspace),
+            "{operation} hides the workspace"
+        );
+    }
+}

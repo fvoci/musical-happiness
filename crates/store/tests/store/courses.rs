@@ -165,12 +165,7 @@ async fn course_and_block_type_rules_are_enforced() {
         BlockError::BodyNotAllowed
     );
 
-    for bad_type in [
-        BlockType::Card,
-        BlockType::Page,
-        BlockType::Comment,
-        BlockType::Entry,
-    ] {
+    for bad_type in [BlockType::Card, BlockType::Page, BlockType::Entry] {
         let mut fields = fvoci_model::JsonMap::new();
         let title = if bad_type == BlockType::Entry {
             fields.insert("date".to_owned(), json!("2026-11-22"));
@@ -210,6 +205,116 @@ async fn course_and_block_type_rules_are_enforced() {
         );
     }
 
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn course_comments_restore_order_and_sharing_rules_hold() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "author").await;
+    let workspace_id = common::workspace_of(&test, &[&user_id]).await;
+    let course = a_course(&test, &workspace_id, &user_id).await;
+    let ch1 = add_item(
+        &test,
+        &course.id,
+        &user_id,
+        UnitKind::Chapter,
+        "",
+        "Ch 1",
+        None,
+    )
+    .await;
+    let u1 = add_item(
+        &test,
+        &course.id,
+        &user_id,
+        UnitKind::Unit,
+        &ch1.id,
+        "U1",
+        None,
+    )
+    .await;
+
+    // Comments are allowed on units, and refused at the top of a course or on a chapter.
+    for bad_parent in ["", ch1.id.as_str()] {
+        let mut bad_comment = Block {
+            id: new_id(),
+            container_id: course.id.clone(),
+            parent_id: bad_parent.to_owned(),
+            block_type: BlockType::Comment,
+            ..Block::default()
+        };
+        assert_eq!(
+            block_error(test.insert_block(&mut bad_comment, &user_id).await),
+            BlockError::CommentNotOnCardOrPage
+        );
+    }
+    let mut unit_comment = Block {
+        id: new_id(),
+        container_id: course.id.clone(),
+        parent_id: u1.id.clone(),
+        block_type: BlockType::Comment,
+        ..Block::default()
+    };
+    test.insert_block(&mut unit_comment, &user_id)
+        .await
+        .expect("comment on a unit is stored");
+
+    // Deleting and undeleting a chapter with a commented unit restores chapter -> unit -> comment
+    // and excludes the comment from the chapter's `below` count.
+    test.delete_block(&ch1.id, &user_id)
+        .await
+        .expect("delete chapter with commented unit");
+    let trashed = test
+        .get_deleted_units(&course.id, None)
+        .await
+        .expect("deleted units");
+    assert_eq!(trashed.len(), 1);
+    assert_eq!(trashed[0].below, 1, "comment is not counted in below");
+    let restored = test
+        .undelete_unit(&course.id, &ch1.id, CourseLimits::DEFAULT, &user_id)
+        .await
+        .expect("undelete chapter with commented unit");
+    let restored_ids: Vec<&str> = restored.units.iter().map(|b| b.id.as_str()).collect();
+    assert_eq!(
+        restored_ids,
+        [ch1.id.as_str(), u1.id.as_str(), unit_comment.id.as_str()],
+        "restored in parent-before-child order"
+    );
+
+    // Sharing is allowed on courses (workspace and own space) and still refused on diaries.
+    let shared = test
+        .set_sharing(
+            &course.id,
+            fvoci_store::SharingChange::On,
+            "course-share-token",
+            &user_id,
+        )
+        .await
+        .expect("course sharing succeeds");
+    assert!(shared.enabled && !shared.token.is_empty());
+    let (own, own_ws) = common::in_own_space(&test, &user_id).await;
+    let diary = own
+        .create_diary(
+            crate::diaries::new_diary(&own_ws),
+            &user_id,
+            fvoci_model::DiaryMaking::Another,
+        )
+        .await
+        .expect("diary stored in own space")
+        .diary;
+    let diary_share = own
+        .set_sharing(
+            &diary.id,
+            fvoci_store::SharingChange::On,
+            "diary-share-token",
+            &user_id,
+        )
+        .await;
+    assert!(
+        matches!(diary_share, Err(StoreError::NotFound { .. })),
+        "diary sharing stays refused: {diary_share:?}"
+    );
     test.teardown().await;
 }
 

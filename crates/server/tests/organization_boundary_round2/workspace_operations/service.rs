@@ -69,6 +69,7 @@ pub(super) async fn exercise(
     notifications(case, server).await;
     shared::exercise(case).await;
     shared::exercise_wiki(case).await;
+    shared::exercise_course(case).await;
     invitation(case, server, smtp).await;
     recovery(case, server, smtp).await;
     identity::exercise(case, server, fake).await;

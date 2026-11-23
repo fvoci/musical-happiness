@@ -259,7 +259,7 @@ async fn every_list_of_boards_is_of_the_kinds_it_is_asked_for() {
         (ContainerKinds::COURSES, vec![course.id.as_str()]),
         (
             ContainerKinds::LINKED,
-            vec![board.id.as_str(), wiki.id.as_str()],
+            vec![board.id.as_str(), wiki.id.as_str(), course.id.as_str()],
         ),
         (
             ContainerKinds::OPEN_TO_READ,
@@ -423,7 +423,7 @@ async fn the_trash_is_listed_by_kind_and_what_went_before_kinds_is_a_board() {
         (ContainerKinds::COURSES, vec![course.id.as_str()]),
         (
             ContainerKinds::LINKED,
-            vec![board.id.as_str(), wiki.id.as_str()],
+            vec![board.id.as_str(), wiki.id.as_str(), course.id.as_str()],
         ),
     ] {
         for admin in [None, Some(user_id.as_str())] {
