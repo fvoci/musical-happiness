@@ -13,8 +13,8 @@ import { diagnostics } from './diagnostics.ts';
 import { displayCalendarDate, displayDateTime, type DisplayContext } from './format.ts';
 import {
   parseDateValue,
-  parseRelationValue,
   plainPropertyValue,
+  relationCardIds,
   type Card,
   type PropertyTemplate,
   type PropertyType,
@@ -147,7 +147,7 @@ const displayMultiSelect: Display = (stored, card, template) => {
  * (deleted) is left out; without a way to look titles up, the identifiers.
  */
 const displayRelation: Display = (value, card, _template, context) => {
-  const ids = parseRelationValue(value).filter((id) => id !== card.id);
+  const ids = relationCardIds(value).filter((id) => id !== card.id);
   const { cardTitle } = context;
   if (!cardTitle) return ids;
   // An untitled card adds no text, as in a sort.

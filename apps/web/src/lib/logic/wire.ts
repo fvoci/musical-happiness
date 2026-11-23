@@ -20,6 +20,8 @@ import { parseCalendarDate, type CalendarDate, type DatePoint, type DateValue } 
 import { diagnostics } from './diagnostics.ts';
 import { encodeBase32 } from './base32.ts';
 export { encodeBase32 } from './base32.ts';
+import type { RelationLink } from './relations.ts';
+export * from './relations.ts';
 import { optionalViewFields, type OptionalViewFields } from './view-members.ts';
 
 // ------------------------------------------------------------ identifiers
@@ -148,10 +150,10 @@ export function createBlock(source?: Block): Block {
 // ------------------------------------------------------------------ cards
 
 /**
- * A property value of a card: text, a list of option or user identifiers, or
- * (for a date property only) a date value.
+ * A property value of a card: text, a list of option or user identifiers, a
+ * date value, or (for a relation property only) a list of relation links.
  */
-export type PropertyValue = string | string[] | StoredDateValue;
+export type PropertyValue = string | string[] | StoredDateValue | RelationLink[];
 
 /** Content blocks in display order; an inner list is one row of blocks side by side. */
 export type ContentOrder = (string | string[])[];
@@ -193,21 +195,19 @@ export function createCard(source?: Block): Card {
 export function cardProperty(card: Card, propertyId: string): PropertyValue | undefined {
   return card.fields.properties[propertyId];
 }
-
 /** Every stored property value of the card, by property identifier. */
 export function cardProperties(card: Card): Readonly<Record<string, PropertyValue>> {
   return card.fields.properties;
 }
-
 /** Sets a property value on the card object itself. */
 export function setCardProperty(card: Card, propertyId: string, value: PropertyValue): void {
   card.fields.properties[propertyId] = value;
 }
-
+/** Whether a card is a template for making new cards. */
+export const isCardTemplate = (card: Card): boolean => Boolean(card.fields.isTemplate);
 export function cardContentOrder(card: Card): ContentOrder {
   return card.fields.contentOrder;
 }
-
 export function cardIcon(card: Card): string {
   return card.fields.icon ?? '';
 }
@@ -691,24 +691,13 @@ export function formatDateValue(value: DateValue): StoredDateValue | undefined {
 export function plainPropertyValue(
   value: PropertyValue | undefined,
 ): string | string[] | undefined {
-  if (value === undefined || typeof value === 'string' || Array.isArray(value)) return value;
+  if (value === undefined || typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value.every((item): item is string => typeof item === 'string') ? value : undefined;
+  }
   const stored = formatDateValue(parseDateValue(value));
   if (!stored) return undefined;
   return stored.to === undefined ? String(stored.from) : `${stored.from}/${stored.to}`;
-}
-
-/** The most cards one relation value names. */
-export const RELATION_LIMIT = 50;
-
-/**
- * The cards a relation property names: a list of card identifiers, each
- * once, in the order they were picked. Whatever else is stored (text left by
- * another kind, a date) names no card. Identifiers of deleted cards are kept
- * here; what is shown leaves them out. Written as such a list too.
- */
-export function parseRelationValue(stored: PropertyValue | undefined): string[] {
-  if (!Array.isArray(stored)) return [];
-  return [...new Set(stored.filter((id) => typeof id === 'string' && id !== ''))];
 }
 
 /** The day a date filter compares with: a filter stores it as `YYYY-MM-DD`. */

@@ -5,6 +5,12 @@
  */
 import { DEFAULT_OPTION_COLOR } from '$lib/components/option-chip/colors.ts';
 import type { PropertyUser } from '$lib/components/properties/index.ts';
+import { m } from '$lib/i18n/paraglide/messages.js';
+import {
+  buildHierarchyIndex,
+  subcardProgress,
+  type SubcardProgress,
+} from '$lib/logic/card-hierarchy.ts';
 import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
 import type { Regional } from '$lib/logic/regional.ts';
 import {
@@ -18,6 +24,16 @@ import {
 } from '$lib/logic/wire.ts';
 import type { BoardStore, CardSummary } from '$lib/state/index.ts';
 
+export interface ParentHint {
+  number?: number;
+  title: string;
+}
+
+export interface FaceHierarchy {
+  progressOf: (cardId: string) => SubcardProgress;
+  parentOf: (card: Card) => ParentHint | undefined;
+}
+
 /** What the face of every card of a view is drawn with. */
 export interface FaceContext {
   templates: readonly PropertyTemplate[];
@@ -25,17 +41,33 @@ export interface FaceContext {
   locale: string;
   regional: Regional;
   users: readonly PropertyUser[];
+  hierarchy?: FaceHierarchy;
 }
 
 const NO_TEMPLATES: readonly PropertyTemplate[] = [];
 
 export function faceContextOf(board: BoardStore, view: BoardView): FaceContext {
+  const templates = board.board?.cardProperties ?? NO_TEMPLATES;
+  const { byId, childrenMap } = buildHierarchyIndex(board.realCards);
+  const untitled = m['KanbanCard.untitled']();
   return {
-    templates: board.board?.cardProperties ?? NO_TEMPLATES,
+    templates,
     visiblePropertyIds: view.fields.visiblePropertyIds,
     locale: board.workspace.locale,
     regional: board.workspace.regional,
     users: board.workspace.users,
+    hierarchy: {
+      progressOf: (cardId) => subcardProgress(cardId, childrenMap, templates),
+      parentOf: (card) => {
+        if (card.parentId === '') return undefined;
+        const parent = byId.get(card.parentId);
+        if (!parent) return undefined;
+        return {
+          ...(parent.number === undefined ? {} : { number: parent.number }),
+          title: parent.title || untitled,
+        };
+      },
+    },
   };
 }
 

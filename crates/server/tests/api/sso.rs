@@ -152,6 +152,11 @@ async fn an_organization_that_takes_no_password_opens_for_its_providers_sessions
         }
         client.get("/users/me").await.check_ok();
         client.get("/users/me/settings").await.check_ok();
+        let orgs: Vec<Value> = client.get("/users/me/organizations").await.ok_json();
+        assert!(
+            orgs.iter().any(|org| org["id"] == org_id),
+            "getMyOrganizations lists the walled organization: {orgs:?}"
+        );
         // The user's own space, which no organization closes, is checked to ask
         // for no provider where it is listed.
         let (listed, _own) = crate::own_space::workspaces_and_own(client).await;
@@ -489,6 +494,9 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     // Lists across organizations, leaving out the boards of one the session does not
     // open: asked below.
     "getMyMemberships",
+    // Listing the account's organizations is the account's own, so settings can show
+    // and leave an organization even when it takes only sessions through its provider.
+    "getMyOrganizations",
     "getMyWorkspaces",
     // What the account was told, in every organization its session opens: those of
     // one it does not open are left out of the list and of the count, and are not

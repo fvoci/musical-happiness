@@ -160,7 +160,8 @@ pub use org_admin::{
 };
 pub use org_kind::{OrgKind, UnknownOrgKind};
 pub use organization::{
-    OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
+    OrgRole, UnknownRole, UserOrganization, UserWorkspace, WorkspaceMember, WorkspaceRole,
+    WorkspaceRoleChange,
 };
 pub use page::{
     DeletedPage, NewPage, OrderError, PAGE_ICON_FIELD, PAGE_ORDER_FIELD, Page, PageDuplicate,
@@ -174,8 +175,10 @@ pub use person_name::{
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{
-    RELATION_LIMIT, RELATION_PROPERTY_TYPE, RelationError, RelationProblem, RelationProperties,
-    check_relation_value, relation_property_ids, tidy_copied_relations,
+    ParseRelationKindError, RELATION_LAG_MAX, RELATION_LAG_MIN, RELATION_LIMIT,
+    RELATION_PROPERTY_TYPE, RelationError, RelationKind, RelationLink, RelationLinkError,
+    RelationProblem, RelationProperties, check_relation_value, parse_relation_link,
+    relation_link_card, relation_links_to_value, relation_property_ids, tidy_copied_relations,
 };
 pub use search::{SearchHit, SearchKind, SnippetPart, UnknownSearchKind};
 pub use settings::{

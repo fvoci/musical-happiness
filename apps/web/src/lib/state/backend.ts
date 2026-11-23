@@ -45,21 +45,9 @@ import type { WikisOfBackend } from './wiki-types.ts';
 import type { DiariesOfBackend } from './diary-types.ts';
 import type { CoursesOfBackend } from './course-types.ts';
 import type { ImportOptions, ImportSummary } from './import-types.ts';
-import type { WorkspaceInfo } from './workspace-types.ts';
+import type { UserOrganization, WorkspaceInfo } from './workspace-types.ts';
 
-export type {
-  AcceptedInvitation,
-  Account,
-  AccountDeletion,
-  InvitationPreview,
-  LeavingOrganization,
-  LinkedIdentity,
-  LoginOptions,
-  LoginOrganization,
-  NewAccount,
-  Registration,
-  SignInOrganization,
-} from './account-types.ts';
+export type * from './account-types.ts';
 export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
 export * from './content-search.ts';
 export type * from './notification-types.ts';
@@ -69,7 +57,13 @@ export type * from './category-types.ts';
 export type * from './wiki-types.ts';
 export type * from './diary-types.ts';
 export type * from './course-types.ts';
-export { isOwnSpace, type OrgKind, type WorkspaceInfo } from './workspace-types.ts';
+export {
+  isOwnSpace,
+  type OrgKind,
+  type OrgRole,
+  type UserOrganization,
+  type WorkspaceInfo,
+} from './workspace-types.ts';
 
 export type * from './import-types.ts';
 
@@ -292,6 +286,8 @@ export interface Backend
    */
   confirmPassword(password: string): Promise<void>;
   workspaces(): Promise<WorkspaceInfo[]>;
+  /** Shared organizations the reader is a member of, including ones with no workspaces left. */
+  organizations(): Promise<UserOrganization[]>;
   /** The people of a workspace: who can be mentioned or set as a person. */
   users(workspaceId: string): Promise<User[]>;
   /**

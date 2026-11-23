@@ -89,12 +89,15 @@ async fn handle_create_organization(
 /// an own space, which nobody leaves. A guest of a workspace is no member of its
 /// organization: 404 here, and it leaves a workspace or board by `leaveContainer`.
 ///
-/// What stands in the way is 409, and nothing changes: the server's only administrator
-/// stays in the server's own first organization (reason `last_instance_admin`); the
-/// only administrator of an organization that has other people in it stays until
-/// somebody else is one (reason `sole_org_admin`); and nobody leaves an organization
-/// they are the only person in (reason `alone_in_organization`). Asked in that order.
-/// Of two administrators who leave at once, the second is asked once the first is out.
+/// What stands in the way is 409, and nothing changes: an account without a password
+/// (`hasPassword` of `getMe` is false) must set one (`setPassword`) before leaving
+/// (reason `password_required`); the server's only administrator stays in the server's
+/// own first organization (reason `last_instance_admin`); the only administrator of an
+/// organization that has other people in it stays until somebody else is one (reason
+/// `sole_org_admin`); and nobody leaves an organization they are the only person in
+/// (reason `alone_in_organization`). Asked in that order (`password_required`,
+/// `last_instance_admin`, `sole_org_admin`, `alone_in_organization`). Of two
+/// administrators who leave at once, the second is asked once the first is out.
 #[utoipa::path(
     post,
     path = "/org/{orgId}/leave",

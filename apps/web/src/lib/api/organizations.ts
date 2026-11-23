@@ -145,6 +145,14 @@ export class ServerOrganizations implements Organizations {
     );
   }
 
+  async removeMember(orgId: string, userId: string): Promise<void> {
+    await this.#http.request(
+      '/api/v1/org/{orgId}/members/{userId}',
+      { orgId, userId },
+      { method: 'DELETE' },
+    );
+  }
+
   workspaces(orgId: string): Promise<OrgWorkspace[]> {
     return this.#http.request<Schemas['OrgWorkspace'][]>('/api/v1/org/{orgId}/workspaces', {
       orgId,

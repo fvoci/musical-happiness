@@ -83,7 +83,11 @@ export class BarFocus {
       const row = active instanceof HTMLElement ? active.closest<HTMLElement>('[data-row]') : null;
       const cardId = row?.dataset.row;
       if (!row || cardId === undefined || !scroller?.contains(row)) return;
-      const part = active?.hasAttribute('data-row-title') ? '[data-row-title]' : '[data-bar]';
+      const part = active?.hasAttribute('data-row-title')
+        ? '[data-row-title]'
+        : active?.hasAttribute('data-hierarchy-toggle')
+          ? '[data-hierarchy-toggle]'
+          : '[data-bar]';
       const at = Math.max(0, before.indexOf(cardId));
       void tick().then(() => {
         if (document.activeElement !== document.body) return;

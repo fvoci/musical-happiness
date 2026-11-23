@@ -36,7 +36,9 @@ describe('leaving an organization', () => {
     expect(dialog).toHaveTextContent('Leave Sales?');
     expect(dialog).toHaveTextContent('workspaces, boards and wikis');
     expect(dialog).toHaveTextContent('you wrote stay');
-    expect(dialog).toHaveTextContent('invited again');
+    expect(dialog).toHaveTextContent(
+      'You can rejoin by invitation, or through SSO sign-in if the organization allows it.',
+    );
     expect(within(dialog).queryByTestId('organization-leave-password-first')).toBeNull();
     expect(onLeave).not.toHaveBeenCalled();
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Leave' }));
@@ -47,13 +49,30 @@ describe('leaving an organization', () => {
     expect(screen.getByRole('status')).toHaveTextContent('You left Sales.');
   });
 
-  it('tells an account without a password first to set one', async () => {
-    shown(undefined, false);
+  it('blocks an account without a password from leaving until one is set', async () => {
+    const onLeave = shown(undefined, false);
     const dialog = await asked('Design');
     const first = within(dialog).getByTestId('organization-leave-password-first');
-    expect(first).toHaveTextContent('Set a password before you leave');
+    expect(first).toHaveTextContent('Set a password before you can leave');
     const told = within(dialog).getAllByText(/./u, { selector: 'p, li' });
     expect(told.indexOf(first)).toBeLessThan(told.findIndex((one) => one.tagName === 'LI'));
+    const leave = within(dialog).getByRole('button', { name: 'Leave' });
+    expect(leave).toBeDisabled();
+    await fireEvent.click(leave);
+    expect(onLeave).not.toHaveBeenCalled();
+  });
+
+  it('handles a 409 password_required response from the server', async () => {
+    const refusal = new BackendError(409, { reason: 'password_required' });
+    const onLeave = shown(vi.fn<Leave>(() => Promise.reject(refusal)));
+    const dialog = await asked('Design');
+    const leave = within(dialog).getByRole('button', { name: 'Leave' });
+    await fireEvent.click(leave);
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Set a password for your account before leaving',
+    );
+    expect(leave).toBeDisabled();
+    expect(onLeave).toHaveBeenCalledOnce();
   });
 
   it('says a refusal with what to do, keeps the dialog, and does not ask again', async () => {
@@ -86,5 +105,20 @@ describe('leaving an organization', () => {
     await waitFor(() => {
       expect(onLeave).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it('shows a load failure alert with a retry button when unread', async () => {
+    const onRetry = vi.fn();
+    render(OrganizationLeaving, {
+      organizations: [],
+      hasPassword: true,
+      unread: true,
+      onRetry,
+      onLeave: vi.fn<Leave>(),
+    });
+    const section = screen.getByTestId('organization-leaving');
+    expect(within(section).getByRole('alert')).toBeInTheDocument();
+    await fireEvent.click(within(section).getByRole('button', { name: 'Try again' }));
+    expect(onRetry).toHaveBeenCalledOnce();
   });
 });

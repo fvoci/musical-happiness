@@ -30,7 +30,7 @@
   import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { foldCase } from '$lib/logic/text.ts';
-  import { RELATION_LIMIT, type Card } from '$lib/logic/wire.ts';
+  import { RELATION_LIMIT, relationLink, type Card, type RelationLink } from '$lib/logic/wire.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { cn } from '$lib/utils.js';
 
@@ -39,8 +39,8 @@
     name: string;
     /** The card the value belongs to: it cannot name itself. */
     cardId: string;
-    /** The identifiers in the stored value, each once. */
-    ids: readonly string[];
+    /** The relation links in the stored value, each card once. */
+    links: readonly RelationLink[];
     /** The board's cards that are there, by identifier. */
     cards: ReadonlyMap<string, Card>;
     /** BCP 47 tag: the alphabetical order of the list. */
@@ -56,7 +56,7 @@
     placeholder: string;
     presentation?: Presentation;
     startOpen?: boolean;
-    onChange?: (value: string[]) => void;
+    onChange?: (value: RelationLink[]) => void;
     /** Opens a card; without it the chips are only text. */
     onOpenCard?: (cardId: string) => void;
     /** See PropertyValueProps. */
@@ -66,7 +66,7 @@
   let {
     name,
     cardId,
-    ids,
+    links,
     cards,
     locale,
     excluded,
@@ -92,9 +92,19 @@
   const titleOf = (id: string): string => untitled(cards.get(id));
 
   /** The picked cards that are there, in the order they were picked; never the card itself. */
-  const shown = $derived(ids.filter((id) => id !== cardId && cards.has(id)));
+  const shown = $derived([
+    ...new Set(
+      links.filter((link) => link.card !== cardId && cards.has(link.card)).map((link) => link.card),
+    ),
+  ]);
   /** The named cards that are not there (deleted), each once: written back as they are. */
-  const hidden = $derived([...new Set(ids.filter((id) => id !== cardId && !cards.has(id)))]);
+  const hidden = $derived([
+    ...new Set(
+      links
+        .filter((link) => link.card !== cardId && !cards.has(link.card))
+        .map((link) => link.card),
+    ),
+  ]);
   const full = $derived(shown.length + hidden.length >= RELATION_LIMIT);
 
   /**
@@ -178,12 +188,24 @@
   /**
    * Writes the value: the picked cards that are there and the hidden ones
    * (unless the reader takes those out), in the order they were named, each
-   * once, never the card itself.
+   * once, preserving existing `kind` and `lagDays` and never naming the card
+   * itself. Newly picked cards default to finish-to-start with zero lag.
    */
   function write(next: readonly string[], keepHidden = true): void {
     const picked = new Set(next.filter((id) => id !== cardId && cards.has(id)));
-    const kept = ids.filter((id) => picked.has(id) || (keepHidden && hidden.includes(id)));
-    onChange?.([...new Set([...kept, ...picked])]);
+    const hiddenSet = new Set(hidden);
+    const keptIds = links
+      .map((link) => link.card)
+      .filter((id) => picked.has(id) || (keepHidden && hiddenSet.has(id)));
+    const ordered = [...new Set([...keptIds, ...picked])];
+    onChange?.(
+      ordered.map((id) => {
+        const existing = links.find((link) => link.card === id);
+        return existing
+          ? relationLink(existing.card, existing.kind, existing.lagDays)
+          : relationLink(id);
+      }),
+    );
   }
 
   function pick(card: Card): void {

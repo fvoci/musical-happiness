@@ -3,8 +3,15 @@
  * each card, and the arrows between them. The components lay out; this holds what they lay out
  * from, each step worked out again only when what it reads has changed.
  */
+import { SvelteSet } from 'svelte/reactivity';
+
 import { m } from '$lib/i18n/paraglide/messages.js';
 import { displayProperty } from '$lib/logic/calendar.ts';
+import {
+  hasVisibleHierarchy,
+  hierarchicalRows,
+  type HierarchicalRow,
+} from '$lib/logic/card-hierarchy.ts';
 import type { CalendarDate } from '$lib/logic/dates.ts';
 import type { Days } from '$lib/logic/dependencies.ts';
 import type { BoardGroup } from '$lib/logic/group.ts';
@@ -75,6 +82,14 @@ export interface CardLine {
   late: boolean;
   /** Following what the card comes after leads back to the card. */
   loop: boolean;
+  /** Nesting level in the visible chart (0, 1, or 2). */
+  level: number;
+  /** Whether this card has visible sub-cards below it in this chart. */
+  hasChildren: boolean;
+  /** Whether this card's sub-cards are currently collapsed. */
+  collapsed: boolean;
+  /** Whether the chart displays hierarchy indentation / toggles. */
+  showIndent: boolean;
 }
 
 /** The row that starts a group. */
@@ -109,10 +124,16 @@ const PERSON_KINDS: readonly string[] = ['person', 'createdBy', 'updatedBy'];
 
 export class GanttChart {
   readonly #source: ChartSource;
+  readonly #collapsedParents = new SvelteSet<string>();
 
   constructor(source: ChartSource) {
     this.#source = source;
   }
+
+  readonly toggleParent = (cardId: string): void => {
+    if (this.#collapsedParents.has(cardId)) this.#collapsedParents.delete(cardId);
+    else this.#collapsedParents.add(cardId);
+  };
 
   get #board(): BoardStore {
     return this.#source.board();
@@ -184,15 +205,29 @@ export class GanttChart {
     );
   });
 
+  /** The cards that have days, grouped parent-before-children with expand/collapse applied. */
+  readonly #groupedRows = $derived.by(() => {
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- rebuilt per derivation, never mutated later
+    const byCardId = new Map<string, HierarchicalRow<Card>>();
+    let hasHierarchy = false;
+    const build = (cards: readonly Card[]): string[] => {
+      const rows = hierarchicalRows(cards, this.#collapsedParents);
+      if (!hasHierarchy && hasVisibleHierarchy(rows)) hasHierarchy = true;
+      for (const row of rows) byCardId.set(row.card.id, row);
+      return rows.map((row) => row.card.id);
+    };
+    const lists: RowList[] = this.#groups
+      ? this.#groups.map((group) => ({ groupId: group.option.id, cardIds: build(group.cards) }))
+      : [
+          {
+            cardIds: build(this.placed.spans.flatMap((span) => this.placed.card(span.id) ?? [])),
+          },
+        ];
+    return { lists, byCardId, hasHierarchy };
+  });
+
   /** The cards that have days, as the lists between headings. */
-  readonly #lists = $derived.by<RowList[]>(() =>
-    this.#groups
-      ? this.#groups.map((group) => ({
-          groupId: group.option.id,
-          cardIds: group.cards.map((card) => card.id),
-        }))
-      : [{ cardIds: this.placed.spans.map((span) => span.id) }],
-  );
+  readonly #lists = $derived.by<RowList[]>(() => this.#groupedRows.lists);
 
   /** Whether the options of the group by are people, named by the workspace. */
   #person(optionId: string): boolean {
@@ -372,6 +407,7 @@ export class GanttChart {
       const card = this.placed.card(row.id);
       const bar = this.bars.get(row.id);
       if (!card || !bar) return [];
+      const meta = this.#groupedRows.byCardId.get(row.id);
       return [
         {
           kind: 'card',
@@ -382,6 +418,10 @@ export class GanttChart {
           name: this.#name(card),
           late: this.#lateBefore(row.id).length > 0,
           loop: this.relations.loopCards.has(row.id),
+          level: meta?.level ?? 0,
+          hasChildren: meta?.hasChildren ?? false,
+          collapsed: meta?.collapsed ?? false,
+          showIndent: this.#groupedRows.hasHierarchy,
         },
       ];
     });

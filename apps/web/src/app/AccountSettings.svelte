@@ -10,6 +10,8 @@
   (`onLeft`).
 -->
 <script lang="ts">
+  import { onMount } from 'svelte';
+
   import AccountDeletion from '$lib/features/account/AccountDeletion.svelte';
   import LinkedSignIns from '$lib/features/account/LinkedSignIns.svelte';
   import OrganizationLeaving from '$lib/features/account/OrganizationLeaving.svelte';
@@ -19,6 +21,7 @@
     leaveOrganization,
     type Account,
     type LinkedIdentity,
+    type UserOrganization,
     type Workspace,
   } from '$lib/state/index.ts';
 
@@ -58,12 +61,39 @@
     onLeft,
   }: Props = $props();
 
-  const leavable = $derived(leavableOrganizations(workspace.workspaces));
+  let organizations = $state.raw<UserOrganization[]>([]);
+  let unread = $state(false);
+  let loadToken = 0;
+
+  async function loadOrganizations(): Promise<void> {
+    const token = ++loadToken;
+    unread = false;
+    try {
+      const listed = await signedIn(() => workspace.backend.organizations());
+      if (token === loadToken) {
+        organizations = listed;
+        unread = false;
+      }
+    } catch {
+      if (token === loadToken) unread = true;
+    }
+  }
+
+  onMount(() => {
+    void loadOrganizations();
+    return () => {
+      loadToken += 1;
+    };
+  });
+
+  const leavable = $derived(leavableOrganizations(organizations));
 
   /** Forgets the organization left, and goes from its workspace if that was `shown`. */
   function forget(orgId: string, shown: boolean): void {
+    organizations = organizations.filter((organization) => organization.id !== orgId);
     onLeft(orgId);
     if (shown) router.go({ workspaceId: workspace.firstChoice() });
+    void loadOrganizations();
   }
 
   async function leave(orgId: string): Promise<void> {
@@ -95,6 +125,8 @@
 <OrganizationLeaving
   organizations={leavable}
   hasPassword={workspace.me?.hasPassword !== false}
+  {unread}
+  onRetry={() => void loadOrganizations()}
   onLeave={leave}
 />
 {#if workspace.me}

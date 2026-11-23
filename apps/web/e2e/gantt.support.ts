@@ -141,7 +141,11 @@ export async function setAfter(page: Page, values: Record<string, string[]>): Pr
     const idOf = (title: string): string =>
       store.cards.find((each) => each.title === title)?.id ?? title;
     for (const [title, before] of Object.entries(wanted)) {
-      await store.setCardProperty(idOf(title), 'after', before.map(idOf));
+      await store.setCardProperty(
+        idOf(title),
+        'after',
+        before.map((target) => ({ card: idOf(target), kind: 'fs', lagDays: 0 })),
+      );
     }
   }, values);
 }

@@ -5,7 +5,7 @@
  * what is under it, with its owner alone in it: of anybody else's it is not
  * there (404), and nothing of it is told to anybody else.
  */
-import type { WorkspaceInfo } from '../workspace-types.ts';
+import type { UserOrganization, WorkspaceInfo } from '../workspace-types.ts';
 
 import { BackendError } from '../problems.ts';
 
@@ -42,6 +42,17 @@ export function ownSpaceOf(world: World, userId: string): WorkspaceInfo {
 /** The user's workspaces, as the server lists them: their own space last. */
 export function workspacesOf(world: World, userId: string): WorkspaceInfo[] {
   return [copy(world.workspace), copy(ownSpaceOf(world, userId))];
+}
+
+/** The shared organizations the user is a member of (`GET /users/me/organizations`). */
+export function organizationsOf(world: World, userId: string): UserOrganization[] {
+  const explicit = world.organizations.get(userId);
+  if (explicit !== undefined) return explicit.map(copy);
+  const { orgId, kind, title, role } = world.workspace;
+  if (orgId && kind !== 'personal' && role !== 'guest' && world.workspaceMembers.has(userId)) {
+    return [{ id: orgId, name: title, role: 'member' }];
+  }
+  return [];
 }
 
 /** Who works in the workspace: its owner alone in an own space; nobody in one that is not there. */

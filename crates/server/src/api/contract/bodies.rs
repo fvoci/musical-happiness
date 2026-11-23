@@ -132,8 +132,8 @@ pub(crate) struct NewBlock {
     title: Option<String>,
     /// Type-specific data, free-form: serialized, at most 64,000 characters for a card,
     /// a comment or an attachment and 800,000 for a view. The `properties` of a card
-    /// among them are values by property identifier: a string, a list of strings, or
-    /// `null`.
+    /// among them are values by property identifier: a string, a list of strings, a date
+    /// value, a list of relation link objects (`{"card", "kind", "lagDays"}`), or `null`.
     #[schema(value_type = Option<Object>, nullable = false)]
     fields: Option<JsonMap>,
     /// Must be 1 or more. The server does not keep it: the block is created when the
@@ -173,7 +173,8 @@ pub(crate) struct NewCard {
     /// Whether the card is a template.
     #[schema(nullable = false)]
     is_template: Option<bool>,
-    /// Property values by property identifier: a string, a list of strings, or `null`.
+    /// Property values by property identifier: a string, a list of strings, a date value,
+    /// a list of relation link objects (`{"card", "kind", "lagDays"}`), or `null`.
     #[schema(value_type = Option<Object>, nullable = false)]
     properties: Option<JsonMap>,
     /// The card's body; left out or `null` for none.

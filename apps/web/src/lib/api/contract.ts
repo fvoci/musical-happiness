@@ -767,8 +767,8 @@ export interface paths {
         /**
          * The audit log of an organization
          * @description One page of what was done to the organization itself, the newest first: who made a
-         *     member an administrator or a member, made, renamed, deleted or brought back a
-         *     workspace, and turned the public links off or on.
+         *     member an administrator or a member, removed a member, made, renamed, deleted or
+         *     brought back a workspace, and turned the public links off or on.
          */
         get: operations["getOrgAudit"];
         put?: never;
@@ -809,12 +809,15 @@ export interface paths {
          *     an own space, which nobody leaves. A guest of a workspace is no member of its
          *     organization: 404 here, and it leaves a workspace or board by `leaveContainer`.
          *
-         *     What stands in the way is 409, and nothing changes: the server's only administrator
-         *     stays in the server's own first organization (reason `last_instance_admin`); the
-         *     only administrator of an organization that has other people in it stays until
-         *     somebody else is one (reason `sole_org_admin`); and nobody leaves an organization
-         *     they are the only person in (reason `alone_in_organization`). Asked in that order.
-         *     Of two administrators who leave at once, the second is asked once the first is out.
+         *     What stands in the way is 409, and nothing changes: an account without a password
+         *     (`hasPassword` of `getMe` is false) must set one (`setPassword`) before leaving
+         *     (reason `password_required`); the server's only administrator stays in the server's
+         *     own first organization (reason `last_instance_admin`); the only administrator of an
+         *     organization that has other people in it stays until somebody else is one (reason
+         *     `sole_org_admin`); and nobody leaves an organization they are the only person in
+         *     (reason `alone_in_organization`). Asked in that order (`password_required`,
+         *     `last_instance_admin`, `sole_org_admin`, `alone_in_organization`). Of two
+         *     administrators who leave at once, the second is asked once the first is out.
          */
         post: operations["leaveOrganization"];
         delete?: never;
@@ -838,6 +841,47 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a member from an organization
+         * @description Takes a member out of the organization, all at once or not at all: ends their
+         *     joinings of workspaces as organization administrator (recorded in each workspace as
+         *     `org_admin_revoked`), takes them out of every workspace of the organization in use
+         *     or in the trash, passes any board they were the only admin of to that workspace's
+         *     oldest other administrator on their own account (recorded under the administrator
+         *     who takes them out), removes their roles on boards and wikis, workspace groups,
+         *     subscriptions, unused invitation links, and membership of the organization, and ends
+         *     instance administration if this is the server's own first organization. Recorded in
+         *     the organization's audit log (`org_member_removed`). Their open connections stop
+         *     following the organization's workspaces (`UNSUBSCRIBED_WORKSPACE`) and leave open
+         *     body rooms (`DOC_LEFT`). Unlike `leaveOrganization`, this does not require the
+         *     removed account to have a password.
+         *
+         *     404 for a user who is no member of the organization, or for a caller who does not
+         *     administer it (or for an own space or an organization that does not exist).
+         *
+         *     What stands in the way is 409, and nothing changes: an administrator cannot remove
+         *     themselves here (reason `cannot_remove_self`; use `leaveOrganization` instead); the
+         *     server's only administrator stays in the server's own first organization (reason
+         *     `last_instance_admin`); the only administrator of an organization that has other
+         *     people in it stays until somebody else is one (reason `sole_org_admin`); and the
+         *     only person in the organization is not removed (reason `alone_in_organization`).
+         */
+        delete: operations["removeOrgMember"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1855,6 +1899,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/organizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The organizations the user is a member of
+         * @description The organizations that people work in together of which the user of the session is a
+         *     member, with their name and the user's role in each. Includes organizations in which
+         *     the user is in no workspace, and leaves out the user's own space and organizations
+         *     where the user is only a guest of a workspace. Asked of any session: an organization
+         *     that takes only sessions made through its provider is still listed so the user can
+         *     see it in settings and leave it (`leaveOrganization`). Oldest first.
+         */
+        get: operations["getMyOrganizations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/password": {
         parameters: {
             query?: never;
@@ -2617,14 +2686,18 @@ export interface paths {
          *     (depth > 3 with reason `card_too_deep` and `limit: 3`).
          *
          *     The value of a card relation property (of the `type` `relation`) is `null` or a list
-         *     of other cards of the board, in the trash or not, each once, at most 50 (a value over
-         *     it from before may be written with fewer of its cards, not with another). Any other is
-         *     400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,
-         *     `relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board
-         *     that is no card) or `relation_card_not_found`: no card of that identifier on the
-         *     board, which is also the answer for a card of another board. Every write of a card
-         *     checks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it
-         *     changes, and does not ask again for a card that a value named before.
+         *     of relation link objects (`{"card": "<cardId>", "kind": "fs" | "ss" | "ff" | "sf",
+         *     "lagDays": -3650..=3650}`), naming other cards of the board, in the trash or not,
+         *     each once (even if `kind` differs), at most 50 (a value over it from before may be
+         *     written with fewer of its cards, not with another). `kind` defaults to `"fs"` and
+         *     `lagDays` defaults to `0` when omitted, unknown fields and plain string arrays are
+         *     refused with 400, and stored links always include all three fields normalized. Any
+         *     other refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,
+         *     `relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`
+         *     (a block of the board that is no card) or `relation_card_not_found`: no card of that
+         *     identifier on the board, which is also the answer for a card of another board. Every
+         *     write of a card checks so (`patchCard`, the block routes, `createBoardsAndBlocks`)
+         *     the values it changes, and does not ask again for a card that a value named before.
          */
         post: operations["createCard"];
         delete?: never;
@@ -5796,7 +5869,7 @@ export interface components {
          * @description What a record of the audit log says was done.
          * @enum {string}
          */
-        AuditAction: "self_added_to_container" | "added_to_container" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "oidc_former_provider_kept" | "oidc_former_provider_ended" | "oidc_former_provider_lapsed" | "oidc_identity_bound" | "oidc_identity_carried_over" | "email_verified_by_operator";
+        AuditAction: "self_added_to_container" | "added_to_container" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "org_member_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "oidc_former_provider_kept" | "oidc_former_provider_ended" | "oidc_former_provider_lapsed" | "oidc_identity_bound" | "oidc_identity_carried_over" | "email_verified_by_operator";
         /** @description A user as a record of the audit log names them. */
         AuditPerson: {
             /** @description The name the user shows; empty for none. */
@@ -6094,9 +6167,12 @@ export interface components {
             preview?: components["schemas"]["CardPreview"] | null;
             /**
              * @description Property values keyed by property identifier: a string, a list of strings, or
-             *     `null`, and for a property of the type `date` a date value (`{"from":
+             *     `null`; for a property of the type `date` a date value (`{"from":
              *     "2026-03-05"}`, `{"from": "2026-03-05", "to": "2026-03-09"}` or `{"from":
-             *     1772703000000}`) or `null`.
+             *     1772703000000}`) or `null`; and for a property of the type `relation` a list of
+             *     relation links (`{"card": "<cardId>", "kind": "fs" | "ss" | "ff" | "sf",
+             *     "lagDays": -3650..=3650}`, normalized with all three fields when stored) or
+             *     `null`.
              */
             properties: {
                 [key: string]: unknown;
@@ -7345,8 +7421,8 @@ export interface components {
             /**
              * @description Type-specific data, free-form: serialized, at most 64,000 characters for a card,
              *     a comment or an attachment and 800,000 for a view. The `properties` of a card
-             *     among them are values by property identifier: a string, a list of strings, or
-             *     `null`.
+             *     among them are values by property identifier: a string, a list of strings, a date
+             *     value, a list of relation link objects (`{"card", "kind", "lagDays"}`), or `null`.
              */
             fields?: {
                 [key: string]: unknown;
@@ -7437,7 +7513,10 @@ export interface components {
              *     parent or sub-cards.
              */
             parentId?: string | null;
-            /** @description Property values by property identifier: a string, a list of strings, or `null`. */
+            /**
+             * @description Property values by property identifier: a string, a list of strings, a date value,
+             *     a list of relation link objects (`{"card", "kind", "lagDays"}`), or `null`.
+             */
             properties?: {
                 [key: string]: unknown;
             };
@@ -9046,6 +9125,18 @@ export interface components {
         /** @description The identifiers of the users asked for: at least one, at most 200. */
         UserIds: string[];
         /**
+         * @description An organization that people work in together, as one of its members finds it
+         *     among theirs.
+         */
+        UserOrganization: {
+            /** @description The organization's identifier. */
+            id: string;
+            /** @description The organization's name; empty if it was given none. */
+            name: string;
+            /** @description What the user is in the organization. */
+            role: components["schemas"]["OrgRole"];
+        };
+        /**
          * @description A change to the bag of state a client keeps with the account: entries the server
          *     stores without knowing what they mean.
          */
@@ -10224,6 +10315,38 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["OrgMember"][];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removeOrgMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it; and 404 for the user's own space, which nobody administers. */
+                orgId: string;
+                /** @description The identifier of the user. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The member is out of the organization. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -11682,6 +11805,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContainerMember"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMyOrganizations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organizations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOrganization"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
