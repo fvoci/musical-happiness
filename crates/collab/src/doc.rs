@@ -51,18 +51,21 @@ pub struct Changed {
 }
 
 /// Why [`BodyDoc::take_in_place`] refused an update.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BodyTakeError {
     /// Refused before the document was mutated; the untouched `doc` is returned.
+    #[error("{error}")]
     Untouched {
         /// The unchanged document.
         doc: BodyDoc,
         /// Why the update was refused.
+        #[source]
         error: TakeError,
     },
     /// Refused during or after mutating the document; the document was dropped and the
     /// caller must rebuild from its checkpoint with [`BodyDoc::rebuild`].
-    Dirty(TakeError),
+    #[error(transparent)]
+    Dirty(#[from] TakeError),
 }
 
 /// Counts read from a document's state in one pass ([`state_counts`]).
@@ -119,8 +122,12 @@ impl BodyDoc {
     }
 
     /// Takes a client's update into `self` in place, using `prior_state` and
-    /// `prior_changes` (from opening or the previous [`Changed`]) to charge placing
-    /// steps without copying `self`.
+    /// `prior_changes` to charge placing steps without copying `self`.
+    ///
+    /// `prior_state` and `prior_changes` must match `self` (as returned by opening via
+    /// [`BodyDoc::from_state`], [`BodyDoc::from_body`] + [`state_counts`], or the
+    /// preceding [`Changed`]); passing a stale or underestimated `prior_changes` would
+    /// undercharge `placing_steps`.
     ///
     /// # Errors
     ///
@@ -144,9 +151,12 @@ impl BodyDoc {
         }
     }
 
-    /// Rebuilds a settled document from a checkpoint `base` state and the accepted
-    /// updates and repairs `since` it, restoring a state byte-for-byte identical to the
-    /// settled document before a rejected in-place update.
+    /// Rebuilds a settled document from a settled checkpoint `base` state (as returned by
+    /// [`BodyDoc::from_state`], [`BodyDoc::from_body`], or [`Changed::state`]) and the
+    /// accepted updates and repairs `since` it, restoring a state byte-for-byte identical
+    /// to the settled document before a rejected in-place update.
+    ///
+    /// When `since` is empty, `base` is decoded directly without re-settling.
     ///
     /// # Errors
     ///

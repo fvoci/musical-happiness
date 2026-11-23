@@ -13,9 +13,10 @@ use serde_json::{Value, json};
 use support::random::{self, Random};
 use support::wire::{Change, Content, Parent, Update};
 use support::{ROOMY, body_of, json_of};
+use yrs::updates::decoder::Decode as _;
 use yrs::{
-    Array, ArrayRef, Doc, ReadTxn, Transact, TransactionMut, XmlElementPrelim, XmlFragment,
-    XmlFragmentRef, XmlTextPrelim,
+    Array, ArrayPrelim, ArrayRef, Doc, MapPrelim, ReadTxn, Transact, TransactionMut, Xml,
+    XmlElementPrelim, XmlFragment, XmlFragmentRef, XmlOut, XmlTextPrelim,
 };
 
 fn paragraphs(texts: &[&str]) -> Value {
@@ -313,7 +314,7 @@ fn random_refused_in_place_updates_rebuild_to_exact_prior_bytes() {
                 changes: doc_changes,
             };
             let (rebuilt_doc, hit_dirty) =
-                exercise_step_refusals(doc, &mut rng, &ref_doc, seed, step, &point);
+                exercise_step_refusals(doc, &mut rng, seed, step, &point);
             doc = rebuilt_doc;
             saw_dirty |= hit_dirty;
         }
@@ -324,7 +325,6 @@ fn random_refused_in_place_updates_rebuild_to_exact_prior_bytes() {
 fn exercise_step_refusals(
     mut doc: BodyDoc,
     rng: &mut Random,
-    ref_doc: &yrs::Doc,
     seed: u64,
     step: usize,
     point: &RollbackPoint<'_>,
@@ -332,22 +332,20 @@ fn exercise_step_refusals(
     // 1. Pre-apply refusal (Untouched): random unreadable bytes and gap update.
     let junk_len = 1 + rng.below(32);
     let junk = rng.bytes(junk_len);
-    if fvoci_collab::testing::with_update(ref_doc, &junk, &ROOMY).is_err() {
-        let is_refused = take_update(
-            &from_state(point.state, &ROOMY).expect("ref").doc,
+    let is_refused = take_update(
+        &from_state(point.state, &ROOMY).expect("ref").doc,
+        &junk,
+        &ROOMY,
+    )
+    .is_err();
+    if is_refused {
+        doc = assert_rollback_byte_equal(
+            doc,
+            point,
             &junk,
             &ROOMY,
-        )
-        .is_err();
-        if is_refused {
-            doc = assert_rollback_byte_equal(
-                doc,
-                point,
-                &junk,
-                &ROOMY,
-                &format!("seed {seed} step {step} random bytes"),
-            );
-        }
+            &format!("seed {seed} step {step} random bytes"),
+        );
     }
     let gap = Update::of(
         9_000 + seed,
@@ -618,4 +616,95 @@ fn from_state_opens_canonical_and_non_canonical_and_refuses_slow_states() {
         from_state(&with_step, &slow_limits),
         Err(TakeError::Update(UpdateError::TooManyReadingSteps { .. }))
     ));
+}
+
+/// Regression for in-place `Mend::Spans` when an untrusted update sets `colspan` or
+/// `rowspan` on a table cell to a non-empty nested shared type (`YArray` / `YMap`):
+/// deleting the attribute recursively deletes its descendants in `txn.delete_set()`, so
+/// `remove_attr` must read the attribute's own `BranchID::Nested` ID before deletion
+/// rather than picking a descendant ID as the replacement's left origin.
+#[test]
+fn mend_spans_replaces_non_empty_nested_shared_type_attr() {
+    let base_doc = from_body(&body_of(&two_by_two_table_body()));
+    let base_state = state_of(&base_doc);
+    let base_changes = state_counts(&base_state).expect("counts").changes;
+
+    // Peer sets `colspan` to a non-empty YArray and `rowspan` to a non-empty YMap on cell (0,0).
+    let peer = copy_of(&base_doc).expect("copy");
+    let before_sv = peer.transact().state_vector();
+    {
+        let root = peer.get_or_insert_xml_fragment(FIELD);
+        let mut txn = peer.transact_mut();
+        let Some(XmlOut::Element(table)) = root.get(&txn, 0) else {
+            panic!("table");
+        };
+        let Some(XmlOut::Element(row)) = table.get(&txn, 0) else {
+            panic!("row");
+        };
+        let Some(XmlOut::Element(cell)) = row.get(&txn, 0) else {
+            panic!("cell");
+        };
+        cell.insert_attribute(&mut txn, "colspan", ArrayPrelim::from(["bad"]));
+        cell.insert_attribute(&mut txn, "rowspan", MapPrelim::from([("k", "v")]));
+    }
+    let bad_spans = peer.transact().encode_diff_v1(&before_sv);
+
+    let held = BodyDoc::from_state(&base_state, &ROOMY).expect("open").doc;
+    let changed = held
+        .take_in_place(&base_state, base_changes, &bad_spans, &ROOMY)
+        .expect("nested shared-type spans mended cleanly in place");
+    assert_eq!(changed.repair.mended, 1, "cell spans mended");
+    let repair_update = changed.repair.update.expect("mend update emitted");
+    assert_eq!(
+        json_of(changed.repair.body.as_ref()),
+        two_by_two_table_body(),
+        "mended table has valid default spans (1x1)"
+    );
+
+    // Applying the emitted repair update to the peer converges to the exact same state and body.
+    let decoded = yrs::Update::decode_v1(&repair_update).expect("valid repair update");
+    peer.transact_mut().apply_update(decoded).expect("applies");
+    assert_eq!(
+        json_of(to_body(&peer).expect("peer body").as_ref()),
+        two_by_two_table_body(),
+        "peer converges after repair update"
+    );
+    assert!(
+        fvoci_collab::same_state(&state_of(&peer), &changed.state),
+        "peer and server states match"
+    );
+}
+
+/// A table mend that adds `writer_for` as a new client must still enforce `limits.clients`
+/// and roll back byte-for-byte via `BodyDoc::rebuild` when exceeded.
+#[test]
+fn table_mend_refused_when_writer_exceeds_max_clients() {
+    let base_doc = from_body(&body_of(&two_by_two_table_body()));
+    let base_state = state_of(&base_doc);
+    let base_changes = state_counts(&base_state).expect("counts").changes;
+    let editor = fvoci_collab::testing::Editor::join(200, &base_state);
+    let short_row = editor.add_table_row(1);
+
+    let two_clients = UpdateLimits {
+        clients: Some(2),
+        ..ROOMY
+    };
+    let held = BodyDoc::from_state(&base_state, &two_clients)
+        .expect("open")
+        .doc;
+    let err = held
+        .take_in_place(&base_state, base_changes, &short_row, &two_clients)
+        .expect_err("3rd client from mend writer refused");
+    assert!(
+        matches!(
+            err,
+            BodyTakeError::Dirty(TakeError::Update(UpdateError::TooManyClients {
+                clients: 3,
+                limit: 2
+            }))
+        ),
+        "expected Dirty(TooManyClients(3, 2)), got {err:?}"
+    );
+    let rebuilt = BodyDoc::rebuild::<&[u8]>(&base_state, &[]).expect("rebuilt");
+    assert_eq!(rebuilt.state(), base_state, "exact rollback");
 }

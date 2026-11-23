@@ -1143,3 +1143,90 @@ async fn closing_at_paused_before_projection_keeps_a_repaired_update_past_readin
     );
     th.teardown().await;
 }
+
+/// Stopping the server at `paused_before_projection` after logging an update past
+/// `READING_STEPS` that required an in-place table mend (`mended > 0`) and its logged
+/// repair row recovers on restart: `replay` skips the logged mend row, projects the
+/// mended 3-row 2-column table and all paragraphs, and remakes to 0 reading steps.
+#[tokio::test]
+async fn closing_at_paused_before_projection_keeps_table_mend_past_reading_steps() {
+    const LIST: u64 = 10_000;
+    let past = READING_STEPS / LIST + 5;
+    let cell = json!({"type": "tableCell", "content": [{"type": "paragraph"}]});
+    let row = json!({"type": "tableRow", "content": [cell.clone(), cell]});
+    let table_doc =
+        json!({"type": "doc", "content": [{"type": "table", "content": [row.clone(), row]}]});
+
+    let th = roomy().await;
+    let a = th.client.me().await;
+    let e = editing(&th, &table_doc).await;
+    let app = e.app.clone();
+    let collab = app.collab().clone();
+    let loaded = collab.open(&app, &e.card_id).await.expect("opened");
+    collab
+        .take(&app, &e.card_id, loaded.epoch, &a.id, &typed_in_order(LIST))
+        .await
+        .expect("typed");
+    let before = stored(&e).await;
+    let mut state = before.state.clone();
+    for update in &before.updates {
+        state = fvoci_collab::yrs::merge_updates_v1([&state, &update.bytes]).expect("merged");
+    }
+    let editor = Editor::join(303, &state);
+    let short_row = editor.add_table_row(1);
+    let walkers_bytes = walking(0, past, LIST);
+    let combined =
+        fvoci_collab::yrs::merge_updates_v1([&short_row, &walkers_bytes]).expect("merged");
+
+    let (waiting, go) = collab.pause_next_projection();
+    let taking = tokio::spawn({
+        let (collab, app, card_id, user_id) =
+            (collab.clone(), app.clone(), e.card_id.clone(), a.id.clone());
+        async move {
+            collab
+                .take(&app, &card_id, loaded.epoch, &user_id, &combined)
+                .await
+        }
+    });
+    waiting.notified().await;
+
+    let th = th
+        .killed_and_started_again(async |old_app| {
+            old_app.store().close().await;
+            go.notify_one();
+            let taken = taking.await.expect("joined").expect("logged before close");
+            assert!(taken.repair.is_some(), "table mend update returned");
+            assert!(!taken.remade, "remake failed because store closed");
+        })
+        .await;
+
+    let expected = usize::try_from(LIST).expect("fits") + 1;
+    wait_for_paragraphs(&th, &e.card_id, expected).await;
+    let restarted = Editing {
+        card_id: e.card_id.clone(),
+        ..editing_app(&th).await
+    };
+    let (again, again_epoch) =
+        joined(restarted.app.collab(), &restarted.app, &e.card_id, 304).await;
+    let body = again.body().expect("body");
+    let rows = body.document()["content"]
+        .as_array()
+        .expect("content")
+        .iter()
+        .find(|n| n["type"] == "table")
+        .expect("table")["content"]
+        .as_array()
+        .expect("rows");
+    assert_eq!(rows.len(), 3, "three rows preserved");
+    assert_eq!(
+        rows[2]["content"].as_array().expect("cells").len(),
+        2,
+        "third row padded to 2 cells by mend"
+    );
+    let made = stored(&restarted).await;
+    assert_eq!(made.epoch, loaded.epoch + 1, "remade on restart");
+    assert_eq!(again_epoch, made.epoch, "rejoined at remade epoch");
+    assert_eq!(made.updates.len(), 0, "log cleared after remake");
+    assert_eq!(reading_steps(&made.state, u64::MAX).expect("state"), 0);
+    th.teardown().await;
+}

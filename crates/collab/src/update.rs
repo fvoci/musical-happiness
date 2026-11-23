@@ -447,7 +447,7 @@ pub(crate) fn from_state_settled(
             .map_err(|refusal| UpdateError::LeavesUnreadable(refusal.reason().to_owned()))?;
     }
     let encoded = state_of(&doc);
-    if encoded == state {
+    if same_state(&encoded, state) {
         return Ok(Settled {
             doc,
             state: encoded,
@@ -827,6 +827,7 @@ fn settled_from(doc: Doc, state: Vec<u8>, limits: &UpdateLimits) -> Result<Settl
             outcome: Outcome::Settled,
         });
     }
+    drop(state);
     if state_again.len() > limits.state_bytes {
         return Err(UpdateError::DocumentTooLarge {
             size: state_again.len(),
@@ -881,7 +882,8 @@ fn settled_from(doc: Doc, state: Vec<u8>, limits: &UpdateLimits) -> Result<Settl
 /// change does), the library reads one state to documents that differ from one reading
 /// to the next, so that comparing content would refuse such an update only now and
 /// then. Refusing those origins in the walk is what would close that.
-pub(crate) fn same_state(one: &[u8], other: &[u8]) -> bool {
+#[must_use]
+pub fn same_state(one: &[u8], other: &[u8]) -> bool {
     one == other
         || matches!(
             (Update::decode_v1(one), Update::decode_v1(other)),

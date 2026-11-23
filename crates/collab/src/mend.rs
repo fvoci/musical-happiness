@@ -25,8 +25,8 @@ use yrs::types::TYPE_REFS_XML_ELEMENT;
 use yrs::updates::decoder::Decode as _;
 use yrs::updates::encoder::{Encode as _, Encoder as _, EncoderV1};
 use yrs::{
-    Any, BranchID, ClientID, Doc, ID, IdSet, Number, ReadTxn as _, Transact as _, Update, Xml as _,
-    XmlElementRef,
+    Any, BranchID, ClientID, Doc, ID, IdSet, Number, Out, ReadTxn as _, Transact as _, Update,
+    Xml as _, XmlElementRef,
 };
 
 /// The highest clock `scan` accepts: 31 bits.
@@ -94,14 +94,14 @@ impl Mend {
         }
     }
 
-    /// How many Y items this mend writes as `writer`.
-    fn item_count(&self) -> usize {
+    /// How many Y items this mend writes as `writer`, or `None` on `u32` overflow.
+    fn item_count(&self) -> Option<u32> {
         match self {
             // Element + child paragraph + colspan + rowspan.
-            Self::Put { .. } => 4,
-            Self::Pad { cells, .. } => cells.len().saturating_mul(4),
+            Self::Put { .. } => Some(4),
+            Self::Pad { cells, .. } => u32::try_from(cells.len()).ok()?.checked_mul(4),
             Self::Spans { columns, rows, .. } => {
-                usize::from(columns.is_some()) + usize::from(rows.is_some())
+                Some(u32::from(columns.is_some()) + u32::from(rows.is_some()))
             }
         }
     }
@@ -178,9 +178,12 @@ impl MendItem {
 /// Verifies before any mutation that every mend targets nested elements and that
 /// writing all mend items as `writer` stays within the 31-bit clock limit.
 pub(crate) fn check_mends(doc: &Doc, writer: u64, mends: &[Mend]) -> Result<(), BodyError> {
-    let total: usize = mends.iter().map(Mend::item_count).sum();
-    let total = u32::try_from(total).map_err(|_| unmendable())?;
-    let start = doc.transact().state_vector().get(&ClientID::new(writer));
+    let total = mends
+        .iter()
+        .try_fold(0_u32, |acc, mend| acc.checked_add(mend.item_count()?))
+        .ok_or_else(unmendable)?;
+    let txn = doc.transact();
+    let start = txn.state_vector().get(&ClientID::new(writer));
     if start.checked_add(total).is_none_or(|end| end > MAX_CLOCK) {
         return Err(unmendable());
     }
@@ -204,8 +207,17 @@ pub(crate) fn check_mends(doc: &Doc, writer: u64, mends: &[Mend]) -> Result<(), 
                     nested_id(element)?;
                 }
             }
-            Mend::Spans { cell, .. } => {
+            Mend::Spans {
+                cell,
+                columns,
+                rows,
+            } => {
                 nested_id(cell)?;
+                for (name, span) in [("colspan", columns), ("rowspan", rows)] {
+                    if span.is_some() {
+                        nested_attr_id(&txn, cell, name)?;
+                    }
+                }
             }
         }
     }
@@ -225,7 +237,12 @@ pub(crate) fn apply_mends(
     let writer_id = ClientID::new(writer);
     let start_clock = doc.transact().state_vector().get(&writer_id);
     let mut clock = start_clock;
-    let mut items: Vec<MendItem> = Vec::with_capacity(mends.iter().map(Mend::item_count).sum());
+    let total_items = mends
+        .iter()
+        .try_fold(0_u32, |acc, mend| acc.checked_add(mend.item_count()?))
+        .ok_or_else(unmendable)?;
+    let mut items: Vec<MendItem> =
+        Vec::with_capacity(usize::try_from(total_items).map_err(|_| unmendable())?);
     let mut last_put: Option<ID> = None;
 
     for mend in mends {
@@ -263,10 +280,7 @@ pub(crate) fn apply_mends(
                 let cell_id = nested_id(cell)?;
                 for (name, span) in [("colspan", columns), ("rowspan", rows)] {
                     if let Some(span) = span {
-                        // Removing the live attribute records its exact ID range in
-                        // `txn.delete_set()`, giving the exact `origin` (`last_id`)
-                        // that `insert_attribute` would have used.
-                        let prev = remove_attr(doc, cell, name, deleted);
+                        let prev = remove_attr(doc, cell, name, deleted)?;
                         items.push(MendItem::Attr {
                             left: prev,
                             parent: cell_id,
@@ -299,11 +313,10 @@ fn apply_encoded_mends(
     mut blocks: Vec<u8>,
     deleted: &mut IdSet,
 ) -> Result<Vec<u8>, BodyError> {
-    let mut to_apply = Vec::with_capacity(blocks.len() + 1);
-    to_apply.extend_from_slice(&blocks);
     // Empty delete set: deletions from `cuts` and `remove_attr` are already in `doc`.
-    to_apply.push(0);
-    let update = Update::decode_v1(&to_apply).map_err(|_| unmendable())?;
+    blocks.push(0);
+    let update = Update::decode_v1(&blocks).map_err(|_| unmendable())?;
+    blocks.pop();
     {
         let mut txn = doc.transact_mut();
         txn.apply_update(update).map_err(|_| unmendable())?;
@@ -365,24 +378,54 @@ fn push_cell(
     cell_id
 }
 
+/// Returns the exact nested item ID of `cell`'s attribute `name` if it holds a nested
+/// shared type (`Branch`), or `Ok(None)` if absent or not a nested shared type.
+fn nested_attr_id<T: yrs::ReadTxn>(
+    txn: &T,
+    cell: &XmlElementRef,
+    name: &str,
+) -> Result<Option<ID>, BodyError> {
+    match cell.get_attribute(txn, name) {
+        Some(Out::YText(value)) => branch_id(value.as_ref()).map(Some),
+        Some(Out::YArray(value)) => branch_id(value.as_ref()).map(Some),
+        Some(Out::YMap(value)) => branch_id(value.as_ref()).map(Some),
+        Some(Out::YXmlElement(value)) => branch_id(value.as_ref()).map(Some),
+        Some(Out::YXmlFragment(value)) => branch_id(value.as_ref()).map(Some),
+        Some(Out::YXmlText(value)) => branch_id(value.as_ref()).map(Some),
+        _ => Ok(None),
+    }
+}
+
 /// Removes attribute `name` from `cell`, merges the resulting deletion into `deleted`,
-/// and returns the last ID of the removed item (if any) to use as the replacement's left
-/// origin.
-fn remove_attr(doc: &Doc, cell: &XmlElementRef, name: &str, deleted: &mut IdSet) -> Option<ID> {
+/// and returns the last ID of the removed attribute item (if any) to use as the
+/// replacement's left origin.
+///
+/// For nested shared-type attributes (`ItemContent::Type`), reads the attribute's own
+/// `BranchID::Nested` ID before removing it so recursively deleted descendants in
+/// `txn.delete_set()` are never mistaken for the attribute item's ID.
+fn remove_attr(
+    doc: &Doc,
+    cell: &XmlElementRef,
+    name: &str,
+    deleted: &mut IdSet,
+) -> Result<Option<ID>, BodyError> {
     let mut txn = doc.transact_mut();
+    let nested = nested_attr_id(&txn, cell, name)?;
     cell.remove_attribute(&mut txn, &name);
     let ds = txn.delete_set();
-    let prev = ds.iter().next().and_then(|(client, ranges)| {
-        ranges
-            .iter()
-            .next_back()
-            .and_then(|range| range.end.checked_sub(1))
-            .map(|last| ID::new(*client, last))
+    let prev = nested.or_else(|| {
+        ds.iter().next().and_then(|(client, ranges)| {
+            ranges
+                .iter()
+                .next_back()
+                .and_then(|range| range.end.checked_sub(1))
+                .map(|last| ID::new(*client, last))
+        })
     });
     if !ds.is_empty() {
         deleted.merge_with(ds.clone());
     }
-    prev
+    Ok(prev)
 }
 
 fn resolve_anchor(anchor: &LeftAnchor, last_put: Option<ID>) -> Result<Option<ID>, BodyError> {
@@ -394,7 +437,10 @@ fn resolve_anchor(anchor: &LeftAnchor, last_put: Option<ID>) -> Result<Option<ID
 }
 
 fn nested_id(element: &XmlElementRef) -> Result<ID, BodyError> {
-    let branch: &Branch = element.as_ref();
+    branch_id(element.as_ref())
+}
+
+fn branch_id(branch: &Branch) -> Result<ID, BodyError> {
     match branch.id() {
         BranchID::Nested(id) => Ok(id),
         BranchID::Root(_) => Err(unmendable()),
