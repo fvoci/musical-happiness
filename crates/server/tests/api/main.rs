@@ -194,6 +194,7 @@ mod template_stock;
 mod templates;
 mod unit_comments;
 mod unit_notifications;
+mod unit_progress_isolation;
 mod unit_references;
 mod unit_versions;
 mod uploads;

@@ -28,6 +28,21 @@ pub struct ContainerAccess {
     pub grant: Grant,
 }
 
+impl ContainerAccess {
+    /// Whether the user holds an enrolled membership on this container (either a direct
+    /// role flag or an inherited group role as a workspace worker).
+    #[must_use]
+    pub fn has_membership(&self) -> bool {
+        let direct = self
+            .member
+            .as_ref()
+            .and_then(permissions::role_of)
+            .is_some();
+        let inherited = self.actor.works_there() && self.team_role.is_some();
+        self.actor.workspace.is_some() && (direct || inherited)
+    }
+}
+
 /// A board in the trash, and what one user may do with it: what the role they had
 /// when it was deleted would let them do, as what they are in its workspace now.
 #[derive(Debug, Clone)]

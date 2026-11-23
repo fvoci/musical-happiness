@@ -149,6 +149,15 @@ async fn courses(case: &mut Case) {
         .await;
     unit_comments(case, &course, &unit).await;
     unit_versions(case, &course, &unit).await;
+    let user = case.user.clone();
+    case.run(
+        "putUnitProgress",
+        of_unit,
+        json!({"completed": true, "lastPosition": format!("secret {} progress", case.label)}),
+    )
+    .await;
+    case.present("getMyCourseProgress", at, &unit).await;
+    case.present("getCourseProgressSummary", at, &user).await;
     case.run("moveUnit", of_unit, json!({"parentId": ""})).await;
     case.run("deleteUnit", of_unit, json!({})).await;
     case.present("getDeletedUnits", at, &unit).await;

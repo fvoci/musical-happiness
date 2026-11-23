@@ -3473,6 +3473,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My progress in a course
+         * @description Returns the caller's own personal progress rows for every live unit in the course,
+         *     ordered by `unitId`. Enrolled course members (including viewers and invited guests)
+         *     and personal-space owners receive their own rows; an unjoined reader of an open course
+         *     receives an empty array `[]`. Other users' personal rows are never returned. Non-course
+         *     containers and unreadable private courses answer 404.
+         */
+        get: operations["getMyCourseProgress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/progress/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Progress summary of a course
+         * @description Returns the total number of live units in the course (excluding chapters and trashed
+         *     units) and the completed live-unit count for each active course member, ordered by
+         *     `userId`. Accounts that have been deleted, are pending deletion, or are no longer
+         *     active members of the workspace or course are excluded. Never discloses which units a
+         *     member completed, completion timestamps, planned dates, or last positions. Readable
+         *     by anyone who can view the course (and the owner of a personal-space course);
+         *     unreadable private courses and non-course containers answer 404.
+         */
+        get: operations["getCourseProgressSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/courses/{courseId}/trash/units": {
         parameters: {
             query?: never;
@@ -3799,6 +3849,36 @@ export interface paths {
          *     not told of.
          */
         post: operations["moveUnit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Record my progress on a unit
+         * @description Creates or updates the caller's own progress row on a live unit of the course.
+         *     Enrolled members of any role (viewer, commenter, editor, admin, including invited
+         *     guests) and personal-space owners may record their own progress; an unjoined reader
+         *     of an open course is refused with 403 until they join the course.
+         *
+         *     Setting `completed: true` is idempotent and preserves an existing `completedAt`
+         *     timestamp. Setting `completed: false` clears `completedAt` to `null`. Omitting
+         *     `completed` or `lastPosition` preserves the existing value; sending `lastPosition:
+         *     null` clears it. Personal progress writes never broadcast over websockets, never
+         *     enter search indexes or archives, and emit no webhooks or audit logs. Chapters,
+         *     trashed units, units of another course, and non-course containers answer 404.
+         */
+        put: operations["putUnitProgress"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6064,6 +6144,17 @@ export interface components {
             /** @description The boards. */
             containers: components["schemas"]["Container"][];
         };
+        /** @description Course-wide progress summary across all active members. */
+        CourseProgressSummary: {
+            /** @description Per-member completion counts for active course members, ordered by `userId`. */
+            members: components["schemas"]["MemberCourseProgress"][];
+            /**
+             * Format: int32
+             * @description Total number of currently live units in the course. Chapters and trashed units are
+             *     excluded.
+             */
+            totalUnits: number;
+        };
         /**
          * @description A degree or a professional qualification written after a person's name.
          * @enum {string}
@@ -6686,6 +6777,21 @@ export interface components {
              *     becomes `email` by the link mailed to it; left out when it waits for none.
              */
             pendingEmail?: string | null;
+        };
+        /**
+         * @description Aggregate completion count of one active course member.
+         *
+         *     Intentionally omits unit identifiers, completion timestamps, planned dates, and last
+         *     positions so personal learning details are never disclosed to other members.
+         */
+        MemberCourseProgress: {
+            /**
+             * Format: int32
+             * @description Number of currently live units in the course completed by this member.
+             */
+            completedUnits: number;
+            /** @description Identifier of the active course member. */
+            userId: string;
         };
         /**
          * @description The roles a member of a board is to have. A role that is left out is taken away, and
@@ -8027,6 +8133,44 @@ export interface components {
             readAt?: number | null;
             /** @description The new title. */
             title?: string | null;
+        };
+        /** @description One learner's personal progress on a single unit. */
+        UnitProgress: {
+            /**
+             * Format: int64
+             * @description Completion time in milliseconds since the Unix epoch; `null` if not completed.
+             */
+            completedAt: number | null;
+            /** @description Optional last read or watched position string, at most 256 characters. */
+            lastPosition: string | null;
+            /** @description Optional personal target date (`YYYY-MM-DD`), reserved for personal scheduling. */
+            plannedDate: string | null;
+            /** @description Identifier of the unit block. */
+            unitId: string;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
+        /**
+         * @description Request body for updating the caller's personal progress on a unit.
+         *
+         *     Omitted members leave the stored value untouched. Sending `completed: true` on an
+         *     already completed unit preserves its original `completedAt` timestamp. Sending
+         *     `lastPosition: null` (or a whitespace-only string) clears the stored position.
+         */
+        UnitProgressUpdate: {
+            /**
+             * @description Set `true` to mark completed (idempotent), `false` to mark incomplete, or omit to
+             *     leave unchanged (`null` is refused).
+             */
+            completed?: boolean;
+            /**
+             * @description Last read or watched position (at most 256 characters, no control characters).
+             *     Omit to keep unchanged, or send `null` to clear.
+             */
+            lastPosition?: string | null;
         };
         /** @description A request to remove an identity from the account of the session. */
         UnlinkRequest: {
@@ -13662,6 +13806,74 @@ export interface operations {
             };
         };
     };
+    getMyCourseProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's progress rows for the course. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitProgress"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCourseProgressSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aggregate completion counts for active course members. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseProgressSummary"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getDeletedUnits: {
         parameters: {
             query?: {
@@ -14288,6 +14500,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Unit"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putUnitProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnitProgressUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated personal progress row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitProgress"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

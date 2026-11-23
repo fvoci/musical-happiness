@@ -147,6 +147,22 @@ pub(crate) fn directory_members(scope: &Scope<'_>) -> String {
     )
 }
 
+/// Active inherited memberships `(container_id, user_id, org_id)` for containers in live
+/// workspaces and organizations.
+pub(crate) fn inherited_members_source(scope: &Scope<'_>) -> String {
+    let team_members = crate::teams::present_members(scope);
+    format!(
+        "(SELECT bt.container_id, tm.user_id, bt.org_id \
+          FROM container_teams AS bt \
+          JOIN {team_members} AS tm \
+            ON tm.team_id = bt.team_id \
+           AND tm.workspace_id = bt.workspace_id \
+           AND tm.org_id = bt.org_id \
+          JOIN organizations AS o ON o.id = bt.org_id \
+          WHERE o.delete_at = 0)"
+    )
+}
+
 pub(crate) async fn get_members_for_user(
     scope: &mut Scope<'_>,
     user_id: &str,
