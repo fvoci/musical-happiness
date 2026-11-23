@@ -158,6 +158,42 @@ async fn courses(case: &mut Case) {
     .await;
     case.present("getMyCourseProgress", at, &unit).await;
     case.present("getCourseProgressSummary", at, &user).await;
+    let review = case
+        .run(
+            "scheduleUnitReview",
+            of_unit,
+            json!({"scheduledDate": "2020-01-01", "intervalDays": 1}),
+        )
+        .await
+        .value()["id"]
+        .as_str()
+        .expect("a review")
+        .to_owned();
+    case.present("listMyCourseReviews", at, &review).await;
+    case.present("getWorkspaceTodayReviews", &[], &review).await;
+    let of_review = &[("courseId", course.as_str()), ("reviewId", review.as_str())];
+    case.run("completeUnitReview", of_review, json!({})).await;
+    case.run("deleteUnitReview", of_review, json!({})).await;
+    let note = case
+        .run(
+            "createUnitNote",
+            of_unit,
+            json!({"kind": "question", "content": format!("secret {} note", case.label)}),
+        )
+        .await
+        .value()["id"]
+        .as_str()
+        .expect("a note")
+        .to_owned();
+    case.present("listMyUnitNotes", of_unit, &note).await;
+    let of_note = &[("courseId", course.as_str()), ("noteId", note.as_str())];
+    case.run(
+        "patchUnitNote",
+        of_note,
+        json!({"kind": "review", "content": format!("secret {} updated note", case.label)}),
+    )
+    .await;
+    case.run("deleteUnitNote", of_note, json!({})).await;
     case.run("moveUnit", of_unit, json!({"parentId": ""})).await;
     case.run("deleteUnit", of_unit, json!({})).await;
     case.present("getDeletedUnits", at, &unit).await;

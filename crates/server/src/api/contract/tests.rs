@@ -594,11 +594,20 @@ const ORDERS: &[(&str, &str)] = &[
     ("getWorkspaceAudit", "the newest first"),
     ("getWorkspaceBoards", "Oldest first"),
     ("getWorkspaceMembers", "The oldest membership first"),
+    (
+        "getWorkspaceTodayReviews",
+        "Ordered by `scheduledDate` ascending",
+    ),
     ("getWorkspaceUsers", "Oldest account first"),
     (
         "getWorkspaceUsersById",
         "Oldest account first, not in the order of the request",
     ),
+    (
+        "listMyCourseReviews",
+        "Ordered by `scheduledDate` ascending",
+    ),
+    ("listMyUnitNotes", "Ordered by `createAt` descending"),
     ("patchBoardsAndBlocks", "each in the order of the request"),
     ("reorderCardProperties", "in their new order"),
     ("reorderCategories", "in their new order"),

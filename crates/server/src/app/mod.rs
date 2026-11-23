@@ -80,6 +80,7 @@ mod template_stock;
 mod templates;
 mod trash;
 mod unit_progress;
+mod unit_reviews;
 mod uploads;
 mod users;
 mod webhooks;

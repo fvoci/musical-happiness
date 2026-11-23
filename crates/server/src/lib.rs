@@ -661,6 +661,7 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
             app.end_lapsed_former_providers().await;
             app.erase_due_accounts().await;
             app.forget_old_notifications().await;
+            app.notify_due_reviews_upkeep().await;
         }
     })
 }

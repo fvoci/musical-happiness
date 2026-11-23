@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 60] = [
+const STEPS: [Step; 61] = [
     Step {
         version: 1,
         description: "baseline",
@@ -401,6 +401,13 @@ const STEPS: [Step; 60] = [
         sqlite: include_str!("../schema/sqlite/0063_unit_progress.sql"),
         postgres: include_str!("../schema/postgres/0063_unit_progress.sql"),
     },
+    // 64..=66 are other work's.
+    Step {
+        version: 67,
+        description: "unit reviews and notes",
+        sqlite: include_str!("../schema/sqlite/0067_unit_reviews_and_notes.sql"),
+        postgres: include_str!("../schema/postgres/0067_unit_reviews_and_notes.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -434,6 +441,10 @@ pub(crate) const BEFORE_COURSES_VERSION: i64 = 60;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_UNIT_PROGRESS_VERSION: i64 = 62;
 
+/// The migration before unit reviews and notes (0067).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_UNIT_REVIEWS_VERSION: i64 = 66;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -457,7 +468,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 12] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 40] = [
+pub(crate) const ORG_TABLES: [&str; 42] = [
     "audit_log",
     "blocks",
     "body_docs",
@@ -493,7 +504,9 @@ pub(crate) const ORG_TABLES: [&str; 40] = [
     "subscriptions",
     "team_members",
     "teams",
+    "unit_notes",
     "unit_progress",
+    "unit_reviews",
     "upload_parts",
     "uploads",
     "workspace_members",
@@ -957,5 +970,16 @@ mod tests {
             .expect("migration 63 is in the list");
         assert_eq!(step.description, "unit progress");
         assert!(BEFORE_UNIT_PROGRESS_VERSION < step.version);
+    }
+
+    /// Migration 67 is unit reviews and notes, following `BEFORE_UNIT_REVIEWS_VERSION`.
+    #[test]
+    fn migration_67_is_unit_reviews_and_notes() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == 67)
+            .expect("migration 67 is in the list");
+        assert_eq!(step.description, "unit reviews and notes");
+        assert!(BEFORE_UNIT_REVIEWS_VERSION < step.version);
     }
 }

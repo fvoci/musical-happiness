@@ -148,7 +148,7 @@ impl Store {
 /// and `users` (`FOR KEY SHARE`) in that global order so concurrent unit deletion,
 /// workspace removal, org departure, or account erasure serialize cleanly without
 /// blocking learners updating progress side by side.
-async fn require_live_unit(
+pub(crate) async fn require_live_unit(
     scope: &mut Scope<'_>,
     course_id: &str,
     unit_id: &str,
@@ -388,6 +388,7 @@ fn progress_from_row(row: &Row) -> Result<UnitProgress, StoreError> {
         planned_date: row.opt_text(2)?,
         last_position: row.opt_text(3)?,
         update_at: row.int(4)?,
+        suggested_next_interval_days: None,
     })
 }
 

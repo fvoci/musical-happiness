@@ -542,6 +542,8 @@ struct Named {
     course_id: String,
     unit_id: String,
     unit_comment_id: String,
+    review_id: String,
+    note_id: String,
     file_id: String,
     upload_id: String,
     user_id: String,
@@ -563,6 +565,8 @@ impl Named {
             .replace("{courseId}", &self.course_id)
             .replace("{unitId}", &self.unit_id)
             .replace("{commentId}", &self.unit_comment_id)
+            .replace("{reviewId}", &self.review_id)
+            .replace("{noteId}", &self.note_id)
             .replace("{version}", "1")
             .replace("{fileId}", &self.file_id)
             .replace("{uploadId}", &self.upload_id)
@@ -598,7 +602,8 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
         .await
         .value();
     let card_id = card["id"].as_str().expect("a card").to_owned();
-    let (course_id, unit_id, unit_comment_id) = course_fixtures(&ts.client).await;
+    let (course_id, unit_id, unit_comment_id, review_id, note_id) =
+        course_fixtures(&ts.client).await;
     let file = reqwest::multipart::Part::bytes(b"of the organization".to_vec()).file_name("a.txt");
     let uploaded = Client::send(
         ts.client
@@ -632,6 +637,8 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
         course_id,
         unit_id,
         unit_comment_id,
+        review_id,
+        note_id,
         board,
         file_id,
         upload_id,
@@ -641,8 +648,8 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
     }
 }
 
-/// Makes an open course with a unit (holding one body version) and a comment on the unit.
-async fn course_fixtures(client: &Client) -> (String, String, String) {
+/// Makes an open course with a unit (holding one body version), a comment, a review, and a note.
+async fn course_fixtures(client: &Client) -> (String, String, String, String, String) {
     let course: Value = client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/courses"),
@@ -674,7 +681,23 @@ async fn course_fixtures(client: &Client) -> (String, String, String) {
         .await
         .value();
     let comment_id = comment["id"].as_str().expect("a comment").to_owned();
-    (course_id, unit_id, comment_id)
+    let review: Value = client
+        .post(
+            &format!("{units}/{unit_id}/reviews"),
+            &json!({"intervalDays": 3}),
+        )
+        .await
+        .value();
+    let review_id = review["id"].as_str().expect("a review").to_owned();
+    let note: Value = client
+        .post(
+            &format!("{units}/{unit_id}/notes"),
+            &json!({"kind": "question", "content": "sso test note"}),
+        )
+        .await
+        .value();
+    let note_id = note["id"].as_str().expect("a note").to_owned();
+    (course_id, unit_id, comment_id, review_id, note_id)
 }
 
 /// Every operation of the contract, by its method, its path as written there, and its

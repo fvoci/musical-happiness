@@ -172,6 +172,14 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getMyCourseProgress", Reaches::COURSES),
     ("putUnitProgress", Reaches::COURSES),
     ("getCourseProgressSummary", Reaches::COURSES),
+    ("listMyCourseReviews", Reaches::COURSES),
+    ("scheduleUnitReview", Reaches::COURSES),
+    ("completeUnitReview", Reaches::COURSES),
+    ("deleteUnitReview", Reaches::COURSES),
+    ("listMyUnitNotes", Reaches::COURSES),
+    ("createUnitNote", Reaches::COURSES),
+    ("patchUnitNote", Reaches::COURSES),
+    ("deleteUnitNote", Reaches::COURSES),
     // What names a card, page or unit from a body.
     ("getReferencesTo", Reaches::LINKED),
     // What the holder of a read token reads.
@@ -187,11 +195,13 @@ const REACHED: &[(&str, Reaches)] = &[
 ];
 
 /// The parameters of a path that name a container or something that is of one.
-const NAMING: [&str; 13] = [
+const NAMING: [&str; 15] = [
     "{diaryId}",
     "{entryId}",
     "{courseId}",
     "{unitId}",
+    "{reviewId}",
+    "{noteId}",
     "{containerId}",
     "{boardId}",
     "{wikiId}",
@@ -214,6 +224,10 @@ struct Things {
     block: String,
     /// A comment on the card; on the page.
     comment: String,
+    /// A review on a course unit; `UNKNOWN_ID` for other kinds.
+    review: String,
+    /// A note on a course unit; `UNKNOWN_ID` for other kinds.
+    note: String,
     file: String,
     upload: String,
     /// The read token of the container, which is shared.
@@ -231,6 +245,8 @@ impl Things {
             container: UNKNOWN_ID.to_owned(),
             block: UNKNOWN_ID.to_owned(),
             comment: UNKNOWN_ID.to_owned(),
+            review: UNKNOWN_ID.to_owned(),
+            note: UNKNOWN_ID.to_owned(),
             file: "missing-file".to_owned(),
             upload: "missing-upload".to_owned(),
             token: "no-token".to_owned(),
@@ -355,11 +371,18 @@ impl World {
             ContainerKind::Course => self.course_unit_with_a_comment(&container).await,
             _ => self.card_with_a_comment(&container).await,
         };
+        let (review, note) = if kind == ContainerKind::Course {
+            self.course_review_and_note(&container, &block).await
+        } else {
+            (UNKNOWN_ID.to_owned(), UNKNOWN_ID.to_owned())
+        };
         Things {
             workspace: ROOT_WORKSPACE_ID.to_owned(),
             container,
             block,
             comment,
+            review,
+            note,
             file: text(&uploaded.value(), "fileId"),
             upload: text(&opened.value(), "uploadId"),
             token,
@@ -388,6 +411,25 @@ impl World {
             .await;
         comment.check_done();
         (unit_id, text(&comment.value(), "id"))
+    }
+
+    async fn course_review_and_note(&self, course: &str, unit: &str) -> (String, String) {
+        let client = &self.ts.client;
+        let review = client
+            .post(
+                &format!("{ROOT_WS}/courses/{course}/units/{unit}/reviews"),
+                &json!({"intervalDays": 3}),
+            )
+            .await;
+        review.check_done();
+        let note = client
+            .post(
+                &format!("{ROOT_WS}/courses/{course}/units/{unit}/notes"),
+                &json!({"kind": "question", "content": "a study question"}),
+            )
+            .await;
+        note.check_done();
+        (text(&review.value(), "id"), text(&note.value(), "id"))
     }
 
     async fn card_with_a_comment(&self, board: &str) -> (String, String) {
@@ -501,6 +543,8 @@ impl World {
             .replace("{entryId}", block)
             .replace("{courseId}", &things.container)
             .replace("{unitId}", block)
+            .replace("{reviewId}", &things.review)
+            .replace("{noteId}", &things.note)
             .replace("{monthDay}", "11-21")
             .replace("{boardId}", &things.container)
             .replace("{wikiId}", &things.container)
@@ -561,6 +605,9 @@ impl World {
             "createUnit" => json!({"title": "another unit"}),
             "moveUnit" => json!({"parentId": ""}),
             "putUnitProgress" => json!({"completed": true, "lastPosition": "section-1"}),
+            "scheduleUnitReview" => json!({"intervalDays": 7}),
+            "createUnitNote" => json!({"kind": "mistake", "content": "check edge case"}),
+            "patchUnitNote" => json!({"kind": "review", "content": "updated note"}),
             "createDiaryEntry" => json!({"date": "2020-02-29"}),
             "patchDiaryEntry" => json!({"mood": "good"}),
             "addMember" | "updateMember" => {
@@ -798,6 +845,8 @@ async fn make_in_own_space(world: &World, own: &str) -> [Things; 4] {
             container,
             block,
             comment: UNKNOWN_ID.to_owned(),
+            review: UNKNOWN_ID.to_owned(),
+            note: UNKNOWN_ID.to_owned(),
             file: text(&uploaded.value(), "fileId"),
             upload: text(&opened.value(), "uploadId"),
             token: "no-token".to_owned(),

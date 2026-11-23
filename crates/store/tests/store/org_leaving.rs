@@ -4,8 +4,8 @@
 
 use fvoci_model::{
     AuditAction, AuditRecordActor, Block, BlockType, CompletionChange, Container, ContainerKind,
-    ContainerType, CourseLimits, LastPositionChange, NewUnit, OrgRole, SubscriberType,
-    Subscription, UnitProgressChange, WorkspaceRole, new_id,
+    ContainerType, CourseLimits, LastPositionChange, NewUnit, NewUnitNote, NewUnitReview, OrgRole,
+    SubscriberType, Subscription, UnitNoteKind, UnitProgressChange, WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AuditPlace, DbType, Departure, DepartureRefused, Joining, NewLink, Paging, Store, Tenant,
@@ -107,6 +107,30 @@ async fn course_with_progress(
         )
         .await
         .expect("progress stored");
+    store
+        .schedule_unit_review(
+            &course.id,
+            &unit.id,
+            learner,
+            &NewUnitReview {
+                scheduled_date: "2026-11-26".to_owned(),
+                interval_days: 7,
+            },
+        )
+        .await
+        .expect("review stored");
+    store
+        .create_unit_note(
+            &course.id,
+            &unit.id,
+            learner,
+            &NewUnitNote {
+                kind: UnitNoteKind::Review,
+                content: position.to_owned(),
+            },
+        )
+        .await
+        .expect("note stored");
 }
 
 /// The user follows the block.
@@ -195,6 +219,14 @@ async fn places_of(test: &TestStore, org_id: &str, user_id: &str) -> Vec<String>
         ),
         (
             "unit_progress",
+            format!("user_id = '{user_id}' AND container_id IN ({of_org_boards})"),
+        ),
+        (
+            "unit_reviews",
+            format!("user_id = '{user_id}' AND container_id IN ({of_org_boards})"),
+        ),
+        (
+            "unit_notes",
             format!("user_id = '{user_id}' AND container_id IN ({of_org_boards})"),
         ),
     ];
@@ -393,6 +425,8 @@ async fn whoever_leaves_has_nothing_left_in_the_organization_but_what_they_wrote
             "team_members: 0",
             "subscriptions: 0",
             "unit_progress: 0",
+            "unit_reviews: 0",
+            "unit_notes: 0",
         ]
     );
     assert_eq!(

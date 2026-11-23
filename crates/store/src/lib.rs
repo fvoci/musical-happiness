@@ -85,6 +85,7 @@ mod teams;
 pub mod testing;
 mod trash;
 mod unit_progress;
+mod unit_reviews;
 mod uploads;
 mod users;
 mod users_by_id;
@@ -168,6 +169,7 @@ pub use signups::{
 };
 pub use subscriptions::WatchedBlock;
 pub use trash::{DeletedBlock, DeletedContainer, Purged};
+pub use unit_reviews::DueReviewCandidate;
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
 pub use visibility::{VisibilityScope, VisibilityVersion};

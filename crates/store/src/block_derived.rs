@@ -11,7 +11,9 @@ use crate::db::Scope;
 use crate::error::StoreError;
 use crate::file_refs::{self, NewBodyFiles};
 use crate::search_outbox;
-use crate::{body_docs, body_links, body_versions, comment_versions, diaries, unit_progress};
+use crate::{
+    body_docs, body_links, body_versions, comment_versions, diaries, unit_progress, unit_reviews,
+};
 
 /// Whether the search server holds a document of the block: of a card or a page, but
 /// not of one whose `isTemplate` is `true` ([`Block::is_template`]: for a card, a
@@ -114,6 +116,7 @@ pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), Stor
     body_versions::forget_gone_blocks(scope).await?;
     body_links::forget_gone_blocks(scope).await?;
     unit_progress::forget_gone_blocks(scope).await?;
+    unit_reviews::forget_gone_blocks(scope).await?;
     file_refs::forget_gone_blocks(scope).await?;
     file_refs::mark(scope, None).await
 }

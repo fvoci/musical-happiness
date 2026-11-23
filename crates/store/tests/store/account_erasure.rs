@@ -4,8 +4,9 @@
 
 use fvoci_model::{
     AuditAction, Block, BlockType, Category, CompletionChange, Container, ContainerKind,
-    ContainerType, CourseLimits, Credential, LastPositionChange, NameShown, NewUnit, OrgRole,
-    PersonName, Session, Title, UnitProgressChange, User, WorkspaceRole, new_id,
+    ContainerType, CourseLimits, Credential, LastPositionChange, NameShown, NewUnit, NewUnitNote,
+    NewUnitReview, OrgRole, PersonName, Session, Title, UnitNoteKind, UnitProgressChange, User,
+    WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AuditPlace, DbType, DeletionAsking, Erasing, ErasureEnd, ErasureStart, Identity, LeftFrom,
@@ -669,6 +670,30 @@ async fn record_course_progress(store: &Store, workspace_id: &str, owner: &str, 
         )
         .await
         .expect("progress is stored");
+    store
+        .schedule_unit_review(
+            &course.id,
+            &unit.id,
+            learner,
+            &NewUnitReview {
+                scheduled_date: "2026-11-25".to_owned(),
+                interval_days: 3,
+            },
+        )
+        .await
+        .expect("review is stored");
+    store
+        .create_unit_note(
+            &course.id,
+            &unit.id,
+            learner,
+            &NewUnitNote {
+                kind: UnitNoteKind::Mistake,
+                content: "leaver-shelf personal mistake".to_owned(),
+            },
+        )
+        .await
+        .expect("note is stored");
 }
 
 /// Nothing of the person is in any column of any table once the account is erased;
