@@ -117,6 +117,11 @@ export class BlockWrites<T extends { id: string; updateAt: number }, P extends o
     return this.#pending.receive(block);
   }
 
+  /** Resolves once no write of `id` is under way. */
+  settled(id: string): Promise<void> {
+    return this.#pending.settled(id);
+  }
+
   /** Keeps the inverse of a change; returns what its undo is to wait for (`Inverses.ready`). */
   keep(id: string, reverse: P): () => Promise<void> | undefined {
     this.#inverses.keep(id, reverse);
