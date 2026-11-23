@@ -9,7 +9,8 @@ use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
     BlockError, BlockType, CHAPTERS_PER_COURSE, COURSE_DEPTH, Container, ContainerKind,
-    ContainersAndBlocks, DiaryDate, PageLimits, PageNode, PageTree, UNITS_PER_COURSE,
+    ContainersAndBlocks, DiaryDate, MAX_CARD_DEPTH, PageLimits, PageNode, PageTree,
+    UNITS_PER_COURSE,
 };
 use fvoci_store::StoreError;
 
@@ -25,6 +26,7 @@ pub(super) struct BlockPlace<'a> {
     pub(super) container_id: &'a str,
     pub(super) parent_id: &'a str,
     pub(super) block_type: &'a BlockType,
+    pub(super) is_template: bool,
     pub(super) diary_date: Option<DiaryDate>,
 }
 
@@ -55,6 +57,7 @@ pub(super) fn check(
             container_id: &block.container_id,
             parent_id: &block.parent_id,
             block_type: &block.block_type,
+            is_template: block.is_template(),
             diary_date: (block.block_type == BlockType::Entry)
                 .then(|| fvoci_model::entry_date(block))
                 .flatten(),
@@ -102,7 +105,7 @@ pub(super) fn check_places(
             ContainerKind::Wiki => check_tree(&container.id, &mine, limits)?,
             ContainerKind::Diary => check_days(&container.id, &mine)?,
             ContainerKind::Course => check_course(&container.id, &mine)?,
-            ContainerKind::Board => {}
+            ContainerKind::Board => check_board_cards(&container.id, &mine)?,
         }
     }
     // What is on none of the boards is dropped later, unless something leads to it; of a
@@ -149,13 +152,21 @@ impl Place<'_> {
         {
             return Err(refused(block, BlockError::ChapterBelowBlock));
         }
-        let parent_type = if parent_id.is_empty() {
+        if self.kind == ContainerKind::Board && *block.block_type == BlockType::Card {
+            if block.is_template && !parent_id.is_empty() {
+                return Err(refused(block, BlockError::TemplateCardBelowBlock));
+            }
+            if !parent_id.is_empty() && parent_id == block.id {
+                return Err(refused(block, BlockError::ParentBelowBlock));
+            }
+        }
+        let parent_block = if parent_id.is_empty() {
             None
         } else if let Some(parent) = self.placed.get(parent_id) {
             if parent.container_id != self.container_id {
                 return Err(refused(block, BlockError::ParentNotOnContainer));
             }
-            Some(parent.block_type)
+            Some(*parent)
         } else if self.containers.contains(parent_id)
             || matches!(self.kind, ContainerKind::Wiki | ContainerKind::Course)
         {
@@ -165,7 +176,9 @@ impl Place<'_> {
             // What nothing leads to is dropped: no write is asked of it.
             return Ok(());
         };
-        // In the store's order: where a page or unit may be, then where a comment may be.
+        let parent_type = parent_block.map(|parent| parent.block_type);
+        // In the store's order: where a page or unit may be, then where a comment may be,
+        // then board card parent rules.
         let refusal = match (block.block_type, parent_type) {
             (BlockType::Page, Some(parent)) if *parent != BlockType::Page => {
                 Some(BlockError::PageNotBelowPage)
@@ -177,6 +190,14 @@ impl Place<'_> {
                 Some(BlockError::CommentNotOnCardOrPage)
             }
             (_, Some(BlockType::Comment)) => Some(BlockError::ParentIsComment),
+            (BlockType::Card, Some(parent)) if *parent != BlockType::Card => {
+                Some(BlockError::CardNotBelowCard)
+            }
+            (BlockType::Card, Some(BlockType::Card))
+                if parent_block.is_some_and(|parent| parent.is_template) =>
+            {
+                Some(BlockError::CardBelowTemplate)
+            }
             _ => None,
         };
         refusal.map_or(Ok(()), |source| Err(refused(block, source)))
@@ -296,6 +317,52 @@ fn check_tree(
         return Err(refused(looped, BlockError::ParentBelowBlock));
     }
     tree.check_whole(limits).map_err(refused_whole)
+}
+
+/// Checks that the cards of a board in an archive have unique identifiers, no parent
+/// cycles, and stay within [`MAX_CARD_DEPTH`] levels.
+fn check_board_cards(board_id: &str, blocks: &[BlockPlace<'_>]) -> Result<(), AppError> {
+    let mut ids = HashSet::with_capacity(blocks.len());
+    if let Some(twice) = blocks.iter().find(|block| !ids.insert(block.id)) {
+        return Err(AppError::bad_request(format_args!(
+            "the archive's board {board_id} has two blocks of the identifier {}",
+            twice.id
+        )));
+    }
+    let cards: HashMap<&str, BlockPlace<'_>> = blocks
+        .iter()
+        .copied()
+        .filter(|block| *block.block_type == BlockType::Card)
+        .map(|block| (block.id, block))
+        .collect();
+    let max_depth = usize::try_from(MAX_CARD_DEPTH).unwrap_or(usize::MAX);
+    for &block in blocks {
+        if *block.block_type != BlockType::Card || block.parent_id.is_empty() {
+            continue;
+        }
+        let mut depth = 1usize;
+        let mut visited: HashSet<&str> = HashSet::from([block.id]);
+        let mut cursor = block.parent_id;
+        while !cursor.is_empty() {
+            if !visited.insert(cursor) {
+                return Err(refused(block, BlockError::ParentBelowBlock));
+            }
+            let Some(parent) = cards.get(cursor) else {
+                break;
+            };
+            depth += 1;
+            if depth > max_depth {
+                return Err(refused(
+                    block,
+                    BlockError::CardTooDeep {
+                        limit: MAX_CARD_DEPTH,
+                    },
+                ));
+            }
+            cursor = parent.parent_id;
+        }
+    }
+    Ok(())
 }
 
 /// Checks that the chapters and units of a course form a valid tree of depth at most

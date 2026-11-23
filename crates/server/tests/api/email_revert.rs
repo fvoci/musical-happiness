@@ -12,9 +12,10 @@ use crate::common::{
     ApiResponse, Client, PASSWORD, Setup, TestServer, USER1_USERNAME, USER2_USERNAME,
 };
 use crate::email_verification_more::switched_on;
-use crate::fake_oidc::{FakeProvider, Person};
+use crate::fake_oidc::{CLIENT_ID, CLIENT_SECRET, FakeProvider, Person};
 use crate::fake_smtp::{FakeSmtp, Received};
-use crate::oidc::{Browser, org_of, set_provider, with_key_and_private_addresses};
+use crate::oidc::{Browser, Outcome, org_of, set_provider, with_key_and_private_addresses};
+use crate::oidc_link::{Ended, Linker};
 use crate::websocket::{Event, PATIENCE, Socket};
 
 const ASK: &str = "/users/me/email-change";
@@ -581,4 +582,188 @@ async fn a_link_left_out_takes_its_turn_of_the_pace() {
         th.teardown().await;
         smtp.stop().await;
     }
+}
+
+/// An SSO identity linked before the email change stays after reverting, while one an
+/// attacker linked after the change is removed and can no longer sign in to the
+/// account.
+#[tokio::test]
+async fn an_identity_linked_after_the_change_is_removed_on_revert_and_an_earlier_one_stays() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let fake = FakeProvider::start().await;
+    let th = Setup::native()
+        .trusting_oidc_provider(&fake.certificate_der)
+        .configure(with_key_and_private_addresses)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let org_id = org_of(&th).await;
+    // Disable auto-join so unlinked subjects are refused rather than creating a new account.
+    th.client
+        .put(
+            &format!("/org/{org_id}/oidc"),
+            &json!({
+                "issuer": fake.issuer,
+                "clientId": CLIENT_ID,
+                "clientSecret": CLIENT_SECRET,
+                "autoJoin": false,
+            }),
+        )
+        .await
+        .check_ok();
+    let th = switched_on(th, &smtp).await;
+    let user1_id = th.client.me().await.id;
+    let linker = Linker::new(&th, &fake);
+    let browser = Browser::new(&th, &fake);
+
+    // Owner links their original SSO identity before any email change.
+    fake.sign_in_as(Person::new("subject-owner", OLD));
+    assert_eq!(linker.link(&org_id, &th.client.token).await, Ended::Linked);
+
+    // Attacker changes email and links their own SSO identity after the change.
+    let back = moved(&th, &smtp, &th.client, NEW).await;
+    fake.sign_in_as(Person::new("subject-attacker", NEW));
+    assert_eq!(linker.link(&org_id, &th.client.token).await, Ended::Linked);
+    let attacker_session = th.client_with_token(browser.sign_in(&org_id).await.token());
+    assert_eq!(attacker_session.me().await.id, user1_id);
+    let before: Value = th.client.get("/users/me/identities").await.ok_json();
+    assert_eq!(before.as_array().map(Vec::len), Some(2), "{before}");
+
+    // Owner uses the revert link: attacker's session and SSO identity both end.
+    assert_eq!(restored(&revert(&th, &back).await), OLD);
+    attacker_session.get("/users/me").await.check_unauthorized();
+
+    fake.sign_in_as(Person::new("subject-attacker", NEW));
+    assert!(
+        matches!(browser.sign_in(&org_id).await, Outcome::Refused(_)),
+        "the attacker's SSO identity can no longer sign in"
+    );
+
+    // Owner's original SSO identity still signs in to the restored account.
+    fake.sign_in_as(Person::new("subject-owner", OLD));
+    let owner_session = th.client_with_token(browser.sign_in(&org_id).await.token());
+    let me: Value = owner_session.get("/users/me").await.ok_json();
+    assert_eq!(me["id"], user1_id);
+    assert_eq!(me["email"], OLD);
+    let after: Value = owner_session.get("/users/me/identities").await.ok_json();
+    let subjects: Vec<&str> = after
+        .as_array()
+        .expect("identities")
+        .iter()
+        .filter_map(|entry| entry["subject"].as_str())
+        .collect();
+    assert_eq!(subjects, ["subject-owner"]);
+
+    th.teardown().await;
+    smtp.stop().await;
+    fake.stop();
+}
+
+/// When the old address is already held by another account, reverting returns `200 {}`
+/// and clears the account's email address so the address set after the change cannot
+/// receive password reset mail; an operator reset link still recovers the account.
+#[tokio::test]
+async fn when_the_old_address_is_held_revert_clears_email_and_blocks_reset() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = mailing(&smtp).await;
+    let user1_id = th.client.me().await.id;
+    let user2_id = th.client2.me().await.id;
+    let back = moved(&th, &smtp, &th.client, NEW).await;
+    // Also queue a pending change to verify it is discarded too.
+    th.client
+        .post(
+            ASK,
+            &json!({"email": "third@example.test", "password": PASSWORD}),
+        )
+        .await
+        .check_no_content();
+    assert!(th.app.finish_background(Duration::from_secs(10)).await);
+    let before_revert_mail = mailed_to(&th, &smtp, NEW).await.len();
+    // Another account holds the old address by now.
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE users SET email = '{OLD}' WHERE id = '{user2_id}'"
+        ))
+        .await
+        .expect("planted");
+
+    let answer = revert(&th, &back).await;
+    answer.check_ok();
+    assert_eq!(answer.value(), json!({}), "200 {{}}: {}", answer.text());
+    let stored = th
+        .app
+        .store()
+        .get_user_by_id(&user1_id)
+        .await
+        .expect("account");
+    assert_eq!(stored.email, "", "email cleared");
+    assert!(
+        stored.password_is_locked(),
+        "password must be locked after revert"
+    );
+    assert_eq!(
+        th.app
+            .store()
+            .email_change_of(&user1_id, fvoci_server::auth::now_millis())
+            .await
+            .expect("read"),
+        None
+    );
+
+    // The previous address is notified that it is no longer the account's (without a link).
+    let after_revert_mail = mailed_to(&th, &smtp, NEW).await;
+    assert_eq!(
+        after_revert_mail.len(),
+        before_revert_mail + 1,
+        "revert notice mailed to {NEW}: {after_revert_mail:?}"
+    );
+    let notice = &after_revert_mail.last().expect("the revert notice").decoded;
+    assert!(notice.contains(USER1_USERNAME), "{notice}");
+    assert!(!notice.contains("http"), "no link in notice: {notice}");
+
+    // The attacker's address receives no password reset link.
+    th.anonymous()
+        .post("/password-reset/request", &json!({"email": NEW}))
+        .await
+        .check_no_content();
+    let to_new = mailed_to(&th, &smtp, NEW).await;
+    assert_eq!(
+        to_new.len(),
+        after_revert_mail.len(),
+        "no additional mail sent to {NEW}: {to_new:?}"
+    );
+    assert!(
+        to_new
+            .iter()
+            .all(|mail| !mail.decoded.contains("/reset-password#")),
+        "no password reset link is mailed to {NEW}: {to_new:?}"
+    );
+    th.anonymous()
+        .post("/login", &json!({"email": NEW, "password": PASSWORD}))
+        .await
+        .check_unauthorized();
+
+    // Operator recovery by username still works and shows an empty email on /users/me.
+    let url = th
+        .app
+        .password_reset_link(USER1_USERNAME)
+        .await
+        .expect("operator reset link");
+    let token = url.split_once('#').expect("fragment").1.trim();
+    th.anonymous()
+        .post(
+            "/password-reset/complete",
+            &json!({"token": token, "password": "Recovered-by-op-1"}),
+        )
+        .await
+        .check_no_content();
+    let recovered = th.login(USER1_USERNAME, "Recovered-by-op-1").await;
+    let me: Value = recovered.get("/users/me").await.ok_json();
+    assert_eq!(me["email"], "");
+    assert!(me["pendingEmail"].is_null(), "pendingEmail cleared: {me}");
+
+    th.teardown().await;
+    smtp.stop().await;
 }

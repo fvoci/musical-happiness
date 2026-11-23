@@ -160,6 +160,10 @@ pub(crate) struct NewCard {
     /// The board of the path, if it is there at all.
     #[schema(nullable = false)]
     board_id: Option<String>,
+    /// The identifier of the parent card on the same board; left out, empty, or `null`
+    /// for a top-level card (depth 1). At most three levels deep; templates cannot have a
+    /// parent or sub-cards.
+    parent_id: Option<String>,
     /// The display title.
     #[schema(nullable = false)]
     title: Option<String>,

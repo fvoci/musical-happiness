@@ -46,6 +46,7 @@ test('the address is changed by the link mailed to the new one, opened where nob
   const section = page.getByTestId('settings-dialog').getByTestId('email-change');
   const address = section.getByTestId('email-change-address');
   await expect(address).toHaveText(who.email);
+  await expect(section.getByTestId('email-change-revert-hint')).toContainText('7 days');
   await section.getByRole('button', { name: 'Change address' }).click();
   const password = section.getByLabel('Current password');
   const ask = section.getByRole('button', { name: 'Change address' });

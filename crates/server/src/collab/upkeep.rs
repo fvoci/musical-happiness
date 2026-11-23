@@ -10,7 +10,7 @@ use tokio::time::{Instant, sleep_until};
 use super::open::{Made, unexpected};
 use super::place::{AskedFor, Held, OpenDoc, Opening, Unanswered, died_over};
 use super::versions::Versioned;
-use super::{Collab, DocChange, FOLD_AFTER, REMAKE_RETRY, Taken, bytes};
+use super::{Collab, DocChange, FOLD_AFTER, REMAKE_RETRY, Taken};
 use crate::app::App;
 use crate::collab_worker::wire::{Answer, Request};
 use crate::error::{AppError, Reason};
@@ -242,10 +242,13 @@ impl Collab {
                 tracing::warn!(%error, card_id, "cannot write a card's body before its log is folded");
             }
         }
-        if long(slot)
-            && let Err(error) = self.fold(app, card_id, slot).await
-        {
-            tracing::error!(%error, card_id, "cannot fold a document's log into its state");
+        if long(slot) {
+            match self.fold(app, card_id, slot, OnForget::TellClosed).await {
+                Ok(remade) => return remade,
+                Err(error) => {
+                    tracing::error!(%error, card_id, "cannot fold a document's log into its state");
+                }
+            }
         }
         false
     }
@@ -403,20 +406,40 @@ impl Collab {
                 .open
                 .as_ref()
                 .is_some_and(|open| !open.must_remake && open.state_seq < open.log_end)
-            && let Err(error) = self.fold(app, card_id, slot).await
+            && let Err(error) = self.fold(app, card_id, slot, OnForget::Quiet).await
         {
             tracing::error!(%error, card_id, "cannot fold a document's log into its state as it closes");
         }
     }
 
-    /// Stores the document's state in place of its log. A document another process
-    /// wrote since it was read here is closed: its numbers are the store's no more,
-    /// and it is read again when it is next asked for.
-    async fn fold(&self, app: &App, card_id: &str, slot: &mut Held) -> Result<(), AppError> {
+    /// Stores the document's settled state in place of its log; returns `Ok(true)` if
+    /// settling failed and the document was remade from its body instead. A document
+    /// another process wrote since it was read here is closed: its numbers are the
+    /// store's no more, and it is read again when it is next asked for.
+    async fn fold(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        on_forget: OnForget,
+    ) -> Result<bool, AppError> {
         if slot.open.as_ref().is_some_and(|open| open.must_remake) {
-            return Ok(());
+            return Ok(false);
         }
-        let state = bytes(self.ask(app, card_id, slot, Request::State).await?)?;
+        let state = match self.ask(app, card_id, slot, Request::State).await? {
+            Answer::Bytes(state) => state,
+            Answer::Remake => {
+                if let Some(open) = slot.open.as_mut() {
+                    open.must_remake = true;
+                }
+                return if self.remake_and_tell(app, card_id, slot, on_forget).await {
+                    Ok(true)
+                } else {
+                    Err(super::refusals::unavailable())
+                };
+            }
+            other => return Err(unexpected(&other)),
+        };
         let open = slot.open.as_mut().expect("the document is open");
         let through = open.log_end;
         let folded = app
@@ -427,7 +450,7 @@ impl Collab {
             Ok(()) => {
                 open.state_seq = through;
                 open.wants_fold = false;
-                Ok(())
+                Ok(false)
             }
             Err(error @ StoreError::DocumentWritten { .. }) => {
                 self.written_past(app, card_id, slot).await;
@@ -435,6 +458,29 @@ impl Collab {
             }
             Err(error) => Err(error.into()),
         }
+    }
+
+    /// Marks the open document of `card_id` in its worker so its next `Request::State`
+    /// settle check fails and returns [`Answer::Remake`], for testing lossless settle
+    /// failure recovery at fold, close, and open.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub async fn fail_next_settle(&self, app: &App, card_id: &str) -> Result<(), AppError> {
+        self.on_slot(
+            app,
+            card_id,
+            move |collab, app, card_id, mut slot| async move {
+                let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
+                match collab
+                    .ask(app, card_id, slot, Request::FailNextSettle)
+                    .await?
+                {
+                    Answer::Done => Ok(()),
+                    other => Err(unexpected(&other)),
+                }
+            },
+        )
+        .await
     }
 
     /// Closes a document another process wrote since it was read here, and tells its

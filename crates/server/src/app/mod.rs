@@ -79,6 +79,7 @@ mod teams;
 mod template_stock;
 mod templates;
 mod trash;
+mod unit_progress;
 mod uploads;
 mod users;
 mod webhooks;

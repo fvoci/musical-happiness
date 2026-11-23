@@ -160,7 +160,7 @@ fn cut_charge(content: &Content<'_>) -> u64 {
     match content {
         Content::Letters(_) => 1,
         Content::Values(_) => VALUE_PLACES,
-        Content::Collected(_) | Content::Deleted(_) | Content::One => 0,
+        Content::Collected(_) | Content::Deleted(_) | Content::Type | Content::One => 0,
     }
 }
 

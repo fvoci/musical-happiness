@@ -446,8 +446,8 @@ async fn streaming_native_import_handles_revisit_spillover_and_bounds_deep_rever
     assert_eq!(rev.imported.cards, 1);
     assert_eq!(rev.imported.comments, 10);
 
-    // 2. Bounded revisit DoS guard: 45-deep reverse-ordered chain (~260 KiB/node) exceeds
-    //    MAX_REVISIT_PASSES (32), rejects with 400, and leaves zero containers stored.
+    // 2. Bounded revisit guard: 45-deep reverse-ordered view chain (~260 KiB fields/node)
+    //    exceeds MAX_REVISIT_PASSES (32), rejects with 400, and leaves zero containers stored.
     let before_count = ts
         .app
         .containers_for_user_and_workspace(
@@ -465,12 +465,12 @@ async fn streaming_native_import_handles_revisit_spillover_and_bounds_deep_rever
     for i in (1..=45).rev() {
         deep_lines.push(json!({"type": "block", "data": {
             "id": format!("n-{i}"), "boardId": "b-deep", "parentId": format!("n-{}", i - 1),
-            "type": "card", "title": format!("N{i}"), "fields": {}, "createAt": 1, "updateAt": 1,
-            "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": big_text}]}]}
+            "type": "view", "title": format!("N{i}"), "fields": {"pad": big_text},
+            "createAt": 1, "updateAt": 1
         }}));
     }
     deep_lines.push(json!({"type": "block", "data": {
-        "id": "n-0", "boardId": "b-deep", "parentId": "", "type": "card",
+        "id": "n-0", "boardId": "b-deep", "parentId": "", "type": "view",
         "title": "Root", "fields": {}, "createAt": 1, "updateAt": 1
     }}));
     let deep_path = tmp.path().join("deep-reverse.boardarchive");
@@ -506,15 +506,15 @@ async fn streaming_native_import_handles_revisit_spillover_and_bounds_deep_rever
     ts.teardown().await;
 }
 
-/// Covers duplicate block IDs with file/cross-board pointing, empty board IDs in Pass 1,
-/// and DB rollback when a streaming producer drops without sending `StreamBatch::Done`.
+/// Covers empty board IDs in Pass 1, attachment file pointing, and cross-board body
+/// references across multiple streamed boards.
 #[tokio::test]
-async fn streaming_native_import_handles_duplicate_ids_cross_board_refs_and_incomplete_rollback() {
+async fn streaming_native_import_handles_empty_board_id_attachments_and_cross_board_refs() {
     let tmp = TempDir::new();
     let ts = Setup::native().start().await.init_basic().await;
     let importer_id = ts.client.me().await.id;
 
-    // 1. Duplicate block IDs + file attachment pointing + cross-board body reference + empty board ID.
+    // 1. Empty board ID + file attachment pointing + cross-board body references.
     let old_target_id = new_id();
     let b1_lines = jsonl_bytes(&[
         json!({"type": "board", "data": {
@@ -529,24 +529,24 @@ async fn streaming_native_import_handles_duplicate_ids_cross_board_refs_and_inco
     let b2_lines = jsonl_bytes(&[
         json!({"type": "board", "data": {
             "id": "b-src", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": "board",
-            "title": "Duplicate And CrossRef", "createAt": 1, "updateAt": 1
+            "title": "Attachment And CrossRef", "createAt": 1, "updateAt": 1
         }}),
         json!({"type": "block", "data": {
-            "id": "dup-card", "boardId": "b-src", "parentId": "", "type": "card",
+            "id": "card-a", "boardId": "b-src", "parentId": "", "type": "card",
             "title": "First", "fields": {}, "createAt": 1, "updateAt": 1,
             "body": {"type": "doc", "content": [{"type": "paragraph", "content": [
                 {"type": "reference", "attrs": {"id": old_target_id}}
             ]}]}
         }}),
         json!({"type": "block", "data": {
-            "id": "dup-card", "boardId": "b-src", "parentId": "", "type": "card",
+            "id": "card-b", "boardId": "b-src", "parentId": "", "type": "card",
             "title": "Second", "fields": {}, "createAt": 1, "updateAt": 1,
             "body": {"type": "doc", "content": [{"type": "paragraph", "content": [
                 {"type": "reference", "attrs": {"id": old_target_id}}
             ]}]}
         }}),
         json!({"type": "block", "data": {
-            "id": "att-1", "boardId": "b-src", "parentId": "dup-card", "type": "attachment",
+            "id": "att-1", "boardId": "b-src", "parentId": "card-a", "type": "attachment",
             "title": "pic.png", "fields": {"fileId": "old.png"}, "createAt": 1, "updateAt": 1
         }}),
     ]);

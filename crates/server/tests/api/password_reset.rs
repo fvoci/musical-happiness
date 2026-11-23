@@ -1,9 +1,13 @@
 //! Recovering a password through the local socket and the public completion endpoint.
 
+use std::time::{Duration, Instant};
+
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
 use crate::common::{Client, PASSWORD, Setup};
+use crate::fake_smtp::FakeSmtp;
+use crate::metrics::{sample, scrape_until};
 use crate::rooms::{Incoming, PATIENCE, paragraphs, two_in_a_room};
 
 const DELETION: &str = "/users/me/deletion";
@@ -500,6 +504,144 @@ async fn an_account_being_erased_gets_no_reset_and_an_earlier_link_sets_nothing(
         .await
         .expect("as if it had not begun");
     th.login(USER2_USERNAME, PASSWORD).await;
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+/// A password reset request that mails nothing — for an absent address or an account
+/// without a password — still takes the turn of the pace a mailed reset link would:
+/// the next message to anybody waits for it, so arrival timing tells nothing about
+/// whether an account with a password has that address.
+#[tokio::test]
+async fn a_reset_that_mails_nothing_takes_its_turn_of_the_pace() {
+    const INTERVAL: Duration = Duration::from_secs(1);
+
+    for passwordless_account in [false, true] {
+        let smtp = FakeSmtp::start_on(0).await;
+        let mut settings = smtp.settings();
+        settings.mail_per_second = 1;
+        let th = Setup::native()
+            .smtp(settings)
+            .start()
+            .await
+            .init_basic()
+            .await;
+        let probed = if passwordless_account {
+            let user2 = th
+                .app
+                .store()
+                .get_user_by_username("user2")
+                .await
+                .expect("user2");
+            th.app
+                .store()
+                .replace_password_hash(&user2.id, &user2.password_hash, "")
+                .await
+                .expect("passwordless");
+            "user2@sample.com"
+        } else {
+            "absent@example.test"
+        };
+        tokio::time::sleep(INTERVAL).await;
+        th.anonymous()
+            .post("/password-reset/request", &json!({ "email": probed }))
+            .await
+            .check_no_content();
+        assert!(
+            th.app.finish_background(Duration::from_secs(10)).await,
+            "background pass task finishes"
+        );
+        let asked = Instant::now();
+        th.anonymous()
+            .post(
+                "/password-reset/request",
+                &json!({ "email": "user1@sample.com" }),
+            )
+            .await
+            .check_no_content();
+        let mailed = smtp.received(1).await;
+        let waited = asked.elapsed();
+        assert!(
+            waited >= INTERVAL.mul_f32(0.8),
+            "passwordless_account={passwordless_account}: the next reset mail came after {waited:?}"
+        );
+        assert_eq!(mailed.len(), 1);
+        assert_eq!(mailed[0].recipient, "user1@sample.com");
+        th.teardown().await;
+        smtp.stop().await;
+    }
+}
+
+/// An absent address shares the same per-address hourly quota and drop metric as an
+/// existing account, case-insensitively, and stops consuming pace turns once dropped.
+#[tokio::test]
+async fn an_absent_address_hits_the_hourly_limit_counts_drops_and_stops_taking_pace_turns() {
+    const INTERVAL: Duration = Duration::from_secs(1);
+
+    let smtp = FakeSmtp::start_on(0).await;
+    let mut settings = smtp.settings();
+    settings.mail_per_second = 1;
+    settings.mail_reset_per_account_hour = 2;
+    let th = Setup::native()
+        .smtp(settings)
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    // Two requests to the same absent address in different letter case use its hourly quota.
+    for email in ["absent@example.test", "ABSENT@example.test"] {
+        th.anonymous()
+            .post("/password-reset/request", &json!({ "email": email }))
+            .await
+            .check_no_content();
+    }
+    assert!(
+        th.app.finish_background(Duration::from_secs(10)).await,
+        "initial absent requests finish"
+    );
+    tokio::time::sleep(INTERVAL).await;
+
+    // The third request exceeds the hourly limit: counted as account_limit, no pace turn taken.
+    th.anonymous()
+        .post(
+            "/password-reset/request",
+            &json!({ "email": "Absent@Example.test" }),
+        )
+        .await
+        .check_no_content();
+    let body = scrape_until(&th, |body| {
+        sample(
+            body,
+            "fvoci_password_reset_mail_dropped_total",
+            &[("reason", "account_limit")],
+        ) == Some(1.0)
+    })
+    .await;
+    assert_eq!(
+        sample(
+            &body,
+            "fvoci_password_reset_mail_dropped_total",
+            &[("reason", "account_limit")],
+        ),
+        Some(1.0),
+        "{body}"
+    );
+    let asked = Instant::now();
+    th.anonymous()
+        .post(
+            "/password-reset/request",
+            &json!({ "email": "user1@sample.com" }),
+        )
+        .await
+        .check_no_content();
+    let mailed = smtp.received(1).await;
+    let waited = asked.elapsed();
+    assert!(
+        waited < INTERVAL.mul_f32(0.5),
+        "dropped request must not consume a pace turn; waited {waited:?}"
+    );
+    assert_eq!(mailed[0].recipient, "user1@sample.com");
     th.teardown().await;
     smtp.stop().await;
 }

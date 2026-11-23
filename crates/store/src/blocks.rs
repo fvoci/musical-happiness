@@ -16,6 +16,7 @@ use serde_json::Value;
 use crate::Store;
 use crate::block_derived::{self, Before};
 use crate::body_versions::{self, BodyWrite};
+use crate::card_hierarchy::{self, ParentInfo};
 use crate::card_numbers;
 use crate::card_values::{self, NamedCards};
 use crate::comment_places;
@@ -640,25 +641,35 @@ pub(crate) async fn insert_block(
     card_values::check_named_cards(scope, &named).await
 }
 
-/// The type of the parent of `block`, `None` for a block directly on its container.
+/// Info about the parent of `block`, `None` for a block directly on its container.
 /// Asked before the block is written, so that a parent that is none, or another
 /// board's, is the request's mistake and not a constraint the database reports.
-async fn type_of_parent(
+async fn info_of_parent(
     scope: &mut Scope<'_>,
     block: &Block,
-) -> Result<Option<BlockType>, StoreError> {
+) -> Result<Option<ParentInfo>, StoreError> {
     if block.parent_id.is_empty() {
         return Ok(None);
     }
-    let not_on_container = || StoreError::InvalidBlock {
-        id: block.id.clone(),
-        source: BlockError::ParentNotOnContainer,
-    };
     if block.parent_id == block.id {
-        return Err(not_on_container());
+        let source = if block.block_type == BlockType::Card {
+            BlockError::ParentBelowBlock
+        } else {
+            BlockError::ParentNotOnContainer
+        };
+        return Err(StoreError::InvalidBlock {
+            id: block.id.clone(),
+            source,
+        });
     }
-    let found = comment_places::type_on_container(scope, &block.parent_id, &block.container_id);
-    found.await?.ok_or_else(not_on_container).map(Some)
+    let found = card_hierarchy::parent_on_container(scope, &block.parent_id, &block.container_id);
+    found
+        .await?
+        .ok_or_else(|| StoreError::InvalidBlock {
+            id: block.id.clone(),
+            source: BlockError::ParentNotOnContainer,
+        })
+        .map(Some)
 }
 
 /// How a block is written, beyond what it is and by whom.
@@ -702,15 +713,26 @@ pub(crate) async fn insert_block_at(
             block.container_id, block.id
         )));
     };
-    let parent_type = type_of_parent(scope, block).await?;
+    let parent = info_of_parent(scope, block).await?;
+    let parent_type = parent.as_ref().map(|info| &info.block_type);
     let now = at.unwrap_or_else(now_millis);
     block.update_at = now;
     block.delete_at = 0;
     user_id.clone_into(&mut block.modified_by);
 
     let existing = find_block(scope, &block.id).await?;
-    page_places::check(block, kind, parent_type.as_ref())?;
-    comment_places::check(scope, block, parent_type.as_ref(), existing.as_ref()).await?;
+    page_places::check(block, kind, parent_type)?;
+    comment_places::check(scope, block, parent_type, existing.as_ref()).await?;
+    // A block that moves must not end up below itself: checked before card hierarchy
+    // rules so moving a card onto a block below it always reports `ParentBelowBlock`.
+    if let Some(before) = &existing
+        && !block.parent_id.is_empty()
+        && block.parent_id != before.parent_id
+        && is_below(scope, &block.parent_id, &block.id).await?
+    {
+        return Err(invalid(block, BlockError::ParentBelowBlock));
+    }
+    card_hierarchy::check_write(scope, block, kind, parent.as_ref(), existing.as_ref()).await?;
     let named = card_values::check_written(scope, block, existing.as_ref()).await?;
     card_numbers::number_written(scope, block, existing.as_ref()).await?;
     if let Some(existing) = existing {
@@ -721,14 +743,6 @@ pub(crate) async fn insert_block_at(
         // and when the clock steps back: a writer that read the block before this
         // change is told so (`readAt`).
         block.update_at = now.max(existing.update_at.saturating_add(1));
-        // A block that moves must not end up below itself: nothing would lead to it
-        // from its board any more.
-        if !block.parent_id.is_empty()
-            && block.parent_id != existing.parent_id
-            && is_below(scope, &block.parent_id, &block.id).await?
-        {
-            return Err(invalid(block, BlockError::ParentBelowBlock));
-        }
         // A block stays on its board: the update is keyed by the board too, and a block
         // of that identifier on another board is not this block.
         let mut sql = scope.sql("UPDATE blocks SET ");
@@ -844,6 +858,7 @@ pub(crate) async fn insert_blocks(
                 source,
             })?;
     }
+    card_hierarchy::check_batch_cycles(blocks)?;
     containers::lock_containers(
         scope,
         blocks.iter().map(|block| block.container_id.as_str()),

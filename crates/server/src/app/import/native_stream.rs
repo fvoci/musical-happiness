@@ -51,6 +51,7 @@ struct BlockMeta {
     container_idx: Option<usize>,
     parent_id: String,
     block_type: BlockType,
+    is_template: bool,
     diary_date: Option<DiaryDate>,
     invalid: Option<BlockError>,
     needs_fields_recheck: bool,
@@ -362,6 +363,7 @@ impl ScanAccum {
         let diary_date = (block.block_type == BlockType::Entry)
             .then(|| fvoci_model::entry_date(&block))
             .flatten();
+        let is_template = block.is_template();
         let (invalid, needs_fields_recheck) = validate_pass1_block(&mut block, container_state);
         self.blocks.push(BlockMeta {
             line_number,
@@ -369,6 +371,7 @@ impl ScanAccum {
             container_idx,
             parent_id: block.parent_id,
             block_type: block.block_type,
+            is_template,
             diary_date,
             invalid,
             needs_fields_recheck,
@@ -393,6 +396,7 @@ impl ScanAccum {
                     .map_or("", |idx| self.containers[idx].id.as_str()),
                 parent_id: &meta.parent_id,
                 block_type: &meta.block_type,
+                is_template: meta.is_template,
                 diary_date: meta.diary_date,
             })
             .collect();

@@ -17,6 +17,7 @@ mod body_digest;
 mod body_docs;
 mod body_links;
 mod body_versions;
+mod card_hierarchy;
 mod card_numbers;
 mod card_values;
 mod categories;
@@ -83,6 +84,7 @@ mod teams;
 #[cfg(feature = "test-util")]
 pub mod testing;
 mod trash;
+mod unit_progress;
 mod uploads;
 mod users;
 mod users_by_id;

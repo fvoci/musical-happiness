@@ -355,7 +355,22 @@ impl Collab {
             gone,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
-                let state = bytes(collab.ask(app, card_id, slot, Request::State).await?)?;
+                let state = match collab.ask(app, card_id, slot, Request::State).await? {
+                    Answer::Bytes(state) => state,
+                    Answer::Remake => {
+                        if let Some(open) = slot.open.as_mut() {
+                            open.must_remake = true;
+                        }
+                        if !collab
+                            .remake_and_tell(app, card_id, slot, upkeep::OnForget::Quiet)
+                            .await
+                        {
+                            return Err(refusals::unavailable());
+                        }
+                        bytes(collab.ask(app, card_id, slot, Request::State).await?)?
+                    }
+                    other => return Err(open::unexpected(&other)),
+                };
                 let epoch = slot
                     .open
                     .as_ref()

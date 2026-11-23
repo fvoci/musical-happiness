@@ -4,8 +4,10 @@
   it. Opening it changes nothing; the button gives the address back, whoever
   holds the link and whether or not this browser is signed in, and every
   session of the account ends. The page then says so, and leads to a reset
-  link for the address: the password works no more until a new one is set.
-  A link that changes nothing says only that.
+  link for the restored address (or asks to contact an administrator when the
+  previous address was already taken and the account's email was cleared): the
+  password works no more until a new one is set. A link that changes nothing
+  says only that.
 -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -17,11 +19,11 @@
   interface Props {
     /** The token of the link; empty for a link without one. */
     token: string;
-    /** Gives the address back by the token: the address, or none where it was kept. */
+    /** Gives the address back by the token: the address, or none where the account's address was cleared. */
     revert: (token: string) => Promise<string | undefined>;
     homeHref: string;
-    /** The page that asks for a reset link, with `email` filled in if any. */
-    resetHref: (email: string | undefined) => string;
+    /** The page that asks for a reset link, filled in with the restored `email`. */
+    resetHref: (email: string) => string;
   }
 
   let { token, revert, homeHref, resetHref }: Props = $props();
@@ -58,12 +60,19 @@
         <p role="status">{m.revert_email_working()}</p>
       {:then email}
         <div class="grid gap-2" role="status" data-testid="revert-email-done">
-          <p>{email ? m.revert_email_done({ email }) : m.revert_email_kept()}</p>
-          <p>{m.revert_email_password()}</p>
+          {#if email}
+            <p>{m.revert_email_done({ email })}</p>
+            <p>{m.revert_email_password()}</p>
+          {:else}
+            <p>{m.revert_email_cleared()}</p>
+            <p>{m.revert_email_cleared_password()}</p>
+          {/if}
         </div>
-        <Button href={resetHref(email)} class="roomy:min-h-touch" data-testid="revert-email-reset"
-          >{m.revert_email_reset()}</Button
-        >
+        {#if email}
+          <Button href={resetHref(email)} class="roomy:min-h-touch" data-testid="revert-email-reset"
+            >{m.revert_email_reset()}</Button
+          >
+        {/if}
       {:catch error}
         {#if linkRefused(error)}
           <p role="alert">{m.revert_email_invalid()}</p>
