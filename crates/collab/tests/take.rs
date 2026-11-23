@@ -708,3 +708,481 @@ fn table_mend_refused_when_writer_exceeds_max_clients() {
     let rebuilt = BodyDoc::rebuild::<&[u8]>(&base_state, &[]).expect("rebuilt");
     assert_eq!(rebuilt.state(), base_state, "exact rollback");
 }
+
+/// Builds a valid base state with two paragraphs, two texts, and two distinct attributes
+/// on paragraph 1 for misplaced-origin refusal tests:
+/// - `(7, 0)` paragraph 1, `(7, 1)` `xml_text` 1, `(7, 2..8)` `"abcdef"`
+/// - `(7, 8)` attr `k1="v1"` on P1
+/// - `(7, 9)` paragraph 2, `(7, 10)` `xml_text` 2, `(7, 11..14)` `"xyz"`
+/// - `(7, 14)` attr `k2="v2"` on P2, `(7, 15)` attr `k3="v3"` on P1
+fn origin_test_base() -> fvoci_collab::Taken {
+    let base_update = Update::of(
+        7,
+        0,
+        vec![
+            Change::under(Parent::body(), Content::element("paragraph")),
+            Change::under(Parent::Change((7, 0)), Content::xml_text()),
+            Change::under(Parent::Change((7, 1)), Content::text("abcdef")),
+            Change::Item {
+                left: None,
+                right: None,
+                parent: Parent::Change((7, 0)),
+                key: Some(b"k1".to_vec()),
+                content: Content::values(vec![support::wire::value::text("v1")]),
+            },
+            Change::after((7, 0), Content::element("paragraph")),
+            Change::under(Parent::Change((7, 9)), Content::xml_text()),
+            Change::under(Parent::Change((7, 10)), Content::text("xyz")),
+            Change::Item {
+                left: None,
+                right: None,
+                parent: Parent::Change((7, 9)),
+                key: Some(b"k2".to_vec()),
+                content: Content::values(vec![support::wire::value::text("v2")]),
+            },
+            Change::Item {
+                left: None,
+                right: None,
+                parent: Parent::Change((7, 0)),
+                key: Some(b"k3".to_vec()),
+                content: Content::values(vec![support::wire::value::text("v3")]),
+            },
+        ],
+    )
+    .bytes();
+    from_state(&base_update, &ROOMY).expect("valid base state")
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RefusalStage {
+    Any,
+    PreApply,
+}
+
+fn assert_origin_refused(
+    base: &fvoci_collab::Taken,
+    label: &str,
+    update: &[u8],
+    stage: RefusalStage,
+) {
+    let copy_err = take_update(&base.doc, update, &ROOMY).expect_err(label);
+    assert!(
+        matches!(
+            copy_err,
+            TakeError::Update(
+                UpdateError::Unreadable(_)
+                    | UpdateError::LeavesUnreadable(_)
+                    | UpdateError::Unappliable(_)
+            )
+        ),
+        "{label}: unexpected error {copy_err:?}"
+    );
+    let held = BodyDoc::from_state(&base.state, &ROOMY).expect("open").doc;
+    let in_place = held
+        .take_in_place(&base.state, base.changes, update, &ROOMY)
+        .expect_err(label);
+    if stage == RefusalStage::PreApply {
+        assert!(
+            matches!(in_place, BodyTakeError::Untouched { .. }),
+            "{label}: expected Untouched pre-apply refusal, got {in_place:?}"
+        );
+    }
+}
+
+/// Cross-parent, cross-member, 2-item `squash_left` panic bomb, non-type parent, and
+/// mixed GC/live neighbour updates are cleanly refused without panicking.
+#[test]
+fn misplaced_origins_and_invalid_parents_are_refused() {
+    let base = origin_test_base();
+
+    // 1. Cross-parent left & right (text 1 vs text 2).
+    let cross_parent = Update::of(
+        10,
+        0,
+        vec![Change::Item {
+            left: Some((7, 2)),
+            right: Some((7, 11)),
+            parent: Parent::body(),
+            key: None,
+            content: Content::text("q"),
+        }],
+    )
+    .bytes();
+    assert_origin_refused(&base, "cross-parent", &cross_parent, RefusalStage::Any);
+
+    // 2. Cross-member: list item in text 1 vs attribute k1 on paragraph 1.
+    let list_vs_attr = Update::of(
+        11,
+        0,
+        vec![Change::Item {
+            left: Some((7, 2)),
+            right: Some((7, 8)),
+            parent: Parent::body(),
+            key: None,
+            content: Content::text("q"),
+        }],
+    )
+    .bytes();
+    assert_origin_refused(&base, "list vs attr", &list_vs_attr, RefusalStage::Any);
+
+    // 3. Cross-member: attribute k1 vs attribute k3 on same paragraph.
+    let diff_attrs = Update::of(
+        12,
+        0,
+        vec![Change::Item {
+            left: Some((7, 8)),
+            right: Some((7, 15)),
+            parent: Parent::body(),
+            key: None,
+            content: Content::values(vec![support::wire::value::text("x")]),
+        }],
+    )
+    .bytes();
+    assert_origin_refused(&base, "different attrs", &diff_attrs, RefusalStage::Any);
+
+    // 4. Non-type parent (text item (7, 2) used as parent).
+    let non_type_parent = Update::of(
+        18,
+        0,
+        vec![Change::under(Parent::Change((7, 2)), Content::text("a"))],
+    )
+    .bytes();
+    assert_origin_refused(
+        &base,
+        "non-type parent",
+        &non_type_parent,
+        RefusalStage::Any,
+    );
+
+    // 5. Mixed GC (Collected) neighbour paired with a live neighbour.
+    let with_gc = Update::of(
+        19,
+        0,
+        vec![
+            Change::Collected(1),
+            Change::Item {
+                left: Some((19, 0)),
+                right: Some((7, 2)),
+                parent: Parent::body(),
+                key: None,
+                content: Content::text("x"),
+            },
+        ],
+    )
+    .bytes();
+    assert_origin_refused(
+        &base,
+        "mixed GC and live neighbour",
+        &with_gc,
+        RefusalStage::Any,
+    );
+}
+
+/// All five untrusted update shapes that can reach `yrs`'s `ClientBlockList::squash_left`
+/// map-lookup panic (client ID `< 7` so `item.right` stays `Some` and the list parent's
+/// map never receives `k1`) are refused pre-apply (`Untouched`) with zero panics.
+#[test]
+fn squash_left_panic_bombs_are_refused_pre_apply() {
+    let base = origin_test_base();
+    let item = |left: (u64, u64), right: Option<(u64, u64)>, text: &str| Change::Item {
+        left: Some(left),
+        right,
+        parent: Parent::body(),
+        key: None,
+        content: Content::text(text),
+    };
+    let cases = [
+        (
+            "direct two-item bomb",
+            Update::of(
+                1,
+                0,
+                vec![
+                    item((7, 2), Some((7, 8)), "a"),
+                    item((1, 0), Some((7, 8)), "b"),
+                ],
+            )
+            .bytes(),
+        ),
+        (
+            "zero-length item bypass",
+            Update::of(
+                1,
+                0,
+                vec![
+                    item((7, 2), Some((7, 8)), "a"),
+                    item((1, 0), None, ""),
+                    item((1, 0), Some((7, 8)), "b"),
+                ],
+            )
+            .bytes(),
+        ),
+        (
+            "right==None propagation",
+            Update::of(
+                1,
+                0,
+                vec![
+                    item((7, 2), Some((7, 8)), "a"),
+                    item((1, 0), None, "b"),
+                    item((1, 1), None, "c"),
+                ],
+            )
+            .bytes(),
+        ),
+        (
+            "cross-client split-then-squash",
+            Update {
+                runs: vec![
+                    support::wire::Run {
+                        client: 2,
+                        clock: 0,
+                        changes: vec![item((7, 2), Some((7, 8)), "ab")],
+                    },
+                    support::wire::Run {
+                        client: 1,
+                        clock: 0,
+                        changes: vec![item((7, 2), Some((2, 1)), "x")],
+                    },
+                ],
+                deleted: Vec::new(),
+            }
+            .bytes(),
+        ),
+        (
+            "delete-set split-then-squash",
+            Update {
+                runs: vec![support::wire::Run {
+                    client: 2,
+                    clock: 0,
+                    changes: vec![item((7, 2), Some((7, 8)), "ab")],
+                }],
+                deleted: vec![(2, vec![(0, 1), (1, 1)])],
+            }
+            .bytes(),
+        ),
+    ];
+    for (label, update) in cases {
+        assert_origin_refused(&base, label, &update, RefusalStage::PreApply);
+    }
+}
+
+/// Identical `left == right`, self-origin/self-parent, inverted origins within one text
+/// block or contiguous squashable chain, and cross-parent partial overlaps are refused.
+#[test]
+fn inverted_self_and_partial_overlap_origins_are_refused() {
+    let base = origin_test_base();
+
+    // 1. Identical left == right.
+    let same_lr = Update::of(
+        14,
+        0,
+        vec![Change::Item {
+            left: Some((7, 3)),
+            right: Some((7, 3)),
+            parent: Parent::body(),
+            key: None,
+            content: Content::text("x"),
+        }],
+    )
+    .bytes();
+    assert_origin_refused(
+        &base,
+        "identical left == right",
+        &same_lr,
+        RefusalStage::PreApply,
+    );
+
+    // 2. Inverted right_origin <= origin inside one text block (double-split bug).
+    let inverted_same_block = Update::of(
+        15,
+        0,
+        vec![Change::Item {
+            left: Some((7, 6)),
+            right: Some((7, 3)),
+            parent: Parent::body(),
+            key: None,
+            content: Content::text("x"),
+        }],
+    )
+    .bytes();
+    assert_origin_refused(
+        &base,
+        "inverted inside same text block",
+        &inverted_same_block,
+        RefusalStage::Any,
+    );
+
+    // 3. Self-origin and self-parent.
+    let self_left = Update::of(
+        16,
+        0,
+        vec![Change::Item {
+            left: Some((16, 1)),
+            right: None,
+            parent: Parent::body(),
+            key: None,
+            content: Content::text("abc"),
+        }],
+    )
+    .bytes();
+    assert_origin_refused(
+        &base,
+        "self left origin",
+        &self_left,
+        RefusalStage::PreApply,
+    );
+    let self_parent = Update::of(
+        17,
+        0,
+        vec![Change::under(Parent::Change((17, 0)), Content::text("a"))],
+    )
+    .bytes();
+    assert_origin_refused(&base, "self parent", &self_parent, RefusalStage::PreApply);
+
+    // 4. Partial overlap whose original parent disagrees with `(7, 15)` (attr k3 on P1).
+    let bad_overlap = Update::of(
+        7,
+        15,
+        vec![Change::under(Parent::body(), Content::Deleted(2))],
+    )
+    .bytes();
+    assert_origin_refused(
+        &base,
+        "cross-parent partial overlap",
+        &bad_overlap,
+        RefusalStage::PreApply,
+    );
+
+    // 5. Inverted origins across a contiguous squashable chain `(8, 0..2)` + `(8, 2..4)`.
+    let chain = Update::of(
+        8,
+        0,
+        vec![
+            Change::after((7, 7), Content::text("gh")),
+            Change::after((8, 1), Content::text("ij")),
+        ],
+    )
+    .bytes();
+    let chained = take_update(&base.doc, &chain, &ROOMY).expect("valid contiguous text chain");
+    let inverted_chain = Update::of(
+        20,
+        0,
+        vec![Change::Item {
+            left: Some((8, 3)),
+            right: Some((8, 1)),
+            parent: Parent::body(),
+            key: None,
+            content: Content::text("x"),
+        }],
+    )
+    .bytes();
+    assert!(
+        take_update(&chained.doc, &inverted_chain, &ROOMY).is_err(),
+        "inverted origins across squashable chain must be refused"
+    );
+}
+
+/// `BodyDoc::settle` settles canonical and non-canonical states cleanly, and returns the
+/// original intact `BodyDoc` inside `SettleError::doc` on failure so callers never lose
+/// edits.
+#[test]
+fn body_doc_settle_verifies_canonical_and_non_canonical_and_preserves_doc_on_error() {
+    let empty_state = state_of(&new_doc());
+    let empty_changes = state_counts(&empty_state).expect("counts").changes;
+
+    // 1. Non-canonical update (two adjacent text changes of client 7) taken in place is
+    //    not squashed until `settle` runs; `settle` converges to canonical form.
+    let non_canonical = Update::of(
+        7,
+        0,
+        vec![
+            Change::under(Parent::body(), Content::element("paragraph")),
+            Change::under(Parent::Change((7, 0)), Content::xml_text()),
+            Change::under(Parent::Change((7, 1)), Content::text("ab")),
+            Change::after((7, 3), Content::text("cd")),
+        ],
+    )
+    .bytes();
+    let held = BodyDoc::new();
+    let changed = held
+        .take_in_place(&empty_state, empty_changes, &non_canonical, &ROOMY)
+        .expect("taken");
+    let settled = changed
+        .doc
+        .settle(changed.state, &ROOMY)
+        .expect("non-canonical settles cleanly");
+    assert_eq!(
+        json_of(settled.doc.body().expect("body").as_ref()),
+        paragraphs(&["abcd"])
+    );
+    // Settling an already-canonical doc succeeds in 1 pass with matching state.
+    let canonical = settled.state.clone();
+    let again = settled
+        .doc
+        .settle(settled.state, &ROOMY)
+        .expect("canonical settles");
+    assert!(fvoci_collab::same_state(&again.state, &canonical));
+
+    // 2. When settling fails (`reading_steps: Some(0)` on a 1-step doc, or tight
+    //    `state_bytes`), `SettleError::doc` returns the live doc completely intact.
+    let with_step = Update {
+        runs: vec![
+            support::wire::Run {
+                client: 1,
+                clock: 0,
+                changes: vec![
+                    Change::under(Parent::body(), Content::element("paragraph")),
+                    Change::under(Parent::Change((1, 0)), Content::xml_text()),
+                    Change::under(Parent::Change((1, 1)), Content::text("keep-me")),
+                    Change::after((1, 0), Content::element("paragraph")),
+                ],
+            },
+            support::wire::Run {
+                client: 2,
+                clock: 0,
+                changes: vec![Change::Item {
+                    left: None,
+                    right: Some((1, 9)),
+                    parent: Parent::body(),
+                    key: None,
+                    content: Content::element("paragraph"),
+                }],
+            },
+        ],
+        deleted: Vec::new(),
+    }
+    .bytes();
+    let taken = BodyDoc::new()
+        .take_in_place(&empty_state, empty_changes, &with_step, &ROOMY)
+        .expect("taken under roomy limits");
+    let expected_body = taken.doc.body().expect("body");
+    let zero_steps = UpdateLimits {
+        reading_steps: Some(0),
+        ..ROOMY
+    };
+    let err = taken
+        .doc
+        .settle(taken.state.clone(), &zero_steps)
+        .expect_err("zero reading steps fails settle");
+    assert!(matches!(err.error, UpdateError::TooManyReadingSteps { .. }));
+    assert_eq!(
+        err.doc.body().expect("intact body"),
+        expected_body,
+        "live doc stays intact after reading-step settle failure"
+    );
+    let tight_bytes = UpdateLimits {
+        state_bytes: 1,
+        ..ROOMY
+    };
+    let err2 = err
+        .doc
+        .settle(taken.state, &tight_bytes)
+        .expect_err("tight state_bytes fails settle");
+    assert!(matches!(err2.error, UpdateError::DocumentTooLarge { .. }));
+    assert_eq!(
+        err2.doc.body().expect("intact body"),
+        expected_body,
+        "live doc stays intact after state_bytes settle failure"
+    );
+}

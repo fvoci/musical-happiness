@@ -7,10 +7,20 @@ use yrs::{Doc, ReadTxn as _, Transact as _};
 
 use crate::project::to_body;
 use crate::repair::{Repair, repaired};
+use crate::settle::{from_state_settled, settled_sized};
 use crate::update::{
-    Outcome, Settled, UpdateError, UpdateInPlaceError, UpdateLimits, from_state_settled,
-    settled_sized, with_update_in_place, with_update_sized,
+    Outcome, Settled, UpdateError, UpdateInPlaceError, UpdateLimits, counted_sized,
+    with_update_in_place, with_update_sized,
 };
+
+/// Whether post-repair validation only encodes and counts in place (`CountOnly`, used on
+/// live updates) or performs a full settle re-read (`Settle`, used when opening stored
+/// states).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SettleMode {
+    CountOnly,
+    Settle,
+}
 
 /// A document that took an update, with its body.
 #[derive(Debug)]
@@ -74,17 +84,19 @@ pub(crate) enum TakeInPlaceError {
 }
 
 /// Takes a client's update into a document, as the server does with every one: the
-/// update is applied to a copy, the copy is read again from its state, projected to a
-/// body, and repaired where that fails; only a copy that is a body within the limits
-/// comes back. `doc` itself is never changed.
+/// update is applied to a copy, strictly checked for valid origins, limits, and reading
+/// steps, projected to a body, and repaired where that fails; only a copy that is a body
+/// within the limits comes back. `doc` itself is never changed.
 ///
 /// The deletions of a repair ([`Repair::update`]) go to every editor that holds the
 /// document, the one that sent the update too: they did not make them.
 ///
 /// How long this takes grows with the document as well as with the update: the copy
-/// and the reading again each read the whole state, and
-/// the walk refuses the known ways to make that reading cost the square of the state
-/// (a member written over and over). And the Y library places a change among the
+/// reads the whole state, and the walk refuses the known ways to make that reading cost
+/// the square of the state (a member written over and over). Full settle re-reads
+/// (`same_state`) run when opening stored states ([`from_state`]), on fold/close
+/// ([`crate::BodyDoc::settle`]), and on non-YATA or partially overlapping updates, rather
+/// than on every ordinary live edit. And the Y library places a change among the
 /// others of its list by walking past them, so that an update made for it has every
 /// change walk a long list (59 kB of changes that each named the root of 50,000
 /// children took 12 seconds): [`UpdateLimits::placing_steps`] is what an update may
@@ -122,7 +134,7 @@ pub(crate) enum TakeInPlaceError {
 /// ([`UpdateError::MissingChanges`]).
 pub fn take_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeError> {
     let with = with_update_sized(doc, update, limits)?;
-    to_taken(with, limits)
+    to_taken(with, limits, SettleMode::CountOnly)
 }
 
 /// Takes a client's update into `doc` **in place**, without copying `doc` before
@@ -145,7 +157,7 @@ pub(crate) fn take_update_in_place(
             return Err(TakeInPlaceError::Dirty(error.into()));
         }
     };
-    to_taken(with, limits).map_err(TakeInPlaceError::Dirty)
+    to_taken(with, limits, SettleMode::CountOnly).map_err(TakeInPlaceError::Dirty)
 }
 
 /// Opens the document of a stored state ([`crate::state_of`]), with the same checks
@@ -166,7 +178,7 @@ pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeErro
         ..*limits
     };
     let with = from_state_settled(state, &limits)?;
-    let taken = to_taken(with, &limits)?;
+    let taken = to_taken(with, &limits, SettleMode::Settle)?;
     if taken.remake {
         return Err(UpdateError::TooManyReadingSteps {
             steps: taken.reading_steps,
@@ -179,19 +191,14 @@ pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeErro
 
 /// The document an update left, as a body: as it is, or repaired in place.
 ///
-/// A repaired document is held to the limits of clients, size, and changes, and read
-/// again from its state when within [`UpdateLimits::reading_steps`]: with changes no
-/// editor makes (origins that do not lie where the change does), the library can place
-/// letters otherwise when it reads a whole state than when it deletes in a document it
-/// holds. When reading the state would exceed [`UpdateLimits::reading_steps`]
-/// ([`Outcome::Remake`]), the repaired document is returned unsettled with
-/// [`Taken::remake`] set without handing the slow state back to `yrs`.
-fn to_taken(with: Settled, limits: &UpdateLimits) -> Result<Taken, TakeError> {
+/// A repaired document is held to the limits of clients, size, changes, and reading
+/// steps. Live updates re-encode and strictly count in place (`SettleMode::CountOnly`,
+/// keeping the body projected by `repaired` without a redundant projection); opening a
+/// stored state (`SettleMode::Settle`) performs a full settle re-read when within
+/// [`UpdateLimits::reading_steps`].
+fn to_taken(with: Settled, limits: &UpdateLimits, mode: SettleMode) -> Result<Taken, TakeError> {
     let mut repair = repaired(&with.doc)?;
     let settled = if repair.update.is_some() {
-        // Drop the pre-settle body before `settled_sized` and the post-settle
-        // projection so two full `Body` trees are never live at once.
-        repair.body = None;
         if repair.mended > 0
             && let Some(limit) = limits.clients
         {
@@ -200,9 +207,29 @@ fn to_taken(with: Settled, limits: &UpdateLimits) -> Result<Taken, TakeError> {
                 return Err(UpdateError::TooManyClients { clients, limit }.into());
             }
         }
-        let again = settled_sized(with.doc, limits)?;
-        repair.body = to_body(&again.doc)?;
-        again
+        let effective_mode = if with.needs_settle {
+            SettleMode::Settle
+        } else {
+            mode
+        };
+        match effective_mode {
+            SettleMode::CountOnly => {
+                let again = counted_sized(with.doc, limits)?;
+                if again.needs_settle {
+                    repair.body = None;
+                    repair.body = to_body(&again.doc)?;
+                }
+                again
+            }
+            SettleMode::Settle => {
+                // Drop the pre-settle body before `settled_sized` and the post-settle
+                // projection so two full `Body` trees are never live at once.
+                repair.body = None;
+                let again = settled_sized(with.doc, limits)?;
+                repair.body = to_body(&again.doc)?;
+                again
+            }
+        }
     } else {
         with
     };
