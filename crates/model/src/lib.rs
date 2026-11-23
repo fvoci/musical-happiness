@@ -73,7 +73,10 @@ pub use block::{
     BlockType, CARD_FIELDS_MAX_CHARS, ParseBlockTypeError, PropertyChanges,
     stamp_modification_metadata,
 };
-pub use block_ids::{UnmatchedRelation, generate_block_ids, renew_block_ids};
+pub use block_ids::{
+    UnmatchedRelation, collect_block_references, generate_block_ids, renew_block_ids,
+    rewrite_block_ids,
+};
 pub use body::{
     BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
     BodySummary, TaskCount,

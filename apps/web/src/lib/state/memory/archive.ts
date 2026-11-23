@@ -3,8 +3,15 @@
  * own version, then each board and its blocks, one per line. What the rooms
  * of their cards took is written into the cards first (`flushContainers`).
  */
-import type { Container } from '../../logic/wire.ts';
-import type { DownloadedFile, DownloadOptions } from '../backend.ts';
+import { createBoard, type Container } from '../../logic/wire.ts';
+import type {
+  DownloadedFile,
+  DownloadOptions,
+  ImportCounts,
+  ImportFormat,
+  ImportSummary,
+  ImportWarning,
+} from '../backend.ts';
 
 import { FILE_BLOCK_IN_COMMENT, flushContainers } from './bodies.ts';
 import { fail } from './refuse.ts';
@@ -94,5 +101,155 @@ export async function readArchive(
   return {
     containers: lines.filter((line) => line.type === 'board').map((line) => line.data as Container),
     blocks: lines.filter((line) => line.type === 'block').map((line) => blockOfLine(line.data)),
+  };
+}
+
+interface TrelloCardLike {
+  id?: unknown;
+  name?: unknown;
+  idList?: unknown;
+  closed?: unknown;
+}
+
+interface TrelloListLike {
+  id?: unknown;
+  name?: unknown;
+  closed?: unknown;
+}
+
+/** Reads an import file in `format` (`fvoci`, `trello`, or `notion`) for the memory backend. */
+export async function readImportFile(
+  file: File,
+  format: ImportFormat,
+  workspaceId: string,
+): Promise<{ containers: Container[]; blocks: StoredBlock[]; skipped: ImportWarning[] }> {
+  if (format === 'fvoci') {
+    const parsed = await readArchive(file);
+    return { ...parsed, skipped: [] };
+  }
+  if (file.size === 0) fail(400, 'cannot import an empty file');
+  if (format === 'trello') return readTrelloImport(file, workspaceId);
+  const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+  if (head[0] !== 0x50 || head[1] !== 0x4b) fail(400, 'invalid zip archive');
+  const title = file.name.replace(/\.zip$/i, '') || 'Notion Import';
+  const wiki: Container = { ...createBoard(), workspaceId, title, kind: 'wiki' };
+  return { containers: [wiki], blocks: [], skipped: [] };
+}
+
+async function readTrelloImport(
+  file: File,
+  workspaceId: string,
+): Promise<{ containers: Container[]; blocks: StoredBlock[]; skipped: ImportWarning[] }> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await file.text());
+  } catch {
+    fail(400, 'invalid Trello board JSON');
+  }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    fail(400, 'invalid Trello board JSON');
+  }
+  const data = raw as Record<string, unknown>;
+  const hasLists = data.lists !== undefined;
+  const hasCards = data.cards !== undefined;
+  if (
+    (!hasLists && !hasCards) ||
+    (hasLists && !Array.isArray(data.lists)) ||
+    (hasCards && !Array.isArray(data.cards))
+  ) {
+    fail(400, 'JSON does not look like a Trello board export');
+  }
+  const lists = (hasLists ? data.lists : []) as unknown[];
+  const cards = (hasCards ? data.cards : []) as unknown[];
+  const skipped: ImportWarning[] = [];
+  const closedLists = new Set<string>();
+  for (const item of lists) {
+    if (typeof item !== 'object' || item === null) continue;
+    const list = item as TrelloListLike;
+    const listId = typeof list.id === 'string' ? list.id : '';
+    const listName = typeof list.name === 'string' ? list.name : listId;
+    if (list.closed === true && listId) {
+      closedLists.add(listId);
+      skipped.push({
+        code: 'closed_item_skipped',
+        item: listName,
+        reason: 'archived list skipped',
+      });
+    }
+  }
+  const boardName = typeof data.name === 'string' ? data.name.trim() : '';
+  const boardDesc = typeof data.desc === 'string' ? data.desc : '';
+  const board: Container = {
+    ...createBoard(),
+    workspaceId,
+    title: boardName || 'Trello Board',
+    description: boardDesc,
+  };
+  const blocks: StoredBlock[] = [];
+  for (const item of cards) {
+    if (typeof item !== 'object' || item === null) continue;
+    const card = item as TrelloCardLike;
+    const cardId = typeof card.id === 'string' ? card.id : `trello-${String(blocks.length)}`;
+    const cardName = typeof card.name === 'string' ? card.name : '';
+    const cardListId = typeof card.idList === 'string' ? card.idList : '';
+    if (card.closed === true || (cardListId && closedLists.has(cardListId))) {
+      skipped.push({
+        code: 'closed_item_skipped',
+        item: cardName || cardId,
+        reason: 'archived card skipped',
+      });
+      continue;
+    }
+    blocks.push({
+      id: cardId,
+      parentId: '',
+      containerId: board.id,
+      type: 'card',
+      title: cardName,
+      fields: {},
+      body: null,
+      createdBy: '',
+      modifiedBy: '',
+      schema: 1,
+      createAt: 0,
+      updateAt: 0,
+      deleteAt: 0,
+    });
+  }
+  return { containers: [board], blocks, skipped };
+}
+
+/** Builds an `ImportSummary` from containers and blocks inserted into the memory world. */
+export function summarizeImport(
+  format: ImportFormat,
+  created: readonly Container[],
+  blocks: readonly StoredBlock[],
+  skipped: readonly ImportWarning[],
+): ImportSummary {
+  const counts: { -readonly [K in keyof ImportCounts]: number } = {
+    boards: 0,
+    wikis: 0,
+    cards: 0,
+    pages: 0,
+    comments: 0,
+    files: 0,
+  };
+  for (const container of created) {
+    const kind = container.kind ?? 'board';
+    if (kind === 'wiki') counts.wikis += 1;
+    else if (kind === 'board') counts.boards += 1;
+  }
+  for (const block of blocks) {
+    if (block.type === 'card') counts.cards += 1;
+    else if (block.type === 'page') counts.pages += 1;
+    else if (block.type === 'comment') counts.comments += 1;
+  }
+  return {
+    format,
+    imported: counts,
+    membersLeftOut: 0,
+    containerIds: created.map((container) => container.id),
+    skipped,
+    warnings: [],
   };
 }

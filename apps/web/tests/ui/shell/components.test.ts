@@ -15,6 +15,7 @@ import SettingChoice from '$lib/features/shell/SettingChoice.svelte';
 import SettingsDialog from '$lib/features/shell/SettingsDialog.svelte';
 import Sidebar from '$lib/features/shell/Sidebar.svelte';
 import type { ContainerPlace } from '$lib/logic/urls.ts';
+import type { ImportSummary } from '$lib/state/index.ts';
 
 import { loadTemplates, settle, setup } from '../../state/support.ts';
 
@@ -407,10 +408,24 @@ describe('the settings in the own space', () => {
 });
 
 describe('an import from the settings', () => {
+  const summaryOf = (overrides: Partial<ImportSummary> = {}): ImportSummary => ({
+    format: 'fvoci',
+    imported: { boards: 0, wikis: 0, cards: 0, pages: 0, comments: 0, files: 0 },
+    membersLeftOut: 0,
+    containerIds: [],
+    skipped: [],
+    warnings: [],
+    ...overrides,
+  });
+
   it('says in a line how many members it left out, nothing when none, and forgets it when closed', async () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
-    const answers = [{ membersLeftOut: 2 }, { membersLeftOut: 0 }, { membersLeftOut: 1 }];
+    const answers = [
+      summaryOf({ membersLeftOut: 2 }),
+      summaryOf({ membersLeftOut: 0 }),
+      summaryOf({ membersLeftOut: 1 }),
+    ];
     vi.spyOn(workspace, 'importArchive').mockImplementation(() => Promise.resolve(answers.shift()));
     const dialog = render(SettingsDialog, { props: { open: true, workspace } });
     const choose = async () => {
@@ -437,5 +452,106 @@ describe('an import from the settings', () => {
     await dialog.rerender({ open: true, workspace });
     await tick();
     expect(line()).toBeEmptyDOMElement();
+  });
+
+  it('switches format accept attribute, passes chosen format, and renders counts, warnings, and created links', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const created = workspace.containers[0];
+    if (!created) throw new Error('expected seed container');
+    const onOpenContainer = vi.fn();
+    const spy = vi.spyOn(workspace, 'importArchive').mockResolvedValue(
+      summaryOf({
+        format: 'trello',
+        imported: { boards: 1, wikis: 0, cards: 3, pages: 0, comments: 2, files: 0 },
+        containerIds: [created.id],
+        skipped: [
+          { code: 'closed_item_skipped', item: 'Old Card', reason: 'archived card skipped' },
+        ],
+        warnings: [
+          {
+            code: 'external_attachment_linked',
+            item: 'Spec',
+            reason: 'kept as external link',
+          },
+        ],
+        warningsOmitted: 4,
+      }),
+    );
+
+    render(SettingsDialog, {
+      props: {
+        open: true,
+        workspace,
+        containerHref: (place: ContainerPlace) => `/w/${place.workspaceId}/${place.id}`,
+        onOpenContainer,
+      },
+    });
+    const field = await screen.findByTestId<HTMLInputElement>('import-archive');
+    expect(field.accept).toContain('.boardarchive');
+
+    const trelloOption = screen.getByRole('radio', { name: /Trello/i });
+    await fireEvent.click(trelloOption);
+    await tick();
+    expect(field.accept).toContain('.json');
+
+    const file = new File(['{"lists":[]}'], 'trello.json', { type: 'application/json' });
+    Object.defineProperty(field, 'files', { value: [file], configurable: true });
+    await fireEvent.change(field);
+    await settle();
+    await tick();
+
+    expect(spy).toHaveBeenCalledWith(file, 'trello');
+    expect(screen.getByTestId('import-summary')).toBeInTheDocument();
+    expect(screen.getByTestId('import-counts')).toHaveTextContent(/Boards: 1/);
+    expect(screen.getByTestId('import-counts')).toHaveTextContent(/Cards: 3/);
+    expect(screen.getByTestId('import-counts')).toHaveTextContent(/Comments: 2/);
+    expect(screen.getByTestId('import-skipped')).toHaveTextContent(/Skipped \(1\)/);
+    expect(screen.getByTestId('import-warnings')).toHaveTextContent(/Warnings \(1\)/);
+    expect(screen.getByTestId('import-warnings-omitted')).toHaveTextContent(/4 additional/);
+
+    const link = screen.getByTestId('import-created-link');
+    expect(link).toHaveTextContent(created.title);
+    // Modifier-click preserves native new-tab navigation without hijacking via onOpenContainer.
+    await fireEvent.click(link, { ctrlKey: true });
+    expect(onOpenContainer).not.toHaveBeenCalled();
+
+    await fireEvent.click(link);
+    expect(onOpenContainer).toHaveBeenCalledWith({
+      id: created.id,
+      workspaceId: created.workspaceId,
+      kind: created.kind,
+    });
+  });
+
+  it('does not leak an in-flight import summary after the settings dialog closes', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    let resolveImport: ((value: ImportSummary) => void) | undefined;
+    vi.spyOn(workspace, 'importArchive').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveImport = resolve;
+        }),
+    );
+
+    const dialog = render(SettingsDialog, { props: { open: true, workspace } });
+    const field = await screen.findByTestId<HTMLInputElement>('import-archive');
+    const file = new File(['PK'], 'boards.boardarchive');
+    Object.defineProperty(field, 'files', { value: [file], configurable: true });
+    await fireEvent.change(field);
+
+    // Close dialog before the import promise resolves.
+    await fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await tick();
+    resolveImport?.(
+      summaryOf({ imported: { boards: 2, wikis: 0, cards: 0, pages: 0, comments: 0, files: 0 } }),
+    );
+    await settle();
+    await tick();
+
+    await dialog.rerender({ open: true, workspace });
+    await tick();
+    expect(screen.queryByTestId('import-summary')).toBeNull();
   });
 });

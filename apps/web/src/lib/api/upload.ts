@@ -16,7 +16,12 @@
  * A tab closed in the middle leaves its upload open on the server until it
  * ends: it counts toward the reader's open uploads until then.
  */
-import { BackendError, type UploadedFile, type UploadOptions } from '../state/backend.ts';
+import {
+  BackendError,
+  type ImportOptions,
+  type UploadedFile,
+  type UploadOptions,
+} from '../state/backend.ts';
 
 import type { Schemas } from './convert.ts';
 import { underWorkspace } from './requests.ts';
@@ -166,15 +171,16 @@ export function uploadInParts(
 }
 
 /**
- * An archive to import into a workspace: opened by `createImportUpload`, ended
- * by `importArchive` (in place of `completeUpload`), which says what it left out.
+ * An archive or external export to import into a workspace: opened by
+ * `createImportUpload`, ended by `importArchive` (in place of `completeUpload`),
+ * returning the full `ImportSummary`.
  */
 export function importInParts(
   http: Http,
   workspaceId: string,
   file: File,
-  options: UploadOptions = {},
-): Promise<Schemas['ImportResult']> {
+  options: ImportOptions = {},
+): Promise<Schemas['ImportSummary']> {
   return sendInParts(
     http,
     workspaceId,
@@ -187,8 +193,10 @@ export function importInParts(
         { method: 'POST', json: newUploadOf(file) },
       ),
     async (uploadId, signal) => {
-      const request: Schemas['ImportRequest'] = { uploadId };
-      return http.request<Schemas['ImportResult']>(
+      const request: Schemas['ImportRequest'] = options.format
+        ? { uploadId, format: options.format }
+        : { uploadId };
+      return http.request<Schemas['ImportSummary']>(
         underWorkspace('/archive/import'),
         { workspaceId },
         { method: 'POST', json: request, signal },
