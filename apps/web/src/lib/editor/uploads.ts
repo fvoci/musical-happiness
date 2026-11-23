@@ -44,24 +44,17 @@ export type UploadOutcome = 'done' | 'failed' | 'gone' | 'refused';
 /** The node an upload becomes: an image, or a file block. */
 export type UploadKind = 'image' | 'file';
 
-/** How many uploads of each kind are still under way. */
-export type Pending = Record<UploadKind, number>;
-
 export interface BodyUploadOptions {
   /** Uploads a file and gives its identifier. Undefined: no file can be added. */
   upload: () => ((file: File) => Promise<string>) | undefined;
   /** What the placeholder of an upload of the kind says to a screen reader. */
   uploadingLabel: (kind: UploadKind) => string;
   /**
-   * How an upload that just ended did, and of which kind, with how many are
-   * still under way. Also once the editor is gone (`destroyed`): a node that
-   * could not be put in is said by whoever is still there.
+   * How an upload that just ended did, and of which kind. Also once the
+   * editor is gone (`destroyed`): a node that could not be put in is said by
+   * whoever is still there.
    */
-  onProgress: (
-    pending: Pending,
-    ended: { outcome: UploadOutcome; kind: UploadKind } | undefined,
-    destroyed: boolean,
-  ) => void;
+  onProgress: (ended: { outcome: UploadOutcome; kind: UploadKind }, destroyed: boolean) => void;
 }
 
 export interface BodyUploadStorage {
@@ -249,7 +242,6 @@ function uploader(
   options: BodyUploadOptions,
 ): (view: EditorView, files: File[], position: number) => boolean {
   let serial = 0;
-  const pending: Pending = { image: 0, file: 0 };
 
   return function start(view: EditorView, files: File[], position: number): boolean {
     const upload = options.upload();
@@ -259,21 +251,19 @@ function uploader(
       serial += 1;
       const id = serial;
       const kind = uploadKindOf(file);
-      pending[kind] += 1;
       view.dispatch(
         view.state.tr.setMeta(key, {
           add: { id, position, label: options.uploadingLabel(kind), kind },
         } satisfies Change),
       );
       const finish = (fileId: string | undefined): void => {
-        pending[kind] -= 1;
         if (view.isDestroyed) {
           // The editor was made anew (another document of the room): the node has no place.
           const outcome = fileId === undefined ? 'failed' : 'gone';
-          options.onProgress({ ...pending }, { outcome, kind }, true);
+          options.onProgress({ outcome, kind }, true);
           return;
         }
-        options.onProgress({ ...pending }, { outcome: putIn(view, id, kind, fileId), kind }, false);
+        options.onProgress({ outcome: putIn(view, id, kind, fileId), kind }, false);
       };
       const ended = upload(file).then(
         (fileId) => fileId,

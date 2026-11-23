@@ -180,12 +180,12 @@
     upload: () => uploadFile,
     uploadingLabel: (kind) =>
       kind === 'file' ? m.editor_file_uploading() : m.editor_image_uploading(),
-    onProgress: (_pending, ended, destroyed) => {
+    onProgress: (ended, destroyed) => {
       if (destroyed) {
-        if (ended?.outcome === 'gone') onUploadDropped?.(ended.kind);
+        if (ended.outcome === 'gone') onUploadDropped?.(ended.kind);
         return;
       }
-      if (!ended || (ended.outcome !== 'gone' && ended.outcome !== 'refused')) return;
+      if (ended.outcome !== 'gone' && ended.outcome !== 'refused') return;
       // A formula's loss, said first, is not replaced.
       if (!(said && !said.upload)) {
         said = { text: UPLOAD_SAID[ended.kind][ended.outcome](), upload: true };
