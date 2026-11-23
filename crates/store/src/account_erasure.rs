@@ -414,7 +414,10 @@ impl Store {
 /// when their account is erased, whichever organization a row is of. An upload that
 /// was open is not among them: nobody sends its parts any more, and its clean-up needs
 /// the row to throw away what was sent (`uploads.rs`).
-const PERSONAL: [(&str, &str); 12] = [
+///
+/// `meeting_attendance` and `course_meetings` (`presenter_id`, `host_id`) are intentionally
+/// excluded: shared study meeting history stays under the erased user's tombstone identifier.
+const PERSONAL: [(&str, &str); 13] = [
     ("notifications", "recipient_id"),
     ("notification_outbox", "recipient_id"),
     ("user_identities", "user_id"),
@@ -427,6 +430,7 @@ const PERSONAL: [(&str, &str); 12] = [
     ("category_containers", "user_id"),
     ("categories", "user_id"),
     ("unit_progress", "user_id"),
+    ("exam_scores", "user_id"),
 ];
 
 /// Marks the account as being erased from `now`, puts it out of use if it was in use,
@@ -649,6 +653,7 @@ async fn leave_workspace(
         .await?;
     forget_places_in_the_trash(scope, workspace_id, user_id).await?;
     crate::unit_progress::forget_user_in_workspace(scope, workspace_id, user_id).await?;
+    crate::course_exams::forget_user_in_workspace(scope, workspace_id, user_id).await?;
     crate::container_team_membership::remove_workspace_teams(scope, workspace_id, user_id).await?;
     let mut sql = scope.sql("DELETE FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
@@ -754,6 +759,7 @@ pub(crate) async fn leave_organization(
     scope.execute(sql).await?;
     trash::forget_watcher_of_organization(scope, user_id).await?;
     crate::unit_progress::forget_user_in_organization(scope, user_id).await?;
+    crate::course_exams::forget_user_in_organization(scope, user_id).await?;
     let mut sql = scope.sql("DELETE FROM organization_members WHERE user_id = ");
     sql.bind(Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?);

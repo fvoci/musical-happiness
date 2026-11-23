@@ -23,6 +23,8 @@ mod comment_version;
 mod container;
 mod container_teams;
 mod containers_and_blocks;
+mod course_exam;
+mod course_meeting;
 mod date_value;
 mod deleted_item;
 mod diary;
@@ -105,6 +107,17 @@ pub use containers_and_blocks::{
     ContainersAndBlocks, ContainersAndBlocksError, DeleteContainersAndBlocks,
     PatchContainersAndBlocks, Renewed, generate_containers_and_blocks_ids,
     renew_containers_and_blocks_ids, renew_containers_and_blocks_ids_told,
+};
+pub use course_exam::{
+    COURSE_EXAM_DESCRIPTION_MAX_CHARS, COURSE_EXAM_MAX_SCORE_LIMIT, COURSE_EXAM_TITLE_MAX_CHARS,
+    CourseExam, CourseExamChange, CourseExamPatch, EXAM_SCORE_NOTE_MAX_CHARS, ExamDateChange,
+    MyExamScore, MyExamScoreUpdate, NewCourseExam, ValidatedMyExamScore, ValidatedNewExam,
+};
+pub use course_meeting::{
+    AttendanceStatus, COURSE_MEETING_LOCATION_MAX_CHARS, COURSE_MEETING_MAX_UNITS,
+    COURSE_MEETING_NOTES_MAX_CHARS, COURSE_MEETING_TITLE_MAX_CHARS, CourseMeeting,
+    CourseMeetingChange, CourseMeetingPatch, MeetingAttendance, MeetingAttendanceUpdate,
+    NewCourseMeeting, OptionalIdChange, UnknownAttendanceStatus, ValidatedNewMeeting,
 };
 pub use date_value::{
     DateValueError, check_date_value, date_property_ids, day_at, days_between, move_dates,

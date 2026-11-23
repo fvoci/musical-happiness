@@ -599,6 +599,14 @@ const ORDERS: &[(&str, &str)] = &[
         "getWorkspaceUsersById",
         "Oldest account first, not in the order of the request",
     ),
+    (
+        "listCourseExams",
+        "ordered by `examDate` ascending (exams without a date last), then by `createAt` and `id`",
+    ),
+    (
+        "listCourseMeetings",
+        "ordered by `startsAt` ascending, then by `id`",
+    ),
     ("patchBoardsAndBlocks", "each in the order of the request"),
     ("reorderCardProperties", "in their new order"),
     ("reorderCategories", "in their new order"),

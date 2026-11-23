@@ -542,6 +542,8 @@ struct Named {
     course_id: String,
     unit_id: String,
     unit_comment_id: String,
+    meeting_id: String,
+    exam_id: String,
     file_id: String,
     upload_id: String,
     user_id: String,
@@ -562,6 +564,8 @@ impl Named {
             .replace("{blockId}", &self.card_id)
             .replace("{courseId}", &self.course_id)
             .replace("{unitId}", &self.unit_id)
+            .replace("{meetingId}", &self.meeting_id)
+            .replace("{examId}", &self.exam_id)
             .replace("{commentId}", &self.unit_comment_id)
             .replace("{version}", "1")
             .replace("{fileId}", &self.file_id)
@@ -598,7 +602,8 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
         .await
         .value();
     let card_id = card["id"].as_str().expect("a card").to_owned();
-    let (course_id, unit_id, unit_comment_id) = course_fixtures(&ts.client).await;
+    let (course_id, unit_id, unit_comment_id, meeting_id, exam_id) =
+        course_fixtures(&ts.client).await;
     let file = reqwest::multipart::Part::bytes(b"of the organization".to_vec()).file_name("a.txt");
     let uploaded = Client::send(
         ts.client
@@ -632,6 +637,8 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
         course_id,
         unit_id,
         unit_comment_id,
+        meeting_id,
+        exam_id,
         board,
         file_id,
         upload_id,
@@ -641,8 +648,9 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
     }
 }
 
-/// Makes an open course with a unit (holding one body version) and a comment on the unit.
-async fn course_fixtures(client: &Client) -> (String, String, String) {
+/// Makes an open course with a unit (holding one body version), a comment on the unit,
+/// a study meeting, and an exam.
+async fn course_fixtures(client: &Client) -> (String, String, String, String, String) {
     let course: Value = client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/courses"),
@@ -674,7 +682,23 @@ async fn course_fixtures(client: &Client) -> (String, String, String) {
         .await
         .value();
     let comment_id = comment["id"].as_str().expect("a comment").to_owned();
-    (course_id, unit_id, comment_id)
+    let meeting: Value = client
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/courses/{course_id}/meetings"),
+            &json!({ "title": "A meeting", "startsAt": 1_800_000_000_000_i64 }),
+        )
+        .await
+        .value();
+    let meeting_id = meeting["id"].as_str().expect("a meeting").to_owned();
+    let exam: Value = client
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/courses/{course_id}/exams"),
+            &json!({ "title": "An exam", "maxScore": 100.0 }),
+        )
+        .await
+        .value();
+    let exam_id = exam["id"].as_str().expect("an exam").to_owned();
+    (course_id, unit_id, comment_id, meeting_id, exam_id)
 }
 
 /// Every operation of the contract, by its method, its path as written there, and its

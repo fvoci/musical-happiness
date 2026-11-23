@@ -514,6 +514,9 @@ pub async fn keep_house(app: &App) {
     clean_up_sessions(app).await;
     app.end_lapsed_former_providers().await;
     app.erase_due_accounts().await;
+    if let Err(error) = app.notify_upcoming_meetings(auth::now_millis()).await {
+        tracing::warn!(%error, "upcoming course meeting notifications were not sent");
+    }
     // What became of each job is the metrics' to count, where the tasks run them.
     let _ = purge_trash(app).await;
     let _ = collect_unreferenced_files(app).await;
@@ -661,6 +664,9 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
             app.end_lapsed_former_providers().await;
             app.erase_due_accounts().await;
             app.forget_old_notifications().await;
+            if let Err(error) = app.notify_upcoming_meetings(auth::now_millis()).await {
+                tracing::warn!(%error, "upcoming course meeting notifications were not sent");
+            }
         }
     })
 }

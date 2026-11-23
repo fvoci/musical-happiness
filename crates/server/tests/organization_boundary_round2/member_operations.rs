@@ -30,6 +30,8 @@ struct Named {
     course: String,
     unit: String,
     course_comment: String,
+    meeting: String,
+    exam: String,
     file: String,
     upload: String,
     category: String,
@@ -134,6 +136,8 @@ fn operations() -> Vec<(String, String, String)> {
         | "deleteBlock"
         | "deletePage"
         | "deleteUnit"
+        | "deleteCourseMeeting"
+        | "deleteCourseExam"
         | "deleteBoardsAndBlocks"
         | "deleteUpload"
         | "deleteCategory"
@@ -174,6 +178,8 @@ impl Named {
             .replace("{commentId}", comment)
             .replace("{courseId}", &self.course)
             .replace("{unitId}", &self.unit)
+            .replace("{meetingId}", &self.meeting)
+            .replace("{examId}", &self.exam)
             // No workspace of an organization has a diary: the board named as one is
             // none, in either organization.
             .replace("{diaryId}", &self.board)
@@ -286,7 +292,8 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         .await
         .value();
     let (wiki, page, comment) = wiki_with_a_page(&founder, &at, name).await;
-    let (course, unit, course_comment) = course_with_a_unit(&founder, &at, name).await;
+    let (course, unit, course_comment, meeting, exam) =
+        course_with_a_unit(&founder, &at, name).await;
     write_a_body(&founder, &at, &card).await;
     let file = Client::send(
         founder
@@ -349,14 +356,20 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         course,
         unit,
         course_comment,
+        meeting,
+        exam,
         team,
         notification,
     }
 }
 
-/// A course of the workspace at `at` for everybody in it, with a unit (two body versions)
-/// and a comment on it: the identifiers of the three.
-async fn course_with_a_unit(founder: &Client, at: &str, name: &str) -> (String, String, String) {
+/// A course of the workspace at `at` for everybody in it, with a unit (two body versions),
+/// a comment on it, a meeting, and an exam.
+async fn course_with_a_unit(
+    founder: &Client,
+    at: &str,
+    name: &str,
+) -> (String, String, String, String, String) {
     let course = founder
         .post(
             &format!("{at}/courses"),
@@ -393,7 +406,27 @@ async fn course_with_a_unit(founder: &Client, at: &str, name: &str) -> (String, 
         )
         .await
         .value();
-    (course, unit, text(&comment, "id"))
+    let meeting = founder
+        .post(
+            &format!("{at}/courses/{course}/meetings"),
+            &json!({"title": format!("{name} meeting"), "startsAt": 1_800_000_000_000_i64}),
+        )
+        .await
+        .value();
+    let exam = founder
+        .post(
+            &format!("{at}/courses/{course}/exams"),
+            &json!({"title": format!("{name} exam"), "maxScore": 100.0}),
+        )
+        .await
+        .value();
+    (
+        course,
+        unit,
+        text(&comment, "id"),
+        text(&meeting, "id"),
+        text(&exam, "id"),
+    )
 }
 
 /// The founder names the member in a card of the board, which the member reads, and
@@ -609,6 +642,8 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getUnit",
         "getMyCourseProgress",
         "getCourseProgressSummary",
+        "listCourseMeetings",
+        "listCourseExams",
         "getUnitComments",
         "getUnitCommentVersions",
         "getUnitBodyVersions",

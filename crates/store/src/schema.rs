@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 60] = [
+const STEPS: [Step; 61] = [
     Step {
         version: 1,
         description: "baseline",
@@ -401,6 +401,13 @@ const STEPS: [Step; 60] = [
         sqlite: include_str!("../schema/sqlite/0063_unit_progress.sql"),
         postgres: include_str!("../schema/postgres/0063_unit_progress.sql"),
     },
+    // 64..=67 are other work's.
+    Step {
+        version: 68,
+        description: "course meetings and exams",
+        sqlite: include_str!("../schema/sqlite/0068_course_meetings_and_exams.sql"),
+        postgres: include_str!("../schema/postgres/0068_course_meetings_and_exams.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -434,6 +441,10 @@ pub(crate) const BEFORE_COURSES_VERSION: i64 = 60;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_UNIT_PROGRESS_VERSION: i64 = 62;
 
+/// The migration version immediately before course meetings and exams (0068).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_COURSE_EVENTS_VERSION: i64 = 67;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -457,7 +468,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 12] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 40] = [
+pub(crate) const ORG_TABLES: [&str; 44] = [
     "audit_log",
     "blocks",
     "body_docs",
@@ -471,14 +482,18 @@ pub(crate) const ORG_TABLES: [&str; 40] = [
     "container_members",
     "container_teams",
     "containers",
+    "course_exams",
+    "course_meetings",
     "deleted_blocks",
     "deleted_containers",
     "diary_days",
+    "exam_scores",
     "file_info",
     "file_refs",
     "file_versions",
     "invitations",
     "loose_objects",
+    "meeting_attendance",
     "notification_outbox",
     "notifications",
     "oidc_former_providers",
@@ -957,5 +972,16 @@ mod tests {
             .expect("migration 63 is in the list");
         assert_eq!(step.description, "unit progress");
         assert!(BEFORE_UNIT_PROGRESS_VERSION < step.version);
+    }
+
+    /// Migration 68 is course meetings and exams, following `BEFORE_COURSE_EVENTS_VERSION`.
+    #[test]
+    fn migration_68_is_course_meetings_and_exams() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == 68)
+            .expect("migration 68 is in the list");
+        assert_eq!(step.description, "course meetings and exams");
+        assert!(BEFORE_COURSE_EVENTS_VERSION < step.version);
     }
 }

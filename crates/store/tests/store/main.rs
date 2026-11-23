@@ -31,6 +31,8 @@ mod category_boards;
 mod common;
 mod confirmed_password;
 mod container_rename;
+mod course_exams;
+mod course_meetings;
 mod course_schema;
 mod courses;
 mod diaries;

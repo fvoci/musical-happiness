@@ -6,9 +6,10 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use fvoci_model::{
-    AuditAction, BlockType, Category, CompletionChange, Container, ContainerKind, ContainerMember,
-    ContainerType, CourseLimits, LastPositionChange, NewUnit, SubscriberType, Subscription,
-    UnitProgressChange, Upload, UploadPart, WorkspaceRole, new_id,
+    AttendanceStatus, AuditAction, BlockType, Category, CompletionChange, Container, ContainerKind,
+    ContainerMember, ContainerType, CourseLimits, LastPositionChange, NewCourseExam,
+    NewCourseMeeting, NewUnit, SubscriberType, Subscription, UnitProgressChange, Upload,
+    UploadPart, ValidatedMyExamScore, WorkspaceRole, new_id,
 };
 use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
 use fvoci_store::{AuditEntry, DbType, SYSTEM_ORG_ID, SharingChange, Store, Tenant};
@@ -654,6 +655,53 @@ async fn a_course_with_progress(store: &Store, workspace_id: &str, user_id: &str
         )
         .await
         .expect("unit progress is stored");
+    let meeting = store
+        .create_course_meeting(
+            &course.id,
+            &NewCourseMeeting {
+                title: "weekly sync".to_owned(),
+                starts_at: 1_800_000_000_000,
+                location: "room 1".to_owned(),
+                unit_ids: vec![unit.id.clone()],
+                presenter_id: Some(user_id.to_owned()),
+                host_id: Some(user_id.to_owned()),
+                notes: "agenda".to_owned(),
+            }
+            .check_request()
+            .expect("valid meeting"),
+        )
+        .await
+        .expect("course meeting is stored");
+    store
+        .upsert_meeting_attendance(&course.id, &meeting.id, user_id, AttendanceStatus::Present)
+        .await
+        .expect("meeting attendance is stored");
+    let exam = store
+        .create_course_exam(
+            &course.id,
+            &NewCourseExam {
+                title: "quiz 1".to_owned(),
+                exam_date: Some("2026-12-01".to_owned()),
+                max_score: 100.0,
+                description: "chapter 1".to_owned(),
+            }
+            .check_request()
+            .expect("valid exam"),
+        )
+        .await
+        .expect("course exam is stored");
+    store
+        .upsert_my_exam_score(
+            &course.id,
+            &exam.id,
+            user_id,
+            &ValidatedMyExamScore {
+                score: 92.5,
+                note: "solid".to_owned(),
+            },
+        )
+        .await
+        .expect("exam score is stored");
 }
 
 /// The store tells whether the wall holds the role it connects as: the role of the
