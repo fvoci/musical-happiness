@@ -387,11 +387,21 @@
     }
   },
   {
-    "name": "subscriptions: not back with the card",
+    "name": "subscriptions: back with the card",
     "request": "GET /api/v1/w/<id:1>/subscriptions/<id:2> as trash-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": []
+    "body": [
+      {
+        "blockId": "<id:6>",
+        "blockType": "card",
+        "createAt": "<ts>",
+        "deleteAt": 0,
+        "notifiedAt": "<ts>",
+        "subscriberId": "<id:2>",
+        "subscriberType": "user"
+      }
+    ]
   },
   {
     "name": "delete the text",

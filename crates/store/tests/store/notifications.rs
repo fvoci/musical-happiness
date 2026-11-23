@@ -654,3 +654,235 @@ async fn a_card_given_is_noted_for_whom_it_takes_and_a_quiet_handle_notes_nothin
     assert_eq!(events(store).await, [], "nobody it had not taken already");
     test.teardown().await;
 }
+
+/// The identifiers of the watchers of a block, sorted.
+async fn watchers(store: &Store, block_id: &str) -> Vec<String> {
+    let mut ids: Vec<String> = store
+        .get_subscribers_for_block(block_id)
+        .await
+        .expect("the subscribers are read")
+        .into_iter()
+        .map(|subscriber| subscriber.subscriber_id)
+        .collect();
+    ids.sort();
+    ids
+}
+
+/// A board with an `owner` person property, created by `writer`.
+async fn board_with_owner_property(store: &Store, writer: &str) -> Container {
+    let definition = json!({"id": "owner", "name": "Owner", "type": "person", "options": []});
+    let mut board = Container {
+        id: new_id(),
+        workspace_id: common::workspace(store).await,
+        container_type: ContainerType::Open,
+        created_by: writer.to_owned(),
+        card_properties: vec![definition.as_object().expect("an object").clone()],
+        ..Container::default()
+    };
+    store
+        .insert_container(&mut board, writer)
+        .await
+        .expect("the board is stored");
+    board
+}
+
+/// A quiet write, as its writer asked, notes nobody to be told, and makes its writer
+/// alone a watcher of what it writes new: of a card, and of the card a comment is on.
+/// Who is given a card by somebody else is no watcher of it until the server tells
+/// them of it (`watch_given`); who gives it to themselves is one at once.
+#[tokio::test]
+async fn a_quiet_write_tells_nobody_and_its_writer_alone_watches_what_it_writes() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let (_, writer, named) = board_and_two(store).await;
+    let other = common::user(store, &format!("o{}", &new_id()[24..])).await;
+    let board = board_with_owner_property(store, &writer).await;
+    let quietly = store.quietly();
+
+    let mut copy = card(&board.id, mentioning(&named));
+    copy.fields
+        .insert("properties".to_owned(), json!({"owner": other}));
+    quietly
+        .insert_block(&mut copy, &writer)
+        .await
+        .expect("the card is stored quietly");
+    assert_eq!(events(store).await, [], "nobody is noted");
+    assert_eq!(
+        watchers(store, &copy.id).await,
+        std::slice::from_ref(&writer),
+        "its writer"
+    );
+
+    let mut comment = Block {
+        id: new_id(),
+        container_id: board.id.clone(),
+        parent_id: copy.id.clone(),
+        block_type: BlockType::Comment,
+        body: mentioning(&other),
+        ..Block::default()
+    };
+    quietly
+        .insert_block(&mut comment, &named)
+        .await
+        .expect("the comment is stored quietly");
+    assert_eq!(events(store).await, [], "nobody is noted of the comment");
+    let mut expected = vec![writer.clone(), named.clone()];
+    expected.sort();
+    assert_eq!(
+        watchers(store, &copy.id).await,
+        expected,
+        "and who commented"
+    );
+
+    // Given to somebody new, quietly: they are no watcher, and noted of nothing.
+    let mut given = copy.clone();
+    given
+        .fields
+        .insert("properties".to_owned(), json!({"owner": named}));
+    quietly
+        .insert_block(&mut given, &writer)
+        .await
+        .expect("the card is given quietly");
+    assert_eq!(events(store).await, []);
+
+    // Given aloud by its writer to somebody else: noted, and a watcher once told.
+    let mut aloud = card(&board.id, None);
+    store
+        .telling_nobody()
+        .insert_block(&mut aloud, &writer)
+        .await
+        .expect("a card nobody watches");
+    aloud
+        .fields
+        .insert("properties".to_owned(), json!({"owner": other}));
+    store
+        .insert_block(&mut aloud, &writer)
+        .await
+        .expect("the card is given");
+    let noted: Vec<(String, NotificationKind)> = events(store)
+        .await
+        .into_iter()
+        .map(|event| (event.recipient_id, event.kind))
+        .collect();
+    assert_eq!(noted, [(other.clone(), NotificationKind::Assignment)]);
+    assert_eq!(watchers(store, &aloud.id).await, Vec::<String>::new());
+    store
+        .watch_given(&aloud.id, &other)
+        .await
+        .expect("made a watcher");
+    assert_eq!(
+        watchers(store, &aloud.id).await,
+        std::slice::from_ref(&other)
+    );
+
+    // Given by its writer to themselves: a watcher at once, of nothing noted.
+    for event in events(store).await {
+        assert!(
+            store
+                .drop_notification_event(&event)
+                .await
+                .expect("dropped")
+        );
+    }
+    aloud
+        .fields
+        .insert("properties".to_owned(), json!({"owner": writer}));
+    store
+        .insert_block(&mut aloud, &writer)
+        .await
+        .expect("the card is taken by its writer");
+    assert_eq!(events(store).await, []);
+    let mut expected = vec![writer.clone(), other.clone()];
+    expected.sort();
+    assert_eq!(watchers(store, &aloud.id).await, expected);
+    test.teardown().await;
+}
+
+/// What goes for good takes with it what people were told of it, and what they were
+/// still to be told: of a card deleted long enough ago when the trash is emptied, and
+/// of every card of a board that goes. A card still in the trash keeps its
+/// notifications, and so does one on another board.
+#[tokio::test]
+async fn what_goes_for_good_takes_what_was_told_of_it() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let (board_id, writer, named) = board_and_two(store).await;
+    let workspace_id = common::workspace(store).await;
+    let elsewhere = common::create_test_boards(store, &workspace_id, &writer, 1)
+        .await
+        .remove(0)
+        .id;
+    let mut told_of = Vec::new();
+    for on in [&board_id, &board_id, &board_id, &elsewhere] {
+        let mut block = card(on, mentioning(&named));
+        store
+            .insert_block(&mut block, &writer)
+            .await
+            .expect("the card is stored");
+        let event = events(store).await.remove(0);
+        made(store.tell_of(&event, 1, LIMITS).await.expect("told"));
+        told_of.push(block);
+    }
+    let [purged, trashed, kept, other] = &told_of[..] else {
+        unreachable!("four cards");
+    };
+    let mut waiting = card(&board_id, mentioning(&named));
+    store
+        .insert_block(&mut waiting, &writer)
+        .await
+        .expect("the card is stored");
+    assert_eq!(events(store).await.len(), 1, "its row waits");
+    let about = async || {
+        let mut ids: Vec<String> = told(store, &named)
+            .await
+            .into_iter()
+            .map(|told| told.block_id)
+            .collect();
+        ids.sort();
+        ids
+    };
+
+    for card in [&waiting, purged] {
+        common::delete_blocks(store, std::slice::from_ref(card), &writer).await;
+    }
+    let deleted_at = store
+        .get_deleted_block(&purged.id)
+        .await
+        .expect("in the trash")
+        .block
+        .delete_at;
+    let now = || {
+        let since = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("after 1970");
+        i64::try_from(since.as_millis()).expect("milliseconds")
+    };
+    while now() <= deleted_at {
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+    common::delete_blocks(store, std::slice::from_ref(trashed), &writer).await;
+    store
+        .purge_trash(deleted_at + 1)
+        .await
+        .expect("the trash is emptied of what went first");
+    let mut expected = vec![trashed.id.clone(), kept.id.clone(), other.id.clone()];
+    expected.sort();
+    assert_eq!(about().await, expected, "what was purged told nothing more");
+    assert_eq!(events(store).await, [], "nor is to be told");
+
+    store
+        .delete_container(&board_id, &writer)
+        .await
+        .expect("the board is deleted");
+    assert_eq!(about().await, expected, "a board in the trash keeps them");
+    store
+        .purge_trash(i64::MAX)
+        .await
+        .expect("the trash is emptied");
+    assert_eq!(
+        about().await,
+        std::slice::from_ref(&other.id),
+        "but for the other board's"
+    );
+    test.teardown().await;
+}

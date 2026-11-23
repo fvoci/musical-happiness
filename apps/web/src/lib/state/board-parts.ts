@@ -4,17 +4,21 @@
  * the place of a drop, the card a copy is made as.
  */
 import { valuesOfCopy } from '../logic/dependencies.ts';
+import { propertyBehavior } from '../logic/properties.ts';
 import {
   cardProperty,
   parseRelationValue,
+  type BoardView,
   type Container,
   type ContainerKind,
   type ContainerMember,
   type Card,
   type MemberRole,
+  type PropertyTemplate,
+  type PropertyValue,
 } from '../logic/wire.ts';
 
-import type { Backend, ContainerRole, CardDraft } from './backend.ts';
+import type { Backend, ContainerRole, CardDraft, CardSummary } from './backend.ts';
 import { allPages } from './page-reads.ts';
 import { BackendError } from './problems.ts';
 
@@ -121,6 +125,34 @@ export function roleFlags(
     schemeCommenter: role === 'commenter',
     schemeViewer: role === 'viewer',
   };
+}
+
+/**
+ * The property a view groups its cards by: the one it names. A board view
+ * that names none, or one that cannot group, is grouped by the first
+ * property that can, as the original drew such a view.
+ */
+export function groupingPropertyOf(
+  view: BoardView,
+  properties: readonly PropertyTemplate[],
+): PropertyTemplate | undefined {
+  const named = properties.find((template) => template.id === view.fields.groupById);
+  if (view.fields.viewType !== 'board') return named;
+  if (named && propertyBehavior(named.type).canGroup) return named;
+  return properties.find((template) => propertyBehavior(template.type).canGroup);
+}
+
+/** A card with one property set to `value`, or cleared when empty. */
+export function withCardProperty(
+  card: CardSummary,
+  propertyId: string,
+  value: PropertyValue | undefined,
+): Card {
+  const empty = value === undefined || value === '' || (Array.isArray(value) && !value.length);
+  const properties = empty
+    ? Object.fromEntries(Object.entries(card.fields.properties).filter(([id]) => id !== propertyId))
+    : { ...card.fields.properties, [propertyId]: value };
+  return { ...card, fields: { ...card.fields, properties } };
 }
 
 /** Where dropped cards go: a column (by the value of the grouping property) and a place in it. */

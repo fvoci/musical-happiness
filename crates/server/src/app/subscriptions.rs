@@ -6,7 +6,10 @@
 //! reads the subscriptions to notify anyone either: the notification service of a
 //! standalone server only writes a log line per block change.
 
+use std::collections::HashMap;
+
 use fvoci_model::Subscription;
+use fvoci_store::WatchedBlock;
 
 use super::App;
 use crate::auth::now_millis;
@@ -44,9 +47,11 @@ impl App {
         block_id: &str,
         subscriber_id: &str,
     ) -> Result<Subscription, AppError> {
-        if self.workspace.is_some()
+        // One to a block the subscriber no longer reads is ended all the same.
+        if let Some(workspace_id) = self.workspace.as_deref()
             && !self
-                .subscriptions(subscriber_id)
+                .store()
+                .get_subscriptions_in_workspace(subscriber_id, workspace_id)
                 .await?
                 .iter()
                 .any(|subscription| subscription.block_id == block_id)
@@ -70,18 +75,39 @@ impl App {
 
     /// Returns the subscriptions of a subscriber that have not ended, oldest first: for a
     /// handle of one workspace (`App::in_workspace`), those to blocks of its boards.
+    /// Only those to a block of a board or a wiki the subscriber reads now, or may join
+    /// to read (`Grant::reads_on_joining`), as they are told of it: of any other they
+    /// are not to know even the identifier.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the query fails.
+    /// Returns the store's error if a query fails.
     pub async fn subscriptions(&self, subscriber_id: &str) -> Result<Vec<Subscription>, AppError> {
-        Ok(match self.workspace.as_deref() {
-            Some(workspace_id) => {
-                self.store()
-                    .get_subscriptions_in_workspace(subscriber_id, workspace_id)
+        let watched = self
+            .store()
+            .get_watched_blocks(subscriber_id, self.workspace.as_deref())
+            .await?;
+        let mut reads: HashMap<String, bool> = HashMap::new();
+        let mut kept = Vec::with_capacity(watched.len());
+        for WatchedBlock {
+            subscription,
+            container_id,
+        } in watched
+        {
+            let reads_it = if let Some(reads_it) = reads.get(&container_id) {
+                *reads_it
+            } else {
+                let reads_it = self
+                    .container_access(subscriber_id, &container_id)
                     .await?
+                    .is_some_and(|access| access.grant.reads_on_joining());
+                reads.insert(container_id, reads_it);
+                reads_it
+            };
+            if reads_it {
+                kept.push(subscription);
             }
-            None => self.store().get_subscriptions(subscriber_id).await?,
-        })
+        }
+        Ok(kept)
     }
 }

@@ -8,7 +8,9 @@ use crate::collab::Deletion;
 use crate::error::AppError;
 
 /// Whether the people a change to a block newly names (those its body mentions, those
-/// a card is given to) are told of it. Bulk operations suppress it.
+/// a card is given to) are told of it. Bulk operations suppress it, and so does a client
+/// that writes again what was said before (a copy, a change taken back or made again):
+/// its writer watches what it writes new all the same, and nobody else comes to.
 ///
 /// Websocket broadcasts and webhooks are not notifications: they happen either way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -44,7 +46,7 @@ impl App {
     fn store_telling(&self, notification: ChangeNotification) -> fvoci_store::Store {
         match notification {
             ChangeNotification::Send => self.store().clone(),
-            ChangeNotification::Suppress => self.store().telling_nobody(),
+            ChangeNotification::Suppress => self.store().quietly(),
         }
     }
 

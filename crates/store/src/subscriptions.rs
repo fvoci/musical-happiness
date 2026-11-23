@@ -1,7 +1,9 @@
 //! Subscriptions of users to the changes of a block.
 //!
 //! A subscription is a row while it lasts. It ends when the subscriber ends it, when the
-//! block is deleted, and when the subscriber leaves the block's board.
+//! block goes for good, and when the subscriber leaves the block's board. A block that
+//! goes into the trash takes the subscriptions to it along, and brings them back
+//! (`trash/watchers.rs`).
 
 use fvoci_model::{BlockType, Subscriber, SubscriberType, Subscription};
 
@@ -12,6 +14,16 @@ use crate::error::StoreError;
 /// The columns of a subscription, in the order [`subscription_from_row`] reads them.
 const SUBSCRIPTION_COLUMNS: &str =
     "block_type, block_id, subscriber_type, subscriber_id, notified_at, create_at";
+
+/// A subscription, and the board or the wiki its block is on: what decides whether its
+/// subscriber may know of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WatchedBlock {
+    /// The subscription.
+    pub subscription: Subscription,
+    /// The board or the wiki of its block.
+    pub container_id: String,
+}
 
 impl Store {
     /// Subscribes a subscriber to a block and returns the subscription as it is stored:
@@ -117,6 +129,47 @@ impl Store {
                 .bind(Id(workspace_id))
                 .push(") ORDER BY create_at, block_id");
             fetch_subscriptions(scope, sql).await
+        })
+        .await
+    }
+
+    /// Returns the subscriptions of a subscriber, with the board or the wiki of each
+    /// block, oldest first as [`Store::get_subscriptions`] orders them: of the boards and
+    /// the wikis of `workspace_id` alone, if there is one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_watched_blocks(
+        &self,
+        subscriber_id: &str,
+        workspace_id: Option<&str>,
+    ) -> Result<Vec<WatchedBlock>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(&format!(
+                "SELECT s.block_type, s.block_id, s.subscriber_type, s.subscriber_id, \
+                 s.notified_at, s.create_at, bl.container_id FROM subscriptions AS s \
+                 JOIN blocks AS bl ON bl.id = s.block_id{} \
+                 JOIN containers AS bo ON bo.id = bl.container_id{} WHERE s.subscriber_id = ",
+                scope.same_organization(&[("bl", "s")]),
+                scope.same_organization(&[("bo", "bl")]),
+            ));
+            sql.bind(Id(subscriber_id));
+            if let Some(workspace_id) = workspace_id {
+                sql.push_bind(" AND bo.workspace_id = ", Id(workspace_id));
+            }
+            sql.push(" ORDER BY s.create_at, s.block_id");
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| {
+                    Ok(WatchedBlock {
+                        subscription: subscription_from_row(row)?,
+                        container_id: row.id(6)?,
+                    })
+                })
+                .collect()
         })
         .await
     }

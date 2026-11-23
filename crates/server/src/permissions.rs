@@ -346,6 +346,15 @@ impl Grant {
     pub const fn reads(self) -> bool {
         self.allows(ContainerPermission::View)
     }
+
+    /// Whether the user reads what is on the board, or may join it to read it: whoever
+    /// works in the workspace of an open board they have not joined. What happens on the
+    /// board is told to them, and watched by them, as to a reader: what they are told of
+    /// they may read by joining.
+    #[must_use]
+    pub const fn reads_on_joining(self) -> bool {
+        self.reads() || self.allows(ContainerPermission::Join)
+    }
 }
 
 /// How a user is in the room of a card's body that is edited together.

@@ -186,7 +186,19 @@ export interface CardDraft {
   properties?: Card['fields']['properties'];
   isTemplate?: boolean;
   body?: DocNode | null;
-  /** A copy: it tells nobody whom it names, gives a card to, or makes a watcher. */
+  /**
+   * Said before (a copy, a card made again by redo): it tells nobody whom it
+   * names or gives the card to, and makes nobody a watcher but its writer.
+   */
+  quiet?: boolean;
+}
+
+/** How a change of a card tells of itself. */
+export interface CardTelling {
+  /**
+   * Said before (a change taken back by undo, or made again by redo): it
+   * tells nobody whom it gives the card to, nor makes them a watcher.
+   */
   quiet?: boolean;
 }
 
@@ -407,7 +419,12 @@ export interface Backend
   cardPreviews(boardId: string): Promise<Map<string, CardPreview>>;
   card(boardId: string, cardId: string): Promise<CardDetail>;
   createCard(boardId: string, draft: CardDraft): Promise<CardSummary>;
-  patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary>;
+  patchCard(
+    boardId: string,
+    cardId: string,
+    patch: CardPatch,
+    telling?: CardTelling,
+  ): Promise<CardSummary>;
 
   // Comments and attachments of a card.
   comments(boardId: string, cardId: string): Promise<Comment[]>;

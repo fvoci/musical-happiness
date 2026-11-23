@@ -10,7 +10,6 @@
  */
 import { cardsOfView } from '../logic/card-list.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
-import { propertyBehavior } from '../logic/properties.ts';
 import {
   viewGrouping,
   viewQuery,
@@ -42,7 +41,14 @@ import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
 import { authorIds, memberId } from './user-names.ts';
 import { readBoard } from './board-load.ts';
-import { containerOfWorkspace, roleOf, type CardDrop } from './board-parts.ts';
+import {
+  canChangeComment,
+  containerOfWorkspace,
+  groupingPropertyOf,
+  roleOf,
+  withCardProperty,
+  type CardDrop,
+} from './board-parts.ts';
 import { MemberWrites } from './member-writes.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
@@ -123,24 +129,14 @@ export class BoardStore {
   readonly canShare = $derived(this.role === 'admin');
   readonly canComment = $derived(this.canEdit || this.role === 'commenter');
 
-  /**
-   * Whether the reader may delete a comment written by `createdBy`, and
-   * bring it back: their own when they may comment, anyone's when they are
-   * an admin (the user's decision of 2026-11-11 22:13 KST).
-   */
+  /** Whether the reader may delete a comment written by `createdBy`, and bring it back. */
   canDeleteComment(createdBy: string): boolean {
-    if (this.role === 'admin') return true;
-    return this.canComment && createdBy === this.workspace.me?.id;
+    return canChangeComment(this.role, createdBy, this.workspace.me?.id);
   }
 
-  /**
-   * Whether the reader may change the text of a comment written by
-   * `createdBy`: their own when they may comment, anyone's when they are an
-   * admin (`patchBlock` in `contracts/openapi.json`).
-   */
+  /** Whether the reader may change the text of a comment written by `createdBy`. */
   canEditComment(createdBy: string): boolean {
-    if (this.role === 'admin') return true;
-    return this.canComment && createdBy === this.workspace.me?.id;
+    return canChangeComment(this.role, createdBy, this.workspace.me?.id);
   }
 
   /**
@@ -270,17 +266,9 @@ export class BoardStore {
     });
   }
 
-  /**
-   * The property a view groups its cards by: the one it names. A board view
-   * that names none, or one that cannot group, is grouped by the first
-   * property that can, as the original drew such a view.
-   */
+  /** The property a view groups its cards by (`groupingPropertyOf`). */
   groupingOf(view: BoardView): PropertyTemplate | undefined {
-    const properties = this.board?.cardProperties ?? [];
-    const named = properties.find((template) => template.id === view.fields.groupById);
-    if (view.fields.viewType !== 'board') return named;
-    if (named && propertyBehavior(named.type).canGroup) return named;
-    return properties.find((template) => propertyBehavior(template.type).canGroup);
+    return groupingPropertyOf(view, this.board?.cardProperties ?? []);
   }
 
   /** The columns of a view, visible and hidden, for cards already filtered and sorted. */
@@ -440,6 +428,8 @@ export class BoardStore {
   /**
    * Changes a card: `change` gets the card as it is and returns it as it
    * should be (a new object). Nothing is sent when the two say the same.
+   * Undo and redo write what was said before, quietly: nobody the card is
+   * given to again is told of it twice.
    */
   async changeCard(
     cardId: string,
@@ -451,9 +441,14 @@ export class BoardStore {
     if (!current) return;
     const [forward, backward] = cardPatches(change(current), current);
     if (isEmptyCardPatch(forward)) return;
+    let said = false;
     await this.#perform(
-      () => this.#cardWrites.write(cardId, forward, backward),
-      () => this.#cardWrites.write(cardId, backward, forward),
+      () => {
+        const again = said;
+        said = true;
+        return this.#cardWrites.write(cardId, forward, backward, again);
+      },
+      () => this.#cardWrites.write(cardId, backward, forward, true),
       description,
       groupId,
       this.#cardWrites.keep(cardId, backward),
@@ -469,15 +464,7 @@ export class BoardStore {
   ): Promise<void> {
     await this.changeCard(
       cardId,
-      (card) => {
-        const properties = { ...card.fields.properties };
-        const empty =
-          value === undefined || value === '' || (Array.isArray(value) && !value.length);
-        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- the value of a property is removed by its id
-        if (empty) delete properties[propertyId];
-        else properties[propertyId] = value;
-        return { ...card, fields: { ...card.fields, properties } };
-      },
+      (card) => withCardProperty(card, propertyId, value),
       'changeProperty',
       groupId,
     );
@@ -495,11 +482,20 @@ export class BoardStore {
     );
   }
 
-  /** Makes a card. Undo deletes it; redo makes it again (with a new identifier). */
+  /**
+   * Makes a card. Undo deletes it; redo makes it again (with a new
+   * identifier), quietly: nobody it names or is given to is told twice, and
+   * its writer watches it as before.
+   */
   async createCard(draft: CardDraft, groupId?: string): Promise<CardSummary | undefined> {
+    let made = false;
     return this.#perform(
       async () => {
-        const card = await this.#backend.createCard(this.boardId, draft);
+        const card = await this.#backend.createCard(
+          this.boardId,
+          made ? { ...draft, quiet: true } : draft,
+        );
+        made = true;
         void this.workspace.learnUsers(authorIds([card]));
         this.cards = take(this.cards, card);
         return card;

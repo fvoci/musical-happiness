@@ -309,6 +309,9 @@ pub(crate) enum Noting {
     /// Whom a write newly names: those its body mentions, those a card is given to.
     #[default]
     Named,
+    /// Nobody, as its writer asked: what is written was said before (a copy, a change
+    /// taken back or made again). Its writer watches what it writes new all the same.
+    Quietly,
     /// Nobody: what is written is no person's own words.
     Nobody,
 }
@@ -373,9 +376,9 @@ impl<'c> Scope<'c> {
         Self { noting, ..self }
     }
 
-    /// Whether the writes of blocks of this scope note nothing to tell anybody.
-    pub(crate) fn tells_nobody(&self) -> bool {
-        self.noting == Noting::Nobody
+    /// Whom the writes of blocks of this scope note to be told.
+    pub(crate) fn notes(&self) -> Noting {
+        self.noting
     }
 
     /// The same scope, which notes changes for the search server while `kept` says so.
