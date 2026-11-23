@@ -202,6 +202,7 @@ mod unit_comments;
 mod unit_notifications;
 mod unit_progress_isolation;
 mod unit_references;
+mod unit_reviews_isolation;
 mod unit_versions;
 mod uploads;
 mod users;

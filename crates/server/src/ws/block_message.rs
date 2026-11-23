@@ -52,6 +52,10 @@ impl<'a> UpdateBlockMessage<'a> {
         let (block, summary) = if block.block_type.has_room() {
             let summary = Summary::of(block.body.as_ref());
             (Cow::Owned(without_body(block)), Some(summary))
+        } else if !block.takes_number() && block.number.is_some() {
+            let mut hidden = block.clone();
+            hidden.hide_inactive_number();
+            (Cow::Owned(hidden), None)
         } else {
             (Cow::Borrowed(block), None)
         };
@@ -102,7 +106,7 @@ fn without_body(block: &Block) -> Block {
         delete_at,
         container_id,
         edited_at,
-        number,
+        number: _,
     } = block;
     Block {
         id: id.clone(),
@@ -119,6 +123,6 @@ fn without_body(block: &Block) -> Block {
         delete_at: *delete_at,
         container_id: container_id.clone(),
         edited_at: *edited_at,
-        number: *number,
+        number: block.shown_number(),
     }
 }

@@ -17,8 +17,8 @@ use crate::course_schedule::{
     is_unit_amount_value,
 };
 use crate::diary::{
-    ENTRY_DATE_FIELD, ENTRY_MOOD_FIELD, ENTRY_PLACE_FIELD, ENTRY_WEATHER_FIELD, is_date_value,
-    is_mood_value, is_note_value,
+    ENTRY_BODY_UPDATED_AT_FIELD, ENTRY_DATE_FIELD, ENTRY_MOOD_FIELD, ENTRY_PLACE_FIELD,
+    ENTRY_WEATHER_FIELD, is_body_updated_at_value, is_date_value, is_mood_value, is_note_value,
 };
 use crate::page::{PAGE_ICON_FIELD, PAGE_ORDER_FIELD, is_order_value};
 use crate::relation::RelationError;
@@ -479,7 +479,7 @@ const CHAPTER_FIELD_KINDS: [FieldKind; 4] = [
 /// The fields of an entry whose value has one kind, as [`CARD_FIELD_KINDS`] has a
 /// card's. Its `date` is there besides, which [`Block::validate`] asks for by itself: an
 /// entry is not without it.
-const ENTRY_FIELD_KINDS: [FieldKind; 4] = [
+const ENTRY_FIELD_KINDS: [FieldKind; 5] = [
     (ENTRY_DATE_FIELD, "a day, as `2026-11-21`", is_date_value),
     (ENTRY_MOOD_FIELD, "a mood", is_mood_value),
     (
@@ -491,6 +491,11 @@ const ENTRY_FIELD_KINDS: [FieldKind; 4] = [
         ENTRY_PLACE_FIELD,
         "a text of at most 100 characters",
         is_note_value,
+    ),
+    (
+        ENTRY_BODY_UPDATED_AT_FIELD,
+        "a time in milliseconds",
+        is_body_updated_at_value,
     ),
 ];
 
@@ -642,11 +647,29 @@ impl Block {
     /// and each one stored after it the next number; a card keeps its number while it is
     /// one, and a number is never given again, also once its card is gone. A card that
     /// is copied or imported is a new card with a new number; a card that comes back
-    /// from the trash has its own. A block that stops being such a card loses its
-    /// number, and takes the next one if it becomes one again.
+    /// from the trash has its own. A card made a template keeps its number in storage so
+    /// turning it back into a card restores its old number without consuming a new one,
+    /// while hiding it until then; a block that stops being a card loses its number.
     #[must_use]
     pub fn takes_number(&self) -> bool {
         self.block_type == BlockType::Card && !self.is_template()
+    }
+
+    /// The card's number as shown to clients: `Some(number)` only while the block takes
+    /// a number ([`Self::takes_number`]). A card template preserves its stored number in
+    /// the database but hides it from responses until it becomes an ordinary card again.
+    #[must_use]
+    pub fn shown_number(&self) -> Option<u32> {
+        self.takes_number().then_some(self.number).flatten()
+    }
+
+    /// Clears `number` when this block does not currently take one
+    /// ([`Self::takes_number`]), so responses and broadcasts never expose a preserved
+    /// card number on a template.
+    pub fn hide_inactive_number(&mut self) {
+        if !self.takes_number() {
+            self.number = None;
+        }
     }
 
     /// Checks that the block may be stored.

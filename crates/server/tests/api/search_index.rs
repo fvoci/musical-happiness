@@ -78,7 +78,7 @@ async fn a_card_is_found_while_it_is_there_as_it_is() {
         sent,
         json!({
             "orgId": org_id, "workspaceId": TEST_WORKSPACE_ID, "containerId": board.id,
-            "kind": "card", "digest": digest("고객 응대", "환불규정을 따른다"),
+            "kind": "card", "number": 1, "digest": digest("고객 응대", "환불규정을 따른다"),
             "title": "고객 응대", "text": "환불규정을 따른다",
         })
     );
@@ -391,7 +391,7 @@ async fn the_operator_has_the_index_made_again() {
     fake.remove_index(INDEX);
     fake.put_index(
         INDEX,
-        json!({"mappings": {"_meta": {"fvoci": {"version": 6}}}}),
+        json!({"mappings": {"_meta": {"fvoci": {"version": 7}}}}),
     );
 
     let reindexed = socket_request(&socket, "POST", "/api/v1/admin/search/reindex", "").await;
@@ -535,7 +535,7 @@ async fn an_index_that_went_is_not_made_by_a_write() {
     th.teardown().await;
 
     assert_eq!(lost, None, "nothing was written where no index was");
-    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 6);
+    assert_eq!(definition["mappings"]["_meta"]["fvoci"]["version"], 7);
     let mut both = vec![before.id, after.id];
     both.sort();
     assert_eq!(

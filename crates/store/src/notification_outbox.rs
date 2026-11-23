@@ -347,7 +347,11 @@ fn push_event(sql: &mut Sql, event: &NotificationEvent) {
 
 /// Leaves a person the `most` newest of their notifications: of the others the oldest
 /// go, those that were read before those that were not.
-async fn keep_newest(scope: &mut Scope<'_>, user_id: &str, most: i64) -> Result<(), StoreError> {
+pub(crate) async fn keep_newest(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    most: i64,
+) -> Result<(), StoreError> {
     let mut sql = scope.sql("SELECT COUNT(*) FROM notifications WHERE recipient_id = ");
     sql.bind(Id(user_id));
     let held = match scope.fetch_optional(sql).await? {

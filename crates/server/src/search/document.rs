@@ -3,6 +3,7 @@
 
 use std::fmt::Write as _;
 
+use fvoci_model::SearchKind;
 use fvoci_store::SearchDocument;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -33,7 +34,7 @@ pub(crate) fn digest(title: &str, text: &str) -> String {
 /// The document of a card or a page, written with `version`: what the mapping of the
 /// index names, and nothing else.
 pub(crate) fn source(document: &SearchDocument, version: DocumentVersion) -> Value {
-    json!({
+    let mut doc = json!({
         "sent": version.get(),
         "orgId": document.org_id,
         "workspaceId": document.workspace_id,
@@ -42,7 +43,13 @@ pub(crate) fn source(document: &SearchDocument, version: DocumentVersion) -> Val
         "digest": digest(&document.title, &document.text),
         "title": document.title,
         "text": document.text,
-    })
+    });
+    if document.kind == SearchKind::Card
+        && let Some(number) = document.number
+    {
+        doc["number"] = json!(number);
+    }
+    doc
 }
 
 #[cfg(test)]
@@ -60,24 +67,37 @@ mod tests {
             workspace_id: "w".to_owned(),
             container_id: "b".to_owned(),
             container_kind: fvoci_model::ContainerKind::Board,
+            container_title: "Board".to_owned(),
             kind: SearchKind::Card,
             title: "제목".to_owned(),
             text: "본문".to_owned(),
-            number: Some(1),
+            number: Some(12),
         };
         let version = crate::search::version::Versions::default().next();
-        let source = source(&document, version);
+        let doc = source(&document, version);
         let definition = index::definition();
         let mapped = definition["mappings"]["properties"]
             .as_object()
             .expect("properties");
-        for member in source.as_object().expect("an object").keys() {
+        for member in doc.as_object().expect("an object").keys() {
             assert!(mapped.contains_key(member), "{member} is mapped");
         }
-        assert_eq!(source["kind"], "card");
-        assert_eq!(source["containerId"], "b");
-        assert_eq!(source["digest"], digest("제목", "본문"));
-        assert_eq!(source["sent"], version.get());
+        assert_eq!(doc["kind"], "card");
+        assert_eq!(doc["containerId"], "b");
+        assert_eq!(doc["number"], 12);
+        assert_eq!(doc["digest"], digest("제목", "본문"));
+        assert_eq!(doc["sent"], version.get());
+
+        let page = SearchDocument {
+            kind: SearchKind::Page,
+            container_kind: fvoci_model::ContainerKind::Wiki,
+            number: Some(12),
+            ..document
+        };
+        assert!(
+            source(&page, version).get("number").is_none(),
+            "a page carries no card number"
+        );
     }
 
     #[test]

@@ -4,7 +4,10 @@
 //! and a diary goes into an archive and comes out of one as a new diary, in a space
 //! alone.
 
-use fvoci_model::{DIARIES_PER_SPACE, DiaryDate};
+use fvoci_model::{
+    BODY_MAX_BYTES, BODY_MAX_NODES, Block, BlockType, Container, ContainerKind, ContainerType,
+    ContainersAndBlocks, DIARIES_PER_SPACE, DiaryDate, new_id,
+};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -349,7 +352,12 @@ async fn the_runs_of_a_diary_are_its_written_days_one_after_the_other() {
         "2025-02-28",
         "2025-03-01",
     ] {
-        made.push(written(client, &diary, &json!({ "date": date })).await);
+        let entry = if date == "2024-02-29" {
+            json!({ "date": date, "mood": "good" })
+        } else {
+            json!({ "date": date })
+        };
+        made.push(written(client, &diary, &entry).await);
     }
     let other = a_diary(client, &ws).await;
     written(client, &other, &json!({"date": "2024-03-02"})).await;
@@ -573,7 +581,12 @@ async fn an_archived_diary(client: &Client, ws: &str) -> (String, Value, Vec<u8>
         &json!({"date": "2024-03-01", "place": "강릉"}),
     )
     .await;
-    let gone = written(client, &diary, &json!({"date": "2024-03-02"})).await;
+    let gone = written(
+        client,
+        &diary,
+        &json!({"date": "2024-03-02", "mood": "okay"}),
+    )
+    .await;
     let gone = format!("{diary}/entries/{}", text_of(&gone, "id"));
     let deleted = client.delete(&gone).await;
     deleted.check_status(StatusCode::NO_CONTENT);
@@ -856,5 +869,625 @@ async fn an_entry_is_searched_and_a_diary_is_counted_in_its_space() {
         (&json!(1), &json!(0)),
         "{deletion}"
     );
+    th.teardown().await;
+}
+
+/// Conditional body writes compare `readAt` against when the entry's body last changed:
+/// metadata patches (`mood`, `weather`, `place`) do not cause 409 conflicts, while any
+/// body write (patch or collaborative edit) or forged timestamp still returns 409.
+#[tokio::test]
+async fn metadata_patches_do_not_conflict_with_conditional_body_writes() {
+    let (th, ws) = in_a_space().await;
+    let client = &th.client;
+    let own = last_of(&ws).to_owned();
+    let diary = a_diary(client, &ws).await;
+    let made = written(client, &diary, &json!({"date": "2024-05-01"})).await;
+    let entry_id = text_of(&made, "id");
+    let entry = format!("{diary}/entries/{entry_id}");
+    let t0 = made["updateAt"].as_i64().expect("t0");
+
+    // Metadata-only patches advance updateAt without advancing the body timestamp.
+    for meta in [
+        json!({"mood": "good"}),
+        json!({"weather": "맑음"}),
+        json!({"place": "서울"}),
+    ] {
+        client.patch(&entry, &meta).await.check_ok();
+    }
+    let after_meta = client.get(&entry).await.value();
+    let t_meta = after_meta["updateAt"].as_i64().expect("t_meta");
+    assert!(t_meta > t0, "metadata patches advanced updateAt");
+
+    // Body write using pre-metadata readAt succeeds!
+    let with_body = client
+        .patch(&entry, &json!({"readAt": t0, "body": body("본문 첫 저장")}))
+        .await;
+    with_body.check_ok();
+    let with_body = with_body.value();
+    let t_body = with_body["updateAt"].as_i64().expect("t_body");
+    assert_eq!(with_body["mood"], "good");
+    assert_eq!(with_body["weather"], "맑음");
+    assert_eq!(with_body["place"], "서울");
+
+    // Another metadata patch does not invalidate t_body, and t_meta2 also works.
+    let meta2 = client
+        .patch(&entry, &json!({"mood": "great"}))
+        .await
+        .value();
+    let t_meta2 = meta2["updateAt"].as_i64().expect("t_meta2");
+    assert!(t_meta2 > t_body);
+    let body2 = client
+        .patch(
+            &entry,
+            &json!({"readAt": t_body, "body": body("본문 둘째")}),
+        )
+        .await;
+    body2.check_ok();
+    let body2 = body2.value();
+    let t_body2 = body2["updateAt"].as_i64().expect("t_body2");
+
+    // Stale readAt from before the body write is still 409, as is a forged future readAt.
+    client
+        .patch(&entry, &json!({"readAt": t_body, "body": body("stale")}))
+        .await
+        .check_status(StatusCode::CONFLICT);
+    client
+        .patch(
+            &entry,
+            &json!({"readAt": t_body2 + 60_000, "body": body("future")}),
+        )
+        .await
+        .check_status(StatusCode::CONFLICT);
+
+    // Collaborative body edit advances the body timestamp and blocks stale readAt.
+    let mut peer = crate::rooms::Peer::connect(client, 201).await;
+    peer.joined(&own, &entry_id).await;
+    peer.write_acked("방에서 추가").await;
+    client
+        .patch(
+            &entry,
+            &json!({"readAt": t_body2, "body": body("overwrite")}),
+        )
+        .await
+        .check_status(StatusCode::CONFLICT);
+    peer.leave().await;
+    th.teardown().await;
+}
+
+/// `appendBody` appends blocks atomically without `readAt`, coordinates with open
+/// collaborative rooms, rejects simultaneous `body` + `appendBody`, and enforces
+/// `BODY_MAX_BYTES` and `BODY_MAX_NODES` across existing + appended content.
+async fn assert_append_body_limits(client: &Client, diary: &str) {
+    // Combined BODY_MAX_BYTES overflow is refused at `/appendBody` without modifying notes.
+    let big_entry = written(client, diary, &json!({"date": "2024-06-02"})).await;
+    let big_at = format!("{diary}/entries/{}", text_of(&big_entry, "id"));
+    let half_bytes = body(&"a".repeat(BODY_MAX_BYTES / 2 + 1024));
+    client
+        .patch(&big_at, &json!({"appendBody": half_bytes}))
+        .await
+        .check_ok();
+    let too_big = client
+        .patch(
+            &big_at,
+            &json!({"appendBody": half_bytes, "place": "저장되면 안 됨"}),
+        )
+        .await;
+    too_big.check_bad_request();
+    assert_eq!(too_big.refused_at(), "/appendBody", "{}", too_big.text());
+    assert_eq!(
+        client.get(&big_at).await.value()["place"],
+        "",
+        "refused appendBody must not modify notes"
+    );
+
+    // Combined BODY_MAX_NODES overflow is refused at `/appendBody`.
+    let node_entry = written(client, diary, &json!({"date": "2024-06-03"})).await;
+    let node_at = format!("{diary}/entries/{}", text_of(&node_entry, "id"));
+    let half_nodes = json!({
+        "type": "doc",
+        "content": vec![json!({"type": "horizontalRule"}); BODY_MAX_NODES / 2],
+    });
+    client
+        .patch(&node_at, &json!({"appendBody": half_nodes}))
+        .await
+        .check_ok();
+    let too_many_nodes = client
+        .patch(&node_at, &json!({"appendBody": half_nodes}))
+        .await;
+    too_many_nodes.check_bad_request();
+    assert_eq!(
+        too_many_nodes.refused_at(),
+        "/appendBody",
+        "{}",
+        too_many_nodes.text()
+    );
+
+    // Foreign/missing file reference in appendBody reports `/appendBody` (not `/body`).
+    let missing_file_body = json!({
+        "type": "doc",
+        "content": [{"type": "image", "attrs": {"fileId": "does-not-exist.png"}}],
+    });
+    let bad_file = client
+        .patch(&node_at, &json!({"appendBody": missing_file_body}))
+        .await;
+    bad_file.check_bad_request();
+    assert_eq!(bad_file.refused_at(), "/appendBody", "{}", bad_file.text());
+}
+
+#[tokio::test]
+async fn append_body_appends_atomically_coordinates_with_room_and_enforces_limits() {
+    let (th, ws) = in_a_space().await;
+    let client = &th.client;
+    let own = last_of(&ws).to_owned();
+    let diary = a_diary(client, &ws).await;
+    let made = written(client, &diary, &json!({"date": "2024-06-01"})).await;
+    let entry_id = text_of(&made, "id");
+    let entry = format!("{diary}/entries/{entry_id}");
+
+    // Append to an empty entry (no readAt required) together with notes.
+    let first = client
+        .patch(
+            &entry,
+            &json!({"appendBody": body("첫 문단"), "weather": "비"}),
+        )
+        .await;
+    first.check_ok();
+    let first = first.value();
+    assert_eq!(first["body"], body("첫 문단"));
+    assert_eq!(first["weather"], "비");
+
+    // Append a second paragraph; null or empty paragraph leaves body unchanged.
+    let second = client
+        .patch(&entry, &json!({"appendBody": body("둘째 문단")}))
+        .await;
+    second.check_ok();
+    assert_eq!(
+        second.value()["body"],
+        json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "첫 문단"}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "둘째 문단"}]},
+        ]})
+    );
+    client
+        .patch(&entry, &json!({"appendBody": Value::Null, "mood": "okay"}))
+        .await
+        .check_ok();
+    assert_eq!(
+        client.get(&entry).await.value()["body"],
+        second.value()["body"]
+    );
+
+    // Sending both `body` and `appendBody` is refused with 400 at `/appendBody`.
+    let both = client
+        .patch(
+            &entry,
+            &json!({"readAt": second.value()["updateAt"], "body": body("a"), "appendBody": body("b")}),
+        )
+        .await;
+    both.check_bad_request();
+    assert_eq!(both.refused_at(), "/appendBody", "{}", both.text());
+
+    // Open collaborative room: pending edits flush first, then appendBody adds after them
+    // and resets the room to the combined document.
+    let mut peer = crate::rooms::Peer::connect(client, 202).await;
+    peer.joined(&own, &entry_id).await;
+    peer.write_acked("방에서 쓴 줄").await;
+    let appended = client
+        .patch(&entry, &json!({"appendBody": body("초안 덧붙임")}))
+        .await;
+    appended.check_ok();
+    assert_eq!(
+        appended.value()["body"],
+        json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "첫 문단"}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "둘째 문단"}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "방에서 쓴 줄"}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "초안 덧붙임"}]},
+        ]})
+    );
+    peer.leave().await;
+
+    assert_append_body_limits(client, &diary).await;
+    th.teardown().await;
+}
+
+/// Deleting a completely empty entry (no body, no mood, no weather, no place) purges it
+/// directly without leaving a shell in the diary trash, while entries carrying any body
+/// or metadata still move to the trash and restore cleanly.
+#[tokio::test]
+async fn deleting_an_empty_entry_purges_it_while_non_empty_entries_go_to_trash() {
+    let (th, ws) = in_a_space().await;
+    let client = &th.client;
+    let diary = a_diary(client, &ws).await;
+
+    // 1. Fresh empty entry -> purged directly.
+    let blank = written(client, &diary, &json!({"date": "2024-07-01"})).await;
+    let blank_id = text_of(&blank, "id");
+    let blank_at = format!("{diary}/entries/{blank_id}");
+    client
+        .delete(&blank_at)
+        .await
+        .check_status(StatusCode::NO_CONTENT);
+    assert_eq!(
+        client.get(&format!("{diary}/trash/entries")).await.value(),
+        json!([])
+    );
+    client
+        .post(&format!("{blank_at}/undelete"), &json!({}))
+        .await
+        .check_not_found();
+
+    // 2. Entry written then cleared completely (body = null) -> purged directly, including versions.
+    let cleared = written(client, &diary, &json!({"date": "2024-07-02"})).await;
+    let cleared_id = text_of(&cleared, "id");
+    let cleared_at = format!("{diary}/entries/{cleared_id}");
+    let with_text = write_body(client, &cleared_at, &cleared, "지울 글").await;
+    client
+        .patch(
+            &cleared_at,
+            &json!({"readAt": with_text["updateAt"], "body": Value::Null}),
+        )
+        .await
+        .check_ok();
+    client
+        .delete(&cleared_at)
+        .await
+        .check_status(StatusCode::NO_CONTENT);
+    assert_eq!(
+        client.get(&format!("{diary}/trash/entries")).await.value(),
+        json!([])
+    );
+    let left_versions = th
+        .app
+        .store()
+        .system()
+        .texts_unchecked(&format!(
+            "SELECT CAST(count(*) AS TEXT) FROM body_versions WHERE block_id = '{cleared_id}'"
+        ))
+        .await
+        .expect("count body_versions");
+    assert_eq!(left_versions, ["0"], "purged entry leaves no body versions");
+
+    // 3. Entries with ONLY mood, weather, place, or body still move to trash and restore.
+    let cases = [
+        (
+            "2024-07-03",
+            json!({"date": "2024-07-03", "mood": "good"}),
+            false,
+        ),
+        (
+            "2024-07-04",
+            json!({"date": "2024-07-04", "weather": "맑음"}),
+            false,
+        ),
+        (
+            "2024-07-05",
+            json!({"date": "2024-07-05", "place": "부산"}),
+            false,
+        ),
+        ("2024-07-06", json!({"date": "2024-07-06"}), true),
+    ];
+    for (date, create_body, add_text) in cases {
+        let made = written(client, &diary, &create_body).await;
+        let id = text_of(&made, "id");
+        let at = format!("{diary}/entries/{id}");
+        if add_text {
+            write_body(client, &at, &made, "남겨야 할 본문").await;
+        }
+        client
+            .delete(&at)
+            .await
+            .check_status(StatusCode::NO_CONTENT);
+        let trash = client.get(&format!("{diary}/trash/entries")).await.value();
+        assert!(
+            trash
+                .as_array()
+                .is_some_and(|items| items.iter().any(|item| item["id"] == json!(id))),
+            "{date}: expected non-empty entry in trash: {trash}"
+        );
+        client
+            .post(&format!("{at}/undelete"), &json!({}))
+            .await
+            .check_ok();
+    }
+    th.teardown().await;
+}
+
+/// Builds a two-diary archive where diary 1 has an image in its entry body and diary 2
+/// has an entry (optionally customized) and an optional file entry.
+fn two_diary_archive_with_files(
+    own_ws: &str,
+    diary2_entries: &[Value],
+    diary2_file: Option<(&str, &[u8])>,
+) -> Vec<u8> {
+    use std::io::Write as _;
+
+    let d1 = json!({"type": "board", "data": {
+        "id": "d1", "workspaceId": own_ws, "type": "P", "kind": "diary", "title": "First",
+        "createAt": 1, "updateAt": 1, "fileNames": {"photo1.png": "photo1.png"},
+    }});
+    let e1 = json!({"type": "block", "data": {
+        "id": "e1", "boardId": "d1", "parentId": "", "type": "entry", "title": "2024-08-01",
+        "fields": {"date": "2024-08-01", "mood": "good"},
+        "body": {"type": "doc", "content": [{"type": "image", "attrs": {"fileId": "photo1.png"}}]},
+        "createAt": 1, "updateAt": 1,
+    }});
+    let d2 = json!({"type": "board", "data": {
+        "id": "d2", "workspaceId": own_ws, "type": "P", "kind": "diary", "title": "Second",
+        "createAt": 1, "updateAt": 1,
+    }});
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    writer.start_file("version.json", options).expect("version");
+    writer
+        .write_all(br#"{"version":3,"date":1}"#)
+        .expect("write version");
+    writer.start_file("d1/board.jsonl", options).expect("d1");
+    writeln!(writer, "{d1}").expect("d1");
+    writeln!(writer, "{e1}").expect("e1");
+    writer.start_file("d1/photo1.png", options).expect("photo1");
+    writer.write_all(b"png-bytes-1").expect("write photo1");
+    writer.start_file("d2/board.jsonl", options).expect("d2");
+    writeln!(writer, "{d2}").expect("d2");
+    for entry in diary2_entries {
+        writeln!(writer, "{entry}").expect("d2 entry");
+    }
+    if let Some((name, bytes)) = diary2_file {
+        writer
+            .start_file(format!("d2/{name}"), options)
+            .expect("d2 file");
+        writer.write_all(bytes).expect("write d2 file");
+    }
+    writer.finish().expect("finish").into_inner()
+}
+
+async fn diary_rollback_snapshot(th: &TestServer) -> (i64, i64, i64, i64, usize, usize) {
+    use futures_util::TryStreamExt as _;
+
+    let count_sql = async |sql: &str| -> i64 {
+        th.app
+            .store()
+            .system()
+            .texts_unchecked(sql)
+            .await
+            .expect("query")[0]
+            .parse()
+            .expect("int")
+    };
+    let stages = std::fs::read_dir(th.app.config().tmp_dir()).map_or(0, |read| {
+        read.filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().starts_with("import-stage-"))
+            .count()
+    });
+    let stored_files = th
+        .app
+        .files()
+        .list()
+        .try_collect::<Vec<_>>()
+        .await
+        .expect("list files")
+        .len();
+    (
+        count_sql("SELECT CAST(count(*) AS TEXT) FROM containers WHERE kind = 'diary'").await,
+        count_sql("SELECT CAST(count(*) AS TEXT) FROM diary_days").await,
+        count_sql("SELECT CAST(count(*) AS TEXT) FROM file_info").await,
+        count_sql("SELECT CAST(count(*) AS TEXT) FROM loose_objects").await,
+        stages,
+        stored_files,
+    )
+}
+
+fn test_diary_and_entry(own_ws: &str, title: &str, date: &str) -> (Container, Block) {
+    let diary = Container {
+        id: new_id(),
+        workspace_id: own_ws.to_owned(),
+        container_type: ContainerType::Private,
+        kind: ContainerKind::Diary,
+        title: title.to_owned(),
+        ..Container::default()
+    };
+    let entry = Block {
+        id: new_id(),
+        container_id: diary.id.clone(),
+        block_type: BlockType::Entry,
+        title: date.to_owned(),
+        fields: json!({"date": date}).as_object().expect("obj").clone(),
+        ..Block::default()
+    };
+    (diary, entry)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CommitRollbackCase {
+    DuplicateEntryDate,
+    DiaryLimit,
+}
+
+async fn assert_commit_time_diary_rollback(
+    th: &TestServer,
+    own_org_id: &str,
+    own_ws: &str,
+    me_id: &str,
+    expected: (i64, i64, i64, i64, usize, usize),
+    case: CommitRollbackCase,
+) {
+    let own_store = th.app.store().for_org(own_org_id).expect("own store");
+    let (d1, e1) = test_diary_and_entry(own_ws, "TxFirst", "2024-08-05");
+    let (d2, e2a) = test_diary_and_entry(own_ws, "TxSecond", "2024-08-06");
+    let f1 = fvoci_model::FileInfo {
+        id: new_id(),
+        name: "photo1.png".to_owned(),
+        stored_name: "stored-photo1.png".to_owned(),
+        extension: ".png".to_owned(),
+        size: 12,
+        container_id: d1.id.clone(),
+        path: format!("{own_org_id}/{}/stored-photo1.png", d1.id),
+        create_at: 1,
+        ..fvoci_model::FileInfo::default()
+    };
+    let mut blocks = vec![e1];
+    if case == CommitRollbackCase::DuplicateEntryDate {
+        let mut e2b = e2a.clone();
+        e2b.id = new_id();
+        blocks.push(e2a);
+        blocks.push(e2b);
+    }
+    let mut combined = ContainersAndBlocks {
+        containers: vec![d1, d2],
+        blocks,
+    };
+    let err = own_store
+        .create_imported_containers_blocks_files_and_members(&mut combined, &[f1], &[], me_id)
+        .await
+        .expect_err("commit transaction must fail and roll back");
+    if case == CommitRollbackCase::DiaryLimit {
+        assert!(
+            err.to_string().contains("20"),
+            "expected TooManyDiaries error, got: {err}"
+        );
+    }
+    assert_eq!(
+        diary_rollback_snapshot(th).await,
+        expected,
+        "commit-time rollback left zero partial diaries, diary_days, or file_info"
+    );
+}
+
+async fn assert_storage_write_failure_cleans_staged_files(
+    th: &TestServer,
+    own_ws: &str,
+    entry_line: &Value,
+    before: (i64, i64, i64, i64, usize, usize),
+) {
+    let two_files = two_diary_archive_with_files(
+        own_ws,
+        std::slice::from_ref(entry_line),
+        Some(("photo2.png", b"png-bytes-2")),
+    );
+    th.app
+        .files()
+        .faults()
+        .expect("test storage faults")
+        .fail_after(fvoci_server::storage::FaultyOp::Write, 1, 1);
+    crate::export::import(&th.client, own_ws, &two_files)
+        .await
+        .check_status(StatusCode::INTERNAL_SERVER_ERROR);
+    let after_fault = diary_rollback_snapshot(th).await;
+    assert_eq!(
+        (
+            after_fault.0,
+            after_fault.1,
+            after_fault.2,
+            after_fault.4,
+            after_fault.5
+        ),
+        (0, 0, 0, 0, 0),
+        "diary 1 object, DB rows, and staging dir must all be gone: {after_fault:?}"
+    );
+    // The 1 remaining loose_objects row is the unsettled doomed mark for failed photo2.png;
+    // sweeping after the write settle window removes it cleanly too.
+    assert_eq!(after_fault.3, 1, "only unsettled mark for failed write");
+    crate::loose_objects::remove_doomed(
+        th,
+        fvoci_server::auth::now_millis() + 2 * fvoci_server::app::WRITING_GRACE_MILLIS,
+    )
+    .await;
+    assert_eq!(diary_rollback_snapshot(th).await, before, "after sweep");
+}
+
+/// Multi-diary archive import failure (second diary violating limits, duplicate/future
+/// date, post-staging storage write failure, or DB commit-time failure) rolls back the
+/// first diary, all blocks, `diary_days`, `file_info`, staged `FileBackend` objects,
+/// `loose_objects`, and temporary staging directories.
+#[tokio::test]
+async fn multi_diary_archive_failure_rolls_back_all_diaries_and_staged_files() {
+    let (th, ws) = in_a_space().await;
+    let client = &th.client;
+    let (_, own) = crate::own_space::workspaces_and_own(client).await;
+    let own_ws = own.id.clone();
+
+    let entry_line = |id: &str, date: &str| {
+        json!({"type": "block", "data": {
+            "id": id, "boardId": "d2", "parentId": "", "type": "entry", "title": date,
+            "fields": {"date": date}, "createAt": 1, "updateAt": 1,
+        }})
+    };
+
+    // 1. Diary 2 fails due to duplicate date, >2 days future date, or corrupt ZIP file.
+    let before = diary_rollback_snapshot(&th).await;
+    let dup_dates = two_diary_archive_with_files(
+        &own_ws,
+        &[
+            entry_line("e2a", "2024-08-02"),
+            entry_line("e2b", "2024-08-02"),
+        ],
+        None,
+    );
+    crate::export::import(client, &own_ws, &dup_dates)
+        .await
+        .check_bad_request();
+    assert_eq!(diary_rollback_snapshot(&th).await, before, "duplicate date");
+
+    let future_date =
+        two_diary_archive_with_files(&own_ws, &[entry_line("e2f", "9999-12-31")], None);
+    crate::export::import(client, &own_ws, &future_date)
+        .await
+        .check_bad_request();
+    assert_eq!(diary_rollback_snapshot(&th).await, before, "future date");
+
+    let mut bad_zip = two_diary_archive_with_files(
+        &own_ws,
+        &[entry_line("e2ok", "2024-08-02")],
+        Some(("d2file.png", b"payload-corrupt-me")),
+    );
+    let pos = bad_zip
+        .windows(b"payload-corrupt-me".len())
+        .position(|w| w == b"payload-corrupt-me")
+        .expect("payload bytes");
+    bad_zip[pos] = b'X';
+    crate::export::import(client, &own_ws, &bad_zip)
+        .await
+        .check_bad_request();
+    assert_eq!(diary_rollback_snapshot(&th).await, before, "corrupt zip");
+
+    // 2. Post-staging FileBackend failure cleans diary 1's written object + staging dir.
+    let ok_entry = entry_line("e2ok", "2024-08-02");
+    assert_storage_write_failure_cleans_staged_files(&th, &own_ws, &ok_entry, before).await;
+
+    // 3. Commit-time DB rollback after containers, file_info, and diary_days are inserted.
+    for _ in 0..DIARIES_PER_SPACE - 2 {
+        a_diary(client, &ws).await;
+    }
+    let me = client.me().await;
+    let at_18 = diary_rollback_snapshot(&th).await;
+    assert_commit_time_diary_rollback(
+        &th,
+        &own.org_id,
+        &own_ws,
+        &me.id,
+        at_18,
+        CommitRollbackCase::DuplicateEntryDate,
+    )
+    .await;
+
+    // 4. Space at DIARIES_PER_SPACE - 1 (19): HTTP import returns too_many_diaries and
+    // commit-time limit race rolls back d1 cleanly.
+    a_diary(client, &ws).await;
+    let at_19 = diary_rollback_snapshot(&th).await;
+    let valid_two = two_diary_archive_with_files(&own_ws, &[ok_entry], None);
+    let full = crate::export::import(client, &own_ws, &valid_two).await;
+    full.check_bad_request();
+    assert_eq!(full.error_reason(), "too_many_diaries", "{}", full.text());
+    assert_eq!(diary_rollback_snapshot(&th).await, at_19, "limit refusal");
+    assert_commit_time_diary_rollback(
+        &th,
+        &own.org_id,
+        &own_ws,
+        &me.id,
+        at_19,
+        CommitRollbackCase::DiaryLimit,
+    )
+    .await;
     th.teardown().await;
 }

@@ -365,6 +365,11 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "getDiaryEntryBodyVersions",
     ),
     (
+        "POST",
+        "/diaries/{diaryId}/entries/{entryId}/body-versions",
+        "keepDiaryEntryBodyVersion",
+    ),
+    (
         "GET",
         "/diaries/{diaryId}/entries/{entryId}/body-versions/{version}",
         "getDiaryEntryBodyVersion",
@@ -453,6 +458,43 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/courses/{courseId}/progress/summary",
         "getCourseProgressSummary",
     ),
+    ("GET", "/courses/{courseId}/reviews", "listMyCourseReviews"),
+    (
+        "POST",
+        "/courses/{courseId}/units/{unitId}/reviews",
+        "scheduleUnitReview",
+    ),
+    (
+        "POST",
+        "/courses/{courseId}/reviews/{reviewId}/complete",
+        "completeUnitReview",
+    ),
+    (
+        "DELETE",
+        "/courses/{courseId}/reviews/{reviewId}",
+        "deleteUnitReview",
+    ),
+    (
+        "GET",
+        "/courses/{courseId}/units/{unitId}/notes",
+        "listMyUnitNotes",
+    ),
+    (
+        "POST",
+        "/courses/{courseId}/units/{unitId}/notes",
+        "createUnitNote",
+    ),
+    (
+        "PATCH",
+        "/courses/{courseId}/notes/{noteId}",
+        "patchUnitNote",
+    ),
+    (
+        "DELETE",
+        "/courses/{courseId}/notes/{noteId}",
+        "deleteUnitNote",
+    ),
+    ("GET", "/learning/reviews/today", "getWorkspaceTodayReviews"),
     ("GET", "/courses/{courseId}/schedule", "getCourseSchedule"),
     ("PUT", "/courses/{courseId}/schedule", "putCourseSchedule"),
     (
@@ -534,6 +576,14 @@ const REACHED_BY_ITEM: &[&str] = &[
     "getMyCourseProgress",
     "putUnitProgress",
     "getCourseProgressSummary",
+    "listMyCourseReviews",
+    "scheduleUnitReview",
+    "completeUnitReview",
+    "deleteUnitReview",
+    "listMyUnitNotes",
+    "createUnitNote",
+    "patchUnitNote",
+    "deleteUnitNote",
     "getCourseSchedule",
     "putCourseSchedule",
     "deleteCourseSchedule",
@@ -715,6 +765,7 @@ const EMPTY_FOR_A_GUEST: &[&str] = &[
     "getWorkspaceBoards",
     "getWikis",
     "getCourses",
+    "getWorkspaceTodayReviews",
     "resolveReferences",
     "searchReferences",
     "searchWorkspaceContent",
@@ -1279,6 +1330,8 @@ impl Items<'_> {
             )
             .replace("{courseId}", &pick(&self.unit.container_id, UNKNOWN_ID))
             .replace("{unitId}", &pick(&self.unit.id, UNKNOWN_ID))
+            .replace("{reviewId}", UNKNOWN_ID)
+            .replace("{noteId}", UNKNOWN_ID)
             .replace("{monthDay}", "02-29")
             .replace("{fileId}", &pick(self.file, "missing-file"))
             .replace("{uploadId}", &pick(self.upload_id, "missing-upload"))

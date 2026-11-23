@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_NODES, Body, BodyError};
-use serde_json::{Value, json};
+use serde_json::json;
 use yrs::branch::Branch;
 use yrs::{
     BranchID, ClientID, Doc, ID, IdSet, ReadTxn, Transact as _, Xml as _, XmlElementRef,
@@ -460,31 +460,6 @@ pub(crate) fn check_totals(totals: DocTotals) -> Result<(), BodyError> {
         return Err(BodyError::TooLarge);
     }
     Ok(())
-}
-
-/// Counts JSON nodes, exact compact JSON bytes, and empty-paragraph status of a single
-/// already-validated top-level JSON block node (used during incremental repair surveying).
-#[must_use]
-pub(crate) fn measure_block_value(node: &Value) -> (u64, u64, bool) {
-    let nodes = count_json_nodes(node);
-    let bytes = u64::try_from(json_size_of(node)).unwrap_or(u64::MAX);
-    let is_empty_paragraph = node.get("type").and_then(Value::as_str) == Some("paragraph")
-        && node
-            .get("content")
-            .is_none_or(|content| content.as_array().is_some_and(Vec::is_empty));
-    (nodes, bytes, is_empty_paragraph)
-}
-
-fn count_json_nodes(node: &Value) -> u64 {
-    1 + node
-        .get("content")
-        .and_then(Value::as_array)
-        .map_or(0_u64, |children| {
-            children
-                .iter()
-                .map(count_json_nodes)
-                .fold(0_u64, u64::saturating_add)
-        })
 }
 
 fn is_direct_child_of_root(element: &XmlElementRef, root: &XmlFragmentRef) -> bool {

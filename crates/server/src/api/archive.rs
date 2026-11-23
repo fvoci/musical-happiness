@@ -211,10 +211,11 @@ async fn handle_export_workspace(
 /// organization's limits allow (400 with the reason `page_too_deep` or
 /// `too_many_pages`).
 ///
-/// The boards are made one after the other, not all or none: when one of them fails,
-/// those before it stay. The members of a board who are not in the workspace are left
-/// out of it, a guest of the workspace keeps no role above editor; the answer says how
-/// many users were left out, not who.
+/// The containers, blocks, memberships and files of the archive are committed all or
+/// none: if any container or file fails, all staged files are removed and nothing is
+/// stored. The members of a board who are not in the workspace are left out of it, a
+/// guest of the workspace keeps no role above editor; the answer says how many users
+/// were left out, not who.
 ///
 /// A user runs one import at a time, and the server as many as its setting
 /// `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason

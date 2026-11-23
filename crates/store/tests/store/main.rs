@@ -84,6 +84,7 @@ mod time_entries;
 mod trash;
 mod trash_file_race;
 mod unit_progress;
+mod unit_reviews;
 mod user_row_deletion;
 mod users;
 mod users_at_once;

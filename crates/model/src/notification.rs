@@ -22,7 +22,7 @@ use crate::{ContainerKind, SearchKind};
     Deserialize,
     utoipa::ToSchema,
 )]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum NotificationKind {
     /// A body, of a card, a page, a unit or a comment, names the person.
     Mention,
@@ -30,6 +30,8 @@ pub enum NotificationKind {
     Assignment,
     /// A card, a page or a unit the person watches has a new comment.
     Comment,
+    /// A scheduled personal review of a course unit is due today.
+    ReviewDue,
 }
 
 impl NotificationKind {
@@ -40,6 +42,7 @@ impl NotificationKind {
             Self::Mention => "mention",
             Self::Assignment => "assignment",
             Self::Comment => "comment",
+            Self::ReviewDue => "review_due",
         }
     }
 }
@@ -63,6 +66,7 @@ impl FromStr for NotificationKind {
             "mention" => Ok(Self::Mention),
             "assignment" => Ok(Self::Assignment),
             "comment" => Ok(Self::Comment),
+            "review_due" => Ok(Self::ReviewDue),
             other => Err(UnknownNotificationKind(other.to_owned())),
         }
     }
@@ -138,6 +142,7 @@ mod tests {
             NotificationKind::Mention,
             NotificationKind::Assignment,
             NotificationKind::Comment,
+            NotificationKind::ReviewDue,
         ] {
             assert_eq!(kind.as_str().parse(), Ok(kind));
             assert_eq!(

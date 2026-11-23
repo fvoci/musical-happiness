@@ -58,9 +58,10 @@ pub struct Card {
     /// made on the board, never given again, also once the card is gone. A card keeps it
     /// while it is one; a copy and an import are new cards with new numbers, and a card
     /// that comes back from the trash has its own. `null` for a template of the board's
-    /// cards (`isTemplate`): a card made a template loses its number, and takes the next
-    /// one if it is made a card again. The server gives it: what a request sends here is
-    /// ignored, whatever it is.
+    /// cards (`isTemplate`): a card made a template hides its number while keeping it
+    /// stored, and regains its old number without consuming a new one if made a card
+    /// again; a template created without a number takes the next number when made a card.
+    /// The server gives it: what a request sends here is ignored, whatever it is.
     #[schema(minimum = 1)]
     #[serde(deserialize_with = "crate::block::number_as_sent")]
     pub number: Option<u32>,
@@ -287,7 +288,7 @@ impl Card {
             id: block.id.clone(),
             board_id: block.container_id.clone(),
             parent_id: block.parent_id.clone(),
-            number: block.number,
+            number: block.shown_number(),
             created_by: block.created_by.clone(),
             modified_by: block.modified_by.clone(),
             title: block.title.clone(),

@@ -416,3 +416,66 @@ test('a bar dragged on the page, and an end of it, change the card on the server
   expect(errors).toEqual([]);
   await api.dispose();
 });
+
+test('editing and removing a Gantt arrow relation persists kind and lagDays on the server across reload', async ({
+  page,
+  baseURL,
+}) => {
+  const { owner, api, board } = await start(baseURL, 'gantt-rel-edit', 'Release schedule');
+  await define(api, board, { id: 'after', name: 'After', type: 'relation' });
+  const spec = await card(api, board, 'Write spec', {
+    due: { from: '2026-11-10', to: '2026-11-12' },
+  });
+  const impl = await card(api, board, 'Implement feature', {
+    due: { from: '2026-11-11', to: '2026-11-15' },
+    after: [{ card: spec, kind: 'fs', lagDays: 0 }],
+  });
+  const errors = watchErrors(page);
+  await addGantt(page, owner, api, board);
+  const gantt = page.getByTestId('gantt');
+  const trigger = gantt.locator(`[data-arrow-trigger][data-from="${spec}"][data-to="${impl}"]`);
+  const hitPath = gantt.locator(`[data-arrow-hit][data-from="${spec}"][data-to="${impl}"]`);
+  await expect(trigger).toHaveCount(1);
+  // Initially FS 0 -> out of order because impl starts Nov 11 before spec ends Nov 12.
+  await expect(gantt.locator('[data-arrow][data-late]')).toHaveCount(1);
+
+  const patchAnswered = (): Promise<Response> =>
+    page.waitForResponse(
+      (response) =>
+        response.request().method() === 'PATCH' &&
+        new URL(response.url()).pathname.endsWith(`/cards/${impl}`),
+    );
+
+  // Edit FS 0 -> SS +1d by clicking the arrow hit path: impl starts Nov 11 >= spec start Nov 10 + 1 -> now in order!
+  await hitPath.click({ force: true });
+  const editor = page.getByTestId('gantt-relation-editor');
+  await expect(editor).toBeVisible();
+  await editor.locator('[data-relation-kind="ss"]').click();
+  await page.getByTestId('relation-lag-inc').click();
+  const saveResponse = patchAnswered();
+  await page.getByTestId('relation-save').click();
+  expect((await saveResponse).ok()).toBe(true);
+  await expect(editor).toHaveCount(0);
+  await expect(trigger).toHaveText('SS +1d');
+  await expect(gantt.locator('[data-arrow][data-late]')).toHaveCount(0);
+
+  // Reload and verify the server persisted SS +1d.
+  await page.reload();
+  const reloadedTrigger = gantt.locator(
+    `[data-arrow-trigger][data-from="${spec}"][data-to="${impl}"]`,
+  );
+  await expect(reloadedTrigger).toHaveText('SS +1d');
+  await expect(gantt.locator('[data-arrow][data-kind="ss"]')).toHaveCount(1);
+  await expect(gantt.locator('[data-arrow][data-late]')).toHaveCount(0);
+
+  // Delete the relation via the editor and confirm across reload.
+  await reloadedTrigger.click();
+  const deleteResponse = patchAnswered();
+  await page.getByTestId('relation-remove').click();
+  expect((await deleteResponse).ok()).toBe(true);
+  await expect(gantt.locator('[data-arrow]')).toHaveCount(0);
+  await page.reload();
+  await expect(gantt.locator('[data-arrow]')).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await api.dispose();
+});

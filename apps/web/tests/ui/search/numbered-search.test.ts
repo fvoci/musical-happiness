@@ -100,6 +100,90 @@ describe('a search with a number', () => {
     };
     await expect(findNumbered(given, ask('#12'))).rejects.toThrow('down');
   });
+
+  it('normalizes `#0012` and keeps the current board card ahead of other boards, preserving containerTitle', async () => {
+    const otherBoardHit: SearchHit = {
+      id: 'other-12',
+      kind: 'card',
+      containerId: 'other',
+      containerKind: 'board',
+      containerTitle: 'Other Board',
+      title: 'Other Plan',
+      number: 12,
+      snippet: [],
+    };
+    const currentBoardHit: SearchHit = {
+      id: 'c12',
+      kind: 'card',
+      containerId: 'b',
+      containerKind: 'board',
+      containerTitle: 'Current Board',
+      title: 'Plan',
+      number: 12,
+      snippet: [],
+    };
+    const given = search({ board: 'b', card: twelve, hits: [otherBoardHit, currentBoardHit] });
+    const found = await findNumbered(given, ask('#0012'));
+    expect(found).toEqual([currentBoardHit, otherBoardHit]);
+    expect(given.asked).toEqual([['b', 12]]);
+
+    // Even if `numbered` fails, hits from the current board with matching number still sort first.
+    const fallback = search({
+      board: 'b',
+      card: new Error('offline'),
+      hits: [otherBoardHit, currentBoardHit],
+    });
+    expect((await findNumbered(fallback, ask('#12'))).map((one) => one.id)).toEqual([
+      'c12',
+      'other-12',
+    ]);
+
+    // Bare number query with no matching card on current board must NOT reorder unrelated hits on `b`.
+    const unrelatedOnCurrent: SearchHit = {
+      id: 'c3',
+      kind: 'card',
+      containerId: 'b',
+      containerKind: 'board',
+      containerTitle: 'Current Board',
+      title: 'Mentions 2026',
+      number: 3,
+      snippet: [],
+    };
+    const higherOtherBoard: SearchHit = {
+      id: 'other-top',
+      kind: 'card',
+      containerId: 'other',
+      containerKind: 'board',
+      containerTitle: 'Other Board',
+      title: '2026 Roadmap',
+      number: 1,
+      snippet: [],
+    };
+    const bareFallback = search({
+      board: 'b',
+      hits: [higherOtherBoard, unrelatedOnCurrent],
+    });
+    expect((await findNumbered(bareFallback, ask('2026'))).map((one) => one.id)).toEqual([
+      'other-top',
+      'c3',
+    ]);
+  });
+
+  it('returns cross-board `#12` hits when off a board without calling `numbered`', async () => {
+    const otherBoardHit: SearchHit = {
+      id: 'other-12',
+      kind: 'card',
+      containerId: 'other',
+      containerKind: 'board',
+      containerTitle: 'Other Board',
+      title: 'Other Plan',
+      number: 12,
+      snippet: [],
+    };
+    const given = search({ hits: [otherBoardHit] });
+    expect(await findNumbered(given, ask('#12'))).toEqual([otherBoardHit]);
+    expect(given.asked).toEqual([]);
+  });
 });
 
 describe('a row of a card that was found', () => {

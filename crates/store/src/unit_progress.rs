@@ -388,6 +388,7 @@ pub(crate) fn progress_from_row(row: &Row) -> Result<UnitProgress, StoreError> {
         planned_date: row.opt_text(2)?,
         last_position: row.opt_text(3)?,
         update_at: row.int(4)?,
+        suggested_next_interval_days: None,
     })
 }
 
