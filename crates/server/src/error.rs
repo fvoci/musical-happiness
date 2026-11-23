@@ -681,6 +681,17 @@ impl From<anyhow::Error> for AppError {
 }
 
 impl AppError {
+    /// Maps a [`fvoci_model::BodyError`] at the named request field (`body` or
+    /// `appendBody`) into a 400 Bad Request with the exact JSON Pointer.
+    pub(crate) fn from_body_error(field: &str, error: fvoci_model::BodyError) -> Self {
+        let pointer = match &error {
+            fvoci_model::BodyError::InvalidNode { path, .. }
+            | fvoci_model::BodyError::TableTooLarge { path } => format!("/{field}{path}"),
+            _ => format!("/{field}"),
+        };
+        Self::bad_request(error).with_pointer(pointer)
+    }
+
     /// Maps a [`ContainerError`] refused by the store into an HTTP error.
     fn from_container_error(refused: ContainerError) -> Self {
         match refused {
@@ -763,6 +774,7 @@ impl From<StoreError> for AppError {
                 error.subject = Some(Subject::Block(id));
                 error
             }
+            StoreError::InvalidBody { field, source } => Self::from_body_error(field, source),
             // What a request names by something that is no identifier does not exist.
             // The text is not echoed: it is the client's own, and it may be long.
             StoreError::InvalidId(_) => {

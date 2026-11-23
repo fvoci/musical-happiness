@@ -31,6 +31,7 @@ import {
   type BodyVersionContent,
   type BodyVersions,
   type CardStore,
+  type EntryStore,
   type KeptBodyVersion,
   type PageStore,
   type UnitStore,
@@ -126,6 +127,28 @@ export function unitVersions(unit: UnitStore): VersionsSource {
     writable: () => unit.room?.writable ?? false,
     opening: () => opening(unit),
     current: () => bodyNow(unit.room, unit.body),
+  };
+}
+
+/** The versions of a diary entry's body, for a backend that has diaries. */
+export function entryVersions(entry: EntryStore): VersionsSource {
+  const diaries = entry.host.workspace.backend.diary;
+  if (!diaries) throw new Error('this backend has no diaries');
+  const id = entry.entry?.id;
+  if (!id) throw new Error('this day has no entry yet');
+  return {
+    workspace: entry.host.workspace,
+    versions: diaries.bodyVersions,
+    ownerId: entry.host.diaryId,
+    itemId: id,
+    settle: () => entry.settleBody(),
+    writable: () => !entry.drafting && !entry.flushing && (entry.room?.writable ?? false),
+    opening: () => {
+      if (entry.drafting || entry.flushing) return true;
+      const status = entry.room?.status;
+      return status === 'joining' || status === 'receiving';
+    },
+    current: () => bodyNow(entry.room, entry.body),
   };
 }
 

@@ -99,7 +99,8 @@ pub fn check_date_value(value: &JsonMap) -> Result<(), DateValueError> {
 }
 
 /// Whether the text is a day of the calendar as `YYYY-MM-DD`, years 1 to 9999.
-fn is_calendar_date(text: &str) -> bool {
+#[must_use]
+pub fn is_calendar_date(text: &str) -> bool {
     let bytes = text.as_bytes();
     if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
         return false;
@@ -207,6 +208,15 @@ pub fn days_between(from: &str, to: &str) -> Option<i64> {
     let from = calendar_date(from)?;
     let to = calendar_date(to)?;
     Some(i64::from(from.until(to).ok()?.get_days()))
+}
+
+/// Moves the calendar day `date` (`YYYY-MM-DD`) by `days`, returning the resulting
+/// `YYYY-MM-DD` date or `None` if `date` is invalid or the result leaves years 1 to 9999.
+#[must_use]
+pub fn add_days(date: &str, days: i64) -> Option<String> {
+    let span = jiff::Span::new().try_days(days).ok()?;
+    let moved = calendar_date(date)?.checked_add(span).ok()?.to_string();
+    is_calendar_date(&moved).then_some(moved)
 }
 
 /// Moves the days among the fields of a card or a view by `days`, given the

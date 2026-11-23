@@ -25,6 +25,7 @@
   import type { EntryStore } from '$lib/state/index.ts';
 
   import CardBody from './CardBody.svelte';
+  import { entryVersions, keepVersion, type KeepOutcome } from './body-versions.svelte.ts';
   import { editorChunk } from './editor-chunk.svelte.ts';
 
   interface Props {
@@ -139,9 +140,15 @@
     editor.commands.setTextSelection(empty ? caret.at : editor.state.doc.content.size);
     editor.view.focus();
   }
+
+  function keepEntry(): Promise<KeepOutcome> {
+    if (!entry.entry) return Promise.resolve(entry.draft === null ? 'unchanged' : 'opening');
+    if (entry.drafting || entry.flushing) return Promise.resolve('opening');
+    return keepVersion(entryVersions(entry));
+  }
 </script>
 
-{#snippet draft()}
+{#snippet draft(onSave: () => void)}
   {#if Draft}
     <Draft
       doc={entry.draft}
@@ -155,6 +162,7 @@
       onComposing={(now: boolean) => {
         composing = now;
       }}
+      {onSave}
       onEditor={watchDraft}
       uploadFile={(file: File) => entry.uploadFile(file)}
     />
@@ -166,6 +174,7 @@
   card={entry}
   of="entry"
   testId="entry-body"
+  keep={keepEntry}
   waiting={entry.entry && !entry.drafting ? undefined : draft}
   holding={composing || entry.flushing || (entry.drafting && !entry.room?.writable)}
   onEditor={adopt}

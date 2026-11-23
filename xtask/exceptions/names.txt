@@ -22,8 +22,8 @@ crates/store/schema/*/0011_deleted_boards_by_team.sql
 crates/store/schema/*/0014_organizations.sql
 crates/store/schema/*/0015_organization_keys.sql
 crates/store/schema/*/0017_workspaces.sql
-crates/store/src/schema.rs | 0011_deleted_boards_by_team
-crates/store/src/schema.rs | "deleted boards by team"
+crates/store/src/schema/steps.rs | 0011_deleted_boards_by_team
+crates/store/src/schema/steps.rs | "deleted boards by team"
 crates/store/src/schema.rs | `teams` (the table of the workspaces before migration 17
 
 # The test of migration 17, and tests that fill a database as it was before it.
@@ -98,8 +98,8 @@ crates/model/src/lib.rs | mod team;
 crates/model/src/lib.rs | pub use team::{team, teammember, teamname, team_name, team_name_key}
 crates/store/schema/*/0026_teams.sql
 crates/store/src/teams.rs
-crates/store/src/schema.rs | workspace teams
-crates/store/src/schema.rs | 0026_teams
+crates/store/src/schema/steps.rs | workspace teams
+crates/store/src/schema/steps.rs | 0026_teams
 crates/store/src/schema.rs | "container_teams"
 crates/store/src/schema.rs | "team_members"
 crates/store/src/schema.rs | "teams",

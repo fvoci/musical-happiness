@@ -1,17 +1,24 @@
 //! Taking an update from a client.
 
+mod in_place;
+
 use std::collections::HashSet;
 
 use thiserror::Error;
 use yrs::updates::decoder::Decode;
-use yrs::{BranchID, ClientID, Doc, ID, Out, ReadTxn, StateVector, Transact, Update};
+use yrs::{ClientID, Doc, ID, Out, ReadTxn, StateVector, Transact, Update};
+
+use in_place::{ApplyTarget, apply_and_check};
+#[cfg(feature = "test-util")]
+pub(crate) use in_place::{CaptureMode, TxnUpdateMode, apply_and_capture};
+pub(crate) use in_place::{InPlaceDoc, UpdateInPlaceError, with_update_in_place};
 
 use crate::FIELD;
 use crate::block_cache::ApplyDelta;
 use crate::placing::{self, Held, Sent};
-use crate::reading;
+use crate::reading::{self, ReadingCache};
 use crate::scan::{self, Content, Id, Refusal};
-use crate::settle::{check_ends, read_state, settled_from, settled_sized};
+use crate::settle::{check_ends, read_state, settled_from};
 
 /// Whether [`apply_and_check`] captures an [`ApplyDelta`] for incremental block-cache
 /// updates.
@@ -412,9 +419,10 @@ fn origin_refusal(refusal: Refusal) -> UpdateError {
 /// so non-deterministic states are still caught.
 pub(crate) fn counted_sized(doc: Doc, limits: &UpdateLimits) -> Result<Settled, UpdateError> {
     let state = state_of(&doc);
-    if state.len() > limits.state_bytes {
+    let state_bytes = state.len();
+    if state_bytes > limits.state_bytes {
         return Err(UpdateError::DocumentTooLarge {
-            size: state.len(),
+            size: state_bytes,
             limit: limits.state_bytes,
         });
     }
@@ -426,13 +434,15 @@ pub(crate) fn counted_sized(doc: Doc, limits: &UpdateLimits) -> Result<Settled, 
         settled.needs_settle = true;
         return Ok(settled);
     };
-    let read = reading::count_strict(&state, limit).map_err(unreadable)?;
+    let (read, reading_cache) =
+        reading::count_strict_with_cache(&state, limit).map_err(unreadable)?;
     check_client_changes(read.walked.most, limits)?;
     check_ends(&doc, &read.ends).map_err(unreadable)?;
     if read.steps > limit {
         return Ok(Settled {
             doc,
-            state,
+            state: Some(state),
+            state_bytes,
             changes: read.walked.changes,
             client_changes: read.walked.most,
             reading_steps: read.steps,
@@ -444,6 +454,9 @@ pub(crate) fn counted_sized(doc: Doc, limits: &UpdateLimits) -> Result<Settled, 
             needs_settle: read.needs_settle,
             doc_rebuilt: false,
             delta: None,
+            mutated: true,
+            placing_steps: 0,
+            reading_cache: None,
         });
     }
     if read.needs_settle {
@@ -453,7 +466,8 @@ pub(crate) fn counted_sized(doc: Doc, limits: &UpdateLimits) -> Result<Settled, 
     }
     Ok(Settled {
         doc,
-        state,
+        state: Some(state),
+        state_bytes,
         changes: read.walked.changes,
         client_changes: read.walked.most,
         reading_steps: read.steps,
@@ -462,136 +476,10 @@ pub(crate) fn counted_sized(doc: Doc, limits: &UpdateLimits) -> Result<Settled, 
         needs_settle: false,
         doc_rebuilt: false,
         delta: None,
+        mutated: true,
+        placing_steps: 0,
+        reading_cache,
     })
-}
-
-/// Applies a decoded `sent` update to `doc`, commits the transaction, and captures its
-/// [`ApplyDelta`] (changed branches, delete set, and newly inserted shared-type IDs) for
-/// incremental block-cache updates.
-pub(crate) fn apply_and_capture(
-    doc: &Doc,
-    sent: Update,
-    new_types: Vec<ID>,
-) -> Result<ApplyDelta, UpdateError> {
-    let mut txn = doc.transact_mut();
-    txn.apply_update(sent)
-        .map_err(|error| UpdateError::Unappliable(error.to_string()))?;
-    txn.commit();
-    let changed_branches = txn
-        .changed_parent_types()
-        .iter()
-        .filter_map(|branch| match branch.id() {
-            BranchID::Nested(id) => Some(id),
-            BranchID::Root(_) => None,
-        })
-        .collect();
-    let delete_set = txn.delete_set().clone();
-    Ok(ApplyDelta {
-        changed_branches,
-        delete_set,
-        new_types,
-    })
-}
-
-/// Applies `sent` to `doc` in place, verifies post-apply invariants, and validates the
-/// resulting state (settling immediately only when `flags.partial_overlap` trimmed a block
-/// against existing state). When `delta_mode` is [`DeltaMode::Capture`] and the document
-/// stays in place (not re-decoded by settle), attaches the [`ApplyDelta`] to the returned
-/// [`Settled`].
-fn apply_and_check(
-    doc: Doc,
-    sent: Update,
-    flags: ReadFlags,
-    limits: &UpdateLimits,
-    delta_mode: DeltaMode,
-) -> Result<Settled, UpdateError> {
-    let delta = if delta_mode == DeltaMode::Capture && !flags.partial_overlap {
-        Some(apply_and_capture(&doc, sent, flags.new_types)?)
-    } else {
-        let mut txn = doc.transact_mut();
-        txn.apply_update(sent)
-            .map_err(|error| UpdateError::Unappliable(error.to_string()))?;
-        None
-    };
-    check_applied(&doc)?;
-    if flags.partial_overlap {
-        settled_sized(doc, limits)
-    } else {
-        let mut settled = counted_sized(doc, limits)?;
-        if !settled.doc_rebuilt {
-            settled.delta = delta;
-        }
-        Ok(settled)
-    }
-}
-
-/// Why [`with_update_in_place`] refused an update.
-pub(crate) enum UpdateInPlaceError {
-    /// Refused before `doc` was changed; the untouched document comes back.
-    Untouched(Doc, UpdateError),
-    /// Refused while or after applying the update; `doc` may have been changed and was
-    /// dropped.
-    Dirty(UpdateError),
-}
-
-/// Takes a client's update into `doc` **in place**, using the caller's cached
-/// `prior_state` and `prior_changes` to charge placing steps without encoding or copying
-/// `doc`.
-///
-/// Checks that fail before `apply_update` return [`UpdateInPlaceError::Untouched`] with
-/// `doc` intact; failures during or after `apply_update` drop `doc` and return
-/// [`UpdateInPlaceError::Dirty`], telling the caller to rebuild from its checkpoint.
-pub(crate) fn with_update_in_place(
-    doc: Doc,
-    prior_state: &[u8],
-    prior_changes: u64,
-    update: &[u8],
-    limits: &UpdateLimits,
-    delta_mode: DeltaMode,
-) -> Result<Settled, UpdateInPlaceError> {
-    if update.len() > limits.update_bytes {
-        return Err(UpdateInPlaceError::Untouched(
-            doc,
-            UpdateError::TooLarge {
-                size: update.len(),
-                limit: limits.update_bytes,
-            },
-        ));
-    }
-    let (sent, clients, flags) = match read(&doc, update) {
-        Ok(read) => read,
-        Err(error) => return Err(UpdateInPlaceError::Untouched(doc, error)),
-    };
-    if let Some(limit) = limits.clients
-        && clients > limit
-    {
-        return Err(UpdateInPlaceError::Untouched(
-            doc,
-            UpdateError::TooManyClients { clients, limit },
-        ));
-    }
-    if let Some(limit) = limits.placing_steps {
-        if let Err(error) = deletions_in_order(&sent) {
-            return Err(UpdateInPlaceError::Untouched(doc, error));
-        }
-        let steps = match charged(&doc, (prior_state, prior_changes), (update, &sent), limit) {
-            Ok(steps) => steps,
-            Err(error) => return Err(UpdateInPlaceError::Untouched(doc, error)),
-        };
-        if steps > limit {
-            return Err(UpdateInPlaceError::Untouched(
-                doc,
-                UpdateError::PlacedPastTooMany { steps, limit },
-            ));
-        }
-    }
-    if flags.check_origins_before_apply {
-        let known = doc.transact().state_vector();
-        if let Err(refusal) = reading::check_update_origins(prior_state, &known, update) {
-            return Err(UpdateInPlaceError::Untouched(doc, origin_refusal(refusal)));
-        }
-    }
-    apply_and_check(doc, sent, flags, limits, delta_mode).map_err(UpdateInPlaceError::Dirty)
 }
 
 /// The Y document as it would be with a client's update: a copy of `doc` with the
@@ -642,19 +530,33 @@ pub(crate) fn with_update_sized(
     }
     let state = state_of(doc);
     let (copy, walked) = read_state(&state).map_err(UpdateError::DocumentUnreadable)?;
+    let mut placing_steps = 0_u64;
     if let Some(limit) = limits.placing_steps {
         deletions_in_order(&sent)?;
         let steps = charged(&copy, (&state, walked.changes), (update, &sent), limit)?;
         if steps > limit {
             return Err(UpdateError::PlacedPastTooMany { steps, limit });
         }
+        placing_steps = steps;
     }
     if flags.check_origins_before_apply {
         let known = copy.transact().state_vector();
         reading::check_update_origins(&state, &known, update).map_err(origin_refusal)?;
     }
+    let result = apply_and_check(
+        ApplyTarget {
+            doc: copy,
+            reading_cache: None,
+            prior_state: Some(&state),
+            placing_steps,
+        },
+        sent,
+        flags,
+        limits,
+        DeltaMode::Skip,
+    );
     drop(state);
-    apply_and_check(copy, sent, flags, limits, DeltaMode::Skip)
+    result
 }
 
 /// Refuses an update whose deletions of a client go back or overlap. The library walks
@@ -730,7 +632,8 @@ pub(crate) enum Outcome {
 #[derive(Debug)]
 pub(crate) struct Settled {
     pub(crate) doc: Doc,
-    pub(crate) state: Vec<u8>,
+    pub(crate) state: Option<Vec<u8>>,
+    pub(crate) state_bytes: usize,
     pub(crate) changes: u64,
     pub(crate) client_changes: u64,
     pub(crate) reading_steps: u64,
@@ -743,6 +646,12 @@ pub(crate) struct Settled {
     /// Captured in-place mutation delta when `DeltaMode::Capture` was requested and `doc`
     /// stayed in place (`!doc_rebuilt`).
     pub(crate) delta: Option<ApplyDelta>,
+    /// Whether the applied update actually mutated the document.
+    pub(crate) mutated: bool,
+    /// Placing steps charged to this update (`0` when `limits.placing_steps` is `None`).
+    pub(crate) placing_steps: u64,
+    /// Synchronized Pass 5–6 [`ReadingCache`] when the state is conflict-free and cacheable.
+    pub(crate) reading_cache: Option<Box<ReadingCache>>,
 }
 
 /// Refuses a state whose client with the most changes is past

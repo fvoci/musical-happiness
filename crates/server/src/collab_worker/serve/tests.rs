@@ -995,3 +995,109 @@ fn dirty_refusal_restores_non_canonical_unsettled_state_in_o1() {
     assert_eq!(ask(&mut worker, Request::Close(1)), Ok(Answer::Done));
     assert_eq!(worker.held_bytes, 0);
 }
+
+/// Verifies lazy snapshot cadence (`SNAPSHOT_SINCE_GAP`) and bounded rollback: live fast-path
+/// takes defer `last_state` encoding until `SNAPSHOT_SINCE_GAP` entries accumulate, a first
+/// `Dirty` refusal replays only the short tail and caches `last_state` (`snapshot_since_start ==
+/// since.len()`), a second `Dirty` refusal restores in O(1), and `Request::State` encodes on
+/// demand and settles cleanly.
+#[test]
+fn lazy_snapshot_and_repeated_dirty_refusals_preserve_exact_state_and_held_bytes() {
+    let mut worker = Worker::new(Limits {
+        update_bytes: 4096,
+        state_bytes: 64 * 1024,
+        body_bytes: 64 * 1024,
+        documents: 1,
+        held_bytes: 1 << 20,
+    });
+    let Ok(Answer::Opened {
+        state: Some(initial),
+        ..
+    }) = ask(
+        &mut worker,
+        Request::Open {
+            doc: 1,
+            source: Source::Body(None),
+            share: Share::Kept,
+        },
+    )
+    else {
+        panic!("opened");
+    };
+    let editor = fvoci_collab::testing::Editor::join(801, &initial);
+    for i in 0..5_usize {
+        let u = editor.append_paragraph(&format!("lazy-{i}"));
+        assert!(ask(&mut worker, Request::Take { doc: 1, update: u }).is_ok());
+    }
+    let held = worker.docs.get(&1).expect("held");
+    assert_eq!((held.since.len(), held.snapshot_since_start), (5, 0));
+    assert!(held.last_state.is_none());
+    let expected_state = held.doc.state();
+    let expected_held_bytes = worker.held_bytes;
+
+    // Two consecutive Dirty refusals: 1st replays only the 5-entry tail and pins `last_state`;
+    // 2nd restores from the pinned snapshot in O(1).
+    let saved_body_limit = worker.update_limits.body_bytes;
+    worker.update_limits.body_bytes = 5;
+    for attempt in 0..2 {
+        let rejected = fvoci_collab::testing::Editor::join(810 + attempt, &expected_state)
+            .append_paragraph("rejected");
+        let err = ask(
+            &mut worker,
+            Request::Take {
+                doc: 1,
+                update: rejected,
+            },
+        )
+        .expect_err("refused");
+        assert_eq!(err.refusal, Refusal::BodyTooLarge);
+        let held = worker.docs.get(&1).expect("held");
+        assert_eq!(held.doc.state(), expected_state);
+        assert_eq!(held.snapshot_since_start, held.since.len());
+        assert!(held.last_state.is_some());
+        assert_eq!(worker.held_bytes, expected_held_bytes);
+    }
+    worker.update_limits.body_bytes = saved_body_limit;
+
+    // Apply `SNAPSHOT_SINCE_GAP` more fast edits: lazy snapshot defers and advances automatically.
+    let mut peer_state = expected_state;
+    let (mut saw_deferred, mut saw_advanced) = (false, false);
+    for i in 0..checkpoint::SNAPSHOT_SINCE_GAP {
+        let client = 820 + u64::try_from(i).expect("small index");
+        let u = fvoci_collab::testing::Editor::join(client, &peer_state)
+            .append_paragraph(&format!("gap-{i}"));
+        assert!(ask(&mut worker, Request::Take { doc: 1, update: u }).is_ok());
+        let held = worker.docs.get(&1).expect("held");
+        let gap = held.since.len() - held.snapshot_since_start;
+        assert!(gap < checkpoint::SNAPSHOT_SINCE_GAP);
+        saw_deferred |= gap > 0;
+        saw_advanced |= held.snapshot_since_start > 5;
+        peer_state = held.doc.state();
+    }
+    assert!(saw_deferred && saw_advanced);
+
+    // One more edit leaves an unsnapshotted tail; `Request::State` encodes on demand and settles.
+    let tail_u = fvoci_collab::testing::Editor::join(999, &peer_state).append_paragraph("tail");
+    assert!(
+        ask(
+            &mut worker,
+            Request::Take {
+                doc: 1,
+                update: tail_u
+            }
+        )
+        .is_ok()
+    );
+    let pre_state = worker.docs.get(&1).expect("held").doc.state();
+    let held = worker.docs.get(&1).expect("held");
+    assert!(held.snapshot_since_start < held.since.len());
+    let Ok(Answer::Bytes(settled_state)) = ask(&mut worker, Request::State(1)) else {
+        panic!("state settled");
+    };
+    assert_eq!(settled_state, pre_state);
+    let held = worker.docs.get(&1).expect("held");
+    assert!(held.settled && held.since.is_empty() && held.snapshot_since_start == 0);
+    assert_eq!(worker.held_bytes, held.state_bytes);
+    assert_eq!(ask(&mut worker, Request::Close(1)), Ok(Answer::Done));
+    assert_eq!(worker.held_bytes, 0);
+}

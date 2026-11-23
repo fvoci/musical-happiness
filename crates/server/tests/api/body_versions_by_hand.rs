@@ -320,6 +320,76 @@ async fn a_pages_body_is_kept_now_by_who_edits_the_wiki() {
     th.teardown().await;
 }
 
+/// A diary entry's body is kept by hand in the user's own space with the same cooldown,
+/// unchanged/recent/kept outcomes, and isolation from other routes and workspaces.
+#[tokio::test]
+async fn a_diary_entrys_body_is_kept_now_with_cooldown_and_isolation() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (_, own) = crate::own_space::workspaces_and_own(&th.client).await;
+    let ws = format!("/w/{}", own.id);
+    let diary_val = th
+        .client
+        .post(&format!("{ws}/diaries"), &json!({"title": "Journal"}))
+        .await
+        .created_json::<Value>();
+    let diary_id = diary_val["id"].as_str().expect("diary id").to_owned();
+    let entry_val = th
+        .client
+        .post(
+            &format!("{ws}/diaries/{diary_id}/entries"),
+            &json!({"date": "2024-11-21", "mood": "good"}),
+        )
+        .await
+        .created_json::<Value>();
+    let entry_id = entry_val["id"].as_str().expect("entry id").to_owned();
+    let entry_at = format!("{ws}/diaries/{diary_id}/entries/{entry_id}");
+    let keep = format!("{entry_at}/body-versions");
+
+    // Empty entry: unchanged with no version.
+    let none: Value = th.client.post_empty(&keep).await.ok_json();
+    assert_eq!(none, json!({"outcome": "unchanged", "version": null}));
+
+    // Write via collab room, keep by hand, verify cooldown and unchanged.
+    let mut peer = crate::rooms::Peer::connect(&th.client, 101).await;
+    peer.joined(&own.id, &entry_id).await;
+    peer.write_acked("first thought").await;
+
+    let kept: Value = th.client.post_empty(&keep).await.ok_json();
+    assert_eq!(outcome(&kept), ("kept", Some(1)), "{kept}");
+    assert_eq!(kept["version"]["cause"], "manual");
+    assert_eq!(kept["version"]["isCurrent"], true);
+
+    let unchanged: Value = th.client.post_empty(&keep).await.ok_json();
+    assert_eq!(outcome(&unchanged), ("unchanged", Some(1)), "{unchanged}");
+
+    peer.write_acked("second thought").await;
+    let recent: Value = th.client.post_empty(&keep).await.ok_json();
+    assert_eq!(outcome(&recent), ("recent", Some(1)), "{recent}");
+
+    th.app.collab().pass_version_time(Duration::from_secs(61));
+    let kept_again: Value = th.client.post_empty(&keep).await.ok_json();
+    assert_eq!(outcome(&kept_again), ("kept", Some(2)), "{kept_again}");
+    assert_eq!(kept_again["version"]["cause"], "manual");
+    peer.leave().await;
+
+    // Isolation: card route, organization workspace, another user, and trashed entry are 404.
+    th.client
+        .post_empty(&format!("{ws}/cards/{entry_id}/body-versions"))
+        .await
+        .check_not_found();
+    th.client
+        .post_empty(&format!(
+            "{TEST_WS}/diaries/{diary_id}/entries/{entry_id}/body-versions"
+        ))
+        .await
+        .check_not_found();
+    th.client2.post_empty(&keep).await.check_not_found();
+
+    th.client.delete(&entry_at).await.check_no_content();
+    th.client.post_empty(&keep).await.check_not_found();
+    th.teardown().await;
+}
+
 /// If a card with unwritten collaborative updates is deleted before `keep_by_hand` or
 /// `write_whole` writes those updates back, the missing card surfaces as 404 `NotFound`
 /// rather than 503 `document_unavailable`.

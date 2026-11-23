@@ -53,6 +53,7 @@
 //! sessions that each wrote after the one before is as many steps as one made to be
 //! walked, and as slow ([`crate::READING_STEPS`]).
 
+mod cache;
 #[cfg(any(test, feature = "test-util"))]
 mod inspect;
 mod origins;
@@ -62,6 +63,7 @@ use std::collections::HashMap;
 use crate::placing::{PLACES_PER_STEP, VALUE_PLACES};
 use crate::scan::{self, Change, Content, Id, Parent, Refusal, Walked};
 
+pub(crate) use cache::{FastApply, ReadingCache, count_strict_with_cache};
 #[cfg(any(test, feature = "test-util"))]
 pub use inspect::List;
 #[cfg(any(test, feature = "test-util"))]
@@ -143,12 +145,6 @@ enum StepsMode {
 /// waiting.
 pub(crate) fn count(state: &[u8], stop_past: u64) -> Result<Read, Refusal> {
     count_with(state, OriginPolicy::Raw, StepsMode::Count(stop_past))
-}
-
-/// As [`count`], also refusing any change whose origins or parent are misplaced
-/// ([`Refusal::Origin`]).
-pub(crate) fn count_strict(state: &[u8], stop_past: u64) -> Result<Read, Refusal> {
-    count_with(state, OriginPolicy::Strict, StepsMode::Count(stop_past))
 }
 
 /// Validates every change's origins and parent in `state` in linear time without

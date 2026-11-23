@@ -57,19 +57,25 @@ fn assert_step_equivalent(
     let ref_result = take_update(&ref_doc, update, limits);
 
     match (
-        held.take_in_place(state, *changes, update, limits),
+        held.take_in_place(None, *changes, update, limits),
         ref_result,
     ) {
         (Ok(got), Ok(expected)) => {
-            assert_eq!(got.state, expected.state, "{context}: state bytes");
-            assert_eq!(
-                got.state_bytes, expected.state_bytes,
-                "{context}: state_bytes"
-            );
+            let got_state = got.state.unwrap_or_else(|| got.doc.state());
+            assert_eq!(got_state, expected.state, "{context}: state bytes");
             assert_eq!(got.changes, expected.changes, "{context}: changes");
             assert_eq!(
                 got.client_changes, expected.client_changes,
                 "{context}: client_changes"
+            );
+            assert_eq!(
+                got.state_bytes,
+                got_state.len(),
+                "{context}: cached state_bytes == encoded len"
+            );
+            assert_eq!(
+                got.state_bytes, expected.state_bytes,
+                "{context}: state_bytes"
             );
             assert_eq!(
                 got.reading_steps, expected.reading_steps,
@@ -108,7 +114,7 @@ fn assert_step_equivalent(
                 expected_mentions(expected.repair.body.as_ref()),
                 "{context}: mention_ids"
             );
-            *state = got.state;
+            *state = got_state;
             *changes = got.changes;
             got.doc
         }
@@ -803,7 +809,10 @@ fn format_item_at_root_prepend_and_append_cannot_bypass_cache() {
         vec![Change::under(Parent::body(), Content::element("paragraph"))],
     )
     .bytes();
-    let mut state_a = BodyDoc::from_state(&base_a, &ROOMY).expect("open a").state;
+    let mut state_a = BodyDoc::from_state(&base_a, &ROOMY)
+        .expect("open a")
+        .state
+        .expect("from_state encodes");
     let mut changes_a = state_counts(&state_a).expect("counts").changes;
     let held_a = BodyDoc::from_state(&state_a, &ROOMY).expect("open a").doc;
     let prepend_fmt = Update::of(1, 0, vec![Change::under(Parent::body(), format_bold())]).bytes();
@@ -883,7 +892,7 @@ fn format_item_at_root_exposed_by_delete_or_repair_cannot_bypass_cache() {
     )
     .bytes();
     let opened_c = BodyDoc::from_state(&base_c, &ROOMY).expect("(c) valid initial doc");
-    let mut state_c = opened_c.state;
+    let mut state_c = opened_c.state.expect("from_state encodes");
     let mut changes_c = opened_c.changes;
     let held_c = opened_c.doc;
     let del_first = Update {

@@ -19,7 +19,7 @@ use super::native_stream::{
     LINE_BUF_SHRINK_THRESHOLD, MAX_LINE_BYTES, STREAM_READER_BUF_BYTES, StreamPlan,
     clear_block_values_of_another_kind, read_bounded_line,
 };
-use super::pointing::came_with_more;
+use super::pointing::{came_with_more, pointed};
 use super::summary::ImportCounts;
 use super::trim;
 use crate::auth::now_millis;
@@ -43,12 +43,10 @@ pub(super) const MAX_REVISIT_PASSES: usize = 32;
 /// Channel depth between the blocking Pass-2 streamer and the async DB batch inserter.
 const STREAM_CHANNEL_CAPACITY: usize = 1;
 
-/// Summary metadata collected while streaming one `board.jsonl` in Pass 2.
+/// Summary metadata collected while streaming all `board.jsonl` entries in Pass 2.
 #[derive(Debug, Default)]
 pub(super) struct StreamedBoardStats {
     pub(super) counts: ImportCounts,
-    /// Deduplicated new block IDs per new container ID needing file/cross-board pointing.
-    pub(super) blocks_to_point: HashMap<String, Vec<String>>,
     /// Deduplicated inserted block IDs (populated only when WS/webhooks are active).
     pub(super) inserted_block_ids: Vec<String>,
 }
@@ -67,46 +65,63 @@ enum StreamPass {
     Revisit,
 }
 
-/// Channel receiver and join handle returned by [`spawn_board_streamer`].
+/// Channel receiver and join handle returned by [`spawn_archive_streamer`].
 pub(super) struct StreamedBoardHandle {
     pub(super) rx: mpsc::Receiver<StreamBatch<AppError>>,
     pub(super) stats: tokio::task::JoinHandle<StreamedBoardStats>,
 }
 
-/// Spawns the Pass-2 blocking streamer for one `board.jsonl` entry, returning a bounded
-/// receiver of ready-to-insert block batches and a join handle carrying summary stats.
-pub(super) fn spawn_board_streamer(
+/// Shared lookup tables read while streaming all boards of a native archive.
+pub(super) struct ArchiveStreamShared {
+    pub(super) file_map: Arc<HashMap<String, HashMap<String, String>>>,
+    pub(super) all_copies: Arc<HashMap<String, String>>,
+    pub(super) modified_by: String,
+    pub(super) collect_ids: BlockIdCollection,
+}
+
+/// Spawns one Pass-2 blocking streamer across every planned `board.jsonl` entry of a
+/// native archive, returning a bounded receiver of ready-to-insert block batches (with
+/// body file names, attachment fields, and cross-board references already pointed) and a
+/// join handle carrying combined summary stats.
+pub(super) fn spawn_archive_streamer(
     zip: Archive,
-    zip_index: usize,
-    plan: StreamPlan,
-    all_copies: Arc<HashMap<String, String>>,
-    modified_by: String,
-    collect_ids: BlockIdCollection,
+    plans: Vec<(usize, StreamPlan)>,
+    shared: ArchiveStreamShared,
 ) -> StreamedBoardHandle {
     let (tx, rx) = mpsc::channel(STREAM_CHANNEL_CAPACITY);
     let stats = tokio::task::spawn_blocking(move || {
-        let mut streamer = BoardStreamer::new(
-            zip,
-            zip_index,
-            plan,
-            all_copies,
-            modified_by,
-            collect_ids,
-            tx,
-        );
-        streamer.run()
+        let mut combined = StreamedBoardStats::default();
+        let now = now_millis();
+        for (zip_index, plan) in plans {
+            let mut streamer =
+                BoardStreamer::new(zip.clone(), zip_index, plan, &shared, now, tx.clone());
+            match streamer.stream_all_passes() {
+                Ok(()) => {
+                    combined.counts.cards += streamer.stats.counts.cards;
+                    combined.counts.pages += streamer.stats.counts.pages;
+                    combined.counts.comments += streamer.stats.counts.comments;
+                    combined
+                        .inserted_block_ids
+                        .extend(streamer.stats.inserted_block_ids);
+                }
+                Err(error) => {
+                    let _ = tx.blocking_send(StreamBatch::Err(error));
+                    return StreamedBoardStats::default();
+                }
+            }
+        }
+        let _ = tx.blocking_send(StreamBatch::Done);
+        combined
     });
     StreamedBoardHandle { rx, stats }
 }
 
-struct BoardStreamer {
+struct BoardStreamer<'a> {
     zip: Archive,
     zip_index: usize,
     plan: StreamPlan,
-    all_copies: Arc<HashMap<String, String>>,
-    modified_by: String,
+    shared: &'a ArchiveStreamShared,
     now: i64,
-    collect_ids: BlockIdCollection,
     tx: mpsc::Sender<StreamBatch<AppError>>,
     emitted_parents: HashSet<String>,
     pending: Vec<(Block, usize)>,
@@ -116,29 +131,25 @@ struct BoardStreamer {
     revisit_lines: HashMap<usize, usize>,
     batch: Vec<Block>,
     batch_raw_bytes: usize,
-    seen_pointed: HashSet<String>,
     seen_inserted: HashSet<String>,
     stats: StreamedBoardStats,
 }
 
-impl BoardStreamer {
+impl<'a> BoardStreamer<'a> {
     fn new(
         zip: Archive,
         zip_index: usize,
         plan: StreamPlan,
-        all_copies: Arc<HashMap<String, String>>,
-        modified_by: String,
-        collect_ids: BlockIdCollection,
+        shared: &'a ArchiveStreamShared,
+        now: i64,
         tx: mpsc::Sender<StreamBatch<AppError>>,
     ) -> Self {
         Self {
             zip,
             zip_index,
             plan,
-            all_copies,
-            modified_by,
-            now: now_millis(),
-            collect_ids,
+            shared,
+            now,
             tx,
             emitted_parents: HashSet::new(),
             pending: Vec::new(),
@@ -146,22 +157,8 @@ impl BoardStreamer {
             revisit_lines: HashMap::new(),
             batch: Vec::new(),
             batch_raw_bytes: 0,
-            seen_pointed: HashSet::new(),
             seen_inserted: HashSet::new(),
             stats: StreamedBoardStats::default(),
-        }
-    }
-
-    fn run(&mut self) -> StreamedBoardStats {
-        match self.stream_all_passes() {
-            Ok(()) => {
-                let _ = self.tx.blocking_send(StreamBatch::Done);
-                std::mem::take(&mut self.stats)
-            }
-            Err(error) => {
-                let _ = self.tx.blocking_send(StreamBatch::Err(error));
-                StreamedBoardStats::default()
-            }
         }
     }
 
@@ -306,7 +303,7 @@ impl BoardStreamer {
                 "invalid block in archive line {line_number}: {error}"
             ))
         })?;
-        self.modified_by.clone_into(&mut block.modified_by);
+        self.shared.modified_by.clone_into(&mut block.modified_by);
         block.update_at = self.now;
         if let Some(defs) = self.plan.card_properties.get(new_cid) {
             clear_block_values_of_another_kind(&mut block, defs);
@@ -320,6 +317,7 @@ impl BoardStreamer {
             &self.plan.relations,
             UnmatchedRelation::Dropped,
         );
+        point_block_files_and_copies(&mut block, &self.shared.file_map, &self.shared.all_copies);
         block.validate().map_err(|source| {
             AppError::from(StoreError::InvalidBlock {
                 id: block.id.clone(),
@@ -381,19 +379,8 @@ impl BoardStreamer {
             BlockType::Comment => self.stats.counts.comments += 1,
             _ => {}
         }
-        let needs_pointing = block.block_type == BlockType::Attachment
-            || block
-                .body
-                .as_ref()
-                .is_some_and(|body| came_with_more(body, &self.all_copies));
-        if needs_pointing && self.seen_pointed.insert(block.id.clone()) {
-            self.stats
-                .blocks_to_point
-                .entry(block.container_id.clone())
-                .or_default()
-                .push(block.id.clone());
-        }
-        if self.collect_ids == BlockIdCollection::All && self.seen_inserted.insert(block.id.clone())
+        if self.shared.collect_ids == BlockIdCollection::All
+            && self.seen_inserted.insert(block.id.clone())
         {
             self.stats.inserted_block_ids.push(block.id.clone());
         }
@@ -414,5 +401,39 @@ impl BoardStreamer {
         self.tx
             .blocking_send(StreamBatch::Batch(batch))
             .map_err(|_| AppError::internal("import batch consumer dropped early"))
+    }
+}
+
+/// Points a streamed block's body and attachment fields at the newly stored file names
+/// and cross-container copies in-flight prior to database insertion.
+fn point_block_files_and_copies(
+    block: &mut Block,
+    file_map: &HashMap<String, HashMap<String, String>>,
+    all_copies: &HashMap<String, String>,
+) {
+    let container_files = file_map.get(block.container_id.as_str());
+    if let Some(body) = block.body.take() {
+        block.body = if came_with_more(&body, all_copies) {
+            pointed(
+                body,
+                |old| container_files.and_then(|files| files.get(old)).cloned(),
+                all_copies,
+            )
+        } else {
+            Some(body)
+        };
+    }
+    if block.block_type == BlockType::Attachment {
+        for key in ["fileId", "attachmentId"] {
+            if let Some(old) = block.fields.get(key).and_then(serde_json::Value::as_str) {
+                let new_name = container_files
+                    .and_then(|files| files.get(old))
+                    .cloned()
+                    .unwrap_or_default();
+                block
+                    .fields
+                    .insert(key.to_owned(), serde_json::Value::String(new_name));
+            }
+        }
     }
 }

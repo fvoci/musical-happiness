@@ -231,7 +231,7 @@ fn assert_rollback_byte_equal(
     limits: &UpdateLimits,
     context: &str,
 ) -> BodyDoc {
-    match doc.take_in_place(point.state, point.changes, rejected, limits) {
+    match doc.take_in_place(Some(point.state), point.changes, rejected, limits) {
         Ok(unexpected) => panic!("{context}: expected refusal, got Ok ({unexpected:?})"),
         Err(BodyTakeError::Untouched { doc, .. }) => {
             assert_eq!(
@@ -283,11 +283,17 @@ fn random_refused_in_place_updates_rebuild_to_exact_prior_bytes() {
             let expected = take_update(&ref_doc, &update, &ROOMY).expect("ref taken");
 
             let changed = doc
-                .take_in_place(&state, doc_changes, &update, &ROOMY)
+                .take_in_place(Some(&state), doc_changes, &update, &ROOMY)
                 .expect("in-place taken");
+            let changed_state = changed.state.unwrap_or_else(|| changed.doc.state());
             assert_eq!(
-                changed.state, expected.state,
+                changed_state, expected.state,
                 "seed {seed} step {step}: state"
+            );
+            assert_eq!(
+                changed.state_bytes,
+                expected.state.len(),
+                "seed {seed} step {step}: state_bytes"
             );
             assert_eq!(
                 changed.doc.body().expect("in-place body"),
@@ -309,12 +315,12 @@ fn random_refused_in_place_updates_rebuild_to_exact_prior_bytes() {
                 changed.repair.update, expected.repair.update,
                 "seed {seed} step {step}: repair"
             );
-            if changed.state != state || changed.repair.update.is_some() {
+            if changed_state != state || changed.repair.update.is_some() {
                 since.push(update);
                 if let Some(repair) = changed.repair.update {
                     since.push(repair);
                 }
-                state = changed.state;
+                state = changed_state;
                 doc_changes = changed.changes;
             }
             doc = changed.doc;
@@ -394,7 +400,7 @@ fn exercise_post_apply_refusals(
         )],
     )
     .bytes();
-    let hit_dirty = match doc.take_in_place(point.state, point.changes, &bad_root, &ROOMY) {
+    let hit_dirty = match doc.take_in_place(Some(point.state), point.changes, &bad_root, &ROOMY) {
         Err(BodyTakeError::Dirty(TakeError::Update(UpdateError::UnexpectedRoot(_)))) => {
             doc = BodyDoc::rebuild(point.base, point.since).expect("rebuilt");
             assert_eq!(doc.state(), point.state, "seed {seed} step {step} bad_root");
@@ -525,7 +531,7 @@ fn table_mend_past_reading_steps_is_taken_in_place_and_marked_for_remake() {
         .expect("opened")
         .doc;
     let changed = held
-        .take_in_place(&base_state, base_changes, &combined, &served)
+        .take_in_place(Some(&base_state), base_changes, &combined, &served)
         .expect("table mend + reading steps is taken in place");
     assert!(changed.remake, "past reading steps: must remake");
     assert_eq!(changed.repair.mended, 1, "short row padded by 1 cell");
@@ -667,9 +673,10 @@ fn mend_spans_replaces_non_empty_nested_shared_type_attr() {
 
     let held = BodyDoc::from_state(&base_state, &ROOMY).expect("open").doc;
     let changed = held
-        .take_in_place(&base_state, base_changes, &bad_spans, &ROOMY)
+        .take_in_place(Some(&base_state), base_changes, &bad_spans, &ROOMY)
         .expect("nested shared-type spans mended cleanly in place");
     assert_eq!(changed.repair.mended, 1, "cell spans mended");
+    let changed_state = changed.state.unwrap_or_else(|| changed.doc.state());
     let repair_update = changed.repair.update.expect("mend update emitted");
     assert_eq!(
         json_of(changed.doc.body().expect("mended body").as_ref()),
@@ -686,7 +693,7 @@ fn mend_spans_replaces_non_empty_nested_shared_type_attr() {
         "peer converges after repair update"
     );
     assert!(
-        fvoci_collab::same_state(&state_of(&peer), &changed.state),
+        fvoci_collab::same_state(&state_of(&peer), &changed_state),
         "peer and server states match"
     );
 }
@@ -709,7 +716,7 @@ fn table_mend_refused_when_writer_exceeds_max_clients() {
         .expect("open")
         .doc;
     let err = held
-        .take_in_place(&base_state, base_changes, &short_row, &two_clients)
+        .take_in_place(Some(&base_state), base_changes, &short_row, &two_clients)
         .expect_err("3rd client from mend writer refused");
     assert!(
         matches!(
@@ -795,7 +802,7 @@ fn assert_origin_refused(
     );
     let held = BodyDoc::from_state(&base.state, &ROOMY).expect("open").doc;
     let in_place = held
-        .take_in_place(&base.state, base.changes, update, &ROOMY)
+        .take_in_place(Some(&base.state), base.changes, update, &ROOMY)
         .expect_err(label);
     if stage == RefusalStage::PreApply {
         assert!(
@@ -1122,11 +1129,12 @@ fn body_doc_settle_verifies_canonical_and_non_canonical_and_preserves_doc_on_err
     .bytes();
     let held = BodyDoc::new();
     let changed = held
-        .take_in_place(&empty_state, empty_changes, &non_canonical, &ROOMY)
+        .take_in_place(Some(&empty_state), empty_changes, &non_canonical, &ROOMY)
         .expect("taken");
+    let changed_state = changed.state.unwrap_or_else(|| changed.doc.state());
     let settled = changed
         .doc
-        .settle(changed.state, &ROOMY)
+        .settle(changed_state, &ROOMY)
         .expect("non-canonical settles cleanly");
     assert_eq!(
         json_of(settled.doc.body().expect("body").as_ref()),
@@ -1170,8 +1178,9 @@ fn body_doc_settle_verifies_canonical_and_non_canonical_and_preserves_doc_on_err
     }
     .bytes();
     let taken = BodyDoc::new()
-        .take_in_place(&empty_state, empty_changes, &with_step, &ROOMY)
+        .take_in_place(Some(&empty_state), empty_changes, &with_step, &ROOMY)
         .expect("taken under roomy limits");
+    let taken_state = taken.state.unwrap_or_else(|| taken.doc.state());
     let expected_body = taken.doc.body().expect("body");
     let zero_steps = UpdateLimits {
         reading_steps: Some(0),
@@ -1179,7 +1188,7 @@ fn body_doc_settle_verifies_canonical_and_non_canonical_and_preserves_doc_on_err
     };
     let err = taken
         .doc
-        .settle(taken.state.clone(), &zero_steps)
+        .settle(taken_state.clone(), &zero_steps)
         .expect_err("zero reading steps fails settle");
     assert!(matches!(err.error, UpdateError::TooManyReadingSteps { .. }));
     assert_eq!(
@@ -1193,7 +1202,7 @@ fn body_doc_settle_verifies_canonical_and_non_canonical_and_preserves_doc_on_err
     };
     let err2 = err
         .doc
-        .settle(taken.state, &tight_bytes)
+        .settle(taken_state, &tight_bytes)
         .expect_err("tight state_bytes fails settle");
     assert!(matches!(err2.error, UpdateError::DocumentTooLarge { .. }));
     assert_eq!(

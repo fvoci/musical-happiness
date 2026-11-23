@@ -2,41 +2,32 @@
 //! and external exports (Trello JSON, Notion Markdown & CSV ZIP).
 //!
 //! Native `fvoci` imports stream each `board.jsonl` in two passes (`native_stream`):
-//! Pass 1 scans and validates line by line without holding block bodies in RAM, and
-//! Pass 2 streams rewritten blocks in bounded batches into a single database transaction
-//! per board. External formats convert into a [`staged::StagedArchive`] and commit
-//! atomically across containers, blocks, and local files.
+//! Pass 1 scans and validates line by line without holding block bodies in RAM, files
+//! are staged under `loose_objects` marks, and Pass 2 streams rewritten blocks in bounded
+//! batches across all boards into one single database transaction (`native_atomic`).
+//! External formats convert into a [`staged::StagedArchive`] and commit atomically across
+//! containers, blocks, and local files.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
 use fvoci_model::{
-    ArchiveHeader, Container, ContainerKind, ContainerMember, ContainersAndBlocks, JsonMap,
-    PageLimits, WorkspaceRole,
+    ArchiveHeader, ContainerKind, ContainerMember, ContainersAndBlocks, JsonMap, PageLimits,
+    WorkspaceRole,
 };
-use fvoci_store::{NewBodyFiles, StreamCreateError};
 use serde_json::Value;
-use tokio::fs;
 
 use super::App;
-use super::container_copies::counted_as;
-use super::doomed::Doomed;
 use super::export::ARCHIVE_VERSION;
 use super::file_name::check_file_name;
 use super::files::stored_extension;
-use crate::collab::AccessScope;
 use crate::error::{AppError, ErrorKind};
-use crate::metrics::ContainerWork;
 use crate::permissions;
 use archive::{
     Archive, check_entry, entry_limit, entry_name, open_archive, read_entry, too_many_entries,
-    unpack_entry,
 };
-use native_stream::{BoardWritePlan, build_write_plan, recheck_planned_fields, scan_native_board};
-use native_stream_write::{
-    BlockIdCollection, StreamedBoardHandle, StreamedBoardStats, spawn_board_streamer,
-};
+use native_stream::{build_write_plan, recheck_planned_fields, scan_native_board};
 
 /// The most an archive's entries may decompress to together (`docs/s6-design.md` 4.2):
 /// what keeps a small archive from unfolding into a disk's worth.
@@ -76,8 +67,8 @@ impl App {
     ///
     /// Returns 404 if `workspace_id` does not exist in this organization or `modified_by`
     /// is not a non-guest member; 400 or 413 if the input fails security, format, size,
-    /// depth, or allowlist validation; and 500 on storage or database failure. For
-    /// `trello` and `notion`, any error leaves zero containers, blocks, and files stored.
+    /// depth, or allowlist validation; and 500 on storage or database failure. Any error
+    /// leaves zero containers, blocks, and files stored.
     pub async fn import_external_archive(
         &self,
         path: &Path,
@@ -153,14 +144,14 @@ impl App {
     }
 
     /// Imports the native fvoci v3 archive in the file at `path`, of zero or more boards
-    /// with their blocks and files, using two-pass streaming line-by-line reads.
+    /// with their blocks and files, using two-pass streaming reads with pre-commit file
+    /// staging and a single atomic transaction across all boards.
     async fn import_archive_detailed(
         &self,
         path: &Path,
         options: &ImportOptions,
     ) -> Result<(Imported, ImportCounts, Vec<String>), AppError> {
         let zip = open_archive(path).await?;
-        let unpacked_file = path.with_file_name("entry");
         if zip.is_empty() {
             return Err(AppError::bad_request("zip: not a valid zip file"));
         }
@@ -215,301 +206,8 @@ impl App {
         }
         let all_copies = Arc::new(all_copies);
 
-        // Pass 2: stream each `board.jsonl` in bounded batches inside a transaction.
-        let mut left_out: HashSet<String> = HashSet::new();
-        let StoredContainers {
-            by_dir: stored,
-            created_order,
-            files,
-            blocks_to_point,
-            mut counts,
-        } = self
-            .store_archive_containers(&zip, plans, options, &all_copies, &mut left_out)
-            .await?;
-
-        // Store file entries, placed under their board, then point referenced blocks.
-        let entries = (&zip, largest_file, unpacked_file.as_path());
-        let file_map = self.store_archive_files(entries, &stored, &files).await?;
-        self.point_at_stored_files(
-            &stored,
-            &blocks_to_point,
-            &file_map,
-            &all_copies,
-            &options.modified_by,
-        )
-        .await;
-        tracing::debug!(containers_imported = stored.len(), "import archive - done");
-
-        counts.files = file_map.len();
-        let container_ids = tally_container_counts(&created_order, &mut counts);
-        Ok((
-            Imported {
-                members_left_out: left_out.len(),
-            },
-            counts,
-            container_ids,
-        ))
-    }
-
-    /// Stores the file entries of the archive (`entries`: the archive, the limit of a
-    /// file's size and where an entry is unpacked to), each under the board of its
-    /// directory among `stored`, skipping entries the board lists as missing.
-    async fn store_archive_files(
-        &self,
-        (zip, largest_file, unpacked): (&Archive, u64, &Path),
-        stored: &HashMap<String, Container>,
-        files: &HashMap<String, ArchiveFiles>,
-    ) -> Result<HashMap<(String, String), String>, AppError> {
-        let mut file_map: HashMap<(String, String), String> = HashMap::new();
-        for index in 0..zip.len() {
-            let (dir, filename) = entry_name(zip, index)?;
-            if filename.is_empty() || filename == "version.json" || filename == "board.jsonl" {
-                continue;
-            }
-            let Some(container) = stored.get(&dir) else {
-                tracing::warn!(dir, filename, "skipping orphan image in archive");
-                continue;
-            };
-            let said = files.get(&dir);
-            if said.is_some_and(|said| said.missing.contains(&filename)) {
-                tracing::warn!(
-                    dir,
-                    filename,
-                    "skipping an entry of the archive that its board says is missing"
-                );
-                continue;
-            }
-            let name = name_in(files, &dir, &filename);
-            let entry = (zip, index, largest_file, unpacked);
-            let saved = self.save_archive_entry(entry, &container.id, name).await;
-            let new_name = saved.map_err(|error| {
-                error.context(format_args!(
-                    "cannot import file {filename} for board {dir}"
-                ))
-            })?;
-            file_map.insert((container.id.clone(), filename), new_name);
-        }
-        Ok(file_map)
-    }
-
-    /// Unpacks one archive entry to a doomed staging file and stores it under
-    /// `container_id`, guaranteeing staging cleanup on success, error, or cancellation.
-    async fn save_archive_entry(
-        &self,
-        (zip, index, limit, unpacked): (&Archive, usize, u64, &Path),
-        container_id: &str,
-        name: &str,
-    ) -> Result<String, AppError> {
-        let staged = Doomed::file(unpacked.to_owned());
-        let saved = match unpack_entry(zip, index, limit, staged.path()).await {
-            Ok(()) => match fs::File::open(staged.path()).await {
-                Ok(mut file) => self.save_file(&mut file, container_id, name).await,
-                Err(error) => Err(AppError::internal(format_args!(
-                    "cannot open an unpacked archive entry: {error}"
-                ))),
-            },
-            Err(error) => Err(error),
-        };
-        staged.remove().await;
-        saved
-    }
-
-    /// Streams and stores every planned board of the archive one by one.
-    async fn store_archive_containers(
-        &self,
-        zip: &Archive,
-        plans: Vec<BoardWritePlan>,
-        options: &ImportOptions,
-        all_copies: &Arc<HashMap<String, String>>,
-        left_out: &mut HashSet<String>,
-    ) -> Result<StoredContainers, AppError> {
-        let mut stored = StoredContainers::default();
-        for plan in plans {
-            let dir = plan.dir.clone();
-            stored.files.insert(dir.clone(), plan.files);
-            let (container, stats) = self
-                .store_streamed_board(
-                    zip,
-                    plan.zip_index,
-                    plan.containers,
-                    plan.members,
-                    plan.stream_plan,
-                    Arc::clone(all_copies),
-                    options,
-                    left_out,
-                )
-                .await?;
-            stored.counts.cards += stats.counts.cards;
-            stored.counts.pages += stats.counts.pages;
-            stored.counts.comments += stats.counts.comments;
-            for (cid, ids) in stats.blocks_to_point {
-                stored.blocks_to_point.entry(cid).or_default().extend(ids);
-            }
-            stored
-                .created_order
-                .push((container.kind, container.id.clone()));
-            stored.by_dir.insert(dir, container);
-        }
-        Ok(stored)
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "internal helper wiring one board's Pass-2 stream into the store transaction"
-    )]
-    async fn store_streamed_board(
-        &self,
-        zip: &Archive,
-        zip_index: usize,
-        mut containers: Vec<Container>,
-        members: Vec<ContainerMember>,
-        stream_plan: native_stream::StreamPlan,
-        all_copies: Arc<HashMap<String, String>>,
-        options: &ImportOptions,
-        left_out: &mut HashSet<String>,
-    ) -> Result<(Container, StreamedBoardStats), AppError> {
-        let mut kept_members = Vec::with_capacity(members.len());
-        for member in members {
-            if permissions::role_of(&member).is_none() {
-                continue;
-            }
-            let actor = self.actor(&member.user_id, &options.workspace_id).await?;
-            match actor.workspace {
-                Some(workspace_role) => {
-                    kept_members.push(no_more_than_holdable(member, workspace_role));
-                }
-                None => {
-                    left_out.insert(member.user_id);
-                }
-            }
-        }
-
-        let collect_ids = if self.ws().has_workspace_listeners(&options.workspace_id)
-            || !self.config().block_change_webhooks.is_empty()
-        {
-            BlockIdCollection::All
-        } else {
-            BlockIdCollection::None
-        };
-        let StreamedBoardHandle {
-            rx,
-            stats: streamer_handle,
-        } = spawn_board_streamer(
-            zip.clone(),
-            zip_index,
-            stream_plan,
-            all_copies,
-            options.modified_by.clone(),
-            collect_ids,
-        );
-
-        let write_result = {
-            let _structure = self.collab().changing_structure(self).await;
-            self.store()
-                .create_containers_and_blocks_streamed(
-                    &mut containers,
-                    &options.modified_by,
-                    NewBodyFiles::Unchecked,
-                    rx,
-                )
-                .await
-        };
-        let streamer_outcome = streamer_handle.await;
-
-        match write_result {
-            Ok(()) => {}
-            Err(StreamCreateError::Producer(error)) => return Err(error),
-            Err(StreamCreateError::Incomplete) => {
-                return Err(AppError::internal("archive stream ended before completion"));
-            }
-            Err(StreamCreateError::Store(error)) => {
-                return Err(AppError::from(error).context("error inserting archive blocks"));
-            }
-        }
-        let stats = streamer_outcome.map_err(|error| {
-            AppError::internal(format_args!("archive stream task failed: {error}"))
-        })?;
-
-        self.finalize_streamed_containers(
-            &containers,
-            &kept_members,
-            &stats.inserted_block_ids,
-            options,
-        )
-        .await?;
-
-        let primary = containers
-            .into_iter()
-            .next()
-            .ok_or_else(|| AppError::bad_request("missing board in archive"))?;
-        Ok((primary, stats))
-    }
-
-    async fn finalize_streamed_containers(
-        &self,
-        containers: &[Container],
-        kept_members: &[ContainerMember],
-        inserted_block_ids: &[String],
-        options: &ImportOptions,
-    ) -> Result<(), AppError> {
-        if !containers.is_empty() {
-            let made = containers.iter().map(|container| &container.id);
-            self.collab()
-                .recheck_access(self, AccessScope::containers(made))
-                .await;
-        }
-        let workspace_id = containers
-            .first()
-            .map_or("", |container| container.workspace_id.as_str());
-        for container in containers {
-            self.ws()
-                .broadcast_container_change(workspace_id, container)
-                .await;
-        }
-        for chunk in inserted_block_ids.chunks(ANNOUNCE_CHUNK_BLOCKS) {
-            match self.store().get_blocks_by_ids(chunk).await {
-                Ok(blocks) => {
-                    for block in &blocks {
-                        self.ws().broadcast_block_change(workspace_id, block).await;
-                        self.tell_webhooks(block).await;
-                    }
-                }
-                Err(error) => {
-                    tracing::error!(
-                        %error,
-                        workspace_id,
-                        "cannot load imported blocks for broadcast"
-                    );
-                }
-            }
-        }
-        for container in containers {
-            if !container.is_template {
-                self.add_containers_to_default_category(
-                    &options.modified_by,
-                    &container.workspace_id,
-                    std::slice::from_ref(&container.id),
-                )
-                .await?;
-            }
-            let admin = ContainerMember {
-                container_id: container.id.clone(),
-                user_id: options.modified_by.clone(),
-                scheme_admin: true,
-                ..ContainerMember::default()
-            };
-            self.add_member_to_container(&admin).await?;
-            for member in kept_members {
-                let member = ContainerMember {
-                    container_id: container.id.clone(),
-                    ..member.clone()
-                };
-                self.add_member_to_container(&member).await?;
-            }
-            self.metrics()
-                .container_copied(ContainerWork::Import, counted_as(container.kind));
-        }
-        Ok(())
+        self.commit_streamed_native_archive(&zip, plans, all_copies, options, largest_file)
+            .await
     }
 }
 
@@ -570,21 +268,6 @@ struct ArchiveFiles {
     /// The entries the export did not find (`missingFiles`, [`missing_files_of`]): none
     /// is stored, and what shows them shows no file.
     missing: HashSet<String>,
-}
-
-/// The boards of an archive as they were stored.
-#[derive(Default)]
-struct StoredContainers {
-    /// Each board by the directory of the archive it came in.
-    by_dir: HashMap<String, Container>,
-    /// Containers created, in creation order (kind and new ID), for deterministic summaries.
-    created_order: Vec<(ContainerKind, String)>,
-    /// What the board lines say of the files, by the directory of the archive.
-    files: HashMap<String, ArchiveFiles>,
-    /// New block IDs per new container ID that reference files or cross-board copies.
-    blocks_to_point: HashMap<String, Vec<String>>,
-    /// Running counts of imported blocks across all boards.
-    counts: ImportCounts,
 }
 
 /// The name a file of the archive is stored with: the one the board line of its
@@ -755,6 +438,7 @@ mod bundle;
 mod external_tests;
 mod markdown;
 mod markdown_nodes;
+mod native_atomic;
 mod native_stream;
 mod native_stream_write;
 mod notion;
