@@ -57,7 +57,7 @@ fn direct_and_team_roles_take_the_highest_within_the_team_limit() {
         for scope in [
             ContainerScope::InvitedOnly,
             ContainerScope::Open,
-            ContainerScope::OpenWiki,
+            ContainerScope::OpenToRead,
             ContainerScope::InvitedOnlyTemplate,
         ] {
             assert_eq!(

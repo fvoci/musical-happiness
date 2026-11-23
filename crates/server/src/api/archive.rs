@@ -168,7 +168,7 @@ async fn handle_export_workspace(
     Path(workspace_id): Path<String>,
 ) -> ApiResult {
     let ws = InWorkspace::enter(&app, session, workspace_id).await?;
-    let app = &ws.app.clone().reaching(ContainerKinds::Every);
+    let app = &ws.app.clone().reaching(ContainerKinds::EVERY);
     let user_id = &ws.session.user_id;
     let containers = app
         .readable_workspace_containers(user_id, &ws.workspace_id, ws.role)

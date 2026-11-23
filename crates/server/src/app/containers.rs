@@ -209,11 +209,11 @@ impl App {
             .store()
             .patch_container(container_id, patch, user_id)
             .await?;
-        // Who read an open wiki without joining it reads it no more once it is private:
-        // they are told it is gone for them, as when it is deleted.
+        // Who read an open wiki or course without joining it reads it no more once it is
+        // private: they are told it is gone for them, as when it is deleted.
         let closed = scope_before.filter(|before| {
-            *before == ContainerScope::OpenWiki
-                && ContainerScope::of(&updated) != ContainerScope::OpenWiki
+            *before == ContainerScope::OpenToRead
+                && ContainerScope::of(&updated) != ContainerScope::OpenToRead
         });
         if changes_access(patch) {
             self.collab()

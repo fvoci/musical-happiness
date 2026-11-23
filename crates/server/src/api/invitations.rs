@@ -23,7 +23,7 @@ use super::contract::params::{AcceptLanguage, InvitationId, PeopleWorkspaceId};
 use super::contract::tag;
 use super::session::optional_session_of;
 use super::signup_cookie::{marker_of, with_marker};
-use super::workspace::{InBoardOrWiki, InWorkspace};
+use super::workspace::{InShared, InWorkspace};
 use super::{
     ApiResult, OptionalSession, accept_language, created, decode_object, json_response, no_content,
 };
@@ -82,7 +82,7 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
     request_body = NewInvitation,
     responses((status = 201, description = "The invitation, with its token.", body = Invitation)),
 )]
-async fn handle_create_invitation(InBoardOrWiki(ws): InBoardOrWiki, body: Bytes) -> ApiResult {
+async fn handle_create_invitation(InShared(ws): InShared, body: Bytes) -> ApiResult {
     let ws = ws.require_people()?;
     let request: NewInvitation = decode_object(&body)?;
     let inviting = match request.role {

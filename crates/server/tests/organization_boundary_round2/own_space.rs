@@ -57,6 +57,10 @@ struct Space {
     /// of it, whose weather has the word.
     diary: Container,
     entry: Block,
+    /// A course of the space, a chapter and a unit inside it, each naming the secret.
+    course: Container,
+    chapter: Block,
+    unit: Block,
     file: String,
     upload_id: String,
     category: String,
@@ -138,6 +142,7 @@ impl Space {
         let page = a_page_in(store, &workspace.id, &owner_id).await;
         let comment = a_comment_on(store, &page).await;
         let (diary, entry) = a_diary_of(&owner, store, &workspace.id).await;
+        let (course, chapter, unit) = a_course_of(&owner, store, &workspace.id).await;
         Self {
             owner,
             owner_id,
@@ -150,6 +155,9 @@ impl Space {
             comment,
             diary,
             entry,
+            course,
+            chapter,
+            unit,
             file,
             upload_id: upload.id,
             category,
@@ -166,6 +174,7 @@ impl Space {
             page: &self.page,
             comment: &self.comment,
             entry: Some(&self.entry),
+            unit: &self.unit,
             file: &self.file,
             upload_id: &self.upload_id,
             category: &self.category,
@@ -190,6 +199,9 @@ impl Space {
             &self.comment.id,
             &self.diary.id,
             &self.entry.id,
+            &self.course.id,
+            &self.chapter.id,
+            &self.unit.id,
             &self.file,
             &self.upload_id,
             &self.category,
@@ -197,6 +209,47 @@ impl Space {
         .iter()
         .any(|part| text.contains(*part))
     }
+}
+
+/// A course the owner makes in the workspace of their space by its route, with a chapter
+/// and a unit below it.
+async fn a_course_of(
+    owner: &Client,
+    store: &fvoci_store::Store,
+    workspace: &str,
+) -> (Container, Block, Block) {
+    let courses = format!("/w/{workspace}/courses");
+    let course = owner
+        .post(
+            &courses,
+            &json!({"title": format!("{SECRET} course"), "type": "P"}),
+        )
+        .await;
+    assert_eq!(course.status, StatusCode::CREATED, "{}", course.text());
+    let course: Container = serde_json::from_value(course.value()).expect("the course");
+    let units = format!("{courses}/{}/units", course.id);
+    let chapter = owner
+        .post(
+            &units,
+            &json!({"kind": "chapter", "title": format!("{SECRET} chapter")}),
+        )
+        .await;
+    assert_eq!(chapter.status, StatusCode::CREATED, "{}", chapter.text());
+    let chapter_id = chapter.value()["id"]
+        .as_str()
+        .expect("chapter id")
+        .to_owned();
+    let unit = owner
+        .post(
+            &units,
+            &json!({"parentId": chapter_id, "title": format!("{SECRET} unit")}),
+        )
+        .await;
+    assert_eq!(unit.status, StatusCode::CREATED, "{}", unit.text());
+    let unit_id = unit.value()["id"].as_str().expect("unit id").to_owned();
+    let chapter = store.get_block(&chapter_id).await.expect("the chapter");
+    let unit = store.get_block(&unit_id).await.expect("the unit");
+    (course, chapter, unit)
 }
 
 /// A diary the owner makes in the workspace of their space by its route, and the entry
@@ -393,6 +446,7 @@ async fn compare_what_is_found(
         format!("/w/{workspace}/boards"),
         format!("/w/{workspace}/wikis"),
         format!("/w/{workspace}/diaries"),
+        format!("/w/{workspace}/courses"),
         format!("/w/{workspace}/categories"),
         format!("/w/{workspace}/audit"),
     ];
@@ -405,8 +459,17 @@ async fn compare_what_is_found(
     // A reference names its block by the identifier alone: one of the space resolves
     // to what one of nothing does.
     let path = format!("/w/{workspace}/references/resolve");
-    let named = json!([space.card.id, space.page.id, space.board.id, space.entry.id]);
-    let nothing = json!([UNKNOWN_ID, UNKNOWN_ID, UNKNOWN_ID, UNKNOWN_ID]);
+    let named = json!([
+        space.card.id,
+        space.page.id,
+        space.board.id,
+        space.entry.id,
+        space.unit.id,
+        space.chapter.id,
+    ]);
+    let nothing = json!([
+        UNKNOWN_ID, UNKNOWN_ID, UNKNOWN_ID, UNKNOWN_ID, UNKNOWN_ID, UNKNOWN_ID
+    ]);
     let (hidden, absent) = (
         client.post(&path, &named).await,
         client.post(&path, &nothing).await,
@@ -477,7 +540,7 @@ async fn compare_without_a_session(ts: &TestServer, space: &Space, token: &str) 
             let path = format!("/shared/{container}{suffix}?readToken={token}");
             anonymous.get(&path).await
         };
-        for hidden in [&space.board.id, &space.page.container_id] {
+        for hidden in [&space.board.id, &space.page.container_id, &space.course.id] {
             let (hidden, absent) = (ask(hidden).await, ask(UNKNOWN_ID).await);
             if hidden.status != StatusCode::NOT_FOUND || answer(&hidden) != answer(&absent) {
                 violations.push(format!(
@@ -495,7 +558,7 @@ async fn compare_without_a_session(ts: &TestServer, space: &Space, token: &str) 
 /// nothing, and no success.
 async fn compare_for_who_waits(client: &Client, space: &Space) -> Vec<String> {
     let mut violations = Vec::new();
-    for suffix in ["", "/boards", "/archive/export", "/audit"] {
+    for suffix in ["", "/boards", "/courses", "/archive/export", "/audit"] {
         let hidden = client
             .get(&format!("/w/{}{suffix}", space.workspace.id))
             .await;
@@ -581,10 +644,35 @@ async fn check_reached_by(space: &Space, client: &Client) {
     let found = client.get(&format!("{here}/search?q={SECRET}")).await;
     found.check_ok();
     assert!(
-        found.text().contains(&space.card.id) && found.text().contains(&space.entry.id),
-        "the owner's search of bodies finds the card and the entry: {}",
+        found.text().contains(&space.card.id)
+            && found.text().contains(&space.entry.id)
+            && found.text().contains(&space.unit.id),
+        "the owner's search of bodies finds the card, entry and unit: {}",
         found.text()
     );
+    let courses: Vec<Container> = client.get(&format!("{here}/courses")).await.ok_json();
+    assert_eq!(
+        courses,
+        std::slice::from_ref(&space.course),
+        "the owner lists the course"
+    );
+    let tree = client
+        .get(&format!("{here}/courses/{}/units", space.course.id))
+        .await;
+    tree.check_ok();
+    assert!(
+        tree.text().contains(&space.chapter.id) && tree.text().contains(&space.unit.id),
+        "{}",
+        tree.text()
+    );
+    let unit = client
+        .get(&format!(
+            "{here}/courses/{}/units/{}",
+            space.course.id, space.unit.id
+        ))
+        .await;
+    unit.check_ok();
+    assert!(unit.text().contains(SECRET), "{}", unit.text());
     let diaries: Vec<Container> = space.owner.get(&format!("{here}/diaries")).await.ok_json();
     assert_eq!(
         diaries,
@@ -716,26 +804,36 @@ async fn check_the_room_of_the_entry(
     };
     for (index, socket) in sockets.iter_mut().enumerate() {
         for under in [workspace.as_str(), ROOT_WORKSPACE_ID] {
-            let mut answers = Vec::new();
-            for id in [space.entry.id.as_str(), UNKNOWN_ID] {
-                socket.send(join(under, id)).await.expect("sent");
-                let answer = heard(socket).await.join("\n");
-                answers.push(answer.replace(id, "ID"));
+            for target in [space.entry.id.as_str(), space.unit.id.as_str()] {
+                let mut answers = Vec::new();
+                for id in [target, UNKNOWN_ID] {
+                    socket.send(join(under, id)).await.expect("sent");
+                    let answer = heard(socket).await.join("\n");
+                    answers.push(answer.replace(id, "ID"));
+                }
+                assert!(
+                    answers[0] == answers[1] && answers[0].contains("DOC_REFUSED"),
+                    "connection {index} asks for room {target} under {under}: {answers:?}"
+                );
             }
-            assert!(
-                answers[0] == answers[1] && answers[0].contains("DOC_REFUSED"),
-                "connection {index} asks for the entry's room under {under}: {answers:?}"
-            );
         }
     }
+    for target in [space.entry.id.as_str(), space.unit.id.as_str()] {
+        owner.send(join(workspace, target)).await.expect("sent");
+        let joined = heard(owner).await;
+        assert!(
+            !joined.is_empty() && !joined.iter().any(|message| message.contains("DOC_REFUSED")),
+            "the owner joins the room of {target}: {joined:?}"
+        );
+    }
     owner
-        .send(join(workspace, &space.entry.id))
+        .send(join(workspace, &space.chapter.id))
         .await
         .expect("sent");
-    let joined = heard(owner).await;
+    let refused = heard(owner).await.join("\n");
     assert!(
-        !joined.is_empty() && !joined.iter().any(|message| message.contains("DOC_REFUSED")),
-        "the owner joins the room of the entry: {joined:?}"
+        refused.contains("DOC_REFUSED"),
+        "a chapter has no room: {refused}"
     );
 }
 
@@ -763,15 +861,17 @@ async fn a_change_in_a_space_is_told_to_its_owner_alone() {
         json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace}),
         json!({
             "action": "SUBSCRIBE_BLOCKS", "workspaceId": workspace,
-            "blockIds": [space.card.id, space.entry.id],
+            "blockIds": [space.card.id, space.entry.id, space.unit.id, space.chapter.id],
         }),
         json!({
             "action": "SUBSCRIBE_BLOCKS", "workspaceId": workspace,
-            "blockIds": [space.card.id, space.entry.id], "readToken": token,
+            "blockIds": [space.card.id, space.entry.id, space.unit.id, space.chapter.id],
+            "readToken": token,
         }),
         json!({
             "action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID,
-            "blockIds": [space.card.id, space.entry.id], "readToken": token,
+            "blockIds": [space.card.id, space.entry.id, space.unit.id, space.chapter.id],
+            "readToken": token,
         }),
         json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}),
     ];
@@ -789,39 +889,9 @@ async fn a_change_in_a_space_is_told_to_its_owner_alone() {
         heard(socket).await;
     }
 
-    let mut card = Block {
-        id: new_id(),
-        container_id: space.board.id.clone(),
-        block_type: BlockType::Card,
-        title: format!("{SECRET} told"),
-        ..Block::default()
-    };
-    space
-        .app
-        .insert_block(&mut card, &space.owner_id, ChangeNotification::Suppress)
-        .await
-        .expect("the owner's change");
-    assert!(
-        space.app.finish_background(Duration::from_secs(5)).await,
-        "the change is told"
-    );
-    // The entry of a day is changed, and that of another day made, by their routes.
-    let entries = format!("/w/{workspace}/diaries/{}/entries", space.diary.id);
-    let changed = json!({"place": format!("{SECRET} place")});
-    let entry = format!("{entries}/{}", space.entry.id);
-    space.owner.patch(&entry, &changed).await.check_ok();
-    let made = space
-        .owner
-        .post(&entries, &json!({"date": "2024-03-01"}))
-        .await;
-    assert_eq!(made.status, StatusCode::CREATED, "{}", made.text());
-    let made = made.value()["id"].as_str().expect("its id").to_owned();
-    assert!(
-        space.app.finish_background(Duration::from_secs(5)).await,
-        "the entries are told"
-    );
+    let (card_id, made) = make_space_changes(&space).await;
     let told = heard(&mut owner).await;
-    for id in [&card.id, &space.entry.id, &made] {
+    for id in [&card_id, &space.entry.id, &made, &space.unit.id] {
         assert!(
             told.iter().any(|message| message.contains(id.as_str())),
             "the owner's connection is told of {id}: {told:?}"
@@ -839,6 +909,54 @@ async fn a_change_in_a_space_is_told_to_its_owner_alone() {
 
     check_the_room_of_the_entry(&space, &mut sockets, &mut owner).await;
     ts.teardown().await;
+}
+
+/// Inserts a card, changes and adds diary entries, and patches the unit of `space`.
+async fn make_space_changes(space: &Space) -> (String, String) {
+    let workspace = &space.workspace.id;
+    let mut card = Block {
+        id: new_id(),
+        container_id: space.board.id.clone(),
+        block_type: BlockType::Card,
+        title: format!("{SECRET} told"),
+        ..Block::default()
+    };
+    space
+        .app
+        .insert_block(&mut card, &space.owner_id, ChangeNotification::Suppress)
+        .await
+        .expect("the owner's change");
+    assert!(
+        space.app.finish_background(Duration::from_secs(5)).await,
+        "the change is told"
+    );
+    let entries = format!("/w/{workspace}/diaries/{}/entries", space.diary.id);
+    let changed = json!({"place": format!("{SECRET} place")});
+    let entry = format!("{entries}/{}", space.entry.id);
+    space.owner.patch(&entry, &changed).await.check_ok();
+    let made = space
+        .owner
+        .post(&entries, &json!({"date": "2024-03-01"}))
+        .await;
+    assert_eq!(made.status, StatusCode::CREATED, "{}", made.text());
+    let made = made.value()["id"].as_str().expect("its id").to_owned();
+    let unit_path = format!(
+        "/w/{workspace}/courses/{}/units/{}",
+        space.course.id, space.unit.id
+    );
+    space
+        .owner
+        .patch(
+            &unit_path,
+            &json!({"title": format!("{SECRET} unit edited")}),
+        )
+        .await
+        .check_ok();
+    assert!(
+        space.app.finish_background(Duration::from_secs(5)).await,
+        "the entries and units are told"
+    );
+    (card.id, made)
 }
 
 async fn receive(
@@ -944,6 +1062,27 @@ async fn write_in_the_diary(in_space: &App, space: &Space) {
         )
         .await
         .expect("a mood of the entry");
+    let new_unit = fvoci_model::NewUnit {
+        title: format!("{SECRET} webhook unit"),
+        ..fvoci_model::NewUnit::default()
+    };
+    let created = in_space
+        .create_unit(&space.course.id, &new_unit, &space.owner_id)
+        .await
+        .expect("a unit of the space");
+    let unit_patch = fvoci_model::BlockPatch {
+        title: Some(format!("{SECRET} webhook unit changed")),
+        ..fvoci_model::BlockPatch::default()
+    };
+    in_space
+        .patch_block(
+            &created.id,
+            &unit_patch,
+            &space.owner_id,
+            ChangeNotification::Send,
+        )
+        .await
+        .expect("a changed unit of the space");
 }
 
 #[tokio::test]
@@ -1172,6 +1311,15 @@ async fn a_server_with_a_space() -> (FakeSearch, TestServer, Space) {
     );
     planted["kind"] = json!("entry");
     index.plant(&space.entry.id, planted);
+    let mut planted = document(
+        &space.workspace.org_id,
+        &space.workspace.id,
+        &space.course.id,
+        &space.unit.title,
+        "",
+    );
+    planted["kind"] = json!("unit");
+    index.plant(&space.unit.id, planted);
     (index, ts, space)
 }
 
@@ -1485,9 +1633,14 @@ async fn a_provider_session_opens_nothing_of_a_space_whose_account_has_a_passwor
     for path in ["/users/me/memberships", "/users/me/deletion"] {
         let found = by_provider.get(path).await;
         found.check_ok();
-        if [&space.board.id, &space.managed.id, &space.page.container_id]
-            .iter()
-            .any(|board| found.text().contains(*board))
+        if [
+            &space.board.id,
+            &space.managed.id,
+            &space.page.container_id,
+            &space.course.id,
+        ]
+        .iter()
+        .any(|board| found.text().contains(*board))
         {
             violations.push(format!("GET {path}: {}", found.text()));
         }

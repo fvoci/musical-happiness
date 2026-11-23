@@ -5,7 +5,7 @@
 use fvoci_model::{ContainerRole, WorkspaceRole};
 
 use super::ContainerScope::{
-    BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate, OpenWiki,
+    BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate, OpenToRead,
 };
 use super::WorkspacePermission::{self, InviteMembers, ManageMembers, SwitchGuestInvitations};
 use super::table::{
@@ -127,7 +127,7 @@ fn who_invites_guests_to_a_board() {
         ("a stranger", STRANGER, None, false),
     ];
     for (case, actor, role, invites) in rows {
-        for scope in [InvitedOnly, Open, OpenWiki] {
+        for scope in [InvitedOnly, Open, OpenToRead] {
             let granted = grant(
                 actor,
                 ContainerFacts {

@@ -3393,6 +3393,200 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/courses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The courses of a workspace
+         * @description The courses of the workspace that the user is a member of, and the workspace's open
+         *     courses; a guest of the workspace gets only the former, an administrator every course
+         *     of the workspace (the units of a private course they are no member of stay 404 to
+         *     them). Each is a container of the `kind` `course`. Oldest first. 404 unless the user
+         *     is a member of the workspace.
+         */
+        get: operations["getCourses"];
+        put?: never;
+        /**
+         * Make a course
+         * @description The user becomes the course's admin, and the course is filed under the user's default
+         *     category, as a board is. Whoever works in the workspace makes courses in it; a guest
+         *     is refused (403). A member the request does not know is 400.
+         */
+        post: operations["createCourse"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/trash/units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The deleted units and chapters of a course
+         * @description One page of the course's chapters and units that are in the trash, each with its
+         *     identifier, `kind`, title, the chapter it was below, when it was deleted, by whom,
+         *     and (for a chapter) how many units below it went with it; `undeleteUnit` brings one
+         *     back until the trash is emptied of it. A unit that went with its chapter comes back
+         *     with that chapter, and is not listed separately. For editors of the course. The last
+         *     deleted first; the pages cut that order.
+         */
+        get: operations["getDeletedUnits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The outline of a course
+         * @description Every chapter and unit of the course without its body, for whoever reads the course:
+         *     each names the chapter it is below (`parentId`, empty for a chapter or a top-level
+         *     unit) and its `kind` (`unit` or `chapter`). By `order` as strings compare by code
+         *     unit, then by `id`: the siblings of one parent are in their order when taken out of
+         *     the list as it is.
+         */
+        get: operations["getUnitTree"];
+        put?: never;
+        /**
+         * Make a unit or chapter
+         * @description The server chooses the identifier, the creator, the times and the `order`. For
+         *     editors of the course. With `kind` `unit` (also when left out), the unit goes below
+         *     `parentId`, a chapter of the same course (400 at `/parentId` otherwise), or at the
+         *     top of the course. With `kind` `chapter`, the chapter is a title-only heading at the
+         *     top of the course (`parentId` must be empty; 400 at `/parentId` otherwise) with no
+         *     body and no room. Among the siblings of that parent it goes right after `after` (400
+         *     at `/after` if that is no sibling of the same parent), first if `after` is empty, and
+         *     last if it is left out. A unit's body is written by `patchUnit`, or together in its
+         *     room (`JOIN_DOC`).
+         *
+         *     A course holds at most 2,000 units and 200 chapters, those in the trash not counted
+         *     (chapters do not count toward the 2,000-unit limit): one more unit is 400 with the
+         *     reason `too_many_units` and the `limit`, and one more chapter is 400 with the reason
+         *     `too_many_chapters` and the `limit`.
+         *
+         *     The course's listeners are told with `UPDATE_BLOCK`, whose block of the `type` `unit`
+         *     or `chapter` carries its `order` among its `fields`. Any sibling numbered anew to
+         *     leave room is told of too.
+         */
+        post: operations["createUnit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A unit or chapter
+         * @description The unit with its body, or the chapter (`body` is `null`), for whoever reads its
+         *     course.
+         */
+        get: operations["getUnit"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a unit or chapter
+         * @description Moves the unit to the trash of its course, or moves the chapter together with every
+         *     unit below it as one deletion, for editors of the course. The course's listeners are
+         *     told with `UPDATE_BLOCK` of the deleted block alone, whose `deleteAt` is not 0.
+         */
+        delete: operations["deleteUnit"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a unit or chapter
+         * @description Its title, or (for a unit) its whole body, for editors of the course. A chapter has
+         *     no body: sending `body` on a chapter is 400 at `/body`. A new body is sent with
+         *     `readAt`, the `updateAt` of the unit as it was read: 409 if the unit has changed
+         *     since, and nothing is changed. Where the body is being edited together, what the
+         *     editors typed is written to the unit first, so a writer who read it before is refused
+         *     and reads it again. Where the node stands in the course does not change here.
+         */
+        patch: operations["patchUnit"];
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a unit or chapter
+         * @description Moves a unit to the top of the course (left out or empty `parentId`) or below a
+         *     chapter of the same course, right after `after` among the siblings there (empty for
+         *     first, left out or `null` for last). Moves a chapter among the top-level siblings
+         *     (`parentId` must be empty; 400 at `/parentId` otherwise), keeping its units below it.
+         *     For editors of the course. 400 at `/parentId` if the parent is no chapter of the
+         *     course or is the unit itself; 400 at `/after` if that is no other sibling of the
+         *     parent. Nothing is changed then.
+         *
+         *     The course's listeners are told with `UPDATE_BLOCK` of the moved node and of any
+         *     sibling numbered anew to leave it room; a chapter's units keep their parent and are
+         *     not told of.
+         */
+        post: operations["moveUnit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/undelete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring back a unit or chapter
+         * @description Restores the unit from the course's trash, or restores the chapter together with the
+         *     units deleted along with it, for editors of the course: below the chapter it was
+         *     below at the place it had (right after the siblings before it if a sibling took that
+         *     place since), or, if that chapter is gone (in the trash or purged), last at the top
+         *     of the course. Held to the course's limits: 400 with the reason `too_many_units` or
+         *     `too_many_chapters` (each with the `limit`) if restoring would exceed them. A block
+         *     not in this course's trash, or a unit that went with its chapter (it comes back with
+         *     that chapter), is 404. The course's listeners are told with `UPDATE_BLOCK` of each
+         *     block that came back (a chapter before its units) and each sibling numbered anew.
+         */
+        post: operations["undeleteUnit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/diaries": {
         parameters: {
             query?: never;
@@ -4024,27 +4218,28 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search what the cards, pages and entries of a workspace say
-         * @description The cards of the boards and the pages of the wikis of the workspace that the user
-         *     has a role on, their own or a team's, the pages of its wikis open to who works
-         *     there (an open board they have not joined is not searched), and, in the workspace
-         *     of the user's own space, the entries of its diaries, whose title and body
-         *     together hold every word of `q`. The title of an entry is its day (`2026-11-21`). Comments, property values and attached files are
-         *     not searched, and neither are templates. How words match depends on the server:
-         *     with a search server, Korean is matched by its words, whatever particles and
-         *     endings they carry, and a compound by its parts too ("환불 규정" finds "환불규정을");
-         *     without one, each word (what is between white space) is in the title or the body as
-         *     it is written there, ASCII letters in either case ("환불" finds "환불규정을",
-         *     "배포하다" does not find "배포합니다"). Each hit is the card, the page or the entry as
-         *     it is now: its `kind`, its `title`, the board, the wiki or the diary it is in
-         *     (`containerId`, and `containerKind`, by which a client tells their addresses apart), and
-         *     `snippet`, a piece of its body in stretches of plain text, those that matched
-         *     marked; the snippet is empty for a body that changed a moment ago, or has nothing
-         *     to show. The best match first (without a search server: those whose title holds
-         *     every word, then the most recently changed). Nothing says how many match in all:
-         *     fewer than `limit` means that no more of what the user reads matches (for a user with
-         *     a role on more boards and wikis than a search names, 1,000 with a search server and
-         *     10,000 without: among the 10,000 best matches of the workspace).
+         * Search what the cards, pages, entries and units of a workspace say
+         * @description The cards of the boards, the pages of the wikis and the units of the courses of the
+         *     workspace that the user has a role on, their own or a team's, the pages of its open
+         *     wikis and the units of its open courses for who works there (an open board they have
+         *     not joined is not searched), and, in the workspace of the user's own space, the
+         *     entries of its diaries, whose title and body together hold every word of `q`. The
+         *     title of an entry is its day (`2026-11-21`). Chapters, comments, property values and
+         *     attached files are not searched, and neither are templates. How words match depends
+         *     on the server: with a search server, Korean is matched by its words, whatever
+         *     particles and endings they carry, and a compound by its parts too ("환불 규정" finds
+         *     "환불규정을"); without one, each word (what is between white space) is in the title
+         *     or the body as it is written there, ASCII letters in either case ("환불" finds
+         *     "환불규정을", "배포하다" does not find "배포합니다"). Each hit is the card, the page,
+         *     the entry or the unit as it is now: its `kind`, its `title`, the container it is in
+         *     (`containerId`, and `containerKind`, by which a client tells their addresses apart),
+         *     and `snippet`, a piece of its body in stretches of plain text, those that matched
+         *     marked; the snippet is empty for a body that changed a moment ago, or has nothing to
+         *     show. The best match first (without a search server: those whose title holds every
+         *     word, then the most recently changed). Nothing says how many match in all: fewer than
+         *     `limit` means that no more of what the user reads matches (for a user with a role on
+         *     more containers than a search names, 1,000 with a search server and 10,000 without:
+         *     among the 10,000 best matches of the workspace).
          *
          *     A `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1
          *     to 50 are 400; a `q` that is empty finds nothing. A user who searches more often
@@ -5037,11 +5232,12 @@ export interface components {
             editedAt?: number;
             /**
              * @description Type-specific data, free-form: serialized, at most 64,000 characters for a card, a
-             *     comment, an attachment or a page and 800,000 for a view or a block of another
-             *     type. The `icon` of a card is a string and its `isTemplate` a boolean, or either
-             *     `null` (400 naming `fields` otherwise). A page has its `icon` and its `order`
-             *     here, as `Page` gives them, and an entry its `date`, `mood`, `weather` and
-             *     `place`, as `DiaryEntry` gives them.
+             *     comment, an attachment, a page, an entry, a unit or a chapter and 800,000 for a
+             *     view or a block of another type. The `icon` of a card is a string and its
+             *     `isTemplate` a boolean, or either `null` (400 naming `fields` otherwise). A page
+             *     has its `icon` and its `order` here, as `Page` gives them, an entry its `date`,
+             *     `mood`, `weather` and `place`, as `DiaryEntry` gives them, and a unit or chapter
+             *     its `order`, as `Unit` gives it.
              */
             fields: {
                 [key: string]: unknown;
@@ -5068,10 +5264,11 @@ export interface components {
             title: string;
             /**
              * @description The block type: `card`, `view`, `comment` or `attachment` on a board, `page`
-             *     and `comment` (on a page) on a wiki, and `entry` on a diary. No request of blocks
-             *     makes a block of another type or patches one into it (400 naming `type`), nor a
-             *     page or an entry: `createPage` makes pages, `createPageComment` the comments of
-             *     a wiki, and `createDiaryEntry` entries.
+             *     and `comment` (on a page) on a wiki, `entry` on a diary, and `chapter` and `unit`
+             *     on a course. No request of blocks makes a block of another type or patches one
+             *     into it (400 naming `type`), nor a page, an entry, a unit or a chapter:
+             *     `createPage` makes pages, `createPageComment` the comments of a wiki,
+             *     `createDiaryEntry` entries, and `createUnit` chapters and units.
              */
             type: string;
             /**
@@ -5503,11 +5700,12 @@ export interface components {
             isTemplate: boolean;
             /**
              * @description What the board is for: `board` for cards, `wiki` for pages, `diary` for the
-             *     entries of its days. It is what the board was made as and never changes; a
-             *     board decoded without it is a `board`. A wiki and a diary are no template and
-             *     have no card properties, and the operations that are about cards answer for
-             *     them as for a board that is not there. A diary is private (`type` `P`) besides,
-             *     and is only in the workspace of a user's own space ("Diaries").
+             *     entries of its days, `course` for chapters and units. It is what the board was
+             *     made as and never changes; a board decoded without it is a `board`. A wiki, a
+             *     diary and a course are no template and have no card properties, and the
+             *     operations that are about cards answer for them as for a board that is not there.
+             *     A diary is private (`type` `P`) besides, and is only in the workspace of a user's
+             *     own space ("Diaries").
              */
             kind: components["schemas"]["ContainerKind"];
             /**
@@ -5546,11 +5744,11 @@ export interface components {
         };
         /**
          * @description What a container of a workspace is for: a board holds cards and their views, a wiki
-         *     holds pages, a diary holds the entries of its days. A container is of one kind from
-         *     when it is made and never of another.
+         *     holds pages, a diary holds the entries of its days, and a course holds chapters and
+         *     units. A container is of one kind from when it is made and never of another.
          * @enum {string}
          */
-        ContainerKind: "board" | "wiki" | "diary";
+        ContainerKind: "board" | "wiki" | "diary" | "course";
         /** @description A user's membership of a board. */
         ContainerMember: {
             /** @description The identifier of the board. */
@@ -5703,6 +5901,38 @@ export interface components {
              */
             parentId: string;
             /** @description The page's title when it was deleted. */
+            title: string;
+        };
+        /**
+         * @description A unit or chapter in the trash, at the top of what went with it, as the trash of a
+         *     course lists it: `undeleteUnit` brings it back, and for a chapter brings back the
+         *     units deleted along with it.
+         */
+        DeletedUnit: {
+            /**
+             * Format: int32
+             * @description How many units below this chapter went with it and come back with it; zero for a
+             *     unit.
+             */
+            below: number;
+            /**
+             * Format: int64
+             * @description When it was deleted, in milliseconds since the Unix epoch.
+             */
+            deletedAt: number;
+            /** @description Who deleted it, who may no longer exist; empty if not known. */
+            deletedBy: string;
+            /** @description The unit's or chapter's identifier. */
+            id: string;
+            /** @description Whether this deleted entry is a `unit` or a `chapter`. */
+            kind: components["schemas"]["UnitKind"];
+            /**
+             * @description The chapter it was below; empty for a chapter or a top-level unit. If that
+             *     chapter is gone when the unit is restored, the unit comes back at the top of the
+             *     course.
+             */
+            parentId: string;
+            /** @description The title when it was deleted. */
             title: string;
         };
         /**
@@ -6068,12 +6298,17 @@ export interface components {
             boards?: number;
             /**
              * Format: int64
-             * @description How many diaries it has in use: only the account's own space has any.
+             * @description How many courses it has in use.
              */
-            diaries: number;
+            courses?: number;
             /**
              * Format: int64
-             * @description How many files its boards, wikis and diaries in use hold.
+             * @description How many diaries it has in use: only the account's own space has any.
+             */
+            diaries?: number;
+            /**
+             * Format: int64
+             * @description How many files its boards, wikis, diaries and courses in use hold.
              */
             files?: number;
             /** @description The organization's identifier. */
@@ -6393,6 +6628,23 @@ export interface components {
             /** @description The boards, at least one. Each needs an `id`. */
             containers: components["schemas"]["NewBoard"][];
         };
+        /** @description A course to make. */
+        NewCourse: {
+            /** @description The course's description. Left out, empty. */
+            description?: string;
+            /** @description The course's icon, usually one emoji. Left out, none. */
+            icon?: string;
+            /** @description The role a user gets who joins the course. Left out, `editor`. */
+            minimumRole?: components["schemas"]["MinimumRole"];
+            /** @description The course's title. Left out, empty. */
+            title?: string;
+            /**
+             * @description Whether the course is open (`O`), for whoever works in the workspace to read and
+             *     search without joining, and to join to enroll, or private (`P`), for whom it is
+             *     shared with.
+             */
+            type: components["schemas"]["ContainerType"];
+        };
         /** @description A diary to make. */
         NewDiary: {
             /** @description The diary's description. Left out, empty. */
@@ -6509,6 +6761,24 @@ export interface components {
             subscriberId: string;
             /** @description Always `user`. */
             subscriberType: string;
+        };
+        /** @description A unit or chapter to make in a course. */
+        NewUnit: {
+            /**
+             * @description The identifier of the sibling it goes right after: a sibling of the same parent.
+             *     Empty for the first place; left out or `null`, the last place.
+             */
+            after?: string | null;
+            /** @description Whether to make a `unit` or a `chapter`. Left out, `unit`. */
+            kind?: components["schemas"]["UnitKind"];
+            /**
+             * @description The identifier of the chapter the unit goes below: a chapter of the same course.
+             *     Left out or empty, it goes at the top of the course. A chapter must leave this
+             *     empty (400 at `/parentId` otherwise).
+             */
+            parentId?: string;
+            /** @description The title. Left out, empty. */
+            title?: string;
         };
         /** @description A file to send in parts. */
         NewUpload: {
@@ -7187,14 +7457,11 @@ export interface components {
         };
         /** @description One thing a search found: the user reads it now. */
         SearchHit: {
-            /**
-             * @description The identifier of the board the card is on, of the wiki the page is in, or of
-             *     the diary the entry is in.
-             */
+            /** @description The identifier of the board, wiki, diary or course the match is in. */
             containerId: string;
-            /** @description What its container is: a board, a wiki, or a diary. */
+            /** @description What its container is: a board, a wiki, a diary or a course. */
             containerKind: components["schemas"]["ContainerKind"];
-            /** @description The identifier of the card, the page or the entry. */
+            /** @description The identifier of the card, the page, the entry or the unit. */
             id: string;
             /** @description What it is. */
             kind: components["schemas"]["SearchKind"];
@@ -7216,7 +7483,7 @@ export interface components {
          * @description The kind of thing a search finds.
          * @enum {string}
          */
-        SearchKind: "card" | "page" | "entry";
+        SearchKind: "card" | "page" | "entry" | "unit";
         /** @description What `ping` reports about the server. */
         ServerMetadata: {
             /** @description The build date; empty unless set at build time. */
@@ -7391,6 +7658,109 @@ export interface components {
          * @enum {string}
          */
         Title: "dr" | "prof";
+        /** @description A unit or chapter of a course. */
+        Unit: {
+            body: components["schemas"]["Body"] | null;
+            /** @description The identifier of the course it is of. */
+            courseId: string;
+            /**
+             * Format: int64
+             * @description Creation time in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description The identifier of the user who made it. */
+            createdBy: string;
+            /** @description The unit's or chapter's identifier. */
+            id: string;
+            /** @description Whether this entry is a `unit` or a `chapter`. */
+            kind: components["schemas"]["UnitKind"];
+            /** @description The identifier of the user who last changed it. */
+            modifiedBy: string;
+            /** @description Its place among the siblings of the same parent, as in `getUnitTree`. */
+            order: string;
+            /**
+             * @description The identifier of the chapter it is below; empty for a chapter and for a unit at
+             *     the top of its course.
+             */
+            parentId: string;
+            /** @description The title. */
+            title: string;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch: what `readAt` of a
+             *     change of the unit names.
+             */
+            updateAt: number;
+        };
+        /**
+         * @description Whether an entry of a course's outline is a unit (with a body) or a chapter (a
+         *     top-level title-only heading that groups units).
+         * @enum {string}
+         */
+        UnitKind: "unit" | "chapter";
+        /**
+         * @description Where a unit or chapter moves to, within its course. Moving a chapter keeps its units
+         *     below it.
+         */
+        UnitMove: {
+            /**
+             * @description The identifier of the sibling it goes right after: another sibling of that
+             *     parent. Empty for the first place; left out or `null`, the last place.
+             */
+            after?: string | null;
+            /**
+             * @description The identifier of the chapter it goes below: a chapter of the same course. Left
+             *     out or empty, it goes to the top of the course. A chapter must leave this empty
+             *     (400 at `/parentId` otherwise).
+             */
+            parentId?: string;
+        };
+        /** @description A unit or chapter as the outline of its course lists it: without its body. */
+        UnitNode: {
+            /**
+             * Format: int64
+             * @description Creation time in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description The unit's or chapter's identifier. */
+            id: string;
+            /** @description Whether this node is a `unit` or a `chapter`. */
+            kind: components["schemas"]["UnitKind"];
+            /**
+             * @description Its place among the siblings of the same parent: listed by it as strings compare
+             *     (by code unit, not by a locale), and by `id` where two have the same. The server
+             *     makes it; a client reads it only to sort.
+             */
+            order: string;
+            /**
+             * @description The identifier of the chapter it is below; empty for a chapter and for a unit at
+             *     the top of its course.
+             */
+            parentId: string;
+            /** @description The unit's or chapter's title. */
+            title: string;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
+        /**
+         * @description What a unit or chapter is changed to. Absent members stay as they are. Where the
+         *     node stands in the course does not change here (`moveUnit`).
+         */
+        UnitPatch: {
+            body?: components["schemas"]["Body"] | null;
+            /**
+             * Format: int64
+             * @description The `updateAt` of the unit as the client read it: if the unit has changed since,
+             *     the patch is refused with 409 and changes nothing. Needed with `body`, and
+             *     checked whenever it is sent.
+             */
+            readAt?: number | null;
+            /** @description The new title. */
+            title?: string | null;
+        };
         /** @description A request to remove an identity from the account of the session. */
         UnlinkRequest: {
             /** @description The issuer of the identity. */
@@ -9385,7 +9755,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -9428,7 +9798,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -9469,7 +9839,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -9504,7 +9874,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
                 /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
                 fileId: string;
@@ -9550,7 +9920,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
                 /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
                 fileId: string;
@@ -9587,7 +9957,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -9622,7 +9992,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
                 /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
                 pageId: string;
@@ -11637,7 +12007,7 @@ export interface operations {
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -11671,7 +12041,7 @@ export interface operations {
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -11705,7 +12075,7 @@ export interface operations {
                 workspaceId: string;
                 /** @description The identifier of the category, one of the user's own. */
                 categoryId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -11773,7 +12143,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -11807,7 +12177,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -11839,7 +12209,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -11877,7 +12247,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -11923,7 +12293,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy. */
+                /** @description The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is. */
                 containerId: string;
             };
             cookie?: never;
@@ -11957,7 +12327,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -11995,7 +12365,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
                 /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
                 fileId: string;
@@ -12065,7 +12435,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
                 /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
                 fileId: string;
@@ -12101,7 +12471,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
                 /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
                 fileId: string;
@@ -12137,7 +12507,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
                 /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
                 fileId: string;
@@ -12186,7 +12556,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
                 /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
                 fileId: string;
@@ -12222,7 +12592,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
                 /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
                 fileId: string;
@@ -12258,7 +12628,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
                 /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
                 fileId: string;
@@ -12307,7 +12677,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
                 /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
                 fileId: string;
@@ -12379,7 +12749,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
                 /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
                 fileId: string;
@@ -12430,7 +12800,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy. */
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it. */
                 containerId: string;
             };
             cookie?: never;
@@ -12464,7 +12834,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy. */
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it. */
                 containerId: string;
             };
             cookie?: never;
@@ -12496,7 +12866,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy. */
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it. */
                 containerId: string;
             };
             cookie?: never;
@@ -12530,7 +12900,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy. */
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it. */
                 containerId: string;
             };
             cookie?: never;
@@ -12568,7 +12938,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy. */
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it. */
                 containerId: string;
                 /** @description The identifier of the user. */
                 userId: string;
@@ -12608,7 +12978,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy. */
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it. */
                 containerId: string;
                 /** @description The identifier of the user. */
                 userId: string;
@@ -12642,7 +13012,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy. */
+                /** @description The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is. */
                 containerId: string;
             };
             cookie?: never;
@@ -12676,7 +13046,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy. */
+                /** @description The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is. */
                 containerId: string;
             };
             cookie?: never;
@@ -12714,7 +13084,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy. */
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it. */
                 containerId: string;
             };
             cookie?: never;
@@ -12748,7 +13118,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy. */
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it. */
                 containerId: string;
                 /** @description The identifier of a team within this workspace. */
                 teamId: string;
@@ -12786,7 +13156,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy. */
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it. */
                 containerId: string;
                 /** @description The identifier of a team within this workspace. */
                 teamId: string;
@@ -12820,7 +13190,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -12854,7 +13224,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board, the wiki or the diary. */
+                /** @description The identifier of the board, the wiki, the diary or the course. */
                 containerId: string;
             };
             cookie?: never;
@@ -12872,6 +13242,371 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadOpened"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCourses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The courses. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Container"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCourse: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewCourse"];
+            };
+        };
+        responses: {
+            /** @description The course that was made. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Container"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getDeletedUnits: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
+                page?: number;
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deleted chapters and units of the course. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletedUnit"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getUnitTree: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The chapters and units. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitNode"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createUnit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewUnit"];
+            };
+        };
+        responses: {
+            /** @description The unit or chapter that was made. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unit"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getUnit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The unit or chapter. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unit"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteUnit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The unit or chapter is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchUnit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnitPatch"];
+            };
+        };
+        responses: {
+            /** @description The unit or chapter as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unit"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    moveUnit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnitMove"];
+            };
+        };
+        responses: {
+            /** @description The unit or chapter where it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unit"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    undeleteUnit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The unit or chapter as it is again. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unit"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -13837,7 +14572,7 @@ export interface operations {
             query?: {
                 /** @description The words to find, at most 200 characters. Without it nothing is found. */
                 q?: string;
-                /** @description The kind of thing to find: `card`, `page` or `entry`. Left out, every kind. Anything else is 400. */
+                /** @description The kind of thing to find: `card`, `page`, `entry` or `unit`. Left out, every kind. Anything else is 400. */
                 kind?: string;
                 /** @description How many hits to answer with at most, from 1 to 50; 20 if left out. */
                 limit?: number;

@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 57] = [
+const STEPS: [Step; 58] = [
     Step {
         version: 1,
         description: "baseline",
@@ -382,6 +382,13 @@ const STEPS: [Step; 57] = [
         sqlite: include_str!("../schema/sqlite/0059_email_reverts.sql"),
         postgres: include_str!("../schema/postgres/0059_email_reverts.sql"),
     },
+    // 60 is unused.
+    Step {
+        version: 61,
+        description: "courses",
+        sqlite: include_str!("../schema/sqlite/0061_courses.sql"),
+        postgres: include_str!("../schema/postgres/0061_courses.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -406,6 +413,10 @@ pub(crate) const CONTAINERS_VERSION: i64 = 41;
 /// The migration before the one of the diaries, which widens the kinds of a container.
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_DIARIES_VERSION: i64 = 54;
+
+/// The migration before the one of the courses, which widens the kinds of a container.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_COURSES_VERSION: i64 = 60;
 
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
@@ -908,5 +919,15 @@ mod tests {
             .find(|step| step.version == BEFORE_DIARIES_VERSION + 1)
             .expect("the migration after BEFORE_DIARIES_VERSION is in the list");
         assert_eq!(step.description, "diaries");
+    }
+
+    /// The migration right after `BEFORE_COURSES_VERSION` is the one of the courses.
+    #[test]
+    fn the_migration_after_before_courses_is_the_courses_one() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_COURSES_VERSION + 1)
+            .expect("the migration after BEFORE_COURSES_VERSION is in the list");
+        assert_eq!(step.description, "courses");
     }
 }

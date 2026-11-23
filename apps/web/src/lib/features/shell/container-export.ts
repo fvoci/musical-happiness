@@ -22,9 +22,12 @@ export function exportAction(
   const containerId = container.id;
   return {
     id: 'export',
-    label: { board: m.shell_export_board, wiki: m.shell_export_wiki, diary: m.shell_export_diary }[
-      container.kind ?? 'board'
-    ](),
+    label: {
+      board: m.shell_export_board,
+      wiki: m.shell_export_wiki,
+      diary: m.shell_export_diary,
+      course: m.shell_export_board,
+    }[container.kind ?? 'board'](),
     icon: DownloadIcon,
     separated,
     run: () => void exportContainer(workspace, containerId),

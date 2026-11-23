@@ -134,7 +134,7 @@ impl App {
                 user_id,
                 workspace_id,
                 PublicContainers::Exclude,
-                ContainerKinds::Every,
+                ContainerKinds::EVERY,
             )
             .await
             .map_err(|error| {

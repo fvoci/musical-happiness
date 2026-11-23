@@ -5,7 +5,7 @@ use fvoci_model::InvitationMail;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::contract::{params::PeopleWorkspaceId, tag};
-use super::workspace::InBoardOrWiki;
+use super::workspace::InShared;
 use super::{ApiResult, decode_object, no_content};
 use crate::app::App;
 
@@ -42,7 +42,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     tag = tag::WORKSPACES, params(PeopleWorkspaceId), request_body = InvitationMail,
     responses((status = 204, description = "Delivery queued; the existing invitation is unchanged.")),
 )]
-async fn send(InBoardOrWiki(ws): InBoardOrWiki, body: Bytes) -> ApiResult {
+async fn send(InShared(ws): InShared, body: Bytes) -> ApiResult {
     let ws = ws.require_people()?;
     let request = decode_object(&body)?;
     ws.app

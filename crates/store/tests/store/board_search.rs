@@ -39,7 +39,7 @@ async fn search_containers_for_user() {
                 ContainerSearchField::Title,
                 &user_id,
                 PublicContainers::Include,
-                ContainerKinds::Boards,
+                ContainerKinds::BOARDS,
             )
             .await
             .expect("the search succeeds");
@@ -155,7 +155,7 @@ async fn search_containers_for_user() {
                 case.search_field,
                 &user_id,
                 case.public_boards,
-                ContainerKinds::Boards,
+                ContainerKinds::BOARDS,
             )
             .await
             .expect(case.name);
@@ -183,7 +183,7 @@ async fn search_containers_for_user_in_workspace() {
                 &workspace_id,
                 "",
                 &user_id,
-                ContainerKinds::Boards,
+                ContainerKinds::BOARDS,
             )
             .await
             .expect("the search succeeds");
@@ -248,7 +248,7 @@ async fn search_containers_for_user_in_workspace_finds_open_boards_and_own_priva
                 &workspace_id_1,
                 term,
                 &user_id,
-                ContainerKinds::Boards,
+                ContainerKinds::BOARDS,
             )
             .await
             .expect("the search succeeds");

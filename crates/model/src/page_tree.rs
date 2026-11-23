@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::page::{DIGITS, PageNode, is_order, order_between, sort_pages};
+use crate::unit::UnitNode;
 use crate::{BlockError, OrderError};
 
 /// How deep the pages of a wiki may go when nothing else says: a page at the top is at
@@ -71,21 +72,31 @@ impl FromIterator<PageNode> for PageTree {
     fn from_iter<I: IntoIterator<Item = PageNode>>(pages: I) -> Self {
         let mut tree = Self::default();
         for page in pages {
-            tree.children
-                .entry(page.parent_id.clone())
-                .or_default()
-                .push(page.id.clone());
-            let node = Node {
-                parent_id: page.parent_id,
-                order: page.order,
-            };
-            tree.pages.insert(page.id, node);
+            tree.insert(page.id, page.parent_id, page.order);
+        }
+        tree
+    }
+}
+
+impl FromIterator<UnitNode> for PageTree {
+    fn from_iter<I: IntoIterator<Item = UnitNode>>(units: I) -> Self {
+        let mut tree = Self::default();
+        for unit in units {
+            tree.insert(unit.id, unit.parent_id, unit.order);
         }
         tree
     }
 }
 
 impl PageTree {
+    /// Adds one node to the tree.
+    fn insert(&mut self, id: String, parent_id: String, order: String) {
+        self.children
+            .entry(parent_id.clone())
+            .or_default()
+            .push(id.clone());
+        self.pages.insert(id, Node { parent_id, order });
+    }
     /// How many pages the tree has.
     #[must_use]
     pub fn len(&self) -> usize {

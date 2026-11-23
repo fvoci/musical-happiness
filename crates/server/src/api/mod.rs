@@ -18,6 +18,7 @@ mod container_teams;
 mod containers;
 mod content_search;
 pub mod contract;
+mod courses;
 mod diaries;
 mod diary_versions;
 mod email_change;
@@ -133,6 +134,7 @@ fn routes() -> Routes {
         .merge(page_versions::routes())
         .merge(diaries::routes())
         .merge(diary_versions::routes())
+        .merge(courses::routes())
         .merge(boards_and_blocks::routes())
         .merge(cards::routes())
         .merge(trash::routes())

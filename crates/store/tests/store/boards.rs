@@ -142,7 +142,7 @@ async fn get_containers_for_user_and_workspace() {
                 &user_id,
                 &workspace_id_1,
                 PublicContainers::Include,
-                ContainerKinds::Boards,
+                ContainerKinds::BOARDS,
             )
             .await
             .expect("the query succeeds");
@@ -191,7 +191,7 @@ async fn get_containers_for_user_and_workspace() {
                     &user_id,
                     &workspace_id_1,
                     PublicContainers::Include,
-                    ContainerKinds::Boards,
+                    ContainerKinds::BOARDS,
                 )
                 .await
                 .expect("the query succeeds");
@@ -209,7 +209,7 @@ async fn get_containers_for_user_and_workspace() {
                     &user_id,
                     &workspace_id_1,
                     PublicContainers::Exclude,
-                    ContainerKinds::Boards,
+                    ContainerKinds::BOARDS,
                 )
                 .await
                 .expect("the query succeeds");
@@ -227,7 +227,7 @@ async fn get_containers_for_user_and_workspace() {
                     &user_id,
                     &workspace_id_2,
                     PublicContainers::Include,
-                    ContainerKinds::Boards,
+                    ContainerKinds::BOARDS,
                 )
                 .await
                 .expect("the query succeeds");
@@ -312,7 +312,7 @@ async fn get_containers_in_workspace_by_ids() {
                         &user_id,
                         &workspace_id,
                         PublicContainers::Include,
-                        ContainerKinds::Boards,
+                        ContainerKinds::BOARDS,
                     )
                     .await
                     .expect("the query succeeds")
@@ -2499,7 +2499,7 @@ async fn undelete_container_of_what_is_not_in_the_trash_is_not_found_and_writes_
             &user_id,
             &workspace_id,
             PublicContainers::Include,
-            ContainerKinds::Boards,
+            ContainerKinds::BOARDS,
         )
         .await
         .expect("the boards are read");

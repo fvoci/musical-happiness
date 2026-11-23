@@ -63,7 +63,7 @@ impl ContainerWork {
     }
 }
 
-/// What is copied: a board or a wiki, the modules of a workspace.
+/// What is copied: a board, a wiki, a diary or a course, the modules of a workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Module {
     /// A board.
@@ -72,10 +72,12 @@ pub(crate) enum Module {
     Wiki,
     /// A diary: exported and imported with a user's own space, and never duplicated.
     Diary,
+    /// A course: exported and imported, and never duplicated whole in t1.
+    Course,
 }
 
 impl Module {
-    const ALL: [Self; 3] = [Self::Board, Self::Wiki, Self::Diary];
+    const ALL: [Self; 4] = [Self::Board, Self::Wiki, Self::Diary, Self::Course];
 
     /// The value of the `kind` label.
     fn as_str(self) -> &'static str {
@@ -83,6 +85,7 @@ impl Module {
             Self::Board => "board",
             Self::Wiki => "wiki",
             Self::Diary => "diary",
+            Self::Course => "course",
         }
     }
 }

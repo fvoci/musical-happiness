@@ -301,6 +301,16 @@ fn describe_diary(reason: Reason) -> Option<&'static str> {
              tells (20; diaries in the trash are not counted): when a diary is made, restored \
              or imported. Nothing was changed."
         }
+        Reason::TooManyUnits => {
+            "Status 400. The course would have more units than a course may, which `limit` \
+             tells (2000; units in the trash and chapters are not counted): when a unit is \
+             made, restored or imported. Nothing was changed. Deleting units makes room."
+        }
+        Reason::TooManyChapters => {
+            "Status 400. The course would have more chapters than a course may, which `limit` \
+             tells (200; chapters in the trash are not counted): when a chapter is made, \
+             restored or imported. Nothing was changed. Deleting chapters makes room."
+        }
         _ => return None,
     })
 }
