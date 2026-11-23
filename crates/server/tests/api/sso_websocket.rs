@@ -385,3 +385,120 @@ async fn the_room_of_a_body_is_behind_the_wall() {
     ts.teardown().await;
     fake.stop();
 }
+
+/// Expected session refusals (`sso_required` and `password_sign_in_required`) on
+/// `SET_PRESENCE` clear the visit quietly instead of logging a warning as if the store
+/// failed.
+#[tokio::test]
+async fn presence_refused_for_sso_or_password_requirement_logs_no_warning() {
+    use std::io;
+    use std::sync::{Arc, Mutex};
+
+    use crate::own_space::own_workspace;
+    use crate::presence::people;
+    use fvoci_model::{Container, ContainerType};
+
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<u8>>>);
+    impl io::Write for Captured {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().expect("captured log").extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let captured = Captured::default();
+    let writer = captured.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_max_level(tracing::Level::WARN)
+        .with_writer(move || writer.clone())
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    let fake = FakeProvider::start().await;
+    let (ts, org_id, admin) = server(&fake).await;
+    let org_board = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .await;
+    let own = own_workspace(&ts.client).await;
+    let own_board: Container = ts
+        .client
+        .create_board(&Container {
+            workspace_id: own.id.clone(),
+            container_type: ContainerType::Private,
+            title: "own".to_owned(),
+            ..Container::default()
+        })
+        .await
+        .created_json();
+
+    // Establish presence on `org_board` before SSO is required so `require_sso` forces
+    // `ws/presence/batch.rs` to recheck the active visit as `sso_required`.
+    let mut with_password = Socket::connect_as(&ts.client).await;
+    with_password
+        .send(json!({
+            "action": "SET_PRESENCE",
+            "workspaceId": ROOT_WORKSPACE_ID,
+            "containerId": org_board.id,
+        }))
+        .await;
+    let _ = people(&mut with_password, 1).await;
+
+    // Require SSO on the organization: `ts.client` (password session) hits
+    // `sso_required`, while `admin` (OIDC session without password confirmation) hits
+    // `password_sign_in_required` on `user1`'s own space.
+    require_sso(&admin, &org_id, &fake, Passwords::Refused)
+        .await
+        .check_ok();
+
+    let mut through_provider = Socket::connect_as(&admin).await;
+    through_provider
+        .send(json!({
+            "action": "SET_PRESENCE",
+            "workspaceId": own.id,
+            "containerId": own_board.id,
+        }))
+        .await;
+    // Follow with an allowed presence command on `org_board`: this both synchronizes
+    // the refused `own_board` command and rechecks `with_password`'s prior visit there.
+    through_provider
+        .send(json!({
+            "action": "SET_PRESENCE",
+            "workspaceId": ROOT_WORKSPACE_ID,
+            "containerId": org_board.id,
+        }))
+        .await;
+    let _ = people(&mut through_provider, 1).await;
+
+    with_password
+        .send(json!({
+            "action": "SET_PRESENCE",
+            "workspaceId": ROOT_WORKSPACE_ID,
+            "containerId": org_board.id,
+        }))
+        .await;
+    // Follow with an allowed presence command on `own_board` so the refused `org_board`
+    // command is guaranteed to have completed before checking the log.
+    with_password
+        .send(json!({
+            "action": "SET_PRESENCE",
+            "workspaceId": own.id,
+            "containerId": own_board.id,
+        }))
+        .await;
+    let _ = people(&mut with_password, 1).await;
+
+    let warnings =
+        String::from_utf8(captured.0.lock().expect("captured log").clone()).expect("utf-8 logs");
+    assert!(
+        !warnings.contains("presence admission could not be read")
+            && !warnings.contains("presence authority could not be read"),
+        "expected no presence warning for expected session refusals, got:\n{warnings}"
+    );
+    ts.teardown().await;
+    fake.stop();
+}

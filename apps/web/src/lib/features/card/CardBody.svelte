@@ -182,6 +182,8 @@
   let keptTimer: ReturnType<typeof setTimeout> | undefined;
   /** A version is being kept: the keys held or pressed again meanwhile ask nothing more. */
   let keeping = false;
+  /** The body went away (the card was closed): what comes of a keeping after it is said nowhere. */
+  let gone = false;
 
   async function keepNow(): Promise<void> {
     if (!keep || !container.canEdit || keeping) return;
@@ -198,6 +200,7 @@
     clearTimeout(keptTimer);
     keptSaid = '';
     void tick().then(() => {
+      if (gone) return;
       keptSaid = text;
       keptTimer = setTimeout(() => {
         keptSaid = '';
@@ -205,6 +208,7 @@
     });
   }
   $effect(() => () => {
+    gone = true;
     clearTimeout(keptTimer);
   });
 

@@ -645,6 +645,9 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
         [
             // Held to its organization by the key to the container: (container_id, org_id).
             ("blocks", "(container_id, id)"),
+            // A card's number on its board, held the same way: no organization's card
+            // can stand on another's board to take one of its numbers.
+            ("blocks", "(container_id, number)"),
             // An identifier the server makes for the row.
             ("blocks", "(id)"),
             ("categories", "(id)"),

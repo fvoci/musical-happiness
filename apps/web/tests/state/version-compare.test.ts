@@ -200,3 +200,15 @@ describe('the versions of an open card, compared', () => {
     made.workspace.close();
   });
 });
+
+describe('a version shown as it is', () => {
+  it('still says what it is compared with once compared again: the version chosen, not only its kind', () => {
+    const compare = comparing(paragraph('now'));
+    compare.compareWith(2);
+    compare.showWhole(true);
+    expect(compare.target).toEqual({ kind: 'whole' });
+    expect(compare.chosenTarget).toEqual({ kind: 'version', version: SECOND });
+    compare.showWhole(false);
+    expect(compare.target).toEqual({ kind: 'version', version: SECOND });
+  });
+});

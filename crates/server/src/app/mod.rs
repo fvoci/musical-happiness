@@ -34,6 +34,7 @@ mod limits;
 mod list_page;
 mod loose_objects;
 mod mail;
+mod notifications;
 mod oidc;
 mod oidc_account;
 mod oidc_carry;
@@ -56,6 +57,8 @@ mod snapshots;
 
 pub(crate) use download::download;
 pub use mail::UnsentMail;
+pub(crate) use notifications::start_upkeep as start_notification_upkeep;
+pub use notifications::tend as tend_notifications;
 pub(crate) use presence::PresenceAccess;
 pub(crate) use server_lock::HeldLock;
 pub(crate) use server_lock::take_server_lock;
@@ -119,7 +122,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 
-use fvoci_model::{ClientConfig, ContainerKinds};
+use fvoci_model::{ClientConfig, ContainerKinds, OrgKind};
 use fvoci_store::{Store, Tenant};
 use serde::Serialize;
 use tokio_util::task::TaskTracker;
@@ -156,6 +159,10 @@ pub struct App {
     /// The kinds of board this handle reaches ([`App::reaching`]): a board of another
     /// kind is not there for it, nor what is on one.
     kinds: ContainerKinds,
+    /// The immutable kind of this handle's organization, populated on entry or read at
+    /// most once per handle (`App::tell_webhooks`). Reset whenever [`App::scoped`]
+    /// changes the tenant.
+    org_kind: Arc<tokio::sync::OnceCell<OrgKind>>,
 }
 
 #[derive(Debug)]
@@ -181,6 +188,9 @@ struct Inner {
     /// Held while the limits on open uploads are checked and a session is stored, so
     /// that sessions opened at the same moment do not pass the limits together.
     opening_upload: tokio::sync::Mutex<()>,
+    /// Held while the list of whom to tell is worked off (`notifications::tend`): one
+    /// run at a time.
+    telling: tokio::sync::Mutex<()>,
     /// The uploads' turns (`uploads::UploadTurns`).
     upload_turns: uploads::UploadTurns,
     /// The memory the parts of uploads to the object store may take while they are
@@ -298,6 +308,7 @@ impl App {
             ws,
             workspace: None,
             kinds: ContainerKinds::Every,
+            org_kind: Arc::new(tokio::sync::OnceCell::new()),
             inner: Arc::new(Inner {
                 reset_limiter: LoginLimiter::new(Limits::from_config(&config)),
                 mail: mail::Mailer::new(
@@ -318,6 +329,7 @@ impl App {
                 background: TaskTracker::new(),
                 default_category: tokio::sync::Mutex::new(()),
                 opening_upload: tokio::sync::Mutex::new(()),
+                telling: tokio::sync::Mutex::new(()),
                 upload_turns: uploads::UploadTurns::default(),
                 part_memory: Arc::new(tokio::sync::Semaphore::new(part_memory)),
                 readiness: readiness::Kept::default(),
@@ -366,7 +378,16 @@ impl App {
             store,
             workspace: None,
             kinds: self.kinds,
+            org_kind: Arc::new(tokio::sync::OnceCell::new()),
         }
+    }
+
+    /// Records the immutable kind of this handle's organization so later checks
+    /// ([`App::tell_webhooks`]) do not query it again.
+    #[must_use]
+    pub(super) fn with_org_kind(mut self, kind: OrgKind) -> Self {
+        self.org_kind = Arc::new(tokio::sync::OnceCell::new_with(Some(kind)));
+        self
     }
 
     /// The same handle, reaching boards of `kinds` only: for an operation that is about

@@ -14,9 +14,10 @@
   type Props = HTMLButtonAttributes & {
     /** What the button does, for a screen reader. */
     label: string;
+    ref?: HTMLElement | null;
   };
 
-  let { label, class: className, children, ...rest }: Props = $props();
+  let { label, ref = $bindable(null), class: className, children, ...rest }: Props = $props();
 
   // The generated button takes the attributes of a button and of a link at once;
   // those of a button alone do not fit its type.
@@ -24,6 +25,7 @@
 </script>
 
 <Button
+  bind:ref
   variant="ghost"
   size="icon"
   aria-label={label}

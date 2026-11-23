@@ -7,7 +7,7 @@ use serde_json::Value;
 use yrs::types::{Attrs, Delta};
 use yrs::{
     Any, ClientID, Doc, In, Number, OffsetKind, Options, Text, Transact, TransactionMut, Xml,
-    XmlElementPrelim, XmlFragment, XmlTextPrelim,
+    XmlElementPrelim, XmlElementRef, XmlFragment, XmlTextPrelim,
 };
 
 use crate::FIELD;
@@ -113,7 +113,26 @@ fn push_nodes(txn: &mut TransactionMut<'_>, parent: &impl XmlFragment, nodes: &[
 fn push_element(txn: &mut TransactionMut<'_>, parent: &impl XmlFragment, node: &Value) {
     let kind = node.get("type").and_then(Value::as_str).unwrap_or_default();
     let element = parent.push_front(txn, XmlElementPrelim::empty(kind));
-    push_nodes(txn, &element, content_of(node));
+    fill_element(txn, &element, node);
+}
+
+/// Puts the element of a node, with all it holds, among the children of a parent at
+/// `index`, as [`from_body`] writes one. `index` is at most the parent's length.
+pub(crate) fn insert_node(
+    txn: &mut TransactionMut<'_>,
+    parent: &XmlElementRef,
+    index: u32,
+    node: &Value,
+) {
+    let kind = node.get("type").and_then(Value::as_str).unwrap_or_default();
+    let element = parent.insert(txn, index, XmlElementPrelim::empty(kind));
+    fill_element(txn, &element, node);
+}
+
+/// Writes into an empty element the content and the attributes of its node.
+fn fill_element(txn: &mut TransactionMut<'_>, element: &XmlElementRef, node: &Value) {
+    let kind = node.get("type").and_then(Value::as_str).unwrap_or_default();
+    push_nodes(txn, element, content_of(node));
     let given = node.get("attrs");
     for attribute in schema::node_attributes(kind).unwrap_or(&[]) {
         let value = match given.and_then(|attrs| attrs.get(attribute.name)) {

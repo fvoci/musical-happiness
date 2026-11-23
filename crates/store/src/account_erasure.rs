@@ -74,9 +74,11 @@ pub struct HandedOver {
     pub heir_id: String,
 }
 
-/// What erasing an account from an organization came to.
+/// What an account's leaving an organization came to: as it is erased, or of its own
+/// accord ([`Store::leave_organization`]), which removes nothing and keeps nothing for a
+/// newcomer.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct ErasedFrom {
+pub struct LeftFrom {
     /// The workspaces the account left, in use or in the trash.
     pub left: Vec<String>,
     /// The boards that passed to somebody else, for the account was their only admin.
@@ -290,7 +292,7 @@ impl Store {
         &self,
         user_id: &str,
         erasing: Erasing,
-    ) -> Result<ErasedFrom, StoreError> {
+    ) -> Result<LeftFrom, StoreError> {
         let actor = &match erasing {
             Erasing::AfterTheWait => AuditActor::Server,
             Erasing::AtOnce => AuditActor::ServerOperator,
@@ -298,10 +300,10 @@ impl Store {
         self.transaction(async |scope| {
             org_admin::hold_organization_row(scope).await?;
             if !is_being_erased(scope, user_id).await? {
-                return Ok(ErasedFrom::default());
+                return Ok(LeftFrom::default());
             }
             let org_id = scope.org_id().ok_or(StoreError::NoOrganization)?;
-            let mut erased = ErasedFrom::default();
+            let mut erased = LeftFrom::default();
             if is_own_space_of(scope, user_id).await? {
                 erased.removed = Some(remove_organization(scope).await?);
                 return Ok(erased);
@@ -316,21 +318,15 @@ impl Store {
                 put_back_in_use(scope).await?;
                 erased.kept_for_newcomer = true;
             }
-            for workspace_id in workspaces_of(scope, user_id).await? {
-                let Some(left) = leave_workspace(scope, &workspace_id, user_id, actor).await?
-                else {
-                    continue;
-                };
-                erased.handed_over.extend(left.handed_over);
-                erased.boards_without_admin.extend(left.without_admin);
-                if left.without_administrator {
-                    erased
-                        .workspaces_without_administrator
-                        .push(workspace_id.clone());
-                }
-                erased.left.push(workspace_id);
-            }
+            leave_every_workspace(scope, user_id, actor, &mut erased).await?;
             leave_organization(scope, user_id).await?;
+            // Who made the organization is nobody's to know once the account is gone: an
+            // erased account makes none, and is counted none. One that leaves of its own
+            // accord is counted still.
+            let mut sql =
+                scope.sql("UPDATE organizations SET created_by = NULL WHERE created_by = ");
+            sql.bind(Id(user_id)).push_bind(" AND id = ", Id(&org_id));
+            scope.execute(sql).await?;
             Ok(erased)
         })
         .await
@@ -418,7 +414,9 @@ impl Store {
 /// when their account is erased, whichever organization a row is of. An upload that
 /// was open is not among them: nobody sends its parts any more, and its clean-up needs
 /// the row to throw away what was sent (`uploads.rs`).
-const PERSONAL: [(&str, &str); 9] = [
+const PERSONAL: [(&str, &str); 11] = [
+    ("notifications", "recipient_id"),
+    ("notification_outbox", "recipient_id"),
     ("user_identities", "user_id"),
     ("email_changes", "user_id"),
     ("email_reverts", "user_id"),
@@ -539,6 +537,29 @@ async fn administers_organization(
         .push_bind(" AND org_id = ", scope.org()?)
         .push_bind(" AND role = ", OrgRole::Admin.as_str());
     Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
+/// Takes the user out of each workspace of the scope's organization they are in, in use
+/// or in the trash ([`leave_workspace`]), and writes down what came of it in `left`.
+pub(crate) async fn leave_every_workspace(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    actor: &AuditActor,
+    left: &mut LeftFrom,
+) -> Result<(), StoreError> {
+    for workspace_id in workspaces_of(scope, user_id).await? {
+        let Some(out) = leave_workspace(scope, &workspace_id, user_id, actor).await? else {
+            continue;
+        };
+        left.handed_over.extend(out.handed_over);
+        left.boards_without_admin.extend(out.without_admin);
+        if out.without_administrator {
+            left.workspaces_without_administrator
+                .push(workspace_id.clone());
+        }
+        left.left.push(workspace_id);
+    }
+    Ok(())
 }
 
 /// The workspaces of the scope's organization the user is in, in use or in the trash,
@@ -698,13 +719,17 @@ async fn heir_in(
 }
 
 /// Removes what the user still has in the scope's organization once they are out of
-/// its workspaces: a role left on a board of a workspace they had left before, the
-/// membership of the organization, and the links they made that nobody used. A link
-/// another was made like stays, and so do those made like it that were used and the
-/// registrations made by them, which the schema would take along: such a link lets
-/// nobody in, for its maker is out of use. The caller holds the organization's row,
-/// as whoever holds several of its links does (`link_locks`).
-async fn leave_organization(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
+/// its workspaces: a role left on a board of a workspace they had left before, what
+/// they follow there, the membership of the organization, and the links they made
+/// that nobody used. A link another was made like stays, and so do those made like it
+/// that were used and the registrations made by them, which the schema would take
+/// along: such a link lets nobody in, for its maker is no member of the organization.
+/// The caller holds the organization's row, as whoever holds several of its links does
+/// (`link_locks`).
+pub(crate) async fn leave_organization(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<(), StoreError> {
     let mut sql = scope.sql("DELETE FROM container_members WHERE user_id = ");
     sql.bind(Id(user_id))
         .push(
@@ -714,14 +739,20 @@ async fn leave_organization(scope: &mut Scope<'_>, user_id: &str) -> Result<(), 
         .bind(scope.org()?)
         .push(")");
     scope.execute(sql).await?;
+    // Also what they followed without a role: a page of a wiki open to its workspace.
+    let mut sql = scope.sql("DELETE FROM subscriptions WHERE subscriber_id = ");
+    sql.bind(Id(user_id))
+        .push(
+            " AND block_id IN (SELECT b.id FROM blocks AS b \
+             JOIN containers AS c ON c.id = b.container_id \
+             JOIN workspaces AS w ON w.id = c.workspace_id WHERE w.org_id = ",
+        )
+        .bind(scope.org()?)
+        .push(")");
+    scope.execute(sql).await?;
     let mut sql = scope.sql("DELETE FROM organization_members WHERE user_id = ");
     sql.bind(Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?);
-    scope.execute(sql).await?;
-    // Who made the organization is nobody's to know once the account is gone: an
-    // erased account makes none, and is counted none.
-    let mut sql = scope.sql("UPDATE organizations SET created_by = NULL WHERE created_by = ");
-    sql.bind(Id(user_id)).push_bind(" AND id = ", scope.org()?);
     scope.execute(sql).await?;
     // Twice: the links made like another for the recipients of its mail first, and then
     // the link they were made like, once none is left of them.

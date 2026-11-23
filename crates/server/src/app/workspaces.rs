@@ -1,6 +1,6 @@
 //! Workspaces: which a user is a member of and the way into one, and what is told in
-//! each of a user's. And the way into an organization: for its administrators, and for
-//! a sign-in through its provider.
+//! each of a user's. And the way into an organization: for its administrators, for a
+//! member who asks to leave it, and for a sign-in through its provider.
 
 use std::collections::HashSet;
 
@@ -24,7 +24,7 @@ pub struct Entered {
     /// What the user is in the workspace.
     pub role: WorkspaceRole,
     /// What the user is in the workspace's organization; `None` for somebody who is in
-    /// the workspace without belonging to the organization.
+    /// the workspace without belonging to the organization, and for a user's own space.
     pub org_role: Option<OrgRole>,
     /// What the workspace's organization is: one that people work in together, or the
     /// user's own space.
@@ -60,7 +60,29 @@ impl App {
             .await?;
         let takes = SessionTaken::of_organization(required);
         sso::require_session_opens(session.into(), org_id, &takes)?;
-        Ok(Some(self.scoped(tenant)))
+        Ok(Some(self.scoped(tenant).with_org_kind(OrgKind::Team)))
+    }
+
+    /// The same server reaching the rows of the organization `org_id`, for a member of
+    /// it who asks to leave it of any session; `None` for anybody else, and for an
+    /// organization that is not there, not in use, the system's, or a user's own space
+    /// (`Store::org_role_of_user`).
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the membership cannot be read.
+    pub(super) async fn enter_org_as_member(
+        &self,
+        user_id: &str,
+        org_id: &str,
+    ) -> Result<Option<Self>, AppError> {
+        let Ok(tenant) = Tenant::org(org_id) else {
+            return Ok(None);
+        };
+        if self.org_actor(user_id, org_id).await?.org.is_none() {
+            return Ok(None);
+        }
+        Ok(Some(self.scoped(tenant).with_org_kind(OrgKind::Team)))
     }
 
     /// The same server reaching the rows of the organization `org_id`, for a sign-in
@@ -126,7 +148,9 @@ impl App {
             return Ok(None);
         };
         sso::require_session_opens(asker, &access.org_id, &access.takes)?;
-        let app = self.in_organization(&access.org_id)?;
+        let app = self
+            .in_organization(&access.org_id)?
+            .with_org_kind(access.kind);
         Ok(Some(Entered {
             app,
             role: access.workspace_role,

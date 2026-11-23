@@ -61,7 +61,7 @@ import { pointerDrag, type PointerDragHandle, type PointerDragSession } from './
 import { DRAG_SETTINGS } from './settings.ts';
 
 import { sortableWords } from './sortable-announcement.ts';
-import { CARRIED, HANDLE, ITEM, LIST, ZONE, SortableDom } from './sortable-dom.ts';
+import { CARRIED, HANDLE, ITEM, LIST, placeAmong, ZONE, SortableDom } from './sortable-dom.ts';
 import type { SortableActive, SortableOptions } from './sortable-types.ts';
 
 export type {
@@ -323,13 +323,13 @@ export class Sortable {
       const nested = lists.some(
         (other) => other.element !== element && element.contains(other.element),
       );
-      const items = this.#page
+      const staying = this.#page
         .itemsOf(element, nested)
-        .filter((item) => !active.itemIds.includes(item.getAttribute(ITEM) ?? ''))
-        .map((item) => item.getBoundingClientRect());
+        .filter((item) => !active.itemIds.includes(item.getAttribute(ITEM) ?? ''));
+      const items = staying.map((item) => item.getBoundingClientRect());
       const reversed = axis === 'x' && this.#page.rtl();
       const place = dropTarget(this.#point, [{ id, rect, items }], { axis, bounds, reversed });
-      if (place) this.#aim({ kind: 'index', ...place });
+      if (place) this.#aim({ kind: 'index', ...place, index: placeAmong(staying, place.index) });
     }
   }
 

@@ -960,6 +960,38 @@ test('comments: written with the button and with Ctrl+Enter, lines become paragr
   await expect(list).toHaveCount(count + 2);
 });
 
+test('a comment changed twice says what each text changed from the one before, the first as it was', async ({
+  page,
+}) => {
+  await openTaskCard(page);
+  const list = page.getByTestId('card-comments').locator('[data-comment]');
+  const count = await list.count();
+  await commentField(page).fill('Buy milk today');
+  await page.getByTestId('comment-send').click();
+  await expect(list).toHaveCount(count + 1);
+  const mine = list.last();
+  for (const text of ['Buy oat milk today', 'Buy oat milk tomorrow']) {
+    await mine.locator('[data-action="edit"]').click();
+    const field = mine.getByRole('textbox', { name: 'Comment text' });
+    await field.fill(text);
+    await field.press(await primaryKey(page, 'Enter'));
+    await expect(mine).toContainText(text);
+  }
+  await mine.locator('[data-action="history"]').click();
+  const texts = mine.getByTestId('comment-history').locator('[data-version]');
+  await expect(texts).toHaveCount(3);
+  await expect(texts.nth(0)).toContainText('Buy milk today');
+  await expect(texts.nth(0).locator('ins, del')).toHaveCount(0);
+  await expect(texts.nth(1).locator('ins')).toHaveText(['oat ']);
+  await expect(texts.nth(1).locator('del')).toHaveCount(0);
+  await expect(texts.nth(1).getByTestId('comment-diff-counts')).toHaveText('1 added · 0 removed');
+  await expect(texts.nth(2)).toHaveAttribute('data-version', 'now');
+  await expect(texts.nth(2).locator('del')).toHaveText(['today']);
+  await expect(texts.nth(2).locator('ins')).toHaveText(['tomorrow']);
+  // Heard as well as seen: each mark says what it is.
+  await expect(texts.nth(2).locator('ins')).toHaveAttribute('data-diff-label', 'Added');
+});
+
 test('a comment that is being written is not lost by leaving: Escape leaves the field first, and the draft waits for the card', async ({
   page,
 }) => {
@@ -1041,6 +1073,9 @@ test('an upload shows how far it is, in place and in the stack, and can be given
   page,
 }) => {
   await openTaskCard(page);
+  // Wait for the body room and editor to settle before slowing backend latency for the upload,
+  // or the slow-join status line can appear mid-click and shift the attachments section down.
+  await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
   const section = page.getByTestId('card-attachments');
   const uploads = section.locator('[data-upload]');
   const file = (name: string): { name: string; mimeType: string; buffer: Buffer } => ({

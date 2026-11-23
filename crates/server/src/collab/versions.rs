@@ -34,8 +34,9 @@ use fvoci_store::{BodyBefore, ByHand};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use super::Collab;
 use super::place::Held;
-use super::{Collab, refusals};
+use super::whole::DueVersion;
 use crate::app::App;
 use crate::error::AppError;
 
@@ -145,15 +146,15 @@ impl Collab {
     /// one that is not open (opened aside for that, and closed after), and the body the
     /// card then holds is kept as a version by hand, unless it is the card's newest one
     /// already or a version was kept by hand within a minute (`BY_HAND_FLOOR`). What the
-    /// store keeps is the body of the card, written by whoever holds its place: nothing is
-    /// written to it here but what the document holds, and the document is left as it is
-    /// for those who edit it.
+    /// store keeps is the body of the card, written by whoever holds its place: nothing
+    /// is written to it here but what the document holds, and the document is left as it
+    /// is for those who edit it.
     ///
     /// # Errors
     ///
-    /// Returns a not-found error if `app` reaches no card of that identifier,
-    /// `document_unavailable` if what the editors typed cannot be written first, and
-    /// the store's errors.
+    /// Returns a not-found error if `app` reaches no card of that identifier, a conflict
+    /// if the card kept changing concurrently, `document_unavailable` if what the editors
+    /// typed cannot otherwise be written first, and the store's errors.
     pub async fn keep_by_hand(&self, app: &App, card_id: &str) -> Result<ByHand, AppError> {
         let now = crate::auth::now_millis().saturating_add(millis(self.version_time_passed()));
         let since = now.saturating_sub(millis(BY_HAND_FLOOR));
@@ -178,23 +179,9 @@ impl Collab {
         slot: &mut Held,
         since: i64,
     ) -> Result<ByHand, AppError> {
-        let opened_aside = slot.open.is_none() && app.store().has_unwritten_body(card_id).await?;
-        if opened_aside {
-            self.open_aside(app, card_id, slot).await?;
-        }
         // Without a version due being kept on its own first: the one kept is by hand.
-        let written = match slot.open {
-            Some(_) => self.write_or_replace(app, card_id, slot).await.map(drop),
-            None => Ok(()),
-        };
-        if opened_aside {
-            // Opened for its log alone: the next request opens it from the card.
-            self.forget(slot).await;
-        }
-        written.map_err(|error| {
-            tracing::error!(%error, card_id, "cannot write what the editors typed before a version is kept by hand");
-            refusals::unavailable()
-        })?;
+        self.write_pending(app, card_id, slot, DueVersion::Skip)
+            .await?;
         let by_hand = app
             .store()
             .keep_body_version_by_hand(card_id, since)

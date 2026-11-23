@@ -46,6 +46,16 @@ pub struct Card {
     pub id: String,
     /// The identifier of the board the card belongs to.
     pub board_id: String,
+    /// The card's number on its board, as `#12` names it: from 1, one more for each card
+    /// made on the board, never given again, also once the card is gone. A card keeps it
+    /// while it is one; a copy and an import are new cards with new numbers, and a card
+    /// that comes back from the trash has its own. `null` for a template of the board's
+    /// cards (`isTemplate`): a card made a template loses its number, and takes the next
+    /// one if it is made a card again. The server gives it: what a request sends here is
+    /// ignored, whatever it is.
+    #[schema(minimum = 1)]
+    #[serde(deserialize_with = "crate::block::number_as_sent")]
+    pub number: Option<u32>,
     /// The identifier of the user who created the card.
     pub created_by: String,
     /// The identifier of the user who last modified the card.
@@ -128,6 +138,13 @@ impl CardPreview {
             image_file_id,
             text: text[..end].trim_end().to_owned(),
         }
+    }
+
+    /// The preview of `body`, as a list asked for previews gives it of the stored body.
+    #[must_use]
+    pub fn of(body: &Body) -> Self {
+        let image_file_id = body.first_image_file_id().unwrap_or_default().to_owned();
+        Self::new(image_file_id, &body.text())
     }
 }
 
@@ -258,6 +275,7 @@ impl Card {
         let mut card = Self {
             id: block.id.clone(),
             board_id: block.container_id.clone(),
+            number: block.number,
             created_by: block.created_by.clone(),
             modified_by: block.modified_by.clone(),
             title: block.title.clone(),
@@ -303,6 +321,7 @@ impl From<Card> for Block {
             update_at: card.update_at,
             delete_at: card.delete_at,
             container_id: card.board_id,
+            number: card.number,
             edited_at: 0,
         }
     }

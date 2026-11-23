@@ -27,6 +27,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("the reader's caret", () => {
@@ -123,6 +124,27 @@ describe("the reader's caret", () => {
     held.destroy();
     vi.advanceTimersByTime(60_000);
     expect(told).toHaveLength(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('works when no document is present, or when it goes away before a timer or destroy', () => {
+    // Created while a document exists, then the document goes away before the timer fires.
+    const removed = vi.spyOn(document, 'removeEventListener');
+    const beforeTeardown = carets();
+    beforeTeardown.held.awareness.setLocalStateField('cursor', CURSOR);
+    vi.stubGlobal('document', undefined);
+    vi.advanceTimersByTime(CARET_WAIT);
+    expect(beforeTeardown.told).toHaveLength(1);
+    beforeTeardown.held.destroy();
+    expect(removed).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+    removed.mockRestore();
+
+    // Created when no document exists at all.
+    const withoutDoc = carets();
+    withoutDoc.held.awareness.setLocalStateField('cursor', CURSOR);
+    vi.advanceTimersByTime(CARET_WAIT);
+    expect(withoutDoc.told).toHaveLength(1);
+    withoutDoc.held.destroy();
     expect(vi.getTimerCount()).toBe(0);
   });
 });

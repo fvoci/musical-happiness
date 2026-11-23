@@ -35,6 +35,8 @@ struct Named {
     wiki_token: String,
     /// A team of the workspace with a role on the board, which the member is in.
     team: String,
+    /// What the member was told: that the founder named them in a card of the board.
+    notification: String,
 }
 
 /// What a plain member who is on the board is answered 404 in the first organization
@@ -112,11 +114,12 @@ fn operations() -> Vec<(String, String, String)> {
             }
         }
     }
-    // What takes the member off the board, or a thing away, goes after the rest, and
-    // what ends the member's session last, so that everything else is asked first.
+    // What takes the member off the board, or a thing away, goes after the rest, then
+    // the member's leaving the organization, whose session stays, and what ends the
+    // member's session last, so that everything else is asked first.
     let rank = |id: &str| match id {
         "logout" => 3,
-        "changePassword" => 2,
+        "changePassword" | "leaveOrganization" => 2,
         "leaveContainer"
         | "deleteContainer"
         | "deleteBlock"
@@ -163,8 +166,11 @@ impl Named {
             .replace("{categoryId}", &self.category)
             .replace("{invitationId}", &self.invitation_id)
             .replace("{teamId}", &self.team)
+            .replace("{notificationId}", &self.notification)
             .replace("{partNumber}", "1")
             .replace("{version}", "1")
+            // The board's card is its first.
+            .replace("{number}", "1")
             // A lease never given: its release is the member's answer as an editor's or not.
             .replace("{leaseId}", "a-lease-never-given")
     }
@@ -279,6 +285,7 @@ async fn organization(server: &TestServer, name: &str) -> Named {
             .await
             .check_ok();
     }
+    let notification = told_of_a_mention(server, &founder, &member, &at, &board).await;
     let card_id = text(&card, "id");
     member
         .post(
@@ -315,7 +322,37 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         page,
         comment,
         team,
+        notification,
     }
+}
+
+/// The founder names the member in a card of the board, which the member reads, and
+/// the server tells them: the identifier of what the member was told.
+async fn told_of_a_mention(
+    server: &TestServer,
+    founder: &Client,
+    member: &Client,
+    at: &str,
+    board: &str,
+) -> String {
+    let member_id = member.me().await.id;
+    founder
+        .post(
+            &format!("{at}/boards/{board}/cards"),
+            &json!({"title": "A card that names the member",
+                "body": {"type": "doc", "content": [{"type": "paragraph", "content": [
+                    {"type": "mention", "attrs": {"userId": member_id}}]}]}}),
+        )
+        .await
+        .check_created();
+    fvoci_server::app::tend_notifications(&server.app).await;
+    let told = member.get("/notifications").await.value();
+    assert_eq!(
+        told.as_array().map(Vec::len),
+        Some(1),
+        "the member is told of the one mention: {told}"
+    );
+    text(&told[0], "id")
 }
 
 /// The invitation for members the founder makes in the workspace at `at`, and the
@@ -493,6 +530,7 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getBlocks",
         "getCards",
         "getCard",
+        "getCardByNumber",
         "getWikis",
         "getPageTree",
         "getPage",

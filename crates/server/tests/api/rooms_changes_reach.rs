@@ -2,22 +2,12 @@
 //! room is admitted again, and a periodic answer dropped, for a change of its room's
 //! board and its user, not for one of another board.
 
-use std::time::Duration;
-
 use fvoci_model::{ContainerMember, ContainerType};
 use serde_json::json;
-use tokio::time::Instant;
 
-use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
-use crate::rooms::{Peer, give, paragraphs, table, two_in_a_room};
-
-/// What the tests allow for something that waits for nothing slow.
-const PROMPT: Duration = Duration::from_secs(1);
-
-/// The periodic check comes when a test asks for it, not by itself.
-fn seldom() -> Setup {
-    Setup::native().configure(|config| config.collab.collab_recheck_seconds = 3600)
-}
+use crate::common::{TEST_WORKSPACE_ID, TestServer};
+use crate::rooms::{Incoming, PATIENCE, Peer, QUIET, give, paragraphs, table, two_in_a_room};
+use crate::rooms_changes::seldom;
 
 /// Comes into the room of `card_id` while `change` is made between the admission and
 /// the room: whether the connection was admitted once more for it. An admission again
@@ -96,23 +86,21 @@ async fn a_change_of_another_board_does_not_admit_a_joining_member_again() {
 
 /// A member made a reader where the store alone says so (no immediate check), and a
 /// change of another board for the same member between the periodic check's reads
-/// and its answers: the periodic answer is applied all the same.
+/// and its answers: the periodic answer is applied all the same. The room asks when the
+/// test has it ask: an answer dropped would not be asked for again within the hour.
 #[tokio::test]
 async fn a_periodic_answer_is_applied_though_another_board_changed_meanwhile() {
-    let th = Setup::native()
-        .configure(|config| config.collab.collab_recheck_seconds = 3)
-        .start()
-        .await
-        .init_basic()
-        .await;
+    let th = seldom().start().await.init_basic().await;
     let (t, _owner, mut member) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let elsewhere = th
         .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
         .await;
     let user = th.client2.me().await.id;
+    let collab = th.app.collab();
     // A pass that read before the store changed: let go without reading again.
-    let (read, go) = th.app.collab().pause_next_recheck();
-    tokio::time::timeout(Duration::from_secs(10), read.notified())
+    let (read, go) = collab.pause_next_recheck();
+    collab.ask_again_now();
+    tokio::time::timeout(PATIENCE, read.notified())
         .await
         .expect("the periodic check reads");
     th.app
@@ -127,22 +115,15 @@ async fn a_periodic_answer_is_applied_though_another_board_changed_meanwhile() {
         .expect("the member is made a reader in the store alone");
     go.notify_one();
     // The next pass reads the reader's role; another board changes before it answers.
-    let (read, go) = th.app.collab().pause_next_recheck();
-    tokio::time::timeout(Duration::from_secs(10), read.notified())
+    let (read, go) = collab.pause_next_recheck();
+    collab.ask_again_now();
+    tokio::time::timeout(PATIENCE, read.notified())
         .await
         .expect("the periodic check reads again");
     give(&th, &elsewhere.id, &user, "editor").await;
-    let released = Instant::now();
+    // Not this room's change: nothing told of it but the periodic answer.
+    assert_eq!(member.incoming(QUIET).await, Incoming::Nothing);
     go.notify_one();
-    let mode = tokio::time::timeout(PROMPT, member.text("DOC_MODE"))
-        .await
-        .unwrap_or_else(|_| {
-            panic!(
-                "the periodic answer was not applied within {PROMPT:?} of its release \
-                 (waited {:?}): it was dropped for a change of another board",
-                released.elapsed()
-            )
-        });
-    assert_eq!(mode["mode"], json!("read"));
+    assert_eq!(member.text("DOC_MODE").await["mode"], json!("read"));
     th.teardown().await;
 }

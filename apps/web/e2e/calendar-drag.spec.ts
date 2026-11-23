@@ -120,7 +120,7 @@ test.describe('a mouse', () => {
     await openCalendar(page, info);
     await page.getByTestId('calendar-undated').click();
     const line = page.getByTestId('undated-panel').locator('[data-card]').first();
-    const title = ((await line.locator('a').first().textContent()) ?? '').trim();
+    const title = ((await line.locator('a [data-title]').first().textContent()) ?? '').trim();
     await dragTo(page, line.locator('a').first(), '2026-11-04', async () => {
       await shoot(page, 'undated-dragging');
     });

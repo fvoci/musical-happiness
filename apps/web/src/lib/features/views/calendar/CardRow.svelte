@@ -16,6 +16,7 @@
   import RepeatIcon from '@lucide/svelte/icons/repeat';
 
   import { faceProperties } from '$lib/components/card-face/face.ts';
+  import CardNumber from '$lib/components/card-number/CardNumber.svelte';
   import { PropertyValue, type PropertyUser } from '$lib/components/properties/index.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { daysBetween, type CalendarDate } from '$lib/logic/dates.ts';
@@ -99,8 +100,11 @@
       class="flex min-h-10 min-w-0 flex-1 flex-col justify-center rounded-lg px-3 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-12"
       onclick={open}
     >
-      <span class={['truncate', !card.title && 'text-muted-foreground']}>
-        {placed.title(card)}
+      <span class="flex min-w-0 gap-1.5">
+        <CardNumber number={card.number} />
+        <span data-title class={['truncate', !card.title && 'text-muted-foreground']}>
+          {placed.title(card)}
+        </span>
       </span>
       {#if loop}
         <span data-mark="loop" class="flex items-center gap-1 text-xs text-destructive">

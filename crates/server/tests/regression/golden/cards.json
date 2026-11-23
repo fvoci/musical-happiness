@@ -57,6 +57,7 @@
       "isTemplate": false,
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
+      "number": 1,
       "properties": {
         "p1": "v1"
       },
@@ -83,6 +84,7 @@
       "isTemplate": false,
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
+      "number": 2,
       "properties": {},
       "tasksDone": 0,
       "tasksTotal": 0,
@@ -150,6 +152,7 @@
         "isTemplate": false,
         "lastCommentAt": 0,
         "modifiedBy": "<id:2>",
+        "number": 1,
         "properties": {
           "p1": "v1"
         },
@@ -170,6 +173,7 @@
         "isTemplate": false,
         "lastCommentAt": 0,
         "modifiedBy": "<id:2>",
+        "number": 2,
         "properties": {},
         "tasksDone": 0,
         "tasksTotal": 0,
@@ -196,6 +200,7 @@
         "isTemplate": false,
         "lastCommentAt": 0,
         "modifiedBy": "<id:2>",
+        "number": 1,
         "properties": {
           "p1": "v1"
         },
@@ -216,6 +221,7 @@
         "isTemplate": false,
         "lastCommentAt": 0,
         "modifiedBy": "<id:2>",
+        "number": 2,
         "properties": {},
         "tasksDone": 0,
         "tasksTotal": 0,
@@ -279,6 +285,7 @@
       "isTemplate": false,
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
+      "number": 1,
       "properties": {
         "p1": "v1"
       },
@@ -305,6 +312,7 @@
       "isTemplate": false,
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
+      "number": 1,
       "properties": {
         "p1": "v1"
       },
@@ -345,6 +353,7 @@
       "isTemplate": false,
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
+      "number": 1,
       "properties": {
         "p1": "v1",
         "p2": "v2"
@@ -414,6 +423,7 @@
       "isTemplate": false,
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
+      "number": 1,
       "properties": {
         "p1": "v1",
         "p2": "v2"
@@ -494,6 +504,7 @@
       "isTemplate": false,
       "lastCommentAt": 0,
       "modifiedBy": "<id:2>",
+      "number": 1,
       "properties": {
         "p1": "v1",
         "p2": "v2"

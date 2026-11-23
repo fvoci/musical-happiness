@@ -27,6 +27,9 @@ import type { Doc } from 'yjs';
  */
 export const CARET_WAIT = 100;
 
+/** The page, where one is present (non-DOM runtimes and torn-down tests have none). */
+const page = (): Document | undefined => (typeof document === 'undefined' ? undefined : document);
+
 export class Carets {
   readonly awareness: Awareness;
   /** Sends the reader's state to the room; false when it cannot be told now. */
@@ -36,12 +39,15 @@ export class Carets {
   /** The room was told a caret, and not yet that it is gone. */
   #shown = false;
   #gone = false;
+  /** The document `#seen` was registered on, so `destroy` removes it from the same target. */
+  #page: Document | undefined;
 
   constructor(doc: Doc, tell: (update: Uint8Array) => boolean) {
     this.awareness = new Awareness(doc);
     this.#tell = tell;
     this.awareness.on('update', this.#changed);
-    document.addEventListener('visibilitychange', this.#seen);
+    this.#page = page();
+    this.#page?.addEventListener('visibilitychange', this.#seen);
   }
 
   /** The page was hidden, or is shown again: the caret goes, or is told anew. */
@@ -75,7 +81,7 @@ export class Carets {
   #say(): void {
     const { awareness } = this;
     const cursor: unknown = awareness.getLocalState()?.cursor;
-    const hidden = document.visibilityState === 'hidden';
+    const hidden = page()?.visibilityState === 'hidden';
     const shows = cursor !== null && cursor !== undefined && !hidden;
     // No caret, and the room knows of none: nothing to tell.
     if (!shows && !this.#shown) return;
@@ -118,7 +124,8 @@ export class Carets {
     clearTimeout(this.#timer);
     this.#timer = undefined;
     this.awareness.off('update', this.#changed);
-    document.removeEventListener('visibilitychange', this.#seen);
+    this.#page?.removeEventListener('visibilitychange', this.#seen);
+    this.#page = undefined;
     this.awareness.destroy();
   }
 }

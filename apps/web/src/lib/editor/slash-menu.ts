@@ -1,8 +1,9 @@
 /**
  * The slash menu: typing `/` at the start of a line or after a space offers
- * what is put into a body by something other than typing. For now that is
- * a file (uploads.ts asks for it and puts its block in), so the menu is
- * there only where the body takes files.
+ * what is put into a body, or done to it, by something other than typing:
+ * a file where the body takes files (uploads.ts asks for it and puts its
+ * block in), a table, and in a table what changes it (table-menu.ts). What
+ * it offers depends on where the reader is; with nothing to offer, no menu.
  *
  * What follows the slash narrows the entries by their names in any of the
  * reader's words (`/파일`, `/file`). Not in a code block, whose text is
@@ -27,8 +28,8 @@ export interface SlashEntry {
 }
 
 export interface SlashMenuOptions {
-  /** What the menu offers now; none: no menu. */
-  entries: () => SlashEntry[];
+  /** What the menu offers now, where the reader is in the editor; none: no menu. */
+  entries: (editor: Editor) => SlashEntry[];
   render?: SuggestionRenderer;
 }
 
@@ -61,11 +62,11 @@ export const SlashMenu = Extension.create<SlashMenuOptions>({
         allow: ({ editor, state, range }) =>
           editor.isEditable &&
           state.doc.resolve(range.from).parent.type.spec.code !== true &&
-          options.entries().length > 0,
-        items: ({ query }) =>
-          matching(options.entries(), query).map(({ value, label }) => ({ value, label })),
+          options.entries(editor).length > 0,
+        items: ({ query, editor }) =>
+          matching(options.entries(editor), query).map(({ value, label }) => ({ value, label })),
         command: ({ editor, range, props }) => {
-          const entry = options.entries().find((each) => each.value === props.value);
+          const entry = options.entries(editor).find((each) => each.value === props.value);
           editor.chain().focus().deleteRange(range).run();
           entry?.run(editor);
         },

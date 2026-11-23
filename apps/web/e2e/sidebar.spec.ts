@@ -123,6 +123,45 @@ test.describe('the shapes of the sidebar', () => {
     await expect(shell(page)).toHaveAttribute('data-sidebar', 'closed');
   });
 
+  test('the drawer still takes and returns the focus while a stylesheet is loading', async ({
+    page,
+  }) => {
+    await openApp(page);
+    const stage = await stageOf(page);
+    test.skip(stage === 'expanded', 'an expanded page has no drawer');
+    const opener = page.getByTestId(stage === 'compact' ? 'open-sidebar' : 'expand-sidebar');
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let requested = false;
+    await page.route('**/fvoci-pending-sheet.css', async (route) => {
+      requested = true;
+      await held;
+      await route.fulfill({ contentType: 'text/css', body: '' }).catch(() => undefined);
+    });
+    try {
+      await page.evaluate(() => {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = '/fvoci-pending-sheet.css';
+        document.head.append(link);
+      });
+      await expect.poll(() => requested).toBe(true);
+
+      await opener.click();
+      await expect(shell(page)).toHaveAttribute('data-sidebar', 'drawer');
+      await expect(sidebar(page)).toBeFocused();
+
+      await page.keyboard.press('Escape');
+      await expect(shell(page)).toHaveAttribute('data-sidebar', 'closed');
+      await expect(opener).toBeFocused();
+    } finally {
+      release?.();
+      await page.unroute('**/fvoci-pending-sheet.css').catch(() => undefined);
+    }
+  });
+
   test('the back button closes the drawer and leaves the address alone', async ({ page }) => {
     await openApp(page);
     test.skip((await stageOf(page)) === 'expanded', 'an expanded page has no drawer');

@@ -12,6 +12,7 @@
 import {
   BackendError,
   ERROR_STATUSES,
+  sessionOver,
   type ErrorStatus,
   type InvalidInput,
   type Problem,
@@ -103,6 +104,46 @@ export interface RequestOptions {
   signal?: AbortSignal;
   /** Sent even as the page goes (a small request: the browser takes 64 KiB of them at once). */
   keepalive?: boolean;
+  /**
+   * Success replaces the session cookie (`Set-Cookie`): concurrent requests
+   * refused as signed out under the previous cookie wait for this to settle
+   * and retry under the new cookie.
+   */
+  rotates?: boolean;
+}
+
+/**
+ * Maximum retries a request may make for back-to-back session-cookie rotations
+ * (e.g. setting a first password immediately followed by confirming it).
+ */
+const MAX_ROTATION_RETRIES = 2;
+
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError');
+}
+
+function waitWithAbort(promise: Promise<unknown>, signal?: AbortSignal): Promise<void> {
+  if (!signal) return promise.then(() => undefined);
+  if (signal.aborted) return Promise.reject(abortError(signal));
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      reject(abortError(signal));
+    };
+    const cleanup = (): void => {
+      signal.removeEventListener('abort', onAbort);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      () => {
+        cleanup();
+        resolve();
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
 }
 
 /** Talks to one server: the one the page came from, under the path the app is served at. */
@@ -111,6 +152,10 @@ export class Http {
   readonly basePath: string;
   /** Whether the session's cookie goes along: not for a reader by a board's link. */
   readonly #credentials: RequestCredentials;
+  /** Count of session-cookie rotations that have succeeded on this client. */
+  #rotation = 0;
+  /** In-flight requests whose success replaces the session cookie. */
+  readonly #rotations = new Set<Promise<void>>();
 
   constructor(basePath: string, credentials: RequestCredentials = 'same-origin') {
     this.basePath = basePath.replace(/\/$/, '');
@@ -132,6 +177,89 @@ export class Http {
     return `${this.basePath}${filled}${text ? `?${text}` : ''}`;
   }
 
+  async #trackRotation<T>(run: () => Promise<T>): Promise<T> {
+    let settled = (): void => undefined;
+    const done = new Promise<void>((resolve) => {
+      settled = resolve;
+    });
+    this.#rotations.add(done);
+    try {
+      const result = await run();
+      this.#rotation += 1;
+      return result;
+    } finally {
+      this.#rotations.delete(done);
+      settled();
+    }
+  }
+
+  async #rotatedSince(
+    epoch: number,
+    pending: readonly Promise<void>[],
+    noAnswer: string,
+    signal: AbortSignal | undefined,
+    rethrowAbort: boolean,
+  ): Promise<boolean> {
+    const waiting = new Set([...pending, ...this.#rotations]);
+    if (waiting.size > 0) {
+      try {
+        await waitWithAbort(Promise.all(waiting), signal);
+      } catch (error) {
+        if (rethrowAbort) throw error;
+        throw new BackendError(0, { detail: noAnswer });
+      }
+    }
+    return this.#rotation !== epoch;
+  }
+
+  async #fetch(
+    send: () => Promise<Response>,
+    noAnswer: string,
+    signal: AbortSignal | undefined,
+    rethrowAbort: boolean,
+  ): Promise<Response> {
+    try {
+      return await send();
+    } catch (error) {
+      if (rethrowAbort && signal?.aborted) throw error;
+      throw new BackendError(0, { detail: noAnswer });
+    }
+  }
+
+  /**
+   * Sends one request, retrying when a concurrent session-cookie rotation
+   * (`rotates`) succeeded while this request was sent under the previous cookie.
+   * Genuine session loss (no rotation, or still 401 after rotation) throws as is.
+   */
+  async #send(
+    send: () => Promise<Response>,
+    noAnswer: string,
+    options: { rotates?: boolean; signal?: AbortSignal; rethrowAbort: boolean },
+  ): Promise<Response> {
+    if (options.rotates) {
+      return this.#trackRotation(async () => {
+        const response = await this.#fetch(send, noAnswer, options.signal, options.rethrowAbort);
+        if (!response.ok) throw await errorOf(response);
+        return response;
+      });
+    }
+    for (let attempt = 0; ; attempt += 1) {
+      const epoch = this.#rotation;
+      const pending = [...this.#rotations];
+      const response = await this.#fetch(send, noAnswer, options.signal, options.rethrowAbort);
+      if (response.ok) return response;
+      const error = await errorOf(response);
+      if (
+        attempt < MAX_ROTATION_RETRIES &&
+        sessionOver(error) === 'signedOut' &&
+        (await this.#rotatedSince(epoch, pending, noAnswer, options.signal, options.rethrowAbort))
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
   /** Reads the bytes at a path (a file), until `signal` gives up. Rejects as `request` does. */
   async bytes(
     path: ApiPath,
@@ -139,16 +267,12 @@ export class Http {
     query: RequestOptions['query'] = {},
     signal?: AbortSignal,
   ): Promise<Blob> {
-    let response: Response;
-    try {
-      response = await fetch(this.url(path, params, query), {
-        credentials: this.#credentials,
-        signal,
-      });
-    } catch {
-      throw new BackendError(0, { detail: `GET ${path}: no answer` });
-    }
-    if (!response.ok) throw await errorOf(response);
+    const address = this.url(path, params, query);
+    const response = await this.#send(
+      () => fetch(address, { credentials: this.#credentials, signal }),
+      `GET ${path}: no answer`,
+      { signal, rethrowAbort: false },
+    );
     return response.blob();
   }
 
@@ -176,21 +300,20 @@ export class Http {
       headers['Content-Type'] = 'application/json';
       body = JSON.stringify(options.json);
     }
-    let response: Response;
-    try {
-      response = await fetch(this.url(path, params, options.query), {
-        method,
-        headers,
-        body,
-        credentials: this.#credentials,
-        signal: options.signal,
-        keepalive: options.keepalive,
-      });
-    } catch (error) {
-      if (options.signal?.aborted) throw error;
-      throw new BackendError(0, { detail: `${method} ${path}: no answer` });
-    }
-    if (!response.ok) throw await errorOf(response);
+    const address = this.url(path, params, options.query);
+    const response = await this.#send(
+      () =>
+        fetch(address, {
+          method,
+          headers,
+          body,
+          credentials: this.#credentials,
+          signal: options.signal,
+          keepalive: options.keepalive,
+        }),
+      `${method} ${path}: no answer`,
+      { rotates: options.rotates, signal: options.signal, rethrowAbort: true },
+    );
     // 204 says nothing, and 202 that the work waits for something (an address to
     // be confirmed): neither has a body.
     if (response.status === 204 || response.status === 202) return undefined as T;

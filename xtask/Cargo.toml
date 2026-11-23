@@ -16,7 +16,10 @@ ctrlc.workspace = true
 proc-macro2 = { version = "1", features = ["span-locations"] }
 # Writing a parsed trait back as text, for the name of a function of a trait's `impl`.
 quote = { version = "1", default-features = false }
-# Reading what docker and the server answer in `cargo xtask docker`.
+# The time file, `target/xtask-times.jsonl`.
+serde.workspace = true
+# Reading what docker and the server answer in `cargo xtask docker`, the time file, and
+# the targets `cargo metadata` lists.
 serde_json.workspace = true
 # The digests by which the names check knows the words it bans.
 sha2.workspace = true

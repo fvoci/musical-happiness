@@ -1,7 +1,7 @@
 <!--
   The top row of an open card: how to leave it, where it belongs (the board
-  and the view it was opened from), how the saving of its body stands, and
-  its menu. Deleting from the menu is not asked: undo, and the trash, take
+  and the view it was opened from, and its number there), how the saving of
+  its body stands, and its menu. Deleting from the menu is not asked: undo, and the trash, take
   it back.
 
   Leaving is a back arrow at the left when the card fills the screen, as a
@@ -20,6 +20,8 @@
   import Undo2Icon from '@lucide/svelte/icons/undo-2';
   import XIcon from '@lucide/svelte/icons/x';
 
+  import { copyCardLink } from '$lib/components/card-number/card-link.ts';
+  import CardNumber from '$lib/components/card-number/CardNumber.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
@@ -66,6 +68,7 @@
   const workspace = $derived(board.workspace);
   const cardTitle = $derived(card.summary?.title || m['KanbanCard.untitled']());
   const there = $derived(card.summary !== undefined && !card.missing);
+  const number = $derived(card.summary?.number);
 
   const SAVE_TEXT: Record<SaveState, () => string> = {
     idle: () => '',
@@ -77,7 +80,8 @@
   async function copyLink(): Promise<void> {
     try {
       // A card is an address of its own: that is the link to it.
-      await navigator.clipboard.writeText(new URL(cardHref(card.cardId), location.href).href);
+      const address = new URL(cardHref(card.cardId), location.href).href;
+      await copyCardLink(address, { title: card.summary?.title ?? '', number });
     } catch {
       // No clipboard here (a page that is not served securely): nothing was copied, so nothing is said.
       return;
@@ -171,6 +175,10 @@
     {#if view}
       <ChevronRightIcon class="size-4 shrink-0" aria-hidden="true" />
       <span class="min-w-0 shrink-[2] truncate">{view.title || m['Sidebar.untitled-view']()}</span>
+    {/if}
+    {#if number !== undefined}
+      <ChevronRightIcon class="size-4 shrink-0" aria-hidden="true" />
+      <CardNumber {number} />
     {/if}
   </p>
   <span

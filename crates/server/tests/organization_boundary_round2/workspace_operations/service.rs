@@ -6,6 +6,55 @@ use super::super::fake_oidc::FakeProvider;
 use super::super::fake_smtp::FakeSmtp;
 use super::{Case, Client, PASSWORD, TestServer, identity, shared};
 
+/// The founder is told that somebody of their organization named them in a card, and
+/// lists it, counts it, and marks it as read, by itself and with all.
+async fn notifications(case: &mut Case, server: &TestServer) {
+    let title = format!("{} told", case.label);
+    let board = case
+        .run("createBoard", &[], json!({"title": title, "type": "P"}))
+        .await
+        .value();
+    let board = case.remember(&board, "id");
+    let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "mention", "attrs": {"userId": case.user}}]}]});
+    let mut card = fvoci_model::Block {
+        id: fvoci_model::new_id(),
+        container_id: board,
+        block_type: fvoci_model::BlockType::Card,
+        title,
+        body: fvoci_model::Body::parse(body).expect("a document"),
+        ..fvoci_model::Block::default()
+    };
+    // Written by the other member, who never signs in: past the API, in the store.
+    server
+        .app
+        .store()
+        .for_org(&case.org)
+        .expect("organization scope")
+        .insert_block(&mut card, &case.peer)
+        .await
+        .expect("the card that names the founder is stored");
+    case.identifiers.push(card.id.clone());
+    fvoci_server::app::tend_notifications(&server.app).await;
+
+    let told = case
+        .present("getNotifications", &[], &card.id)
+        .await
+        .value();
+    let told = told.as_array().expect("a list");
+    assert_eq!(told.len(), 1, "the one mention: {told:?}");
+    let notification = case.remember(&told[0], "id");
+    let unread = case.run("getUnreadNotifications", &[], json!({})).await;
+    assert_eq!(unread.value()["count"], 1, "{}", unread.text());
+    case.run(
+        "readNotification",
+        &[("notificationId", &notification)],
+        json!({}),
+    )
+    .await;
+    case.run("readNotifications", &[], json!({})).await;
+}
+
 pub(super) async fn exercise(
     case: &mut Case,
     server: &TestServer,
@@ -17,6 +66,7 @@ pub(super) async fn exercise(
     }
     account(case).await;
     organization(case).await;
+    notifications(case, server).await;
     shared::exercise(case).await;
     shared::exercise_wiki(case).await;
     invitation(case, server, smtp).await;
@@ -84,6 +134,8 @@ pub(super) async fn exercise(
         .await;
     case.client.token = changed.session_cookie().expect("rotated session cookie");
     deletion(case, server).await;
+    leaving(case, server).await;
+    // The session of an account that left an organization stays.
     case.run("logout", &[], json!({})).await;
     // The link mailed to the address before stood through all of that, and gives it
     // back: last, as it ends every session of the account and locks its password.
@@ -104,6 +156,27 @@ pub(super) async fn exercise(
 struct Back {
     token: String,
     email: String,
+}
+
+/// The founder leaves the organization once somebody else administers it, and the
+/// instance: a founder is the only administrator of theirs, who does not leave.
+async fn leaving(case: &mut Case, server: &TestServer) {
+    let store = server
+        .app
+        .store()
+        .for_org(&case.org)
+        .expect("organization scope");
+    let peer = case.peer.clone();
+    for statement in [
+        format!("UPDATE organization_members SET role = 'admin' WHERE user_id = '{peer}'"),
+        format!("UPDATE users SET is_admin = true WHERE id = '{peer}'"),
+    ] {
+        store
+            .execute_unchecked(&statement)
+            .await
+            .expect("the peer stands in");
+    }
+    case.run("leaveOrganization", &[], json!({})).await;
 }
 
 /// The founder asks to delete the account, signs in to it while it waits, and takes

@@ -171,6 +171,63 @@ async fn with_one_alone() -> WithOneAlone {
     WithOneAlone { th, alice, carol }
 }
 
+/// On SQLite, multi-organization mode (`org_creation = "open"`) is rejected at config
+/// check time, and under email verification the first user starts the one organization
+/// while a second registration (with or without an organization name) is refused with
+/// `invitation_required`.
+#[tokio::test]
+async fn sqlite_refuses_open_org_creation_and_rejects_second_verified_signup() {
+    let mut config = fvoci_server::config::Configuration {
+        database_kind: "sqlite".to_owned(),
+        org_creation: "open".to_owned(),
+        ..fvoci_server::config::Configuration::default()
+    };
+    let refused = config
+        .check()
+        .expect_err("SQLite refuses open org_creation");
+    assert!(
+        refused.to_string().contains("postgres"),
+        "expected postgres requirement, got: {refused}"
+    );
+    config.org_creation = "first_user_only".to_owned();
+    config.check().expect("first_user_only is valid on SQLite");
+
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .on_an_empty_database()
+        .smtp(smtp.settings())
+        .configure(|cfg| cfg.mail.email_verification = true)
+        .start()
+        .await;
+    let waiting = |username: &str, organization_name: Option<&str>| {
+        let mut request = registration(username, organization_name);
+        request["email"] = json!(format!("{username}@example.test"));
+        request["password"] = json!(SIGNUP_PASSWORD);
+        request
+    };
+    th.anonymous()
+        .post("/register", &waiting("ivan", Some("Ours")))
+        .await
+        .check_status(StatusCode::ACCEPTED);
+    let message = smtp.received(1).await.pop().expect("its message");
+    th.anonymous()
+        .post(
+            COMPLETE,
+            &json!({"token": link_token(&message), "password": SIGNUP_PASSWORD}),
+        )
+        .await
+        .check_ok();
+    for name in [None, Some("Another")] {
+        let second = th
+            .anonymous()
+            .post("/register", &waiting("kim", name))
+            .await;
+        check_invitation_required(&second);
+    }
+    th.teardown().await;
+    smtp.stop().await;
+}
+
 /// Who registers without the name of an organization, on a server that takes several,
 /// has their own space and nothing else: one workspace is listed, they work in it, and
 /// they are in no organization, so nothing that counts organizations counts one for
@@ -179,7 +236,7 @@ async fn with_one_alone() -> WithOneAlone {
 /// asks to, with its own space and hands nothing over; and no organization's provider
 /// is asked of its session.
 #[tokio::test]
-async fn who_registers_without_an_organization_has_their_own_space_alone() {
+async fn who_registers_without_an_organization_has_their_own_space_alone_on_postgres() {
     if db_type_of_the_tests() != DbType::Postgres {
         return;
     }
@@ -280,7 +337,7 @@ fn check_too_many(response: &ApiResponse) {
 /// registration's is. An account makes three and no more, the one it registered with
 /// among them, and is told the limit; one that started nothing makes three.
 #[tokio::test]
-async fn an_account_starts_organizations_and_no_more_than_three() {
+async fn an_account_starts_organizations_and_no_more_than_three_on_postgres() {
     if db_type_of_the_tests() != DbType::Postgres {
         return;
     }
@@ -363,11 +420,12 @@ async fn an_account_starts_organizations_and_no_more_than_three() {
 
 /// An organization is counted to who made it after they have left it: an account that
 /// made three hands one to somebody else, who is let in, made its administrator, takes
-/// the maker's role and removes them from its workspace. The maker is listed the two
-/// that are left, finds the third no more, and is still refused a fourth with the
-/// answer of the limit. Who took it over did not make it: it is not counted to them.
+/// the maker's role and removes them from its workspace, and the maker leaves it
+/// (`leaveOrganization`). The maker is listed the two that are left, finds the third
+/// no more, and is still refused a fourth with the answer of the limit. Who took it
+/// over did not make it: it is not counted to them.
 #[tokio::test]
-async fn an_organization_is_counted_to_who_made_it_after_they_left_it() {
+async fn an_organization_is_counted_to_who_made_it_after_they_left_it_on_postgres() {
     if db_type_of_the_tests() != DbType::Postgres {
         return;
     }
@@ -414,6 +472,10 @@ async fn an_organization_is_counted_to_who_made_it_after_they_left_it() {
         .delete(&format!("{workspace}/members/{carol_id}"))
         .await
         .check_no_content();
+    carol
+        .post(&format!("{organization}/leave"), &json!({}))
+        .await
+        .check_no_content();
 
     let (listed, _) = workspaces_and_own(&carol).await;
     let names: Vec<&str> = listed
@@ -443,7 +505,7 @@ async fn an_organization_is_counted_to_who_made_it_after_they_left_it() {
 /// started. Before the server has its first user it is refused as anywhere, and
 /// nothing is mailed.
 #[tokio::test]
-async fn a_registration_without_an_organization_is_confirmed_into_its_own_space() {
+async fn a_registration_without_an_organization_is_confirmed_into_its_own_space_on_postgres() {
     if db_type_of_the_tests() != DbType::Postgres {
         return;
     }

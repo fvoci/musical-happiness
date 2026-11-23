@@ -120,11 +120,15 @@ test('comments on a page arrive at the other person as they are written, changed
   await expect(rows(first).first()).toContainText('From the commenter, changed');
   await expect(rows(first).first().getByTestId('comment-edited')).toBeVisible();
   await rows(first).first().locator('[data-action="history"]').click();
-  // The text it was posted with, and not the one it has now.
+  // The text it was posted with, as it was; then the one it has now, with what it added.
   const history = rows(first).first().getByTestId('comment-history');
-  await expect(history.locator('[data-version]')).toHaveCount(1);
-  await expect(history).toContainText('From the commenter');
-  await expect(history).not.toContainText('changed');
+  await expect(history.locator('[data-version]')).toHaveCount(2);
+  const posted = history.locator('[data-version="1"]');
+  await expect(posted).toContainText('From the commenter');
+  await expect(posted).not.toContainText('changed');
+  const now = history.locator('[data-version="now"]');
+  await expect(now.locator('ins')).toHaveText(', changed');
+  await expect(now.locator('del')).toHaveCount(0);
   // The server keeps them as they are shown.
   const stored = (await (await api.get(`${page}/comments`)).json()) as Schemas['Block'][];
   expect(stored.map((comment) => comment.body)).toEqual([

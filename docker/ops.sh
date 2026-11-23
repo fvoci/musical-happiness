@@ -120,13 +120,14 @@ checked_config() {
     refused=no
     complaint=$(compose config "$@" 2>&1 >/dev/null) || refused=yes
     if [ "$refused" = yes ] || [ -n "$complaint" ]; then
-        printf '%s\n' "$complaint" | compose_said >&2
-        case $complaint in
-        *"variable is not set"*)
+        shown=$(printf '%s\n' "$complaint" | compose_said)
+        printf '%s\n' "$shown" >&2
+        case $shown in
+        *"compose: warning: The <hidden> variable is not set. Defaulting to a blank string."*)
             say "a \$ in a value of the .env starts a variable, which compose replaces (with nothing when it is not set): the services get the value without it. To keep what they get, take the \$ and the name after it out of the value; to give them the \$, write \$\$ or put the value in single quotes (a secret key or a password changed so no longer opens what it sealed)" >&2
             ;;
         esac
-        unset complaint
+        unset complaint shown
         said_as_is="COMPOSE_FILE='$COMPOSE_FILE' docker compose --env-file '$env_file' config -q shows all of it as compose writes it, values and all"
         [ "$refused" = no ] ||
             fail "compose refuses its files or .env (above, without what it quotes of them; $said_as_is). Nothing was changed"
@@ -221,14 +222,28 @@ fvoci_setting() {
         END { if (found) { gsub(/["\047]/, "", value); print value } }'
 }
 
-# FVOCI_SECRET_KEY in a listing of `compose config --environment` read on stdin, as
-# FVOCI_SECRET_KEY=<value>, with the lines of a value that holds line ends. Fails,
-# printing nothing, when it is not set.
-listed_key() {
-    awk '/^[A-Za-z_][A-Za-z0-9_]*=/ { inside = 0 }
-        /^FVOCI_SECRET_KEY=/ { inside = 1; found = 1 }
-        inside { print }
-        END { exit !found }'
+# FVOCI_SECRET_KEY as compose resolves it from "$1" (and the shell's environment, unless
+# the caller unset FVOCI_SECRET_KEY), as one JSON-encoded string value so line ends and
+# inner NAME= lines inside a multiline value are never split. Prints nothing when it is
+# unset or empty; fails if compose refuses the .env.
+secret_key_from() {
+    json=$(
+        unset COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES COMPOSE_ENV_FILES
+        docker compose --project-name fvoci-key-check --env-file "$1" -f - config --format json 2>/dev/null <<'YAML'
+services:
+  k:
+    image: scratch
+    environment:
+      FVOCI_SECRET_KEY:
+YAML
+    ) || return 1
+    printf '%s\n' "$json" | awk '
+        /"FVOCI_SECRET_KEY":[ \t]*"/ {
+            sub(/^.*"FVOCI_SECRET_KEY":[ \t]*"/, "")
+            sub(/"[ \t]*,?[ \t]*$/, "")
+            if ($0 != "") print
+        }'
+    unset json
 }
 
 # Warns when the project runs cloudflared and the range of its network edge is not

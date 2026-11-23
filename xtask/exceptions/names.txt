@@ -116,6 +116,9 @@ crates/store/src/account_erasure.rs | container_team_membership::remove_workspac
 crates/store/tests/store/account_erasure.rs | create_team(
 crates/store/tests/store/account_erasure.rs | add_team_member(
 crates/store/tests/store/account_erasure.rs | a team of the workspace
+crates/store/tests/store/account_erasure_organizations.rs | create_team(
+crates/store/tests/store/account_erasure_organizations.rs | add_team_member(
+crates/store/tests/store/account_erasure_organizations.rs | a team of the workspace
 crates/server/src/app/teams.rs
 crates/server/src/app/mod.rs | teams
 crates/server/src/api/teams.rs
@@ -193,6 +196,11 @@ crates/server/tests/api/rooms_access.rs | the team member left
 apps/web/src/lib/features/shell/ShareDialog.svelte | team
 apps/web/src/lib/features/shell/share-words.ts | team
 apps/web/src/lib/state/member-writes.ts | containerteams
+
+# Leaving an organization takes the account out of the teams of its workspaces; the
+# test of it puts the account in one first.
+crates/server/src/api/organizations.rs | its teams
+crates/store/tests/store/org_leaving.rs | team
 
 # Team membership is reusable across workspace modules; board effects live on the board side.
 crates/model/src/container_teams.rs

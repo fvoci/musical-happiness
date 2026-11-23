@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { serverBackend } from './support.ts';
 import { cardOfBlock } from '$lib/api/convert.ts';
+import { Http } from '$lib/api/http.ts';
 import { isBackendError } from '$lib/state/index.ts';
 
 interface Sent {
@@ -216,8 +217,42 @@ describe('the server backend', () => {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }],
     };
-    await backend.createCard('b', { title: 'Copy', body });
+    await backend.createCard('b', { title: 'Copy', body, quiet: true });
     expect(sent[1]?.body).toMatchObject({ title: 'Copy', body });
+    // A copy tells nobody whom it names or is given to; a card made anew does.
+    expect(sent[1]?.url).toBe('/api/v1/w/w1/boards/b/cards?disableNotify=true');
+  });
+
+  it('reads and marks what the reader was told, of no workspace', async () => {
+    const subject = {
+      kind: 'comment',
+      actorId: 'u2',
+      times: 2,
+      people: 1,
+      workspaceId: 'w2',
+      containerId: 'b',
+      containerKind: 'board',
+      blockId: 'c',
+      blockKind: 'card',
+      title: 'Plan',
+      commentId: 'm',
+    };
+    const listed = [{ id: 'n1', createAt: 1, updateAt: 5, readAt: 0, subject }];
+    const sent = serve(listed);
+    const notifications = serverBackend('').notifications;
+    expect(await notifications.list({ page: 1, perPage: 20 })).toEqual(listed);
+    expect(sent[0]?.url).toBe('/api/v1/notifications?page=1&perPage=20');
+    const marked = serve(null, 204);
+    await notifications.read('n1');
+    await notifications.readAll(5);
+    await notifications.readAll();
+    expect(marked.map(({ method, url }) => `${method} ${url}`)).toEqual([
+      'POST /api/v1/notifications/n1/read',
+      'POST /api/v1/notifications/read?through=5',
+      'POST /api/v1/notifications/read',
+    ]);
+    serve({ count: 3 });
+    expect(await notifications.unread()).toBe(3);
   });
 
   it('makes a comment as a block under the card, its text the body', async () => {
@@ -443,7 +478,7 @@ describe('changing a card on the server', () => {
     expect(card().properties).toEqual({ a: '2' });
   });
 
-  it('reads the badges of a card from the server, and works them out from a block’s body', async () => {
+  it('reads the badges of a card from the server, and takes a change message’s from its summary', async () => {
     serve({
       ...CARD,
       properties: {},
@@ -455,25 +490,18 @@ describe('changing a card on the server', () => {
     const answer = await serverBackend('').patchCard('b', 'c1', { title: 'x' });
     expect(answer).toMatchObject({ hasBody: true, tasksTotal: 3, tasksDone: 1, lastCommentAt: 44 });
     expect(answer).not.toHaveProperty('body');
-    const block = cardOfBlock({
-      ...BLOCK,
-      id: 'c2',
-      type: 'card',
-      title: 'With tasks',
-      fields: { properties: {} },
-      body: {
-        type: 'doc',
-        content: [
-          {
-            type: 'taskList',
-            content: [
-              { type: 'taskItem', attrs: { checked: true }, content: [{ type: 'paragraph' }] },
-              { type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph' }] },
-            ],
-          },
-        ],
+    // The block of a change message has no body; its summary says how its tasks stand.
+    const block = cardOfBlock(
+      {
+        ...BLOCK,
+        id: 'c2',
+        type: 'card',
+        title: 'With tasks',
+        fields: { properties: {} },
+        body: null,
       },
-    });
+      { hasBody: true, tasksTotal: 2, tasksDone: 1, preview: { imageFileId: '', text: '' } },
+    );
     expect(block).toMatchObject({ hasBody: true, tasksTotal: 2, tasksDone: 1 });
     expect(block).not.toHaveProperty('body');
     // A change message does not say when the last comment was posted.
@@ -667,6 +695,129 @@ describe('changing a view on the server', () => {
     ]);
     expect(order).toHaveLength(6);
     expect(order[3]).toMatch(/^GET/);
+  });
+
+  it('sends readAt on patchView when given, forwards it along queued writes, and stops on failure', async () => {
+    let updateAt = 10;
+    const patches: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
+      if (init.method === 'PATCH') {
+        const body = JSON.parse(typeof init.body === 'string' ? init.body : '{}') as Record<
+          string,
+          unknown
+        >;
+        patches.push(body);
+        if (body.readAt !== undefined && body.readAt !== updateAt) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                type: '/problems/conflict',
+                title: 'Conflict',
+                status: 409,
+                detail: 'the block has changed since it was read',
+              }),
+              { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+            ),
+          );
+        }
+        updateAt += 1;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([
+            {
+              ...VIEW,
+              updateAt,
+              fields: {
+                ...VIEW.fields,
+                order: patches.at(-1)?.updatedFields
+                  ? (patches.at(-1)?.updatedFields as { order?: string }).order
+                  : undefined,
+              },
+            },
+          ]),
+          { status: 200 },
+        ),
+      );
+    });
+    const backend = serverBackend('');
+    // Two queued conditional writes with the same initial readAt: the second advances to 11.
+    await Promise.all([
+      backend.patchView('b', 'v', { updatedFields: { order: 'V' }, readAt: 10 }),
+      backend.patchView('b', 'v', { updatedFields: { order: 'W' }, readAt: 10 }),
+    ]);
+    expect(patches).toEqual([
+      { updatedFields: { order: 'V' }, readAt: 10 },
+      { updatedFields: { order: 'W' }, readAt: 11 },
+    ]);
+
+    // When the first fails with 409, the second keeps its stale readAt and also gets 409.
+    patches.length = 0;
+    updateAt = 20;
+    const results = await Promise.allSettled([
+      backend.patchView('b', 'v', { updatedFields: { order: 'X' }, readAt: 12 }),
+      backend.patchView('b', 'v', { updatedFields: { order: 'Y' }, readAt: 12 }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+    expect(patches).toEqual([
+      { updatedFields: { order: 'X' }, readAt: 12 },
+      { updatedFields: { order: 'Y' }, readAt: 12 },
+    ]);
+
+    // Unconditional write over a view somebody else already bumped does not advance a stale queued readAt.
+    patches.length = 0;
+    updateAt = 30;
+    const mixed = await Promise.allSettled([
+      backend.patchView('b', 'v', { title: 'Renamed' }),
+      backend.patchView('b', 'v', { updatedFields: { order: 'Z' }, readAt: 20 }),
+    ]);
+    expect(mixed.map((r) => r.status)).toEqual(['fulfilled', 'rejected']);
+    expect(patches).toEqual([{ title: 'Renamed' }, { updatedFields: { order: 'Z' }, readAt: 20 }]);
+
+    // An external order change between GET and read-back GET of an unconditional write
+    // must not be masked for a queued conditional place write behind it.
+    let getCount = 0;
+    const maskedPatches: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
+      if (init.method === 'PATCH') {
+        const body = JSON.parse(typeof init.body === 'string' ? init.body : '{}') as Record<
+          string,
+          unknown
+        >;
+        maskedPatches.push(body);
+        if (body.readAt !== undefined && body.readAt !== 12) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                type: '/problems/conflict',
+                title: 'Conflict',
+                status: 409,
+                detail: 'the block has changed since it was read',
+              }),
+              { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+            ),
+          );
+        }
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      getCount += 1;
+      // First GET sees order 'V' at 10; before read-back GET another editor moved it to 'Z' at 12.
+      const view =
+        getCount === 1
+          ? { ...VIEW, updateAt: 10, fields: { ...VIEW.fields, order: 'V' } }
+          : { ...VIEW, updateAt: 12, fields: { ...VIEW.fields, order: 'Z' } };
+      return Promise.resolve(new Response(JSON.stringify([view]), { status: 200 }));
+    });
+    const concurrent = await Promise.allSettled([
+      backend.patchView('b', 'v', { title: 'Renamed' }),
+      backend.patchView('b', 'v', { updatedFields: { order: 'X' }, readAt: 10 }),
+    ]);
+    expect(concurrent.map((r) => r.status)).toEqual(['fulfilled', 'rejected']);
+    expect(maskedPatches).toEqual([
+      { title: 'Renamed' },
+      { updatedFields: { order: 'X' }, readAt: 10 },
+    ]);
   });
 });
 
@@ -1154,5 +1305,291 @@ describe('searching boards on the server', () => {
     const sent = serveRoutes([['GET /api/v1/w/t/boards/search', []]]);
     expect(await serverBackend('').searchBoards('t', 'garden plan')).toEqual([]);
     expect(sentLines(sent)).toEqual(['GET /api/v1/w/t/boards/search?q=garden+plan']);
+  });
+});
+
+describe('session cookie rotation during password changes', () => {
+  const problem = (status: number, detail: string, reason?: string): Response =>
+    new Response(
+      JSON.stringify({
+        type: '/problems/unauthorized',
+        title: 'No valid session',
+        status,
+        detail,
+        ...(reason ? { reason } : {}),
+      }),
+      { status, headers: { 'Content-Type': 'application/problem+json' } },
+    );
+
+  it('retries concurrent GET and POST requests refused with 401 while setPassword rotates the cookie', async () => {
+    let cookie = 'old';
+    let finishSet!: () => void;
+    const setGate = new Promise<void>((resolve) => {
+      finishSet = resolve;
+    });
+    const calls: string[] = [];
+
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const usedCookie = cookie;
+      calls.push(`${method} ${url} [${usedCookie}]`);
+      if (method === 'PUT' && url === '/api/v1/users/me/password') {
+        await setGate;
+        cookie = 'new';
+        return new Response(null, { status: 204 });
+      }
+      if (usedCookie !== 'new') return problem(401, 'invalid session token');
+      if (method === 'POST' && url === '/api/v1/w/w1/users') {
+        return new Response(
+          JSON.stringify([
+            { id: 'u1', username: 'ada', displayName: 'Ada', createAt: 1, updateAt: 2 },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const backend = serverBackend('');
+    const setting = backend.setPassword('a long password');
+    const boards = backend.boards('w1');
+    const users = backend.usersById('w1', ['u1']);
+    await Promise.resolve();
+    finishSet();
+
+    await setting;
+    expect(await boards).toEqual([]);
+    expect((await users).map((user) => user.id)).toEqual(['u1']);
+    expect(calls).toEqual([
+      'PUT /api/v1/users/me/password [old]',
+      'GET /api/v1/w/w1/boards [old]',
+      'POST /api/v1/w/w1/users [old]',
+      'GET /api/v1/w/w1/boards [new]',
+      'POST /api/v1/w/w1/users [new]',
+    ]);
+  });
+
+  it('retries a slow request started before confirmPassword whose 401 arrives after rotation finishes, and bytes too', async () => {
+    let cookie = 'old';
+    let releaseSlow!: () => void;
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+    let firstBoards = true;
+    let firstFile = true;
+
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const usedCookie = cookie;
+      if (method === 'POST' && url === '/api/v1/users/me/password/confirm') {
+        cookie = 'new';
+        return new Response(null, { status: 204 });
+      }
+      if (url === '/api/v1/w/w1/boards' && firstBoards) {
+        firstBoards = false;
+        await slowGate;
+        return problem(401, 'invalid session token');
+      }
+      if (url.includes('/files/f1') && firstFile) {
+        firstFile = false;
+        await slowGate;
+        return problem(401, 'invalid session token');
+      }
+      if (usedCookie !== 'new') return problem(401, 'invalid session token');
+      if (url.includes('/files/f1')) return new Response('ok', { status: 200 });
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const backend = serverBackend('');
+    const slowBoards = backend.boards('w1');
+    const slowBytes = backend.fileBytes('b1', 'f1');
+    await backend.confirmPassword('a long password');
+    releaseSlow();
+
+    expect(await slowBoards).toEqual([]);
+    expect(await (await slowBytes).text()).toBe('ok');
+  });
+
+  it('does not hide real session loss, failed rotation, remote logout, or account deletion pending', async () => {
+    // 1. Plain 401 with no rotation fails on the first try.
+    let tries = 0;
+    vi.stubGlobal('fetch', () => {
+      tries += 1;
+      return Promise.resolve(problem(401, 'invalid session token'));
+    });
+    await expect(serverBackend('').boards('w1')).rejects.toMatchObject({ status: 401 });
+    expect(tries).toBe(1);
+
+    // 2. Failed changePassword does not trigger retries of concurrent 401s.
+    let failRot!: () => void;
+    const rotGate = new Promise<void>((resolve) => {
+      failRot = resolve;
+    });
+    let boardTries = 0;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url === '/api/v1/users/me/password') {
+        await rotGate;
+        return problem(403, 'wrong password', 'invalid_credentials');
+      }
+      boardTries += 1;
+      return problem(401, 'invalid session token');
+    });
+    const b1 = serverBackend('');
+    const changing = b1.changePassword('wrong', 'new password');
+    const reading = b1.boards('w1');
+    await Promise.resolve();
+    failRot();
+    await expect(changing).rejects.toMatchObject({ status: 403 });
+    await expect(reading).rejects.toMatchObject({ status: 401 });
+    expect(boardTries).toBe(1);
+
+    // 3. Remote logout right after rotation: retries once under the new cookie, then fails 401.
+    let finishRevoked!: () => void;
+    const revokedGate = new Promise<void>((resolve) => {
+      finishRevoked = resolve;
+    });
+    let revokedTries = 0;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT' && url === '/api/v1/users/me/password') {
+        await revokedGate;
+        return new Response(null, { status: 204 });
+      }
+      revokedTries += 1;
+      return problem(401, 'invalid session token');
+    });
+    const b2 = serverBackend('');
+    const setting = b2.setPassword('a long password');
+    const revokedRead = b2.boards('w1');
+    await Promise.resolve();
+    finishRevoked();
+    await setting;
+    await expect(revokedRead).rejects.toMatchObject({ status: 401 });
+    expect(revokedTries).toBe(2);
+
+    // 4. account_deletion_pending is never retried even while a rotation succeeds.
+    let finishPending!: () => void;
+    const pendingGate = new Promise<void>((resolve) => {
+      finishPending = resolve;
+    });
+    let leavingTries = 0;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT' && url === '/api/v1/users/me/password') {
+        await pendingGate;
+        return new Response(null, { status: 204 });
+      }
+      leavingTries += 1;
+      return problem(401, 'account deletion pending', 'account_deletion_pending');
+    });
+    const b3 = serverBackend('');
+    const set3 = b3.setPassword('a long password');
+    const leaving = b3.boards('w1');
+    await Promise.resolve();
+    finishPending();
+    await set3;
+    await expect(leaving).rejects.toMatchObject({
+      status: 401,
+      reason: 'account_deletion_pending',
+    });
+    expect(leavingTries).toBe(1);
+  });
+
+  it('aborts cleanly while waiting on an in-flight rotation without surfacing a stale 401', async () => {
+    let finishSet!: () => void;
+    const setGate = new Promise<void>((resolve) => {
+      finishSet = resolve;
+    });
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT' && url === '/api/v1/users/me/password') {
+        await setGate;
+        return new Response(null, { status: 204 });
+      }
+      return problem(401, 'invalid session token');
+    });
+
+    const http = new Http('');
+    const setting = http.request(
+      '/api/v1/users/me/password',
+      {},
+      { method: 'PUT', json: { password: 'a long password' }, rotates: true },
+    );
+    const bytesAbort = new AbortController();
+    const fileRead = http.bytes(
+      '/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}',
+      { workspaceId: 'w1', containerId: 'b1', fileId: 'f1' },
+      {},
+      bytesAbort.signal,
+    );
+    const reqAbort = new AbortController();
+    const boardsRead = http.request(
+      '/api/v1/w/{workspaceId}/boards',
+      { workspaceId: 'w1' },
+      { signal: reqAbort.signal },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    bytesAbort.abort();
+    reqAbort.abort();
+
+    // bytes() reports status-0 no answer (never stale 401); request() rethrows the AbortError.
+    await expect(fileRead).rejects.toMatchObject({ status: 0 });
+    await expect(boardsRead).rejects.toThrow();
+    finishSet();
+    await setting;
+  });
+
+  it('survives back-to-back setPassword and confirmPassword rotations up to the retry cap', async () => {
+    let cookie = 'c0';
+    let finishFirst!: () => void;
+    let finishSecond!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const secondGate = new Promise<void>((resolve) => {
+      finishSecond = resolve;
+    });
+    const backend = serverBackend('');
+    let reads = 0;
+    let secondPromise: Promise<void> | undefined;
+
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT' && url === '/api/v1/users/me/password') {
+        await firstGate;
+        cookie = 'c1';
+        return new Response(null, { status: 204 });
+      }
+      if (init?.method === 'POST' && url === '/api/v1/users/me/password/confirm') {
+        await secondGate;
+        cookie = 'c2';
+        return new Response(null, { status: 204 });
+      }
+      reads += 1;
+      if (reads === 2 && !secondPromise) {
+        secondPromise = backend.confirmPassword('a long password');
+      }
+      if (cookie !== 'c2') return problem(401, 'invalid session token');
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const first = backend.setPassword('a long password');
+    const boards = backend.boards('w1');
+    await Promise.resolve();
+    finishFirst();
+    await first;
+    // Let the second read start confirmPassword and hit 401 under c1 before c2 commits.
+    await Promise.resolve();
+    await Promise.resolve();
+    finishSecond();
+    await secondPromise;
+    expect(await boards).toEqual([]);
+    expect(reads).toBe(3);
   });
 });

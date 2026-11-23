@@ -103,6 +103,10 @@ pub struct SearchHit {
     pub container_kind: ContainerKind,
     /// Its title as it is now; of an entry, its day (`2026-11-21`).
     pub title: String,
+    /// A card's number on its board, as `Card.number` gives it; absent for a page.
+    #[schema(minimum = 1)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<u32>,
     /// A piece of its body around what matched, in stretches that follow one
     /// another; empty where the body has changed since it was indexed, or has nothing
     /// to show.

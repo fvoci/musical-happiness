@@ -9,13 +9,16 @@
 //! The commands and the binary frames of the bodies edited together are handed to the
 //! connection's seat among their rooms (`crate::collab::Seat`).
 
+mod block_message;
 mod connection;
 mod delivery;
 mod inbound;
+mod notifications;
 mod presence;
 mod readers;
 mod subscriptions;
 
+use block_message::UpdateBlockMessage;
 use delivery::{Access, Readers};
 #[cfg(feature = "test-util")]
 mod testing;
@@ -91,14 +94,6 @@ fn null_as_empty<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Vec<String>, D::Error> {
     Ok(Option::<Vec<String>>::deserialize(deserializer)?.unwrap_or_default())
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UpdateBlockMessage<'a> {
-    action: &'static str,
-    workspace_id: &'a str,
-    block: &'a Block,
 }
 
 #[derive(Serialize)]
@@ -197,7 +192,6 @@ macro_rules! outgoing {
 }
 
 outgoing!(
-    UpdateBlockMessage,
     UpdateContainerMessage,
     UpdateMemberMessage,
     UpdateUserMessage,
@@ -308,6 +302,8 @@ struct Listeners {
     by_id: HashMap<ListenerId, Listener>,
     by_workspace: HashMap<String, Vec<ListenerId>>,
     by_block: HashMap<String, Vec<ListenerId>>,
+    /// The connections with a session, by its user.
+    by_user: HashMap<String, Vec<ListenerId>>,
     /// The board visits of the connections, by board.
     visits: presence::Containers,
 }
@@ -375,6 +371,7 @@ impl Listeners {
         for block in &listener.blocks {
             remove_from(&mut self.by_block, block, id);
         }
+        remove_from(&mut self.by_user, &listener.user_id, id);
         self.visits.forget(id, &listener.presence);
     }
 }
@@ -473,14 +470,12 @@ impl Hub {
             return;
         }
         let recipients = self.workspace_listeners(workspace_id);
-        let message = UpdateBlockMessage {
-            action: "UPDATE_BLOCK",
-            workspace_id,
-            block,
-        };
+        // On the heap: a card's message holds a copy of its block, which would make
+        // every future that tells of a block the larger.
+        let message = Box::new(UpdateBlockMessage::new(workspace_id, block));
         self.send(
             &recipients,
-            &message,
+            &*message,
             Access::Members {
                 workspace: workspace_id,
                 readers: Readers::Now(&block.container_id),
@@ -489,7 +484,7 @@ impl Hub {
         )
         .await;
         let by_token: Vec<_> = followers.into_iter().map(|(id, _)| id).collect();
-        self.send_public_block(&by_token, workspace_id, block).await;
+        self.send_public_block(&by_token, &message).await;
     }
 
     /// The connections that follow the block or its parent by `SUBSCRIBE_BLOCKS`, with
@@ -546,11 +541,7 @@ impl Hub {
             delete_at: now,
             ..Block::default()
         };
-        let message = UpdateBlockMessage {
-            action: "UPDATE_BLOCK",
-            workspace_id,
-            block: &block,
-        };
+        let message = UpdateBlockMessage::new(workspace_id, &block);
         self.send_to_former(workspace_id, &message, former).await;
     }
 

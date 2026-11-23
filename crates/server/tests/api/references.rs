@@ -146,7 +146,7 @@ async fn a_reference_names_a_card_or_a_page_to_who_reads_it() {
         json!([
             {"id": mine.page, "kind": "page", "title": "The plan", "icon": "",
                 "containerId": mine.wiki, "containerKind": "wiki"},
-            {"id": mine.card, "kind": "card", "title": "The plan", "icon": "📌",
+            {"id": mine.card, "kind": "card", "title": "The plan", "number": 1, "icon": "📌",
                 "containerId": mine.board, "containerKind": "board"},
         ]),
     );

@@ -24,10 +24,21 @@ function newer<T extends Versioned>(first: T | undefined, second: T | undefined)
 export class PendingWrites<T extends Versioned> {
   readonly #under = new Map<string, number>();
   readonly #held = new Map<string, T>();
+  readonly #waiters = new Map<string, (() => void)[]>();
 
   /** A write of `id` is being sent. */
   begin(id: string): void {
     this.#under.set(id, (this.#under.get(id) ?? 0) + 1);
+  }
+
+  /** Resolves once no write of `id` is under way. */
+  settled(id: string): Promise<void> {
+    if (!this.#under.has(id)) return Promise.resolve();
+    return new Promise((resolve) => {
+      const list = this.#waiters.get(id) ?? [];
+      list.push(resolve);
+      this.#waiters.set(id, list);
+    });
   }
 
   /**
@@ -45,6 +56,11 @@ export class PendingWrites<T extends Versioned> {
     }
     this.#under.delete(id);
     this.#held.delete(id);
+    const waiters = this.#waiters.get(id);
+    if (waiters) {
+      this.#waiters.delete(id);
+      for (const wake of waiters) wake();
+    }
     return latest;
   }
 
@@ -100,4 +116,79 @@ export function reread<T extends Versioned>(
     if (!wasRead.has(item.id) && !wasShown.has(item.id)) next.push(item);
   }
   return next;
+}
+
+/**
+ * Runs writes of one block in turn so two quick ones do not pass each other,
+ * and advances `readAt` along queued view writes from each succeeded write's
+ * returned `updateAt` so a write does not get 409 from the client's own
+ * earlier write in the queue.
+ */
+export class BlockTurns {
+  readonly #writes = new Map<string, Promise<void>>();
+  readonly #advanced = new Map<string, Map<number, number>>();
+
+  /** Runs `write` once earlier writes of `blockId` have ended, however they ended. */
+  run<T>(blockId: string, write: () => Promise<T>): Promise<T> {
+    const before = this.#writes.get(blockId) ?? Promise.resolve();
+    const running = before.then(write);
+    const settled = running.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.#writes.set(blockId, settled);
+    void settled.then(() => {
+      if (this.#writes.get(blockId) === settled) {
+        this.#writes.delete(blockId);
+        this.#advanced.delete(blockId);
+      }
+    });
+    return running;
+  }
+
+  /**
+   * Runs a view patch in turn for `viewId`, forwarding `patch.readAt` along
+   * this queue's succeeded writes when it matches an earlier write's base
+   * `updateAt`. A failed write, or one whose returned `order` differs from
+   * what this write expects (an external order change intervened), does not
+   * advance the chain.
+   */
+  patchView<
+    T extends { updateAt: number; fields: { order?: string } },
+    P extends {
+      readAt?: number;
+      updatedFields?: Record<string, unknown>;
+      deletedFields?: string[];
+    },
+  >(viewId: string, patch: P, send: (sent: P) => Promise<{ before: T; after: T }>): Promise<T> {
+    return this.run(viewId, async () => {
+      const readAt = patch.readAt === undefined ? undefined : this.#resolve(viewId, patch.readAt);
+      const sent = readAt === patch.readAt ? patch : { ...patch, readAt };
+      const { before, after } = await send(sent);
+      const from = sent.readAt ?? before.updateAt;
+      const expectedOrder =
+        sent.updatedFields && 'order' in sent.updatedFields
+          ? sent.updatedFields.order
+          : sent.deletedFields?.includes('order')
+            ? undefined
+            : before.fields.order;
+      if (after.fields.order === expectedOrder && after.updateAt > from) {
+        let map = this.#advanced.get(viewId);
+        if (!map) {
+          map = new Map();
+          this.#advanced.set(viewId, map);
+        }
+        map.set(from, after.updateAt);
+      }
+      return after;
+    });
+  }
+
+  #resolve(viewId: string, readAt: number): number {
+    const map = this.#advanced.get(viewId);
+    if (!map) return readAt;
+    let current = readAt;
+    while (map.has(current)) current = map.get(current) ?? current;
+    return current;
+  }
 }

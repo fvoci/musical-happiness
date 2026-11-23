@@ -14,8 +14,8 @@ use thiserror::Error;
 use crate::allowlist;
 
 /// The version of the set of nodes and marks a stored body is written in: 4 added the
-/// file block.
-pub const BODY_VERSION: i64 = 4;
+/// file block, 5 the table.
+pub const BODY_VERSION: i64 = 5;
 
 /// The largest body, as serialized JSON, in bytes.
 pub const BODY_MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -41,6 +41,17 @@ pub enum BodyError {
     /// The body has more than [`BODY_MAX_NODES`] nodes.
     #[error("the body has more than {BODY_MAX_NODES} nodes")]
     TooManyNodes,
+    /// A table has more rows or columns than a table may
+    /// ([`crate::TABLE_MAX_ROWS`], [`crate::TABLE_MAX_COLUMNS`]).
+    #[error(
+        "the table at {path} has more than {} rows or more than {} columns",
+        crate::TABLE_MAX_ROWS,
+        crate::TABLE_MAX_COLUMNS
+    )]
+    TableTooLarge {
+        /// Where the table is, as a JSON pointer.
+        path: String,
+    },
     /// A node is malformed.
     #[error("invalid body node: {problem}")]
     InvalidNode {
@@ -176,6 +187,24 @@ impl Body {
         ids
     }
 
+    /// The identifiers of the users the mentions of the body name, each once, in the
+    /// order they come. Whether such a user is there, and reads the body, it does not
+    /// say. A mention emptied for a reader by link ([`Self::clear_mentions`]) names
+    /// nobody.
+    #[must_use]
+    pub fn mention_ids(&self) -> Vec<&str> {
+        let mut ids: Vec<&str> = Vec::new();
+        let mut seen = HashSet::new();
+        visit(&self.document, &mut |node| {
+            if let Some(id) = mentioned_user(node)
+                && seen.insert(id)
+            {
+                ids.push(id);
+            }
+        });
+        ids
+    }
+
     /// The stored name of the file the body's first image shows, in document order
     /// (also inside lists and tables), if it has one. Stops at that image. A file block
     /// is no picture and is passed over.
@@ -255,6 +284,16 @@ fn reference_target(node: &Value) -> Option<&str> {
         return None;
     }
     node.get("attrs")?.get("id")?.as_str()
+}
+
+/// The user a mention node names; `None` for any other node, and for a mention that
+/// names nobody.
+fn mentioned_user(node: &Value) -> Option<&str> {
+    if node.get("type").and_then(Value::as_str) != Some("mention") {
+        return None;
+    }
+    let id = node.get("attrs")?.get("userId")?.as_str()?;
+    (!id.is_empty()).then_some(id)
 }
 
 /// Empties the `userId` of every mention below and at `node`.
@@ -570,6 +609,26 @@ mod tests {
             .expect("a body")
             .expect("not empty");
         assert!(!pictures.has_file_blocks(), "an image is no file block");
+    }
+
+    /// The users a body mentions are named once each, in the order they come, also
+    /// from deep in a list; a mention that was emptied names nobody.
+    #[test]
+    fn the_mentions_of_a_body_name_each_user_once() {
+        let mention = |id: &str| json!({"type": "mention", "attrs": {"userId": id}});
+        let (first, second) = (crate::new_id(), crate::new_id());
+        let mut body = Body::parse(document(&[
+            json!({"type": "paragraph", "content": [mention(&second), mention(&first)]}),
+            json!({"type": "bulletList", "content": [{"type": "listItem", "content": [
+                {"type": "paragraph", "content": [mention(&second)]},
+            ]}]}),
+        ]))
+        .expect("a body")
+        .expect("not empty");
+        assert_eq!(body.mention_ids(), [second.as_str(), first.as_str()]);
+        body.clear_mentions();
+        let nobody: [&str; 0] = [];
+        assert_eq!(body.mention_ids(), nobody);
     }
 
     /// Every mention loses its user, also deep in a list; nothing else changes.

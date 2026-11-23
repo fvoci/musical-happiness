@@ -3,7 +3,7 @@
 //! organization people work in is posted when it changes; nothing of an account's own
 //! space is, which is its owner's alone.
 
-use fvoci_model::Block;
+use fvoci_model::{Block, OrgKind};
 
 use super::App;
 
@@ -16,9 +16,20 @@ impl App {
         if self.config().block_change_webhooks.is_empty() {
             return;
         }
-        match self.store().is_own_space().await {
-            Ok(false) => self.inner.webhook.notify_update(block).await,
-            Ok(true) => {}
+        let kind = self
+            .org_kind
+            .get_or_try_init(|| async {
+                let own = self.store().is_own_space().await?;
+                Ok::<_, fvoci_store::StoreError>(if own {
+                    OrgKind::Personal
+                } else {
+                    OrgKind::Team
+                })
+            })
+            .await;
+        match kind {
+            Ok(OrgKind::Team) => self.inner.webhook.notify_update(block).await,
+            Ok(OrgKind::Personal) => {}
             Err(error) => {
                 tracing::warn!(
                     block_id = %block.id, %error,

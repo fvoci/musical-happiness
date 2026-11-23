@@ -236,6 +236,9 @@ async fn cards(case: &mut Case, board: &str) -> String {
     let card = case.remember(&made, "id");
     case.present("getCards", at, &card).await;
     case.present("getCard", &[("cardId", &card)], &card).await;
+    let number = made["number"].to_string();
+    let by_number = &[("boardId", board), ("number", number.as_str())];
+    case.present("getCardByNumber", by_number, &card).await;
     case.run(
         "patchCard",
         &[("cardId", &card)],

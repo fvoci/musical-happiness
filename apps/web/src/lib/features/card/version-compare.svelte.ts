@@ -14,10 +14,8 @@
  * The comparison is always from what is compared with to the version being
  * read: what is added is in the version, what is removed is in the other.
  */
-import { SvelteMap } from 'svelte/reactivity';
-
-import { compareBodies } from '$lib/editor/compare-bodies.ts';
-import { validateDoc, type DocNode } from '$lib/editor/schema.ts';
+import { comparable, compareBodies } from '$lib/editor/compare-bodies.ts';
+import type { DocNode } from '$lib/editor/schema.ts';
 import type { BodyDiff } from '$lib/logic/body-diff.ts';
 import type { BodyVersion, BodyVersionContent } from '$lib/state/index.ts';
 
@@ -88,9 +86,6 @@ function remember(key: string, value: string): void {
   }
 }
 
-const isShown = (body: DocNode | null): boolean =>
-  body === null || validateDoc(body, { shown: true }).length === 0;
-
 export class VersionComparing {
   kind = $state<CompareKind>(remembered(KIND_KEY) === 'current' ? 'current' : 'previous');
   whole = $state(remembered(WHOLE_KEY) === 'true');
@@ -106,9 +101,24 @@ export class VersionComparing {
 
   readonly #reading: ComparedReading;
   readonly #source: CompareSource;
-  readonly #bodies = new SvelteMap<number, Promise<DocNode | null>>();
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- read only here, never drawn
+  readonly #bodies = new Map<number, Promise<DocNode | null>>();
   /** Counts the comparisons asked for: only the last one's answer is taken. */
   #asked = 0;
+
+  /**
+   * What the version being read is compared with when it is compared: also
+   * while it is shown as it is, for the choice to say what it is.
+   */
+  readonly chosenTarget = $derived.by((): CompareTarget | undefined => {
+    const chosen = this.#reading.chosen;
+    if (!chosen) return undefined;
+    return targetOf(chosen, this.#reading.versions, {
+      kind: this.kind,
+      whole: false,
+      pinned: this.pinned,
+    });
+  });
 
   /** What the version being read is compared with now. */
   readonly target = $derived.by((): CompareTarget | undefined => {
@@ -154,7 +164,7 @@ export class VersionComparing {
       this.status = 'idle';
       return;
     }
-    if (!isShown(content.body)) {
+    if (!comparable(content.body)) {
       this.status = 'invalid';
       return;
     }
@@ -164,7 +174,7 @@ export class VersionComparing {
         target.kind === 'current'
           ? await this.#source.current()
           : await this.#body(target.version.version);
-      if (!isShown(before)) throw new Error('a body that cannot be shown');
+      if (!comparable(before)) throw new Error('a body that cannot be shown');
       const diff = await compareBodies(before, content.body);
       if (asked !== this.#asked) return;
       this.diff = diff;

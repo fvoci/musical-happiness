@@ -1,7 +1,7 @@
 /**
  * What a gallery shows of its cards' bodies: read when a gallery is shown,
  * and only then (`Backend.cardPreviews`), and kept current while it is by
- * the board's change messages, whose cards carry the body it is made from.
+ * the board's change messages, whose cards carry it.
  */
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 

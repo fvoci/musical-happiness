@@ -51,15 +51,16 @@
   );
   const view = $derived(board?.view(router.route.viewId));
 
+  // The card the reader is on, before the visit starts: the visit is told once, with it.
+  $effect(() => {
+    if (board) boardPresence(board).setCard(router.route.cardId);
+  });
   $effect(() => {
     const shown = board;
     if (shown?.status === 'ready' && !shown.missing && !shown.joinable) {
       return untrack(() => boardPresence(shown).start());
     }
     return undefined;
-  });
-  $effect(() => {
-    if (board) boardPresence(board).setCard(router.route.cardId);
   });
 
   let page = $state<HTMLElement>();
@@ -106,7 +107,20 @@
 
   const cards = $derived(board && view ? board.cardsOf(view, search) : []);
 
-  const cardHref = (cardId: string): string => router.href({ ...router.route, cardId });
+  // Primitive route parts so opening or closing a card (`router.route.cardId`) does not
+  // re-evaluate `cardHref` for every row of a large view.
+  const routeWorkspaceId = $derived(router.route.workspaceId);
+  const routeBoardId = $derived(router.route.boardId);
+  const routeViewId = $derived(router.route.viewId);
+  const routeReadToken = $derived(router.route.readToken);
+  const cardHref = (cardId: string): string =>
+    router.href({
+      workspaceId: routeWorkspaceId,
+      boardId: routeBoardId,
+      viewId: routeViewId,
+      readToken: routeReadToken,
+      cardId,
+    });
   const openCard = (cardId: string): void => {
     router.openCard(cardId);
   };

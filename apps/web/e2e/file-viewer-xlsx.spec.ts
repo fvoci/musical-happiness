@@ -313,7 +313,66 @@ async function openReading(page: Page, row: Locator, name: string): Promise<void
   await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
 }
 
+/**
+ * Holds messages coming back from the workbook worker inside `viewer-frame.html`
+ * until the returned function is called. The real worker still runs and parses the
+ * workbook, so termination and frame checks stay real, while fast engines cannot
+ * finish reading and unmount the 30 s notice before the test acts on it.
+ */
+async function holdWorkbookWorker(page: Page): Promise<() => Promise<void>> {
+  await page.addInitScript(() => {
+    if (!location.pathname.endsWith('/viewer-frame.html')) return;
+    const NativeWorker = globalThis.Worker;
+    let held = true;
+    const queued: (() => void)[] = [];
+    class HeldWorker extends NativeWorker {
+      #terminated = false;
+      override addEventListener(
+        type: string,
+        listener: EventListenerOrEventListenerObject,
+        options?: boolean | AddEventListenerOptions,
+      ): void {
+        if (type !== 'message') {
+          super.addEventListener(type, listener, options);
+          return;
+        }
+        const wrapped: EventListener = (event) => {
+          const deliver = (): void => {
+            if (this.#terminated) return;
+            if (typeof listener === 'function') listener.call(this, event);
+            else listener.handleEvent(event);
+          };
+          if (held) queued.push(deliver);
+          else deliver();
+        };
+        super.addEventListener(type, wrapped, options);
+      }
+      override terminate(): void {
+        this.#terminated = true;
+        super.terminate();
+      }
+    }
+    globalThis.Worker = HeldWorker;
+    (window as unknown as { __releaseWorkbookWorker?: () => void }).__releaseWorkbookWorker =
+      () => {
+        held = false;
+        for (const deliver of queued.splice(0)) deliver();
+      };
+  });
+  return async () => {
+    await frameOf(page)
+      .locator(':root')
+      .evaluate(() => {
+        const release = (window as unknown as { __releaseWorkbookWorker?: () => void })
+          .__releaseWorkbookWorker;
+        if (!release) throw new Error('workbook worker hold hook not installed');
+        release();
+      });
+  };
+}
+
 test('while a large workbook is read, "Close" ends the viewer and its worker', async ({ page }) => {
+  await holdWorkbookWorker(page);
   await openCard(page);
   const row = await attach(page, 'cells.xlsx', slowXlsx(), XLSX_TYPE);
   await openReading(page, row, 'cells.xlsx');
@@ -327,7 +386,10 @@ test('while a large workbook is read, "Close" ends the viewer and its worker', a
  * viewer gives a file to be drawn in: it asks the reader whether to wait on. The workers the
  * page started are counted from before it opened.
  */
-async function askedToWait(page: Page): Promise<{ notice: Locator; workers: Worker[] }> {
+async function askedToWait(
+  page: Page,
+): Promise<{ notice: Locator; workers: Worker[]; release: () => Promise<void> }> {
+  const release = await holdWorkbookWorker(page);
   await page.clock.install();
   await openCard(page);
   const row = await attach(page, 'slow.xlsx', slowXlsx(), XLSX_TYPE);
@@ -338,15 +400,16 @@ async function askedToWait(page: Page): Promise<{ notice: Locator; workers: Work
   const notice = page.getByTestId('file-viewer-notice');
   await expect(notice).toContainText('This file is taking long to show.');
   await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
-  return { notice, workers };
+  return { notice, workers, release };
 }
 
 test('a workbook read past the time limit asks, and waited on is shown in the frame it was handed to', async ({
   page,
 }) => {
-  const { notice, workers } = await askedToWait(page);
+  const { notice, workers, release } = await askedToWait(page);
   const frame = await page.getByTestId('file-viewer-frame').elementHandle();
   await notice.getByRole('button', { name: 'Keep waiting' }).click();
+  await release();
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
   await expect(frameOf(page).getByRole('cell').first()).toBeVisible();
   // Not drawn anew: the same frame, and the one worker it read the workbook in.

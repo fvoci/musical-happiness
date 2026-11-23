@@ -13,8 +13,8 @@ use anyhow::{Context as _, Result, bail, ensure};
 use serde_json::json;
 
 use super::scenario::{self, Client};
-use super::{Trial, fvoci_started, no_secret_in, script_output, secrets_file};
-use crate::steps::say;
+use super::{Trial, fvoci_started, no_secret_in, no_values_in, script_output, secrets_file};
+use crate::steps::{capture, say};
 
 /// What the tables hold, table by table, as PostgreSQL's superuser counts; but the
 /// queue of changes for the search server, which the restore's new index fills and the
@@ -60,6 +60,7 @@ pub(super) fn round_trip(trial: &Trial, directory: &Path) -> Result<()> {
     backs_up_no_files_from_s3(trial, directory)?;
     names_a_quoted_project(trial, directory)?;
     reads_the_key_as_compose_does(trial, directory)?;
+    refuses_missing_key_and_mismatched_made(trial, directory)?;
     refuses_a_full_installation(trial, directory, &backup, &rows)?;
 
     take_volumes_away(trial)?;
@@ -127,6 +128,7 @@ fn refuses_a_full_installation(
     for (refusal, before) in refusals {
         let other_env_text = other_env.to_string_lossy();
         let mut arguments = vec![backup.as_ref()];
+        let mut extra_key = None;
         match before {
             Before::Nothing => {}
             Before::AnotherKey => {
@@ -137,10 +139,9 @@ fn refuses_a_full_installation(
                     .filter(|line| !line.starts_with("FVOCI_SECRET_KEY="))
                     .map(str::to_owned)
                     .collect();
-                lines.push(format!(
-                    "FVOCI_SECRET_KEY={}",
-                    super::base64(&super::random::<32>()?)
-                ));
+                let generated = super::base64(&super::random::<32>()?);
+                lines.push(format!("FVOCI_SECRET_KEY={generated}"));
+                extra_key = Some(generated);
                 super::write_private(&other_env, &lines.join("\n"))?;
                 arguments.extend(["--env-file", other_env_text.as_ref()]);
             }
@@ -157,6 +158,9 @@ fn refuses_a_full_installation(
         let _ = std::fs::remove_file(&other_env);
         let (succeeded, said) = outcome?;
         no_secret_in(trial, "restore.sh", &said)?;
+        if let Some(key) = extra_key.as_deref() {
+            no_values_in(&[key], "restore.sh", &said)?;
+        }
         ensure!(
             !succeeded && said.contains(refusal) && said.contains("Nothing was changed"),
             "restore.sh did not refuse, saying \"{refusal}\": {said}"
@@ -232,6 +236,13 @@ fn reads_the_key_as_compose_does(trial: &Trial, directory: &Path) -> Result<()> 
             refusal: another,
         },
         KeyCase {
+            what: "a multiline key with an inner NAME= line against its first line",
+            backup: format!("FVOCI_SECRET_KEY=\"{key}\\nINNER=1\\n{other}\""),
+            given: None,
+            shell: None,
+            refusal: another,
+        },
+        KeyCase {
             what: "a key's line pasted wrong in the backup's .env",
             backup: format!("FVOCI_SECRET_KEY={key}\nMIIEvQ+{pasted}="),
             given: None,
@@ -262,10 +273,7 @@ fn reads_the_key_as_compose_does(trial: &Trial, directory: &Path) -> Result<()> 
         let _ = std::fs::remove_dir_all(&backup);
         let (succeeded, said) = outcome?;
         no_secret_in(trial, "restore.sh", &said)?;
-        ensure!(
-            !said.contains(&other) && !said.contains(&pasted),
-            "restore.sh wrote the environment's key or a word pasted in the backup's .env"
-        );
+        no_values_in(&[other.as_str(), pasted.as_str()], "restore.sh", &said)?;
         ensure!(
             !succeeded
                 && said.contains(case.refusal)
@@ -277,7 +285,80 @@ fn reads_the_key_as_compose_does(trial: &Trial, directory: &Path) -> Result<()> 
         );
     }
     say(
-        "    restore.sh reads a backup's key as compose does (a variable, a $, the environment's, a line pasted wrong)",
+        "    restore.sh reads a backup's key as compose does (a variable, a $, the environment's, multiline NAME=, a line pasted wrong)",
+    );
+    Ok(())
+}
+
+/// `restore.sh` refuses a backup lacking `FVOCI_SECRET_KEY` (or `env`) unless
+/// `--key-not-checked` is given, refuses a `<backup>/made` naming another project unless
+/// `--other-project` is given, and refuses a `<backup>/made` naming another file storage.
+fn refuses_missing_key_and_mismatched_made(trial: &Trial, directory: &Path) -> Result<()> {
+    let env_text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
+    let without_key: String = env_text
+        .lines()
+        .filter(|line| !line.starts_with("FVOCI_SECRET_KEY="))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let backup = folder(directory).join("made-and-key");
+    let make = |env: Option<&str>, made: Option<&str>| -> Result<()> {
+        let _ = std::fs::remove_dir_all(&backup);
+        std::fs::create_dir_all(&backup).context("making a backup's folder")?;
+        for empty in ["db.dump", "files.tar"] {
+            std::fs::write(backup.join(empty), "").context("writing a backup's file")?;
+        }
+        if let Some(env) = env {
+            super::write_private(&backup.join("env"), env)?;
+        }
+        if let Some(made) = made {
+            std::fs::write(backup.join("made"), made).context("writing made")?;
+        }
+        Ok(())
+    };
+    let backup_text = backup.to_string_lossy().into_owned();
+    let check = |args: &[&str], expected: &str, what: &str| -> Result<()> {
+        let (succeeded, said) = script_output(trial.script("restore.sh", args), "restore.sh")?;
+        no_secret_in(trial, "restore.sh", &said)?;
+        ensure!(
+            !succeeded && said.contains(expected) && said.contains("Nothing was changed"),
+            "restore.sh ({what}) did not refuse saying \"{expected}\": {said}"
+        );
+        Ok(())
+    };
+
+    // Missing env / empty key: refused without --key-not-checked, passes key check with it.
+    make(None, None)?;
+    check(&[&backup_text], "--key-not-checked", "missing env")?;
+    check(
+        &["--key-not-checked", &backup_text],
+        "fvoci has a container",
+        "missing env with --key-not-checked",
+    )?;
+    make(Some(&format!("{without_key}\nFVOCI_SECRET_KEY=\n")), None)?;
+    check(&[&backup_text], "--key-not-checked", "empty backup key")?;
+
+    // Mismatched project in made: refused without --other-project, passes with it.
+    make(
+        Some(&env_text),
+        Some("project=other-project\nfile_storage=local\n"),
+    )?;
+    check(&[&backup_text], "--other-project", "mismatched project")?;
+    check(
+        &["--other-project", &backup_text],
+        "fvoci has a container",
+        "mismatched project with --other-project",
+    )?;
+
+    // Mismatched file_storage in made: always refused.
+    make(
+        Some(&env_text),
+        Some(&format!("project={}\nfile_storage=s3\n", trial.project)),
+    )?;
+    check(&[&backup_text], "file_storage=s3", "mismatched storage")?;
+
+    let _ = std::fs::remove_dir_all(&backup);
+    say(
+        "    restore.sh refuses missing keys without --key-not-checked and mismatched project/storage in made",
     );
     Ok(())
 }
@@ -351,12 +432,41 @@ fn updates(trial: &Trial, backups: &Path) -> Result<()> {
     for line in updated.lines().filter(|line| line.starts_with("update: ")) {
         say(&format!("    {line}"));
     }
+    let tags = kept_tags(trial)?;
+    ensure!(
+        tags.len() >= 2,
+        "two update.sh runs must keep distinct before-update tags (not overwrite the first): {tags:?}"
+    );
+    say(&format!(
+        "    two update.sh runs kept {} distinct before-update tags",
+        tags.len()
+    ));
     Ok(())
 }
 
-/// The tag `update.sh` gives the image that ran before it.
-pub(super) fn kept_tag(trial: &Trial) -> String {
-    format!("fvoci-server:before-update-{}", trial.project)
+/// All `before-update-<project>-*` (and legacy `before-update-<project>`) image tags
+/// created by `update.sh` for this trial.
+pub(super) fn kept_tags(trial: &Trial) -> Result<Vec<String>> {
+    let pattern = format!("fvoci-server:before-update-{}*", trial.project);
+    let listed = capture(
+        "docker",
+        &[
+            "image",
+            "ls",
+            "--format",
+            "{{.Repository}}:{{.Tag}}",
+            "--filter",
+            &format!("reference={pattern}"),
+        ],
+    )?;
+    ensure!(listed.succeeded, "docker image ls failed: {}", listed.error);
+    Ok(listed
+        .output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect())
 }
 
 /// What a person keeps in the installation before the backup: an account, a card whose
@@ -510,6 +620,14 @@ fn check_private(backups: &Path, backup: &Path, trial: &Trial) -> Result<()> {
             && names.iter().any(|name| name.ends_with("/files.tar")),
         "the backup lacks the database or the files: {names:?}"
     );
+    let record = std::fs::read_to_string(backup.join("made")).context("reading made")?;
+    ensure!(
+        record
+            .lines()
+            .any(|line| line == format!("project={}", trial.project))
+            && record.lines().any(|line| line == "file_storage=local"),
+        "backup made lacks project or file_storage=local: {record}"
+    );
     no_secret_in(trial, "a backup's name", &names.join(" "))
 }
 
@@ -535,7 +653,15 @@ fn backs_up_no_files_from_s3(trial: &Trial, directory: &Path) -> Result<()> {
     let backup = only_backup(&backups)?;
     let files = backup.join("files.tar").exists();
     let dump = backup.join("db.dump").exists();
+    let made_file = std::fs::read_to_string(backup.join("made")).context("reading made")?;
     std::fs::remove_dir_all(&backups).context("removing the backup of S3's settings")?;
+    ensure!(
+        made_file
+            .lines()
+            .any(|line| line == format!("project={}", trial.project))
+            && made_file.lines().any(|line| line == "file_storage=s3"),
+        "S3 backup made lacks project or file_storage=s3: {made_file}"
+    );
     ensure!(
         dump && !files && made.contains("they are in S3, whose bucket is yours to back up"),
         "with S3, backup.sh did not dump the database alone, saying so: {made}"

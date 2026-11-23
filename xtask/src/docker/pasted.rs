@@ -10,7 +10,7 @@ use std::process::Command;
 
 use anyhow::{Context as _, Result, ensure};
 
-use super::{Trial, fvoci_started, no_secret_in, script_output, secrets_file};
+use super::{Trial, fvoci_started, no_secret_in, no_values_in, script_output, secrets_file};
 use crate::steps::say;
 
 /// One line pasted wrong: what it is, the line made of three words of a secret, and
@@ -137,6 +137,11 @@ const TABLE: &[Pasted] = &[
         line: |w| format!("FVOCI_BIND={}", w[0]),
         shown: "compose: 1 line(s) hidden: they may quote a value of the .env",
     },
+    Pasted {
+        what: "a hidden error line whose value says variable is not set",
+        line: |w| format!("FVOCI_HOST_PORT={} variable is not set", w[0]),
+        shown: "compose: 1 line(s) hidden: they may quote a value of the .env",
+    },
 ];
 
 /// A value of many lines, which compose takes and writes below its key (`KEY: |-`, or
@@ -255,11 +260,10 @@ fn read_past(trial: &Trial, text: &str, env: &Path, directory: &Path) -> Result<
         let (succeeded, said) =
             script_output(trial.script("restore.sh", &arguments), "restore.sh")?;
         no_secret_in(trial, "restore.sh", &said)?;
-        let shown = words.iter().any(|word| said.contains(word.as_str()));
+        let word_refs: Vec<&str> = words.iter().map(String::as_str).collect();
+        no_values_in(&word_refs, "restore.sh", &said)?;
         ensure!(
-            !succeeded
-                && !shown
-                && said.contains("while this installation keeps them in its volume"),
+            !succeeded && said.contains("while this installation keeps them in its volume"),
             "restore.sh with {} in the .env did not say the files are in the volume, without a word of it: {}",
             value.what,
             hidden(&words, said)
@@ -314,13 +318,18 @@ fn try_line(trial: &Trial, text: &str, env: &Path, backups: &Path, pasted: &Past
         let arguments = [&["--env-file", env_text.as_ref()][..], own].concat();
         let (succeeded, said) = script_output(trial.script(name, &arguments), name)?;
         no_secret_in(trial, name, &said)?;
-        let shown = words.iter().any(|word| said.contains(word.as_str()));
+        let word_refs: Vec<&str> = words.iter().map(String::as_str).collect();
+        no_values_in(&word_refs, name, &said)?;
+        let expects_dollar_advice = pasted
+            .shown
+            .contains("warning: The <hidden> variable is not set");
+        let gave_dollar_advice = said.contains("a $ in a value of the .env starts a variable");
         ensure!(
             !succeeded
-                && !shown
                 && said.contains(pasted.shown)
-                && said.contains("Nothing was changed"),
-            "{name} with {} in the .env did not stop showing \"{}\" and no word of it: {}",
+                && said.contains("Nothing was changed")
+                && gave_dollar_advice == expects_dollar_advice,
+            "{name} with {} in the .env did not stop showing \"{}\" (dollar_advice={gave_dollar_advice}, expected={expects_dollar_advice}): {}",
             pasted.what,
             pasted.shown,
             hidden(&words, said)

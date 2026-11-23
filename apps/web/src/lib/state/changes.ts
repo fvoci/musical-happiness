@@ -34,6 +34,8 @@ export type Change =
   | { kind: 'settings'; settings: AccountSettings }
   /** Somebody's name changed: whoever holds them reads them again. */
   | { kind: 'user'; userId: string }
+  /** What the reader was told changed: whoever shows it reads it again. */
+  | { kind: 'notifications' }
   /**
    * Changes may have been missed (the connection to the server dropped and
    * is back): read again what is shown. The memory backend never sends it.

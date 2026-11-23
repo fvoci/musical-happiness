@@ -6,6 +6,8 @@
   screen reader: pass `decorative`.
 -->
 <script lang="ts">
+  import type { ClassValue } from 'svelte/elements';
+
   import { avatarColor, avatarInitial } from './avatar.ts';
 
   interface Props {
@@ -16,7 +18,7 @@
     /** The reader's language, for uppercasing and for where a character ends. */
     locale: string;
     decorative?: boolean;
-    class?: string;
+    class?: ClassValue;
   }
 
   let { name, colorKey, locale, decorative = false, class: className = 'size-6' }: Props = $props();

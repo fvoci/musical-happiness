@@ -9,7 +9,7 @@ import type { DownloadedFile, DownloadOptions } from '../backend.ts';
 import { FILE_BLOCK_IN_COMMENT, flushContainers } from './bodies.ts';
 import { fail } from './refuse.ts';
 import { hasFileBlock, MEMORY_ARCHIVE } from './shapes.ts';
-import type { StoredBlock, World } from './world.ts';
+import { oldestFirst, type StoredBlock, type World } from './world.ts';
 
 export function archiveOf(
   world: World,
@@ -20,7 +20,8 @@ export function archiveOf(
   const lines = [JSON.stringify({ version: MEMORY_ARCHIVE })];
   for (const board of containers) {
     lines.push(JSON.stringify({ type: 'board', data: board }));
-    for (const block of world.blocksOf(board.id)) {
+    // As the server writes them, which is the order an import numbers the cards in.
+    for (const block of world.blocksOf(board.id).sort(oldestFirst)) {
       lines.push(JSON.stringify({ type: 'block', data: renamed(block, 'containerId', 'boardId') }));
     }
   }

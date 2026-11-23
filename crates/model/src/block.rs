@@ -459,7 +459,8 @@ pub struct Block {
     /// those have one: a body on another block is refused (400 naming `body`). Every image of
     /// it shows a file of the block's board. Whoever reads it by the board's link gets
     /// every mention with an empty `userId`: a shape that is only sent, which a write
-    /// would have refused.
+    /// would have refused. A change message (`UPDATE_BLOCK`) of a card, a page or an entry
+    /// has it `null`, with a summary of it beside the block.
     pub body: Option<Body>,
     /// Creation time in milliseconds since the Unix epoch.
     pub create_at: i64,
@@ -469,6 +470,16 @@ pub struct Block {
     pub delete_at: i64,
     /// The identifier of the board the block belongs to.
     pub container_id: String,
+    /// A card's number on its board, as `Card.number` gives it; absent for a template
+    /// of the board's cards and for every other block. The server gives it and ignores
+    /// a client's, whatever it is.
+    #[schema(minimum = 1)]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "number_as_sent"
+    )]
+    pub number: Option<u32>,
     /// For a comment whose body was changed: when that last happened, in milliseconds
     /// since the Unix epoch. Absent for a comment never changed and for every other
     /// block. The server sets it, and ignores a client's. What the body said before is
@@ -486,7 +497,44 @@ fn is_zero(time: &i64) -> bool {
     *time == 0
 }
 
+/// A card's number as it is read: what is no number a card can have is none, so that
+/// what a client sends there, which the server does not take, is never refused either.
+///
+/// # Errors
+///
+/// Returns the deserializer's error if what is there is no JSON.
+pub(crate) fn number_as_sent<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let sent = Value::deserialize(deserializer)?;
+    Ok(sent
+        .as_u64()
+        .and_then(|number| u32::try_from(number).ok())
+        .filter(|number| *number > 0))
+}
+
 impl Block {
+    /// Whether the block's `isTemplate` is the JSON `true`, of a block of any type: for
+    /// a card, that it is a template of its board's cards. A block without the field, or
+    /// with another value, is no template.
+    #[must_use]
+    pub fn is_template(&self) -> bool {
+        self.fields.get("isTemplate") == Some(&Value::Bool(true))
+    }
+
+    /// Whether the block has a number on its board: a card that is no template of its
+    /// board's cards ([`Block::is_template`]). The first card stored on a board gets 1
+    /// and each one stored after it the next number; a card keeps its number while it is
+    /// one, and a number is never given again, also once its card is gone. A card that
+    /// is copied or imported is a new card with a new number; a card that comes back
+    /// from the trash has its own. A block that stops being such a card loses its
+    /// number, and takes the next one if it becomes one again.
+    #[must_use]
+    pub fn takes_number(&self) -> bool {
+        self.block_type == BlockType::Card && !self.is_template()
+    }
+
     /// Checks that the block may be stored.
     ///
     /// # Errors

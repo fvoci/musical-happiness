@@ -186,6 +186,9 @@ describe('settings', () => {
         'haptics',
         'weekStart',
         'language',
+        'notifyMentions',
+        'notifyAssignments',
+        'notifyComments',
       ].sort(),
     );
     const changed = await backend.patchSettings({ theme: 'dark', timeZone: 'Asia/Seoul' });
@@ -202,6 +205,10 @@ describe('settings', () => {
       backend.patchSettings({ density: 'huge' as unknown as 'auto' }),
     );
     expect(density.errors.map((entry) => entry.pointer)).toEqual(['/density']);
+    const notify = await rejection(
+      backend.patchSettings({ notifyComments: 'off' as unknown as boolean }),
+    );
+    expect(notify.errors.map((entry) => entry.pointer)).toEqual(['/notifyComments']);
   });
 });
 
@@ -427,6 +434,46 @@ describe('a copy of a board', () => {
     } finally {
       browser.mockRestore();
     }
+  });
+
+  it('refuses a view patch whose readAt is stale (409), forwards queued writes, and skips check without readAt', async () => {
+    const { backend, other, boardId } = await firstBoard();
+    const [view] = await backend.views(boardId);
+    if (!view) throw new Error('missing view');
+    // Matching readAt succeeds and advances updateAt.
+    const first = await backend.patchView(boardId, view.id, {
+      updatedFields: { order: 'V' },
+      readAt: view.updateAt,
+    });
+    expect(first.updateAt).toBeGreaterThan(view.updateAt);
+    // Stale readAt from another user is refused with 409, same shape as the server.
+    const conflict = await rejection(
+      other.patchView(boardId, view.id, {
+        updatedFields: { order: 'W' },
+        readAt: view.updateAt,
+      }),
+    );
+    expect(conflict).toMatchObject({
+      status: 409,
+      type: '/problems/conflict',
+      message: 'the block has changed since it was read',
+    });
+    // Without readAt, a write is unconditional.
+    const renamed = await other.patchView(boardId, view.id, { title: 'Renamed' });
+    expect(renamed.title).toBe('Renamed');
+    // Two queued writes on the same backend forward readAt along the queue.
+    const [a, b] = await Promise.all([
+      backend.patchView(boardId, view.id, {
+        updatedFields: { order: 'W' },
+        readAt: renamed.updateAt,
+      }),
+      backend.patchView(boardId, view.id, {
+        updatedFields: { order: 'X' },
+        readAt: renamed.updateAt,
+      }),
+    ]);
+    expect(a.fields.order).toBe('W');
+    expect(b.fields.order).toBe('X');
   });
 });
 

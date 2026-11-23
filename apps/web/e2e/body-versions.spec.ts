@@ -254,6 +254,40 @@ test.describe('a version kept by hand', () => {
     expect(await saveKeys()).toEqual([true]);
   });
 
+  test('narrow, a version kept while one is read leaves the history be: back still goes to the list', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 800 });
+    await openTaskCard(page);
+    await writeOnANewLine(page, 'Typed now');
+    await openVersions(page);
+    await rows(page).first().click();
+    await expect(page.getByTestId('body-versions-back')).toBeVisible();
+    // Every step the page takes in the history from here on.
+    await page.evaluate(() => {
+      const steps: string[] = [];
+      (window as unknown as { steps: string[] }).steps = steps;
+      const push = history.pushState.bind(history);
+      history.pushState = (...args) => {
+        steps.push('push');
+        push(...args);
+      };
+      const back = history.back.bind(history);
+      history.back = () => {
+        steps.push('back');
+        back();
+      };
+    });
+    await page.keyboard.press(await primaryKey(page, 's'));
+    await expect(versions(page).getByTestId('body-versions-kept')).toHaveText('Version kept.');
+    await expect(rows(page)).toHaveCount(2);
+    expect(await page.evaluate(() => (window as unknown as { steps: string[] }).steps)).toEqual([]);
+    await page.goBack();
+    await expect(page.getByTestId('body-versions-back')).toHaveCount(0);
+    await expect(rows(page).first()).toBeVisible();
+    await expect(versions(page)).toBeVisible();
+  });
+
   test('a syllable being composed as the keys are pressed is kept whole, and left as it was', async ({
     page,
     browserName,
@@ -300,6 +334,26 @@ test.describe('a version kept by hand', () => {
     await expect(versions(page).getByTestId('body-versions-keep')).toHaveCount(0);
   });
 
+  test('anywhere else in an open card the keys save no page and keep nothing, saying nothing', async ({
+    page,
+  }) => {
+    await openTaskCard(page);
+    const saveKeys = await watchSaveKeys(page);
+    const save = await primaryKey(page, 's');
+    const title = page.getByTestId('card-heading').locator('textarea');
+    await title.focus();
+    await page.keyboard.press(save);
+    // On the card itself, nothing in it focused nor selected.
+    await page.getByTestId('card-dialog').focus();
+    await page.evaluate(() => document.getSelection()?.removeAllRanges());
+    await page.keyboard.press(save);
+    expect(await saveKeys()).toEqual([true, true]);
+    await expect(keptSaid(page)).toHaveText('');
+    await expect(title).toBeVisible();
+    await openVersions(page);
+    await expect(page.getByTestId('body-versions-empty')).toBeVisible();
+  });
+
   test('the keys keep the body of a wiki page as a version too', async ({ page }) => {
     await openApp(page);
     await newWiki(page, 'Handbook');
@@ -317,6 +371,15 @@ test.describe('a version kept by hand', () => {
     // A page that had no body has no version before it: the one kept by hand alone.
     await expect(rows(page)).toHaveCount(1);
     await expect(cause(rows(page).first())).toHaveText('Kept by hand');
+    await page.keyboard.press('Escape');
+    await expect(versions(page)).toHaveCount(0);
+    // The title of the page: the browser saves no page there either, and nothing is kept.
+    await page.getByTestId('page-title').focus();
+    await page.keyboard.press(await primaryKey(page, 's'));
+    expect(await saveKeys()).toEqual([true, true]);
+    await page.getByTestId('page-menu').click();
+    await page.locator('[data-action="versions"]').click();
+    await expect(rows(page)).toHaveCount(1);
   });
 });
 
@@ -330,6 +393,44 @@ test.describe('pictures', () => {
     { name: 'wide', width: 1280, height: 800 },
     { name: 'narrow', width: 390, height: 844 },
   ] as const;
+
+  for (const size of SIZES) {
+    for (const scheme of ['light', 'dark'] as const) {
+      test(`what a comment changed, and the keys on a title, in Korean (${size.name}, ${scheme})`, async ({
+        page,
+      }, testInfo) => {
+        test.skip(testInfo.project.name !== 'desktop', 'the sizes are set here');
+        const into = screensDir('comments');
+        await page.setViewportSize(size);
+        await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+        await openTaskCard(page);
+        const list = page.getByTestId('card-comments').locator('[data-comment]');
+        const count = await list.count();
+        await page.getByTestId('comment-field').fill('금요일까지 초안을 올립니다.');
+        await page.getByTestId('comment-send').click();
+        await expect(list).toHaveCount(count + 1);
+        const mine = list.last();
+        await mine.locator('[data-action="edit"]').click();
+        const field = mine.getByRole('textbox');
+        await field.fill('다음 주 월요일까지 초안을 올렸습니다.');
+        await field.press(await primaryKey(page, 'Enter'));
+        await mine.locator('[data-action="history"]').click();
+        const now = mine.getByTestId('comment-history').locator('[data-version="now"]');
+        await expect(now.locator('ins').first()).toBeVisible();
+        await now.scrollIntoViewIfNeeded();
+        await page.evaluate(() => document.fonts.ready);
+        await page.screenshot({
+          path: path.join(into, `comment-diff-${size.name}-${scheme}.png`),
+        });
+        const title = page.getByTestId('card-heading').locator('textarea');
+        await title.focus();
+        await title.scrollIntoViewIfNeeded();
+        await page.keyboard.press(await primaryKey(page, 's'));
+        await expect(title).toBeFocused();
+        await page.screenshot({ path: path.join(into, `title-save-${size.name}-${scheme}.png`) });
+      });
+    }
+  }
 
   for (const size of SIZES) {
     test(`the versions of a body, in Korean (${size.name})`, async ({ page }, testInfo) => {

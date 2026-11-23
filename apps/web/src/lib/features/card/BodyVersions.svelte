@@ -125,9 +125,11 @@
       open = false;
     },
   );
+  /** A version is being read: whichever, so that a list read again (a version kept) is no change. */
+  const readingOne = $derived(chosen !== undefined);
   // Narrow, with a version open, it goes back to the list first.
   closeOnBack(
-    () => open && narrow.current && chosen !== undefined,
+    () => open && narrow.current && readingOne,
     () => reading?.leave(),
   );
 
@@ -161,7 +163,7 @@
 
 <Dialog.Root bind:open>
   <Dialog.Content
-    class="flex h-[min(90dvh,44rem)] flex-col gap-0 p-0 sm:max-w-3xl"
+    class="flex h-[min(90dvh,44rem)] flex-col gap-0 p-0 [--doc-surface:var(--popover)] sm:max-w-3xl"
     showCloseButton={false}
     data-testid="body-versions"
     onkeydown={keyInDialog}
@@ -269,14 +271,14 @@
                     </span>
                     {#if version.editors.length > 0}
                       <span class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                        <span class="flex shrink-0 -space-x-1">
-                          {#each version.editors.slice(0, FACES) as userId (userId)}
+                        <span class="flex shrink-0">
+                          {#each version.editors.slice(0, FACES) as userId, index (userId)}
                             <Avatar
                               name={resolveUser(userId)}
                               colorKey={userId}
                               locale={workspace.locale}
                               decorative
-                              class="size-5 ring-2 ring-popover"
+                              class={['size-5 ring-2 ring-popover', index > 0 && '-ms-1']}
                             />
                           {/each}
                         </span>

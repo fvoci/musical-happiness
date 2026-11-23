@@ -5,8 +5,8 @@
  * The boards, views, cards and bodies are the files of `./seed/`, read as
  * they are. What a file does not have is added here so that the screens have
  * something to show: six people, who made and was last on each card, the
- * people a person property points at, a few comments, one attachment, and a
- * sidebar.
+ * people a person property points at, a few comments, one attachment, a
+ * sidebar, and the numbers of the cards (`card-numbers.ts`).
  *
  * The result is the same on every run: identifiers and times come from a
  * counter, not from the clock.
@@ -24,6 +24,7 @@ import type { Category, User } from '../backend.ts';
 
 import { seedUsers } from './users.ts';
 import { memberOf } from './backend.ts';
+import { numberedWorld } from './card-numbers.ts';
 import { World, type StoredBlock } from './world.ts';
 
 /** One board of `./seed/`, in the shape it is written in. */
@@ -382,5 +383,5 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
 
   // From here on the world lives in real time.
   world.useClock(Date.now);
-  return { world, readerId: reader.id };
+  return { world: numberedWorld(world), readerId: reader.id };
 }

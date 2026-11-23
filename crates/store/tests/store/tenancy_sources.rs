@@ -23,15 +23,19 @@ pub(crate) fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>
 /// operator in each organization of a person, the deleting of a person's account (whose
 /// memberships are of several organizations), the changes of the data after a
 /// migration, and the one function of the server that its housekeeping works through;
-/// and the revisions of the cached checks, which name it to tell what its writes move.
+/// the revisions of the cached checks, which name it to tell what its writes move;
+/// and what a person was told (`notifications.rs`), which is theirs in whichever
+/// organization it was made: each of its statements names the person, and reads or
+/// marks the rows of nobody else.
 /// Asked by the handle or by the setting of a transaction alike. Anywhere else, a
 /// request would be let past the wall it is there to be held by. (The system
 /// organization, which holds the built-in templates, is an
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 11] = [
+    const ALLOWED: [&str; 12] = [
         "store/src/lib.rs",
+        "store/src/notifications.rs",
         "store/src/account_deletion.rs",
         "store/src/account_erasure.rs",
         "store/src/directory.rs",
@@ -94,22 +98,45 @@ fn the_wall_of_a_transaction_is_moved_in_one_place() {
     let store = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
     rust_sources(&store, &mut files);
-    let mut moving = Vec::new();
+    let mut callers = Vec::new();
+    let mut setting = Vec::new();
     for file in files {
         let text = std::fs::read_to_string(&file).expect("a source file");
-        let moves = text
+        let name = file
+            .strip_prefix(&store)
+            .expect("under the sources")
+            .to_string_lossy()
+            .replace('\\', "/");
+        for line in text
             .lines()
-            .filter(|line| !line.trim_start().starts_with("//"))
-            .any(|line| line.contains("in_new_organization(") || line.contains("ORG_SETTING"));
-        if moves {
-            let name = file.strip_prefix(&store).expect("under the sources");
-            moving.push(name.to_string_lossy().replace('\\', "/"));
+            .take_while(|line| !line.trim_start().starts_with("mod tests"))
+        {
+            let code = line.trim_start();
+            if code.starts_with("//") {
+                continue;
+            }
+            if !code.starts_with("pub(crate) async fn in_new_organization") {
+                for _ in code.matches("in_new_organization(") {
+                    callers.push(name.clone());
+                }
+            }
+            if !code.starts_with("pub(crate) const ORG_SETTING") {
+                for _ in code.matches("ORG_SETTING") {
+                    setting.push(name.clone());
+                }
+            }
         }
     }
-    moving.sort();
-    // The setting is named where a transaction begins (`lib.rs`) and where it is
-    // moved (`db.rs`); `accounts.rs` is the caller.
-    assert_eq!(moving, ["accounts.rs", "db.rs", "lib.rs"]);
+    callers.sort();
+    setting.sort();
+    // One caller (`accounts.rs`) and two uses of the setting: where a transaction begins
+    // (`lib.rs`) and where `in_new_organization` moves it (`db.rs`).
+    assert_eq!(
+        callers,
+        ["accounts.rs"],
+        "call sites of in_new_organization"
+    );
+    assert_eq!(setting, ["db.rs", "lib.rs"], "uses of ORG_SETTING");
 }
 
 /// The files of the server that say whose rows a handle reaches: the way into a
@@ -117,17 +144,21 @@ fn the_wall_of_a_transaction_is_moved_in_one_place() {
 /// organization of the routes that name no workspace), the housekeeping, the
 /// application's own `scoped`, the erasing of an account (each organization the store
 /// says it has something in), the asking to delete one and the first password of one (the account's own space), and the documents of bodies edited together, which the
-/// server writes to their cards as the organization of each when it starts and stops. All of them are the logic's; no handler names one. A handler that named an organization by what a request
+/// server writes to their cards as the organization of each when it starts and stops;
+/// and the notifications, which ask as the organization a stored row is of whether its
+/// person reads what it is about (the row is the server's own, read by its person or
+/// off the list of whom to tell). All of them are the logic's; no handler names one. A handler that named an organization by what a request
 /// says, past the extractor, would open the wall from the inside.
 #[test]
 fn the_server_names_an_organization_for_a_handle_in_few_places() {
     const NAMING: &str = ".scoped( for_org( Tenant::org( Tenant::Org( .in_organization(";
-    const ALLOWED: [&str; 7] = [
+    const ALLOWED: [&str; 8] = [
         // The space of the account that asks what goes with it: named by its owner.
         "app/account_deletion.rs",
         "app/account_erasure.rs",
         "app/housekeeping.rs",
         "app/mod.rs",
+        "app/notifications.rs",
         "app/templates.rs",
         // And the space of the account that set its first password, named by its
         // owner: what the session followed of it ends there (`App::shut_own_space_to`).

@@ -84,6 +84,7 @@ export async function draftOfCopy(
     properties: valuesOfCopy(source, templates, onBoard),
     isTemplate: asTemplate ?? source.fields.isTemplate,
     body: source.body,
+    quiet: true,
   };
 }
 

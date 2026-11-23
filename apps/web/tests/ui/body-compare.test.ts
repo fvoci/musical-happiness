@@ -396,7 +396,7 @@ describe('the view draws what the editor draws', () => {
       types.map((type) => [type, (counts.get(type) ?? 0) > 0]);
     const nodeTypes = Object.keys(NODE_SPECS);
     const markTypes = Object.keys(MARK_SPECS);
-    expect(nodeTypes).toHaveLength(19);
+    expect(nodeTypes).toHaveLength(23);
     expect(markTypes).toHaveLength(5);
     expect(times(compared.nodes, nodeTypes)).toEqual(nodeTypes.map((type) => [type, true]));
     expect(times(compared.marks, markTypes)).toEqual(markTypes.map((type) => [type, true]));
@@ -436,6 +436,9 @@ describe('the view draws what the editor draws', () => {
       formulaEndingAParagraph: has(
         (node) => node.type === 'paragraph' && node.content?.at(-1)?.type === 'inlineMath',
       ),
+      cellOverSeveralColumns: has((node) => typeof node.attrs?.colspan === 'number'),
+      cellOverSeveralRows: has((node) => typeof node.attrs?.rowspan === 'number'),
+      rowWithoutCells: has((node) => node.type === 'tableRow' && node.content === undefined),
     }).toEqual({
       quote: true,
       codeWithLanguage: true,
@@ -452,6 +455,9 @@ describe('the view draws what the editor draws', () => {
       formulaInALine: true,
       formulaOnItsOwnLine: true,
       formulaEndingAParagraph: true,
+      cellOverSeveralColumns: true,
+      cellOverSeveralRows: true,
+      rowWithoutCells: true,
     });
   });
 

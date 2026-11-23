@@ -354,4 +354,37 @@ describe('the own space, once it takes the password alone', () => {
     expect(await statusOf(other.confirmPassword('a long password'))).toBe(409);
     expect(await statusOf(other.boards(own))).toBe(404);
   });
+
+  it('signs out instead of locking the space when the session truly ends during setFirstPassword or passwordChanged', async () => {
+    const { backend, workspace } = setup();
+    const own = await ownSpace(backend);
+    await workspace.load(own);
+    const expired = new BackendError(401, { detail: 'session expired' });
+    const original = backend.workspaces.bind(backend);
+    backend.workspaces = () => Promise.reject(expired);
+    try {
+      await setFirstPassword(workspace, () => Promise.resolve(), 'a long password');
+    } finally {
+      backend.workspaces = original;
+    }
+    expect(workspace.showing).toBe(false);
+    expect(workspace.status).toBe('signedOut');
+
+    // If set() itself fails with sessionOver, status updates AND callers receive the rejection.
+    const second = setup();
+    await second.workspace.load(await ownSpace(second.backend));
+    await expect(
+      setFirstPassword(second.workspace, () => Promise.reject(expired), 'a long password'),
+    ).rejects.toBe(expired);
+    expect(second.workspace.showing).toBe(false);
+    expect(second.workspace.status).toBe('signedOut');
+
+    // passwordChanged also reports genuine session loss (including account_deletion_pending).
+    const third = setup();
+    await third.workspace.load(await ownSpace(third.backend));
+    const leaving = new BackendError(401, { reason: 'account_deletion_pending' });
+    third.backend.workspaces = () => Promise.reject(leaving);
+    await passwordChanged(third.workspace, 'a long password');
+    expect(third.workspace.status).toBe('leaving');
+  });
 });

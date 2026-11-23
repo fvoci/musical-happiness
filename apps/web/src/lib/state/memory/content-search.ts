@@ -15,7 +15,7 @@
  * (`bodyFlushed`): the words just typed are found at once. The server finds
  * them once it has written the body and sent it to its search server.
  */
-import { plainText } from '../../editor/schema.ts';
+import { plainText } from '../../editor/body-text.ts';
 import { BackendError, problemOf } from '../backend.ts';
 import {
   MAX_SEARCH_CHARS,
@@ -138,6 +138,7 @@ export class MemoryContentSearch implements ContentSearch {
             containerId: board.id,
             containerKind: board.kind ?? 'board',
             title: block.title,
+            ...(block.number === undefined ? {} : { number: block.number }),
             snippet: snippetOf(text, words),
           },
           inTitle: words.filter((word) => holds(block.title, word)).length,

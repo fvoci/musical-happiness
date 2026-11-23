@@ -28,6 +28,7 @@ use crate::body_digest::body_digest;
 use crate::db::{Id, Param, Row, Scope, VersionsKept, now_millis, to_json_text};
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
+use crate::notification_noting::Telling;
 use crate::{blocks, containers};
 
 /// How many versions of a card's body the store keeps unless told otherwise.
@@ -112,7 +113,8 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails.
+    /// Returns [`StoreError::Database`] if a statement fails and [`StoreError::Corrupt`]
+    /// if a stored block column or version column cannot be decoded.
     pub async fn keep_body_version(&self, card_id: &str) -> Result<Option<i64>, StoreError> {
         self.transaction(async |scope| keep_held(scope, card_id).await)
             .await
@@ -126,7 +128,8 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails.
+    /// Returns [`StoreError::Database`] if a statement fails and [`StoreError::Corrupt`]
+    /// if a stored block column or version column cannot be decoded.
     pub async fn keep_body_version_by_hand(
         &self,
         card_id: &str,
@@ -163,7 +166,9 @@ impl Store {
 
     /// Writes the body of a version to a card again, as [`Store::patch_block`] writes
     /// a body by `user_id`: the body written is kept as the card's newest version
-    /// ([`BodyVersionCause::Restored`]) after the body it is written over.
+    /// ([`BodyVersionCause::Restored`]) after the body it is written over. Whom it
+    /// names is told nothing: the words of a version are whose wrote them then, and
+    /// not of who brings them back.
     ///
     /// # Errors
     ///
@@ -175,7 +180,15 @@ impl Store {
         user_id: &str,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
-            blocks::patch_block(scope, card_id, patch, user_id, BodyWrite::Restored).await
+            blocks::patch_block(
+                scope,
+                card_id,
+                patch,
+                user_id,
+                BodyWrite::Restored,
+                Telling::Nobody,
+            )
+            .await
         })
         .await
     }
@@ -192,7 +205,8 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a query fails.
+    /// Returns [`StoreError::Database`] if a query fails and [`StoreError::Corrupt`] if
+    /// a stored version cause is unknown.
     pub async fn body_versions(&self, block_id: &str) -> Result<Vec<KeptVersion>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
@@ -226,7 +240,8 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a query fails.
+    /// Returns [`StoreError::Database`] if a query fails and [`StoreError::Corrupt`] if
+    /// a stored version cause or body JSON cannot be decoded.
     pub async fn body_version(
         &self,
         block_id: &str,

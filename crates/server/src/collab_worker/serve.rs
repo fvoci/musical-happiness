@@ -255,7 +255,7 @@ impl Worker {
                 // What the server stored is opened whatever the limits are now.
                 let changed = BodyDoc::from_state(&stored, &self.logged_limits())
                     .map_err(|error| logged_refused(&error))?;
-                let repaired = (changed.repair.deleted > 0).then(|| changed.doc.state());
+                let repaired = changed.repair.update.is_some().then(|| changed.doc.state());
                 let state_bytes = size_of(repaired.as_deref().unwrap_or(&stored));
                 let counts = (changed.client_changes, changed.steps_ahead);
                 (changed.doc, (repaired, state_bytes, counts))
@@ -336,7 +336,12 @@ fn take_refused(error: &TakeError) -> Refused {
             | UpdateError::TooManyChanges { .. },
         ) => Refusal::DocumentTooLarge,
         TakeError::Update(UpdateError::TooManyReadingSteps { .. }) => Refusal::TooManySteps,
-        TakeError::Body(BodyError::TooLarge | BodyError::TooManyNodes | BodyError::TooDeep)
+        TakeError::Body(
+            BodyError::TooLarge
+            | BodyError::TooManyNodes
+            | BodyError::TooDeep
+            | BodyError::TableTooLarge { .. },
+        )
         | TakeError::BodyTooLarge { .. } => Refusal::BodyTooLarge,
         TakeError::Body(_) => Refusal::NoBody,
         // What cannot be applied, and what would be placed past too much of the

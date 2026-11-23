@@ -403,7 +403,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The body of a card, a comment, a page or an entry; `null` for a block without one. Only\nthose have one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board. Whoever reads it by the board's link gets\nevery mention with an empty `userId`: a shape that is only sent, which a write\nwould have refused."
+                "description": "The body of a card, a comment, a page or an entry; `null` for a block without one. Only\nthose have one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board. Whoever reads it by the board's link gets\nevery mention with an empty `userId`: a shape that is only sent, which a write\nwould have refused. A change message (`UPDATE_BLOCK`) of a card, a page or an entry\nhas it `null`, with a summary of it beside the block."
               },
               {
                 "type": "null"
@@ -445,6 +445,15 @@
           "modifiedBy": {
             "description": "The identifier of the user who last modified the block.",
             "type": "string"
+          },
+          "number": {
+            "description": "A card's number on its board, as `Card.number` gives it; absent for a template\nof the board's cards and for every other block. The server gives it and ignores\na client's, whatever it is.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "parentId": {
             "description": "The identifier of the parent block; empty for root blocks.",
@@ -735,6 +744,15 @@
             "description": "The identifier of the user who last modified the card.",
             "type": "string"
           },
+          "number": {
+            "description": "The card's number on its board, as `#12` names it: from 1, one more for each card\nmade on the board, never given again, also once the card is gone. A card keeps it\nwhile it is one; a copy and an import are new cards with new numbers, and a card\nthat comes back from the trash has its own. `null` for a template of the board's\ncards (`isTemplate`): a card made a template loses its number, and takes the next\none if it is made a card again. The server gives it: what a request sends here is\nignored, whatever it is.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "preview": {
             "oneOf": [
               {
@@ -785,6 +803,7 @@
           "isTemplate",
           "lastCommentAt",
           "modifiedBy",
+          "number",
           "properties",
           "tasksDone",
           "tasksTotal",
@@ -2426,6 +2445,15 @@
             "$ref": "#/components/schemas/LinkedKind",
             "description": "Whether it is a card or a page."
           },
+          "number": {
+            "description": "A card's number on its board, as `Card.number` gives it; absent for a page and\nfor a template of the board's cards.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "title": {
             "description": "Its title; empty for one without.",
             "type": "string"
@@ -3152,6 +3180,123 @@
         },
         "required": [
           "type"
+        ],
+        "type": "object"
+      },
+      "Notification": {
+        "description": "One thing a person was told.",
+        "properties": {
+          "createAt": {
+            "description": "When it was made: when the first of it happened.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Its identifier.",
+            "type": "string"
+          },
+          "readAt": {
+            "description": "When its reader read it; 0 until then, and again once more of it happens.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "subject": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NotificationSubject",
+                "description": "What it is about; `null` where its reader does not read that now (it is gone,\nor theirs no more), and is told nothing of it: not what, not where, not by\nwhom."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updateAt": {
+            "description": "When the latest of it happened; the notifications are listed by it, the\nnewest first.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "createAt",
+          "id",
+          "readAt",
+          "subject",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "NotificationKind": {
+        "description": "What a notification tells of.",
+        "enum": [
+          "mention",
+          "assignment",
+          "comment"
+        ],
+        "type": "string"
+      },
+      "NotificationSubject": {
+        "description": "What a notification is about, for a reader who reads it now.",
+        "properties": {
+          "actorId": {
+            "description": "Who did the latest of it; empty where nobody is known to have. The identifier\nalone, as a card says who wrote it: the name is asked of the workspace's\npeople, where its reader is told the names they may see.",
+            "type": "string"
+          },
+          "blockId": {
+            "description": "The card or the page it is about: what the reader opens.",
+            "type": "string"
+          },
+          "blockKind": {
+            "$ref": "#/components/schemas/SearchKind",
+            "description": "What that is."
+          },
+          "commentId": {
+            "description": "The comment the latest of it happened in, where that is still there; empty\nwhere it happened in the card or the page itself, or the comment went.",
+            "type": "string"
+          },
+          "containerId": {
+            "description": "The board the card is on, or the wiki the page is in.",
+            "type": "string"
+          },
+          "containerKind": {
+            "$ref": "#/components/schemas/ContainerKind",
+            "description": "What that container is: a board, or a wiki."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/NotificationKind",
+            "description": "What happened."
+          },
+          "people": {
+            "description": "How many people did it, `actorId` among them; 0 where nobody is known to have.\nA hundred are counted at most.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "times": {
+            "description": "How many times it happened: what happens to the same card or page, of the same\nkind, within an hour of the first of it, is told in one notification.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Its title as it is now.",
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "The workspace of the card or the page.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "actorId",
+          "blockId",
+          "blockKind",
+          "commentId",
+          "containerId",
+          "containerKind",
+          "kind",
+          "people",
+          "times",
+          "title",
+          "workspaceId"
         ],
         "type": "object"
       },
@@ -4377,6 +4522,21 @@
             "type": "/problems/last-org-admin"
           },
           {
+            "reason": "sole_org_admin",
+            "title": "Only administrator of the organization",
+            "type": "/problems/sole-org-admin"
+          },
+          {
+            "reason": "alone_in_organization",
+            "title": "Only person in the organization",
+            "type": "/problems/alone-in-organization"
+          },
+          {
+            "reason": "last_instance_admin",
+            "title": "Last administrator of the server",
+            "type": "/problems/last-instance-admin"
+          },
+          {
             "reason": "public_links_off",
             "title": "Public links turned off",
             "type": "/problems/public-links-off"
@@ -4634,6 +4794,15 @@
             "$ref": "#/components/schemas/SearchKind",
             "description": "What it is."
           },
+          "number": {
+            "description": "A card's number on its board, as `Card.number` gives it; absent for a page.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "snippet": {
             "description": "A piece of its body around what matched, in stretches that follow one\nanother; empty where the body has changed since it was indexed, or has nothing\nto show.",
             "items": {
@@ -4784,6 +4953,27 @@
             "maxLength": 64,
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "notifyAssignments": {
+            "description": "Whether the user is told when somebody gives them a card (`assignment`).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "notifyComments": {
+            "description": "Whether the user is told of the new comments on what they watch (`comment`).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "notifyMentions": {
+            "description": "Whether the user is told when somebody mentions them (`mention`).",
+            "type": [
+              "boolean",
               "null"
             ]
           },
@@ -5040,6 +5230,20 @@
         ],
         "type": "object"
       },
+      "UnreadNotifications": {
+        "description": "How many notifications a person has not read.",
+        "properties": {
+          "count": {
+            "description": "How many.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count"
+        ],
+        "type": "object"
+      },
       "UploadOpened": {
         "description": "An upload that is open.",
         "properties": {
@@ -5271,6 +5475,18 @@
             "description": "The language of the interface: `auto` for the browser's, or a language tag such\nas `ko` or `en-US`, in the shape the browsers' `Intl` reads (Unicode BCP 47), at\nmost 64 characters. The server keeps no list of languages, and answers a tag as\nit was given, case and all: compare tags without regard to case.",
             "type": "string"
           },
+          "notifyAssignments": {
+            "description": "Whether the user is told when somebody gives them a card (`assignment`).",
+            "type": "boolean"
+          },
+          "notifyComments": {
+            "description": "Whether the user is told of the new comments on what they watch (`comment`).",
+            "type": "boolean"
+          },
+          "notifyMentions": {
+            "description": "Whether the user is told when somebody mentions them (`mention`).",
+            "type": "boolean"
+          },
           "theme": {
             "$ref": "#/components/schemas/Theme",
             "description": "The colors of the interface."
@@ -5292,7 +5508,10 @@
           "cardOpen",
           "density",
           "haptics",
-          "language"
+          "language",
+          "notifyMentions",
+          "notifyAssignments",
+          "notifyComments"
         ],
         "type": "object"
       },
@@ -6535,6 +6754,171 @@
         ]
       }
     },
+    "/api/v1/notifications": {
+      "get": {
+        "description": "One page of what the user of the session was told, in every organization the\nsession opens, the newest first (by `updateAt`): that somebody mentioned them in a\ncard, a page or a comment (`mention`), gave them a card (`assignment`), or commented\non a card or a page they watch (`comment`; one named in that comment is told of the\nmention alone). Nobody is told of their own doing, nor of anything in a user's own\nspace, nor of a kind they switched off (`notifyMentions`, `notifyAssignments`,\n`notifyComments` of `patchUserSettings`): what is off is not made at all.\n\nWhoever writes a card or a page, is given a card, or comments on either watches it\n(`createSubscription`), until they end that (`deleteSubscription`). What happens to\none card or page, of one kind, within an hour of the first of it, is one\nnotification: `times` and `people` count it, `actorId` and `commentId` say the\nlatest, and it is unread again. One person makes a hundred new ones for another\nwithin an hour at most; past that, what they do joins only those there.\n\nA notification is made only for somebody who reads the card or the page at that\ntime, and each one listed is asked again: its `subject` says what it is about, as\nthat is now, only where the user reads it now with this session. Where they do not\n(it is in the trash or gone, or they left the board or the workspace) `subject` is\n`null`, and nothing says what it was about, where or by whom. Such a one is still\nlisted, and counted while unread.\n\nWhat an organization that takes only sessions made through its provider told the\nuser is left out for a session made otherwise, as `getMyMemberships` leaves its\nboards out: it is not listed, not counted, and not marked as read by such a\nsession, and it is there again for a session made through the provider.\n\nA notification that was read is kept for ninety days, and a user has ten thousand\nat most: past that the oldest go, those that were read first.",
+        "operationId": "getNotifications",
+        "parameters": [
+          {
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Notification"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The notifications of the page, the newest first."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The notifications of the user",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/read": {
+      "post": {
+        "description": "Marks as read every notification of the user of the session whose latest happened\nup to `through`, or up to now where that is left out: a client gives the `updateAt`\nof the newest it has shown, so that one that came or grew since stays unread. Those of an\norganization the session does not open (`getNotifications`) stay as they are.",
+        "operationId": "readNotifications",
+        "parameters": [
+          {
+            "description": "The time, in milliseconds, up to which the notifications are read: those whose latest happened later (`updateAt`) stay unread. Left out, now.",
+            "in": "query",
+            "name": "through",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "They are read."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Mark every notification as read",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/unread": {
+      "get": {
+        "description": "The number of notifications of the user of the session that are not read, in every\norganization the session opens (`getNotifications`): those whose `subject` is\n`null` among them.",
+        "operationId": "getUnreadNotifications",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadNotifications"
+                }
+              }
+            },
+            "description": "How many."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "How many notifications the user has not read",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/{notificationId}/read": {
+      "post": {
+        "description": "Marks one notification of the user of the session as read; one that was read stays\nread since when it was. 404 for a notification of somebody else, as for one that\nis not there, and for one of an organization the session does not open\n(`getNotifications`).",
+        "operationId": "readNotification",
+        "parameters": [
+          {
+            "description": "The identifier of the notification: one of the user of the session.",
+            "in": "path",
+            "name": "notificationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "It is read."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Mark a notification as read",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
     "/api/v1/org": {
       "post": {
         "description": "Makes an organization that people work in together, and its first workspace, both\nunder `name`, for the account of the session, which administers both: what\n`register` does with `organizationName`, for an account that is there. Answers the\nworkspace as `getMyWorkspaces` lists it from then on.\n\nAn account makes a few organizations and no more: the ones in use that it started\nare counted, by `register` or here, and not the ones it was invited into, nor its\nown space. One more than the limit is 400 with the reason `too_many_organizations`,\nand `limit` tells how many that is. On a server that takes one organization\n(`org_creation` is `first_user_only`; `registrationOpen` of `getLoginOptions` is\nfalse once it has its first user) nobody starts another: 403 with the reason\n`invitation_required`. The name is read as `organizationName` of `register` is:\nblank, too long or with a character it may not have is 400, and `errors` names\n`name`. Counted by where it comes from, with the registrations: too many are 429.",
@@ -6755,6 +7139,42 @@
           }
         },
         "summary": "The audit log of an organization",
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/leave": {
+      "post": {
+        "description": "Takes the account of the session out of an organization that people work in\ntogether, at its own asking, all at once or not at all. It leaves each workspace of\nthe organization, in use or in the trash, as `removeWorkspaceMember` takes a member\nout: a board it was the only admin of passes to the workspace's oldest other\nadministrator, and a workspace it joined as the organization's administrator\n(`joinOrgWorkspace`) records that it left. Its roles on boards and wikis, its teams,\nwhat it follows (`subscriptions`) in the organization and the links of invitations it\nmade there that nobody used go with it, and so does its membership; who leaves the\nserver's own first organization administers the server no more. Its sessions,\nits identities and what it wrote stay, and the organization stays one it made. Its\nopen connections stop following the organization's workspaces\n(`UNSUBSCRIBED_WORKSPACE`). It comes back only as anybody new does: by an invitation,\nor as the organization lets in who signs in through its provider. Asked of any\nsession: leaving is the account's own, whatever provider the organization takes.\n\n404 for an organization that is not there or the account is no member of, and for\nan own space, which nobody leaves. A guest of a workspace is no member of its\norganization: 404 here, and it leaves a workspace or board by `leaveContainer`.\n\nWhat stands in the way is 409, and nothing changes: the server's only administrator\nstays in the server's own first organization (reason `last_instance_admin`); the\nonly administrator of an organization that has other people in it stays until\nsomebody else is one (reason `sole_org_admin`); and nobody leaves an organization\nthey are the only person in (reason `alone_in_organization`). Asked in that order.\nOf two administrators who leave at once, the second is asked once the first is out.",
+        "operationId": "leaveOrganization",
+        "parameters": [
+          {
+            "description": "The identifier of an organization that people work in together. 404 unless the user of the session is a member of it (a guest of its workspaces is none); and 404 for the user's own space, which nobody is a member of.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The account is out of the organization."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Leave an organization",
         "tags": [
           "organization"
         ]
@@ -9841,7 +10261,7 @@
             }
           },
           {
-            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
             "in": "query",
             "name": "disableNotify",
             "required": false,
@@ -9903,7 +10323,7 @@
             }
           },
           {
-            "description": "The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies.",
+            "description": "The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies. Such blocks are copies: the people they name are told nothing of them.",
             "in": "query",
             "name": "sourceBoardId",
             "required": false,
@@ -9912,7 +10332,7 @@
             }
           },
           {
-            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
             "in": "query",
             "name": "disableNotify",
             "required": false,
@@ -9998,7 +10418,7 @@
             }
           },
           {
-            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
             "in": "query",
             "name": "disableNotify",
             "required": false,
@@ -10059,7 +10479,7 @@
             }
           },
           {
-            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
             "in": "query",
             "name": "disableNotify",
             "required": false,
@@ -10406,7 +10826,7 @@
             }
           },
           {
-            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
             "in": "query",
             "name": "disableNotify",
             "required": false,
@@ -10448,6 +10868,68 @@
           }
         },
         "summary": "Make a card",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/by-number/{number}": {
+      "get": {
+        "description": "The card of the board that has the number (`Card.number`, as `#12` names the card),\nfor the members of the board, as `getCard` gives it. One answer, 404, says that there\nis no such card, whatever the reason: no card of the board has the number (the card\nis in the trash, is gone for good, or is a template of the board's cards), the\nnumber is none, the board is one the user does not read (a private board they are\nno member of, one they only manage, one they are no guest of), or is no board of\nthis workspace (of another workspace or organization, a wiki, or none at all).",
+        "operationId": "getCardByNumber",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the card on the board, as `Card.number` gives it. One that no card of the board has, and what is no number, is 404.",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Card"
+                }
+              }
+            },
+            "description": "The card."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "A card by its number",
         "tags": [
           "cards"
         ]
@@ -10673,7 +11155,7 @@
             }
           },
           {
-            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
             "in": "query",
             "name": "disableNotify",
             "required": false,
@@ -14642,7 +15124,7 @@
     },
     "/api/v1/w/{workspaceId}/references/search": {
       "get": {
-        "description": "The cards and pages of this workspace, on a board or a wiki the user reads, whose\ntitle has every word of `q` in it, as spaces divide it and whatever the case of the\nletters (of every letter, not only ASCII); `%` and `_` are characters like any\nother. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, and a card\nthat is a template of its board's cards are never found. A `q` of more than 200\ncharacters is 400.",
+        "description": "The cards and pages of this workspace, on a board or a wiki the user reads, whose\ntitle has every word of `q` in it, as spaces divide it and whatever the case of the\nletters (of every letter, not only ASCII); `%` and `_` are characters like any\nother. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, and a block\nwhose `isTemplate` is `true` (for a card, a template of its board's cards) are never\nfound. A `q` of more than 200\ncharacters is 400.",
         "operationId": "searchReferences",
         "parameters": [
           {
@@ -14849,7 +15331,7 @@
     },
     "/api/v1/w/{workspaceId}/subscriptions": {
       "post": {
-        "description": "Subscribes the user of the session to a block of a board they are a member of. A\n`subscriberId` that is not the user of the session is 403, and a `subscriberType`\nother than `user` is 400. The `blockType` is stored as it is sent, and not compared\nwith the block. Subscribing again is no error: the subscription stays as it was\nmade, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.",
+        "description": "Subscribes the user of the session to a block of a board, or a page of a wiki, they\nmay read: whoever writes a card or a page watches it, and may stop and start again. A\n`subscriberId` that is not the user of the session is 403, and a `subscriberType`\nother than `user` is 400. The `blockType` is stored as it is sent, and not compared\nwith the block. Subscribing again is no error: the subscription stays as it was\nmade, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.",
         "operationId": "createSubscription",
         "parameters": [
           {
@@ -17311,6 +17793,10 @@
     {
       "description": "Subscriptions to blocks.",
       "name": "subscriptions"
+    },
+    {
+      "description": "What the user was told inside the application: mentions and cards given to them.",
+      "name": "notifications"
     },
     {
       "description": "What an organization's administrators manage: the organization, its members' roles, its workspaces and their trash, joining a workspace, and the audit logs.",

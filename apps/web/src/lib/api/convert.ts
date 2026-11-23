@@ -6,10 +6,11 @@
  * Where the two differ the screens' shape stays and the difference is
  * settled here; what is still open is listed in `docs/contract-assumptions.md`.
  */
-import { cardPreviewOf, type CardPreview } from '../editor/card-preview.ts';
-import { countTasks, type DocNode } from '../editor/schema.ts';
+import type { CardPreview } from '../editor/card-preview.ts';
+import type { DocNode } from '../editor/schema.ts';
 import { readDisplaySettings } from '../logic/display.ts';
 import { readLanguageSettings } from '../logic/language.ts';
+import { readNotifySettings } from '../logic/notify-settings.ts';
 import type { PersonName } from '../logic/person-names.ts';
 import { readRegionalSettings } from '../logic/regional.ts';
 import {
@@ -42,6 +43,7 @@ import {
   type User,
   type ViewDraft,
 } from '../state/backend.ts';
+import type { BodySummary } from '../state/body-summary.ts';
 
 import type { components } from './contract.ts';
 
@@ -136,8 +138,9 @@ export function memberOf(member: Schemas['ContainerMember']): ContainerMember {
 
 /** A block of the API as the screens' block. Its body, if any, is the card's or comment's to carry. */
 export function blockOf(block: Schemas['Block']): Block {
-  const { body: _body, ...rest } = block;
-  return { ...rest, type: block.type as BlockType, fields: { ...block.fields } };
+  const { body: _body, number, ...rest } = block;
+  const numbered = number === undefined || number === null ? {} : { number };
+  return { ...rest, ...numbered, type: block.type as BlockType, fields: { ...block.fields } };
 }
 
 /** The body of a block or a card, as the screens' document. */
@@ -150,21 +153,13 @@ export function viewOf(block: Schemas['Block']): BoardView {
 }
 
 /**
- * The card summary of a card block, as a change message brings it. The
- * block carries the whole body and no counts (`contracts/websocket.md`, G5):
- * whether there is a body and how its tasks stand are worked out from it.
- * It has no `lastCommentAt`: the board keeps the one it had.
+ * The card summary of a card block and what is said of its body: the
+ * `summary` beside the block of a change message, whose block has no body
+ * (`contracts/websocket.md` 3), or that of the body of a block read whole
+ * (`summaryOfBody`). It has no `lastCommentAt`: the board keeps the one it had.
  */
-export function cardOfBlock(block: Schemas['Block']): CardSummary {
-  const body = bodyOf(block.body);
-  const tasks = body ? countTasks(body) : { total: 0, checked: 0 };
-  return {
-    ...createCard(blockOf(block)),
-    hasBody: body !== null,
-    tasksTotal: tasks.total,
-    tasksDone: tasks.checked,
-    preview: cardPreviewOf(body),
-  };
+export function cardOfBlock(block: Schemas['Block'], summary: BodySummary): CardSummary {
+  return { ...createCard(blockOf(block)), ...summary };
 }
 
 /** A card of the cards API: its members are where a card block has its `fields`. */
@@ -183,6 +178,7 @@ export function cardOf(card: Schemas['Card']): CardSummary {
       createAt: card.createAt,
       updateAt: card.updateAt,
       deleteAt: card.deleteAt,
+      ...(card.number === null ? {} : { number: card.number }),
     }),
     hasBody: card.hasBody,
     tasksTotal: card.tasksTotal,
@@ -213,14 +209,23 @@ export function wireBody(doc: DocNode): Schemas['Body'] {
 }
 
 /** A card to make. */
-export function newCardOf(draft: CardDraft): Schemas['NewCard'] {
-  return {
+/**
+ * The request that makes a card of a draft (`createCard`): a quiet one
+ * (`quiet`, a copy) tells nobody whom it names or is given to (`disableNotify`).
+ */
+export function newCardRequest(draft: CardDraft): {
+  method: 'POST';
+  json: Schemas['NewCard'];
+  query: { disableNotify: 'true' | undefined };
+} {
+  const json: Schemas['NewCard'] = {
     title: draft.title ?? '',
     icon: draft.icon ?? '',
     isTemplate: draft.isTemplate ?? false,
     properties: draft.properties ?? {},
     ...(draft.body ? { body: wireBody(draft.body) } : {}),
   };
+  return { method: 'POST', json, query: { disableNotify: draft.quiet ? 'true' : undefined } };
 }
 
 /**
@@ -301,6 +306,7 @@ export function settingsOf(settings: Schemas['UserSettings']): AccountSettings {
     ...readRegionalSettings(settings),
     ...readDisplaySettings(settings),
     ...readLanguageSettings(settings),
+    ...readNotifySettings(settings),
   };
 }
 

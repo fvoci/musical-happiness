@@ -30,14 +30,14 @@
     title={label}
     class={['flex shrink-0 items-center gap-1 text-xs text-muted-foreground', className]}
   >
-    <span class="flex -space-x-1">
-      {#each people.slice(0, 2) as userId (userId)}
+    <span class="flex">
+      {#each people.slice(0, 2) as userId, index (userId)}
         <Avatar
           name={nameOf(wiki, userId)}
           colorKey={userId}
           locale={wiki.workspace.locale}
           decorative
-          class={large ? 'size-7 ring-1 ring-background' : 'size-4 ring-1 ring-background'}
+          class={[large ? 'size-7' : 'size-4', 'ring-1 ring-background', index > 0 && '-ms-1']}
         />
       {/each}
     </span>

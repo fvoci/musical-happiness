@@ -29,6 +29,7 @@
 
 mod build;
 mod doc;
+mod mend;
 mod placing;
 mod project;
 mod read;
@@ -69,8 +70,8 @@ pub mod testing {
         crate::project::to_body(doc)
     }
 
-    /// Repairs a Y document in place: the deletions of a repaired copy are made to it
-    /// too, as an editor that holds the document makes them. A repair that fails
+    /// Repairs a Y document in place: the changes of a repaired copy are made to it
+    /// too, as an editor that holds the document takes them. A repair that fails
     /// leaves it as it was.
     ///
     /// # Errors
@@ -79,17 +80,35 @@ pub mod testing {
     ///
     /// # Panics
     ///
-    /// Panics if the deletions of a copy do not apply to the document they were made
+    /// Panics if the changes of a copy do not apply to the document they were made
     /// from, which would be a defect.
     pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
-        let (repair, _) = crate::repair::repaired(doc)?;
-        if let Some(deletions) = &repair.update {
-            let deletions = Update::decode_v1(deletions).expect("the deletions are an update");
+        Ok(applied(doc, crate::repair::repaired(doc)?))
+    }
+
+    /// [`repair`], with what the repair writes written as `writer`: the same changes from
+    /// any document, where a repair writes as a client the document names.
+    ///
+    /// # Errors
+    ///
+    /// As [`repair`].
+    ///
+    /// # Panics
+    ///
+    /// As [`repair`].
+    pub fn repair_by(doc: &Doc, writer: u64) -> Result<Repair, BodyError> {
+        Ok(applied(doc, crate::repair::repaired_by(doc, Some(writer))?))
+    }
+
+    /// Makes the changes of a repair to the document it was made from.
+    fn applied(doc: &Doc, (repair, _): (Repair, Option<Doc>)) -> Repair {
+        if let Some(changes) = &repair.update {
+            let changes = Update::decode_v1(changes).expect("the changes are an update");
             doc.transact_mut()
-                .apply_update(deletions)
-                .expect("the deletions apply to the document they were made from");
+                .apply_update(changes)
+                .expect("the changes apply to the document they were made from");
         }
-        Ok(repair)
+        repair
     }
 
     /// The Y document with an update, not yet projected or repaired.
@@ -111,7 +130,7 @@ pub mod testing {
     ///
     /// Returns why the document cannot be read again from its state.
     pub fn copy_of(doc: &Doc) -> Result<Doc, UpdateError> {
-        crate::update::copy_of(doc)
+        crate::update::copy_of(doc, None)
     }
 
     /// How many steps the changes of an update may take to place in a document,
@@ -123,6 +142,50 @@ pub mod testing {
     /// Returns why the update, or the document, cannot be read.
     pub fn placing_steps(doc: &Doc, update: &[u8]) -> Result<u64, UpdateError> {
         crate::update::placing_steps(doc, update)
+    }
+
+    /// The JSON a Y document projects to, before it is checked as a body: the walk of
+    /// [`to_body`] alone, without `Body::parse`.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the walk refuses the document.
+    pub fn projected(doc: &Doc) -> Result<Option<serde_json::Value>, BodyError> {
+        use yrs::ReadTxn as _;
+        let txn = doc.transact();
+        txn.get_xml_fragment(crate::FIELD)
+            .map_or(Ok(None), |root| crate::project::projected(&txn, &root))
+    }
+
+    /// What the changes of `update` are charged in `copy`, the document read from
+    /// `state` of `changes` changes, as [`crate::take_update`] charges them within
+    /// `limit`: the update read again, and its steps counted, reading the lists of the
+    /// state only where the cheap count is past `limit`.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the update, or the state, cannot be read.
+    pub fn charged(
+        copy: &Doc,
+        state: &[u8],
+        changes: u64,
+        update: &[u8],
+        limit: u64,
+    ) -> Result<u64, UpdateError> {
+        let (sent, _) = crate::update::read(copy, update)?;
+        crate::update::charged(copy, (state, changes), (update, &sent), limit)
+    }
+
+    /// Whether two states are the same as [`crate::take_update`] tells it.
+    #[must_use]
+    pub fn same_state(one: &[u8], other: &[u8]) -> bool {
+        crate::update::same_state(one, other)
+    }
+
+    /// The size of a body as its limit is measured.
+    #[must_use]
+    pub fn size_of(body: &Body) -> usize {
+        crate::take::size_of(body)
     }
 
     pub use crate::reading::List;
@@ -210,6 +273,22 @@ pub mod testing {
             self.doc.transact().encode_diff_v1(&before)
         }
 
+        /// Appends a paragraph that holds a mention of the user `user_id` and gives the
+        /// update of it.
+        #[must_use]
+        pub fn append_mention(&self, user_id: &str) -> Vec<u8> {
+            use yrs::{ReadTxn as _, Xml as _, XmlElementPrelim, XmlFragment as _};
+            let before = self.doc.transact().state_vector();
+            let root = self.doc.get_or_insert_xml_fragment(crate::FIELD);
+            {
+                let mut txn = self.doc.transact_mut();
+                let paragraph = root.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
+                let mention = paragraph.push_back(&mut txn, XmlElementPrelim::empty("mention"));
+                mention.insert_attribute(&mut txn, "userId", user_id);
+            }
+            self.doc.transact().encode_diff_v1(&before)
+        }
+
         /// Appends an empty element `name` and gives the update of it: of a node no body
         /// has, an update the server repairs.
         #[must_use]
@@ -246,6 +325,68 @@ pub mod testing {
                 };
                 let end = text.len(&txn);
                 text.insert(&mut txn, end, letters);
+            }
+            self.doc.transact().encode_diff_v1(&before)
+        }
+
+        /// Adds a column to the first table at the top: an empty cell at the end of
+        /// each row, and gives the update of it.
+        ///
+        /// # Panics
+        ///
+        /// Panics if there is no table at the top.
+        #[must_use]
+        pub fn add_table_column(&self) -> Vec<u8> {
+            self.edit_table(|txn, table| {
+                use yrs::{XmlFragment as _, XmlOut};
+                let rows: Vec<_> = table.children(txn).collect();
+                for row in rows {
+                    if let XmlOut::Element(row) = row {
+                        let end = row.len(txn);
+                        let cell = serde_json::json!({"type": "tableCell", "content": [{"type": "paragraph"}]});
+                        crate::build::insert_node(txn, &row, end, &cell);
+                    }
+                }
+            })
+        }
+
+        /// Adds a row of `cells` empty cells at the end of the first table at the top,
+        /// and gives the update of it.
+        ///
+        /// # Panics
+        ///
+        /// Panics if there is no table at the top.
+        #[must_use]
+        pub fn add_table_row(&self, cells: usize) -> Vec<u8> {
+            self.edit_table(|txn, table| {
+                use yrs::XmlFragment as _;
+                let cell =
+                    serde_json::json!({"type": "tableCell", "content": [{"type": "paragraph"}]});
+                let row = serde_json::json!({"type": "tableRow", "content": vec![cell; cells]});
+                let end = table.len(txn);
+                crate::build::insert_node(txn, table, end, &row);
+            })
+        }
+
+        fn edit_table(
+            &self,
+            edit: impl FnOnce(&mut yrs::TransactionMut<'_>, &yrs::XmlElementRef),
+        ) -> Vec<u8> {
+            use yrs::{ReadTxn as _, XmlFragment as _, XmlOut};
+            let before = self.doc.transact().state_vector();
+            let root = self.doc.get_or_insert_xml_fragment(crate::FIELD);
+            {
+                let mut txn = self.doc.transact_mut();
+                let table = root
+                    .children(&txn)
+                    .find_map(|child| match child {
+                        XmlOut::Element(element) if element.tag().as_ref() == "table" => {
+                            Some(element)
+                        }
+                        _ => None,
+                    })
+                    .expect("a table at the top");
+                edit(&mut txn, &table);
             }
             self.doc.transact().encode_diff_v1(&before)
         }

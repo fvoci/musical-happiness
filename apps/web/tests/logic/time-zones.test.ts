@@ -249,6 +249,22 @@ describe('near the date line', () => {
     expect(displayCalendarDate(newYearsDay, { locale: 'en', timeZone: pagoPago, now })).toBe(
       'January 01, 2026',
     );
+    // Crossing into 2026 in the same zone invalidates any cached year bounds.
+    const nextYear = Date.UTC(2026, 5, 1);
+    expect(
+      displayCalendarDate(newYearsDay, { locale: 'en', timeZone: pagoPago, now: nextYear }),
+    ).toBe('January 01');
+    expect(
+      displayDate(Date.UTC(2025, 6, 9, 12), { locale: 'en', timeZone: 'UTC', now: nextYear }),
+    ).toBe('July 09, 2025');
+    expect(
+      displayDateTime(Date.UTC(2026, 6, 9, 15, 20), {
+        locale: 'en',
+        timeZone: 'UTC',
+        hourCycle: 'h23',
+        now: nextYear,
+      }),
+    ).toBe('July 09 at 15:20');
   });
 
   it('knows a date that a place skipped has no moments', () => {

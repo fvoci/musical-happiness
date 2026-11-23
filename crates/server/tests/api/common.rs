@@ -331,6 +331,10 @@ impl Setup {
             skip_websocket_pings: true,
             // Importing the templates is slow; only tests that ask for them pay it.
             skip_template_init: !self.with_templates,
+            // Whom to tell is worked off where a test says so (`tend_notifications`):
+            // a task that reads the database every second is in the way of the tests
+            // that count its reads. It runs in the test that turns it on.
+            notifications_by_hand: true,
             // Every client of a test comes from one address, and many sign in at once.
             // The limit by address is tested where a test turns it on.
             login_address_attempts_per_minute: 0,

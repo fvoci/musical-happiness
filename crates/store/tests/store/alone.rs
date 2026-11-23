@@ -554,13 +554,38 @@ async fn the_doors_of_the_store_let_nobody_into_a_space() {
         mailed: None,
     };
     let invited = in_space.create_invitation(&link).await;
-    assert!(invited.is_err(), "a link into a space: {invited:?}");
+    assert!(
+        matches!(
+            &invited,
+            Err(StoreError::Database(error))
+                if error.to_string().contains("invited into the space")
+        ),
+        "a link into a space: {invited:?}"
+    );
     for role in [WorkspaceRole::Member, WorkspaceRole::Guest] {
         let added = in_space
             .add_workspace_member(&workspace_id, &other, role)
             .await;
-        assert!(added.is_err(), "a second member of a space: {added:?}");
+        assert!(
+            matches!(
+                &added,
+                Err(StoreError::Database(error))
+                    if error.to_string().contains("the space of an account")
+            ),
+            "a second member of a space: {added:?}"
+        );
     }
+    let to_system = store
+        .create_invitation(&NewLink {
+            workspace_id: fvoci_store::SYSTEM_WORKSPACE_ID,
+            token_hash: "a link into the system workspace",
+            ..link
+        })
+        .await;
+    assert!(
+        matches!(to_system, Err(StoreError::NotFound { .. })),
+        "the store refuses links into the system workspace before the schema: {to_system:?}"
+    );
     for handle in [&in_space, store] {
         let joined = handle
             .join_workspace_as_org_admin(&workspace_id, &other)

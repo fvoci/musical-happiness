@@ -10,7 +10,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import BodyEditor from '$lib/editor/BodyEditor.svelte';
 import { setFileSource } from '$lib/editor/files.ts';
-import { countTasks, plainText, validateDoc, type DocNode } from '$lib/editor/schema.ts';
+import { countTasks, plainText } from '$lib/editor/body-text.ts';
+import { validateDoc, type DocNode } from '$lib/editor/schema.ts';
 
 import {
   doc,

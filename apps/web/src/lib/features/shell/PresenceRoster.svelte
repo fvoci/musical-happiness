@@ -89,16 +89,21 @@
           presence.count === 0 && !listOpen && 'hidden',
         ]}
       >
-        <span class="flex -space-x-1">
+        <!-- Overlapping margins on each item instead of Tailwind space utilities, whose
+             `:where(... > :not(:last-child))` triggers full-document sibling invalidation in WebKit
+             whenever a portal mounts or unmounts on body. -->
+        <span class="flex">
           {#each faces as person, index (person.userId)}
             <Avatar
               name={workspace.userName(person.userId) ?? m['centerPanel.unknown-user']()}
               colorKey={person.userId}
               locale={workspace.locale}
               decorative
-              class="size-5 ring-2 ring-background @columns/pane:size-6 {index >= NARROW_FACES
-                ? '@max-columns/pane:hidden'
-                : ''}"
+              class={[
+                'size-5 ring-2 ring-background @columns/pane:size-6',
+                index > 0 && '-ms-1',
+                index >= NARROW_FACES && '@max-columns/pane:hidden',
+              ]}
             />
           {/each}
         </span>
@@ -111,7 +116,7 @@
         {/if}
       </button>
     {/snippet}
-    <ul class="max-w-80 space-y-2 p-2" data-testid="presence-list">
+    <ul class="flex max-w-80 flex-col gap-2 p-2" data-testid="presence-list">
       {#each presence.others as person (person.userId)}
         <li class="flex items-start gap-2" data-presence-user={person.userId}>
           <Avatar

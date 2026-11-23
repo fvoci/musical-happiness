@@ -90,8 +90,15 @@ for wanted in $images; do
     docker image inspect "$wanted" >/dev/null 2>&1 ||
         fail "the image $wanted is not on this machine: fvoci still runs, nothing was changed"
 done
-# The image that runs now keeps a name of its own: the pull may have moved its tag.
-kept_tag="fvoci-server:before-update-$project"
+# The image that runs now keeps a unique name of its own: the pull may have moved
+# its tag, and a second update must not overwrite the tag of the image before the first.
+tag_stamp=$(date -u +%Y%m%dT%H%M%SZ)
+kept_tag="fvoci-server:before-update-$project-$tag_stamp"
+suffix=1
+while docker image inspect "$kept_tag" >/dev/null 2>&1; do
+    suffix=$((suffix + 1))
+    kept_tag="fvoci-server:before-update-$project-$tag_stamp-$suffix"
+done
 docker tag "$old_image" "$kept_tag"
 
 # The dump holds what was written before it began.

@@ -85,10 +85,10 @@ test('a dated card is a bar from its first day to its last, a card without a dat
   // Into the next month.
   await lies('Filter and sort cards', '2026-12-03', 2);
   await expect(bar(page, 'Share a board')).toHaveAccessibleName(
-    'Share a board, November 12 – November 23',
+    'number 4, Share a board, November 12 – November 23',
   );
   await expect(bar(page, 'Create a new card')).toHaveAccessibleName(
-    '8:00 AM Create a new card, November 10',
+    '8:00 AM number 5, Create a new card, November 10',
   );
   // Every row is a card with a bar.
   await expect(gantt(page).locator('[data-row]')).toHaveCount(4);
@@ -101,7 +101,7 @@ test('a dated card is a bar from its first day to its last, a card without a dat
     }),
   );
   await expect(bar(page, 'Create a new card')).toHaveAccessibleName(
-    '3:00 PM Create a new card, November 9',
+    '3:00 PM number 5, Create a new card, November 9',
   );
   await lies('Create a new card', '2026-11-09', 1);
 });
@@ -114,9 +114,9 @@ test('a bar in another year says its year: the marks of the days are not read ou
     'Drag cards': { from: '2025-03-01' },
     'Share a board': { from: '2026-12-30', to: '2027-01-02' },
   });
-  await expect(bar(page, 'Drag cards')).toHaveAccessibleName('Drag cards, March 1, 2025');
+  await expect(bar(page, 'Drag cards')).toHaveAccessibleName('number 1, Drag cards, March 1, 2025');
   await expect(bar(page, 'Share a board')).toHaveAccessibleName(
-    'Share a board, December 30, 2026 – January 2, 2027',
+    'number 4, Share a board, December 30, 2026 – January 2, 2027',
   );
 });
 
@@ -224,7 +224,7 @@ test('the bars are one stop of Tab, the arrows walk them, and a bar opens its ca
   await expect(bars(page).last()).toBeFocused();
   await page.keyboard.press('Home');
   await expect(bars(page).first()).toBeFocused();
-  const title = await gantt(page).locator('[data-row-title]').first().textContent();
+  const title = await gantt(page).locator('[data-row-title] [data-title]').first().textContent();
   await page.keyboard.press('Enter');
   await expect(dialog(page)).toBeVisible();
   await expect(dialog(page).locator('[data-card-title]')).toHaveValue((title ?? '').trim());
@@ -235,7 +235,8 @@ test('the bars are one stop of Tab, the arrows walk them, and a bar opens its ca
 
   // The card of the stop loses its date: the stop is on another bar, still one.
   await page.keyboard.press('End');
-  const last = (await gantt(page).locator('[data-row-title]').last().textContent()) ?? '';
+  const last =
+    (await gantt(page).locator('[data-row-title] [data-title]').last().textContent()) ?? '';
   await setDates(page, { [last.trim()]: undefined });
   await expect(bars(page)).toHaveCount(3);
   await expect(stops).toHaveCount(1);
@@ -277,7 +278,8 @@ test('the focus stays in the chart when the card that has it leaves', async ({ p
 
   // A card opened from its bar loses its date while it is open: it is among
   // the cards without a date now, and "No date" takes the focus when it closes.
-  const title = (await gantt(page).locator('[data-row-title]').nth(1).textContent()) ?? '';
+  const title =
+    (await gantt(page).locator('[data-row-title] [data-title]').nth(1).textContent()) ?? '';
   await page.keyboard.press('Enter');
   await expect(dialog(page)).toBeVisible();
   await setDates(page, { [title.trim()]: undefined });
@@ -288,7 +290,7 @@ test('the focus stays in the chart when the card that has it leaves', async ({ p
 
   // The last bars go while one has the focus: with no bar left, "No date" has it.
   await bars(page).first().focus();
-  const rest = await gantt(page).locator('[data-row-title]').allTextContents();
+  const rest = await gantt(page).locator('[data-row-title] [data-title]').allTextContents();
   await setDates(page, Object.fromEntries(rest.map((each) => [each.trim(), undefined])));
   await expect(bars(page)).toHaveCount(0);
   await expect(page.getByTestId('gantt-undated')).toBeFocused();

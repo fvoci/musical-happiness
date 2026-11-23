@@ -86,6 +86,8 @@ const REACHED: &[(&str, Reaches)] = &[
     ("putUploadPart", Reaches::Every),
     ("completeUpload", Reaches::Every),
     ("deleteUpload", Reaches::Every),
+    // Whoever writes a card or a page watches it, and may stop.
+    ("deleteSubscription", Reaches::Both),
     // Its place in the sidebar.
     ("setContainerCategory", Reaches::Every),
     ("hideContainer", Reaches::Every),
@@ -105,6 +107,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getCommentVersions", Reaches::Boards),
     ("createCard", Reaches::Boards),
     ("getCards", Reaches::Boards),
+    ("getCardByNumber", Reaches::Boards),
     ("getCard", Reaches::Boards),
     ("patchCard", Reaches::Boards),
     ("getCardBodyVersions", Reaches::Boards),
@@ -112,7 +115,6 @@ const REACHED: &[(&str, Reaches)] = &[
     ("restoreCardBodyVersion", Reaches::Boards),
     ("keepCardBodyVersion", Reaches::Boards),
     ("getDeletedCards", Reaches::Boards),
-    ("deleteSubscription", Reaches::Boards),
     // What a wiki holds.
     ("getPageTree", Reaches::Wikis),
     ("createPage", Reaches::Wikis),
@@ -446,6 +448,8 @@ impl World {
             .replace("{subscriberId}", &self.me)
             .replace("{partNumber}", "1")
             .replace("{version}", "1")
+            // The board's card is its first.
+            .replace("{number}", "1")
             .replace("{leaseId}", "no-lease");
         // The one operation of the table that asks its query for something.
         let path = if operation == "getDiaryDays" {
@@ -880,6 +884,22 @@ async fn what_names_a_diary_in_a_body_is_refused() {
         )
         .await;
     entry_as_block.check_bad_request();
+    // Nor is a diary entry a block to subscribe to.
+    let subscribe = |block: &str| {
+        json!({
+            "blockId": block, "blockType": "entry", "subscriberId": world.me, "subscriberType": "user",
+        })
+    };
+    let (to_entry, to_nothing) = (
+        client
+            .post(&format!("{ws}/subscriptions"), &subscribe(&diary.block))
+            .await,
+        client
+            .post(&format!("{ws}/subscriptions"), &subscribe(UNKNOWN_ID))
+            .await,
+    );
+    to_entry.check_not_found();
+    assert_eq!(to_entry.problem(), to_nothing.problem());
     assert_eq!(ids(&client.get(&format!("{ws}/diaries")).await).len(), 1);
     world.ts.teardown().await;
 }

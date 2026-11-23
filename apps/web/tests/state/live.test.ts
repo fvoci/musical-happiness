@@ -127,10 +127,25 @@ describe('changes from the server', () => {
 
   it('hands a block to the listeners of its board alone, as the screens’ block', async () => {
     const { socket, board, other, self } = await connected();
+    // A card's message carries the summary of its body in place of the body.
+    const summary = {
+      hasBody: true,
+      tasksTotal: 3,
+      tasksDone: 1,
+      preview: { imageFileId: 'f1', text: 'To do' },
+    };
     socket.message({
       action: 'UPDATE_BLOCK',
       workspaceId: 't',
-      block: { ...BLOCK, id: 'c1', containerId: 'b1', type: 'card', fields: { properties: {} } },
+      block: {
+        ...BLOCK,
+        id: 'c1',
+        containerId: 'b1',
+        type: 'card',
+        fields: { properties: {} },
+        body: null,
+      },
+      summary,
     });
     socket.message({
       action: 'UPDATE_BLOCK',
@@ -139,7 +154,11 @@ describe('changes from the server', () => {
     });
     await settle();
     expect(board).toMatchObject([
-      { kind: 'blocks', containerId: 'b1', blocks: [{ id: 'c1', type: 'card', title: 'A card' }] },
+      {
+        kind: 'blocks',
+        containerId: 'b1',
+        blocks: [{ id: 'c1', type: 'card', title: 'A card', ...summary }],
+      },
       { kind: 'blocksDeleted', containerId: 'b1', blockIds: ['c1'] },
     ]);
     expect(other).toEqual([]);
@@ -240,6 +259,14 @@ describe('changes from the server', () => {
     socket.message({ action: 'UPDATE_USER', workspaceId: 'gone', userId: 'u3' });
     await settle();
     expect(self).toEqual([{ kind: 'user', userId: 'u2' }]);
+    expect(board).toEqual([]);
+  });
+
+  it("tells the reader's own listeners that their notifications changed, whatever workspace is followed", async () => {
+    const { socket, self, board } = await connected();
+    socket.message({ action: 'UPDATE_NOTIFICATIONS' });
+    await settle();
+    expect(self).toEqual([{ kind: 'notifications' }]);
     expect(board).toEqual([]);
   });
 

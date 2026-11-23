@@ -62,6 +62,15 @@ export const reference = (id: string): DocNode => ({ type: 'reference', attrs: {
 export const math = (latex: string): DocNode => ({ type: 'inlineMath', attrs: { latex } });
 /** A formula on a line of its own. */
 export const mathBlock = (latex: string): DocNode => ({ type: 'blockMath', attrs: { latex } });
+export const table = (...content: DocNode[]): DocNode => ({ type: 'table', content });
+export const row = (...content: DocNode[]): DocNode =>
+  content.length > 0 ? { type: 'tableRow', content } : { type: 'tableRow' };
+const cellOf =
+  (type: string) =>
+  (spans: { colspan?: number; rowspan?: number }, ...content: DocNode[]): DocNode =>
+    Object.keys(spans).length > 0 ? { type, attrs: spans, content } : { type, content };
+export const cell = cellOf('tableCell');
+export const header = cellOf('tableHeader');
 
 /** The people the documents mention. The third (gone) is deliberately not among them. */
 export const PEOPLE: Record<string, string> = {
@@ -329,6 +338,22 @@ export const HAND_MADE: Record<string, DocNode> = {
     // Not a formula that can be drawn: the source stays, with a notice.
     mathBlock('\\frac{1}{'),
     paragraph(text('and one in a line that cannot be drawn '), math('\\nosuchcommand')),
+  ),
+
+  tables: doc(
+    paragraph(text('before')),
+    table(
+      row(header({}, paragraph(text('Name'))), header({ colspan: 2 }, paragraph(text('Role')))),
+      row(
+        cell({ rowspan: 2 }, paragraph(text('Ada', 'bold'))),
+        cell({}, paragraph()),
+        cell({}, bullets(item(paragraph(text('in a list'))))),
+      ),
+      row(cell({ colspan: 2 }, code('ts', 'let x = 1;'), paragraph(text('after code')))),
+    ),
+    // A row covered whole by the cells above has no cell of its own.
+    table(row(cell({ rowspan: 2 }, paragraph(text('tall')))), row()),
+    paragraph(text('after')),
   ),
 };
 

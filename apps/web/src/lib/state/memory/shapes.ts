@@ -3,8 +3,8 @@
  * refusal as the server makes it, the shapes its stored blocks are answered
  * in, and an order of lists nobody should lean on.
  */
-import { cardPreviewOf } from '../../editor/card-preview.ts';
-import { countTasks, MAX_BODY_BYTES, type DocNode } from '../../editor/schema.ts';
+import { countTasks } from '../../editor/body-text.ts';
+import { MAX_BODY_BYTES, type DocNode } from '../../editor/schema.ts';
 import {
   createBoardView,
   createCard,
@@ -20,6 +20,7 @@ import {
   type Comment,
   type WikiPage,
 } from '../backend.ts';
+import { summaryOfBody } from '../body-summary.ts';
 
 import { withPropertyOrder } from '../../logic/property-order.ts';
 import type { CalendarDate } from '../../logic/dates.ts';
@@ -145,9 +146,11 @@ export function wireOf(block: StoredBlock): BoardView | CardSummary | Comment | 
   switch (block.type) {
     case 'view':
       return viewOf(block);
-    case 'card':
-      // A change message carries the body, which the preview is made from (as on the server).
-      return { ...summaryOf(block as StoredCard), preview: cardPreviewOf(block.body) };
+    case 'card': {
+      // A change message carries the summary of the body in place of it, as on the server.
+      const { body, file: _file, ...rest } = block;
+      return copy({ ...createCard(rest), ...summaryOfBody(body) });
+    }
     case 'comment':
       return commentOf(block);
     default:
