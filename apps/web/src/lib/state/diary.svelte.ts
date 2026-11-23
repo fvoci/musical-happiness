@@ -72,9 +72,12 @@ export class DiaryStore implements EntryHost {
     if (!diaries) return;
     this.#readings += 1;
     const reading = this.#readings;
+    const asked = this.#deletions;
     try {
-      const entries = await diaries.entriesOn(this.diaryId, monthDay);
+      const read = await diaries.entriesOn(this.diaryId, monthDay);
       if (reading !== this.#readings || this.monthDay !== monthDay) return;
+      // Entries deleted after this read was asked are gone, not resurrected by a late answer.
+      const entries = read.filter((entry) => (this.#goneAt.get(entry.id) ?? 0) <= asked);
       this.entries = entries;
       for (const entry of entries) this.#days.get(entry.date)?.adopt(entry);
       // A day whose entry the read has not (deleted unheard, or made after the read was asked).
@@ -116,6 +119,8 @@ export class DiaryStore implements EntryHost {
 
   /** Deleted here or elsewhere; the calendar hears of it as every device does (`#hear`). */
   removed(entryId: string): void {
+    this.#deletions += 1;
+    this.#goneAt.set(entryId, this.#deletions);
     this.entries = this.entries.filter((one) => one.id !== entryId);
   }
 
@@ -165,8 +170,6 @@ export class DiaryStore implements EntryHost {
   }
 
   #deleted(entryId: string): void {
-    this.#deletions += 1;
-    this.#goneAt.set(entryId, this.#deletions);
     this.removed(entryId);
     // Its day stays open, with what is being written there: that makes another.
     for (const day of this.#days.values()) if (day.entry?.id === entryId) day.lose();
@@ -174,13 +177,22 @@ export class DiaryStore implements EntryHost {
 
   /** An entry a read of its day had not: asked for, it is deleted where it is not there. */
   #gone(entry: DiaryEntryDetail): void {
+    const asked = this.#deletions;
     void this.workspace.backend.diary?.entry(this.diaryId, entry.id).then(
       (still) => {
+        // Deleted after it was asked for: what it read is gone.
+        if ((this.#goneAt.get(still.id) ?? 0) > asked) return;
+        const now = this.entries.find((one) => one.id === still.id);
+        if (now && now.updateAt > still.updateAt) return;
         // Made after the read was asked: it is what the day has.
         this.received(still);
+        this.#days.get(still.date)?.adopt(still);
       },
       (error: unknown) => {
-        if (isBackendError(error) && error.status === 404) this.#deleted(entry.id);
+        if (isBackendError(error) && error.status === 404) {
+          this.calendar.heardDeleted([entry.id]);
+          this.#deleted(entry.id);
+        }
       },
     );
   }

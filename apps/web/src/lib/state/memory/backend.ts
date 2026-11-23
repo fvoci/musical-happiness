@@ -369,11 +369,11 @@ export class MemoryBackend implements Backend {
 
   async reorderCardProperties(boardId: string, propertyIds: string[]): Promise<string[]> {
     await this.#enter('reorderCardProperties');
-    const role = this.#memberRole(boardId);
-    if (role !== 'admin' && role !== 'editor') {
+    const current = this.#container(boardId, 'board');
+    if (!['admin', 'editor'].includes(this.#memberRole(boardId))) {
       fail(403, 'access denied to modifying board properties');
     }
-    const board = inPropertyOrder(this.#container(boardId), propertyIds);
+    const board = inPropertyOrder(current, propertyIds);
     board.updateAt = this.world.now();
     board.modifiedBy = this.userId;
     this.world.containers.set(boardId, board);

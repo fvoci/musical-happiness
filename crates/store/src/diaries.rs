@@ -8,6 +8,8 @@
 //! days that are written, reads those rows and not the diary's entries; and the key of
 //! the table is what holds a diary to one entry a day, whatever stores an entry.
 
+use std::fmt;
+
 use fvoci_model::{
     Block, BlockError, BlockType, Container, ContainerError, ContainerKind, ContainerMember,
     DIARIES_PER_SPACE, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryMaking, DiaryRun, MonthDay,
@@ -205,7 +207,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails, and [`StoreError::Corrupt`]
-    /// if a row holds what is no day.
+    /// if a row holds what is no day or a run count that does not fit in a `u32`.
     pub async fn get_diary_runs(&self, diary_id: &str) -> Result<Vec<DiaryRun>, StoreError> {
         self.with_conn(async |scope| {
             let rows = scope.fetch_all(runs_of(scope, diary_id)).await?;
@@ -216,8 +218,8 @@ impl Store {
                         text.parse().map_err(|error| corrupt("day", &text, error))
                     };
                     let count = row.int(2)?;
-                    let days = u32::try_from(count)
-                        .map_err(|error| corrupt("days", &count.to_string(), error))?;
+                    let days =
+                        u32::try_from(count).map_err(|error| corrupt("COUNT(*)", count, error))?;
                     Ok(DiaryRun {
                         from: day(0)?,
                         to: day(1)?,
@@ -361,11 +363,12 @@ fn days_between(
     sql
 }
 
-/// A value of a row of `diary_days` that is not what its column holds: the value, and why.
-fn corrupt(column: &'static str, value: &str, error: impl std::fmt::Display) -> StoreError {
+/// A value read from `diary_days` (a column, or the `COUNT(*)` of a run) that is not
+/// what it must be: the value, and why.
+fn corrupt(column: &'static str, value: impl fmt::Debug, error: impl fmt::Display) -> StoreError {
     StoreError::Corrupt {
         column,
-        reason: format!("a row of diary_days holds {value:?}: {error}"),
+        reason: format!("a read of diary_days yielded {value:?} for {column}: {error}"),
     }
 }
 
