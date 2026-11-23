@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::block::{Block, BlockType};
 use crate::id::new_id;
-use crate::relation::{RELATION_LIMIT, RelationProperties};
+use crate::relation::{RELATION_LIMIT, RelationProperties, relation_link_card};
 
 /// What becomes of an identifier in a card relation value that names no card among the
 /// blocks whose identifiers are renewed ([`renew_block_ids`]).
@@ -211,13 +211,14 @@ fn related_ids<'b>(block: &'b Block, relations: &RelationProperties) -> Vec<&'b 
         .iter()
         .filter_map(|property| values.get(property).and_then(Value::as_array))
         .flatten()
-        .filter_map(Value::as_str)
+        .filter_map(relation_link_card)
         .collect()
 }
 
-/// Puts in each relation value of a card, for each identifier in it, what `rename` gives
-/// for it, and leaves the identifiers it gives nothing for out. Other items stay; of all,
-/// the first `keep_at_most`.
+/// Puts in each relation value of a card, for each relation link in it, what `rename`
+/// gives for its `card` identifier (preserving `kind` and `lagDays`), and leaves out
+/// links for which `rename` gives nothing. Other items stay; of all, the first
+/// `keep_at_most`.
 fn rename_relations(
     block: &mut Block,
     relations: &RelationProperties,
@@ -238,7 +239,10 @@ fn rename_relations(
             continue;
         };
         items.retain_mut(|item| {
-            let Value::String(id) = item else {
+            let Some(object) = item.as_object_mut() else {
+                return true;
+            };
+            let Some(Value::String(id)) = object.get_mut("card") else {
                 return true;
             };
             match rename(id) {

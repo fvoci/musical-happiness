@@ -133,7 +133,12 @@ test('a relation is made, cards are picked and taken out, and it shows in the ca
   await pick(page, first.title);
   await pick(page, second.title);
   await expect(chips(property(page, 'After'))).toHaveText([first.title, second.title]);
-  await expect.poll(() => storedValue(page, place, own.id)).toEqual([first.id, second.id]);
+  await expect
+    .poll(() => storedValue(page, place, own.id))
+    .toEqual([
+      { card: first.id, kind: 'fs', lagDays: 0 },
+      { card: second.id, kind: 'fs', lagDays: 0 },
+    ]);
 
   // The card itself is not offered.
   await property(page, 'After').locator('[data-slot="relation-edit"]').click();
@@ -148,7 +153,9 @@ test('a relation is made, cards are picked and taken out, and it shows in the ca
   await page.getByRole('button', { name: `Remove ${second.title}` }).click();
   await closePicker(page);
   await expect(chips(property(page, 'After'))).toHaveText([first.title]);
-  await expect.poll(() => storedValue(page, place, own.id)).toEqual([first.id]);
+  await expect
+    .poll(() => storedValue(page, place, own.id))
+    .toEqual([{ card: first.id, kind: 'fs', lagDays: 0 }]);
 
   // In the table: a new column, and the chip in the row of the card.
   await page.keyboard.press('Escape');
@@ -174,7 +181,9 @@ test('a named card that is deleted is not shown, and is shown again when it is b
   await expect(dialog(page)).toBeVisible();
   await addRelation(page);
   await pick(page, named.title);
-  await expect.poll(() => storedValue(page, place, own.id)).toEqual([named.id]);
+  await expect
+    .poll(() => storedValue(page, place, own.id))
+    .toEqual([{ card: named.id, kind: 'fs', lagDays: 0 }]);
 
   // Deleted from its own card, which the chip opens (going to its address would start the app afresh).
   await property(page, 'After')
@@ -191,7 +200,9 @@ test('a named card that is deleted is not shown, and is shown again when it is b
     .locator(`[data-nav-row][data-row="${own.id}"] [data-col="${column}"]`);
   await expect(chips(cell)).toHaveCount(0);
   // The value still names it.
-  expect(await storedValue(page, place, own.id)).toEqual([named.id]);
+  expect(await storedValue(page, place, own.id)).toEqual([
+    { card: named.id, kind: 'fs', lagDays: 0 },
+  ]);
 
   await pressInBar(page, 'undo');
   await expect(chips(cell)).toHaveText([named.title]);

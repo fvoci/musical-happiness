@@ -1,45 +1,57 @@
 /**
  * The cards of a board as a graph, by one card relation property.
  *
- * A relation value is written on the card that has it and names other cards.
- * Read as "comes after" (a Gantt chart's predecessors), a card B whose value
- * names A gives the edge A → B: A comes first, B after it.
+ * A relation value is written on the card that has it and names other cards
+ * with a dependency kind (`fs`, `ss`, `ff`, `sf`) and lag in whole calendar
+ * days (`lagDays`). Read as "comes after" (a Gantt chart's predecessors), a
+ * card B whose value names A gives the edge A → B: A comes first, B after it.
  *
  * - Identifiers of cards that are not there (deleted) are cut: they give no
  *   edge. They stay in the stored value; see `cutIds`.
  * - A card naming itself, or naming a card twice, gives no edge (twice: one).
  * - Loops are not refused by the server and may already be there. The editor
  *   refuses to close a new one where it is told to (`cardsClosingLoop`);
- *   one that is there is only shown (`edgesOnLoops`).
- * - Dates out of order: B starts on a day before the day A ends. Ending and
- *   starting on the same day is in order.
+ *   one that is there is only shown (`edgesOnLoops`). Loop detection ignores
+ *   relation kind and lag.
+ * - Dates out of order (same day is in order; undated cards are never late):
+ *   - `fs`: `startB < endA + lagDays`
+ *   - `ss`: `startB < startA + lagDays`
+ *   - `ff`: `endB < endA + lagDays`
+ *   - `sf`: `endB < startA + lagDays`
  *
  * Everything here is pure: cards in, answers out.
  */
-import type { CalendarDate } from './dates.ts';
+import { daysBetween, type CalendarDate } from './dates.ts';
 import { propertyBehavior } from './properties.ts';
 import {
   cardProperties,
   cardProperty,
+  isRelationLinksValue,
   parseRelationValue,
   RELATION_LIMIT,
+  relationCardIds,
   type Card,
   type PropertyTemplate,
   type PropertyValue,
+  type RelationKind,
 } from './wire.ts';
 
-/** `from` is named in the relation value of `to`. */
+/** `from` is named in the relation value of `to`, with its dependency kind and lag days. */
 export interface RelationEdge {
   from: string;
   to: string;
+  kind: RelationKind;
+  lagDays: number;
 }
 
 /**
  * The property values a copy of `card` on its own board is made with: a
- * relation names the cards of `cardIds` it named, each once, not `card`
- * itself, at most RELATION_LIMIT. `cardIds` are the cards a copy may name,
- * those in the board's trash too: the caller knows which those are. Other
- * values are as they are.
+ * relation names the cards of `cardIds` it named, each once, preserving `kind`
+ * and `lagDays`, not `card` itself, at most RELATION_LIMIT. `cardIds` are the
+ * cards a copy may name, those in the board's trash too: the caller knows
+ * which those are. Stale relation link arrays on properties that are no longer
+ * relations are omitted so the copy is accepted by the server; other values
+ * are kept as they are.
  */
 export function valuesOfCopy(
   card: Card,
@@ -47,18 +59,24 @@ export function valuesOfCopy(
   cardIds: ReadonlySet<string>,
 ): Record<string, PropertyValue> {
   const values = { ...cardProperties(card) };
-  for (const template of templates) {
-    if (template.type !== 'relation' || values[template.id] === undefined) continue;
-    values[template.id] = parseRelationValue(values[template.id])
-      .filter((id) => id !== card.id && cardIds.has(id))
-      .slice(0, RELATION_LIMIT);
+  const relationIds = new Set(
+    templates.filter((template) => template.type === 'relation').map((template) => template.id),
+  );
+  for (const [id, value] of Object.entries(values)) {
+    if (relationIds.has(id)) {
+      values[id] = parseRelationValue(value)
+        .filter((link) => link.card !== card.id && cardIds.has(link.card))
+        .slice(0, RELATION_LIMIT);
+    } else if (isRelationLinksValue(value)) {
+      delete values[id];
+    }
   }
   return values;
 }
 
 /** The identifiers in a card's value that name no card in `cardIds` (deleted ones). */
 export function cutIds(card: Card, propertyId: string, cardIds: ReadonlySet<string>): string[] {
-  return parseRelationValue(cardProperty(card, propertyId)).filter((id) => !cardIds.has(id));
+  return relationCardIds(cardProperty(card, propertyId)).filter((id) => !cardIds.has(id));
 }
 
 /**
@@ -71,14 +89,18 @@ export function relationEdges(cards: Iterable<Card>, propertyId: string): Relati
   const ids = new Set(list.map((card) => card.id));
   const edges: RelationEdge[] = [];
   for (const card of list) {
-    for (const id of parseRelationValue(cardProperty(card, propertyId))) {
-      if (id !== card.id && ids.has(id)) edges.push({ from: id, to: card.id });
+    for (const link of parseRelationValue(cardProperty(card, propertyId))) {
+      if (link.card !== card.id && ids.has(link.card)) {
+        edges.push({ from: link.card, to: card.id, kind: link.kind, lagDays: link.lagDays });
+      }
     }
   }
   return edges;
 }
 
-function successorsOf(edges: readonly RelationEdge[]): Map<string, string[]> {
+type EdgeEndpoints = Pick<RelationEdge, 'from' | 'to'>;
+
+function successorsOf(edges: readonly EdgeEndpoints[]): Map<string, string[]> {
   const next = new Map<string, string[]>();
   for (const { from, to } of edges) {
     const list = next.get(from);
@@ -93,7 +115,7 @@ function successorsOf(edges: readonly RelationEdge[]): Map<string, string[]> {
  * every card that comes after it, however far. Naming one of them adds an
  * edge from it to `cardId`, and there is a way back already.
  */
-export function cardsClosingLoop(edges: readonly RelationEdge[], cardId: string): Set<string> {
+export function cardsClosingLoop(edges: readonly EdgeEndpoints[], cardId: string): Set<string> {
   const next = successorsOf(edges);
   const reached = new Set([cardId]);
   const waiting = [cardId];
@@ -108,7 +130,7 @@ export function cardsClosingLoop(edges: readonly RelationEdge[], cardId: string)
 }
 
 /** Whether adding the edge `from` → `to` closes a loop. */
-export function closesLoop(edges: readonly RelationEdge[], from: string, to: string): boolean {
+export function closesLoop(edges: readonly EdgeEndpoints[], from: string, to: string): boolean {
   return cardsClosingLoop(edges, to).has(from);
 }
 
@@ -117,7 +139,7 @@ export function closesLoop(edges: readonly RelationEdge[], from: string, to: str
  * components, Tarjan's algorithm without recursion, so that a long chain
  * does not run out of stack). Every card of `edges` is in one group.
  */
-function reachingGroups(edges: readonly RelationEdge[]): Map<string, number> {
+function reachingGroups(edges: readonly EdgeEndpoints[]): Map<string, number> {
   const next = successorsOf(edges);
   const nodes = [...new Set(edges.flatMap(({ from, to }) => [from, to]))];
   const index = new Map<string, number>();
@@ -164,7 +186,7 @@ function reachingGroups(edges: readonly RelationEdge[]): Map<string, number> {
 }
 
 /** The edges that lie on a loop: both ends reach each other. */
-export function edgesOnLoops(edges: readonly RelationEdge[]): RelationEdge[] {
+export function edgesOnLoops<E extends EdgeEndpoints>(edges: readonly E[]): E[] {
   const group = reachingGroups(edges);
   return edges.filter(({ from, to }) => group.get(from) === group.get(to));
 }
@@ -180,27 +202,42 @@ export interface Days {
   last: CalendarDate;
 }
 
-/** The rule itself: what comes after starts on a day before the day what comes before ends. */
-export function daysOutOfOrder(before: Days | undefined, after: Days | undefined): boolean {
-  return before !== undefined && after !== undefined && after.first < before.last;
+/**
+ * Whether `after` is out of order with `before` under dependency `kind` and
+ * `lagDays` (whole calendar days). Same day (`daysBetween === lagDays`) is in
+ * order; an undated card is never out of order.
+ */
+export function daysOutOfOrder(
+  before: Days | undefined,
+  after: Days | undefined,
+  kind: RelationKind = 'fs',
+  lagDays = 0,
+): boolean {
+  if (before === undefined || after === undefined) return false;
+  const anchor = kind === 'fs' || kind === 'ff' ? before.last : before.first;
+  const target = kind === 'fs' || kind === 'ss' ? after.first : after.last;
+  return daysBetween(anchor, target) < lagDays;
 }
 
 /**
  * Whether the dates of `after` are out of order with those of `before`, by a
- * date property: `after` starts on a day before the day `before` ends. A
- * value with a time counts by the day it falls on in `timeZone`. Ending and
- * starting on the same day is in order; a card without a date is never out
- * of order.
+ * date property, relation kind, and lag in whole calendar days. A value with a
+ * time counts by the day it falls on in `timeZone`. Equal boundary days are in
+ * order; a card without a date is never out of order.
  */
 export function isOutOfOrder(
   before: Card,
   after: Card,
   template: PropertyTemplate,
   timeZone: string,
+  kind: RelationKind = 'fs',
+  lagDays = 0,
 ): boolean {
   return daysOutOfOrder(
     daysOfCard(before, template, timeZone),
     daysOfCard(after, template, timeZone),
+    kind,
+    lagDays,
   );
 }
 
@@ -213,7 +250,9 @@ export function edgesOutOfOrderByDays(
   edges: readonly RelationEdge[],
   daysOf: (cardId: string) => Days | undefined,
 ): RelationEdge[] {
-  return edges.filter(({ from, to }) => daysOutOfOrder(daysOf(from), daysOf(to)));
+  return edges.filter(({ from, to, kind, lagDays }) =>
+    daysOutOfOrder(daysOf(from), daysOf(to), kind, lagDays),
+  );
 }
 
 /** The edges whose two cards are out of order by a date property. */
@@ -223,11 +262,11 @@ export function edgesOutOfOrder(
   template: PropertyTemplate,
   timeZone: string,
 ): RelationEdge[] {
-  return edges.filter(({ from, to }) => {
+  return edges.filter(({ from, to, kind, lagDays }) => {
     const before = cards.get(from);
     const after = cards.get(to);
     return before !== undefined && after !== undefined
-      ? isOutOfOrder(before, after, template, timeZone)
+      ? isOutOfOrder(before, after, template, timeZone, kind, lagDays)
       : false;
   });
 }

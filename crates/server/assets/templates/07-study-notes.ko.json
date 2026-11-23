@@ -451,7 +451,11 @@
             "from": "2026-12-04"
           },
           "50f6befe-52bc-5ce3-b2e2-eb8782121e6e": [
-            "5c02c3e0-b23c-50b6-b235-cf3ad46b45d9"
+            {
+              "card": "5c02c3e0-b23c-50b6-b235-cf3ad46b45d9",
+              "kind": "fs",
+              "lagDays": 0
+            }
           ]
         }
       },
@@ -742,8 +746,16 @@
             "from": "2026-12-15"
           },
           "50f6befe-52bc-5ce3-b2e2-eb8782121e6e": [
-            "a8f9fa11-b621-522e-bc46-343ed3f45095",
-            "8c3e09d6-6df0-5754-a8eb-aa6d16f5feaa"
+            {
+              "card": "a8f9fa11-b621-522e-bc46-343ed3f45095",
+              "kind": "fs",
+              "lagDays": 0
+            },
+            {
+              "card": "8c3e09d6-6df0-5754-a8eb-aa6d16f5feaa",
+              "kind": "fs",
+              "lagDays": 0
+            }
           ]
         }
       },

@@ -388,23 +388,48 @@ fn renew_block_ids_renames_what_card_relations_name() {
         ..block("view", "board", "board")
     };
     let given = vec![
-        card("a", "board", &json!(["b", "outside", "view", 3])),
-        card("b", "board", &json!(["a"])),
+        card(
+            "a",
+            "board",
+            &json!([
+                {"card": "b", "kind": "ss", "lagDays": -3},
+                {"card": "outside", "kind": "ff", "lagDays": 4},
+                {"card": "view", "kind": "sf", "lagDays": 0},
+                3,
+            ]),
+        ),
+        card(
+            "b",
+            "board",
+            &json!([{"card": "a", "kind": "fs", "lagDays": 2}]),
+        ),
         view,
-        card("elsewhere", "other", &json!(["a"])),
+        card(
+            "elsewhere",
+            "other",
+            &json!([{"card": "a", "kind": "fs", "lagDays": 0}]),
+        ),
     ];
 
     let mut kept = given.clone();
     renew_block_ids(&mut kept, &relations, UnmatchedRelation::Kept);
     assert_eq!(
         related(&kept[0]),
-        &json!([kept[1].id, "outside", kept[2].id, 3]),
-        "a request keeps what it names outside, and renames any block of its own"
+        &json!([
+            {"card": kept[1].id, "kind": "ss", "lagDays": -3},
+            {"card": "outside", "kind": "ff", "lagDays": 4},
+            {"card": kept[2].id, "kind": "sf", "lagDays": 0},
+            3,
+        ]),
+        "a request keeps what it names outside, and renames any block of its own while keeping kind and lagDays"
     );
-    assert_eq!(related(&kept[1]), &json!([kept[0].id]));
+    assert_eq!(
+        related(&kept[1]),
+        &json!([{"card": kept[0].id, "kind": "fs", "lagDays": 2}])
+    );
     assert_eq!(
         related(&kept[3]),
-        &json!(["a"]),
+        &json!([{"card": "a", "kind": "fs", "lagDays": 0}]),
         "a board without relations has its values as they are"
     );
     assert_eq!(kept[0].fields["properties"]["text"], json!(["a", "b"]));
@@ -413,10 +438,13 @@ fn renew_block_ids_renames_what_card_relations_name() {
     renew_block_ids(&mut copied, &relations, UnmatchedRelation::Dropped);
     assert_eq!(
         related(&copied[0]),
-        &json!([copied[1].id, 3]),
-        "a copy names the copies of the cards and nothing else"
+        &json!([{"card": copied[1].id, "kind": "ss", "lagDays": -3}, 3]),
+        "a copy names the copies of the cards while preserving kind and lagDays"
     );
-    assert_eq!(related(&copied[1]), &json!([copied[0].id]));
+    assert_eq!(
+        related(&copied[1]),
+        &json!([{"card": copied[0].id, "kind": "fs", "lagDays": 2}])
+    );
 }
 
 /// A copy of several boards names, in a card's relation, the copies of the cards of the
@@ -428,19 +456,25 @@ fn renew_block_ids_keeps_a_copied_relation_on_its_board() {
     let definitions = [fields(json!({"id": "rel", "type": "relation"}))];
     let mut relations = RelationProperties::of_board("one", &definitions);
     relations.add_board("two", &definitions);
-    let mut named: Vec<String> = (0..RELATION_LIMIT).map(|_| id()).collect();
-    named.insert(0, "theirs".to_owned());
-    named.push("mine".to_owned());
+    let mut named: Vec<Value> = (0..RELATION_LIMIT)
+        .map(|_| json!({"card": id(), "kind": "fs", "lagDays": 0}))
+        .collect();
+    named.insert(0, json!({"card": "theirs", "kind": "ss", "lagDays": 1}));
+    named.push(json!({"card": "mine", "kind": "ff", "lagDays": -2}));
     let mut blocks = vec![
-        card("a", "one", &json!(named)),
+        card("a", "one", &Value::Array(named)),
         card("mine", "one", &json!([])),
-        card("theirs", "two", &json!(["a"])),
+        card(
+            "theirs",
+            "two",
+            &json!([{"card": "a", "kind": "sf", "lagDays": 3}]),
+        ),
     ];
     renew_block_ids(&mut blocks, &relations, UnmatchedRelation::Dropped);
     assert_eq!(
         related(&blocks[0]),
-        &json!([blocks[1].id]),
-        "another board's card goes, and what is left is within the limit"
+        &json!([{"card": blocks[1].id, "kind": "ff", "lagDays": -2}]),
+        "another board's card goes, and what is left is within the limit with kind and lagDays kept"
     );
     assert_eq!(related(&blocks[2]), &json!([]));
 }

@@ -13,8 +13,8 @@ import { diagnostics } from './diagnostics.ts';
 import {
   cardProperty,
   parseDateValue,
-  parseRelationValue,
   plainPropertyValue,
+  relationCardIds,
   TITLE_COLUMN_ID,
   type BoardView,
   type Card,
@@ -124,7 +124,7 @@ function sortKey(card: Card, template: PropertyTemplate, context: SortContext): 
       // By the titles shown, in the order picked; cards that are not there are not shown.
       // An untitled card adds nothing, as untitled cards go last by title.
       const { cardTitle } = context;
-      const ids = parseRelationValue(value).filter((id) => id !== card.id);
+      const ids = relationCardIds(value).filter((id) => id !== card.id);
       const titles = cardTitle ? ids.flatMap((id) => cardTitle(id) || []) : ids;
       return text(titles.join(', '));
     }
