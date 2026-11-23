@@ -430,7 +430,7 @@ impl Worker {
         self.commit_taken(doc, update, mode, checkpoint, changed)
     }
 
-    /// Commits a successful in-place `Changed` into `self.docs`, checking `since` and
+    /// Commits a successful in-place `TakenInPlace` into `self.docs`, checking `since` and
     /// `held_bytes` budgets and rolling back via [`Self::restore_after_dirty`] if either
     /// would be exceeded.
     fn commit_taken(
@@ -439,7 +439,7 @@ impl Worker {
         update: &[u8],
         mode: TakeMode,
         mut checkpoint: Checkpoint,
-        changed: fvoci_collab::Changed,
+        changed: fvoci_collab::TakenInPlace,
     ) -> Result<Response, FrameError> {
         let base_held = self.held_bytes.saturating_sub(checkpoint.accounted_bytes());
         if changed.remake {
@@ -523,7 +523,7 @@ impl Worker {
         base_held: u64,
         state_bytes: u64,
         mut checkpoint: Checkpoint,
-        changed: fvoci_collab::Changed,
+        changed: fvoci_collab::TakenInPlace,
     ) -> Result<Response, FrameError> {
         if base_held.saturating_add(state_bytes) > self.limits.held_bytes {
             drop(changed);
@@ -560,7 +560,7 @@ impl Worker {
         doc: DocNumber,
         base_held: u64,
         checkpoint: Checkpoint,
-        changed: fvoci_collab::Changed,
+        changed: fvoci_collab::TakenInPlace,
     ) -> Result<Response, FrameError> {
         let state_bytes = count(changed.state_bytes);
         if base_held.saturating_add(state_bytes) > self.limits.held_bytes {
@@ -882,14 +882,9 @@ impl Checkpoint {
     }
 }
 
-fn doc_meta(changed: &fvoci_collab::Changed) -> (u64, Vec<String>) {
+fn doc_meta(changed: &fvoci_collab::TakenInPlace) -> (u64, Vec<String>) {
     let clients = count(changed.doc.clients());
-    let files = changed
-        .repair
-        .body
-        .as_ref()
-        .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
-        .unwrap_or_default();
+    let files = changed.doc.file_ids();
     (clients, files)
 }
 

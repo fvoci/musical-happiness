@@ -1,10 +1,14 @@
-use std::io::{self, Read};
+use std::io::{self, Cursor, Read};
+
+use fvoci_model::{Block, Container};
 
 use super::archive::{
     CENTRAL_HEADER, SCAN_CHUNK_BYTES, clean_dir, count_central_headers, split_entry_name,
 };
+use super::native_stream::read_bounded_line;
 use super::*;
 use crate::app::MAX_UPLOAD_NAME_CHARS;
+use crate::error::{ErrorKind, Reason};
 
 /// The central headers are counted wherever they are, a chunk's end included, and
 /// the count stops once it is over the limit.
@@ -220,4 +224,127 @@ fn a_board_line_says_which_files_were_missing() {
     ] {
         assert!(missing_files_of(&board).is_empty(), "none: {board}");
     }
+}
+
+#[test]
+fn read_bounded_line_enforces_line_and_total_limits_without_overreading() {
+    let input = b"line1\nline2\n";
+    let mut cursor = Cursor::new(input.as_slice());
+    let mut buf = Vec::new();
+    let mut total = 0;
+    assert!(
+        read_bounded_line(&mut cursor, &mut buf, 16, &mut total, 100, "b1/board.jsonl")
+            .expect("first line")
+    );
+    assert_eq!(buf, b"line1");
+    assert!(
+        read_bounded_line(&mut cursor, &mut buf, 16, &mut total, 100, "b1/board.jsonl")
+            .expect("second line")
+    );
+    assert_eq!(buf, b"line2");
+    assert!(
+        !read_bounded_line(&mut cursor, &mut buf, 16, &mut total, 100, "b1/board.jsonl")
+            .expect("eof")
+    );
+
+    let oversized_line = vec![b'a'; 128];
+    let mut cursor = Cursor::new(oversized_line.as_slice());
+    let mut total = 0;
+    let err = read_bounded_line(
+        &mut cursor,
+        &mut buf,
+        32,
+        &mut total,
+        1024,
+        "b1/board.jsonl",
+    )
+    .expect_err("oversized single line must be rejected");
+    assert_eq!(err.kind(), ErrorKind::PayloadTooLarge);
+    assert_eq!(err.reason(), Some(Reason::ArchiveEntryTooLarge));
+    assert!(
+        buf.len() <= 32,
+        "buffer must stay bounded by max_line_bytes"
+    );
+
+    let mut cursor = Cursor::new(b"12345\n67890\n".as_slice());
+    let mut total = 0;
+    assert!(
+        read_bounded_line(&mut cursor, &mut buf, 32, &mut total, 8, "b1/board.jsonl")
+            .expect("first line within total")
+    );
+    let err = read_bounded_line(&mut cursor, &mut buf, 32, &mut total, 8, "b1/board.jsonl")
+        .expect_err("exceeding max_total_bytes must be rejected");
+    assert_eq!(err.kind(), ErrorKind::PayloadTooLarge);
+    assert_eq!(err.reason(), Some(Reason::ArchiveEntryTooLarge));
+}
+
+#[test]
+fn import_format_validate_upload_checks_extension_and_non_empty() {
+    assert!(
+        ImportFormat::Fvoci
+            .validate_upload("archive.boardarchive", 10)
+            .is_ok()
+    );
+    assert!(
+        ImportFormat::Fvoci
+            .validate_upload("archive.ZIP", 10)
+            .is_ok()
+    );
+    assert!(
+        ImportFormat::Fvoci
+            .validate_upload("board.json", 10)
+            .is_err()
+    );
+    assert!(
+        ImportFormat::Fvoci
+            .validate_upload("archive.zip", 0)
+            .is_err()
+    );
+
+    assert!(
+        ImportFormat::Trello
+            .validate_upload("board.json", 10)
+            .is_ok()
+    );
+    assert!(
+        ImportFormat::Trello
+            .validate_upload("board.JSON", 10)
+            .is_ok()
+    );
+    assert!(
+        ImportFormat::Trello
+            .validate_upload("board.zip", 10)
+            .is_err()
+    );
+    assert!(
+        ImportFormat::Trello
+            .validate_upload("board.json", 0)
+            .is_err()
+    );
+
+    assert!(
+        ImportFormat::Notion
+            .validate_upload("export.zip", 10)
+            .is_ok()
+    );
+    assert!(
+        ImportFormat::Notion
+            .validate_upload("export.ZIP", 10)
+            .is_ok()
+    );
+    assert!(
+        ImportFormat::Notion
+            .validate_upload("export.json", 10)
+            .is_err()
+    );
+    assert!(
+        ImportFormat::Notion
+            .validate_upload("export.boardarchive", 10)
+            .is_err()
+    );
+    assert!(
+        ImportFormat::Notion
+            .validate_upload("export.zip", 0)
+            .is_err()
+    );
 }

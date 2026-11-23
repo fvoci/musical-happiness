@@ -1,19 +1,20 @@
-//! Importing boards and wikis from the archive format of version 3 (`super::export`).
+//! Importing boards and wikis from the archive format of version 3 (`super::export`)
+//! and external exports (Trello JSON, Notion Markdown & CSV ZIP).
 //!
-//! Ports `server/app/import.go`. An import generates fresh identifiers for everything,
-//! fixes up references, stores the files, points the blocks at them and adds the
-//! importing user as an admin. A wiki is made as a wiki, its pages held to the rules of
-//! their tree before anything is stored (`places`). An archive of another version is
-//! refused (`docs/s6-design.md` 3.10).
+//! Native `fvoci` imports stream each `board.jsonl` in two passes (`native_stream`):
+//! Pass 1 scans and validates line by line without holding block bodies in RAM, files
+//! are staged under `loose_objects` marks, and Pass 2 streams rewritten blocks in bounded
+//! batches across all boards into one single database transaction (`native_atomic`).
+//! External formats convert into a [`staged::StagedArchive`] and commit atomically across
+//! containers, blocks, and local files.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::Arc;
 
-use bytes::Bytes;
 use fvoci_model::{
-    ArchiveHeader, ArchiveLine, Block, Container, ContainerKind, ContainerMember,
-    ContainersAndBlocks, ContainersAndBlocksError, JsonMap, PageLimits, Renewed, WorkspaceRole,
-    renew_containers_and_blocks_ids_told,
+    ArchiveHeader, ContainerKind, ContainerMember, ContainersAndBlocks, JsonMap, PageLimits,
+    WorkspaceRole,
 };
 use serde_json::Value;
 
@@ -21,13 +22,12 @@ use super::App;
 use super::export::ARCHIVE_VERSION;
 use super::file_name::check_file_name;
 use super::files::stored_extension;
-use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
 use crate::permissions;
 use archive::{
     Archive, check_entry, entry_limit, entry_name, open_archive, read_entry, too_many_entries,
 };
-use fvoci_store::StoreError;
+use native_stream::{build_write_plan, recheck_planned_fields, scan_native_board};
 
 /// The most an archive's entries may decompress to together (`docs/s6-design.md` 4.2):
 /// what keeps a small archive from unfolding into a disk's worth.
@@ -36,15 +36,16 @@ const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 /// The most entries an archive has (`docs/s6-design.md` 4.2).
 const MAX_ENTRIES: u64 = 10_000;
 
-/// The largest `board.jsonl` that is read (`docs/s6-design.md` 4.2). It is read whole
-/// and held as blocks until the board is stored: bodies of many small nodes take 33
-/// times their bytes so (2.2 GB at this limit, release build), whatever the limit of a
-/// body. So it holds 16 bodies of the largest size, and a board of more is exported but
-/// not imported again.
+/// The largest `board.jsonl` that is read (`docs/s6-design.md` 4.2). Streamed line by
+/// line across two passes (`native_stream`) so peak RAM stays bounded by a single batch
+/// instead of scaling with the full file's JSON AST.
 const MAX_JSONL_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The largest `version.json` that is read: it is one small object.
 const MAX_VERSION_BYTES: u64 = 64 * 1024;
+
+/// Chunk size used when loading newly imported blocks to broadcast to WS/webhooks.
+const ANNOUNCE_CHUNK_BLOCKS: usize = 16;
 
 /// How an archive is imported.
 #[derive(Debug, Default)]
@@ -66,8 +67,8 @@ impl App {
     ///
     /// Returns 404 if `workspace_id` does not exist in this organization or `modified_by`
     /// is not a non-guest member; 400 or 413 if the input fails security, format, size,
-    /// depth, or allowlist validation; and 500 on storage or database failure. For
-    /// `trello` and `notion`, any error leaves zero containers, blocks, and files stored.
+    /// depth, or allowlist validation; and 500 on storage or database failure. Any error
+    /// leaves zero containers, blocks, and files stored.
     pub async fn import_external_archive(
         &self,
         path: &Path,
@@ -143,64 +144,96 @@ impl App {
     }
 
     /// Imports the native fvoci v3 archive in the file at `path`, of zero or more boards
-    /// with their blocks and files. The archive is read from the file at random, an entry
-    /// at a time; file entries are unpacked into a temporary staging directory under
-    /// `tmp_dir` (`import-stage-<secret>/entry`) and committed atomically with all
-    /// containers, blocks, and memberships in a single transaction.
+    /// with their blocks and files, using two-pass streaming reads with pre-commit file
+    /// staging and a single atomic transaction across all boards.
     async fn import_archive_detailed(
         &self,
         path: &Path,
         options: &ImportOptions,
     ) -> Result<(Imported, ImportCounts, Vec<String>), AppError> {
         let zip = open_archive(path).await?;
-        // The original's streaming reader rejects a ZIP with no entries as invalid.
         if zip.is_empty() {
             return Err(AppError::bad_request("zip: not a valid zip file"));
         }
-        // Not reached while the headers are counted before the directory is read (see
-        // `open_archive`); kept as the check of what was read.
         if u64::try_from(zip.len()).map_or(true, |entries| entries > MAX_ENTRIES) {
             return Err(too_many_entries());
         }
         let largest_file = u64::try_from(self.limits().largest_file).unwrap_or(0);
 
-        // The version first: nothing of an archive of another version is stored.
-        let version = (0..zip.len())
-            .map(|index| entry_name(&zip, index).map(|name| (index, name)))
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .find(|(_, (dir, filename))| dir == "." && filename == "version.json")
-            .map(|(index, _)| index)
-            .ok_or_else(|| {
-                AppError::bad_request(format_args!(
-                    "the archive has no version.json; this server reads version {ARCHIVE_VERSION}"
-                ))
-            })?;
-        // A `version.json` too large to be one is no archive of this server's, as one of
-        // another version is not.
-        let version = read_entry(&zip, version, MAX_VERSION_BYTES)
-            .await
-            .map_err(|error| {
-                if error.kind() == ErrorKind::PayloadTooLarge {
-                    AppError::bad_request("version.json is not that of an archive")
-                } else {
-                    error
-                }
-            })?;
-        check_version(&version)?;
+        verify_native_header(&zip).await?;
         check_native_unpacked_budget(&zip, largest_file).await?;
 
-        let mut containers = Vec::new();
+        let mut container_entries = Vec::new();
         for index in 0..zip.len() {
             let (dir, filename) = entry_name(&zip, index)?;
             if filename == "board.jsonl" {
-                containers.push((index, dir));
+                container_entries.push((index, dir));
             }
         }
-        let (elsewhere, diaries) = named_elsewhere(&zip, &containers, options).await?;
-        self.commit_native_archive(&zip, containers, options, &elsewhere, diaries, largest_file)
+
+        // Pass 1: stream every `board.jsonl` line by line for validation & cross-board refs.
+        let mut scanned_boards = Vec::with_capacity(container_entries.len());
+        let mut elsewhere: HashSet<String> = HashSet::new();
+        let mut diaries: u32 = 0;
+        for (index, dir) in container_entries {
+            let scanned = scan_native_board(&zip, index, dir, options).await?;
+            for (c_idx, container) in scanned.containers.iter().enumerate() {
+                self.require_makes(container)
+                    .map_err(|error| error.under(&format!("/containers/{c_idx}")))?;
+            }
+            diaries = diaries.saturating_add(scanned.diaries);
+            elsewhere.extend(scanned.external_refs.iter().cloned());
+            scanned_boards.push(scanned);
+        }
+        if diaries > 0 {
+            self.store()
+                .check_room_for_diaries(&options.workspace_id, diaries)
+                .await?;
+        }
+
+        // Build compact write plans and complete cross-board copy map before Pass 2 writes.
+        let mut plans = Vec::with_capacity(scanned_boards.len());
+        let mut all_copies: HashMap<String, String> = HashMap::new();
+        for scanned in scanned_boards {
+            let (plan, copies) = build_write_plan(scanned, &elsewhere);
+            for (old, new) in copies {
+                all_copies.entry(old).or_insert(new);
+            }
+            plans.push(plan);
+        }
+        for plan in &plans {
+            recheck_planned_fields(&zip, plan, &options.modified_by).await?;
+        }
+        let all_copies = Arc::new(all_copies);
+
+        self.commit_streamed_native_archive(&zip, plans, all_copies, options, largest_file)
             .await
     }
+}
+
+/// Reads and verifies `version.json` at the root of a native archive.
+async fn verify_native_header(zip: &Archive) -> Result<(), AppError> {
+    let version = (0..zip.len())
+        .map(|index| entry_name(zip, index).map(|name| (index, name)))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .find(|(_, (dir, filename))| dir == "." && filename == "version.json")
+        .map(|(index, _)| index)
+        .ok_or_else(|| {
+            AppError::bad_request(format_args!(
+                "the archive has no version.json; this server reads version {ARCHIVE_VERSION}"
+            ))
+        })?;
+    let version = read_entry(zip, version, MAX_VERSION_BYTES)
+        .await
+        .map_err(|error| {
+            if error.kind() == ErrorKind::PayloadTooLarge {
+                AppError::bad_request("version.json is not that of an archive")
+            } else {
+                error
+            }
+        })?;
+    check_version(&version)
 }
 
 /// What an import did beyond making the archive's boards.
@@ -224,17 +257,6 @@ fn no_more_than_holdable(
     }
 }
 
-/// One board of an archive, read and checked, with new identifiers, before it is
-/// stored.
-struct ParsedContainer {
-    containers_and_blocks: ContainersAndBlocks,
-    members: Vec<ContainerMember>,
-    /// The new identifier of each of its blocks that was asked for, by its old one.
-    renamed: HashMap<String, String>,
-    /// What its board lines say of its files.
-    files: ArchiveFiles,
-}
-
 /// The name of each file of a directory of an archive, by the name of its entry.
 type FileNames = HashMap<String, String>;
 
@@ -248,48 +270,6 @@ struct ArchiveFiles {
     missing: HashSet<String>,
 }
 
-impl ParsedContainer {
-    /// What its bodies name that is no block of its own: what was a block of its own
-    /// is named by its new identifier, which no archive holds.
-    fn named_elsewhere(&self) -> impl Iterator<Item = String> + '_ {
-        let blocks = &self.containers_and_blocks.blocks;
-        let own: HashSet<&str> = blocks.iter().map(|block| block.id.as_str()).collect();
-        let named = blocks
-            .iter()
-            .filter_map(|block| block.body.as_ref())
-            .flat_map(fvoci_model::Body::reference_ids);
-        named.filter(move |id| !own.contains(id)).map(str::to_owned)
-    }
-}
-
-/// Reads and checks every board of the archive ([`parse_board_jsonl`]) as the store
-/// checks it, before the first is stored: an archive that one of them refuses stores
-/// nothing. Returns what the bodies name that is no block of their own board (which
-/// may be a block of another board of the archive, whose new identifier is recorded when
-/// the archive is prepared for its single-transaction commit) and how many diaries the
-/// archive holds.
-///
-/// # Errors
-///
-/// As [`parse_board_jsonl`], and a bad request for an entry that cannot be read.
-async fn named_elsewhere(
-    zip: &Archive,
-    containers: &[(usize, String)],
-    options: &ImportOptions,
-) -> Result<(HashSet<String>, u32), AppError> {
-    let mut elsewhere = HashSet::new();
-    let mut diaries: u32 = 0;
-    for (index, _) in containers {
-        let jsonl = read_entry(zip, *index, MAX_JSONL_BYTES).await?;
-        let container = parse_board_jsonl(jsonl, options, &HashSet::new()).await?;
-        let kinds = container.containers_and_blocks.containers.iter();
-        let of_diaries = kinds.filter(|one| one.kind == ContainerKind::Diary).count();
-        diaries = diaries.saturating_add(u32::try_from(of_diaries).unwrap_or(u32::MAX));
-        elsewhere.extend(container.named_elsewhere());
-    }
-    Ok((elsewhere, diaries))
-}
-
 /// The name a file of the archive is stored with: the one the board line of its
 /// directory gives it ([`file_names_of`]), or failing that the name of its entry.
 fn name_in<'a>(files: &'a HashMap<String, ArchiveFiles>, dir: &str, filename: &'a str) -> &'a str {
@@ -299,99 +279,10 @@ fn name_in<'a>(files: &'a HashMap<String, ArchiveFiles>, dir: &str, filename: &'
         .map_or(filename, String::as_str)
 }
 
-/// Reads and checks one board's `board.jsonl`: its lines, the types of its blocks,
-/// whether its boards and blocks fit together, and each board and block as the store
-/// checks it (the card property definitions of a board; the title, the fields with the
-/// limit of their type, the property values and the body of a block). Values of the
-/// other kind are cleared, blocks that nothing leads to are dropped, and everything gets
-/// a new identifier; those of the blocks among `told` are given back by the old ones.
-///
-/// The parent of each block is checked against the archive as the store would check
-/// it against what is stored ([`places::check`]): what the store refuses of an archive
-/// is refused before any of it is stored.
-///
-/// # Errors
-///
-/// Returns a bad request if a line is malformed or of an unknown
-/// type, a block is not where the kind of its board lets it be ([`places::check`]), the
-/// boards and blocks do not fit together, or a board or block is not one the store
-/// takes, with the store's message.
-async fn parse_board_jsonl(
-    jsonl: Bytes,
-    options: &ImportOptions,
-    told: &HashSet<String>,
-) -> Result<ParsedContainer, AppError> {
-    // Parsing tens of megabytes of JSON, and checking what it holds, would hold up a
-    // worker of the runtime.
-    let (workspace_id, modified_by) = (options.workspace_id.clone(), options.modified_by.clone());
-    let limits = options.page_limits;
-    let (mut containers_and_blocks, members, files) = tokio::task::spawn_blocking(move || {
-        let parsed = parse_archive_lines(&jsonl, &workspace_id, &modified_by)?;
-        // As the store would refuse them, before the first board is stored: an archive
-        // exported before a card's content became its body may hold content blocks,
-        // which no write makes again (`docs/contract-pending.md` 1); a wiki and its pages
-        // are held to the rules and limits of their tree.
-        for container in &parsed.0.containers {
-            container
-                .check_storable()
-                .map_err(|error| AppError::from(StoreError::InvalidContainer(error)))?;
-        }
-        places::check(&parsed.0, limits)?;
-        Ok::<_, AppError>(parsed)
-    })
-    .await
-    .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))??;
-    clear_values_of_another_kind(&mut containers_and_blocks);
-    let orphans = drop_orphans(&mut containers_and_blocks);
-    if orphans > 0 {
-        tracing::warn!(
-            orphans,
-            "skipped blocks of the archive whose parent is not in the archive"
-        );
-    }
-
-    let Renewed {
-        containers_and_blocks,
-        renamed,
-    } = match containers_and_blocks.validate() {
-        // A board without blocks is a board all the same, and what exporting one gives.
-        // The original refuses such an archive.
-        Ok(()) | Err(ContainersAndBlocksError::NoBlocks) => {
-            renew_containers_and_blocks_ids_told(containers_and_blocks, |id| told.contains(id))
-        }
-        Err(error) => {
-            return Err(AppError::bad_request(format_args!(
-                "the archive's boards and blocks do not fit together: {error}"
-            )));
-        }
-    };
-    // As the store refuses them, with its messages, before anything is stored.
-    for block in &containers_and_blocks.blocks {
-        block.validate().map_err(|source| {
-            AppError::from(StoreError::InvalidBlock {
-                id: block.id.clone(),
-                source,
-            })
-        })?;
-    }
-    Ok(ParsedContainer {
-        containers_and_blocks,
-        members,
-        renamed,
-        files,
-    })
-}
-
 /// Removes the blocks that nothing in the archive leads to, and returns how many went:
 /// those whose parent is no block of the archive, the blocks below them, and blocks that
 /// are each other's parents without any of them being on a board.
-///
-/// Such a block belongs to nothing that is imported: no card lists it, and its parent
-/// would be a reference to something outside the import.
-///
-/// One walk down from the blocks that are directly on a board; the time it takes grows
-/// with the number of blocks and not with how deep they are nested.
-fn drop_orphans(containers_and_blocks: &mut ContainersAndBlocks) -> usize {
+pub(super) fn drop_orphans(containers_and_blocks: &mut ContainersAndBlocks) -> usize {
     let blocks = &mut containers_and_blocks.blocks;
     let mut below: HashMap<&str, Vec<usize>> = HashMap::new();
     let mut reached: Vec<usize> = Vec::new();
@@ -421,8 +312,6 @@ fn drop_orphans(containers_and_blocks: &mut ContainersAndBlocks) -> usize {
 /// The names a board line gives the files of its directory (`fileNames`, by the names
 /// of their entries), as an upload's name may be ([`check_file_name`]), and with the
 /// extension of the entry's name.
-/// Any other is left out, and that file keeps the name of its entry, as before the
-/// names were written.
 fn file_names_of(board: &Value) -> FileNames {
     let Some(names) = board.get("fileNames").and_then(Value::as_object) else {
         return FileNames::new();
@@ -451,86 +340,6 @@ fn missing_files_of(board: &Value) -> HashSet<String> {
         .collect()
 }
 
-/// Parses a board's `board.jsonl` into its boards, blocks, members and what it says of its
-/// files, with fresh modification metadata but the identifiers from the archive.
-///
-/// # Errors
-///
-/// Returns a bad request if a line is malformed or of an unknown type.
-fn parse_archive_lines(
-    jsonl: &[u8],
-    workspace_id: &str,
-    modified_by: &str,
-) -> Result<(ContainersAndBlocks, Vec<ContainerMember>, ArchiveFiles), AppError> {
-    let modifier_user = modified_by;
-    let now = now_millis();
-    let mut containers_and_blocks = ContainersAndBlocks::default();
-    let mut container_members: Vec<ContainerMember> = Vec::new();
-    let mut files = ArchiveFiles::default();
-    let mut container_id = String::new();
-
-    for (number, raw) in jsonl.split(|&byte| byte == b'\n').enumerate() {
-        let line_number = number + 1;
-        let line = trim(raw);
-        if line.is_empty() {
-            continue;
-        }
-        let archive_line: ArchiveLine = serde_json::from_slice(line).map_err(|error| {
-            AppError::bad_request(format_args!(
-                "error parsing archive line {line_number}: {error}"
-            ))
-        })?;
-        match archive_line.line_type.as_str() {
-            "board" => {
-                files.names.extend(file_names_of(&archive_line.data));
-                files.missing.extend(missing_files_of(&archive_line.data));
-                let mut container: Container = serde_json::from_value(with_workspace_named(
-                    archive_line.data,
-                ))
-                .map_err(|error| {
-                    AppError::bad_request(format_args!(
-                        "invalid board in archive line {line_number}: {error}"
-                    ))
-                })?;
-                modifier_user.clone_into(&mut container.modified_by);
-                container.update_at = now;
-                // The workspace the archive names is not read: the boards go to the
-                // workspace imported into.
-                workspace_id.clone_into(&mut container.workspace_id);
-                container_id.clone_from(&container.id);
-                containers_and_blocks.containers.push(container);
-            }
-            "block" => {
-                let mut block: Block =
-                    serde_json::from_value(archive_line.data).map_err(|error| {
-                        AppError::bad_request(format_args!(
-                            "invalid block in archive line {line_number}: {error}"
-                        ))
-                    })?;
-                modifier_user.clone_into(&mut block.modified_by);
-                block.update_at = now;
-                block.container_id.clone_from(&container_id);
-                containers_and_blocks.blocks.push(block);
-            }
-            "boardMember" => {
-                let member: ContainerMember =
-                    serde_json::from_value(archive_line.data).map_err(|error| {
-                        AppError::bad_request(format_args!(
-                            "invalid board Member in archive line {line_number}: {error}"
-                        ))
-                    })?;
-                container_members.push(member);
-            }
-            other => {
-                return Err(AppError::bad_request(format_args!(
-                    "unsupported archive line type; got {other}, line {line_number}"
-                )));
-            }
-        }
-    }
-    Ok((containers_and_blocks, container_members, files))
-}
-
 /// Reads every entry of a native archive once before anything is stored so any broken
 /// or oversized entry, or cumulative unpacked total past [`MAX_UNPACKED_BYTES`], refuses
 /// the archive with nothing stored yet.
@@ -552,15 +361,11 @@ async fn check_native_unpacked_budget(zip: &Archive, largest_file: u64) -> Resul
     Ok(())
 }
 
-/// Tallies created container counts and identifiers in creation order for a native import.
-fn summarize_native_import(
+/// Tallies created container counts into `counts` and returns container IDs in creation order.
+fn tally_container_counts(
     created_order: &[(ContainerKind, String)],
-    file_count: usize,
-) -> (ImportCounts, Vec<String>) {
-    let mut counts = ImportCounts {
-        files: file_count,
-        ..ImportCounts::default()
-    };
+    counts: &mut ImportCounts,
+) -> Vec<String> {
     let mut container_ids = Vec::with_capacity(created_order.len());
     for (kind, id) in created_order {
         match kind {
@@ -570,7 +375,7 @@ fn summarize_native_import(
         }
         container_ids.push(id.clone());
     }
-    (counts, container_ids)
+    container_ids
 }
 
 /// Validates an archive's `version.json`.
@@ -600,9 +405,7 @@ fn trim(line: &[u8]) -> &[u8] {
 }
 
 /// Clears the card values that do not fit the kind of their property, and of relation
-/// values what a write refuses, as a copy of stored cards does: an archive holds what
-/// its board held, and a change of the definitions leaves such values behind
-/// (`docs/contract-pending.md` 2).
+/// values what a write refuses, as a copy of stored cards does.
 fn clear_values_of_another_kind(containers_and_blocks: &mut ContainersAndBlocks) {
     let definitions: HashMap<&str, &[JsonMap]> = containers_and_blocks
         .containers
@@ -613,11 +416,7 @@ fn clear_values_of_another_kind(containers_and_blocks: &mut ContainersAndBlocks)
         let Some(definitions) = definitions.get(block.container_id.as_str()) else {
             continue;
         };
-        let id = block.id.clone();
-        if let Some(Value::Object(values)) = block.fields.get_mut("properties") {
-            fvoci_model::clear_values_of_another_kind(values, definitions);
-            fvoci_model::tidy_copied_relations(values, &id, definitions);
-        }
+        native_stream::clear_block_values_of_another_kind(block, definitions);
     }
 }
 
@@ -640,6 +439,8 @@ mod external_tests;
 mod markdown;
 mod markdown_nodes;
 mod native_atomic;
+mod native_stream;
+mod native_stream_write;
 mod notion;
 mod notion_csv;
 mod places;

@@ -252,6 +252,8 @@ pub(crate) fn from_state_settled(
             steps_ahead: ahead,
             outcome: Outcome::Settled,
             needs_settle: read.needs_settle,
+            doc_rebuilt: true,
+            delta: None,
         });
     }
     settled_from(doc, encoded, limits)
@@ -327,30 +329,20 @@ pub(crate) fn settled_from(
             steps_ahead,
             limit,
         } => {
-            return Ok(Settled {
+            return Ok(rebuilt_remake(
                 doc,
                 state,
                 changes,
                 client_changes,
-                reading_steps: steps,
+                steps,
                 steps_ahead,
-                outcome: Outcome::Remake { steps, limit },
-                needs_settle: true,
-            });
+                limit,
+            ));
         }
     };
     let state_again = state_of(&again.doc);
     if same_state(&state_again, &state) {
-        return Ok(Settled {
-            doc: again.doc,
-            state: state_again,
-            changes: again.changes,
-            client_changes: again.client_changes,
-            reading_steps: again.reading_steps,
-            steps_ahead: again.steps_ahead,
-            outcome: Outcome::Settled,
-            needs_settle: false,
-        });
+        return Ok(rebuilt_settled(again, state_again, 0));
     }
     drop(state);
     if state_again.len() > limits.state_bytes {
@@ -372,16 +364,15 @@ pub(crate) fn settled_from(
             steps_ahead,
             limit,
         } => {
-            return Ok(Settled {
+            return Ok(rebuilt_remake(
                 doc,
-                state: state_again,
+                state_again,
                 changes,
-                client_changes: again.client_changes.max(client_changes),
-                reading_steps: steps,
+                again.client_changes.max(client_changes),
+                steps,
                 steps_ahead,
-                outcome: Outcome::Remake { steps, limit },
-                needs_settle: true,
-            });
+                limit,
+            ));
         }
     };
     let state_settled = state_of(&read_twice.doc);
@@ -390,16 +381,58 @@ pub(crate) fn settled_from(
             "its state reads to a document whose state reads to another".to_owned(),
         ));
     }
-    Ok(Settled {
-        doc: read_twice.doc,
-        state: state_settled,
-        changes: read_twice.changes,
-        client_changes: again.client_changes.max(read_twice.client_changes),
-        reading_steps: read_twice.reading_steps,
-        steps_ahead: read_twice.steps_ahead,
+    Ok(rebuilt_settled(
+        read_twice,
+        state_settled,
+        again.client_changes,
+    ))
+}
+
+fn rebuilt_settled(counted: Counted, state: Vec<u8>, prior_client_changes: u64) -> Settled {
+    Settled {
+        doc: counted.doc,
+        state,
+        changes: counted.changes,
+        client_changes: counted.client_changes.max(prior_client_changes),
+        reading_steps: counted.reading_steps,
+        steps_ahead: counted.steps_ahead,
         outcome: Outcome::Settled,
         needs_settle: false,
-    })
+        doc_rebuilt: true,
+        delta: None,
+    }
+}
+
+fn rebuilt_remake(
+    doc: Doc,
+    state: Vec<u8>,
+    changes: u64,
+    client_changes: u64,
+    steps: u64,
+    steps_ahead: u64,
+    limit: u64,
+) -> Settled {
+    Settled {
+        doc,
+        state,
+        changes,
+        client_changes,
+        reading_steps: steps,
+        steps_ahead,
+        outcome: Outcome::Remake { steps, limit },
+        needs_settle: true,
+        doc_rebuilt: true,
+        delta: None,
+    }
+}
+
+/// Whether [`settle_keeping`] converged on pass 1 with an unchanged state (so a prior
+/// [`crate::block_cache::BlockCache`] remains exact) or required a second pass that
+/// re-canonicalized blocks (requiring cache rebuild).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SettlePass {
+    Unchanged,
+    Converged,
 }
 
 /// Settles `doc` from its already-encoded `state` (at fold or close) while keeping `doc`
@@ -409,7 +442,7 @@ pub(crate) fn settle_keeping(
     doc: Doc,
     state: Vec<u8>,
     limits: &UpdateLimits,
-) -> Result<Settled, (Doc, UpdateError)> {
+) -> Result<(Settled, SettlePass), (Doc, UpdateError)> {
     let again = match count_and_read_fresh(&state, limits) {
         Ok(again) => again,
         Err(error) => return Err((doc, error)),
@@ -417,16 +450,10 @@ pub(crate) fn settle_keeping(
     let state_again = state_of(&again.doc);
     if same_state(&state_again, &state) {
         drop(doc);
-        return Ok(Settled {
-            doc: again.doc,
-            state: state_again,
-            changes: again.changes,
-            client_changes: again.client_changes,
-            reading_steps: again.reading_steps,
-            steps_ahead: again.steps_ahead,
-            outcome: Outcome::Settled,
-            needs_settle: false,
-        });
+        return Ok((
+            rebuilt_settled(again, state_again, 0),
+            SettlePass::Unchanged,
+        ));
     }
     drop(state);
     let first_client_changes = again.client_changes;
@@ -445,16 +472,10 @@ pub(crate) fn settle_keeping(
         ));
     }
     drop(doc);
-    Ok(Settled {
-        doc: read_twice.doc,
-        state: state_settled,
-        changes: read_twice.changes,
-        client_changes: first_client_changes.max(read_twice.client_changes),
-        reading_steps: read_twice.reading_steps,
-        steps_ahead: read_twice.steps_ahead,
-        outcome: Outcome::Settled,
-        needs_settle: false,
-    })
+    Ok((
+        rebuilt_settled(read_twice, state_settled, first_client_changes),
+        SettlePass::Converged,
+    ))
 }
 
 /// Whether two states represent the same changes and deletions regardless of hash-table

@@ -8,7 +8,7 @@ use axum::body::{Body, Bytes};
 use axum::extract::{ConnectInfo, Path, State};
 use axum::response::{IntoResponse, Response};
 use fvoci_model::{ContainerKinds, Session, UploadPurpose};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -20,28 +20,23 @@ use super::contract::tag;
 use super::require_container_permission;
 use super::workspace::{InContainer, InWorkspace};
 use super::{ApiResult, RequiredSession, json_response};
-use crate::app::{App, ExportedArchive, Slot, download};
+use crate::app::{App, ExportedArchive, ImportFormat, ImportSummary, Slot, download};
 use crate::connection::{Breaker, Connection};
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
 
-/// An archive to import: one sent in parts with `createImportUpload`.
+/// An archive or external export to import: sent in parts with `createImportUpload`.
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ImportRequest {
     /// The upload of the archive, every part of it received. It is thrown away by the
     /// import, whether the import succeeds or not.
     upload_id: String,
-}
-
-/// What an import did beyond making the archive's boards.
-#[derive(Debug, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-struct ImportResult {
-    /// How many of the users who were members of the archive's boards were left out of
-    /// the boards made of them, because they are not in the workspace; each counted
-    /// once. Who they are is not told.
-    members_left_out: usize,
+    /// Source format of the uploaded file: `fvoci` (native archive `.boardarchive`/`.zip`,
+    /// default when omitted), `trello` (Trello board `.json`), or `notion` (Notion
+    /// Markdown & CSV `.zip`).
+    #[serde(default)]
+    format: ImportFormat,
 }
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -200,9 +195,9 @@ async fn handle_export_workspace(
 /// original (the line-based version 1 and the ZIP of version 2) and a ZIP without
 /// `version.json` are 400, and nothing of them is stored. An archive of more than
 /// 10,000 entries, whose entries unpack to more than 1 GiB together, or with a
-/// `board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with
-/// the `limit` passed, and nothing of it is stored; for the entry that is too large the
-/// reason is `archive_entry_too_large`. The blocks that show files are
+/// `board.jsonl` of more than 64 MiB (or a single JSONL line over 6 MiB) or a file larger
+/// than `maxFileBytes` is 413 with the `limit` passed, and nothing of it is stored; for the
+/// entry or line that is too large the reason is `archive_entry_too_large`. The blocks that show files are
 /// pointed at the board's new copies of them, the images and file blocks of bodies
 /// included. A file the board's line lists under `missingFiles` is not stored, even when
 /// the archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy
@@ -225,6 +220,12 @@ async fn handle_export_workspace(
 /// A user runs one import at a time, and the server as many as its setting
 /// `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
 /// `import_running` or `server_imports_busy`; the upload stays open, to be named again.
+///
+/// Optional `format` selects `"fvoci"` (default, `.boardarchive`/`.zip`), `"trello"`
+/// (`.json`), or `"notion"` (`.zip`). External formats commit all boards, wikis, blocks,
+/// and bundled local files atomically: any validation, limit, or storage failure leaves
+/// nothing stored. Returns a structured `ImportSummary` with counts, newly created
+/// container identifiers, native `membersLeftOut`, and bounded `skipped` / `warnings`.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/archive/import",
@@ -234,15 +235,15 @@ async fn handle_export_workspace(
     request_body = ImportRequest,
     responses((
         status = 200,
-        description = "The boards of the archive are made.",
-        body = ImportResult,
+        description = "Summary of the boards, wikis, blocks, and files created by the import.",
+        body = ImportSummary,
     )),
 )]
 async fn handle_import(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let user_id = ws.session.user_id.clone();
     // Membership is checked before reading the body; the upload belongs to this workspace.
-    let ImportRequest { upload_id } = decode_object(&body)?;
+    let ImportRequest { upload_id, format } = decode_object(&body)?;
     let (upload, _) = ws.app.workspace_upload(&upload_id, &user_id).await?;
     if upload.purpose != UploadPurpose::Import {
         return Err(AppError::bad_request(
@@ -254,14 +255,12 @@ async fn handle_import(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
     let _slot = ws.app.start_import(&user_id)?;
     // What is refused of the archive's boards and blocks is in the archive, not in the
     // request, which names the upload alone.
-    let imported = ws
+    let summary = ws
         .app
-        .import_upload(&upload)
+        .import_upload_with_format(&upload, format)
         .await
         .map_err(AppError::outside_the_request)?;
-    Ok(json_response(&ImportResult {
-        members_left_out: imported.members_left_out,
-    }))
+    Ok(json_response(&summary))
 }
 
 /// Sends an archive, written whole before, as the download the original sends, with its

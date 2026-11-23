@@ -688,7 +688,7 @@ pub(crate) struct Written {
 /// body kept, and the people it newly names told as `how` says. Returns the cards its
 /// relation values newly name, which the caller asks for once the write is stored
 /// ([`card_values::check_named_cards`]).
-async fn insert_block_at(
+pub(crate) async fn insert_block_at(
     scope: &mut Scope<'_>,
     block: &mut Block,
     user_id: &str,

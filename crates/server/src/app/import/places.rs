@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
-    Block, BlockError, BlockType, CHAPTERS_PER_COURSE, COURSE_DEPTH, ContainerKind,
+    BlockError, BlockType, CHAPTERS_PER_COURSE, COURSE_DEPTH, Container, ContainerKind,
     ContainersAndBlocks, DiaryDate, MAX_CARD_DEPTH, PageLimits, PageNode, PageTree,
     UNITS_PER_COURSE,
 };
@@ -17,6 +17,18 @@ use fvoci_store::StoreError;
 use crate::app::pages::refused_without_member;
 use crate::auth::now_millis;
 use crate::error::AppError;
+
+/// Lightweight structural projection of a block used by [`check_places`] so streaming
+/// imports can verify tree, parent, and diary rules without retaining block bodies in RAM.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct BlockPlace<'a> {
+    pub(super) id: &'a str,
+    pub(super) container_id: &'a str,
+    pub(super) parent_id: &'a str,
+    pub(super) block_type: &'a BlockType,
+    pub(super) is_template: bool,
+    pub(super) diary_date: Option<DiaryDate>,
+}
 
 /// Checks the blocks of each board of `containers_and_blocks` against the kind of their
 /// board and against each other, as they are read from an archive (each with its board
@@ -37,14 +49,38 @@ pub(super) fn check(
     containers_and_blocks: &ContainersAndBlocks,
     limits: PageLimits,
 ) -> Result<(), AppError> {
-    let ContainersAndBlocks { containers, blocks } = containers_and_blocks;
+    let places: Vec<BlockPlace<'_>> = containers_and_blocks
+        .blocks
+        .iter()
+        .map(|block| BlockPlace {
+            id: &block.id,
+            container_id: &block.container_id,
+            parent_id: &block.parent_id,
+            block_type: &block.block_type,
+            is_template: block.is_template(),
+            diary_date: (block.block_type == BlockType::Entry)
+                .then(|| fvoci_model::entry_date(block))
+                .flatten(),
+        })
+        .collect();
+    check_places(&containers_and_blocks.containers, &places, limits)
+}
+
+/// Same rules as [`check`], operating over lightweight [`BlockPlace`] metadata collected
+/// while streaming `board.jsonl` line by line.
+pub(super) fn check_places(
+    containers: &[Container],
+    blocks: &[BlockPlace<'_>],
+    limits: PageLimits,
+) -> Result<(), AppError> {
     // The first block of an identifier is the one named, as the copy names it.
-    let mut placed: HashMap<&str, &Block> = HashMap::with_capacity(blocks.len());
-    let mut on_container: HashMap<&str, Vec<&Block>> = HashMap::with_capacity(containers.len());
-    for block in blocks {
-        placed.entry(&block.id).or_insert(block);
+    let mut placed: HashMap<&str, BlockPlace<'_>> = HashMap::with_capacity(blocks.len());
+    let mut on_container: HashMap<&str, Vec<BlockPlace<'_>>> =
+        HashMap::with_capacity(containers.len());
+    for &block in blocks {
+        placed.entry(block.id).or_insert(block);
         on_container
-            .entry(&block.container_id)
+            .entry(block.container_id)
             .or_default()
             .push(block);
     }
@@ -62,7 +98,7 @@ pub(super) fn check(
             placed: &placed,
             containers: &container_ids,
         };
-        for block in &mine {
+        for &block in &mine {
             place.check(block)?;
         }
         match container.kind {
@@ -81,9 +117,9 @@ pub(super) fn check(
 }
 
 /// The refusal of `block` as the store refuses it.
-fn refused(block: &Block, source: BlockError) -> AppError {
+fn refused(block: BlockPlace<'_>, source: BlockError) -> AppError {
     StoreError::InvalidBlock {
-        id: block.id.clone(),
+        id: block.id.to_owned(),
         source,
     }
     .into()
@@ -95,29 +131,29 @@ struct Place<'a> {
     container_id: &'a str,
     kind: ContainerKind,
     /// Every block of the archive by its identifier: the first of an identifier.
-    placed: &'a HashMap<&'a str, &'a Block>,
+    placed: &'a HashMap<&'a str, BlockPlace<'a>>,
     /// The boards of the archive.
     containers: &'a HashSet<&'a str>,
 }
 
 impl Place<'_> {
     /// Checks one block of the board: its type, and its parent as a write would find it.
-    fn check(&self, block: &Block) -> Result<(), AppError> {
+    fn check(&self, block: BlockPlace<'_>) -> Result<(), AppError> {
         check_type(block, self.kind)?;
         // A block directly on its board has no parent; the board is none, and is refused
         // as another board of the archive is.
-        let parent_id = block.parent_id.as_str();
+        let parent_id = block.parent_id;
         if self.kind == ContainerKind::Diary && !parent_id.is_empty() {
             return Err(refused(block, BlockError::EntryBelowBlock));
         }
         if self.kind == ContainerKind::Course
-            && block.block_type == BlockType::Chapter
+            && *block.block_type == BlockType::Chapter
             && !parent_id.is_empty()
         {
             return Err(refused(block, BlockError::ChapterBelowBlock));
         }
-        if self.kind == ContainerKind::Board && block.block_type == BlockType::Card {
-            if block.is_template() && !parent_id.is_empty() {
+        if self.kind == ContainerKind::Board && *block.block_type == BlockType::Card {
+            if block.is_template && !parent_id.is_empty() {
                 return Err(refused(block, BlockError::TemplateCardBelowBlock));
             }
             if !parent_id.is_empty() && parent_id == block.id {
@@ -140,10 +176,10 @@ impl Place<'_> {
             // What nothing leads to is dropped: no write is asked of it.
             return Ok(());
         };
-        let parent_type = parent_block.map(|parent| &parent.block_type);
+        let parent_type = parent_block.map(|parent| parent.block_type);
         // In the store's order: where a page or unit may be, then where a comment may be,
         // then board card parent rules.
-        let refusal = match (&block.block_type, parent_type) {
+        let refusal = match (block.block_type, parent_type) {
             (BlockType::Page, Some(parent)) if *parent != BlockType::Page => {
                 Some(BlockError::PageNotBelowPage)
             }
@@ -158,7 +194,7 @@ impl Place<'_> {
                 Some(BlockError::CardNotBelowCard)
             }
             (BlockType::Card, Some(BlockType::Card))
-                if parent_block.is_some_and(Block::is_template) =>
+                if parent_block.is_some_and(|parent| parent.is_template) =>
             {
                 Some(BlockError::CardBelowTemplate)
             }
@@ -171,8 +207,8 @@ impl Place<'_> {
 /// Checks that a block is of a type a board of `kind` takes: of a board, what a write of
 /// blocks makes and no page, entry, unit or chapter; of a wiki, a page or a comment; of a
 /// diary, an entry; of a course, a chapter, a unit or a comment.
-fn check_type(block: &Block, kind: ContainerKind) -> Result<(), AppError> {
-    let refusal = match (kind, &block.block_type) {
+fn check_type(block: BlockPlace<'_>, kind: ContainerKind) -> Result<(), AppError> {
+    let refusal = match (kind, block.block_type) {
         (ContainerKind::Course, BlockType::Unit | BlockType::Chapter | BlockType::Comment)
         | (ContainerKind::Diary, BlockType::Entry) => None,
         (ContainerKind::Course, _) => Some(BlockError::NotUnitOnCourse),
@@ -199,7 +235,7 @@ fn check_type(block: &Block, kind: ContainerKind) -> Result<(), AppError> {
 /// a day of its own that an entry may be made on today: what the store refuses one
 /// entry at a time and a request for an entry is refused, said of the archive before
 /// anything of it is stored. An entry that says no day is the store's to refuse.
-fn check_days(diary_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
+fn check_days(diary_id: &str, blocks: &[BlockPlace<'_>]) -> Result<(), AppError> {
     check_days_at(diary_id, blocks, DiaryDate::of_utc_millis(now_millis()))
 }
 
@@ -207,7 +243,7 @@ fn check_days(diary_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
 /// `today`), and per-day uniqueness for an archive diary.
 fn check_days_at(
     diary_id: &str,
-    blocks: &[&Block],
+    blocks: &[BlockPlace<'_>],
     today: Option<DiaryDate>,
 ) -> Result<(), AppError> {
     let limit = fvoci_model::ENTRIES_PER_DIARY;
@@ -220,7 +256,7 @@ fn check_days_at(
     }
     let mut days = HashSet::new();
     for block in blocks {
-        let Some(date) = fvoci_model::entry_date(block) else {
+        let Some(date) = block.diary_date else {
             continue;
         };
         // No export holds such a day: none was ever made.
@@ -243,11 +279,15 @@ fn check_days_at(
 /// Checks that the pages of the wiki are a tree within `limits`: each identifier once,
 /// each page reached from the top, no more and no deeper pages than a wiki may have. The
 /// parents are those [`Place::check`] took: a page of the wiki, or none.
-fn check_tree(wiki_id: &str, blocks: &[&Block], limits: PageLimits) -> Result<(), AppError> {
-    let pages: Vec<&Block> = blocks
+fn check_tree(
+    wiki_id: &str,
+    blocks: &[BlockPlace<'_>],
+    limits: PageLimits,
+) -> Result<(), AppError> {
+    let pages: Vec<BlockPlace<'_>> = blocks
         .iter()
         .copied()
-        .filter(|block| block.block_type == BlockType::Page)
+        .filter(|block| *block.block_type == BlockType::Page)
         .collect();
     // Of the whole wiki: as a copy of it is refused, naming no member of a request.
     let refused_whole = |source| {
@@ -263,7 +303,7 @@ fn check_tree(wiki_id: &str, blocks: &[&Block], limits: PageLimits) -> Result<()
         }));
     }
     let mut ids = HashSet::with_capacity(blocks.len());
-    if let Some(twice) = blocks.iter().find(|block| !ids.insert(block.id.as_str())) {
+    if let Some(twice) = blocks.iter().find(|block| !ids.insert(block.id)) {
         return Err(AppError::bad_request(format_args!(
             "the archive's wiki {wiki_id} has two blocks of the identifier {}",
             twice.id
@@ -272,8 +312,8 @@ fn check_tree(wiki_id: &str, blocks: &[&Block], limits: PageLimits) -> Result<()
     let tree: PageTree = pages
         .iter()
         .map(|page| PageNode {
-            id: page.id.clone(),
-            parent_id: page.parent_id.clone(),
+            id: page.id.to_owned(),
+            parent_id: page.parent_id.to_owned(),
             ..PageNode::default()
         })
         .collect();
@@ -282,10 +322,7 @@ fn check_tree(wiki_id: &str, blocks: &[&Block], limits: PageLimits) -> Result<()
     for top in tree.siblings("", "") {
         reached.extend(tree.below(&top.id));
     }
-    if let Some(looped) = pages
-        .iter()
-        .find(|page| !reached.contains(page.id.as_str()))
-    {
+    if let Some(&looped) = pages.iter().find(|page| !reached.contains(page.id)) {
         return Err(refused(looped, BlockError::ParentBelowBlock));
     }
     tree.check_whole(limits).map_err(refused_whole)
@@ -293,28 +330,28 @@ fn check_tree(wiki_id: &str, blocks: &[&Block], limits: PageLimits) -> Result<()
 
 /// Checks that the cards of a board in an archive have unique identifiers, no parent
 /// cycles, and stay within [`MAX_CARD_DEPTH`] levels.
-fn check_board_cards(board_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
+fn check_board_cards(board_id: &str, blocks: &[BlockPlace<'_>]) -> Result<(), AppError> {
     let mut ids = HashSet::with_capacity(blocks.len());
-    if let Some(twice) = blocks.iter().find(|block| !ids.insert(block.id.as_str())) {
+    if let Some(twice) = blocks.iter().find(|block| !ids.insert(block.id)) {
         return Err(AppError::bad_request(format_args!(
             "the archive's board {board_id} has two blocks of the identifier {}",
             twice.id
         )));
     }
-    let cards: HashMap<&str, &Block> = blocks
+    let cards: HashMap<&str, BlockPlace<'_>> = blocks
         .iter()
         .copied()
-        .filter(|block| block.block_type == BlockType::Card)
-        .map(|block| (block.id.as_str(), block))
+        .filter(|block| *block.block_type == BlockType::Card)
+        .map(|block| (block.id, block))
         .collect();
     let max_depth = usize::try_from(MAX_CARD_DEPTH).unwrap_or(usize::MAX);
-    for block in blocks {
-        if block.block_type != BlockType::Card || block.parent_id.is_empty() {
+    for &block in blocks {
+        if *block.block_type != BlockType::Card || block.parent_id.is_empty() {
             continue;
         }
         let mut depth = 1usize;
-        let mut visited: HashSet<&str> = HashSet::from([block.id.as_str()]);
-        let mut cursor = block.parent_id.as_str();
+        let mut visited: HashSet<&str> = HashSet::from([block.id]);
+        let mut cursor = block.parent_id;
         while !cursor.is_empty() {
             if !visited.insert(cursor) {
                 return Err(refused(block, BlockError::ParentBelowBlock));
@@ -331,7 +368,7 @@ fn check_board_cards(board_id: &str, blocks: &[&Block]) -> Result<(), AppError> 
                     },
                 ));
             }
-            cursor = parent.parent_id.as_str();
+            cursor = parent.parent_id;
         }
     }
     Ok(())
@@ -340,10 +377,10 @@ fn check_board_cards(board_id: &str, blocks: &[&Block]) -> Result<(), AppError> 
 /// Checks that the chapters and units of a course form a valid tree of depth at most
 /// [`COURSE_DEPTH`] within [`UNITS_PER_COURSE`] and [`CHAPTERS_PER_COURSE`], with unique
 /// identifiers and no parent cycles.
-fn check_course(course_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
+fn check_course(course_id: &str, blocks: &[BlockPlace<'_>]) -> Result<(), AppError> {
     let chapters = blocks
         .iter()
-        .filter(|block| block.block_type == BlockType::Chapter)
+        .filter(|block| *block.block_type == BlockType::Chapter)
         .count();
     if usize::try_from(CHAPTERS_PER_COURSE).is_ok_and(|most| chapters > most) {
         return Err(StoreError::InvalidBlock {
@@ -356,7 +393,7 @@ fn check_course(course_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
     }
     let units = blocks
         .iter()
-        .filter(|block| block.block_type == BlockType::Unit)
+        .filter(|block| *block.block_type == BlockType::Unit)
         .count();
     if usize::try_from(UNITS_PER_COURSE).is_ok_and(|most| units > most) {
         return Err(StoreError::InvalidBlock {
@@ -368,13 +405,13 @@ fn check_course(course_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
         .into());
     }
     let mut ids = HashSet::with_capacity(blocks.len());
-    if let Some(twice) = blocks.iter().find(|block| !ids.insert(block.id.as_str())) {
+    if let Some(twice) = blocks.iter().find(|block| !ids.insert(block.id)) {
         return Err(AppError::bad_request(format_args!(
             "the archive's course {course_id} has two blocks of the identifier {}",
             twice.id
         )));
     }
-    let outline: Vec<&Block> = blocks
+    let outline: Vec<BlockPlace<'_>> = blocks
         .iter()
         .copied()
         .filter(|block| matches!(block.block_type, BlockType::Unit | BlockType::Chapter))
@@ -382,8 +419,8 @@ fn check_course(course_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
     let tree: PageTree = outline
         .iter()
         .map(|block| PageNode {
-            id: block.id.clone(),
-            parent_id: block.parent_id.clone(),
+            id: block.id.to_owned(),
+            parent_id: block.parent_id.to_owned(),
             ..PageNode::default()
         })
         .collect();
@@ -391,16 +428,13 @@ fn check_course(course_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
     for top in tree.siblings("", "") {
         reached.extend(tree.below(&top.id));
     }
-    if let Some(looped) = outline
-        .iter()
-        .find(|block| !reached.contains(block.id.as_str()))
-    {
+    if let Some(&looped) = outline.iter().find(|block| !reached.contains(block.id)) {
         return Err(refused(looped, BlockError::ParentBelowBlock));
     }
     let max_depth = usize::try_from(COURSE_DEPTH).unwrap_or(usize::MAX);
-    if let Some(deep) = outline
+    if let Some(&deep) = outline
         .iter()
-        .find(|block| tree.depth(&block.id) > max_depth)
+        .find(|block| tree.depth(block.id) > max_depth)
     {
         return Err(refused(deep, BlockError::UnitParentNotChapter));
     }
@@ -409,7 +443,7 @@ fn check_course(course_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use fvoci_model::Container;
+    use fvoci_model::{Block, Container};
 
     use super::*;
     use crate::error::Reason;
@@ -683,35 +717,32 @@ mod tests {
     #[test]
     fn diary_archive_days_enforce_reach_uniqueness_and_entry_limit() {
         let today = "2026-11-21".parse::<DiaryDate>().expect("today");
-        let make_entry = |id: &str, date: &str| Block {
-            id: id.to_owned(),
-            container_id: "d".to_owned(),
-            block_type: BlockType::Entry,
-            title: date.to_owned(),
-            fields: serde_json::json!({"date": date})
-                .as_object()
-                .expect("object")
-                .clone(),
-            ..Block::default()
+        let entry_type = BlockType::Entry;
+        let make_entry = |id: &'static str, date: &'static str| BlockPlace {
+            id,
+            container_id: "d",
+            parent_id: "",
+            block_type: &entry_type,
+            is_template: false,
+            diary_date: Some(date.parse::<DiaryDate>().expect("date")),
         };
         let within = make_entry("e1", "2026-11-23");
-        assert!(check_days_at("d", &[&within], Some(today)).is_ok());
+        assert!(check_days_at("d", &[within], Some(today)).is_ok());
 
         let too_far = make_entry("e2", "2026-11-24");
-        let err = check_days_at("d", &[&within, &too_far], Some(today))
+        let err = check_days_at("d", &[within, too_far], Some(today))
             .expect_err("three days ahead is refused");
         assert!(err.to_string().contains("2026-11-24"), "{err}");
 
         let dup_a = make_entry("e3", "2026-11-20");
         let dup_b = make_entry("e4", "2026-11-20");
-        let err = check_days_at("d", &[&dup_a, &dup_b], Some(today))
+        let err = check_days_at("d", &[dup_a, dup_b], Some(today))
             .expect_err("duplicate date is refused");
         assert!(err.to_string().contains("two entries"), "{err}");
 
         let too_many_count = usize::try_from(fvoci_model::ENTRIES_PER_DIARY).expect("usize") + 1;
-        let many: Vec<Block> = vec![within; too_many_count];
-        let refs: Vec<&Block> = many.iter().collect();
-        let err = check_days_at("d", &refs, Some(today)).expect_err("over entry limit");
+        let many: Vec<BlockPlace<'_>> = vec![within; too_many_count];
+        let err = check_days_at("d", &many, Some(today)).expect_err("over entry limit");
         assert_eq!(err.reason(), Some(Reason::TooManyEntries));
     }
 }
