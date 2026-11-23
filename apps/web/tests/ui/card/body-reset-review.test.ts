@@ -55,3 +55,22 @@ it('says that an inline formula draft was lost when the room receives a new epoc
     board.close();
   }
 });
+
+it('shows the dedicated 200x20 notice when a collaborative table edit is refused with table_too_large', async () => {
+  const { board } = await openFirstBoard();
+  const summary = board.cards.find((card) => card.title === 'Alpha');
+  if (!summary) throw new Error('no card');
+  const card = await board.showCard(summary.id);
+  const { container, unmount } = render(CardBody, { container: board, card });
+  try {
+    card.sayLost('table_too_large');
+    await vi.waitFor(() => {
+      const alert = container.querySelector('[data-testid="body-lost"]');
+      expect(alert?.textContent).toContain('200');
+      expect(alert?.textContent).toContain('20');
+    });
+  } finally {
+    unmount();
+    board.close();
+  }
+});

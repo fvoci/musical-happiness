@@ -517,6 +517,65 @@ async fn only_a_card_has_a_document() {
     th.teardown().await;
 }
 
+/// Collaborative table edits past 200 rows or 20 columns are refused over WebSocket with
+/// `DOC_NACK` reason `table_too_large`, leaving the room document unpolluted for peers.
+#[tokio::test]
+async fn collab_table_limit_refuses_201_rows_and_21_columns_with_table_too_large() {
+    use crate::rooms::{Peer, table as room_table};
+
+    let th = Setup::native().start().await.init_basic().await;
+    let cell = json!({"type": "tableCell", "content": [{"type": "paragraph"}]});
+    let row_1 = json!({"type": "tableRow", "content": [&cell]});
+    let max_rows_doc = json!({
+        "type": "doc",
+        "content": [{"type": "table", "content": vec![row_1; usize::from(fvoci_model::TABLE_MAX_ROWS)]}],
+    });
+    let row_20 = json!({
+        "type": "tableRow",
+        "content": vec![cell; usize::from(fvoci_model::TABLE_MAX_COLUMNS)],
+    });
+    let max_cols_doc = json!({
+        "type": "doc",
+        "content": [{"type": "table", "content": [&row_20, &row_20]}],
+    });
+
+    for (kind, initial_doc, add_row) in [
+        ("201 rows", max_rows_doc, true),
+        ("21 columns", max_cols_doc, false),
+    ] {
+        let t = room_table(&th, &initial_doc).await;
+        let mut one = Peer::connect(&th.client, 201).await;
+        one.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+        let bad_update = if add_row {
+            one.editor().add_table_row(1)
+        } else {
+            one.editor().add_table_column()
+        };
+        one.send_update(&bad_update).await;
+        let nack = one.text("DOC_NACK").await;
+        assert_eq!(
+            nack,
+            json!({
+                "action": "DOC_NACK",
+                "doc": one.doc,
+                "epoch": one.epoch,
+                "reason": "table_too_large",
+            }),
+            "{kind}"
+        );
+
+        let mut two = Peer::connect(&th.client, 202).await;
+        two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+        assert_eq!(
+            two.body().as_ref(),
+            Some(&initial_doc),
+            "{kind}: room document stays unpolluted"
+        );
+        two.write_acked("still editable").await;
+    }
+    th.teardown().await;
+}
+
 /// The application of a server as user1 reaches the test workspace.
 pub(crate) async fn editing_app(th: &TestServer) -> Editing {
     let user1 = th.client.me().await.id;

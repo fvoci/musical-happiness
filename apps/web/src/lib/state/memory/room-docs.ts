@@ -8,7 +8,7 @@ import * as Y from 'yjs';
 
 import { BODY_FIELD } from '../../editor/body-editor.ts';
 import { bodyExtensions } from '../../editor/extensions.ts';
-import { bodyOfDoc } from '../../editor/room-body.ts';
+import { bodyOfDoc, readBodyOfDoc } from '../../editor/room-body.ts';
 import { emptyDoc, type DocNode } from '../../editor/schema.ts';
 
 import type { StoredCard } from './world.ts';
@@ -31,6 +31,9 @@ export function documentOf(body: DocNode | null): Y.Doc {
 
 /** The body a document holds, as it would be stored; undefined when it is not one. */
 export const bodyOf = bodyOfDoc;
+
+/** Reads and validates a document's body in one pass, naming the refusal reason on failure. */
+export const readBodyOf = readBodyOfDoc;
 
 /** Whether a body read from a document is `stored`, read as a document made from it would hold it. */
 export function sameBody(read: DocNode | null, stored: DocNode | null): boolean {

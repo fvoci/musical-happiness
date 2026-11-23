@@ -181,9 +181,12 @@ export const MARK_SPECS: Record<string, Record<string, AttributeSpec>> = {
   link: { href: required(isAllowedHref) },
 };
 
+/** The validation problem reported when a table exceeds its row or column limit. */
+export const TABLE_TOO_LARGE_PROBLEM = `more than ${MAX_TABLE_ROWS} rows or ${MAX_TABLE_COLUMNS} columns`;
+
 /** What a table's grid being wrong is written as. */
 const GRID_PROBLEMS: Record<GridProblem, string> = {
-  tooLarge: `more than ${MAX_TABLE_ROWS} rows or ${MAX_TABLE_COLUMNS} columns`,
+  tooLarge: TABLE_TOO_LARGE_PROBLEM,
   noCell: 'no cell',
   unfilled: 'a cell spans past the table or over another, or a row is narrower than the table',
 };
