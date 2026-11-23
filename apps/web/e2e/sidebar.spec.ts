@@ -66,7 +66,7 @@ test.describe('the shapes of the sidebar', () => {
       expect((await strip(page).boundingBox())?.width).toBe(56);
       expect(board?.x).toBe(56);
       // One button a board, and the board on the page is marked.
-      await expect(strip(page).getByRole('link')).toHaveCount(13);
+      await expect(strip(page).getByRole('link')).toHaveCount(14);
       await expect(strip(page).getByRole('link', { name: FIRST_BOARD })).toHaveAttribute(
         'aria-current',
         'page',
@@ -327,7 +327,7 @@ test.describe('boards in the sidebar', () => {
     await openApp(page);
     await showSidebar(page);
     const search = sidebar(page).getByTestId('sidebar-search');
-    await expect(sidebar(page).getByRole('link')).toHaveCount(13);
+    await expect(sidebar(page).getByRole('link')).toHaveCount(14);
 
     await search.fill('GOAL');
     await expect(sidebar(page).getByRole('link')).toHaveCount(2);
@@ -342,7 +342,7 @@ test.describe('boards in the sidebar', () => {
     // The first Escape empties the field and leaves the drawer, if it is one, open.
     await search.press('Escape');
     await expect(search).toHaveValue('');
-    await expect(sidebar(page).getByRole('link')).toHaveCount(13);
+    await expect(sidebar(page).getByRole('link')).toHaveCount(14);
     await expect(shell(page)).not.toHaveAttribute('data-sidebar', 'closed');
   });
 
@@ -557,13 +557,13 @@ test.describe('boards in the sidebar', () => {
     await chooseFromMenu(page, boardMenu(page, 'Meeting Agenda'), 'delete');
     await confirm.getByRole('button', { name: 'Delete' }).click();
     await expect(boardLink(page, 'Meeting Agenda')).toHaveCount(0);
-    await expect(sidebar(page).getByRole('link')).toHaveCount(12);
+    await expect(sidebar(page).getByRole('link')).toHaveCount(13);
 
     await hideSidebar(page);
     await pressInBar(page, 'undo');
     await showSidebar(page);
     await expect(boardLink(page, 'Meeting Agenda')).toBeVisible();
-    await expect(sidebar(page).getByRole('link')).toHaveCount(13);
+    await expect(sidebar(page).getByRole('link')).toHaveCount(14);
   });
 
   test('deleting the board on the page goes to the first board that is left', async ({ page }) => {
@@ -594,7 +594,7 @@ test.describe('boards in the sidebar', () => {
     await expect(title).toHaveAttribute('placeholder', 'Untitled board');
 
     await showSidebar(page);
-    await expect(sidebar(page).getByRole('link')).toHaveCount(14);
+    await expect(sidebar(page).getByRole('link')).toHaveCount(15);
     await expect(boardLink(page, '(Untitled Board)')).toHaveAttribute('aria-current', 'page');
     // A board nobody filed is shown in the default category.
     expect(await boardsIn(page, 'General')).toContain('(Untitled Board)');
@@ -612,7 +612,7 @@ test.describe('categories', () => {
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await expect(boardLink(page, 'Content Calendar')).toHaveCount(0);
-    await expect(sidebar(page).getByRole('link')).toHaveCount(10);
+    await expect(sidebar(page).getByRole('link')).toHaveCount(11);
     // The search still finds a board of a folded category.
     await sidebar(page).getByTestId('sidebar-search').fill('calendar');
     await expect(boardLink(page, 'Content Calendar')).toBeVisible();

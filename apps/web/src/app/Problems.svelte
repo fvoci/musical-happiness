@@ -34,6 +34,12 @@
     if (error?.reason === 'too_many_pages' && error.limit) {
       return m.app_problem_too_many_pages({ limit: error.limit });
     }
+    if (error?.reason === 'too_many_units' && error.limit) {
+      return m.app_problem_too_many_units({ limit: error.limit });
+    }
+    if (error?.reason === 'too_many_chapters' && error.limit) {
+      return m.app_problem_too_many_chapters({ limit: error.limit });
+    }
     if (problem.action === 'import' && error?.status === 413) {
       return error.reason === 'archive_too_large' && error.limit
         ? m.app_problem_import_too_large({ limit: humanFileSize(error.limit) })
@@ -49,6 +55,8 @@
       // Answered 404: a page somebody else deleted meanwhile, taken off the tree.
       case 'movePage':
         return m.app_problem_page_move_gone();
+      case 'moveUnit':
+        return m.app_problem_unit_move_gone();
       case 'export':
         return m.app_problem_export();
       case 'import':

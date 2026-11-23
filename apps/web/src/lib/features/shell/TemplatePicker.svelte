@@ -9,6 +9,7 @@
   import { untrack } from 'svelte';
 
   import BookOpenIcon from '@lucide/svelte/icons/book-open';
+  import GraduationCapIcon from '@lucide/svelte/icons/graduation-cap';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import XIcon from '@lucide/svelte/icons/x';
@@ -33,6 +34,8 @@
     onEditTemplate: (template: Container) => void;
     /** Asks for a new wiki; left out where there are none. */
     onNewWiki?: (() => void) | undefined;
+    /** Asks for a new course; left out where there are none. */
+    onNewCourse?: (() => void) | undefined;
   }
 
   let {
@@ -42,6 +45,7 @@
     onFromTemplate,
     onEditTemplate,
     onNewWiki,
+    onNewCourse,
   }: Props = $props();
 
   const compact = $derived(page.stage === 'compact');
@@ -126,6 +130,20 @@
         >
           <BookOpenIcon aria-hidden="true" />
           {m.wiki_new_title()}
+        </Button>
+      {/if}
+      {#if onNewCourse}
+        <Button
+          variant="outline"
+          class="justify-start roomy:min-h-touch"
+          data-testid="new-course"
+          onclick={() => {
+            open = false;
+            onNewCourse();
+          }}
+        >
+          <GraduationCapIcon aria-hidden="true" />
+          {m.course_new_title()}
         </Button>
       {/if}
 

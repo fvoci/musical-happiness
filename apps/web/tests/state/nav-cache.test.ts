@@ -63,6 +63,7 @@ function multiWorkspaceSetup(
   const realBoards = backend.boards.bind(backend);
   const realCategories = backend.categories.bind(backend);
   const realWikis = backend.wiki.wikis.bind(backend.wiki);
+  const realCourses = backend.course.courses.bind(backend.course);
 
   const usersSpy = vi
     .spyOn(backend, 'users')
@@ -76,6 +77,9 @@ function multiWorkspaceSetup(
   const wikisSpy = vi
     .spyOn(backend.wiki, 'wikis')
     .mockImplementation((id) => (extras.has(id) ? Promise.resolve([]) : realWikis(id)));
+  vi.spyOn(backend.course, 'courses').mockImplementation((id) =>
+    extras.has(id) ? Promise.resolve([]) : realCourses(id),
+  );
 
   const workspace = track(
     new Workspace({

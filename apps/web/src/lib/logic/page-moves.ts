@@ -9,12 +9,63 @@
  * left out for the last).
  */
 import { orderBetween } from './page-order.ts';
-import { comparePlaces, type PlacedPage } from './page-tree.ts';
+import { ancestorsOf, comparePlaces, type PlacedPage } from './page-tree.ts';
 
 /** Where a page goes, as `movePage` takes it. */
 export interface PagePlace {
   parentId: string;
   after?: string;
+}
+
+/** Rules a tree places on where a node may move (e.g. a course's depth-2 chapter > unit rule). */
+export interface TreeRules<P extends PlacedPage = PlacedPage> {
+  /** Whether `moving` may be placed directly below `parent` (`undefined` for the top level). */
+  canBeUnder?: (moving: P, parent: P | undefined) => boolean;
+  /** Maximum depth from the top (1 = top only, 2 = chapter > unit); unlimited when omitted. */
+  maxDepth?: number;
+}
+
+/** Rules for a course outline: depth at most 2, chapters top-level only, only chapters hold units. */
+export function courseTreeRules<
+  P extends PlacedPage & { kind?: 'chapter' | 'unit' },
+>(): TreeRules<P> {
+  return {
+    maxDepth: 2,
+    canBeUnder: (moving, parent) =>
+      parent === undefined || (moving.kind !== 'chapter' && parent.kind === 'chapter'),
+  };
+}
+
+/** How many levels `pageId` and its descendants take (1 for a leaf). */
+function subtreeHeight(
+  pages: readonly PlacedPage[],
+  pageId: string,
+  seen = new Set<string>([pageId]),
+): number {
+  let height = 1;
+  for (const child of pages) {
+    if (child.parentId === pageId && !seen.has(child.id)) {
+      seen.add(child.id);
+      height = Math.max(height, 1 + subtreeHeight(pages, child.id, seen));
+    }
+  }
+  return height;
+}
+
+/** Whether `moving` may be placed directly under `parent` (`undefined` for the top) under `rules`. */
+export function allowsUnder<P extends PlacedPage>(
+  pages: readonly P[],
+  moving: P,
+  parent: P | undefined,
+  rules?: TreeRules<P>,
+): boolean {
+  if (!rules) return true;
+  if (rules.canBeUnder && !rules.canBeUnder(moving, parent)) return false;
+  if (rules.maxDepth !== undefined) {
+    const parentDepth = parent ? ancestorsOf(pages, parent.id).length + 1 : 0;
+    if (parentDepth + subtreeHeight(pages, moving.id) > rules.maxDepth) return false;
+  }
+  return true;
 }
 
 /** A step of the keyboard: among the siblings, into the page above, out to the parent's level. */
@@ -35,10 +86,11 @@ export function placeOf(pages: readonly PlacedPage[], pageId: string): PagePlace
 }
 
 /** Where a step of the keyboard takes the page; undefined where it goes nowhere. */
-export function stepped(
-  pages: readonly PlacedPage[],
+export function stepped<P extends PlacedPage>(
+  pages: readonly P[],
   pageId: string,
   step: MoveStep,
+  rules?: TreeRules<P>,
 ): PagePlace | undefined {
   const page = pages.find((one) => one.id === pageId);
   if (!page) return undefined;
@@ -55,14 +107,16 @@ export function stepped(
     }
     case 'in': {
       const above = siblings[at - 1];
-      return above ? { parentId: above.id } : undefined;
+      if (!above || !allowsUnder(pages, page, above, rules)) return undefined;
+      return { parentId: above.id };
     }
-    case 'out':
+    case 'out': {
       if (parentId === '') return undefined;
-      return {
-        parentId: pages.find((one) => one.id === parentId)?.parentId ?? '',
-        after: parentId,
-      };
+      const grandParentId = pages.find((one) => one.id === parentId)?.parentId ?? '';
+      const grandParent = grandParentId ? pages.find((one) => one.id === grandParentId) : undefined;
+      if (!allowsUnder(pages, page, grandParent, rules)) return undefined;
+      return { parentId: grandParentId, after: parentId };
+    }
     default:
       return undefined;
   }

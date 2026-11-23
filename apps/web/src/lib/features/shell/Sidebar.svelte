@@ -38,6 +38,7 @@
     isGuest,
     isOwnSpace,
     peopleOf,
+    shownCourse,
     shownWiki,
     whileHere,
     type Category,
@@ -130,6 +131,8 @@
     (workspace.board?.boardId === containerId && workspace.board?.canEdit === true) ||
       (shownWiki(workspace).current?.wikiId === containerId &&
         shownWiki(workspace).current?.canManage === true) ||
+      (shownCourse(workspace).current?.courseId === containerId &&
+        shownCourse(workspace).current?.canManage === true) ||
       // A diary is the reader's alone.
       workspace.containers.some((one) => one.id === containerId && one.kind === 'diary'),
   );
@@ -429,7 +432,9 @@
       ? m.shell_delete_wiki_title()
       : askedKind === 'diary'
         ? m.shell_delete_diary_title()
-        : m['DeleteBoardDialog.confirm-tite']()}
+        : askedKind === 'course'
+          ? m.shell_delete_course_title()
+          : m['DeleteBoardDialog.confirm-tite']()}
   description={asked?.kind === 'category'
     ? m['SidebarCategories.CategoryMenu.DeleteModal.Body']({ categoryName: asked.category.name })
     : asked?.kind === 'container'
@@ -437,7 +442,9 @@
         ? m.shell_delete_wiki_info({ title: titleOf(asked.container) })
         : askedKind === 'diary'
           ? m.shell_delete_diary_info({ title: titleOf(asked.container) })
-          : m['DeleteBoardDialog.confirm-info']({ boardTitle: titleOf(asked.container) })
+          : askedKind === 'course'
+            ? m.shell_delete_course_info({ title: titleOf(asked.container) })
+            : m['DeleteBoardDialog.confirm-info']({ boardTitle: titleOf(asked.container) })
       : undefined}
   confirmLabel={asked?.kind === 'category'
     ? m.shared_delete()

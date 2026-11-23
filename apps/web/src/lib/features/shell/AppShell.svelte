@@ -49,7 +49,15 @@
   import { sidebarShape } from '$lib/layout/presentation.ts';
   import { paneCovered } from '$lib/layout/over-pane.svelte.ts';
   import { page, pane } from '$lib/layout/room.svelte.ts';
-  import { createWiki, isGuest, isOwnSpace, whileHere, type WikiDraft } from '$lib/state/index.ts';
+  import {
+    createCourse,
+    createWiki,
+    isGuest,
+    isOwnSpace,
+    whileHere,
+    type CourseDraft,
+    type WikiDraft,
+  } from '$lib/state/index.ts';
   import type { AuditRecord } from '$lib/state/organization.ts';
 
   import AuditDialog from './AuditDialog.svelte';
@@ -60,6 +68,7 @@
   import { SidebarState } from './sidebar-state.svelte.ts';
   import Sidebar from './Sidebar.svelte';
   import SidebarStrip from './SidebarStrip.svelte';
+  import NewCourseDialog from './NewCourseDialog.svelte';
   import NewWikiDialog from './NewWikiDialog.svelte';
   import TemplatePicker from './TemplatePicker.svelte';
   import TopBar from './TopBar.svelte';
@@ -263,6 +272,14 @@
     if (made) openContainer(made);
   }
 
+  /** "New course" asks for its name and (in a shared workspace) who finds it. */
+  let namingCourse = $state(false);
+
+  async function addCourse(draft: CourseDraft): Promise<void> {
+    const made = await whileHere(workspace, () => createCourse(workspace, draft));
+    if (made) openContainer(made);
+  }
+
   async function addBoardFromTemplate(template: Container): Promise<void> {
     const made = await whileHere(workspace, () => workspace.duplicateContainer(template.id));
     if (made) openContainer(made);
@@ -393,6 +410,11 @@
         namingWiki = true;
       }
     : undefined}
+  onNewCourse={workspace.backend.course
+    ? () => {
+        namingCourse = true;
+      }
+    : undefined}
   onEmptyBoard={() => void addEmptyBoard()}
   onFromTemplate={(template: Container) => void addBoardFromTemplate(template)}
   onEditTemplate={(template: Container) => {
@@ -405,6 +427,13 @@
   workspaceName={nameOfWorkspace(workspace.info, m.shell_workspace_unnamed)}
   alone={isOwnSpace(workspace.info)}
   onCreate={(draft: WikiDraft) => void addWiki(draft)}
+/>
+
+<NewCourseDialog
+  bind:open={namingCourse}
+  workspaceName={nameOfWorkspace(workspace.info, m.shell_workspace_unnamed)}
+  alone={isOwnSpace(workspace.info)}
+  onCreate={(draft: CourseDraft) => void addCourse(draft)}
 />
 
 <SettingsDialog

@@ -259,7 +259,7 @@ describe('the sidebar over a workspace', () => {
     const expected = workspace.sidebar.flatMap((entry) =>
       entry.containers.map((board) => board.title),
     );
-    expect(expected).toHaveLength(13);
+    expect(expected).toHaveLength(14);
     expect(titles()).toEqual(expected);
     expect(
       [...document.querySelectorAll('[data-category-toggle]')].map((toggle) =>
@@ -323,12 +323,12 @@ describe('the sidebar over a workspace', () => {
     // Escape empties the field first.
     await fireEvent.keyDown(search, { key: 'Escape' });
     expect(search).toHaveValue('');
-    expect(screen.getAllByRole('link')).toHaveLength(13);
+    expect(screen.getAllByRole('link')).toHaveLength(14);
   });
 
   it('a board can be picked up only while the list is not narrowed', async () => {
     await mount();
-    expect(document.querySelectorAll('[data-drag-item]')).toHaveLength(13);
+    expect(document.querySelectorAll('[data-drag-item]')).toHaveLength(14);
     expect(document.querySelectorAll('[data-drag-list]')).toHaveLength(4);
     await fireEvent.input(screen.getByRole('textbox', { name: 'Find a board or wiki' }), {
       target: { value: 'goal' },
@@ -346,7 +346,7 @@ describe('the sidebar over a workspace', () => {
     await settle();
     await tick();
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getAllByRole('link')).toHaveLength(10);
+    expect(screen.getAllByRole('link')).toHaveLength(11);
     const research = workspace.categories.find((category) => category.name === 'Research');
     expect(research?.collapsed).toBe(true);
     expect(document.querySelector('[data-drag-zone]')).toHaveAttribute(

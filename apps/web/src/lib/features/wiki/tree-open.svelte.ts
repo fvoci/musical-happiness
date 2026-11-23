@@ -13,8 +13,8 @@ export class TreeOpen {
   readonly #key: string | undefined;
   readonly #open: SvelteSet<string>;
 
-  constructor(userId: string, wikiId: string) {
-    this.#key = userId === '' ? undefined : `${KEY}${userId}:${wikiId}`;
+  constructor(userId: string, containerId: string, prefix = KEY) {
+    this.#key = userId === '' ? undefined : `${prefix}${userId}:${containerId}`;
     this.#open = new SvelteSet(this.#read());
   }
 

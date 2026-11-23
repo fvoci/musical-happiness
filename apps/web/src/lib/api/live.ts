@@ -49,6 +49,7 @@ import { LivePresence } from './live-presence.ts';
 import { LiveRooms } from './live-rooms.ts';
 import { pageOfBlock } from './wikis.ts';
 import { entryOfBlock } from './diaries.ts';
+import { unitOfBlock } from './courses.ts';
 
 type Members = Extract<Change, { kind: 'members' }>['members'];
 type ChangedBlock = Extract<Change, { kind: 'blocks' }>['blocks'][number];
@@ -404,6 +405,15 @@ export class LiveChanges {
         this.#tellContainer(
           block.containerId,
           { kind: 'entries', containerId: block.containerId, entries },
+          false,
+        );
+        return;
+      }
+      if (block.type === 'unit' || block.type === 'chapter') {
+        const units = [unitOfBlock(block)];
+        this.#tellContainer(
+          block.containerId,
+          { kind: 'units', containerId: block.containerId, units },
           false,
         );
         return;

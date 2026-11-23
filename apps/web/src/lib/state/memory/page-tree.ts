@@ -13,6 +13,12 @@ import { fail } from './refuse.ts';
 export const PAGE_DEPTH = 10;
 /** How many pages a wiki may have, those in the trash not counted, as the server's default. */
 export const WIKI_PAGES = 5000;
+/** How deep a course's outline may go (chapter > unit). */
+export const COURSE_DEPTH = 2;
+/** How many units a course may have (chapters and trash excluded), as the server's default. */
+export const COURSE_UNITS = 2000;
+/** How many chapters a course may have (trash excluded), as the server's default. */
+export const COURSE_CHAPTERS = 200;
 /** The longest order a page is given before its siblings are numbered anew. */
 const ORDER_MAX_CHARS = 32;
 
@@ -24,7 +30,19 @@ export interface PageLimits {
   pages: number;
 }
 
+/** The limits a memory course is held to: the server's defaults unless a test says otherwise. */
+export interface CourseLimits {
+  depth: number;
+  units: number;
+  chapters: number;
+}
+
 export const DEFAULT_LIMITS: PageLimits = { depth: PAGE_DEPTH, pages: WIKI_PAGES };
+export const DEFAULT_COURSE_LIMITS: CourseLimits = {
+  depth: COURSE_DEPTH,
+  units: COURSE_UNITS,
+  chapters: COURSE_CHAPTERS,
+};
 
 /** A page as the tree's decisions need it. */
 export interface TreeNode {
@@ -40,11 +58,18 @@ export interface Place {
 }
 
 /** Refuses as the server does: the reason of the problem, its limit and, for depth, `parentId`. */
-function refuseLimit(reason: 'page_too_deep' | 'too_many_pages', limit: number): never {
+export function refuseLimit(
+  reason: 'page_too_deep' | 'too_many_pages' | 'too_many_units' | 'too_many_chapters',
+  limit: number,
+): never {
   const detail =
     reason === 'page_too_deep'
-      ? `the page would be deeper in its wiki than ${limit}`
-      : `the wiki would have more than ${limit} pages`;
+      ? `the page would be deeper than ${limit}`
+      : reason === 'too_many_units'
+        ? `the course would have more than ${limit} units`
+        : reason === 'too_many_chapters'
+          ? `the course would have more than ${limit} chapters`
+          : `the wiki would have more than ${limit} pages`;
   throw new BackendError(400, {
     ...problemOf(400, detail),
     type: `/problems/${reason.replaceAll('_', '-')}`,

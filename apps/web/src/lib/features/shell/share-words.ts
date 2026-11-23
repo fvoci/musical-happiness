@@ -1,8 +1,18 @@
-/** The words of the dialogs of a board's or a wiki's people that name which of the two it is. */
+/** The words of the dialogs of a container's people that name its kind. */
 import { m } from '$lib/i18n/paraglide/messages.js';
 import type { ContainerKind } from '$lib/logic/wire.ts';
 
 export function shareWords(kind: ContainerKind | undefined) {
+  if (kind === 'course') {
+    return {
+      title: m.share_course_title,
+      workspaceOpen: m.share_course_workspace_open,
+      guestHint: m.share_course_guest_hint,
+      guestLinks: m.share_course_guest_links_title,
+      guestAddresses: m.mail_course_guest_addresses_hint,
+      teamRemove: m.teams_course_remove,
+    };
+  }
   const wiki = kind === 'wiki';
   return {
     title: wiki ? m.share_wiki_title : m['ShareBoard.Title'],

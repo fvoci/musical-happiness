@@ -1,0 +1,377 @@
+/**
+ * The courses of the backend in memory (`Backend.course`), following the server
+ * rules (`crates/store/src/courses.rs`, `page_places.rs`):
+ * - A course is a container of kind `course` (no template, no card properties).
+ * - Chapters (`type: 'chapter'`) are title-only top-level groupings (`parentId === ''`,
+ *   `body === null`, no collab room).
+ * - Units (`type: 'unit'`) sit at the top or directly under a chapter (`depth <= 2`).
+ * - Independent limits: 200 chapters (`too_many_chapters`) and 2,000 units (`too_many_units`).
+ * - Deleting a chapter deletes its units together as one trash entry; restoring a unit
+ *   whose chapter is gone restores it last at the top.
+ */
+import type { DocNode } from '../../editor/schema.ts';
+import { PAGE_TITLE_MAX } from '../../logic/page-tree.ts';
+import { createBoard, type Container } from '../../logic/wire.ts';
+import { BackendError, type DeletedItem, type Paging } from '../backend.ts';
+import type {
+  CourseDraft,
+  Courses,
+  CourseUnit,
+  CourseUnitDetail,
+  UnitDraft,
+  UnitKind,
+  UnitMove,
+  UnitPatch,
+} from '../course-types.ts';
+
+import { checkedWhole } from './bodies.ts';
+import { fileAsNew } from './categories.ts';
+import { memberRole } from './container-access.ts';
+import {
+  DEFAULT_COURSE_LIMITS,
+  PageTree,
+  refuseLimit,
+  type CourseLimits,
+  type Place,
+} from './page-tree.ts';
+import { fail } from './refuse.ts';
+import { copy, memberOf, orderOf, scramble, unitOf } from './shapes.ts';
+import { checkWorkspace } from './spaces.ts';
+import { deletedUnitsOf, deletion } from './trash.ts';
+import type { WikiHost } from './wikis.ts';
+import type { StoredBlock, World } from './world.ts';
+
+const isCourse = (board: Container | undefined): board is Container => board?.kind === 'course';
+const isCourseBlock = (block: StoredBlock | undefined): boolean =>
+  block?.type === 'unit' || block?.type === 'chapter';
+
+function detailOf(block: StoredBlock): CourseUnitDetail {
+  return {
+    ...unitOf(block),
+    body: block.type === 'chapter' ? null : copy(block.body ?? null),
+    createdBy: block.createdBy,
+    modifiedBy: block.modifiedBy,
+  };
+}
+
+function checkedTitle(title: string): string {
+  if (Array.from(title).length > PAGE_TITLE_MAX) {
+    fail(400, 'the title is too long', { field: 'title', limit: PAGE_TITLE_MAX });
+  }
+  return title;
+}
+
+export class MemoryCourses implements Courses {
+  readonly #host: WikiHost;
+  readonly #failures = new Map<keyof Courses, BackendError>();
+  /** The limits a memory course is held to; a test may lower them to reach them. */
+  limits: CourseLimits = DEFAULT_COURSE_LIMITS;
+
+  constructor(host: WikiHost) {
+    this.#host = host;
+  }
+
+  get #world(): World {
+    return this.#host.world;
+  }
+
+  /** Makes the next call of `method` reject with `error`, once. */
+  failNext(method: keyof Courses, error: BackendError): void {
+    this.#failures.set(method, error);
+  }
+
+  async #enter(method: keyof Courses): Promise<void> {
+    if (this.#host.latency > 0) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, this.#host.latency);
+      });
+    } else {
+      await Promise.resolve();
+    }
+    const failure = this.#failures.get(method);
+    if (failure) {
+      this.#failures.delete(method);
+      throw failure;
+    }
+  }
+
+  #role(courseId: string): string {
+    return memberRole(this.#world, this.#host.userId, courseId, 'course');
+  }
+
+  #mayWrite(courseId: string): void {
+    const role = this.#role(courseId);
+    if (role !== 'admin' && role !== 'editor') fail(403, 'access denied to the course');
+  }
+
+  #node(courseId: string, unitId: string): StoredBlock {
+    const block = this.#world.blocks.get(unitId);
+    if (!block || !isCourseBlock(block) || block.containerId !== courseId) {
+      fail(404, 'no such unit');
+    }
+    return block;
+  }
+
+  #nodesOf(courseId: string): StoredBlock[] {
+    return this.#world.blocksOf(courseId).filter(isCourseBlock);
+  }
+
+  #tellUnits(courseId: string, blocks: readonly StoredBlock[]): void {
+    this.#world.tellContainer(courseId, {
+      kind: 'units',
+      containerId: courseId,
+      units: blocks.map(unitOf),
+    });
+  }
+
+  #tree(courseId: string): PageTree {
+    return new PageTree(
+      this.#nodesOf(courseId).map((block) => ({
+        id: block.id,
+        parentId: block.parentId,
+        order: orderOf(block),
+      })),
+    );
+  }
+
+  #writePlace(node: StoredBlock, place: Place): StoredBlock[] {
+    const now = this.#world.now();
+    const renumbered = place.renumbered.flatMap(([id, order]) => {
+      const sibling = this.#world.blocks.get(id);
+      if (!sibling) return [];
+      sibling.fields = { ...sibling.fields, order };
+      sibling.updateAt = now;
+      return [sibling];
+    });
+    node.fields = { ...node.fields, order: place.order };
+    return renumbered;
+  }
+
+  #checkParent(courseId: string, kind: UnitKind, parentId: string, selfId?: string): void {
+    if (parentId === '') return;
+    if (kind === 'chapter') {
+      fail(400, 'a chapter goes at the top of the course', { field: 'parentId' });
+    }
+    if (selfId !== undefined && parentId === selfId) {
+      fail(400, 'the parent is the unit itself', { field: 'parentId' });
+    }
+    const parent = this.#world.blocks.get(parentId);
+    if (parent?.type !== 'chapter' || parent.containerId !== courseId) {
+      fail(400, 'the parent is no chapter of the course', { field: 'parentId' });
+    }
+  }
+
+  #checkCounts(courseId: string, addChapters: number, addUnits: number): void {
+    const nodes = this.#nodesOf(courseId);
+    const chapters = nodes.filter((block) => block.type === 'chapter').length;
+    const units = nodes.filter((block) => block.type === 'unit').length;
+    if (addChapters > 0 && chapters + addChapters > this.limits.chapters) {
+      refuseLimit('too_many_chapters', this.limits.chapters);
+    }
+    if (addUnits > 0 && units + addUnits > this.limits.units) {
+      refuseLimit('too_many_units', this.limits.units);
+    }
+  }
+
+  async courses(workspaceId: string): Promise<Container[]> {
+    await this.#enter('courses');
+    checkWorkspace(this.#world, this.#host.userId, workspaceId);
+    const userId = this.#host.userId;
+    const theirs = [...this.#world.containers.values()].filter(
+      (board) =>
+        isCourse(board) &&
+        board.workspaceId === workspaceId &&
+        (board.type === 'O' ||
+          (this.#world.members.get(board.id) ?? []).some((member) => member.userId === userId)),
+    );
+    return scramble(theirs).map(copy);
+  }
+
+  async createCourse(workspaceId: string, draft: CourseDraft): Promise<Container> {
+    await this.#enter('createCourse');
+    checkWorkspace(this.#world, this.#host.userId, workspaceId);
+    const world = this.#world;
+    const userId = this.#host.userId;
+    const now = world.now();
+    const course: Container = {
+      ...createBoard(),
+      id: world.newId(),
+      workspaceId,
+      kind: 'course',
+      createdBy: userId,
+      modifiedBy: userId,
+      type: draft.type,
+      minimumRole: draft.minimumRole ?? 'editor',
+      title: draft.title,
+      description: draft.description ?? '',
+      icon: draft.icon ?? '',
+      cardProperties: [],
+      createAt: now,
+      updateAt: now,
+    };
+    world.containers.set(course.id, course);
+    world.members.set(course.id, [memberOf(course.id, userId, 'admin')]);
+    world.tellContainer(course.id, { kind: 'container', container: copy(course) });
+    world.tellUsers([userId], { kind: 'container', container: copy(course) });
+    fileAsNew(world, userId, course);
+    return copy(course);
+  }
+
+  async units(courseId: string): Promise<CourseUnit[]> {
+    await this.#enter('units');
+    this.#role(courseId);
+    return scramble(this.#nodesOf(courseId)).map(unitOf);
+  }
+
+  async unit(courseId: string, unitId: string): Promise<CourseUnitDetail> {
+    await this.#enter('unit');
+    this.#role(courseId);
+    return detailOf(this.#node(courseId, unitId));
+  }
+
+  async createUnit(courseId: string, draft: UnitDraft): Promise<CourseUnitDetail> {
+    await this.#enter('createUnit');
+    this.#mayWrite(courseId);
+    const kind: UnitKind = draft.kind ?? 'unit';
+    const title = checkedTitle(draft.title ?? '');
+    const parentId = draft.parentId ?? '';
+    this.#checkParent(courseId, kind, parentId);
+    this.#checkCounts(courseId, kind === 'chapter' ? 1 : 0, kind === 'unit' ? 1 : 0);
+    const place = this.#tree(courseId).place(parentId, draft.after);
+    const now = this.#world.now();
+    const userId = this.#host.userId;
+    const made: StoredBlock = {
+      id: this.#world.newId(),
+      containerId: courseId,
+      parentId,
+      createdBy: userId,
+      modifiedBy: userId,
+      schema: 1,
+      type: kind,
+      title,
+      fields: {},
+      body: null,
+      createAt: now,
+      updateAt: now,
+      deleteAt: 0,
+    };
+    const renumbered = this.#writePlace(made, place);
+    this.#world.blocks.set(made.id, made);
+    this.#tellUnits(courseId, [...renumbered, made]);
+    return detailOf(made);
+  }
+
+  async patchUnit(courseId: string, unitId: string, patch: UnitPatch): Promise<CourseUnitDetail> {
+    await this.#enter('patchUnit');
+    this.#mayWrite(courseId);
+    const node = this.#node(courseId, unitId);
+    if (node.type === 'chapter' && patch.body !== undefined) {
+      fail(400, 'a chapter has no body', { field: 'body' });
+    }
+    const title = patch.title === undefined ? undefined : checkedTitle(patch.title);
+    if (patch.body !== undefined && patch.readAt === undefined) {
+      fail(400, 'a body is written with the time it was read', { field: 'readAt' });
+    }
+    const body: DocNode | null | undefined =
+      patch.body === undefined
+        ? undefined
+        : checkedWhole(this.#world, courseId, unitId, patch.body);
+    if (patch.readAt !== undefined && patch.readAt !== node.updateAt) {
+      throw new BackendError(409, { detail: 'the unit changed since it was read' });
+    }
+    if (title !== undefined) node.title = title;
+    if (body !== undefined) node.body = body;
+    node.updateAt = this.#world.now();
+    node.modifiedBy = this.#host.userId;
+    if (body !== undefined) this.#world.bodyWritten?.(unitId);
+    this.#tellUnits(courseId, [node]);
+    return detailOf(node);
+  }
+
+  async moveUnit(courseId: string, unitId: string, to: UnitMove): Promise<CourseUnitDetail> {
+    await this.#enter('moveUnit');
+    this.#mayWrite(courseId);
+    const node = this.#node(courseId, unitId);
+    const kind: UnitKind = node.type === 'chapter' ? 'chapter' : 'unit';
+    const parentId = to.parentId ?? '';
+    this.#checkParent(courseId, kind, parentId, unitId);
+    const tree = this.#tree(courseId);
+    if (node.parentId === parentId && tree.isAt(unitId, parentId, to.after)) return detailOf(node);
+    const place = tree.place(parentId, to.after, unitId);
+    const renumbered = this.#writePlace(node, place);
+    node.parentId = parentId;
+    node.updateAt = this.#world.now();
+    node.modifiedBy = this.#host.userId;
+    this.#tellUnits(courseId, [...renumbered, node]);
+    return detailOf(node);
+  }
+
+  async deleteUnit(courseId: string, unitId: string): Promise<void> {
+    await this.#enter('deleteUnit');
+    this.#mayWrite(courseId);
+    const node = this.#node(courseId, unitId);
+    const gone = [node];
+    for (const above of gone) gone.push(...this.#world.childrenOf(above.id));
+    this.#world.deletedBlocks.set(unitId, {
+      containerId: courseId,
+      blocks: gone,
+      ...deletion({ world: this.#world, userId: this.#host.userId }),
+    });
+    for (const block of gone) this.#world.blocks.delete(block.id);
+    this.#world.tellContainer(courseId, {
+      kind: 'blocksDeleted',
+      containerId: courseId,
+      blockIds: [unitId],
+    });
+  }
+
+  async deletedUnits(courseId: string, paging?: Paging): Promise<DeletedItem[]> {
+    await this.#enter('deletedUnits');
+    this.#mayWrite(courseId);
+    return deletedUnitsOf(this.#world, courseId, paging);
+  }
+
+  async undeleteUnit(courseId: string, unitId: string): Promise<CourseUnitDetail> {
+    await this.#enter('undeleteUnit');
+    this.#mayWrite(courseId);
+    const world = this.#world;
+    const deleted = world.deletedBlocks.get(unitId);
+    const [top] = deleted?.blocks ?? [];
+    if (deleted?.containerId !== courseId || top?.id !== unitId || !isCourseBlock(top)) {
+      fail(404, 'no such unit in the trash');
+    }
+    const nodes = deleted.blocks.filter(isCourseBlock);
+    this.#checkCounts(
+      courseId,
+      nodes.filter((block) => block.type === 'chapter').length,
+      nodes.filter((block) => block.type === 'unit').length,
+    );
+    const tree = this.#tree(courseId);
+    const livingChapter =
+      top.type === 'unit' &&
+      top.parentId !== '' &&
+      world.blocks.get(top.parentId)?.type === 'chapter' &&
+      world.blocks.get(top.parentId)?.containerId === courseId;
+    const parentId = top.type === 'chapter' ? '' : livingChapter ? top.parentId : '';
+    const order = orderOf(top);
+    const siblings = tree.siblings(parentId);
+    let renumbered: StoredBlock[] = [];
+    if (parentId !== top.parentId) {
+      renumbered = this.#writePlace(top, tree.place('', undefined));
+    } else if (siblings.some((sibling) => sibling.order === order)) {
+      const before = siblings.filter(
+        (sibling) => sibling.order < order || (sibling.order === order && sibling.id < unitId),
+      );
+      renumbered = this.#writePlace(top, tree.place(parentId, before.at(-1)?.id ?? ''));
+    }
+    top.parentId = parentId;
+    world.deletedBlocks.delete(unitId);
+    const now = world.now();
+    for (const block of deleted.blocks) {
+      [block.updateAt, block.modifiedBy] = [now, this.#host.userId];
+      world.blocks.set(block.id, block);
+    }
+    this.#tellUnits(courseId, [...renumbered, ...nodes]);
+    return detailOf(top);
+  }
+}

@@ -491,9 +491,11 @@ describe('the seed made of the boards of `seed/`', () => {
     expect(new Set([...world.blocks.keys(), ...world.containers.keys()]).size).toBe(
       world.blocks.size + world.containers.size,
     );
+    const courses = await backend.course.courses(workspace?.id ?? '');
+    expect(courses).toHaveLength(1);
     const categories = await backend.categories(workspace?.id ?? '');
     expect(categories.flatMap((category) => category.containerIds).sort()).toEqual(
-      boards.map((board) => board.id).sort(),
+      [...boards, ...courses].map((container) => container.id).sort(),
     );
   });
 
