@@ -2,11 +2,14 @@
  * How long a file and a function of `src` may be.
  *
  * The numbers are the constants below. What is over them today is listed in
- * `tools/lint/length-exceptions.txt` with its length as a ceiling: it may not
- * grow, and when it shrinks the check fails until the ceiling is lowered, or
- * the line removed once the length is within the limit. By hand a line is
- * lowered, removed, or moved with its code to the file or name the code went
- * to; a moved line is not an added one and needs no evidence.
+ * `tools/lint/length-exceptions.txt` with a ceiling (`<=`): the code may not
+ * exceed its ceiling, while shrinking below it (even back within the limit)
+ * still passes so parallel work does not collide on the list. A listed file
+ * or function that is missing from the code, or a listed ceiling at or below
+ * the limit, still fails. Ceilings are lowered and unneeded lines removed
+ * when tightening the list with `pnpm run lengths:measure`, or by hand; a
+ * line moved with its code to the file or name the code went to is not an
+ * added one and needs no evidence.
  *
  * Code that would go over is split first. A ceiling goes up, or a line is
  * added, only where a split would make the code worse, and only with the
@@ -16,15 +19,16 @@
  * cut in two, a type exported for the split alone, a file with no job of its
  * own). That a split is more work is not evidence. The number goes in by hand
  * on that one line, in the same commit, and is the length the check printed,
- * not one line more: the check refuses a ceiling above the code.
+ * not one line more: do not pad a ceiling above the code.
  *
  * The check cannot tell a raised number from a measured one. A raised or
  * added line shows in the diff of the list, and whoever merges reads it
  * against the evidence and sends back one whose evidence is missing or does
- * not hold. `measure-lengths.ts` rewrites the whole list from the code, once
- * after work that was measured apart is merged; what it raises or adds there
- * (it prints each) is held to the same rule: the body of the merge commit
- * gives the evidence, or the code is split first.
+ * not hold. `measure-lengths.ts` rewrites the whole list from the code — to
+ * tighten ceilings and drop unneeded lines during cleanup, or once after work
+ * that was measured apart is merged; what it raises or adds there (it prints
+ * each) is held to the same rule: the body of the merge commit gives the
+ * evidence, or the code is split first.
  *
  * A function is measured by ESLint's parsers, from its first line to its
  * last, comments and empty lines included: declarations, function
@@ -146,12 +150,14 @@ export function parseExceptions(text: string): { over: Over; subjects: Map<strin
 }
 
 const EXCEPTIONS_HEAD = `# Files and functions of src that are over the limit of their length
-# (tools/lint/lengths.ts), each with the number of lines it has: its ceiling.
+# (tools/lint/lengths.ts), each with an upper-bound line count (\`<=\`): its ceiling.
 #
-# Written by \`pnpm run lengths:measure\` (tools/lint/measure-lengths.ts). \`check\` fails
-# when the code is longer than its ceiling, when something not listed is over the
-# limit, and when the code got shorter, until the number here is lowered (or the line
-# removed, once the code is within the limit).
+# Written by \`pnpm run lengths:measure\` (tools/lint/measure-lengths.ts). \`check\`
+# enforces each ceiling as an upper bound (\`<=\`): it fails when the code is longer
+# than its ceiling, when something not listed is over the limit, when a listed file
+# or function is missing from the code, or when a listed ceiling is at or below the
+# limit. Code that shrinks below its ceiling still passes; run \`pnpm run lengths:measure\`
+# when tightening ceilings and dropping unneeded lines.
 #
 # By hand a line is lowered, removed, or moved with its code to the file or name the
 # code went to; a moved line is not an added one.
@@ -160,9 +166,10 @@ const EXCEPTIONS_HEAD = `# Files and functions of src that are over the limit of
 # commit that brings the code which needs it, to the length the check printed, and with
 # the evidence in that commit's body that a split would make the code worse: what the
 # added code is, the seam, and its cost (tools/lint/lengths.ts). Whoever merges reads
-# every raised or added line here against that evidence. \`lengths:measure\` is run
-# once after work that was measured apart is merged, not to make a check pass; what it
-# raises or adds there is held to the same rule, in the body of the merge commit.
+# every raised or added line here against that evidence. \`lengths:measure\` is for
+# tightening the list or once after work that was measured apart is merged, never to
+# make a check pass; what it raises or adds there is held to the same rule, in the body
+# of the merge commit.
 #
 # file <lines> <path>
 # function <lines> <path> <name>
@@ -189,9 +196,11 @@ export function renderExceptions(measured: readonly Length[]): string {
 }
 
 /**
- * Compares what was measured with the list. Each line of the answer is one
- * difference: something over the limit that is not listed, something longer
- * than its ceiling, or a ceiling that is higher than the code needs.
+ * Compares what was measured with the list, enforcing each ceiling as an
+ * upper bound (`<=`). Each line of the answer is one failure: something over
+ * the limit that is not listed, something longer than its ceiling, or a
+ * listed entry missing from the code. Duplicate-named functions in a file are
+ * paired longest-first and checked by count against their listed ceilings.
  */
 export function judge(measured: readonly Length[], listedText: string): string[] {
   const { over: listed, subjects } = parseExceptions(listedText);
@@ -210,21 +219,17 @@ export function judge(measured: readonly Length[], listedText: string): string[]
     for (const [index, length] of lengths.sort((a, b) => b.lines - a.lines).entries()) {
       const limit = limitOf(length);
       const ceiling = ceilings[index];
-      const place = `${length.file}:${length.at}`;
       const { lines } = length;
       if (ceiling === undefined) {
         if (lines > limit) {
-          problems.push(`${place}: ${shown(length)} has ${lines} lines, the limit is ${limit}`);
+          problems.push(
+            `${length.file}:${length.at}: ${shown(length)} has ${lines} lines, the limit is ${limit}`,
+          );
         }
       } else if (lines > ceiling) {
-        problems.push(`${place}: ${shown(length)} has ${lines} lines, its ceiling is ${ceiling}`);
-      } else if (lines < ceiling) {
-        const fix =
-          lines > limit
-            ? `: lower its ceiling of ${ceiling}`
-            : `, within the limit of ${limit}: remove its line (${ceiling})`;
-        const where = length.kind === 'file' ? '' : ` (line ${length.at})`;
-        problems.push(`${EXCEPTIONS}: ${shown(length)}${where} has ${lines} lines now${fix}`);
+        problems.push(
+          `${length.file}:${length.at}: ${shown(length)} has ${lines} lines, its ceiling is ${ceiling}`,
+        );
       }
     }
   }

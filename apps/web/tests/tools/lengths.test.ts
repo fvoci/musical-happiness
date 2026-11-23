@@ -1,7 +1,7 @@
 /**
  * The limits on the length of files and functions (tools/lint/lengths.ts):
  * what is measured, and how the measure is held against the list of
- * exceptions, in both directions.
+ * exceptions as upper-bound ceilings.
  */
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -70,21 +70,16 @@ describe('the list of exceptions', () => {
     ]);
   });
 
-  it('holds what is listed to its ceiling, up and down', () => {
+  it('enforces listed ceilings as upper bounds and allows shorter code', () => {
     const list = 'file 600 src/a.ts\nfunction 150 src/a.ts draw\n';
     expect(judge([file('src/a.ts', 600), fn('draw', 150)], list)).toEqual([]);
     expect(judge([file('src/a.ts', 601), fn('draw', 151, 9)], list)).toEqual([
       'src/a.ts:1: src/a.ts has 601 lines, its ceiling is 600',
       'src/a.ts:9: src/a.ts: function draw has 151 lines, its ceiling is 150',
     ]);
-    expect(judge([file('src/a.ts', 599), fn('draw', 149, 9)], list)).toEqual([
-      `${EXCEPTIONS}: src/a.ts has 599 lines now: lower its ceiling of 600`,
-      `${EXCEPTIONS}: src/a.ts: function draw (line 9) has 149 lines now: lower its ceiling of 150`,
-    ]);
-    expect(judge([file('src/a.ts', 500), fn('draw', 100, 9)], list)).toEqual([
-      `${EXCEPTIONS}: src/a.ts has 500 lines now, within the limit of 500: remove its line (600)`,
-      `${EXCEPTIONS}: src/a.ts: function draw (line 9) has 100 lines now, within the limit of 100: remove its line (150)`,
-    ]);
+    expect(judge([file('src/a.ts', 599), fn('draw', 149, 9)], list)).toEqual([]);
+    expect(judge([file('src/a.ts', 500), fn('draw', 100, 9)], list)).toEqual([]);
+    expect(judge([file('src/a.ts', 400), fn('draw', 50, 9)], list)).toEqual([]);
   });
 
   it('refuses a line whose file or function is gone', () => {
@@ -103,11 +98,22 @@ describe('the list of exceptions', () => {
       fn('<anonymous>', 3, 400),
     ];
     expect(judge(two(120, 150), list)).toEqual([]);
+    expect(judge(two(110, 140), list)).toEqual([]);
+    expect(judge(two(50, 90), list)).toEqual([]);
     expect(judge(two(121, 150), list)).toEqual([
+      'src/a.ts:1: src/a.ts: function <anonymous> has 121 lines, its ceiling is 120',
+    ]);
+    expect(judge(two(121, 140), list)).toEqual([
       'src/a.ts:1: src/a.ts: function <anonymous> has 121 lines, its ceiling is 120',
     ]);
     expect(judge(two(150, 150), list)).toEqual([
       'src/a.ts:200: src/a.ts: function <anonymous> has 150 lines, its ceiling is 120',
+    ]);
+    expect(judge([fn('<anonymous>', 150, 1)], list)).toEqual([
+      `${EXCEPTIONS}: src/a.ts: function <anonymous> is not in the code: remove its line (120)`,
+    ]);
+    expect(judge([fn('<anonymous>', 50, 1)], list)).toEqual([
+      `${EXCEPTIONS}: src/a.ts: function <anonymous> is not in the code: remove its line (120)`,
     ]);
     expect(judge([...two(120, 150), fn('<anonymous>', 101, 600)], list)).toEqual([
       'src/a.ts:600: src/a.ts: function <anonymous> has 101 lines, the limit is 100',
@@ -157,7 +163,9 @@ describe('the list of exceptions', () => {
       expect(() => parseExceptions(line), line).toThrow('expected `file lines path`');
     }
     expect(() => parseExceptions('file 500 src/a.ts')).toThrow('within the limit of 500');
+    expect(() => parseExceptions('file 499 src/a.ts')).toThrow('within the limit of 500');
     expect(() => parseExceptions('function 100 src/a.ts f')).toThrow('within the limit of 100');
+    expect(() => parseExceptions('function 99 src/a.ts f')).toThrow('within the limit of 100');
   });
 });
 
@@ -352,6 +360,24 @@ describe('the files that are measured', () => {
       write('src/lib/plain.js', `${long('plain', 102)}\n`);
       expect((await check(root)).problems).toEqual([
         'src/lib/plain.js:1: src/lib/plain.js: function plain has 102 lines, its ceiling is 101',
+      ]);
+
+      write('src/lib/long.ts', 'export {};\n'.repeat(MAX_FILE_LINES + 5));
+      await rewrite(root);
+      write('src/lib/long.ts', 'export {};\n'.repeat(MAX_FILE_LINES + 2));
+      write('src/lib/plain.js', `${long('plain', 100)}\n`);
+      expect((await check(root)).problems).toEqual([]);
+
+      const { list: tightened } = await rewrite(root);
+      expect(tightened.split('\n').filter((line) => /^(file|function) /.test(line))).toEqual([
+        'file 502 src/lib/long.ts',
+        'function 101 src/lib/state/board.svelte.ts planted',
+      ]);
+      expect((await check(root)).problems).toEqual([]);
+
+      rmSync(path.join(root, 'src/lib/long.ts'));
+      expect((await check(root)).problems).toEqual([
+        `${EXCEPTIONS}: src/lib/long.ts is not in the code: remove its line (502)`,
       ]);
     },
     SLOW,

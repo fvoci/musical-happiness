@@ -4,9 +4,9 @@
  *
  *   node tools/lint/measure-lengths.ts     (`pnpm run lengths:measure`)
  *
- * It is for the moment after work that was measured apart is merged; no
- * check calls it. A ceiling that goes up with its code is one line changed
- * by hand, with evidence (see `lengths.ts`).
+ * Used to tighten ceilings and drop unneeded entries, or once after work
+ * that was measured apart is merged; no check calls it. A ceiling that goes
+ * up with its code is one line changed by hand, with evidence (see `lengths.ts`).
  */
 import path from 'node:path';
 
