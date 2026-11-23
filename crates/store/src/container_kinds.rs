@@ -11,7 +11,11 @@ use crate::error::StoreError;
 /// Pushes ` AND <column> IN (<the kinds>)`, and nothing for every kind. `column` names
 /// the kind column of the boards read, with its alias.
 pub(crate) fn push_kinds(sql: &mut Sql, column: &str, kinds: ContainerKinds) {
-    if kinds == ContainerKinds::Every {
+    if kinds == ContainerKinds::EVERY {
+        return;
+    }
+    if kinds.is_empty() {
+        sql.push(" AND 1 = 0");
         return;
     }
     sql.push(" AND ")

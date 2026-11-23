@@ -18,6 +18,7 @@ pub(super) async fn exercise(case: &mut Case) {
     let board = case.remember(&made, "id");
     boards(case, &board).await;
     wikis(case).await;
+    courses(case).await;
     let card = cards(case, &board).await;
     categories(case, &board).await;
     let audited = people(case, &board).await;
@@ -98,6 +99,50 @@ async fn wikis(case: &mut Case) {
     case.present("getContainer", &[("containerId", &wiki)], &wiki)
         .await;
     pages(case, &wiki).await;
+}
+
+/// A course of the founder's with a chapter and a unit: made, listed, read, changed,
+/// moved, deleted, found in the trash and brought back.
+async fn courses(case: &mut Case) {
+    let made = case
+        .run(
+            "createCourse",
+            &[],
+            json!({"title": format!("secret {} course", case.label), "type": "P"}),
+        )
+        .await
+        .value();
+    let course = case.remember(&made, "id");
+    assert_eq!(made["kind"], "course", "a course is made as one");
+    case.present("getCourses", &[], &course).await;
+    let at = &[("courseId", course.as_str())];
+    let chapter = case
+        .run(
+            "createUnit",
+            at,
+            json!({"kind": "chapter", "title": format!("secret {} chapter", case.label)}),
+        )
+        .await
+        .value();
+    let chapter = case.remember(&chapter, "id");
+    let unit = case
+        .run(
+            "createUnit",
+            at,
+            json!({"parentId": chapter, "title": format!("secret {} unit", case.label)}),
+        )
+        .await
+        .value();
+    let unit = case.remember(&unit, "id");
+    case.present("getUnitTree", at, &unit).await;
+    let of_unit = &[("courseId", course.as_str()), ("unitId", unit.as_str())];
+    case.present("getUnit", of_unit, &unit).await;
+    case.run("patchUnit", of_unit, json!({"title": "changed unit"}))
+        .await;
+    case.run("moveUnit", of_unit, json!({"parentId": ""})).await;
+    case.run("deleteUnit", of_unit, json!({})).await;
+    case.present("getDeletedUnits", at, &unit).await;
+    case.run("undeleteUnit", of_unit, json!({})).await;
 }
 
 /// Pages of the wiki, one below the other: made, listed, read, changed, moved,

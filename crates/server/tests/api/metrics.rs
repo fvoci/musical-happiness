@@ -593,6 +593,22 @@ async fn the_archives_that_hold_their_place_are_counted() {
     server.teardown().await;
 }
 
+async fn export_and_import_container(
+    client: &crate::common::Client,
+    workspace_id: &str,
+    container_id: &str,
+) {
+    let export = client
+        .get(&format!(
+            "/w/{workspace_id}/containers/{container_id}/archive/export"
+        ))
+        .await;
+    export.check_ok();
+    crate::export::import(client, workspace_id, &export.body)
+        .await
+        .check_ok();
+}
+
 #[tokio::test]
 async fn the_boards_wikis_and_diaries_copied_whole_are_counted_by_work_and_kind() {
     let server = server_with_metrics().await.init_basic().await;
@@ -606,7 +622,7 @@ async fn the_boards_wikis_and_diaries_copied_whole_are_counted_by_work_and_kind(
     };
     let before = scrape(&server).await;
     for work in ["export", "import", "duplicate", "welcome"] {
-        for kind in ["board", "wiki", "diary"] {
+        for kind in ["board", "wiki", "diary", "course"] {
             assert_eq!(
                 copied(&before, work, kind),
                 Some(0.0),
@@ -623,13 +639,7 @@ async fn the_boards_wikis_and_diaries_copied_whole_are_counted_by_work_and_kind(
     let wiki = crate::wiki_copies::wiki(client, "Counted").await;
     for (id, times) in [(&board.id, 1), (&wiki, 2)] {
         for _ in 0..times {
-            let export = client
-                .get(&format!("{TEST_WS}/containers/{id}/archive/export"))
-                .await;
-            export.check_ok();
-            crate::export::import(client, crate::common::TEST_WORKSPACE_ID, &export.body)
-                .await
-                .check_ok();
+            export_and_import_container(client, crate::common::TEST_WORKSPACE_ID, id).await;
         }
         client
             .post(
@@ -639,20 +649,22 @@ async fn the_boards_wikis_and_diaries_copied_whole_are_counted_by_work_and_kind(
             .await
             .check_created();
     }
-    // A diary, which is of the user's own space, goes into an archive and comes out of one.
     let own = crate::own_space::own_workspace(client).await.id;
     let diary = client
         .post(&format!("/w/{own}/diaries"), &serde_json::json!({}))
         .await;
     diary.check_created();
     let diary = diary.value()["id"].as_str().expect("its id").to_owned();
-    let export = client
-        .get(&format!("/w/{own}/containers/{diary}/archive/export"))
+    export_and_import_container(client, &own, &diary).await;
+    let course = client
+        .post(
+            &format!("{TEST_WS}/courses"),
+            &serde_json::json!({"type": "P", "title": "Counted"}),
+        )
         .await;
-    export.check_ok();
-    crate::export::import(client, &own, &export.body)
-        .await
-        .check_ok();
+    course.check_created();
+    let course = course.value()["id"].as_str().expect("its id").to_owned();
+    export_and_import_container(client, crate::common::TEST_WORKSPACE_ID, &course).await;
     // The welcome board of a new account is counted apart from the copies people make.
     client
         .post_empty(&format!("{TEST_WS}/onboard"))
@@ -672,6 +684,10 @@ async fn the_boards_wikis_and_diaries_copied_whole_are_counted_by_work_and_kind(
         ("export", "diary", 1.0),
         ("import", "diary", 1.0),
         ("duplicate", "diary", 0.0),
+        ("welcome", "course", 0.0),
+        ("export", "course", 1.0),
+        ("import", "course", 1.0),
+        ("duplicate", "course", 0.0),
     ];
     for (work, kind, times) in counted {
         assert_eq!(
@@ -680,12 +696,12 @@ async fn the_boards_wikis_and_diaries_copied_whole_are_counted_by_work_and_kind(
             "{work} {kind}: {body}"
         );
     }
-    // Three values of `kind`, four of `work`: nothing else is counted.
+    // Four values of `kind`, four of `work`: nothing else is counted.
     let series = body
         .lines()
         .filter(|line| line.starts_with("fvoci_containers_copied_total{"))
         .count();
-    assert_eq!(series, 12, "{body}");
+    assert_eq!(series, 16, "{body}");
     server.teardown().await;
 }
 

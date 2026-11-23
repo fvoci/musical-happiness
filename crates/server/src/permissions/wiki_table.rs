@@ -7,7 +7,7 @@ use super::ContainerPermission::{
     CommentCards, Delete, Join, ListMembers, ManageCards, ManageProperties, ManageRoles, See, View,
 };
 use super::ContainerScope::{BuiltIn, InvitedOnlyTemplate, OpenTemplate};
-use super::ContainerScope::{InvitedOnly, Open, OpenWiki};
+use super::ContainerScope::{InvitedOnly, Open, OpenToRead};
 use super::table::{
     GUEST, MEMBER, ORG_ADMIN_IN_WORKSPACE, ORG_ADMIN_ONLY, OUTSIDE_GUEST, REMOVED, STRANGER,
     WORKSPACE_ADMIN,
@@ -58,14 +58,14 @@ fn whoever_works_in_the_workspace_reads_an_open_wiki_without_joining_it() {
         ),
     ] {
         assert_eq!(
-            granted(actor, OpenWiki, None),
+            granted(actor, OpenToRead, None),
             exactly(READS_AND_JOINS),
             "{case}"
         );
     }
     let admin = exactly(&[See, Join, View, ListMembers, ManageRoles, Delete]);
     assert_eq!(
-        granted(WORKSPACE_ADMIN, OpenWiki, None),
+        granted(WORKSPACE_ADMIN, OpenToRead, None),
         admin,
         "the workspace's administrator reads it as well as manages it"
     );
@@ -74,12 +74,12 @@ fn whoever_works_in_the_workspace_reads_an_open_wiki_without_joining_it() {
 #[test]
 fn an_open_wiki_is_written_in_by_its_members_alone() {
     for actor in [MEMBER, WORKSPACE_ADMIN] {
-        let unjoined = granted(actor, OpenWiki, None);
+        let unjoined = granted(actor, OpenToRead, None);
         for writing in [CommentCards, ManageCards, ManageProperties] {
             assert!(!unjoined.contains(&writing), "{writing:?}");
         }
     }
-    let editor = granted(MEMBER, OpenWiki, Some(Editor));
+    let editor = granted(MEMBER, OpenToRead, Some(Editor));
     assert!(editor.contains(&ManageCards));
     assert!(editor.contains(&Join), "joining raises to the minimum role");
 }
@@ -93,10 +93,10 @@ fn an_open_wiki_is_nothing_to_a_guest_or_to_who_is_not_in_the_workspace() {
         ("who was removed", REMOVED),
         ("a stranger", STRANGER),
     ] {
-        assert_eq!(granted(actor, OpenWiki, None), Vec::new(), "{case}");
+        assert_eq!(granted(actor, OpenToRead, None), Vec::new(), "{case}");
     }
     assert_eq!(
-        granted(GUEST, OpenWiki, Some(Editor)),
+        granted(GUEST, OpenToRead, Some(Editor)),
         granted(GUEST, InvitedOnly, Some(Editor)),
         "a guest invited to it is on it as on any wiki"
     );
@@ -105,7 +105,7 @@ fn an_open_wiki_is_nothing_to_a_guest_or_to_who_is_not_in_the_workspace() {
 #[test]
 fn a_role_on_an_open_wiki_is_the_role_on_a_wiki_for_the_invited_only() {
     for role in [Viewer, Commenter, Editor, Admin] {
-        let mut on_open = granted(MEMBER, OpenWiki, Some(role));
+        let mut on_open = granted(MEMBER, OpenToRead, Some(role));
         on_open.retain(|permission| *permission != Join);
         assert_eq!(
             on_open,
@@ -122,14 +122,14 @@ fn an_open_board_is_still_read_only_once_joined() {
 
 #[test]
 fn an_open_wiki_in_the_trash_is_open_to_nobody() {
-    assert_eq!(OpenWiki.in_the_trash(), InvitedOnly);
-    assert_eq!(granted(MEMBER, OpenWiki.in_the_trash(), None), Vec::new());
+    assert_eq!(OpenToRead.in_the_trash(), InvitedOnly);
+    assert_eq!(granted(MEMBER, OpenToRead.in_the_trash(), None), Vec::new());
 }
 
 #[test]
 fn who_has_not_joined_an_open_wiki_is_in_the_rooms_of_its_pages_to_read() {
     let facts = |role| ContainerFacts {
-        scope: OpenWiki,
+        scope: OpenToRead,
         role,
         team_role: None,
     };
@@ -150,7 +150,7 @@ fn whoever_reads_an_open_wiki_without_joining_it_is_no_mere_manager_of_it() {
     let admin = grant(
         WORKSPACE_ADMIN,
         ContainerFacts {
-            scope: OpenWiki,
+            scope: OpenToRead,
             role: None,
             team_role: None,
         },
@@ -162,7 +162,7 @@ fn whoever_reads_an_open_wiki_without_joining_it_is_no_mere_manager_of_it() {
 #[test]
 fn the_changes_of_an_open_wiki_are_told_to_whoever_works_there_and_of_nothing_else() {
     for scope in [
-        OpenWiki,
+        OpenToRead,
         Open,
         InvitedOnly,
         OpenTemplate,
@@ -174,7 +174,7 @@ fn the_changes_of_an_open_wiki_are_told_to_whoever_works_there_and_of_nothing_el
             WorkspaceRole::Member,
             WorkspaceRole::Guest,
         ] {
-            let told = scope == OpenWiki && role != WorkspaceRole::Guest;
+            let told = scope == OpenToRead && role != WorkspaceRole::Guest;
             assert_eq!(
                 told_without_a_role(scope, role),
                 told,
@@ -182,4 +182,35 @@ fn the_changes_of_an_open_wiki_are_told_to_whoever_works_there_and_of_nothing_el
             );
         }
     }
+}
+
+#[test]
+fn open_courses_share_the_open_to_read_scope_with_open_wikis() {
+    use fvoci_model::{Container, ContainerKind, ContainerType};
+
+    let container = |kind, container_type| Container {
+        kind,
+        container_type,
+        ..Container::default()
+    };
+    assert_eq!(
+        ContainerScope::of(&container(ContainerKind::Wiki, ContainerType::Open)),
+        OpenToRead
+    );
+    assert_eq!(
+        ContainerScope::of(&container(ContainerKind::Course, ContainerType::Open)),
+        OpenToRead
+    );
+    assert_eq!(
+        ContainerScope::of(&container(ContainerKind::Course, ContainerType::Private)),
+        InvitedOnly
+    );
+    assert_eq!(
+        ContainerScope::of(&container(ContainerKind::Board, ContainerType::Open)),
+        Open
+    );
+    assert_eq!(
+        ContainerScope::of(&container(ContainerKind::Diary, ContainerType::Open)),
+        InvitedOnly
+    );
 }

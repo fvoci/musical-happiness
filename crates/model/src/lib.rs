@@ -51,6 +51,7 @@ mod sharing;
 mod subscription;
 mod table_grid;
 mod team;
+mod unit;
 mod upload;
 mod user;
 mod workspace;
@@ -172,6 +173,10 @@ pub use table_grid::{
     CellFit, Reach, RowFit, TABLE_MAX_COLUMNS, TABLE_MAX_ROWS, TableGrid, TableTooLarge,
 };
 pub use team::{Team, TeamMember, TeamName, team_name, team_name_key};
+pub use unit::{
+    CHAPTERS_PER_COURSE, COURSE_DEPTH, CourseLimits, DeletedUnit, NewUnit, NotUnitBlockError,
+    UNITS_PER_COURSE, Unit, UnitKind, UnitMove, UnitNode, UnitPatch, sort_units,
+};
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{LoginOrigin, Me, Session, User, UserPreferencesPatch};
 pub use workspace::{GuestInvitationsChange, Workspace};

@@ -535,7 +535,7 @@ async fn an_open_board_is_found_by_who_works_in_its_workspace() {
     let found_by = async |user_id: &str| {
         let (open, boards) = (
             PublicContainers::Include,
-            fvoci_model::ContainerKinds::Boards,
+            fvoci_model::ContainerKinds::BOARDS,
         );
         let of_the_workspace = test
             .get_containers_for_user_and_workspace(user_id, &workspace_id, open, boards)

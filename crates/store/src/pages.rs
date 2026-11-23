@@ -202,16 +202,16 @@ pub(crate) async fn page_tree(
     let mut sql = scope.sql("SELECT id, parent_id, fields FROM blocks WHERE container_id = ");
     sql.bind(Id(wiki_id))
         .push_bind(" AND type = ", BlockType::Page.as_str());
-    let mut pages = Vec::new();
+    let mut nodes = Vec::new();
     for row in &scope.fetch_all(sql).await? {
-        pages.push(PageNode::from(Block {
+        nodes.push(PageNode::from(Block {
             id: row.id(0)?,
             parent_id: row.id(1)?,
             fields: row.json_map(2, "fields")?,
             ..Block::default()
         }));
     }
-    Ok(pages.into_iter().collect())
+    Ok(nodes.into_iter().collect())
 }
 
 /// Gives `page` the order of `place`, and stores the orders of the siblings it numbers

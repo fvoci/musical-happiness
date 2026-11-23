@@ -9,7 +9,7 @@ use utoipa_axum::routes;
 use super::contract::bodies::{MemberRoles, NewMember};
 use super::contract::params::{MemberWorkspaceId, PeopleContainerId, UserId};
 use super::contract::tag;
-use super::workspace::InBoardOrWiki;
+use super::workspace::InShared;
 
 use super::{ApiResult, json_response, no_content};
 use super::{decode_object, refusal, require_container_permission, require_granted};
@@ -86,7 +86,7 @@ fn require_holdable(
     responses((status = 200, description = "The members.", body = Vec<ContainerMember>)),
 )]
 async fn handle_get_members_for_container(
-    InBoardOrWiki(ws): InBoardOrWiki,
+    InShared(ws): InShared,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     require_container_permission(
@@ -130,7 +130,7 @@ async fn handle_get_members_for_container(
     responses((status = 200, description = "The membership as it is now.", body = ContainerMember)),
 )]
 async fn handle_add_member(
-    InBoardOrWiki(ws): InBoardOrWiki,
+    InShared(ws): InShared,
     Path((_, container_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -228,7 +228,7 @@ async fn handle_add_member(
     responses((status = 200, description = "The membership as it is now.", body = ContainerMember)),
 )]
 async fn handle_join_container(
-    InBoardOrWiki(ws): InBoardOrWiki,
+    InShared(ws): InShared,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
@@ -282,7 +282,7 @@ async fn handle_join_container(
     responses((status = 204, description = "The user is no member any more.")),
 )]
 async fn handle_leave_container(
-    InBoardOrWiki(ws): InBoardOrWiki,
+    InShared(ws): InShared,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
@@ -321,7 +321,7 @@ async fn handle_leave_container(
     responses((status = 200, description = "The membership as it is now.", body = ContainerMember)),
 )]
 async fn handle_update_member(
-    InBoardOrWiki(ws): InBoardOrWiki,
+    InShared(ws): InShared,
     Path((_, container_id, member_user_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -383,7 +383,7 @@ async fn handle_update_member(
     responses((status = 204, description = "The user is no member any more.")),
 )]
 async fn handle_delete_member(
-    InBoardOrWiki(ws): InBoardOrWiki,
+    InShared(ws): InShared,
     Path((_, container_id, member_user_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     require_container_permission(

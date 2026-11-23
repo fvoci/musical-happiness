@@ -29,6 +29,8 @@ mod category_boards;
 mod common;
 mod confirmed_password;
 mod container_rename;
+mod course_schema;
+mod courses;
 mod diaries;
 mod diary_schema;
 mod email_change;

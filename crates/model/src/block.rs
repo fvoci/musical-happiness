@@ -1,5 +1,5 @@
 //! Blocks: the basic unit of board content (cards, views, comments and attachments),
-//! of a wiki's (pages) and of a diary's (entries).
+//! of a wiki's (pages), of a diary's (entries), and of a course's (chapters and units).
 
 use std::collections::HashSet;
 use std::fmt;
@@ -55,6 +55,11 @@ pub enum BlockType {
     Page,
     /// The entry of a day of a diary ([`crate::DiaryEntry`]).
     Entry,
+    /// A unit of a course ([`crate::Unit`]).
+    Unit,
+    /// A chapter of a course ([`crate::Unit`]): a title-only heading at the top of the
+    /// course with no body and no room.
+    Chapter,
     /// Any other type string, kept as sent, such as a content block type of the original
     /// (`text`, `image`, ...): no block is written with one any more, and the data steps
     /// of migrations 8 and 42 delete those stored before. The empty string means "no
@@ -64,14 +69,18 @@ pub enum BlockType {
 
 impl BlockType {
     /// The types whose body is edited together, in a room of the block's own: a card,
-    /// a page and an entry. A comment's body is written whole by its author.
-    pub const WITH_ROOM: [Self; 3] = [Self::Card, Self::Page, Self::Entry];
+    /// a page, an entry and a unit. A comment's body is written whole by its author, and
+    /// a chapter has no body.
+    pub const WITH_ROOM: [Self; 4] = [Self::Card, Self::Page, Self::Entry, Self::Unit];
 
     /// Returns `true` for the types that may have a body: a card and a comment
-    /// (`docs/s6-design.md` 5.7), a page and an entry.
+    /// (`docs/s6-design.md` 5.7), a page, an entry and a unit.
     #[must_use]
     pub fn has_body(&self) -> bool {
-        matches!(self, Self::Card | Self::Comment | Self::Page | Self::Entry)
+        matches!(
+            self,
+            Self::Card | Self::Comment | Self::Page | Self::Entry | Self::Unit
+        )
     }
 
     /// Checks that a block of this type may have `body`: only a type that has a body
@@ -126,9 +135,13 @@ impl BlockType {
     #[must_use]
     pub fn fields_max_chars(&self) -> usize {
         match self {
-            Self::Card | Self::Comment | Self::Attachment | Self::Page | Self::Entry => {
-                CARD_FIELDS_MAX_CHARS
-            }
+            Self::Card
+            | Self::Comment
+            | Self::Attachment
+            | Self::Page
+            | Self::Entry
+            | Self::Unit
+            | Self::Chapter => CARD_FIELDS_MAX_CHARS,
             Self::View | Self::Other(_) => BLOCK_FIELDS_MAX_CHARS,
         }
     }
@@ -142,6 +155,8 @@ impl BlockType {
             Self::Attachment => "attachment",
             Self::Page => "page",
             Self::Entry => "entry",
+            Self::Unit => "unit",
+            Self::Chapter => "chapter",
             Self::Other(other) => other,
         }
     }
@@ -160,6 +175,8 @@ impl BlockType {
             "attachment" => Self::Attachment,
             "page" => Self::Page,
             "entry" => Self::Entry,
+            "unit" => Self::Unit,
+            "chapter" => Self::Chapter,
             _ => return None,
         })
     }
@@ -263,8 +280,8 @@ pub enum BlockError {
     /// ([`crate::check_relation_value`]), or a block that is no card of the board.
     #[error(transparent)]
     InvalidRelation(#[from] RelationError),
-    /// A block that is no card, comment, page or entry has a body.
-    #[error("only a card, a comment, a page or an entry has a body")]
+    /// A block that is no card, comment, page, entry or unit has a body.
+    #[error("only a card, a comment, a page, an entry or a unit has a body")]
     BodyNotAllowed,
     /// An image or a file block of the body that the write makes the block show newly
     /// names no file that the block's board or wiki has when the write is stored.
@@ -364,7 +381,49 @@ pub enum BlockError {
         /// The most entries the diary may have.
         limit: u32,
     },
+    /// A field of a unit or chapter has a value of the wrong kind: `order` must be an
+    /// order ([`crate::order_between`]) or `null`.
+    #[error("the field {field} of a unit must be {expected}")]
+    InvalidUnitField {
+        /// The field.
+        field: &'static str,
+        /// What its value must be.
+        expected: &'static str,
+    },
+    /// A write of blocks gives the type of a unit or chapter: see
+    /// [`BlockError::type_not_current`].
+    #[error("a unit or a chapter is made and changed by the operations of courses")]
+    UnitByBlocks,
+    /// A unit or chapter is stored on a container that is no course.
+    #[error("a unit or a chapter is a block of a course")]
+    UnitOffCourse,
+    /// A block that is neither a unit nor a chapter is stored on a course.
+    #[error("the blocks of a course are its chapters and units")]
+    NotUnitOnCourse,
+    /// A unit is stored below a block that is no chapter of its course.
+    #[error("the parent of a unit is a chapter of its course")]
+    UnitParentNotChapter,
+    /// A chapter is stored below another block: a chapter sits only at the top of its
+    /// course.
+    #[error("a chapter is below no block")]
+    ChapterBelowBlock,
+    /// The course would have more units than it may, those in the trash not counted.
+    #[error("the course would have more than {limit} units")]
+    TooManyUnits {
+        /// The most units the course may have.
+        limit: u32,
+    },
+    /// The course would have more chapters than it may, those in the trash not counted.
+    #[error("the course would have more than {limit} chapters")]
+    TooManyChapters {
+        /// The most chapters the course may have.
+        limit: u32,
+    },
 }
+
+/// The fields of a unit or chapter whose value has one kind.
+const UNIT_FIELD_KINDS: [FieldKind; 1] =
+    [(PAGE_ORDER_FIELD, "an order the server made", is_order_value)];
 
 /// The fields of an entry whose value has one kind, as [`CARD_FIELD_KINDS`] has a
 /// card's. Its `date` is there besides, which [`Block::validate`] asks for by itself: an
@@ -418,6 +477,7 @@ impl BlockError {
         match block_type {
             BlockType::Page => Self::PageByBlocks,
             BlockType::Entry => Self::EntryByBlocks,
+            BlockType::Unit | BlockType::Chapter => Self::UnitByBlocks,
             _ => Self::TypeNotCurrent,
         }
     }
@@ -438,29 +498,32 @@ pub struct Block {
     /// The schema version of the block.
     pub schema: i64,
     /// The block type: `card`, `view`, `comment` or `attachment` on a board, `page`
-    /// and `comment` (on a page) on a wiki, and `entry` on a diary. No request of blocks
-    /// makes a block of another type or patches one into it (400 naming `type`), nor a
-    /// page or an entry: `createPage` makes pages, `createPageComment` the comments of
-    /// a wiki, and `createDiaryEntry` entries.
+    /// and `comment` (on a page) on a wiki, `entry` on a diary, and `chapter` and `unit`
+    /// on a course. No request of blocks makes a block of another type or patches one
+    /// into it (400 naming `type`), nor a page, an entry, a unit or a chapter:
+    /// `createPage` makes pages, `createPageComment` the comments of a wiki,
+    /// `createDiaryEntry` entries, and `createUnit` chapters and units.
     #[serde(rename = "type")]
     #[schema(value_type = String)]
     pub block_type: BlockType,
     /// The display title. A title with U+0000 is refused (400 naming `title`).
     pub title: String,
     /// Type-specific data, free-form: serialized, at most 64,000 characters for a card, a
-    /// comment, an attachment or a page and 800,000 for a view or a block of another
-    /// type. The `icon` of a card is a string and its `isTemplate` a boolean, or either
-    /// `null` (400 naming `fields` otherwise). A page has its `icon` and its `order`
-    /// here, as `Page` gives them, and an entry its `date`, `mood`, `weather` and
-    /// `place`, as `DiaryEntry` gives them.
+    /// comment, an attachment, a page, an entry, a unit or a chapter and 800,000 for a
+    /// view or a block of another type. The `icon` of a card is a string and its
+    /// `isTemplate` a boolean, or either `null` (400 naming `fields` otherwise). A page
+    /// has its `icon` and its `order` here, as `Page` gives them, an entry its `date`,
+    /// `mood`, `weather` and `place`, as `DiaryEntry` gives them, and a unit or chapter
+    /// its `order`, as `Unit` gives it.
     #[schema(value_type = Object)]
     pub fields: JsonMap,
-    /// The body of a card, a comment, a page or an entry; `null` for a block without one. Only
-    /// those have one: a body on another block is refused (400 naming `body`). Every image of
-    /// it shows a file of the block's board. Whoever reads it by the board's link gets
-    /// every mention with an empty `userId`: a shape that is only sent, which a write
-    /// would have refused. A change message (`UPDATE_BLOCK`) of a card, a page or an entry
-    /// has it `null`, with a summary of it beside the block.
+    /// The body of a card, a comment, a page, an entry or a unit; `null` for a block
+    /// without one. Only those have one: a body on another block is refused (400 naming
+    /// `body`). Every image of it shows a file of the block's board. Whoever reads it by
+    /// the board's link gets every mention with an empty `userId`: a shape that is only
+    /// sent, which a write would have refused. A change message (`UPDATE_BLOCK`) of a
+    /// card, a page, an entry or a unit has it `null`, with a summary of it beside the
+    /// block.
     pub body: Option<Body>,
     /// Creation time in milliseconds since the Unix epoch.
     pub create_at: i64,
@@ -588,6 +651,11 @@ impl Block {
                     Some(_) => return self.validate_fields(),
                 };
                 return Err(BlockError::InvalidEntryField { field, expected });
+            }
+            BlockType::Unit | BlockType::Chapter => {
+                if let Some((field, expected, _)) = of_another_kind(&UNIT_FIELD_KINDS) {
+                    return Err(BlockError::InvalidUnitField { field, expected });
+                }
             }
             _ => {}
         }

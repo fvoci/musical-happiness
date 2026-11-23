@@ -221,7 +221,7 @@ impl App {
         user_id: &str,
         workspace_id: &str,
     ) -> Result<Vec<Container>, AppError> {
-        self.containers_for_user_and_workspace(user_id, workspace_id, PublicContainers::OpenWikis)
+        self.containers_for_user_and_workspace(user_id, workspace_id, PublicContainers::OpenToRead)
             .await
     }
 

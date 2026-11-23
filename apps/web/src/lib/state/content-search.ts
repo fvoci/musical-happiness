@@ -8,8 +8,8 @@
 
 import type { ContainerKind } from '../logic/wire.ts';
 
-/** What a search finds: a card of a board, a page of a wiki, or an entry of a diary. */
-export type SearchKind = 'card' | 'page' | 'entry';
+/** What a search finds: a card of a board, a page of a wiki, an entry of a diary, or a unit of a course. */
+export type SearchKind = 'card' | 'page' | 'entry' | 'unit';
 
 /** A stretch of a snippet: plain text, which matched what was asked or not. */
 export interface SnippetPart {

@@ -118,7 +118,7 @@ pub const fn may_become(from: WorkspaceRole, to: WorkspaceRole) -> bool {
 #[must_use]
 pub const fn invites_guests(grant: Grant, scope: ContainerScope, workspace: &Workspace) -> bool {
     match scope {
-        ContainerScope::InvitedOnly | ContainerScope::Open | ContainerScope::OpenWiki => {
+        ContainerScope::InvitedOnly | ContainerScope::Open | ContainerScope::OpenToRead => {
             workspace.guest_invitations && grant.allows(ContainerPermission::ManageRoles)
         }
         ContainerScope::BuiltIn
@@ -132,9 +132,9 @@ pub const fn invites_guests(grant: Grant, scope: ContainerScope, workspace: &Wor
 pub enum ContainerScope {
     /// An open board: whoever works in the workspace sees it and may join it.
     Open,
-    /// An open wiki: whoever works in the workspace reads it without joining, and joins
-    /// it to write.
-    OpenWiki,
+    /// An open wiki or open course: whoever works in the workspace reads and searches it
+    /// without joining, and joins it to write or enroll.
+    OpenToRead,
     /// A board for the invited only: nobody but its members knows it is there.
     InvitedOnly,
     /// An open template of the workspace: whoever works there reads it, to copy it.
@@ -157,7 +157,7 @@ impl ContainerScope {
             (true, _, _) => Self::BuiltIn,
             (false, false, ContainerType::Open) => match container.kind {
                 ContainerKind::Board => Self::Open,
-                ContainerKind::Wiki => Self::OpenWiki,
+                ContainerKind::Wiki | ContainerKind::Course => Self::OpenToRead,
                 // No diary is stored as open (`Container::check_storable`); one that
                 // were would be nobody's but its members' all the same.
                 ContainerKind::Diary => Self::InvitedOnly,
@@ -173,7 +173,7 @@ impl ContainerScope {
     #[must_use]
     pub fn in_the_trash(self) -> Self {
         match self {
-            Self::Open | Self::OpenWiki | Self::InvitedOnly => Self::InvitedOnly,
+            Self::Open | Self::OpenToRead | Self::InvitedOnly => Self::InvitedOnly,
             Self::OpenTemplate | Self::InvitedOnlyTemplate => Self::InvitedOnlyTemplate,
             Self::BuiltIn => Self::BuiltIn,
         }
@@ -181,7 +181,7 @@ impl ContainerScope {
 
     /// Whether whoever works in the workspace sees the board without being its member.
     fn open_to_the_workspace(self) -> bool {
-        matches!(self, Self::Open | Self::OpenWiki | Self::OpenTemplate)
+        matches!(self, Self::Open | Self::OpenToRead | Self::OpenTemplate)
     }
 }
 
@@ -560,7 +560,7 @@ pub fn grant(actor: Actor, facts: ContainerFacts) -> Grant {
     });
     let as_worker = match (actor.works_there(), facts.scope) {
         (true, ContainerScope::Open) => Grant::of(&[See, Join]),
-        (true, ContainerScope::OpenWiki) => Grant::of(&[See, Join, View, ListMembers]),
+        (true, ContainerScope::OpenToRead) => Grant::of(&[See, Join, View, ListMembers]),
         (true, ContainerScope::OpenTemplate) => Grant::of(&[See, View, ListMembers]),
         _ => Grant::NONE,
     };
@@ -592,7 +592,7 @@ pub fn told_without_a_role(scope: ContainerScope, role: WorkspaceRole) -> bool {
         role: None,
         team_role: None,
     };
-    scope == ContainerScope::OpenWiki && grant(actor, facts).reads()
+    scope == ContainerScope::OpenToRead && grant(actor, facts).reads()
 }
 
 /// Whether a user who is `role` in a workspace (`None`: no member) reads its audit log:

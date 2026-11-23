@@ -17,20 +17,23 @@ pub enum SearchKind {
     Page,
     /// An entry of a diary: found by its writer alone, whose own space the diary is in.
     Entry,
+    /// A unit of a course.
+    Unit,
 }
 
 impl SearchKind {
     /// Every kind there is.
-    pub const ALL: [Self; 3] = [Self::Card, Self::Page, Self::Entry];
+    pub const ALL: [Self; 4] = [Self::Card, Self::Page, Self::Entry, Self::Unit];
 
     /// The kind of thing a block of this type is to a search; `None` for a block a
-    /// search never finds: a view, a comment, an attachment.
+    /// search never finds: a view, a comment, an attachment, a chapter.
     #[must_use]
     pub fn of_block(block_type: &BlockType) -> Option<Self> {
         match block_type {
             BlockType::Card => Some(Self::Card),
             BlockType::Page => Some(Self::Page),
             BlockType::Entry => Some(Self::Entry),
+            BlockType::Unit => Some(Self::Unit),
             _ => None,
         }
     }
@@ -42,6 +45,7 @@ impl SearchKind {
             Self::Card => BlockType::Card,
             Self::Page => BlockType::Page,
             Self::Entry => BlockType::Entry,
+            Self::Unit => BlockType::Unit,
         }
     }
 
@@ -52,6 +56,7 @@ impl SearchKind {
             Self::Card => "card",
             Self::Page => "page",
             Self::Entry => "entry",
+            Self::Unit => "unit",
         }
     }
 }
@@ -92,14 +97,13 @@ pub struct SnippetPart {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchHit {
-    /// The identifier of the card, the page or the entry.
+    /// The identifier of the card, the page, the entry or the unit.
     pub id: String,
     /// What it is.
     pub kind: SearchKind,
-    /// The identifier of the board the card is on, of the wiki the page is in, or of
-    /// the diary the entry is in.
+    /// The identifier of the board, wiki, diary or course the match is in.
     pub container_id: String,
-    /// What its container is: a board, a wiki, or a diary.
+    /// What its container is: a board, a wiki, a diary or a course.
     pub container_kind: ContainerKind,
     /// Its title as it is now; of an entry, its day (`2026-11-21`).
     pub title: String,
@@ -122,7 +126,7 @@ mod tests {
         for kind in SearchKind::ALL {
             // A new kind is added to `ALL` too: the store reads the blocks of its kinds.
             match kind {
-                SearchKind::Card | SearchKind::Page | SearchKind::Entry => {}
+                SearchKind::Card | SearchKind::Page | SearchKind::Entry | SearchKind::Unit => {}
             }
             assert_eq!(SearchKind::of_block(&kind.block_type()), Some(kind));
             assert_eq!(kind.as_str().parse(), Ok(kind));

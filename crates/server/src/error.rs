@@ -680,6 +680,39 @@ impl From<anyhow::Error> for AppError {
     }
 }
 
+impl AppError {
+    /// Maps a [`ContainerError`] refused by the store into an HTTP error.
+    fn from_container_error(refused: ContainerError) -> Self {
+        match refused {
+            ContainerError::InvalidCardProperty(_)
+            | ContainerError::PropertyNamedTwice { .. }
+            | ContainerError::PropertyUnknown { .. }
+            | ContainerError::PropertiesLeftOut { .. } => {
+                Self::bad_request(StoreError::InvalidContainer(refused))
+            }
+            ContainerError::NulCharacter { member } => {
+                let mut error =
+                    Self::bad_request(StoreError::InvalidContainer(refused)).with_field(member);
+                error.subject = Some(Subject::Board);
+                error
+            }
+            ContainerError::KindChanges { .. }
+            | ContainerError::WikiIsTemplate
+            | ContainerError::WikiHasCardProperties
+            | ContainerError::DiaryIsTemplate
+            | ContainerError::DiaryHasCardProperties
+            | ContainerError::DiaryNotPrivate
+            | ContainerError::DiaryOffOwnSpace
+            | ContainerError::TooManyDiaries { .. }
+            | ContainerError::CourseIsTemplate
+            | ContainerError::CourseHasCardProperties => Self::not_of_its_kind(refused),
+            ContainerError::EmptyWorkspaceId => {
+                Self::from(anyhow::Error::from(StoreError::InvalidContainer(refused)))
+            }
+        }
+    }
+}
+
 impl From<StoreError> for AppError {
     fn from(error: StoreError) -> Self {
         match error {
@@ -713,32 +746,11 @@ impl From<StoreError> for AppError {
                     | BlockError::InvalidCardProperties(_),
                 ..
             }
-            | StoreError::InvalidContainer(
-                ContainerError::InvalidCardProperty(_)
-                | ContainerError::PropertyNamedTwice { .. }
-                | ContainerError::PropertyUnknown { .. }
-                | ContainerError::PropertiesLeftOut { .. },
-            )
             | StoreError::InvalidContainersAndBlocks(_)
             | StoreError::BlockNotInDeletedContainers { .. } => Self::bad_request(error),
             StoreError::InvalidCategory(refused) => Self::from(refused),
             StoreError::InvalidSubscription(refused) => Self::from(refused),
-            StoreError::InvalidContainer(ContainerError::NulCharacter { member }) => {
-                let mut error = Self::bad_request(error).with_field(member);
-                error.subject = Some(Subject::Board);
-                error
-            }
-            // What a board of its kind is not, and one diary more than a space has.
-            StoreError::InvalidContainer(
-                refused @ (ContainerError::KindChanges { .. }
-                | ContainerError::WikiIsTemplate
-                | ContainerError::WikiHasCardProperties
-                | ContainerError::DiaryIsTemplate
-                | ContainerError::DiaryHasCardProperties
-                | ContainerError::DiaryNotPrivate
-                | ContainerError::DiaryOffOwnSpace
-                | ContainerError::TooManyDiaries { .. }),
-            ) => Self::not_of_its_kind(refused),
+            StoreError::InvalidContainer(refused) => Self::from_container_error(refused),
             // Whatever else the store refuses of a block names the member at fault and
             // the block. A parent that is no block of the board, whether it is none at all
             // or another board's: the answer does not tell the two apart. A block without a

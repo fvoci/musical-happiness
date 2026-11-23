@@ -324,7 +324,7 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
                 TEST_WORKSPACE_ID,
                 term,
                 &user1.id,
-                ContainerKinds::Boards,
+                ContainerKinds::BOARDS,
             )
             .await
             .expect("the boards are searched");

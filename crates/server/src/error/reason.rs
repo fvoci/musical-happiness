@@ -231,6 +231,10 @@ reasons! {
     TooManyEntries => "too_many_entries", "Too many entries in the diary";
     /// The space would have more diaries than a space may.
     TooManyDiaries => "too_many_diaries", "Too many diaries";
+    /// The course would have more units than a course may.
+    TooManyUnits => "too_many_units", "Too many units in the course";
+    /// The course would have more chapters than a course may.
+    TooManyChapters => "too_many_chapters", "Too many chapters in the course";
     /// The account made as many organizations, which are in use, as one account may.
     TooManyOrganizations => "too_many_organizations", "Too many organizations made";
 }

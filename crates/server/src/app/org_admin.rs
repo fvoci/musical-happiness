@@ -392,7 +392,7 @@ impl App {
             .await?;
         let mut titles: HashMap<String, Option<String>> = HashMap::new();
         // A user is added to a board or to a wiki alike.
-        let every_kind = self.clone().reaching(ContainerKinds::Every);
+        let every_kind = self.clone().reaching(ContainerKinds::EVERY);
         for record in &mut records {
             if !matches!(
                 record.action,

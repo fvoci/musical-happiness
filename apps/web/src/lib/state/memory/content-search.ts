@@ -42,6 +42,7 @@ const KIND_OF_TYPE: Readonly<Record<string, SearchKind>> = {
   card: 'card',
   page: 'page',
   entry: 'entry',
+  unit: 'unit',
 };
 
 /** The 400 of a parameter of the query out of bounds. */

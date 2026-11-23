@@ -24,7 +24,11 @@ export interface NumberedSearch {
 export async function findNumbered(search: NumberedSearch, ask: SearchAsk): Promise<SearchHit[]> {
   const number = cardNumberOf(ask.query);
   const boardId = search.boardShown();
-  if (number === undefined || boardId === undefined || ask.kind === 'page') {
+  if (
+    number === undefined ||
+    boardId === undefined ||
+    (ask.kind !== undefined && ask.kind !== 'card')
+  ) {
     return search.find(ask);
   }
   const [hits, card] = await Promise.all([

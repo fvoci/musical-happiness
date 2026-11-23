@@ -34,9 +34,10 @@ pub enum PublicContainers {
     Include,
     /// Only boards the user is a member of are returned.
     Exclude,
-    /// Open wikis are returned whether or not the user is a member, as whoever works
-    /// in the workspace reads them; an open board only if the user is its member.
-    OpenWikis,
+    /// Open wikis and open courses are returned whether or not the user is a member, as
+    /// whoever works in the workspace reads them; an open board only if the user is its
+    /// member.
+    OpenToRead,
 }
 
 /// What joining a board did.
@@ -181,8 +182,8 @@ impl Store {
 
     /// Returns the boards of `kinds` of a workspace that a user is a member of and, with
     /// [`PublicContainers::Include`], the open ones of the workspace (with
-    /// [`PublicContainers::OpenWikis`], its open wikis), oldest first. Templates are left
-    /// out.
+    /// [`PublicContainers::OpenToRead`], its open wikis and courses), oldest first.
+    /// Templates are left out.
     ///
     /// # Errors
     ///
@@ -543,9 +544,11 @@ pub(crate) fn select_containers_of_user(
     sql.bind(false);
     container_kinds::push_kinds(&mut sql, "b.kind", kinds);
     match public_containers {
-        PublicContainers::Include => members::push_open_containers_at_work(&mut sql, user_id, None),
-        PublicContainers::OpenWikis => {
-            members::push_open_containers_at_work(&mut sql, user_id, Some(ContainerKind::Wiki))
+        PublicContainers::Include => {
+            members::push_open_containers_at_work(&mut sql, user_id, ContainerKinds::EVERY)
+        }
+        PublicContainers::OpenToRead => {
+            members::push_open_containers_at_work(&mut sql, user_id, ContainerKinds::OPEN_TO_READ)
         }
         PublicContainers::Exclude => sql.push(" AND ("),
     };
