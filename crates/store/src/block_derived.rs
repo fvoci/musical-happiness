@@ -68,6 +68,7 @@ pub(crate) async fn refresh(
                 before.block_type != block.block_type
                     || before.title != block.title
                     || before.body != block.body
+                    || before.number != block.number
             }
             (false, false) => false,
             (true, false) | (false, true) => true,

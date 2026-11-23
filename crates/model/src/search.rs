@@ -105,6 +105,9 @@ pub struct SearchHit {
     pub container_id: String,
     /// What its container is: a board, a wiki, a diary or a course.
     pub container_kind: ContainerKind,
+    /// The title of the board, wiki, diary or course the match is in; empty if untitled.
+    #[serde(default)]
+    pub container_title: String,
     /// Its title as it is now; of an entry, its day (`2026-11-21`).
     pub title: String,
     /// A card's number on its board, as `Card.number` gives it; absent for a page.

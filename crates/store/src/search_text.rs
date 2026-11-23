@@ -35,6 +35,19 @@ pub struct TextSearch<'a> {
     pub begun: &'a AtomicBool,
 }
 
+/// What a search for cards by their board-local number (`#12`) asks for.
+#[derive(Debug, Clone, Copy)]
+pub struct NumberSearch<'a> {
+    /// The workspace searched.
+    pub workspace_id: &'a str,
+    /// The containers of the workspace searched; `None` for all of them.
+    pub containers: Option<&'a [String]>,
+    /// The card number to match exactly (1 or more).
+    pub number: u32,
+    /// Set once the statement is sent with time left.
+    pub begun: &'a AtomicBool,
+}
+
 /// What came of a search by the letters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TextFound {
@@ -111,19 +124,71 @@ impl Store {
         };
         self.with_conn(async |scope| {
             let sql = statement(scope, &search, offset, limit);
-            if Instant::now() < by {
-                search.begun.store(true, Ordering::Release);
-            }
-            let Some(rows) = scope.fetch_all_by(sql, by).await? else {
-                return Ok(TextFound::OutOfTime);
-            };
-            rows.iter()
-                .map(|row| row.id(0))
-                .collect::<Result<Vec<String>, StoreError>>()
-                .map(TextFound::Ids)
+            fetch_ids_by(scope, sql, search.begun, by).await
         })
         .await
     }
+
+    /// Up to `limit` non-template cards of `search.workspace_id` whose `number` equals
+    /// `search.number`, past `offset`, most recently changed first then by identifier.
+    /// Stopped at `by`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails otherwise than by the time.
+    pub async fn search_cards_by_number(
+        &self,
+        search: &NumberSearch<'_>,
+        offset: i64,
+        limit: i64,
+        by: Instant,
+    ) -> Result<TextFound, StoreError> {
+        if search.number == 0 {
+            return Ok(TextFound::Ids(Vec::new()));
+        }
+        self.with_conn(async |scope| {
+            let sql = number_statement(scope, search, offset, limit);
+            fetch_ids_by(scope, sql, search.begun, by).await
+        })
+        .await
+    }
+}
+
+/// Runs an identifier-selecting search statement under the deadline `by`, marking
+/// `begun` once sent with time remaining.
+async fn fetch_ids_by(
+    scope: &mut Scope<'_>,
+    sql: Sql,
+    begun: &AtomicBool,
+    by: Instant,
+) -> Result<TextFound, StoreError> {
+    if Instant::now() < by {
+        begun.store(true, Ordering::Release);
+    }
+    let Some(rows) = scope.fetch_all_by(sql, by).await? else {
+        return Ok(TextFound::OutOfTime);
+    };
+    rows.iter()
+        .map(|row| row.id(0))
+        .collect::<Result<Vec<String>, StoreError>>()
+        .map(TextFound::Ids)
+}
+
+/// The statement of [`Store::search_cards_by_number`].
+fn number_statement(scope: &Scope<'_>, search: &NumberSearch<'_>, offset: i64, limit: i64) -> Sql {
+    let mut sql = select_documents(scope, "b.id");
+    sql.push_bind(" AND bo.workspace_id = ", Id(search.workspace_id));
+    if let Some(containers) = search.containers {
+        sql.push(" AND b.container_id IN (")
+            .bind_list(containers.iter().map(|id| Id(id)))
+            .push(")");
+    }
+    sql.push_bind(" AND b.type = ", SearchKind::Card.block_type().as_str())
+        .push_bind(" AND b.number = ", i64::from(search.number))
+        .push(" ORDER BY b.update_at DESC, b.id")
+        .push_bind(" LIMIT ", limit)
+        .push_bind(" OFFSET ", offset);
+    sql
 }
 
 /// The statement of [`Store::search_text`].

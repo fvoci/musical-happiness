@@ -647,11 +647,29 @@ impl Block {
     /// and each one stored after it the next number; a card keeps its number while it is
     /// one, and a number is never given again, also once its card is gone. A card that
     /// is copied or imported is a new card with a new number; a card that comes back
-    /// from the trash has its own. A block that stops being such a card loses its
-    /// number, and takes the next one if it becomes one again.
+    /// from the trash has its own. A card made a template keeps its number in storage so
+    /// turning it back into a card restores its old number without consuming a new one,
+    /// while hiding it until then; a block that stops being a card loses its number.
     #[must_use]
     pub fn takes_number(&self) -> bool {
         self.block_type == BlockType::Card && !self.is_template()
+    }
+
+    /// The card's number as shown to clients: `Some(number)` only while the block takes
+    /// a number ([`Self::takes_number`]). A card template preserves its stored number in
+    /// the database but hides it from responses until it becomes an ordinary card again.
+    #[must_use]
+    pub fn shown_number(&self) -> Option<u32> {
+        self.takes_number().then_some(self.number).flatten()
+    }
+
+    /// Clears `number` when this block does not currently take one
+    /// ([`Self::takes_number`]), so responses and broadcasts never expose a preserved
+    /// card number on a template.
+    pub fn hide_inactive_number(&mut self) {
+        if !self.takes_number() {
+            self.number = None;
+        }
     }
 
     /// Checks that the block may be stored.

@@ -12,7 +12,7 @@ use fvoci_model::SnippetPart;
 use fvoci_store::SearchDocument;
 use serde_json::{Value, json};
 
-use super::query::{MATCH_END, MATCH_START, Scope};
+use super::query::{MATCH_END, MATCH_START, MatchBy, Scope};
 use super::version::DocumentVersion;
 use super::{document, index};
 use crate::config::search::{SearchCredentials, SearchServer};
@@ -546,7 +546,7 @@ impl Client {
             })
     }
 
-    /// Finds up to `size` documents of `scope` by `text`, past the `from` that match
+    /// Finds up to `size` documents of `scope` by `match_by`, past the `from` that match
     /// best, the best match first, within `timeout`.
     ///
     /// # Errors
@@ -556,7 +556,7 @@ impl Client {
     pub(crate) async fn search(
         &self,
         scope: &Scope<'_>,
-        text: &str,
+        match_by: MatchBy<'_>,
         from: usize,
         size: usize,
         timeout: Duration,
@@ -564,7 +564,7 @@ impl Client {
         let request = self
             .http
             .post(self.url("/_search"))
-            .json(&scope.search(text, from, size));
+            .json(&scope.search(match_by, from, size));
         let answer = self.send(request, timeout).await?;
         if let Some(refusal) = answer.refusal() {
             return Err(refusal);

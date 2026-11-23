@@ -3,6 +3,8 @@
 //! organization people work in is posted when it changes; nothing of an account's own
 //! space is, which is its owner's alone.
 
+use std::borrow::Cow;
+
 use fvoci_model::{Block, OrgKind};
 
 use super::App;
@@ -28,7 +30,16 @@ impl App {
             })
             .await;
         match kind {
-            Ok(OrgKind::Team) => self.inner.webhook.notify_update(block).await,
+            Ok(OrgKind::Team) => {
+                let posted = if !block.takes_number() && block.number.is_some() {
+                    let mut hidden = block.clone();
+                    hidden.hide_inactive_number();
+                    Cow::Owned(hidden)
+                } else {
+                    Cow::Borrowed(block)
+                };
+                self.inner.webhook.notify_update(&posted).await;
+            }
             Ok(OrgKind::Personal) => {}
             Err(error) => {
                 tracing::warn!(

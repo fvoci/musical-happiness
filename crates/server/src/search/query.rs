@@ -19,6 +19,30 @@ pub(crate) const MATCH_END: char = '\u{e001}';
 /// About how many characters of a body a snippet shows.
 const SNIPPET_CHARS: u32 = 160;
 
+/// If `text` is a card-number query (`#12`, or `#00012` normalized to `12`), returns that
+/// positive card number. Returns `None` if it does not start with `#`, contains any
+/// non-ASCII-digit after `#`, is zero, or exceeds `i32::MAX` (matching OpenAPI `int32`).
+pub(crate) fn card_number_query(text: &str) -> Option<u32> {
+    let digits = text.trim().strip_prefix('#')?;
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    digits
+        .parse::<i32>()
+        .ok()
+        .filter(|number| *number > 0)
+        .and_then(|number| u32::try_from(number).ok())
+}
+
+/// What a search matches documents by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MatchBy<'a> {
+    /// Every word of the text in the title and body.
+    Text(&'a str),
+    /// Exact match on a card's board-local number (`#12`).
+    CardNumber(u32),
+}
+
 /// Which containers of a workspace a search reaches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Containers<'a> {
@@ -85,46 +109,73 @@ impl Scope<'_> {
         json!({"query": {"bool": {"filter": self.clauses()}}})
     }
 
-    /// The request that finds up to `size` documents of the scope by `text`, past
+    /// The request that finds up to `size` documents of the scope by `match_by`, past
     /// the `from` that match best.
     ///
-    /// A document is found if its title and text together hold every word of `text`,
-    /// as Korean or as the standard analyser reads them; one whose title holds them, or
-    /// that holds them next to one another, comes first. Of a document only its
-    /// identifier, the digest it was indexed with and a marked piece of its text come
-    /// back, and no count of what matched.
-    pub(crate) fn search(&self, text: &str, from: usize, size: usize) -> Value {
-        let every_word =
-            |field: &str| json!({"match": {field: {"query": text, "operator": "and"}}});
-        json!({
-            "from": from,
-            "size": size,
-            "_source": ["digest"],
-            "track_total_hits": false,
-            "query": {"bool": {
-                "filter": self.clauses(),
-                "must": [{"bool": {
-                    "should": [every_word("all"), every_word("all.std")],
-                    "minimum_should_match": 1,
-                }}],
-                "should": [
-                    {"match": {"title": {"query": text, "boost": 3}}},
-                    {"match": {"title.std": {"query": text, "boost": 3}}},
-                    {"match_phrase": {"all": {"query": text, "slop": 1, "boost": 2}}},
-                ],
-            }},
-            "highlight": {
-                "pre_tags": [MATCH_START.to_string()],
-                "post_tags": [MATCH_END.to_string()],
-                // The words were asked of `all`; they are marked in the text.
-                "require_field_match": false,
-                "fields": {"text": {
-                    "number_of_fragments": 1,
-                    "fragment_size": SNIPPET_CHARS,
-                    "no_match_size": SNIPPET_CHARS,
-                }},
-            },
-        })
+    /// For [`MatchBy::Text`], a document is found if its title and text together hold
+    /// every word of `text`, as Korean or as the standard analyser reads them; one whose
+    /// title holds them, or that holds them next to one another, comes first. For
+    /// [`MatchBy::CardNumber`], non-template cards whose `number` matches exactly are
+    /// filtered under the same tenant/workspace/container scope clauses. Of a document
+    /// only its identifier, the digest it was indexed with and (for text searches) a
+    /// marked piece of its text come back, and no count of what matched.
+    pub(crate) fn search(&self, match_by: MatchBy<'_>, from: usize, size: usize) -> Value {
+        match match_by {
+            MatchBy::CardNumber(number) => {
+                let mut filter = self.clauses();
+                if !matches!(
+                    self,
+                    Self::Workspace {
+                        kind: Some(SearchKind::Card),
+                        ..
+                    }
+                ) {
+                    filter.push(json!({"term": {"kind": SearchKind::Card.as_str()}}));
+                }
+                filter.push(json!({"term": {"number": number}}));
+                json!({
+                    "from": from,
+                    "size": size,
+                    "_source": ["digest"],
+                    "track_total_hits": false,
+                    "sort": [{"sent": "desc"}, {"containerId": "asc"}],
+                    "query": {"bool": {"filter": filter}},
+                })
+            }
+            MatchBy::Text(text) => {
+                let every_word =
+                    |field: &str| json!({"match": {field: {"query": text, "operator": "and"}}});
+                json!({
+                    "from": from,
+                    "size": size,
+                    "_source": ["digest"],
+                    "track_total_hits": false,
+                    "query": {"bool": {
+                        "filter": self.clauses(),
+                        "must": [{"bool": {
+                            "should": [every_word("all"), every_word("all.std")],
+                            "minimum_should_match": 1,
+                        }}],
+                        "should": [
+                            {"match": {"title": {"query": text, "boost": 3}}},
+                            {"match": {"title.std": {"query": text, "boost": 3}}},
+                            {"match_phrase": {"all": {"query": text, "slop": 1, "boost": 2}}},
+                        ],
+                    }},
+                    "highlight": {
+                        "pre_tags": [MATCH_START.to_string()],
+                        "post_tags": [MATCH_END.to_string()],
+                        // The words were asked of `all`; they are marked in the text.
+                        "require_field_match": false,
+                        "fields": {"text": {
+                            "number_of_fragments": 1,
+                            "fragment_size": SNIPPET_CHARS,
+                            "no_match_size": SNIPPET_CHARS,
+                        }},
+                    },
+                })
+            }
+        }
     }
 }
 
@@ -140,6 +191,33 @@ mod tests {
     }
 
     #[test]
+    fn card_number_query_normalizes_hash_digits_and_leaves_other_queries_as_text() {
+        assert_eq!(card_number_query("#12"), Some(12));
+        assert_eq!(card_number_query("  #0012  "), Some(12));
+        assert_eq!(card_number_query("#01"), Some(1));
+        assert_eq!(card_number_query("#2147483647"), Some(2_147_483_647));
+        for other in [
+            "",
+            "#",
+            "#0",
+            "#000",
+            "12",
+            "#12a",
+            "#12 plan",
+            "plan #12",
+            "#+12",
+            "#-12",
+            "##12",
+            "# 12",
+            "#2147483648",
+            "#999999999999",
+            "#١٢",
+        ] {
+            assert_eq!(card_number_query(other), None, "{other:?}");
+        }
+    }
+
+    #[test]
     fn every_request_is_held_to_its_organization() {
         let containers = ["b1".to_owned(), "b2".to_owned()];
         let workspace = Scope::Workspace {
@@ -149,13 +227,28 @@ mod tests {
             kind: Some(SearchKind::Card),
         };
         assert_eq!(
-            filter(&workspace.search("환불", 0, 10)),
+            filter(&workspace.search(MatchBy::Text("환불"), 0, 10)),
             [
                 json!({"term": {"orgId": "o1"}}),
                 json!({"term": {"workspaceId": "w1"}}),
                 json!({"terms": {"containerId": ["b1", "b2"]}}),
                 json!({"term": {"kind": "card"}}),
             ]
+        );
+        let numbered = workspace.search(MatchBy::CardNumber(12), 0, 10);
+        assert_eq!(
+            filter(&numbered),
+            [
+                json!({"term": {"orgId": "o1"}}),
+                json!({"term": {"workspaceId": "w1"}}),
+                json!({"terms": {"containerId": ["b1", "b2"]}}),
+                json!({"term": {"kind": "card"}}),
+                json!({"term": {"number": 12}}),
+            ]
+        );
+        assert_eq!(
+            numbered["sort"],
+            json!([{"sent": "desc"}, {"containerId": "asc"}])
         );
         let wide = Scope::Workspace {
             org_id: "o1",
@@ -164,10 +257,19 @@ mod tests {
             kind: None,
         };
         assert_eq!(
-            filter(&wide.search("환불", 0, 10)),
+            filter(&wide.search(MatchBy::Text("환불"), 0, 10)),
             [
                 json!({"term": {"orgId": "o1"}}),
                 json!({"term": {"workspaceId": "w1"}}),
+            ]
+        );
+        assert_eq!(
+            filter(&wide.search(MatchBy::CardNumber(12), 0, 10)),
+            [
+                json!({"term": {"orgId": "o1"}}),
+                json!({"term": {"workspaceId": "w1"}}),
+                json!({"term": {"kind": "card"}}),
+                json!({"term": {"number": 12}}),
             ]
         );
         let container = Scope::Container {
@@ -192,7 +294,7 @@ mod tests {
             containers: Containers::All,
             kind: None,
         };
-        let request = scope.search(typed, 20, 5);
+        let request = scope.search(MatchBy::Text(typed), 20, 5);
         let mut places = 0;
         let mut pending = vec![&request];
         while let Some(value) = pending.pop() {

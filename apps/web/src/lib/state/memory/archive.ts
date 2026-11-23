@@ -29,7 +29,13 @@ export function archiveOf(
     lines.push(JSON.stringify({ type: 'board', data: board }));
     // As the server writes them, which is the order an import numbers the cards in.
     for (const block of world.blocksOf(board.id).sort(oldestFirst)) {
-      lines.push(JSON.stringify({ type: 'block', data: renamed(block, 'containerId', 'boardId') }));
+      const exported =
+        block.type === 'card' && block.fields.isTemplate === true
+          ? { ...block, number: undefined }
+          : block;
+      lines.push(
+        JSON.stringify({ type: 'block', data: renamed(exported, 'containerId', 'boardId') }),
+      );
     }
   }
   const bytes = new Blob([`${lines.join('\n')}\n`], { type: 'application/octet-stream' });

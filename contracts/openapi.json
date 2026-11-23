@@ -775,7 +775,7 @@
             "type": "string"
           },
           "number": {
-            "description": "The card's number on its board, as `#12` names it: from 1, one more for each card\nmade on the board, never given again, also once the card is gone. A card keeps it\nwhile it is one; a copy and an import are new cards with new numbers, and a card\nthat comes back from the trash has its own. `null` for a template of the board's\ncards (`isTemplate`): a card made a template loses its number, and takes the next\none if it is made a card again. The server gives it: what a request sends here is\nignored, whatever it is.",
+            "description": "The card's number on its board, as `#12` names it: from 1, one more for each card\nmade on the board, never given again, also once the card is gone. A card keeps it\nwhile it is one; a copy and an import are new cards with new numbers, and a card\nthat comes back from the trash has its own. `null` for a template of the board's\ncards (`isTemplate`): a card made a template hides its number while keeping it\nstored, and regains its old number without consuming a new one if made a card\nagain; a template created without a number takes the next number when made a card.\nThe server gives it: what a request sends here is ignored, whatever it is.",
             "format": "int32",
             "minimum": 1,
             "type": [
@@ -5641,6 +5641,10 @@
             "$ref": "#/components/schemas/ContainerKind",
             "description": "What its container is: a board, a wiki, a diary or a course."
           },
+          "containerTitle": {
+            "description": "The title of the board, wiki, diary or course the match is in; empty if untitled.",
+            "type": "string"
+          },
           "id": {
             "description": "The identifier of the card, the page, the entry or the unit.",
             "type": "string"
@@ -5673,6 +5677,7 @@
         "required": [
           "containerId",
           "containerKind",
+          "containerTitle",
           "id",
           "kind",
           "snippet",
@@ -20028,7 +20033,7 @@
     },
     "/api/v1/w/{workspaceId}/search": {
       "get": {
-        "description": "The cards of the boards, the pages of the wikis and the units of the courses of the\nworkspace that the user has a role on, their own or a team's, the pages of its open\nwikis and the units of its open courses for who works there (an open board they have\nnot joined is not searched), and, in the workspace of the user's own space, the\nentries of its diaries, whose title and body together hold every word of `q`. The\ntitle of an entry is its day (`2026-11-21`). Chapters, comments, property values and\nattached files are not searched, and neither are templates. How words match depends\non the server: with a search server, Korean is matched by its words, whatever\nparticles and endings they carry, and a compound by its parts too (\"환불 규정\" finds\n\"환불규정을\"); without one, each word (what is between white space) is in the title\nor the body as it is written there, ASCII letters in either case (\"환불\" finds\n\"환불규정을\", \"배포하다\" does not find \"배포합니다\"). Each hit is the card, the page,\nthe entry or the unit as it is now: its `kind`, its `title`, the container it is in\n(`containerId`, and `containerKind`, by which a client tells their addresses apart),\nand `snippet`, a piece of its body in stretches of plain text, those that matched\nmarked; the snippet is empty for a body that changed a moment ago, or has nothing to\nshow. The best match first (without a search server: those whose title holds every\nword, then the most recently changed). Nothing says how many match in all: fewer than\n`limit` means that no more of what the user reads matches (for a user with a role on\nmore containers than a search names, 1,000 with a search server and 10,000 without:\namong the 10,000 best matches of the workspace).\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). While the search\nserver does not answer, where it cannot hold its index, or where a search takes more\nthan three seconds, the answer is 503 with the reason `search_unavailable`: nothing\nelse of the server waits for it, and the database does not stand in for a search\nserver.",
+        "description": "The cards of the boards, the pages of the wikis and the units of the courses of the\nworkspace that the user has a role on, their own or a team's, the pages of its open\nwikis and the units of its open courses for who works there (an open board they have\nnot joined is not searched), and, in the workspace of the user's own space, the\nentries of its diaries, whose title and body together hold every word of `q`. When\n`q` is `#` followed only by ASCII digits (such as `#12`, or `#00012` normalized to\n`12`) and `kind` is omitted or `card`, it matches non-template cards across every\nreadable board of the workspace whose `number` equals that positive integer; any\nother text (including non-digits mixed in) or other `kind` runs ordinary word search. The\ntitle of an entry is its day (`2026-11-21`). Chapters, comments, property values and\nattached files are not searched, and neither are templates. How words match depends\non the server: with a search server, Korean is matched by its words, whatever\nparticles and endings they carry, and a compound by its parts too (\"환불 규정\" finds\n\"환불규정을\"); without one, each word (what is between white space) is in the title\nor the body as it is written there, ASCII letters in either case (\"환불\" finds\n\"환불규정을\", \"배포하다\" does not find \"배포합니다\"). Each hit is the card, the page,\nthe entry or the unit as it is now: its `kind`, its `title`, the container it is in\n(`containerId`, `containerKind`, and `containerTitle`, by which a client tells their\naddresses and names apart),\nand `snippet`, a piece of its body in stretches of plain text, those that matched\nmarked; the snippet is empty for a body that changed a moment ago, or has nothing to\nshow. The best match first (without a search server: those whose title holds every\nword, then the most recently changed). Nothing says how many match in all: fewer than\n`limit` means that no more of what the user reads matches (for a user with a role on\nmore containers than a search names, 1,000 with a search server and 10,000 without:\namong the 10,000 best matches of the workspace).\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). While the search\nserver does not answer, where it cannot hold its index, or where a search takes more\nthan three seconds, the answer is 503 with the reason `search_unavailable`: nothing\nelse of the server waits for it, and the database does not stand in for a search\nserver.",
         "operationId": "searchWorkspaceContent",
         "parameters": [
           {
@@ -20041,7 +20046,7 @@
             }
           },
           {
-            "description": "The words to find, at most 200 characters. Without it nothing is found.",
+            "description": "The words to find, or `#12` (`#00012` normalized to `12`) to match cards by their number across readable boards, at most 200 characters. Without it nothing is found.",
             "in": "query",
             "name": "q",
             "required": false,

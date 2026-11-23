@@ -16,6 +16,7 @@
  * them once it has written the body and sent it to its search server.
  */
 import { plainText } from '../../editor/body-text.ts';
+import { hashCardNumberOf } from '../../logic/card-numbers.ts';
 import { BackendError, problemOf } from '../backend.ts';
 import {
   MAX_SEARCH_CHARS,
@@ -117,6 +118,39 @@ export class MemoryContentSearch implements ContentSearch {
     if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
       refusedParameter('limit', 'the number of hits is from 1 to 50');
     }
+    const cardNumber =
+      ask.kind === undefined || ask.kind === 'card' ? hashCardNumberOf(query) : undefined;
+    if (cardNumber !== undefined) {
+      const hits: { hit: SearchHit; updateAt: number }[] = [];
+      for (const board of world.containers.values()) {
+        if (board.workspaceId !== workspaceId || board.isTemplate) continue;
+        if (!reads(world, this.#userId, board.id)) continue;
+        for (const block of world.blocksOf(board.id)) {
+          if (this.#kindOf(block) !== 'card' || block.number !== cardNumber) continue;
+          hits.push({
+            hit: {
+              id: block.id,
+              kind: 'card',
+              containerId: board.id,
+              containerKind: board.kind ?? 'board',
+              containerTitle: board.title,
+              title: block.title,
+              number: cardNumber,
+              snippet: [],
+            },
+            updateAt: block.updateAt,
+          });
+        }
+      }
+      return hits
+        .sort(
+          (first, second) =>
+            second.updateAt - first.updateAt || first.hit.id.localeCompare(second.hit.id),
+        )
+        .slice(0, limit)
+        .map(({ hit }) => hit);
+    }
+
     const words = query.split(/\s+/u).filter((word) => word !== '');
     if (words.length === 0) return [];
     const holds = (text: string, word: string): boolean =>
@@ -138,8 +172,9 @@ export class MemoryContentSearch implements ContentSearch {
             kind,
             containerId: board.id,
             containerKind: board.kind ?? 'board',
+            containerTitle: board.title,
             title: block.title,
-            ...(block.number === undefined ? {} : { number: block.number }),
+            ...(kind === 'card' && block.number !== undefined ? { number: block.number } : {}),
             snippet: snippetOf(text, words),
           },
           inTitle: words.filter((word) => holds(block.title, word)).length,
