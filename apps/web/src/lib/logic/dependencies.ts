@@ -58,17 +58,17 @@ export function valuesOfCopy(
   templates: readonly PropertyTemplate[],
   cardIds: ReadonlySet<string>,
 ): Record<string, PropertyValue> {
-  const values = { ...cardProperties(card) };
   const relationIds = new Set(
     templates.filter((template) => template.type === 'relation').map((template) => template.id),
   );
-  for (const [id, value] of Object.entries(values)) {
+  const values: Record<string, PropertyValue> = {};
+  for (const [id, value] of Object.entries(cardProperties(card))) {
     if (relationIds.has(id)) {
       values[id] = parseRelationValue(value)
         .filter((link) => link.card !== card.id && cardIds.has(link.card))
         .slice(0, RELATION_LIMIT);
-    } else if (isRelationLinksValue(value)) {
-      delete values[id];
+    } else if (!isRelationLinksValue(value)) {
+      values[id] = value;
     }
   }
   return values;
