@@ -12,9 +12,11 @@ set -euo pipefail
 
 POSTGRES=fvoci-test-postgres
 POSTGRES_PORT=15434
+POSTGRES_IMAGE='postgres:18@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a'
 S3=fvoci-test-s3
 S3_PORT=18333
 S3_BUCKET=fvoci-test
+S3_IMAGE='chrislusf/seaweedfs:latest@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15'
 
 # Tries a command every half second until it succeeds, for 90 seconds by the clock.
 wait_for() {
@@ -33,7 +35,7 @@ postgres() {
   docker run --detach --name "$POSTGRES" \
     --env POSTGRES_USER=postgres --env POSTGRES_PASSWORD=fvoci-test --env POSTGRES_DB=fvoci \
     --shm-size 1073741824 --publish "127.0.0.1:$POSTGRES_PORT:5432" \
-    postgres:18 -c max_connections=300
+    "$POSTGRES_IMAGE" -c max_connections=300
   # Over TCP: while the image makes a new database it answers on the socket only.
   wait_for "$POSTGRES" docker exec "$POSTGRES" \
     pg_isready --host 127.0.0.1 --username postgres --dbname fvoci
@@ -61,7 +63,7 @@ bucket_answers() {
 
 s3() {
   docker run --detach --name "$S3" --publish "127.0.0.1:$S3_PORT:8333" \
-    chrislusf/seaweedfs:latest server -s3 -s3.port=8333
+    "$S3_IMAGE" server -s3 -s3.port=8333
   wait_for "the bucket of $S3" bucket_answers
   {
     echo "FVOCI_S3_TEST_ENDPOINT=localhost:$S3_PORT"
