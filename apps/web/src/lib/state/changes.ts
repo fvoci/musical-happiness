@@ -4,6 +4,7 @@ import type { Container, ContainerMember, BoardView } from '../logic/wire.ts';
 import type { AccountSettings, Attachment, CardSummary, Category, Comment } from './backend.ts';
 import type { WikiPage } from './wiki-types.ts';
 import type { DiaryEntry } from './diary-types.ts';
+import type { CourseUnit } from './course-types.ts';
 
 /**
  * A change that happened on the server, whoever made it: the reader in this
@@ -29,6 +30,8 @@ export type Change =
   | { kind: 'pages'; containerId: string; pages: WikiPage[] }
   /** Entries of a diary (`containerId`) that were made or changed, without their bodies. */
   | { kind: 'entries'; containerId: string; entries: DiaryEntry[] }
+  /** Chapters and units of a course (`containerId`) that were made or changed, without their bodies. */
+  | { kind: 'units'; containerId: string; units: CourseUnit[] }
   | { kind: 'members'; containerId: string; members: ContainerMember[] }
   | { kind: 'categories'; categories: Category[] }
   | { kind: 'settings'; settings: AccountSettings }

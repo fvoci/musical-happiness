@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import BookOpenIcon from '@lucide/svelte/icons/book-open';
+  import GraduationCapIcon from '@lucide/svelte/icons/graduation-cap';
   import NotebookPenIcon from '@lucide/svelte/icons/notebook-pen';
 
   import { avatarInitial } from '$lib/components/avatar/avatar.ts';
@@ -28,9 +29,15 @@
 
   let { icon, title, locale, kind }: Props = $props();
 
-  /** What tells a wiki or a diary from a board; none for a board. */
+  /** What tells a wiki, diary, or course from a board; none for a board. */
   const KindIcon = $derived(
-    kind === 'wiki' ? BookOpenIcon : kind === 'diary' ? NotebookPenIcon : undefined,
+    kind === 'wiki'
+      ? BookOpenIcon
+      : kind === 'diary'
+        ? NotebookPenIcon
+        : kind === 'course'
+          ? GraduationCapIcon
+          : undefined,
   );
 </script>
 

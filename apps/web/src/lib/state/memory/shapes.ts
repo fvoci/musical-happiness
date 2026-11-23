@@ -24,6 +24,7 @@ import { summaryOfBody } from '../body-summary.ts';
 
 import { withPropertyOrder } from '../../logic/property-order.ts';
 import type { CalendarDate } from '../../logic/dates.ts';
+import type { CourseUnit } from '../course-types.ts';
 import type { DiaryEntry, Mood } from '../diary-types.ts';
 import { fail } from './refuse.ts';
 import type { StoredBlock, StoredCard } from './world.ts';
@@ -135,10 +136,27 @@ export function pageOf(block: StoredBlock): WikiPage {
   };
 }
 
-/** What the listeners of a board or a wiki are told of a block made or changed: a page, or another block. */
+/** A unit or chapter of a course as its outline lists it. */
+export function unitOf(block: StoredBlock): CourseUnit {
+  return {
+    id: block.id,
+    courseId: block.containerId,
+    kind: block.type === 'chapter' ? 'chapter' : 'unit',
+    parentId: block.parentId,
+    title: block.title,
+    order: orderOf(block),
+    createAt: block.createAt,
+    updateAt: block.updateAt,
+  };
+}
+
+/** What the listeners of a container are told of a block made or changed. */
 export function changeOf(containerId: string, block: StoredBlock): Change {
   if (block.type === 'page') return { kind: 'pages', containerId, pages: [pageOf(block)] };
   if (block.type === 'entry') return { kind: 'entries', containerId, entries: [entryOf(block)] };
+  if (block.type === 'unit' || block.type === 'chapter') {
+    return { kind: 'units', containerId, units: [unitOf(block)] };
+  }
   return { kind: 'blocks', containerId, blocks: [wireOf(block)] };
 }
 

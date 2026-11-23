@@ -33,6 +33,8 @@
     description: string;
     /** The name of one without a title. */
     untitled: string;
+    /** Label for the descendant count (defaults to wiki pages). */
+    belowLabel?: ((count: number) => string) | undefined;
     testId: string;
   }
 
@@ -43,13 +45,15 @@
     title,
     description,
     untitled,
+    belowLabel = (count: number) => m.shell_trash_below({ count }),
     testId,
   }: Props = $props();
 
-  /** What a wiki or a diary in the trash is called without a title, and the word for its kind. */
+  /** What a wiki, diary, or course in the trash is called without a title, and the word for its kind. */
   const KINDS = {
     wiki: { untitled: m.wiki_untitled, named: m.shell_wiki_kind },
     diary: { untitled: m.diary_untitled, named: m.shell_diary_kind },
+    course: { untitled: m.course_untitled, named: m.shell_course_kind },
   };
 
   // The back button closes it, as the other dialogs: the page under it stays.
@@ -102,7 +106,9 @@
           <ul class="grid gap-1" data-testid="trash-items" bind:this={list}>
             {#each trash.items as item (item.id)}
               {@const kind =
-                item.kind === 'wiki' || item.kind === 'diary' ? KINDS[item.kind] : undefined}
+                item.kind === 'wiki' || item.kind === 'diary' || item.kind === 'course'
+                  ? KINDS[item.kind]
+                  : undefined}
               {@const name = item.title || (kind?.untitled() ?? untitled)}
               <li
                 class="flex min-h-8 items-center gap-2 roomy:min-h-touch"
@@ -121,9 +127,7 @@
                   </span>
                   <span class="truncate text-xs text-muted-foreground">
                     {#if item.below}
-                      <span data-testid="trash-below"
-                        >{m.shell_trash_below({ count: item.below })}</span
-                      > ·
+                      <span data-testid="trash-below">{belowLabel(item.below)}</span> ·
                     {/if}
                     {m.shell_trash_deleted_by({ name: nameOf(item.deletedBy) })} ·
                     <time

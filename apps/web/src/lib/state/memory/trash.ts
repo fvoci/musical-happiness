@@ -77,6 +77,37 @@ export function deletedPagesOf(
   return pageOf(items.sort(order), paging);
 }
 
+/**
+ * The chapters and units of a course in the trash at the top of each deletion,
+ * newest first then by identifier. A unit deleted with its chapter is not listed
+ * separately and counts toward the chapter's `below`.
+ */
+export function deletedUnitsOf(
+  world: World,
+  courseId: string,
+  paging: Paging | undefined,
+): DeletedItem[] {
+  const items: DeletedItem[] = [];
+  for (const [id, deleted] of world.deletedBlocks) {
+    const [first] = deleted.blocks;
+    const isNode = first?.type === 'unit' || first?.type === 'chapter';
+    if (deleted.containerId !== courseId || first?.id !== id || !isNode) continue;
+    items.push({
+      id,
+      title: first.title,
+      deletedAt: deleted.deletedAt,
+      deletedBy: deleted.deletedBy,
+      below:
+        first.type === 'chapter'
+          ? deleted.blocks.filter((block) => block.type === 'unit').length
+          : 0,
+    });
+  }
+  const order = (one: DeletedItem, other: DeletedItem): number =>
+    latestFirst(one, other) || (one.id < other.id ? -1 : one.id > other.id ? 1 : 0);
+  return pageOf(items.sort(order), paging);
+}
+
 /** Whether a member was an admin of the board, which bringing it back takes. */
 export const wasAdmin = (members: readonly ContainerMember[], userId: string): boolean =>
   members.some((member) => member.userId === userId && member.schemeAdmin);
@@ -173,8 +204,8 @@ export function mayManageCards(
   refusal: string,
 ): void {
   const board = world.containers.get(boardId);
-  // A wiki or a diary has no cards: the server answers for one as for a board that is not there.
-  if (!board || board.kind === 'wiki' || board.kind === 'diary') fail(404, 'no such board');
+  // Only boards have cards: wikis, diaries and courses answer as not found.
+  if (!board || (board.kind ?? 'board') !== 'board') fail(404, 'no such board');
   const member = world.members.get(boardId)?.find((each) => each.userId === userId);
   if (!member && board.type !== 'O') fail(404, 'no such board');
   if (!member?.schemeAdmin && !member?.schemeEditor) fail(403, refusal);

@@ -34,6 +34,7 @@
   let { workspace, store, kind = 'board', shown, router, onJoined }: Props = $props();
 
   const wiki = $derived(kind === 'wiki');
+  const course = $derived(kind === 'course');
 
   let managed = $state<'asking' | 'yes' | 'no'>('asking');
   let joining = $state(false);
@@ -73,15 +74,19 @@
 {:else}
   <div
     class="grid h-full place-items-center p-6 text-center"
-    data-testid={wiki ? 'wiki-managed' : 'board-managed'}
+    data-testid={wiki ? 'wiki-managed' : course ? 'course-managed' : 'board-managed'}
   >
     <div class="flex max-w-md flex-col items-center gap-3">
       <h2 class="text-lg font-medium">
         {store.container.icon ? `${store.container.icon} ` : ''}{store.container.title ||
-          (wiki ? m.wiki_untitled() : m['Sidebar.untitled-board']())}
+          (wiki ? m.wiki_untitled() : course ? m.course_untitled() : m['Sidebar.untitled-board']())}
       </h2>
       <p class="text-muted-foreground">
-        {wiki ? m.app_wiki_managed_hint() : m.app_board_managed_hint()}
+        {wiki
+          ? m.app_wiki_managed_hint()
+          : course
+            ? m.app_course_managed_hint()
+            : m.app_board_managed_hint()}
       </p>
       <div class="flex flex-wrap justify-center gap-2">
         <Button aria-disabled={joining} aria-busy={joining} onclick={() => void join()}

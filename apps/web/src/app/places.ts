@@ -28,7 +28,7 @@ export interface Place {
 /** The route of a card (over the view shown where its board is shown, else over any), a page, a diary entry, or a course unit. */
 export function routeOfPlace(router: Router, place: Place): Partial<Route> {
   const { workspaceId, containerId, id } = place;
-  if (place.kind === 'unit') return { workspaceId };
+  if (place.kind === 'unit') return { workspaceId, courseId: containerId, unitId: id };
   if (place.kind === 'entry') {
     const date = parseCalendarDate(place.title ?? '');
     return {
@@ -45,25 +45,22 @@ export function routeOfPlace(router: Router, place: Place): Partial<Route> {
 }
 
 /**
- * Goes to a card, a page, a diary entry, or a course unit. A card of the board shown opens over its view, in
- * place of a card open there; a card of another board opens over that board,
- * as a board chosen in the sidebar. A page of the wiki shown is opened as one
- * of its tree; a page of another wiki over that wiki, as a wiki chosen in
- * the sidebar. A diary entry opens at its day in its diary. Course unit routes
- * fall back to the workspace until course routes land in t2.
+ * Goes to a card, a page, a diary entry, or a course unit.
  */
 export function goToPlace(router: Router, place: Place): void {
   const route = routeOfPlace(router, place);
   if (place.kind === 'page' && router.route.wikiId === place.containerId) {
     router.openPage(place.id);
+  } else if (place.kind === 'unit' && router.route.courseId === place.containerId) {
+    router.openUnit(place.id);
   } else if (place.kind === 'card' && route.viewId !== ANY_VIEW) {
     router.openCard(place.id);
   } else if (place.kind === 'entry' && router.route.diaryId === place.containerId) {
     router.go(route);
-  } else if (place.kind === 'unit') {
-    router.go(route);
   } else {
-    const kind = ({ card: 'board', page: 'wiki', entry: 'diary' } as const)[place.kind];
+    const kind = ({ card: 'board', page: 'wiki', entry: 'diary', unit: 'course' } as const)[
+      place.kind
+    ];
     router.openContainer({ id: place.containerId, workspaceId: place.workspaceId ?? '', kind });
     router.go(route, { replace: true });
   }

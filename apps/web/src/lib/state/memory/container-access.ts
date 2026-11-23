@@ -44,10 +44,13 @@ export function reads(world: World, userId: string, containerId: string): boolea
   return isOpenWiki(container) && workersOf(world, container.workspaceId).has(userId);
 }
 
-/** An open wiki: read by whoever works in its workspace. */
-export function isOpenWiki(container: { type: string; kind?: string }): boolean {
-  return container.type === 'O' && container.kind === 'wiki';
+/** An open wiki or course: read by whoever works in its workspace (`OpenToRead`). */
+export function isOpenToRead(container: { type: string; kind?: string }): boolean {
+  return container.type === 'O' && (container.kind === 'wiki' || container.kind === 'course');
 }
+
+/** Alias kept for existing callers: open wikis and courses are read without joining. */
+export const isOpenWiki = isOpenToRead;
 
 /** A local blob URL grants direct access, so do not make or return it for a nonmember. */
 export function memberFileUrl(

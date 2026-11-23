@@ -111,6 +111,33 @@ describe('the search in memory', () => {
     expect(hits.map((hit) => [hit.id, hit.containerKind])).toEqual([['note', 'wiki']]);
   });
 
+  it('finds units of an open course the reader works beside, never chapters', async () => {
+    const made = world();
+    made.containers.set('course-1', {
+      ...createBoard(),
+      id: 'course-1',
+      workspaceId: 'w',
+      title: 'Onboarding',
+      type: 'O',
+      kind: 'course',
+    });
+    made.members.set('course-1', [memberOf('course-1', 'someone', 'admin')]);
+    made.blocks.set('ch-1', { ...block('ch-1', 'course-1', 'Kangaroo chapter'), type: 'chapter' });
+    made.blocks.set('u-1', {
+      ...block('u-1', 'course-1', 'First unit'),
+      type: 'unit',
+      parentId: 'ch-1',
+      body: text('Learn about kangaroo routes'),
+    });
+    const backend = new MemoryBackend(made, 'reader');
+    expect(ids(await backend.search.find('w', { query: 'kangaroo', kind: 'unit' }))).toEqual([]);
+    made.workspaceMembers.add('reader');
+    const hits = await backend.search.find('w', { query: 'kangaroo', kind: 'unit' });
+    expect(hits.map((hit) => [hit.id, hit.kind, hit.containerKind])).toEqual([
+      ['u-1', 'unit', 'course'],
+    ]);
+  });
+
   it('wants every word, in any case, and finds nothing for no words', async () => {
     const backend = new MemoryBackend(world(), 'reader');
     expect(ids(await backend.search.find('w', { query: 'ROUTE kangaroo' }))).toEqual(['found']);

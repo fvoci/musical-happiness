@@ -22,7 +22,7 @@ describe('the workspace', () => {
     expect(workspace.status).toBe('ready');
     expect(workspace.me?.username).toBe('hana');
     expect(workspace.userName(workspace.me?.id ?? '')).toBe('김하나 (@hana)');
-    expect(workspace.containers).toHaveLength(13);
+    expect(workspace.containers).toHaveLength(14);
     expect(workspace.sidebar.map((entry) => entry.category.name)).toEqual([
       'Team',
       'Research',

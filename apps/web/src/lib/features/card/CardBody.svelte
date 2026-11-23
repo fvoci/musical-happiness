@@ -57,6 +57,7 @@
     lostNote,
     PAGE_WORDS,
     roomNote,
+    UNIT_WORDS,
     type BodyWords,
   } from './body-notes.ts';
   import type { KeepOutcome } from './body-versions.svelte.ts';
@@ -79,8 +80,8 @@
       | 'dismissLost'
       | 'uploadFile'
     >;
-    /** Whose body it is, for the words it says: a card's, a wiki's page's, or a diary's entry's. */
-    of?: 'card' | 'page' | 'entry';
+    /** Whose body it is, for the words it says: a card's, a wiki's page's, a diary's entry's, or a course's unit's. */
+    of?: 'card' | 'page' | 'entry' | 'unit';
     /** Shown in place of the body as it was read, until the room's editor is there. */
     waiting?: Snippet | undefined;
     /** The room's editor waits while this is true: `waiting` stays. */
@@ -110,7 +111,9 @@
   const KEPT_SHOWN = 6000;
 
   const words = $derived(
-    { card: CARD_WORDS, page: PAGE_WORDS, entry: ENTRY_WORDS }[of] satisfies BodyWords,
+    { card: CARD_WORDS, page: PAGE_WORDS, entry: ENTRY_WORDS, unit: UNIT_WORDS }[
+      of
+    ] satisfies BodyWords,
   );
 
   const workspace = $derived(container.workspace);

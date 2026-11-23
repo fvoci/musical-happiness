@@ -25,6 +25,7 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import BoardPage from './BoardPage.svelte';
+  import CoursePage from './CoursePage.svelte';
   import DiaryPage from './DiaryPage.svelte';
   import { lastPlace, rememberPlace } from './last-workspace.ts';
   import NotFound from './NotFound.svelte';
@@ -129,6 +130,8 @@
   <BoardPage {workspace} {router} />
 {:else if router.route.wikiId}
   <WikiPage {workspace} {router} />
+{:else if router.route.courseId}
+  <CoursePage {workspace} {router} />
 {:else if router.route.diaryId}
   <!-- Another diary is another page: what was opened and shown of one is not the other's. -->
   {#key router.route.diaryId}

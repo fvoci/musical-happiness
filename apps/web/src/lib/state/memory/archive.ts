@@ -70,3 +70,29 @@ function renamed(value: object, from: string, to: string): Record<string, unknow
     Object.entries(value).map(([key, each]) => [key === from ? to : key, each]),
   );
 }
+
+/** The containers of `workspaceId` exported by `exportWorkspace` for `userId`. */
+export function exportableContainers(
+  world: World,
+  workspaceId: string,
+  userId: string,
+): Container[] {
+  return [...world.containers.values()].filter(
+    (board) =>
+      board.workspaceId === workspaceId &&
+      !board.isTemplate &&
+      (board.type === 'O' ||
+        (world.members.get(board.id) ?? []).some((member) => member.userId === userId)),
+  );
+}
+
+/** Reads an archive file into its containers and blocks (`importArchive`). */
+export async function readArchive(
+  file: File,
+): Promise<{ containers: Container[]; blocks: StoredBlock[] }> {
+  const lines = await archiveLines(file);
+  return {
+    containers: lines.filter((line) => line.type === 'board').map((line) => line.data as Container),
+    blocks: lines.filter((line) => line.type === 'block').map((line) => blockOfLine(line.data)),
+  };
+}

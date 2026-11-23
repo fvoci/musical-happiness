@@ -40,10 +40,10 @@ import { SidebarWrites } from './sidebar-writes.ts';
 import { Transfers } from './transfers.svelte.ts';
 import { UserNames, type Learning } from './user-names.ts';
 import * as entry from './workspace-entry.ts';
+import type { LoadStatus, ProblemAction } from './workspace-types.ts';
 import { reread } from './write.ts';
 
-/** `signedOut`: nobody is signed in (401); `leaving`: the account waits to be deleted (its session opens only taking that back). */
-export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut' | 'leaving';
+export type { LoadStatus, ProblemAction };
 
 /** Something a write or a read failed with, for the reader to be told. */
 export interface Problem {
@@ -52,8 +52,6 @@ export interface Problem {
   action: ProblemAction;
   error: BackendError | undefined;
 }
-
-export type ProblemAction = 'load' | 'save' | 'undo' | 'export' | 'import' | 'movePage';
 
 export interface WorkspaceOptions {
   backend: Backend;

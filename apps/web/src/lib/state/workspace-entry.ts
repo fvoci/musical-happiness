@@ -118,12 +118,13 @@ async function rereadWithout(
  * the server answers as one that is not there.
  */
 export async function modulesOf(backend: Backend, workspace: WorkspaceInfo): Promise<Container[]> {
-  const [boards, wikis, diaries] = await Promise.all([
+  const [boards, wikis, diaries, courses] = await Promise.all([
     backend.boards(workspace.id),
     backend.wiki?.wikis(workspace.id) ?? [],
     (isOwnSpace(workspace) && backend.diary?.diaries(workspace.id)) || [],
+    backend.course?.courses(workspace.id) ?? [],
   ]);
-  return [...boards, ...wikis, ...diaries];
+  return [...boards, ...wikis, ...diaries, ...courses];
 }
 
 /** The templates a board can be made from; none (told) when they cannot be read. */

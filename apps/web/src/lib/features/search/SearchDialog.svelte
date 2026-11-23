@@ -70,6 +70,7 @@
     { kind: undefined, label: () => m.search_kind_all() },
     { kind: 'card', label: () => m.search_kind_cards() },
     { kind: 'page', label: () => m.search_kind_pages() },
+    { kind: 'unit', label: () => m.search_kind_units() },
   ];
 
   /** What is read out of the state of the search. */

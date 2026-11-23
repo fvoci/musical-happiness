@@ -11,6 +11,7 @@
  */
 import { isBackendError, type DeletedItem, type Paging } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
+import type { CourseStore } from './course.svelte.ts';
 import { firstOf } from './page-reads.ts';
 import type { WikiStore } from './wiki.svelte.ts';
 import type { Workspace } from './workspace.svelte.ts';
@@ -144,6 +145,15 @@ export function pageTrash(wiki: WikiStore): Trash {
     wiki.workspace,
     (paging) => wiki.deletedPages(paging),
     (pageId) => wiki.restorePage(pageId),
+  );
+}
+
+/** The chapters and units of a course in the trash, for its editors. */
+export function unitTrash(course: CourseStore): Trash {
+  return new Trash(
+    course.workspace,
+    (paging) => course.deletedUnits(paging),
+    (unitId) => course.restoreUnit(unitId),
   );
 }
 

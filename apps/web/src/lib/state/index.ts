@@ -79,6 +79,21 @@ export { WikiStore, type PageLooks, type WikiLooks } from './wiki.svelte.ts';
 export { createWiki } from './wiki-parts.ts';
 export { shownWiki } from './shown-wiki.svelte.ts';
 export type { PageDraft, PageMove, WikiDraft, WikiPage, WikiPageDetail } from './wiki-types.ts';
+export { CourseStore, type CourseLooks } from './course.svelte.ts';
+export { UnitStore } from './unit.svelte.ts';
+export { createCourse } from './course-parts.ts';
+export { shownCourse } from './shown-course.svelte.ts';
+export type {
+  CourseDraft,
+  Courses,
+  CourseUnit,
+  CourseUnitDetail,
+  UnitDraft,
+  UnitKind,
+  UnitMove,
+  UnitPatch,
+} from './course-types.ts';
+export type { PresenceSource, TreeItem, TreeSource } from './tree-source.ts';
 export {
   changeName,
   confirmPassword,
@@ -119,7 +134,14 @@ export {
   startOrganization,
   type EnterStatus,
 } from './workspace-entry.ts';
-export { containerTrash, cardTrash, pageTrash, Trash, type TrashStatus } from './trash.svelte.ts';
+export {
+  containerTrash,
+  cardTrash,
+  pageTrash,
+  unitTrash,
+  Trash,
+  type TrashStatus,
+} from './trash.svelte.ts';
 export {
   Workspace,
   type LoadStatus,

@@ -237,6 +237,67 @@ describe('the address of a diary', () => {
   });
 });
 
+describe('the address of a course', () => {
+  it('reads the course and its unit, writes them back, and rejects extra segments', () => {
+    const parsed = parseRoute('/w/ws/courses/c1/u1', '');
+    expect(parsed).toMatchObject({
+      workspaceId: 'ws',
+      courseId: 'c1',
+      unitId: 'u1',
+      unknown: false,
+    });
+    expect(parsed.boardId).toBeUndefined();
+    expect(parsed.wikiId).toBeUndefined();
+    expect(parseRoute('/w/ws/courses/c1', '')).toMatchObject({
+      workspaceId: 'ws',
+      courseId: 'c1',
+      unitId: undefined,
+      unknown: false,
+    });
+    expect(parseRoute('/w/ws/courses/c1/u1/extra', '').unknown).toBe(true);
+    for (const path of ['/w/ws/courses/c1', '/w/ws/courses/c1/u1']) {
+      expect(routePath(parseRoute(path, ''), '')).toBe(path);
+    }
+    expect(routePath({ workspaceId: 'ws', unitId: 'u1' }, '')).toBe('/w/ws');
+  });
+
+  it('places courses in the sidebar, resolves shownContainerId, and navigates units and search hits', () => {
+    const course = { id: 'c1', workspaceId: 'ws', kind: 'course' as const };
+    expect(placeRoute(course)).toEqual({ workspaceId: 'ws', courseId: 'c1' });
+    expect(shownContainerId(parseRoute('/w/ws/courses/c1/u1', ''))).toBe('c1');
+
+    history.replaceState(null, '', '/w/ws/courses/c1');
+    const router = new Router('');
+    const stop = router.listen();
+    const before = history.length;
+    router.openUnit('u1');
+    expect(router.route).toMatchObject({ courseId: 'c1', unitId: 'u1' });
+    expect(location.pathname).toBe('/w/ws/courses/c1/u1');
+    expect(history.length).toBe(before + 1);
+
+    router.openUnit('u2', { replace: true });
+    expect(router.route.unitId).toBe('u2');
+    expect(history.length).toBe(before + 1);
+
+    const hit = {
+      kind: 'unit' as const,
+      id: 'u9',
+      containerId: 'c2',
+      workspaceId: 'ws',
+      title: 'Lesson 9',
+    };
+    expect(routeOfPlace(router, hit)).toEqual({
+      workspaceId: 'ws',
+      courseId: 'c2',
+      unitId: 'u9',
+    });
+    goToPlace(router, hit);
+    expect(location.pathname).toBe('/w/ws/courses/c2/u9');
+    expect(router.route).toMatchObject({ courseId: 'c2', unitId: 'u9' });
+    stop();
+  });
+});
+
 describe('the base path', () => {
   const metaWith = (content: string): Document => {
     const other = document.implementation.createHTMLDocument('');
