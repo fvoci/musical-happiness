@@ -10,6 +10,7 @@ export {
   isBackendError,
   isConflict,
   isOwnSpace,
+  isPasswordSignInRequired,
   isSignedOut,
   ssoOrgOf,
   type Account,
@@ -160,6 +161,27 @@ export {
   Trash,
   type TrashStatus,
 } from './trash.svelte.ts';
+export {
+  TimeTracker,
+  timeTracker,
+  type SwitchedTimerNotice,
+  type TimeSessionWall,
+} from './time.svelte.ts';
+export type {
+  CreateTimeEntryRequest,
+  ListTimeEntriesQuery,
+  StartTimeEntryRequest,
+  StartedTimeEntry,
+  TimeEntry,
+  TimeEntryKind,
+  TimeEntryKindTotals,
+  TimeEntryList,
+  TimeEntryPatch,
+  TimeEntrySummary,
+  TimeOfBackend,
+  TimeTargetKind,
+  TimeTracking,
+} from './time-types.ts';
 export {
   Workspace,
   type LoadStatus,

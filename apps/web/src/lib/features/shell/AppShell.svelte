@@ -79,6 +79,11 @@
     workspace: Workspace;
     /** The board or wiki that is shown, to mark it in the sidebar. */
     containerId: string | undefined;
+    /** Whether the personal "My time" screen is shown. */
+    meTime?: boolean;
+    /** The address of the personal "My time" screen, when time tracking is available. */
+    timeHref?: string | undefined;
+    onOpenTime?: (() => void) | undefined;
     /** The address of a board or a wiki, for a link to it. */
     containerHref: (container: ContainerPlace) => string;
     /** The address of a board's or a wiki's public link with its read token. */
@@ -117,6 +122,9 @@
   let {
     workspace,
     containerId,
+    meTime = false,
+    timeHref,
+    onOpenTime,
     containerHref,
     sharedHref,
     onOpenContainer,
@@ -219,6 +227,11 @@
     sidebar.drawerOpen = false;
   }
 
+  function openTime(): void {
+    onOpenTime?.();
+    sidebar.drawerOpen = false;
+  }
+
   /**
    * Opens the settings; a drawer they were asked for from closes first.
    *
@@ -314,6 +327,9 @@
   <SidebarStrip
     {workspace}
     {containerId}
+    {meTime}
+    {timeHref}
+    onOpenTime={onOpenTime ? openTime : undefined}
     {containerHref}
     hidden={!layout.strip}
     inert={drawerOut || paneCovered()}
@@ -366,6 +382,9 @@
     <Sidebar
       {workspace}
       {containerId}
+      {meTime}
+      {timeHref}
+      onOpenTime={onOpenTime ? openTime : undefined}
       {containerHref}
       beside={layout.list === 'beside'}
       onOpenContainer={openContainer}
@@ -388,6 +407,7 @@
     <TopBar
       {workspace}
       {containerId}
+      {meTime}
       {sharedHref}
       menuButton={layout.menuButton}
       onOpenSidebar={openDrawer}

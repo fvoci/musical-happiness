@@ -86,6 +86,7 @@ import { checkRelations, MemoryReferences } from './references.ts';
 import { checkArchiveCards, checkCardParent, storeNewCard } from './card-hierarchy.ts';
 import { MemoryContentSearch } from './content-search.ts';
 import { MemoryNotifications, noteComment } from './notifications.ts';
+import { MemoryTime } from './time.ts';
 import { searchBoardsOf } from './search.ts';
 import { fail } from './refuse.ts';
 import { nextScreenState } from './screen-state.ts';
@@ -131,6 +132,7 @@ export class MemoryBackend implements Backend {
   readonly references = new MemoryReferences(this, () => this.#enter('references'));
   readonly fileVersions = new MemoryFileVersions(this, () => this.#enter('fileVersions'));
   readonly notifications = new MemoryNotifications(this, () => this.#enter('notifications'));
+  readonly time = new MemoryTime(this, () => this.#enter('time'));
   readonly #categories = new MemoryCategories(this, (method, workspaceId) =>
     this.#enterWorkspace(method, workspaceId),
   );

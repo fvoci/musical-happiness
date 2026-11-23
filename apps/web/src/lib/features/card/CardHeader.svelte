@@ -9,6 +9,7 @@
   dialog. Both do the same.
 -->
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import CopyIcon from '@lucide/svelte/icons/copy';
@@ -46,6 +47,8 @@
     /** Opens the versions kept of the body. */
     onVersions: () => void;
     onDelete: () => void;
+    /** Extra actions in the card header (e.g. personal timer). */
+    extraActions?: Snippet<[CardStore]> | undefined;
   }
 
   let {
@@ -59,6 +62,7 @@
     onDuplicate,
     onVersions,
     onDelete,
+    extraActions,
   }: Props = $props();
 
   let menuOpen = $state(false);
@@ -181,6 +185,9 @@
       <CardNumber {number} />
     {/if}
   </p>
+  {#if extraActions}
+    {@render extraActions(card)}
+  {/if}
   <span
     class="shrink-0 px-1 text-xs text-muted-foreground"
     role="status"
