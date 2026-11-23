@@ -619,7 +619,16 @@ async fn the_migration_numbers_the_cards_of_each_board_in_the_order_they_were_ma
         .expect("the store opens the schema of before");
     let (org_id, workspace_id) = common::organization(&before, "").await;
     let before = before.for_org(&org_id).expect("an identifier");
-    let user_id = common::user(&before, "before").await;
+    // The account is written in the columns of then: the store of now also asks of an
+    // address what later migrations keep (`email_reverts`).
+    let user_id = new_id();
+    before
+        .execute_unchecked(&format!(
+            "INSERT INTO users (id, username, email, password_hash, create_at, update_at) \
+             VALUES ('{user_id}', 'before', 'before@example.com', '', 1, 1)"
+        ))
+        .await
+        .expect("the user is stored");
     common::works_in(&before, &workspace_id, &user_id).await;
     let board_id = board(&before, &workspace_id, &user_id).await;
     let other_board = board(&before, &workspace_id, &user_id).await;
