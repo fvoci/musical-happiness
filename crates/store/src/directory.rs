@@ -15,7 +15,7 @@
 use std::collections::BTreeSet;
 
 use fvoci_model::{
-    ContainerKind, ContainerKinds, ContainerMember, ContainerType, OrgKind, OrgRole, User,
+    ContainerKind, ContainerKinds, ContainerMember, ContainerVisibility, OrgKind, OrgRole, User,
     UserOrganization, UserWorkspace, Workspace, WorkspaceRole, new_id,
 };
 use subtle::ConstantTimeEq as _;
@@ -25,7 +25,7 @@ use crate::container_kinds;
 use crate::container_team_access;
 use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
-use crate::file_info;
+use crate::files;
 use crate::loose_objects::LooseState;
 use crate::uploads::{OpenUploads, UploadUsage};
 use crate::{body_versions, invitations, memberships_everywhere, users, users_by_id, workspaces};
@@ -291,7 +291,7 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
         // Read without a role: an open template, an open wiki, and an open course, for
         // who works in its workspace. An open board that is none of these is joined to be
         // read.
-        sql.push_bind(" OR (b.type = ", ContainerType::Open.as_str())
+        sql.push_bind(" OR (b.visibility = ", ContainerVisibility::Open.as_str())
             .push_bind(" AND (b.is_template = ", true)
             .push(" OR b.kind IN (")
             .bind_list(
@@ -592,7 +592,7 @@ impl Store {
             .inner
             .other_spellings
             .get_or_try_init(async || {
-                let found = self.system().with_conn(file_info::other_spellings).await?;
+                let found = self.system().with_conn(files::other_spellings).await?;
                 if let Some(path) = found.first() {
                     tracing::error!(
                         count = found.len(),
@@ -651,7 +651,7 @@ impl Store {
                         "json_array_elements(d.files) AS f(value)",
                     ),
                 };
-                let mut sql = scope.sql("SELECT path FROM file_info WHERE path IN (");
+                let mut sql = scope.sql("SELECT path FROM files WHERE path IN (");
                 sql.bind_list(paths.iter().copied())
                     .push(&format!(
                         ") UNION SELECT {trashed_path} FROM deleted_containers AS d, {trashed_files} \
@@ -762,7 +762,7 @@ impl Store {
         self.system()
             .with_conn(async |scope| {
                 let mut sql = scope.sql(
-                    "SELECT t.org_id, s.token, b.kind FROM sharing AS s \
+                    "SELECT t.org_id, s.token, b.kind FROM public_links AS s \
                      JOIN containers AS b ON b.id = s.container_id \
                      JOIN workspaces AS t ON t.id = b.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id WHERE s.container_id = ",

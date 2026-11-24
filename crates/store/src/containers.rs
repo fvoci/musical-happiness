@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 
 use fvoci_model::{
     Container, ContainerError, ContainerKind, ContainerKinds, ContainerMember, ContainerPatch,
-    ContainerRole, ContainerType, JsonMap, MinimumRole,
+    ContainerRole, ContainerVisibility, JsonMap, MinimumRole,
 };
 use serde_json::Value;
 
@@ -24,10 +24,10 @@ use crate::{container_kinds, members, subscriptions};
 pub(crate) const OLDEST_CONTAINER_FIRST: &str = " ORDER BY b.create_at, b.id";
 
 /// The name of every board column, in the order rows are written.
-const CONTAINER_COLUMNS: &str = "id, workspace_id, created_by, modified_by, type, minimum_role, \
-                                 title, description, icon, show_description, is_template, \
-                                 is_builtin, template_version, properties, card_properties, \
-                                 create_at, update_at, kind";
+const CONTAINER_COLUMNS: &str = "id, workspace_id, created_by, modified_by, visibility, minimum_role, \
+     title, description, icon, show_description, is_template, \
+     is_builtin, template_version, properties, card_properties, \
+     create_at, update_at, kind";
 
 /// Whether a board query also returns the open boards the user is not a member of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -419,8 +419,8 @@ impl Store {
 /// empty or a table alias followed by a dot.
 pub(crate) fn container_select_list(alias: &str) -> String {
     format!(
-        "{alias}id, {alias}workspace_id, {alias}created_by, {alias}modified_by, {alias}type, \
-         {alias}minimum_role, {alias}title, {alias}description, {alias}icon, \
+        "{alias}id, {alias}workspace_id, {alias}created_by, {alias}modified_by, \
+         {alias}visibility, {alias}minimum_role, {alias}title, {alias}description, {alias}icon, \
          {alias}show_description, {alias}is_template, {alias}is_builtin, \
          {alias}template_version, {alias}properties, {alias}card_properties, \
          {alias}create_at, {alias}update_at, {alias}kind"
@@ -453,7 +453,7 @@ fn container_from_row(row: &Row) -> Result<Container, StoreError> {
         workspace_id: row.id(1)?,
         created_by: row.id(2)?,
         modified_by: row.id(3)?,
-        container_type: container_type_from_text(&row.text(4)?)?,
+        visibility: visibility_from_text(&row.text(4)?)?,
         kind: container_kinds::kind_from_text(&row.text(17)?)?,
         minimum_role: minimum_role_from_text(&row.text(5)?)?,
         title: row.text(6)?,
@@ -472,14 +472,11 @@ fn container_from_row(row: &Row) -> Result<Container, StoreError> {
     })
 }
 
-fn container_type_from_text(text: &str) -> Result<ContainerType, StoreError> {
-    [ContainerType::Open, ContainerType::Private]
-        .into_iter()
-        .find(|container_type| container_type.as_str() == text)
-        .ok_or_else(|| StoreError::Corrupt {
-            column: "type",
-            reason: format!("unknown board type {text:?}"),
-        })
+fn visibility_from_text(text: &str) -> Result<ContainerVisibility, StoreError> {
+    text.parse().map_err(|_| StoreError::Corrupt {
+        column: "visibility",
+        reason: format!("unknown board visibility {text:?}"),
+    })
 }
 
 fn minimum_role_from_text(text: &str) -> Result<MinimumRole, StoreError> {
@@ -625,7 +622,7 @@ pub(crate) async fn insert_container(
         container.create_at = existing.create_at;
         let mut sql = scope.sql("UPDATE containers SET ");
         sql.push_bind("modified_by = ", OptId(&container.modified_by))
-            .push_bind(", type = ", container.container_type.as_str())
+            .push_bind(", visibility = ", container.visibility.as_str())
             .push_bind(", minimum_role = ", container.minimum_role.as_str())
             .push_bind(", title = ", &container.title)
             .push_bind(", description = ", &container.description)
@@ -669,7 +666,7 @@ pub(crate) async fn insert_container_row(
         .push_bind(", ", Id(&container.workspace_id))
         .push_bind(", ", OptId(&container.created_by))
         .push_bind(", ", OptId(&container.modified_by))
-        .push_bind(", ", container.container_type.as_str())
+        .push_bind(", ", container.visibility.as_str())
         .push_bind(", ", container.minimum_role.as_str())
         .push_bind(", ", &container.title)
         .push_bind(", ", &container.description)

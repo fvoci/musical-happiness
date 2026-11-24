@@ -3,8 +3,8 @@
 //! identifiers of its own, what it names of its organization nothing there.
 
 use fvoci_model::{
-    Body, Container, ContainerKind, ContainerKinds, ContainerType, NewPage, PageLimits, PageNode,
-    new_id,
+    Body, Container, ContainerKind, ContainerKinds, ContainerVisibility, NewPage, PageLimits,
+    PageNode, new_id,
 };
 use fvoci_store::{BlockFilter, DbType, DuplicateAs, PublicContainers};
 
@@ -21,7 +21,7 @@ pub(super) async fn b_wiki(scene: &Scene) -> (Container, String) {
     let mut wiki = Container {
         id: new_id(),
         workspace_id: scene.b.workspace_id.clone(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Wiki,
         title: "B's handbook".to_owned(),
         ..Container::default()

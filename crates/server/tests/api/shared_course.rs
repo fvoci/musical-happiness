@@ -56,17 +56,27 @@ async fn upload_slide(owner: &Client, course: &str) -> String {
 async fn shared_course(th: &TestServer) -> SharedCourse {
     let owner = &th.client;
     let other = &th.client2;
-    let elsewhere = made(owner, TEST_WS, "P", "elsewhere").await;
+    let elsewhere = made(owner, TEST_WS, "private", "elsewhere").await;
     let (owner_id, other_id) = (owner.me().await.id, other.me().await.id);
     let courses = format!("{TEST_WS}/courses");
-    let other_course = post_id(owner, &courses, &json!({"type": "P", "title": "Other"})).await;
+    let other_course = post_id(
+        owner,
+        &courses,
+        &json!({"visibility": "private", "title": "Other"}),
+    )
+    .await;
     let outside_unit = post_id(
         owner,
         &format!("{courses}/{other_course}/units"),
         &json!({"title": "Outside Unit"}),
     )
     .await;
-    let course = post_id(owner, &courses, &json!({"type": "P", "title": "Public"})).await;
+    let course = post_id(
+        owner,
+        &courses,
+        &json!({"visibility": "private", "title": "Public"}),
+    )
+    .await;
     owner
         .post(
             &format!("{TEST_WS}/containers/{course}/members"),
@@ -229,7 +239,7 @@ async fn course_link_boundaries_switches_presence_and_invariants() {
     ] {
         anonymous.get(&shared.at(rest)).await.check_not_found();
     }
-    let other_things = made(owner, TEST_WS, "P", "other").await;
+    let other_things = made(owner, TEST_WS, "private", "other").await;
     let board_token = th.share(&other_things.board).await;
     let wiki_token = th.share(&other_things.wiki).await;
     for (cid, tok) in [
@@ -294,7 +304,7 @@ async fn course_link_boundaries_switches_presence_and_invariants() {
         }))
         .await;
     assert_eq!(people(&mut member, 1).await["anonymousCount"], 1);
-    let sharing = format!("{TEST_WS}/containers/{}/sharing", shared.course);
+    let sharing = format!("{TEST_WS}/containers/{}/public-link", shared.course);
     owner
         .post(&sharing, &json!({"enabled": true, "regenerate": true}))
         .await
@@ -304,7 +314,7 @@ async fn course_link_boundaries_switches_presence_and_invariants() {
     th.teardown().await;
 }
 
-/// Sharing off, org publicLinks off, trashed course, own-space course sharing, and diary
+/// `PublicLink` off, org `publicLinks` off, trashed course, own-space course sharing, and diary
 /// sharing refusal (404).
 #[tokio::test]
 async fn course_link_switches_trash_diary_and_own_space_invariants() {
@@ -312,9 +322,9 @@ async fn course_link_switches_trash_diary_and_own_space_invariants() {
     let shared = shared_course(&th).await;
     let owner = &th.client;
     let anonymous = th.anonymous();
-    let sharing = format!("{TEST_WS}/containers/{}/sharing", shared.course);
+    let sharing = format!("{TEST_WS}/containers/{}/public-link", shared.course);
 
-    // 1) Sharing off, org publicLinks off, and trashed course -> 404.
+    // 1) PublicLink off, org publicLinks off, and trashed course -> 404.
     let fresh = th.share(&shared.course).await;
     let fresh_units = format!("/shared/{}/units?readToken={fresh}", shared.course);
     anonymous.get(&fresh_units).await.check_ok();
@@ -357,7 +367,7 @@ async fn course_link_switches_trash_diary_and_own_space_invariants() {
         .value());
     owner
         .post(
-            &format!("{own_ws}/containers/{diary}/sharing"),
+            &format!("{own_ws}/containers/{diary}/public-link"),
             &json!({"enabled": true}),
         )
         .await
@@ -365,7 +375,7 @@ async fn course_link_switches_trash_diary_and_own_space_invariants() {
     let own_course = id(&owner
         .post(
             &format!("{own_ws}/courses"),
-            &json!({"type": "P", "title": "My Study"}),
+            &json!({"visibility": "private", "title": "My Study"}),
         )
         .await
         .value());
@@ -378,7 +388,7 @@ async fn course_link_switches_trash_diary_and_own_space_invariants() {
         .value());
     let own_token = owner
         .post(
-            &format!("{own_ws}/containers/{own_course}/sharing"),
+            &format!("{own_ws}/containers/{own_course}/public-link"),
             &json!({"enabled": true}),
         )
         .await

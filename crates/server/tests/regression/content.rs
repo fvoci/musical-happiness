@@ -68,7 +68,14 @@ pub(crate) async fn templates(s: &mut Session) {
     s.note("welcome template block counts", &json!(counts));
     s.get("templates: anonymous", &format!("{ROOT_API}/templates"))
         .await;
-    let custom = new_board(s, &alice, "My template", "P", json!({"isTemplate": true})).await;
+    let custom = new_board(
+        s,
+        &alice,
+        "My template",
+        "private",
+        json!({"isTemplate": true}),
+    )
+    .await;
     s.get("templates include mine", &format!("{ROOT_API}/templates"))
         .user(&alice)
         .unrecorded()
@@ -127,7 +134,7 @@ pub(crate) async fn files(s: &mut Session) {
     ];
 
     let [alice, bob] = s.users("files", ["alice", "bob"]).await;
-    let board = new_board(s, &alice, "Board with files", "P", json!({})).await;
+    let board = new_board(s, &alice, "Board with files", "private", json!({})).await;
     let upload = format!("{ROOT_API}/containers/{board}/files");
     let png = || multipart("file", "pixel.png", &PNG, "image/png");
 
@@ -230,7 +237,10 @@ pub(crate) async fn files(s: &mut Session) {
 
     // A shared board serves its files to holders of the read token.
     let read_token = s
-        .post("share", &format!("{ROOT_API}/containers/{board}/sharing"))
+        .post(
+            "share",
+            &format!("{ROOT_API}/containers/{board}/public-link"),
+        )
         .json(json!({"enabled": true}))
         .user(&alice)
         .await
@@ -345,7 +355,7 @@ pub(crate) async fn archive(s: &mut Session) {
         s,
         &alice,
         "Exported board",
-        "P",
+        "private",
         json!({
             "description": "to export",
             "cardProperties": [{"id": "p1", "name": "Status", "type": "select", "options": []}],

@@ -30,7 +30,7 @@ async fn create_course(client: &Client, ws: &str, course_type: &str, title: &str
     let made = client
         .post(
             &format!("{ws}/courses"),
-            &json!({"type": course_type, "title": title}),
+            &json!({"visibility": course_type, "title": title}),
         )
         .await;
     made.check_created();
@@ -96,8 +96,8 @@ fn assert_archive_hides_sentinel(bytes: &[u8]) {
 #[tokio::test]
 async fn reviews_and_notes_crud_interval_suggestions_and_unit_progress_integration() {
     let th = Setup::local_mode().start().await.init_basic().await;
-    let c1 = create_course(&th.client, TEST_WS, "P", "Algorithms").await;
-    let c2 = create_course(&th.client, TEST_WS, "P", "Systems").await;
+    let c1 = create_course(&th.client, TEST_WS, "private", "Algorithms").await;
+    let c2 = create_course(&th.client, TEST_WS, "private", "Systems").await;
     let chapter = create_item(&th.client, TEST_WS, &c1, "chapter", "Ch 1").await;
     let u1 = create_item(&th.client, TEST_WS, &c1, "unit", "Graphs").await;
     let u2 = create_item(&th.client, TEST_WS, &c2, "unit", "Memory").await;
@@ -310,8 +310,8 @@ async fn strict_personal_isolation_matrix_and_zero_side_channel_leaks() {
     let org_id = org_of(&th).await;
     let user2 = th.client2.me().await;
     let (unjoined, guest, ws_admin, org_admin) = setup_isolation_actors(&th).await;
-    let open_course = create_course(&th.client, TEST_WS, "O", "Open Study").await;
-    let priv_course = create_course(&th.client, TEST_WS, "P", "Private Study").await;
+    let open_course = create_course(&th.client, TEST_WS, "open", "Open Study").await;
+    let priv_course = create_course(&th.client, TEST_WS, "private", "Private Study").await;
     let u_open = create_item(&th.client, TEST_WS, &open_course, "unit", "Lesson O").await;
     let u_priv = create_item(&th.client, TEST_WS, &priv_course, "unit", "Lesson P").await;
 
@@ -616,14 +616,14 @@ async fn assert_zero_side_channel_leaks(
 ) {
     th.client
         .post(
-            &format!("{TEST_WS}/containers/{open_course}/sharing"),
+            &format!("{TEST_WS}/containers/{open_course}/public-link"),
             &json!({"enabled": true}),
         )
         .await
         .check_ok();
     let sharing = th
         .client
-        .get(&format!("{TEST_WS}/containers/{open_course}/sharing"))
+        .get(&format!("{TEST_WS}/containers/{open_course}/public-link"))
         .await
         .value();
     let token = sharing["token"].as_str().expect("token");
@@ -698,7 +698,7 @@ async fn own_space_reviews_notes_and_notifications_password_wall() {
 
     let own = own_workspace(&th.client).await;
     let own_ws = format!("/w/{}", own.id);
-    let course = create_course(&th.client, &own_ws, "P", "Solo Study").await;
+    let course = create_course(&th.client, &own_ws, "private", "Solo Study").await;
     let unit = create_item(&th.client, &own_ws, &course, "unit", "Chapter 1 Unit").await;
 
     let review: UnitReview = th
@@ -810,7 +810,7 @@ async fn due_review_notifications_timezone_dedup_and_recipient_isolation() {
         .await
         .check_ok();
 
-    let course = create_course(&th.client, TEST_WS, "P", "Timezones").await;
+    let course = create_course(&th.client, TEST_WS, "private", "Timezones").await;
     give(&th, &course, &user2.id, "editor").await;
     give(&th, &course, &bystander.me().await.id, "viewer").await;
     let unit = create_item(&th.client, TEST_WS, &course, "unit", "Clocks").await;

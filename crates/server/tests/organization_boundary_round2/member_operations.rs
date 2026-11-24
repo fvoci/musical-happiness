@@ -289,7 +289,7 @@ async fn write_a_body(founder: &Client, at: &str, card: &Value) {
 async fn share_token(founder: &Client, at: &str, container: &str) -> String {
     let sharing = founder
         .post(
-            &format!("{at}/containers/{container}/sharing"),
+            &format!("{at}/containers/{container}/public-link"),
             &json!({"enabled": true}),
         )
         .await
@@ -308,7 +308,7 @@ async fn organization(server: &TestServer, name: &str) -> Named {
     let board = founder
         .post(
             &format!("{at}/boards"),
-            &json!({"title": format!("{name} board"), "type": "O"}),
+            &json!({"title": format!("{name} board"), "visibility": "open"}),
         )
         .await
         .value();
@@ -428,7 +428,7 @@ async fn course_with_a_unit(
     let course = founder
         .post(
             &format!("{at}/courses"),
-            &json!({"title": format!("{name} course"), "type": "O"}),
+            &json!({"title": format!("{name} course"), "visibility": "open"}),
         )
         .await
         .value();
@@ -568,7 +568,7 @@ async fn wiki_with_a_page(founder: &Client, at: &str, name: &str) -> (String, St
     let wiki = founder
         .post(
             &format!("{at}/wikis"),
-            &json!({"title": format!("{name} wiki"), "type": "O"}),
+            &json!({"title": format!("{name} wiki"), "visibility": "open"}),
         )
         .await
         .value();

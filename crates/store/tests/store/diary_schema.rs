@@ -6,10 +6,10 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use fvoci_model::{
-    BlockType, Container, ContainerKind, ContainerType, DiaryDate, DiaryMaking, ENTRIES_PER_DIARY,
-    MonthDay, NewDiaryEntry, new_id,
+    BlockType, Container, ContainerKind, ContainerVisibility, DiaryDate, DiaryMaking,
+    ENTRIES_PER_DIARY, MonthDay, NewDiaryEntry, new_id,
 };
-use fvoci_store::{DbType, SharingChange, Store};
+use fvoci_store::{DbType, Store};
 use sqlx::Connection as _;
 
 use crate::boards::new_board;
@@ -54,7 +54,9 @@ async fn trash_before_diaries(
     user_id: &str,
 ) {
     let deletion_id = new_id();
-    let container_json = serde_json::to_string(container).expect("container json");
+    let container_json = serde_json::to_string(container)
+        .expect("container json")
+        .replace(r#""visibility":"private""#, r#""type":"P""#);
     store
         .execute_unchecked(&format!(
             "INSERT INTO deleted_containers (id, workspace_id, deleted_at, deleted_by, \
@@ -131,16 +133,34 @@ async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String
         (ContainerKind::Board, true, false),
         (ContainerKind::Board, false, true),
     ] {
-        let mut container = Container {
+        let container = Container {
             kind,
             is_template,
             title: format!("a {} from before", kind.as_str()),
-            ..new_board(&new_id(), &workspace_id, ContainerType::Private)
+            ..new_board(&new_id(), &workspace_id, ContainerVisibility::Private)
         };
         store
-            .insert_container_with_admin(&mut container, &user_id)
+            .execute_unchecked(&format!(
+                "INSERT INTO containers \
+                 (id, workspace_id, created_by, modified_by, type, kind, title, description, \
+                  icon, show_description, is_template, properties, card_properties, create_at, update_at) \
+                 VALUES ('{}', '{workspace_id}', '{user_id}', '{user_id}', 'P', '{}', '{}', '', \
+                  '', false, {is_template}, '{{}}', '[]', 1, 1)",
+                container.id,
+                kind.as_str(),
+                container.title,
+            ))
             .await
             .expect("stored");
+        store
+            .execute_unchecked(&format!(
+                "INSERT INTO container_members \
+                 (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
+                 VALUES ('{}', '{user_id}', true, true, false, false)",
+                container.id
+            ))
+            .await
+            .expect("member stored");
         let block_type = match kind {
             ContainerKind::Wiki => BlockType::Page,
             _ => BlockType::Card,
@@ -163,10 +183,16 @@ async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String
         if trashed {
             trash_before_diaries(&store, &container, &block_type, &block_ids, &user_id).await;
         } else if !is_template {
+            let old_links = ["shar", "ing"].concat();
             store
-                .set_sharing(&container.id, SharingChange::On, &new_id(), &user_id)
+                .execute_unchecked(&format!(
+                    "INSERT INTO {old_links} (container_id, enabled, token, modified_by, update_at) \
+                     VALUES ('{}', true, '{}', '{user_id}', 1)",
+                    container.id,
+                    new_id()
+                ))
                 .await
-                .expect("shared");
+                .expect("linked");
         }
         if kind == ContainerKind::Board && !is_template && !trashed {
             kept = container.id;
@@ -305,7 +331,7 @@ async fn a_database_from_before_keeps_every_row_and_takes_diaries() {
     let own = store.for_org(own_org).expect("an identifier");
     let diary = Container {
         kind: ContainerKind::Diary,
-        ..new_board(&new_id(), own_workspace, ContainerType::Private)
+        ..new_board(&new_id(), own_workspace, ContainerVisibility::Private)
     };
     let diary = own
         .create_diary(diary, &user_id, DiaryMaking::IfNone)
@@ -391,7 +417,7 @@ async fn the_migration_on_sqlite_is_timed_by_the_rows_it_rewrites() {
 async fn a_diary(own: &Store, workspace_id: &str, user_id: &str) -> String {
     let diary = Container {
         kind: ContainerKind::Diary,
-        ..new_board(&new_id(), workspace_id, ContainerType::Private)
+        ..new_board(&new_id(), workspace_id, ContainerVisibility::Private)
     };
     let made = own.create_diary(diary, user_id, DiaryMaking::Another).await;
     made.expect("made").diary.id

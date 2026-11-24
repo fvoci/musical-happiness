@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use fvoci_model::{Block, BlockType, ContainerType, JsonMap, new_id};
+use fvoci_model::{Block, BlockType, ContainerVisibility, JsonMap, new_id};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 use tokio::sync::Barrier;
@@ -15,7 +15,7 @@ use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS};
 /// Creates an open board with `count` view blocks and returns `(board_id, views)`.
 async fn board_with_views(ts: &crate::common::TestServer, count: usize) -> (String, Vec<Block>) {
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let user2_id = ts.client2.me().await.id;
     crate::rooms::give(ts, &board.id, &user2_id, "editor").await;

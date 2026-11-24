@@ -279,7 +279,7 @@ test('public link dialog works on a course and SharedCourse reads a shared cours
           workspaceId: '',
           kind: 'course',
           title: 'Public Course',
-          type: 'P',
+          visibility: 'private',
           icon: '',
           description: '',
           cardProperties: [],

@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Block, BlockType, ContainerType, OrgRole, WorkspaceRole, new_id};
+use fvoci_model::{Block, BlockType, ContainerVisibility, OrgRole, WorkspaceRole, new_id};
 use fvoci_server::ws::SubscriptionPause;
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
@@ -126,13 +126,13 @@ impl EndShare {
         match self {
             Self::Off => ts
                 .client
-                .post(&format!("{at}/sharing"), &json!({"enabled": false}))
+                .post(&format!("{at}/public-link"), &json!({"enabled": false}))
                 .await
                 .check_ok(),
             Self::Rotate => ts
                 .client
                 .post(
-                    &format!("{at}/sharing"),
+                    &format!("{at}/public-link"),
                     &json!({"enabled": true, "regenerate": true}),
                 )
                 .await
@@ -160,7 +160,7 @@ async fn public_subscription_ends(ending: EndShare, moment: Moment) {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let user = ts.client.me().await.id;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let mut card = Block {
         id: new_id(),
@@ -353,10 +353,10 @@ async fn an_unrelated_revocation_does_not_end_a_validating_subscription() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let user = ts.client.me().await.id;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let unrelated = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     ts.share(&unrelated.id).await;
     let mut card = Block {
@@ -415,7 +415,7 @@ async fn the_barrier_waits_for_a_subscription_that_a_pong_does_not() {
     let ts = Setup::native().start().await.init_basic().await;
     let user = ts.client.me().await.id;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let card = stored_card(&ts, &board.id, &user).await;
     let mut socket = ts.client.connect_websocket().await;
@@ -627,7 +627,7 @@ async fn dispatch_reuses_authorization_reads_until_visibility_changes() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let user = ts.client.me().await.id;
     let board = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     assert!(
         ts.app.finish_background(WAIT).await,
@@ -695,7 +695,7 @@ async fn dispatch_reuses_authorization_reads_until_visibility_changes() {
     updated(&mut reader, "reader").await;
     ts.app
         .store()
-        .set_sharing(&board.id, fvoci_store::SharingChange::Off, "", &user)
+        .set_public_link(&board.id, fvoci_model::PublicLinkChange::Off, "", &user)
         .await
         .expect("sharing revoked below app hooks");
     ts.app
@@ -712,7 +712,7 @@ async fn revocation_between_dispatch_check_and_queue_is_rechecked() {
         let ts = Setup::local_mode().start().await.init_basic().await;
         let user = ts.client.me().await.id;
         let board = ts
-            .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+            .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private)
             .await;
         assert!(
             ts.app.finish_background(WAIT).await,
@@ -754,7 +754,7 @@ async fn revocation_between_dispatch_check_and_queue_is_rechecked() {
         if public {
             ts.app
                 .store()
-                .set_sharing(&board.id, fvoci_store::SharingChange::Off, "", &user)
+                .set_public_link(&board.id, fvoci_model::PublicLinkChange::Off, "", &user)
                 .await
                 .expect("sharing ends without connection hook");
         } else {
@@ -915,7 +915,7 @@ async fn a_store_that_cannot_be_read_closes_as_retryable() {
         .init_basic()
         .await;
     let board = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let subscription = json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID});
     let mut following = ts.client.connect_websocket().await;
@@ -967,7 +967,7 @@ async fn a_store_that_cannot_be_read_closes_as_retryable() {
 async fn a_change_checked_too_often_is_given_up_as_retryable() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let board = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let mut socket = ts.client.connect_websocket().await;
     subscribe(

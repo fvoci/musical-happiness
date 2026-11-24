@@ -99,7 +99,10 @@ describe('unit progress in memory backend', () => {
   it('enforces per-user isolation, idempotent completedAt, validation, 404/403, trash restore, and zero WS events', async () => {
     const made = setup();
     const wsId = made.world.workspace.id;
-    const course = await made.backend.course.createCourse(wsId, { title: 'Rust 101', type: 'O' });
+    const course = await made.backend.course.createCourse(wsId, {
+      title: 'Rust 101',
+      visibility: 'open',
+    });
     const ch = await made.backend.course.createUnit(course.id, { kind: 'chapter', title: 'Ch 1' });
     const u1 = await made.backend.course.createUnit(course.id, {
       kind: 'unit',
@@ -234,7 +237,7 @@ describe('CourseStore progress integration', () => {
     await made.workspace.load();
     const course = await made.backend.course.createCourse(made.world.workspace.id, {
       title: 'Type Systems',
-      type: 'O',
+      visibility: 'open',
     });
     const store = new CourseStore(made.workspace, course.id);
     await store.load();

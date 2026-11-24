@@ -256,8 +256,8 @@ impl App {
     ) -> Result<BTreeMap<String, String>, AppError> {
         let mut names = BTreeMap::new();
         for stored_name in files {
-            if let Some(info) = self.file_info(container_id, stored_name).await? {
-                names.insert(stored_name.clone(), info.name);
+            if let Some(record) = self.file_record(container_id, stored_name).await? {
+                names.insert(stored_name.clone(), record.name);
             }
         }
         Ok(names)

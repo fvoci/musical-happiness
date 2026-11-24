@@ -9,13 +9,13 @@
 //! longer than any write takes. Whatever stops in between, the list says what is left
 //! to do.
 
-use fvoci_model::{FileInfo, FileKey};
+use fvoci_model::{FileKey, FileRecord};
 
 use crate::SYSTEM_ORG_ID;
 use crate::Store;
 use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
 use crate::error::StoreError;
-use crate::file_info;
+use crate::files;
 
 /// What a listed object is waiting for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -118,14 +118,14 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// The errors of [`Store::save_file_info`]; nothing is recorded or doomed then.
-    pub async fn record_written_file(&self, file_info: &FileInfo) -> Result<bool, StoreError> {
-        file_info::check_new_path(&file_info.path)?;
+    /// The errors of [`Store::save_file_record`]; nothing is recorded or doomed then.
+    pub async fn record_written_file(&self, file: &FileRecord) -> Result<bool, StoreError> {
+        files::check_new_path(&file.path)?;
         self.transaction(async |scope| {
-            if record_written(scope, file_info).await? {
+            if record_written(scope, file).await? {
                 return Ok(true);
             }
-            doom(scope, &[(file_info.path.clone(), None)]).await?;
+            doom(scope, &[(file.path.clone(), None)]).await?;
             Ok(false)
         })
         .await
@@ -355,15 +355,15 @@ const DOOMED_PER_STATEMENT: usize = 500;
 /// was still marked; if it was not, nothing is recorded.
 pub(crate) async fn record_written(
     scope: &mut Scope<'_>,
-    file_info: &FileInfo,
+    file: &FileRecord,
 ) -> Result<bool, StoreError> {
     let mut sql = scope.sql("DELETE FROM loose_objects WHERE path = ");
-    sql.bind(&file_info.path)
+    sql.bind(&file.path)
         .push_bind(" AND state = ", LooseState::Writing.as_str());
     if scope.execute(sql).await? == 0 {
         return Ok(false);
     }
-    file_info::save_file_info(scope, file_info).await?;
+    files::save_file_record(scope, file).await?;
     Ok(true)
 }
 

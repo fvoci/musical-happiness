@@ -10,7 +10,7 @@
  */
 import type { DocNode } from '../editor/schema.ts';
 import type { AmountUnit } from '../logic/course-schedule.ts';
-import type { Container, ContainerType, MemberRole } from '../logic/wire.ts';
+import type { Container, ContainerVisibility, MemberRole } from '../logic/wire.ts';
 
 import type { BodyWrite, Comment, CommentVersion } from './backend.ts';
 import type { BodyVersions } from './body-versions.ts';
@@ -25,7 +25,7 @@ export interface CourseLooks {
   title?: string;
   description?: string;
   icon?: string;
-  type?: Container['type'];
+  visibility?: Container['visibility'];
   minimumRole?: Container['minimumRole'];
 }
 
@@ -115,8 +115,8 @@ export interface CourseDraft {
   title: string;
   description?: string;
   icon?: string;
-  /** `O`: anyone in the workspace can read and join; `P`: invited only. */
-  type: ContainerType;
+  /** `open`: anyone in the workspace can read and join; `private`: invited only. */
+  visibility: ContainerVisibility;
   minimumRole?: Exclude<MemberRole, '' | 'admin'>;
 }
 

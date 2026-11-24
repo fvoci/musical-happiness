@@ -6,12 +6,13 @@ mod common;
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
+use fvoci_model::PublicLinkChange;
 use fvoci_model::{
-    Block, BlockType, Container, ContainerMember, ContainerType, Credential, OrgRole, PersonName,
-    Title, User, UserWorkspace, Workspace, WorkspaceRole, new_id,
+    Block, BlockType, Container, ContainerMember, ContainerVisibility, Credential, OrgRole,
+    PersonName, Title, User, UserWorkspace, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::testing::db_type_of_the_tests;
-use fvoci_store::{DbType, SharingChange, Store, Tenant};
+use fvoci_store::{DbType, Store, Tenant};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
@@ -59,7 +60,7 @@ async fn other_organization(ts: &TestServer) -> (Store, Workspace, User, Contain
     let mut board = Container {
         id: new_id(),
         workspace_id: workspace.id.clone(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         title: "Other organization's confidential board".to_owned(),
         ..Container::default()
     };
@@ -147,7 +148,7 @@ async fn another_organizations_user_cannot_join_and_edit_an_open_board() {
         .init_basic()
         .await;
     let board = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let (store, workspace, _, _) = other_organization(&ts).await;
     move_second_user(&ts, &store, &workspace).await;
@@ -185,7 +186,7 @@ async fn another_organizations_user_cannot_join_and_edit_an_open_board() {
 async fn a_workspace_guest_cannot_gain_editor_access_through_the_legacy_join_route() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let user_id = ts.client2.me().await.id;
     ts.app
@@ -299,9 +300,9 @@ async fn a_valid_shared_link_reads_the_board_in_its_own_organization() {
         .await;
     let (store, _, owner, board) = other_organization(&ts).await;
     let sharing = store
-        .set_sharing(
+        .set_public_link(
             &board.id,
-            SharingChange::On,
+            PublicLinkChange::On,
             &fvoci_server::auth::secret::new_secret(),
             &owner.id,
         )
@@ -340,7 +341,7 @@ async fn websocket_organization(ts: &TestServer) -> (Store, Workspace, User, Con
                 ..Workspace::default()
             },
             ts.client.me().await,
-            ts.create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+            ts.create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private)
                 .await,
         )
     }
@@ -457,7 +458,7 @@ async fn a_hidden_workspace_in_the_same_organization_also_rejects_legacy_board_c
         ts.client2
             .post(
                 &format!("/w/{workspace_id}/boards"),
-                &json!({"type": "P", "title": "Created inside a hidden workspace"}),
+                &json!({"visibility": "private", "title": "Created inside a hidden workspace"}),
             )
             .await
     };

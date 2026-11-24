@@ -1,7 +1,9 @@
 //! A person's name: its parts, which of them they are shown by, their title and
 //! credentials, changed by them (`patchMe`) and seen by whoever sees them.
 
-use fvoci_model::{ContainerType, Credential, NameShown, OrgMember, Title, User, WorkspaceMember};
+use fvoci_model::{
+    ContainerVisibility, Credential, NameShown, OrgMember, Title, User, WorkspaceMember,
+};
 use serde_json::{Value, json};
 
 use crate::board_broadcasts::WorkspaceSocket;
@@ -263,7 +265,7 @@ async fn a_guest_is_told_only_of_whom_they_see() {
     );
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Shared"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "Shared"),
         &user1.id,
     )
     .await;

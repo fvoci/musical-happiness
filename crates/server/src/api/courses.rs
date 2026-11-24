@@ -8,8 +8,8 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Block, BlockError, Container, ContainerKind, ContainerType, DeletedUnit, MinimumRole, NewUnit,
-    Unit, UnitKind, UnitMove, UnitNode, UnitPatch,
+    Block, BlockError, Container, ContainerKind, ContainerVisibility, DeletedUnit, MinimumRole,
+    NewUnit, Unit, UnitKind, UnitMove, UnitNode, UnitPatch,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -47,11 +47,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct NewCourse {
-    /// Whether the course is open (`O`), for whoever works in the workspace to read and
-    /// search without joining, and to join to enroll, or private (`P`), for whom it is
+    /// Whether the course is `open`, for whoever works in the workspace to read and
+    /// search without joining, and to join to enroll, or `private`, for whom it is
     /// shared with.
-    #[serde(rename = "type")]
-    container_type: ContainerType,
+    visibility: ContainerVisibility,
     /// The role a user gets who joins the course. Left out, `editor`.
     #[serde(default)]
     minimum_role: MinimumRole,
@@ -106,7 +105,7 @@ async fn handle_get_courses(InCourse(ws): InCourse) -> ApiResult {
 async fn handle_create_course(InCourse(ws): InCourse, body: Bytes) -> ApiResult {
     ws.require_container_maker("access denied to create course")?;
     let NewCourse {
-        container_type,
+        visibility,
         minimum_role,
         title,
         description,
@@ -114,7 +113,7 @@ async fn handle_create_course(InCourse(ws): InCourse, body: Bytes) -> ApiResult 
     } = decode_object(&body)?;
     let course = Container {
         workspace_id: ws.workspace_id.clone(),
-        container_type,
+        visibility,
         kind: ContainerKind::Course,
         minimum_role,
         title,

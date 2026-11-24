@@ -49,7 +49,7 @@ function world(): World {
   };
   board('mine');
   board('theirs');
-  board('open', { type: 'O' });
+  board('open', { visibility: 'open' });
   board('template', { isTemplate: true });
   made.members.set('mine', [memberOf('mine', 'reader', 'viewer')]);
   made.members.set('theirs', [memberOf('theirs', 'someone', 'admin')]);
@@ -99,7 +99,7 @@ describe('the search in memory', () => {
       id: 'notes',
       workspaceId: 'w',
       title: 'Notes',
-      type: 'O',
+      visibility: 'open',
       kind: 'wiki',
     });
     made.members.set('notes', [memberOf('notes', 'someone', 'admin')]);
@@ -118,7 +118,7 @@ describe('the search in memory', () => {
       id: 'course-1',
       workspaceId: 'w',
       title: 'Onboarding',
-      type: 'O',
+      visibility: 'open',
       kind: 'course',
     });
     made.members.set('course-1', [memberOf('course-1', 'someone', 'admin')]);
@@ -261,7 +261,7 @@ describe('the search in memory', () => {
       id: 'notes-wiki',
       workspaceId: 'w',
       title: 'Notes',
-      type: 'O',
+      visibility: 'open',
       kind: 'wiki',
     });
     made.members.set('notes-wiki', [memberOf('notes-wiki', 'reader', 'editor')]);

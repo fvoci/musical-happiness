@@ -46,7 +46,7 @@ describe('presence in memory', () => {
     const { backend, other, world } = setup();
     const wiki = await backend.wiki.createWiki(world.workspace.id, {
       title: 'Handbook',
-      type: 'P',
+      visibility: 'private',
     });
     const page = await backend.wiki.createPage(wiki.id, { title: 'Welcome' });
     await backend.addMember(wiki.id, other.userId, 'editor');
@@ -68,7 +68,7 @@ describe('presence in memory', () => {
     const { backend, other, world } = setup();
     const { board } = await backend.createBoard(
       world.workspace.id,
-      { title: 'Private', type: 'P' },
+      { title: 'Private', visibility: 'private' },
       { title: 'Board', fields: createBoardView().fields },
     );
     const place = { workspaceId: board.workspaceId, containerId: board.id };

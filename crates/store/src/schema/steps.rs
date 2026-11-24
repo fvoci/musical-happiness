@@ -9,7 +9,7 @@ pub(super) struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-pub(super) const STEPS: [Step; 66] = [
+pub(super) const STEPS: [Step; 67] = [
     Step {
         version: 1,
         description: "baseline",
@@ -408,5 +408,15 @@ pub(super) const STEPS: [Step; 66] = [
         description: "subscriptions user id",
         sqlite: include_str!("../../schema/sqlite/0069_subscriptions_user_id.sql"),
         postgres: include_str!("../../schema/postgres/0069_subscriptions_user_id.sql"),
+    },
+    Step {
+        version: 70,
+        description: "container visibility public links files",
+        sqlite: include_str!(
+            "../../schema/sqlite/0070_container_visibility_public_links_files.sql"
+        ),
+        postgres: include_str!(
+            "../../schema/postgres/0070_container_visibility_public_links_files.sql"
+        ),
     },
 ];

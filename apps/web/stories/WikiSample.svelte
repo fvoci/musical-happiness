@@ -64,7 +64,7 @@
     const wikis = author.wiki;
     const made = await wikis.createWiki(example.world.workspace.id, {
       title: 'Handbook · 안내서',
-      type: 'P',
+      visibility: 'private',
     });
     await author.addMember(
       made.id,

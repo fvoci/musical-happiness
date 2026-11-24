@@ -11,11 +11,11 @@ import { BackendError, WikiStore, Workspace, type WikiPage } from '$lib/state/in
 
 import { settle, setup, text } from './support.ts';
 
-async function openWiki(type: 'O' | 'P' = 'P') {
+async function openWiki(visibility: 'open' | 'private' = 'private') {
   const made = setup();
   await made.workspace.load();
   const workspaceId = made.world.workspace.id;
-  const wiki = await made.backend.wiki.createWiki(workspaceId, { title: 'Handbook', type });
+  const wiki = await made.backend.wiki.createWiki(workspaceId, { title: 'Handbook', visibility });
   const store = new WikiStore(made.workspace, wiki.id);
   await store.load();
   return { ...made, workspaceId, wikiId: wiki.id, store };
@@ -32,7 +32,7 @@ describe('an open wiki', () => {
     await made.workspace.load();
     const wiki = await made.backend.wiki.createWiki(made.world.workspace.id, {
       title: 'Handbook',
-      type: 'P',
+      visibility: 'private',
     });
     const top = await made.backend.wiki.createPage(wiki.id, { title: 'Top' });
     await made.backend.wiki.createPage(wiki.id, { title: 'Below', parentId: top.id });
@@ -55,7 +55,7 @@ describe('an open wiki', () => {
   });
 
   it('reads an open wiki unjoined and offers it to join, to write in it', async () => {
-    const made = await openWiki('O');
+    const made = await openWiki('open');
     // The other person's workspace over the same world.
     const otherWorkspace = new Workspace({ backend: made.other, locale: () => 'en' });
     await otherWorkspace.load();

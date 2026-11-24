@@ -3,7 +3,7 @@
 
 use crate::db::{Id, Scope};
 use crate::{Store, StoreError, container_teams, teams};
-use fvoci_model::ContainerMember;
+use fvoci_model::{ContainerMember, ContainerVisibility};
 
 impl Store {
     /// Deletes a team, its members, and every role it was given on a board.
@@ -101,7 +101,7 @@ pub(crate) async fn remove_workspace_teams(
             " UNION SELECT id FROM containers WHERE workspace_id = ",
             Id(workspace_id),
         )
-        .push_bind(" AND type = ", "O")
+        .push_bind(" AND visibility = ", ContainerVisibility::Open.as_str())
         .push_bind(" AND is_template = ", true);
     let changes = scope
         .fetch_all(sql)

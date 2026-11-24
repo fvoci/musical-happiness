@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use fvoci_model::{
     BLOCK_TITLE_MAX_CHARS, Block, BlockType, Card, CardPatch, Container, ContainerMember,
-    ContainerType, JsonMap, is_id, new_id,
+    ContainerVisibility, JsonMap, is_id, new_id,
 };
 use fvoci_server::app::ChangeNotification;
 use fvoci_server::error::ErrorKind;
@@ -37,7 +37,7 @@ pub(crate) struct Roles {
 
 pub(crate) async fn board_with_roles(th: &TestServer) -> Roles {
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let editor = th.add_user("editor").await;
     let commenter = th.add_user("commenter").await;
@@ -113,7 +113,7 @@ fn make_card_props(count: usize) -> JsonMap {
 /// `CreateBoardAndCards`: an open board of the first user with `count` cards.
 async fn create_board_and_cards(th: &TestServer, count: usize) -> (Container, Vec<Card>) {
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let mut cards = Vec::with_capacity(count);
     for number in 1..=count {
@@ -180,7 +180,7 @@ const CARD_COUNT: usize = 25;
 
 async fn get_cards_fixture(th: &TestServer) -> Container {
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let user_id = th.client.me().await.id;
     for number in 0..CARD_COUNT {
@@ -229,7 +229,7 @@ fn card_numbers(cards: &[Card]) -> BTreeSet<usize> {
 async fn create_card_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let card = Card {
         title: "basic card".to_owned(),
@@ -247,7 +247,7 @@ async fn create_card_a_non_authenticated_user_should_be_rejected() {
 async fn create_card_good() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let card = Card {
         title: "test card 1".to_owned(),
@@ -268,7 +268,7 @@ async fn create_card_good() {
 async fn create_card_invalid_card() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let card = Card {
         title: "too many emoji's".to_owned(),
@@ -446,7 +446,7 @@ async fn get_card_good() {
 async fn app_create_card_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let user_id = th.stranger().await;
     let card = Card {
@@ -475,7 +475,7 @@ async fn app_create_card_success_scenario() {
 async fn app_create_card_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let user_id = th.stranger().await;
 
@@ -531,7 +531,7 @@ async fn app_create_card_error_scenario() {
 async fn app_get_cards_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let mut blocks: Vec<Block> = (0..CARD_COUNT)
         .map(|number| Block {
@@ -573,7 +573,7 @@ async fn app_get_cards_success_scenario() {
 async fn app_get_cards_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let block = Block {
         fields: serde_json::from_value(json!({"icon": 5})).expect("an object"),
@@ -607,7 +607,7 @@ async fn app_get_cards_error_scenario() {
 async fn app_patch_card_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let user_id = th.stranger().await;
     let props = make_card_props(3);
@@ -696,7 +696,7 @@ async fn app_patch_card_error_scenario() {
 async fn app_get_card_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let props = make_card_props(5);
     let content_order = vec![new_id(), new_id()];
@@ -745,7 +745,7 @@ async fn app_get_card_not_found() {
 async fn app_get_card_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let text = insert_block(&th.client, &new_block(&board.id, "", BlockType::Attachment)).await;
 
@@ -768,7 +768,7 @@ async fn app_get_card_error_scenario() {
 async fn create_card_answer_and_stored_block() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let me = th.client.me().await;
     let before = fvoci_server::auth::now_millis();
@@ -865,7 +865,7 @@ async fn create_card_answer_and_stored_block() {
 async fn create_card_without_members() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let me = th.client.me().await;
 
@@ -1069,7 +1069,7 @@ async fn get_cards_permissions_and_malformed_paging() {
 async fn get_cards_paging() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let total = 103;
     let mut blocks: Vec<Block> = (0..total)
@@ -1135,7 +1135,7 @@ async fn get_cards_paging() {
 async fn a_malformed_card_block_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     create_card(&th.client, &board.id, &json!({"title": "fine"})).await;
     // Side-by-side content layout stores nested arrays in `contentOrder`.
@@ -1223,7 +1223,7 @@ async fn a_malformed_card_block_is_refused() {
 async fn a_card_stored_with_a_malformed_field_is_written_and_copied_without_it() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let card = create_card(&th.client, &board.id, &json!({"title": "old"})).await;
     let stored = serde_json::from_value(json!({"icon": 5, "isTemplate": "yes", "properties": []}))
@@ -1276,7 +1276,7 @@ async fn a_card_stored_with_a_malformed_field_is_written_and_copied_without_it()
 async fn a_title_with_u0000_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let block = Block {
         title: "a\u{0}b".to_owned(),
@@ -1328,7 +1328,7 @@ async fn a_title_with_u0000_is_refused() {
         .client
         .post(
             &format!("{TEST_WS}/boards"),
-            &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "O", "title": "x\u{0}"}),
+            &json!({"workspaceId": TEST_WORKSPACE_ID, "visibility": "open", "title": "x\u{0}"}),
         )
         .await;
     response.check_bad_request();
@@ -1491,7 +1491,7 @@ async fn patch_card_refusals() {
 async fn patches_of_different_properties_at_the_same_time_both_stay() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let card = create_card(&th.client, &board.id, &json!({"title": "t"})).await;
     let path = card_path(&card.id);
@@ -1529,7 +1529,7 @@ async fn patches_of_different_properties_at_the_same_time_both_stay() {
 async fn patch_card_merges_and_deletes_values() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let card = create_card(
         &th.client,
@@ -1685,7 +1685,7 @@ async fn patch_card_changes() {
 async fn card_changes_are_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -1788,7 +1788,7 @@ async fn card_changes_call_the_webhook() {
         .init_basic()
         .await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let me = th.client.me().await;
     // What the webhook got since the last call, as (identifier, type, title) triples.

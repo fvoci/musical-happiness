@@ -3,16 +3,16 @@
 //! live by the same rules: each test runs for each.
 
 use fvoci_collab::BodyDoc;
-use fvoci_model::{Body, FileInfo, new_id};
+use fvoci_model::{Body, FileRecord, new_id};
 use serde_json::{Value, json};
 
 use crate::collab::{Editing, body_of, card, editing, joined};
 use crate::common::{Setup, TestServer};
 
 /// A file of the card's board, recorded long ago and shown by nothing.
-async fn old_file(e: &Editing, th: &TestServer) -> FileInfo {
+async fn old_file(e: &Editing, th: &TestServer) -> FileRecord {
     let board_id = card(&th.client, &e.card_id).await.board_id;
-    let file = FileInfo {
+    let file = FileRecord {
         id: new_id(),
         container_id: board_id.clone(),
         stored_name: format!("7{}.png", new_id()),
@@ -21,11 +21,11 @@ async fn old_file(e: &Editing, th: &TestServer) -> FileInfo {
         name: "image.png".to_owned(),
         extension: ".png".to_owned(),
         size: 7,
-        ..FileInfo::default()
+        ..FileRecord::default()
     };
     e.app
         .store()
-        .save_file_info(&file)
+        .save_file_record(&file)
         .await
         .expect("a file is recorded");
     file

@@ -3,7 +3,7 @@
 //! survival across target deletion, filtering, pagination, summaries, and manual edits.
 
 use fvoci_model::{
-    ActiveTimeEntry, Container, ContainerType, StartedTimeEntry, TIME_ENTRY_NOTE_MAX_CHARS,
+    ActiveTimeEntry, Container, ContainerVisibility, StartedTimeEntry, TIME_ENTRY_NOTE_MAX_CHARS,
     TimeEntry, TimeEntryKind, TimeEntryList, TimeTargetKind, Unit, new_id,
 };
 use reqwest::StatusCode;
@@ -33,7 +33,7 @@ async fn create_course_with_chapter_and_unit(
     let course: Value = client
         .post(
             &format!("/w/{ws_id}/courses"),
-            &json!({"type": course_type, "title": title}),
+            &json!({"visibility": course_type, "title": title}),
         )
         .await
         .created_json();
@@ -73,18 +73,23 @@ async fn timer_lifecycle_and_cross_org_atomic_switch() {
     let board: Container = client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Shared Board",
         ))
         .await
         .created_json();
     let card_id = create_card(client, TEST_WORKSPACE_ID, &board.id, "Implement T2").await;
     let (course_id, _, unit) =
-        create_course_with_chapter_and_unit(client, TEST_WORKSPACE_ID, "P", "Rust Course").await;
+        create_course_with_chapter_and_unit(client, TEST_WORKSPACE_ID, "private", "Rust Course")
+            .await;
 
     let own = own_workspace(client).await;
     let own_board: Container = client
-        .create_board(&new_board(&own.id, ContainerType::Private, "Personal"))
+        .create_board(&new_board(
+            &own.id,
+            ContainerVisibility::Private,
+            "Personal",
+        ))
         .await
         .created_json();
     let own_card_id = create_card(client, &own.id, &own_board.id, "Own Task").await;
@@ -294,7 +299,7 @@ async fn seed_invalid_board_blocks(
     let board: Container = client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Board",
         ))
         .await
@@ -337,7 +342,11 @@ async fn seed_invalid_board_blocks(
         .await
         .created_json();
 
-    let mut tmpl_board = new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Board Template");
+    let mut tmpl_board = new_board(
+        TEST_WORKSPACE_ID,
+        ContainerVisibility::Private,
+        "Board Template",
+    );
     tmpl_board.is_template = true;
     let tmpl_board: Container = client.create_board(&tmpl_board).await.created_json();
     let tmpl_board_card_id =
@@ -357,12 +366,12 @@ async fn build_invalid_target_payloads(client: &Client) -> Vec<(&'static str, Va
     let (card_id, template_card_id, comment_id, view_id, tmpl_board_id, tmpl_board_card_id) =
         seed_invalid_board_blocks(client).await;
     let (course_id, chapter, _unit) =
-        create_course_with_chapter_and_unit(client, TEST_WORKSPACE_ID, "P", "Course").await;
+        create_course_with_chapter_and_unit(client, TEST_WORKSPACE_ID, "private", "Course").await;
 
     let wiki: Value = client
         .post(
             &format!("{TEST_WS}/wikis"),
-            &json!({"type": "P", "title": "Wiki"}),
+            &json!({"visibility": "private", "title": "Wiki"}),
         )
         .await
         .created_json();
@@ -456,14 +465,14 @@ async fn time_entries_survive_target_trash_and_permanent_purge() {
     let board: Container = client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Board",
         ))
         .await
         .created_json();
     let card_id = create_card(client, TEST_WORKSPACE_ID, &board.id, "Transient Card").await;
     let (course_id, _, unit) =
-        create_course_with_chapter_and_unit(client, TEST_WORKSPACE_ID, "P", "Course").await;
+        create_course_with_chapter_and_unit(client, TEST_WORKSPACE_ID, "private", "Course").await;
 
     let card_entry: TimeEntry = client
         .post(
@@ -556,7 +565,7 @@ async fn manual_entries_filters_pagination_validation_and_patch() {
     let board: Container = client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Board",
         ))
         .await
@@ -744,7 +753,7 @@ async fn assert_bad_requests(client: &Client, entry_id: &str) {
 async fn workspace_member_can_track_time_on_open_course_unit() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let (_course_id, _, unit) =
-        create_course_with_chapter_and_unit(&th.client, TEST_WORKSPACE_ID, "O", "Open Course")
+        create_course_with_chapter_and_unit(&th.client, TEST_WORKSPACE_ID, "open", "Open Course")
             .await;
 
     let started: StartedTimeEntry = th
@@ -780,13 +789,14 @@ async fn container_workspace_targets_and_patch_boundary_cases() {
     let board: Container = client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Board Target",
         ))
         .await
         .created_json();
     let (course_id, _, _) =
-        create_course_with_chapter_and_unit(client, TEST_WORKSPACE_ID, "P", "Course Target").await;
+        create_course_with_chapter_and_unit(client, TEST_WORKSPACE_ID, "private", "Course Target")
+            .await;
 
     // Board-only containerId (omitting workspaceId).
     let on_board: TimeEntry = client

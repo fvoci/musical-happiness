@@ -1,7 +1,7 @@
 //! A user's own space through the routes: every account has one, however it was made,
 //! works in it as in any workspace, and reaches it alone.
 
-use fvoci_model::{Card, Container, ContainerType, OrgKind, UserWorkspace, WorkspaceRole};
+use fvoci_model::{Card, Container, ContainerVisibility, OrgKind, UserWorkspace, WorkspaceRole};
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -54,7 +54,11 @@ async fn an_account_makes_a_board_in_its_own_space_and_nobody_else_finds_it() {
     th.client.get(&here).await.check_ok();
     let board: Container = th
         .client
-        .create_board(&new_board(&own.id, ContainerType::Private, "mine alone"))
+        .create_board(&new_board(
+            &own.id,
+            ContainerVisibility::Private,
+            "mine alone",
+        ))
         .await
         .created_json();
     assert_eq!(board.workspace_id, own.id);
@@ -80,7 +84,7 @@ async fn an_account_makes_a_board_in_its_own_space_and_nobody_else_finds_it() {
     for path in [&here, &format!("{here}/boards"), &by_id, &cards, &search] {
         th.client2.get(path).await.check_not_found();
     }
-    let theirs = new_board(&own.id, ContainerType::Private, "theirs");
+    let theirs = new_board(&own.id, ContainerVisibility::Private, "theirs");
     th.client2.create_board(&theirs).await.check_not_found();
     th.client2.post(&cards, &json!({})).await.check_not_found();
     // And from the workspaces they work in, the board is not one of them.
@@ -356,7 +360,9 @@ async fn webhooks_cache_organization_kind_per_handle_and_reset_on_scoped() {
     let (org_workspaces, own) = workspaces_and_own(&th.client).await;
     let org_ws = &org_workspaces[0];
     let user_id = th.client.me().await.id;
-    let board = th.create_board(&org_ws.id, ContainerType::Private).await;
+    let board = th
+        .create_board(&org_ws.id, ContainerVisibility::Private)
+        .await;
 
     // 1. A scoped handle reads get_container once + org kind once across 6 blocks (2 reads).
     let scoped = hooked.scoped(Tenant::org(&org_ws.org_id).expect("org id"));
@@ -401,7 +407,7 @@ async fn webhooks_cache_organization_kind_per_handle_and_reset_on_scoped() {
     let rescoped_own = entered.scoped(Tenant::org(&own.org_id).expect("own org id"));
     let own_board: Container = th
         .client
-        .create_board(&new_board(&own.id, ContainerType::Private, "private"))
+        .create_board(&new_board(&own.id, ContainerVisibility::Private, "private"))
         .await
         .created_json();
     assert_eq!(

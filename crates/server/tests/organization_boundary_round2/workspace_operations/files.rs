@@ -26,7 +26,7 @@ pub(super) async fn exercise(case: &mut Case, board: &str) {
         "the file remains in its organization"
     );
     let info = case
-        .present("getFileInfo", file_at, &filename)
+        .present("getFileRecord", file_at, &filename)
         .await
         .value();
     assert_eq!(

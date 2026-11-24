@@ -98,7 +98,7 @@ async fn a_member_who_leaves_is_told_and_finds_the_organization_no_more() {
         .client2
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
-            &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "The member's"}),
+            &json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": "The member's"}),
         )
         .await
         .created_json();
@@ -364,7 +364,7 @@ async fn org_admin_removes_member_with_realtime_eviction_and_audit() {
         .client2
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
-            &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Removed member board"}),
+            &json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": "Removed member board"}),
         )
         .await
         .created_json();

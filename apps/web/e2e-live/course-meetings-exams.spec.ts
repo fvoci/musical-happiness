@@ -79,7 +79,7 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
 
     const course = await postJson<Schemas['Container']>(adaApi, `${inWorkspace}/courses`, {
       title: 'Live Meetings & Exams Course',
-      type: 'O',
+      visibility: 'open',
       minimumRole: 'viewer',
     });
     await postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {

@@ -339,7 +339,11 @@ async fn every_contract_operation_is_exercised_by_both_founders() {
 async fn search_content(case: &mut Case, index: &FakeSearch) {
     let title = format!("{} secret", case.label);
     let board = case
-        .run("createBoard", &[], json!({"title": title, "type": "P"}))
+        .run(
+            "createBoard",
+            &[],
+            json!({"title": title, "visibility": "private"}),
+        )
         .await
         .value();
     let board = case.remember(&board, "id");

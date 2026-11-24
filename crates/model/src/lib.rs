@@ -28,9 +28,9 @@ mod course_schedule;
 mod date_value;
 mod deleted_item;
 mod diary;
-mod file_info;
 mod file_lease;
 mod file_version;
+mod files;
 mod id;
 mod invitation;
 mod linked;
@@ -44,12 +44,12 @@ mod page;
 mod page_tree;
 mod person_name;
 mod problem;
+mod public_link;
 mod refusal;
 mod relation;
 mod search;
 mod serde_util;
 mod settings;
-mod sharing;
 mod subscription;
 mod table_grid;
 mod team;
@@ -99,13 +99,14 @@ pub use card_property::{
 pub use category::{
     CATEGORY_CONTAINERS_SORT_ORDER_GAP, Category, CategoryContainerMetadata, CategoryContainers,
     CategoryError, CategoryType, ContainerCategoryWebsocketData, DEFAULT_CATEGORY_NAME,
+    SidebarVisibility,
 };
 pub use client_config::ClientConfig;
 pub use comment_version::CommentVersion;
 pub use container::{
     Container, ContainerError, ContainerKind, ContainerKinds, ContainerMember, ContainerPatch,
-    ContainerRole, ContainerSearchField, ContainerType, MinimumRole,
-    ParseContainerSearchFieldError,
+    ContainerRole, ContainerSearchField, ContainerVisibility, MinimumRole, ParseContainerKindError,
+    ParseContainerSearchFieldError, ParseContainerVisibilityError,
 };
 pub use container_teams::{ContainerTeam, ContainerTeamRole};
 pub use containers_and_blocks::{
@@ -149,9 +150,9 @@ pub use diary::{
     ParseMonthDayError, ParseMoodError, entry_body_updated_at, entry_date, entry_mood,
     is_empty_entry,
 };
-pub use file_info::{FileInfo, FileKey, is_storage_path};
 pub use file_lease::{FileLease, FileLeaseRequest, HeldFileLease};
 pub use file_version::{FileVersion, FileVersionBase, NewFileVersion};
+pub use files::{FileKey, FileRecord, is_storage_path};
 pub use id::{is_id, new_id};
 pub use invitation::{
     AcceptInvitation, AcceptedInvitation, GUEST_INVITATION_USES, INVITATION_LIFETIME_MILLIS,
@@ -188,6 +189,7 @@ pub use person_name::{
     Title, UnknownCode,
 };
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
+pub use public_link::{PublicLink, PublicLinkChange};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{
     ParseRelationKindError, RELATION_LAG_MAX, RELATION_LAG_MIN, RELATION_LIMIT,
@@ -202,7 +204,6 @@ pub use settings::{
     Theme, TimeZone, UserSettings, UserSettingsPatch, WeekStart, check_client_state_name,
     check_client_state_value,
 };
-pub use sharing::Sharing;
 pub use subscription::{Subscriber, Subscription, SubscriptionError};
 pub use table_grid::{
     CellFit, Reach, RowFit, TABLE_MAX_COLUMNS, TABLE_MAX_ROWS, TableGrid, TableTooLarge,

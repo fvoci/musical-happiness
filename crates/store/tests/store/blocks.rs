@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use fvoci_model::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, BODY_VERSION, Block, BlockError, BlockPatch,
-    BlockPatchBatch, BlockType, Body, BodyChange, ContainersAndBlocksError, FileInfo, JsonMap,
+    BlockPatchBatch, BlockType, Body, BodyChange, ContainersAndBlocksError, FileRecord, JsonMap,
     Subscription, new_id,
 };
 use fvoci_store::{BlockFilter, DbType, DeletedBlock, DuplicateAs, Paging, Store, StoreError};
@@ -312,8 +312,8 @@ async fn sqlite_connection(test: &common::TestStore) -> SqliteConnection {
 
 /// Stores the record of a file that a board has under the given stored name, and
 /// returns it.
-async fn save_file(store: &Store, board_id: &str, stored_name: &str) -> FileInfo {
-    let file_info = FileInfo {
+async fn save_file(store: &Store, board_id: &str, stored_name: &str) -> FileRecord {
+    let file_record = FileRecord {
         id: new_id(),
         container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
@@ -321,20 +321,20 @@ async fn save_file(store: &Store, board_id: &str, stored_name: &str) -> FileInfo
         size: 1,
         path: format!("{board_id}/{stored_name}"),
         create_at: now_millis(),
-        ..FileInfo::default()
+        ..FileRecord::default()
     };
     store
-        .save_file_info(&file_info)
+        .save_file_record(&file_record)
         .await
         .expect("the record of a file is stored");
-    file_info
+    file_record
 }
 
 /// Asserts that every one of the file records is stored as it was saved.
-async fn assert_file_records_are(store: &Store, files: &[FileInfo], when: &str) {
+async fn assert_file_records_are(store: &Store, files: &[FileRecord], when: &str) {
     for file in files {
         let stored = store
-            .get_file_info(&file.container_id, &file.stored_name)
+            .get_file_record(&file.container_id, &file.stored_name)
             .await
             .unwrap_or_else(|error| {
                 panic!(

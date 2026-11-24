@@ -42,7 +42,7 @@ test('a newcomer signs in through the provider and opens a board', async ({ page
   const provider = (await set.json()) as Schemas['OidcProvider'];
   expect(provider.hasClientSecret).toBe(true);
   expect(JSON.stringify(provider)).not.toContain(CLIENT_SECRET);
-  const board = await makeBoard(admin, { title: 'Through the provider', type: 'O' });
+  const board = await makeBoard(admin, { title: 'Through the provider', visibility: 'open' });
 
   const errors = watchErrors(page);
   await page.goto('/');

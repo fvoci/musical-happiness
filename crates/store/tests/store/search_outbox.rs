@@ -3,7 +3,7 @@
 //! store that keeps it, and what the worker reads and takes off.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Body, BodyChange, Container, ContainerKind, ContainerType,
+    Block, BlockPatch, BlockType, Body, BodyChange, Container, ContainerKind, ContainerVisibility,
     NewPage, PageLimits, new_id,
 };
 use fvoci_store::{DbType, SearchChange, SearchIndexMark, SearchTarget, Store, Tenant};
@@ -365,7 +365,7 @@ async fn a_template_and_what_is_built_in_have_no_documents() {
     let mut template = Container {
         id: new_id(),
         workspace_id: board.workspace_id.clone(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         is_template: true,
         ..Container::default()
     };
@@ -424,7 +424,7 @@ async fn a_card_template_of_a_board_has_no_document() {
     let mut wiki = Container {
         id: new_id(),
         workspace_id: board.workspace_id.clone(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         kind: ContainerKind::Wiki,
         ..Container::default()
     };
@@ -603,7 +603,7 @@ async fn every_container_is_listed_for_an_index_and_the_index_remembered() {
     let mut template = Container {
         id: new_id(),
         workspace_id: board.workspace_id.clone(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         is_template: true,
         ..Container::default()
     };

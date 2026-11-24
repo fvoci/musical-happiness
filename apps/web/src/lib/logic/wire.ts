@@ -480,9 +480,10 @@ export function remapBlockReferences(block: Block, idMap: Readonly<Record<string
 
 // ----------------------------------------------------------------- boards
 
-export const CONTAINER_TYPE_OPEN = 'O';
-export const CONTAINER_TYPE_PRIVATE = 'P';
-export type ContainerType = typeof CONTAINER_TYPE_OPEN | typeof CONTAINER_TYPE_PRIVATE;
+export const CONTAINER_VISIBILITY_OPEN = 'open';
+export const CONTAINER_VISIBILITY_PRIVATE = 'private';
+export type ContainerVisibility =
+  typeof CONTAINER_VISIBILITY_OPEN | typeof CONTAINER_VISIBILITY_PRIVATE;
 /** What a board is for: cards and views, pages, diary entries, or a course's units. It never changes. */
 export type ContainerKind = 'board' | 'wiki' | 'diary' | 'course';
 
@@ -526,7 +527,7 @@ export interface Container {
   channelId?: string;
   createdBy: string;
   modifiedBy: string;
-  type: ContainerType;
+  visibility: ContainerVisibility;
   /** Absent: a board, as the server reads one stored without it. */
   kind?: ContainerKind;
   minimumRole: MemberRole;
@@ -546,7 +547,7 @@ export interface Container {
 }
 
 export interface ContainerPatch {
-  type?: ContainerType;
+  visibility?: ContainerVisibility;
   minimumRole?: MemberRole;
   title?: string;
   description?: string;
@@ -594,7 +595,7 @@ export function createBoard(source?: Container, statusName = 'Status'): Containe
     channelId: source?.channelId || '',
     createdBy: source?.createdBy || '',
     modifiedBy: source?.modifiedBy || '',
-    type: source?.type || CONTAINER_TYPE_PRIVATE,
+    visibility: source?.visibility || CONTAINER_VISIBILITY_PRIVATE,
     minimumRole: source?.minimumRole || '',
     title: source?.title || '',
     description: source?.description || '',

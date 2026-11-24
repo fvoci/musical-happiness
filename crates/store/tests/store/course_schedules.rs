@@ -4,7 +4,7 @@
 
 use fvoci_model::{
     AmountUnit, Block, CompletionChange, Container, ContainerKind, ContainerMember, ContainerRole,
-    ContainerType, CourseLimits, DiaryDate, LastPositionChange, NewUnit,
+    ContainerVisibility, CourseLimits, DiaryDate, LastPositionChange, NewUnit,
     RedistributeScheduleRequest, STUDY_DAYS_ALL, STUDY_DAYS_WEEKDAYS, StudyDays, UnitKind,
     UnitProgressChange, ValidatedCourseSchedule, new_id,
 };
@@ -20,13 +20,13 @@ async fn create_course(
     store: &Store,
     workspace_id: &str,
     owner_id: &str,
-    course_type: ContainerType,
+    course_type: ContainerVisibility,
     title: &str,
 ) -> Container {
     let mut course = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: course_type,
+        visibility: course_type,
         kind: ContainerKind::Course,
         title: title.to_owned(),
         ..Container::default()
@@ -92,14 +92,29 @@ async fn migration_before_0066_to_0066_creates_course_schedules_behind_rls() {
     let scoped = pre.for_org(&org_id).expect("org handle");
     let owner = common::user(&scoped, "teacher").await;
     common::works_in(&scoped, &workspace_id, &owner).await;
-    let course = create_course(
-        &scoped,
-        &workspace_id,
-        &owner,
-        ContainerType::Private,
-        "Math",
-    )
-    .await;
+    let course_id = new_id();
+    scoped
+        .execute_unchecked(&format!(
+            "INSERT INTO containers \
+             (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
+              show_description, is_template, properties, card_properties, create_at, update_at) \
+             VALUES ('{course_id}', '{workspace_id}', '{owner}', '{owner}', 'P', 'course', \
+              'Math', '', '', false, false, '{{}}', '[]', 1, 1)"
+        ))
+        .await
+        .expect("pre-0066 course stored");
+    scoped
+        .execute_unchecked(&format!(
+            "INSERT INTO container_members \
+             (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
+             VALUES ('{course_id}', '{owner}', true, true, false, false)"
+        ))
+        .await
+        .expect("pre-0066 course admin stored");
+    let course = Container {
+        id: course_id,
+        ..Container::default()
+    };
     let unit = create_unit(
         &scoped.telling_nobody(),
         &course.id,
@@ -178,7 +193,7 @@ async fn schedule_survives_trash_restore_and_is_cleaned_up_on_purge() {
         &test,
         &test.workspace_id,
         &owner,
-        ContainerType::Private,
+        ContainerVisibility::Private,
         "History",
     )
     .await;
@@ -289,7 +304,7 @@ async fn personal_planned_date_preserves_progress_and_refuses_chapters() {
         &test,
         &test.workspace_id,
         &alice,
-        ContainerType::Private,
+        ContainerVisibility::Private,
         "Rust",
     )
     .await;
@@ -373,7 +388,7 @@ async fn personal_redistribution_isolates_learners_and_drives_workspace_today() 
         &test,
         &test.workspace_id,
         &alice,
-        ContainerType::Private,
+        ContainerVisibility::Private,
         "Rust",
     )
     .await;

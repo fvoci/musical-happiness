@@ -21,8 +21,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Shared board",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -66,7 +66,7 @@
   },
   {
     "name": "get: none yet",
-    "request": "GET /api/v1/w/<id:1>/containers/<id:3>/sharing as share-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:3>/public-link as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -75,7 +75,7 @@
   },
   {
     "name": "post: editor",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/sharing as share-bob",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/public-link as share-bob",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -89,7 +89,7 @@
   },
   {
     "name": "post: with a token of the request's",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/sharing as share-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/public-link as share-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -110,7 +110,7 @@
   },
   {
     "name": "post: nothing said",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/sharing as share-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/public-link as share-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -131,7 +131,7 @@
   },
   {
     "name": "get: still none",
-    "request": "GET /api/v1/w/<id:1>/containers/<id:3>/sharing as share-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:3>/public-link as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -140,7 +140,7 @@
   },
   {
     "name": "post",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/sharing as share-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/public-link as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -151,7 +151,7 @@
   },
   {
     "name": "post: malformed body",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/sharing as share-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/public-link as share-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -165,7 +165,7 @@
   },
   {
     "name": "get",
-    "request": "GET /api/v1/w/<id:1>/containers/<id:3>/sharing as share-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:3>/public-link as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -176,7 +176,7 @@
   },
   {
     "name": "get: editor",
-    "request": "GET /api/v1/w/<id:1>/containers/<id:3>/sharing as share-bob",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:3>/public-link as share-bob",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -190,7 +190,7 @@
   },
   {
     "name": "get: unknown board",
-    "request": "GET /api/v1/w/<id:1>/containers/unknown-board/sharing as share-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/unknown-board/public-link as share-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -204,7 +204,7 @@
   },
   {
     "name": "post: again",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/sharing as share-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/public-link as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -241,8 +241,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Shared board",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": ""
     }
   },
@@ -356,7 +356,7 @@
   },
   {
     "name": "regenerate",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/sharing as share-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/public-link as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -407,14 +407,14 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Shared board",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": ""
     }
   },
   {
     "name": "disable",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/sharing as share-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/public-link as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -424,7 +424,7 @@
   },
   {
     "name": "get: disabled",
-    "request": "GET /api/v1/w/<id:1>/containers/<id:3>/sharing as share-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:3>/public-link as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -448,7 +448,7 @@
   },
   {
     "name": "enable again",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/sharing as share-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/public-link as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {

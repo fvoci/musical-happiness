@@ -8,7 +8,7 @@ use fvoci_model::{Upload, UploadPart, UploadPurpose};
 use crate::Store;
 use crate::db::{Id, Row};
 use crate::error::StoreError;
-use crate::file_info::check_new_path;
+use crate::files::check_new_path;
 
 /// What became of a part that was to be recorded.
 #[derive(Debug, Clone, PartialEq, Eq)]

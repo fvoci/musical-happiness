@@ -10,7 +10,7 @@ use std::time::Duration;
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockPatch, BlockPatchBatch, BlockType,
-    Category, Container, ContainerMember, ContainerType, JsonMap, new_id,
+    Category, Container, ContainerMember, ContainerVisibility, JsonMap, new_id,
 };
 use fvoci_server::app::ChangeNotification;
 use fvoci_server::error::ErrorKind;
@@ -59,10 +59,13 @@ async fn store_board(th: &TestServer, mut board: Container) -> Container {
 
 /// Creates an empty board in [`TEST_WORKSPACE_ID`] through the store, with the first client's
 /// user as its administrator.
-pub(crate) async fn create_board_in_store(th: &TestServer, board_type: ContainerType) -> Container {
+pub(crate) async fn create_board_in_store(
+    th: &TestServer,
+    board_type: ContainerVisibility,
+) -> Container {
     let board = Container {
         workspace_id: TEST_WORKSPACE_ID.to_owned(),
-        container_type: board_type,
+        visibility: board_type,
         ..Container::default()
     };
     store_board(th, board).await
@@ -97,8 +100,8 @@ pub(crate) struct Boards {
 }
 
 pub(crate) async fn boards_with_roles(th: &TestServer) -> Boards {
-    let board = create_board_in_store(th, ContainerType::Private).await;
-    let other_board = create_board_in_store(th, ContainerType::Private).await;
+    let board = create_board_in_store(th, ContainerVisibility::Private).await;
+    let other_board = create_board_in_store(th, ContainerVisibility::Private).await;
     let editor = th.add_user("editor").await;
     let commenter = th.add_user("commenter").await;
     let viewer = th.add_user("viewer").await;
@@ -351,7 +354,7 @@ impl Socket {
 #[tokio::test]
 async fn get_blocks() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
 
     let new_blocks = [
         new_block(&board.id, BlockType::Card, ""),
@@ -373,7 +376,7 @@ async fn get_blocks() {
 #[tokio::test]
 async fn post_block_create_a_single_block() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
 
     let block = new_block(&board.id, BlockType::Card, "New title");
     let inserted = insert(&th.client, &board.id, std::slice::from_ref(&block)).await;
@@ -390,7 +393,7 @@ async fn post_block_create_a_single_block() {
 #[tokio::test]
 async fn post_block_create_a_couple_of_blocks_in_the_same_call() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let first = insert_one(
         &th.client,
         &new_block(&board.id, BlockType::Card, "New title"),
@@ -423,7 +426,7 @@ async fn post_block_create_a_couple_of_blocks_in_the_same_call() {
 #[tokio::test]
 async fn post_block_update_a_block_should_not_be_possible_through_the_insert_endpoint() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let first = insert_one(
         &th.client,
         &new_block(&board.id, BlockType::Card, "New title"),
@@ -457,7 +460,7 @@ async fn post_block_update_a_block_should_not_be_possible_through_the_insert_end
 
 /// Fixture block used by the single-block patch tests.
 async fn patch_block_fixture(th: &TestServer) -> Block {
-    let board = create_board_in_store(th, ContainerType::Open).await;
+    let board = create_board_in_store(th, ContainerVisibility::Open).await;
     let block = Block {
         fields: fields(json!({"test": "test value", "test2": "test value 2"})),
         ..new_block(&board.id, BlockType::Card, "New title")
@@ -533,7 +536,7 @@ async fn patch_block_patch_a_block_to_remove_custom_fields() {
 #[tokio::test]
 async fn delete_block_create_a_block() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
 
     let block = new_block(&board.id, BlockType::Card, "New title");
     let inserted = insert(&th.client, &board.id, std::slice::from_ref(&block)).await;
@@ -555,7 +558,7 @@ async fn delete_block_create_a_block() {
 #[tokio::test]
 async fn delete_block_delete_a_block() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let block = insert_one(
         &th.client,
         &new_block(&board.id, BlockType::Card, "New title"),
@@ -577,7 +580,7 @@ async fn delete_block_delete_a_block() {
 
 /// Fixture block for undelete tests: a view on an open board of the first user.
 async fn undelete_block_fixture(th: &TestServer) -> Block {
-    let board = create_board_in_store(th, ContainerType::Open).await;
+    let board = create_board_in_store(th, ContainerVisibility::Open).await;
     assert!(
         blocks_of(&th.client, &board.id).await.is_empty(),
         "the board starts empty"
@@ -593,7 +596,7 @@ async fn undelete_block_fixture(th: &TestServer) -> Block {
 #[tokio::test]
 async fn undelete_block_create_a_block() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
 
     let block = new_block(&board.id, BlockType::View, "New title");
     let inserted = insert(&th.client, &board.id, std::slice::from_ref(&block)).await;
@@ -672,7 +675,7 @@ async fn undelete_block_try_to_undelete_a_block_without_permissions() {
 #[tokio::test]
 async fn app_insert_block_success_scenario() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let mut block = new_block(&board.id, BlockType::Card, "A card");
 
     th.app
@@ -700,7 +703,7 @@ async fn app_insert_block_success_scenario() {
 #[tokio::test]
 async fn app_insert_block_error_scenario() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
 
     let mut too_long = new_block(
         &board.id,
@@ -741,7 +744,7 @@ async fn app_insert_block_error_scenario() {
 #[tokio::test]
 async fn app_patch_blocks_success_scenario() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "old")).await;
 
     th.app
@@ -765,7 +768,7 @@ async fn app_patch_blocks_success_scenario() {
 #[tokio::test]
 async fn app_patch_blocks_error_scenario() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "old")).await;
     let missing = new_block(&board.id, BlockType::Card, "never stored");
 
@@ -791,7 +794,7 @@ async fn app_patch_blocks_error_scenario() {
 #[tokio::test]
 async fn app_delete_block_success_scenario() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "")).await;
 
     th.app
@@ -841,7 +844,7 @@ async fn app_delete_block_error_scenario() {
 #[tokio::test]
 async fn app_undelete_block_success_scenario() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "back")).await;
     th.app
         .delete_block(&block.id, &th.stranger().await, ChangeNotification::Send)
@@ -867,7 +870,7 @@ async fn app_undelete_block_success_scenario() {
 #[tokio::test]
 async fn app_undelete_block_that_is_not_in_the_trash() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "here")).await;
 
     for block_id in [UNKNOWN_ID, "no-such-block", block.id.as_str()] {
@@ -888,7 +891,7 @@ async fn app_undelete_block_that_is_not_in_the_trash() {
 #[tokio::test]
 async fn app_insert_blocks_success_scenario() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let mut blocks = vec![new_block(&board.id, BlockType::Card, "A card")];
 
     th.app
@@ -921,8 +924,8 @@ async fn app_insert_blocks_success_scenario() {
 #[tokio::test]
 async fn app_insert_blocks_error_scenario() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
-    let other = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
+    let other = create_board_in_store(&th, ContainerVisibility::Open).await;
 
     let mut too_long = vec![new_block(
         &board.id,
@@ -973,7 +976,7 @@ async fn app_insert_blocks_error_scenario() {
 async fn get_blocks_permissions() {
     let th = Setup::native().start().await.init_basic().await;
     let boards = boards_with_roles(&th).await;
-    let open_board = create_board_in_store(&th, ContainerType::Open).await;
+    let open_board = create_board_in_store(&th, ContainerVisibility::Open).await;
     card_with_content(&th, &boards).await;
     let path = blocks_path(&boards.board.id);
 
@@ -1020,12 +1023,12 @@ async fn get_blocks_of_templates() {
     let th = Setup::native().start().await.init_basic().await;
     let template = |board_type| Container {
         workspace_id: TEST_WORKSPACE_ID.to_owned(),
-        container_type: board_type,
+        visibility: board_type,
         is_template: true,
         ..Container::default()
     };
-    let open_template = store_board(&th, template(ContainerType::Open)).await;
-    let private_template = store_board(&th, template(ContainerType::Private)).await;
+    let open_template = store_board(&th, template(ContainerVisibility::Open)).await;
+    let private_template = store_board(&th, template(ContainerVisibility::Private)).await;
     for board in [&open_template, &private_template] {
         let block = new_block(&board.id, BlockType::Card, "in a template");
         insert_one(&th.client, &block).await;
@@ -1057,7 +1060,7 @@ async fn get_blocks_of_templates() {
 #[tokio::test]
 async fn get_blocks_filters() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let path = blocks_path(&board.id);
 
     let empty = th.client.get(&path).await;
@@ -1137,8 +1140,8 @@ async fn get_blocks_filters() {
 #[tokio::test]
 async fn get_blocks_by_block_id() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
-    let other_board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
+    let other_board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let path = blocks_path(&board.id);
     let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
     insert_one(&th.client, &child_of(&card, BlockType::Attachment, "text")).await;
@@ -1263,7 +1266,7 @@ async fn a_query_parameter_spelled_another_way_is_no_parameter() {
 #[tokio::test]
 async fn post_blocks_answer_and_stored_block() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = create_board_in_store(&th, ContainerType::Private).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Private).await;
     let user = th.client.me().await;
     let before = fvoci_server::auth::now_millis();
 
@@ -1311,7 +1314,7 @@ async fn post_blocks_answer_and_stored_block() {
 #[tokio::test]
 async fn post_blocks_without_identifiers_and_in_the_order_of_the_request() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = create_board_in_store(&th, ContainerType::Private).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Private).await;
 
     let nameless: Vec<Value> = (0..3)
         .map(|index| {
@@ -1365,8 +1368,8 @@ async fn post_blocks_without_identifiers_and_in_the_order_of_the_request() {
 #[tokio::test]
 async fn post_blocks_validation() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = create_board_in_store(&th, ContainerType::Private).await;
-    let other_board = create_board_in_store(&th, ContainerType::Private).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Private).await;
+    let other_board = create_board_in_store(&th, ContainerVisibility::Private).await;
     let path = blocks_path(&board.id);
     let valid =
         json!({"id": "x1", "containerId": board.id, "type": "card", "createAt": 1, "updateAt": 1});
@@ -1418,7 +1421,7 @@ async fn post_blocks_validation() {
 #[tokio::test]
 async fn post_blocks_without_blocks() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = create_board_in_store(&th, ContainerType::Private).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Private).await;
     let path = blocks_path(&board.id);
 
     let response = th.client.send_raw_body(Method::POST, &path, "[]").await;
@@ -1541,7 +1544,7 @@ async fn post_blocks_permissions_by_block_type() {
 #[tokio::test]
 async fn post_blocks_size_limits() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = create_board_in_store(&th, ContainerType::Private).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Private).await;
 
     let longest = new_block(
         &board.id,
@@ -2168,7 +2171,7 @@ async fn duplicate_block_refusals() {
 #[tokio::test]
 async fn post_blocks_larger_than_two_megabytes() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     // Views, whose fields may be that large.
     let big = |title: &str| Block {
         fields: fields(json!({"big": "a".repeat(750_000)})),
@@ -2261,7 +2264,7 @@ async fn duplicate_block_copies() {
 #[tokio::test]
 async fn block_changes_are_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = create_board_in_store(&th, ContainerType::Private).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Private).await;
     let mut member = Socket::subscribed_to_workspace(&th, &th.client, TEST_WORKSPACE_ID).await;
     let mut outsider = Socket::subscribed_to_workspace(&th, &th.client2, TEST_WORKSPACE_ID).await;
     let path = blocks_path(&board.id);
@@ -2394,7 +2397,7 @@ async fn block_changes_call_the_webhook() {
         .await
         .init_basic()
         .await;
-    let board = create_board_in_store(&th, ContainerType::Private).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Private).await;
     // What the webhook got since the last call, as (identifier, title) pairs.
     let take_posted = async || -> Vec<(String, String)> {
         assert!(
@@ -2477,13 +2480,13 @@ async fn block_changes_call_the_webhook() {
 #[tokio::test]
 async fn post_blocks_with_a_source_board_the_user_cannot_read_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
-    let foreign = create_board_in_store(&th, ContainerType::Private).await;
+    let foreign = create_board_in_store(&th, ContainerVisibility::Private).await;
     let outsider = &th.client2;
     let outsider_id = outsider.me().await.id;
     let mut own = Container {
         id: new_id(),
         workspace_id: TEST_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         ..Container::default()
     };
     th.app
@@ -2532,8 +2535,8 @@ async fn post_blocks_with_a_source_board_the_user_cannot_read_is_refused() {
 #[tokio::test]
 async fn post_blocks_with_a_source_board_the_user_can_read_still_works() {
     let th = Setup::native().start().await.init_basic().await;
-    let source = create_board_in_store(&th, ContainerType::Private).await;
-    let target = create_board_in_store(&th, ContainerType::Private).await;
+    let source = create_board_in_store(&th, ContainerVisibility::Private).await;
+    let target = create_board_in_store(&th, ContainerVisibility::Private).await;
 
     let card = new_block(&target.id, BlockType::Card, "copied card");
     let response = th

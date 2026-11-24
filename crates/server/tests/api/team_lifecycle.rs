@@ -3,7 +3,7 @@
 use crate::boards::{board_with_admin, new_board};
 use crate::common::{ROOT_WORKSPACE_ID, Setup, TestServer};
 use fvoci_model::{
-    AuditAction, Block, BlockType, ContainerTeam, ContainerType, Subscription, Team, new_id,
+    AuditAction, Block, BlockType, ContainerTeam, ContainerVisibility, Subscription, Team, new_id,
 };
 use reqwest::StatusCode;
 use serde_json::json;
@@ -42,7 +42,11 @@ async fn board_restore_keeps_surviving_teams_and_uses_their_current_people() {
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Restore teams"),
+        new_board(
+            ROOT_WORKSPACE_ID,
+            ContainerVisibility::Private,
+            "Restore teams",
+        ),
         &owner,
     )
     .await;
@@ -101,7 +105,11 @@ async fn team_removal_preserves_template_subscriptions_until_workspace_membershi
         let th = Setup::native().start().await.init_basic().await;
         let owner = th.client.me().await.id;
         let user = th.client2.me().await.id;
-        let mut template = new_board(ROOT_WORKSPACE_ID, ContainerType::Open, "Open template");
+        let mut template = new_board(
+            ROOT_WORKSPACE_ID,
+            ContainerVisibility::Open,
+            "Open template",
+        );
         template.is_template = true;
         let board = board_with_admin(&th, template, &owner).await;
         let path = format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id);
@@ -214,7 +222,7 @@ async fn a_manager_who_restores_a_board_through_its_teams_puts_everyone_it_opens
         &th,
         new_board(
             ROOT_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Restored managed",
         ),
         &owner,
@@ -280,7 +288,7 @@ async fn an_admin_of_the_board_who_restores_it_records_nobody() {
         &th,
         new_board(
             ROOT_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Restored by its admin",
         ),
         &manager,
@@ -320,7 +328,7 @@ async fn giving_a_team_the_role_it_has_or_taking_one_it_lacks_changes_nobody() {
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Unchanged"),
+        new_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private, "Unchanged"),
         &manager,
     )
     .await;
@@ -360,7 +368,7 @@ async fn adding_a_person_already_in_the_team_changes_nobody() {
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Once"),
+        new_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private, "Once"),
         &manager,
     )
     .await;

@@ -186,31 +186,34 @@ fn the_changes_of_an_open_wiki_are_told_to_whoever_works_there_and_of_nothing_el
 
 #[test]
 fn open_courses_share_the_open_to_read_scope_with_open_wikis() {
-    use fvoci_model::{Container, ContainerKind, ContainerType};
+    use fvoci_model::{Container, ContainerKind, ContainerVisibility};
 
-    let container = |kind, container_type| Container {
+    let container = |kind, visibility| Container {
         kind,
-        container_type,
+        visibility,
         ..Container::default()
     };
     assert_eq!(
-        ContainerScope::of(&container(ContainerKind::Wiki, ContainerType::Open)),
+        ContainerScope::of(&container(ContainerKind::Wiki, ContainerVisibility::Open)),
         OpenToRead
     );
     assert_eq!(
-        ContainerScope::of(&container(ContainerKind::Course, ContainerType::Open)),
+        ContainerScope::of(&container(ContainerKind::Course, ContainerVisibility::Open)),
         OpenToRead
     );
     assert_eq!(
-        ContainerScope::of(&container(ContainerKind::Course, ContainerType::Private)),
+        ContainerScope::of(&container(
+            ContainerKind::Course,
+            ContainerVisibility::Private
+        )),
         InvitedOnly
     );
     assert_eq!(
-        ContainerScope::of(&container(ContainerKind::Board, ContainerType::Open)),
+        ContainerScope::of(&container(ContainerKind::Board, ContainerVisibility::Open)),
         Open
     );
     assert_eq!(
-        ContainerScope::of(&container(ContainerKind::Diary, ContainerType::Open)),
+        ContainerScope::of(&container(ContainerKind::Diary, ContainerVisibility::Open)),
         InvitedOnly
     );
 }

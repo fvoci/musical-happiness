@@ -3,7 +3,7 @@
 
 use fvoci_model::{
     Block, BlockType, Container, ContainerError, ContainerKind, ContainerKinds, ContainerPatch,
-    ContainerSearchField, ContainerType, JsonMap, MinimumRole, WorkspaceRole, new_id,
+    ContainerSearchField, ContainerVisibility, JsonMap, MinimumRole, WorkspaceRole, new_id,
 };
 use fvoci_store::{DbType, PublicContainers, Store, StoreError};
 use serde_json::json;
@@ -21,7 +21,7 @@ async fn stored(
     let mut board = Container {
         kind,
         title: format!("a {} to find", kind.as_str()),
-        ..new_board(&new_id(), workspace_id, ContainerType::Private)
+        ..new_board(&new_id(), workspace_id, ContainerVisibility::Private)
     };
     store
         .insert_container_with_admin(&mut board, user_id)
@@ -102,7 +102,7 @@ async fn a_wiki_is_no_template_and_has_no_card_properties() {
     let property: JsonMap = object(json!({"id": "status", "name": "Status", "type": "text"}));
     let wiki = || Container {
         kind: ContainerKind::Wiki,
-        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
     };
 
     let mut template = Container {
@@ -153,7 +153,7 @@ async fn a_wiki_is_no_template_and_has_no_card_properties() {
     let course_prop: JsonMap = object(json!({"id": "level", "name": "Level", "type": "text"}));
     let course = || Container {
         kind: ContainerKind::Course,
-        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
     };
     let mut course_template = Container {
         is_template: true,
@@ -474,7 +474,7 @@ async fn the_trash_is_listed_by_kind_and_what_went_before_kinds_is_a_board() {
 /// membership on while preserving rows on courses where they hold a direct role.
 #[tokio::test]
 async fn demoting_workspace_member_to_guest_cleans_unjoined_personal_learning_rows() {
-    use fvoci_model::{ContainerType, WorkspaceRole};
+    use fvoci_model::{ContainerVisibility, WorkspaceRole};
 
     let test = common::setup().await;
     let admin = common::user(&test, "admin").await;
@@ -491,7 +491,7 @@ async fn demoting_workspace_member_to_guest_cleans_unjoined_personal_learning_ro
     let (team_course, team_unit) = seed_course_learning_rows(
         &test,
         &test.workspace_id,
-        ContainerType::Open,
+        ContainerVisibility::Open,
         "Team Course",
         &admin,
         &learner,
@@ -500,7 +500,7 @@ async fn demoting_workspace_member_to_guest_cleans_unjoined_personal_learning_ro
     let (direct_course, direct_unit) = seed_course_learning_rows(
         &test,
         &test.workspace_id,
-        ContainerType::Private,
+        ContainerVisibility::Private,
         "Direct Course",
         &admin,
         &learner,
@@ -525,20 +525,20 @@ async fn demoting_workspace_member_to_guest_cleans_unjoined_personal_learning_ro
 async fn seed_course_learning_rows(
     test: &fvoci_store::Store,
     workspace_id: &str,
-    ctype: fvoci_model::ContainerType,
+    ctype: fvoci_model::ContainerVisibility,
     title: &str,
     admin: &str,
     learner: &str,
 ) -> (String, String) {
     use fvoci_model::{
-        Container, ContainerKind, ContainerMember, ContainerRole, ContainerType, CourseLimits,
-        MinimumRole, NewCourseExam, NewUnit, UnitKind, new_id,
+        Container, ContainerKind, ContainerMember, ContainerRole, ContainerVisibility,
+        CourseLimits, MinimumRole, NewCourseExam, NewUnit, UnitKind, new_id,
     };
 
     let mut c = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ctype,
+        visibility: ctype,
         kind: ContainerKind::Course,
         title: title.to_owned(),
         ..Container::default()
@@ -546,7 +546,7 @@ async fn seed_course_learning_rows(
     test.insert_container_with_admin(&mut c, admin)
         .await
         .expect("course");
-    if ctype == ContainerType::Private {
+    if ctype == ContainerVisibility::Private {
         test.save_member(
             &ContainerMember {
                 container_id: c.id.clone(),

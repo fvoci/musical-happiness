@@ -7,8 +7,8 @@ use std::collections::BTreeSet;
 use std::io::{Cursor, Read as _};
 
 use fvoci_model::{
-    Block, BlockType, CategoryContainers, Container, ContainerMember, ContainerType, UserWorkspace,
-    Workspace, WorkspaceRole, new_id,
+    Block, BlockType, CategoryContainers, Container, ContainerMember, ContainerVisibility,
+    UserWorkspace, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::DbType;
 use reqwest::StatusCode;
@@ -111,7 +111,7 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     (
         "GET",
         "/containers/{containerId}/files/{fileId}/info",
-        "getFileInfo",
+        "getFileRecord",
     ),
     (
         "GET",
@@ -167,8 +167,16 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/boards/{boardId}/property-order",
         "reorderCardProperties",
     ),
-    ("GET", "/containers/{containerId}/sharing", "getSharing"),
-    ("POST", "/containers/{containerId}/sharing", "setSharing"),
+    (
+        "GET",
+        "/containers/{containerId}/public-link",
+        "getPublicLink",
+    ),
+    (
+        "POST",
+        "/containers/{containerId}/public-link",
+        "setPublicLink",
+    ),
     ("GET", "/boards/{boardId}/trash/cards", "getDeletedCards"),
     (
         "POST",
@@ -665,7 +673,7 @@ const REACHED_BY_ITEM: &[&str] = &[
     "duplicateContainer",
     "uploadFile",
     "getFile",
-    "getFileInfo",
+    "getFileRecord",
     "getFileVersions",
     "addFileVersion",
     "getFileVersion",
@@ -680,8 +688,8 @@ const REACHED_BY_ITEM: &[&str] = &[
     "removeMember",
     "updateMember",
     "reorderCardProperties",
-    "getSharing",
-    "setSharing",
+    "getPublicLink",
+    "setPublicLink",
     "getDeletedCards",
     "undeleteContainer",
     "createUpload",
@@ -836,8 +844,7 @@ async fn compare_workspaces_in_a_body(
     let mut violations = Vec::new();
     for bulk in [false, true] {
         let send = async |workspace: &str| {
-            let board =
-                json!({"id": "board-ref", "workspaceId": workspace, "type": "P", "title": "new"});
+            let board = json!({"id": "board-ref", "workspaceId": workspace, "visibility": "private", "title": "new"});
             let (path, body) = if bulk {
                 (
                     &format!("{ROOT_WS}/boards-and-blocks"),
@@ -1031,7 +1038,7 @@ async fn every_workspace_route_hides_the_workspace_from_nonmembers_guests_and_ot
 async fn a_category_path_rejects_a_normal_board_from_another_workspace() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let categories: Vec<CategoryContainers> = ts
         .client
@@ -1095,7 +1102,7 @@ async fn a_category_path_hides_no_board_of_another_workspace_but_takes_a_templat
         .expect("the built-in templates")
         .remove(0);
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let categories: Vec<CategoryContainers> = ts
         .client
@@ -1165,7 +1172,7 @@ async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_
     let mut board = Container {
         id: new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         ..Container::default()
     };
     // Stored past the rule that only who works in a workspace is made the admin of a
@@ -1230,10 +1237,10 @@ async fn deleting_a_category_files_a_board_of_another_workspace_in_its_own() {
     let ts = Setup::native().start().await.init_basic().await;
     let user_id = ts.client.me().await.id;
     let ours = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let theirs = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let category = ts
         .app
@@ -1469,7 +1476,7 @@ pub(super) async fn compare_resource_routes(
                 "patchDiaryEntry" => json!({"mood": "good"}),
                 "createUpload" => json!({"name": "new.bin", "size": 0}),
                 "addMember" => json!({"userId": user, "schemeViewer": true}),
-                "setSharing" => json!({"enabled": true}),
+                "setPublicLink" => json!({"enabled": true}),
                 "holdFileLease" => json!({"leaseId": ""}),
                 "createSubscription" => {
                     json!({"blockId": block(absent), "blockType": "card", "userId": caller})
@@ -1604,7 +1611,7 @@ pub(super) async fn a_page_in(
     let mut wiki = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         kind: fvoci_model::ContainerKind::Wiki,
         title: "Hidden wiki".to_owned(),
         ..Container::default()
@@ -1633,7 +1640,7 @@ pub(super) async fn a_unit_in(
     let mut course = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         kind: fvoci_model::ContainerKind::Course,
         title: "Hidden course".to_owned(),
         ..Container::default()
@@ -1676,7 +1683,7 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     let mut board = Container {
         id: new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         title: "Hidden board".to_owned(),
         ..Container::default()
     };
@@ -1774,7 +1781,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
     let mut board = Container {
         id: new_id(),
         workspace_id: TEST_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         title: "Sibling board".to_owned(),
         ..Container::default()
     };
@@ -1852,7 +1859,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
     // Named in a body or a query (the boards of a combined request, the board files are
     // copied from), the board is as one that does not exist too.
     let own = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     extra::compare_query_targets(&ts.client, &own, &board).await;
     ts.teardown().await;

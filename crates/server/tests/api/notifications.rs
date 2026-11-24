@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, Card, Container, ContainerMember, ContainerType, Notification,
+    Block, BlockType, Card, Container, ContainerMember, ContainerVisibility, Notification,
     NotificationKind, SearchKind, UnreadNotifications,
 };
 use fvoci_server::app::tend_notifications;
@@ -38,7 +38,10 @@ pub(crate) fn plain(text: &str) -> Value {
 
 /// A board of the test workspace of `board_type`, made by the first client's user,
 /// whose cards have a person property ([`OWNER`]).
-pub(crate) async fn board_with_owner(th: &TestServer, board_type: ContainerType) -> Container {
+pub(crate) async fn board_with_owner(
+    th: &TestServer,
+    board_type: ContainerVisibility,
+) -> Container {
     let definition = json!({"id": OWNER, "name": "Owner", "type": "person", "options": []});
     th.client
         .create_board(&Container {
@@ -140,7 +143,7 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
         .init_basic()
         .await;
     let (a, b) = (th.client.me().await, th.client2.me().await);
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
     let card = card_with(&th.client, &board.id, &Value::Null).await;
 
@@ -314,7 +317,7 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
 async fn notifications_are_read_one_by_one_and_all_at_once_by_their_reader_alone() {
     let th = Setup::native().start().await.init_basic().await;
     let b = th.client2.me().await;
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "viewer").await;
     // Each of another card: what happens to one card within the hour is one.
     for _ in 0..3 {
@@ -434,7 +437,7 @@ async fn a_mention_typed_by_one_of_several_is_told_as_theirs_and_ones_own_is_not
     let (a, b) = (th.client.me().await, th.client2.me().await);
     let c = th.add_user("third").await;
     let c_id = c.me().await.id;
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     for user in [&b.id, &c_id] {
         give(&th, &board.id, user, "editor").await;
     }
@@ -545,7 +548,7 @@ async fn copies_restores_and_quiet_writes_tell_nobody_and_a_body_only_whom_it_ne
     let b = th.client2.me().await;
     let c = th.add_user("third").await;
     let c_id = c.me().await.id;
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     for user in [&b.id, &c_id] {
         give(&th, &board.id, user, "editor").await;
     }
@@ -577,7 +580,7 @@ async fn copies_restores_and_quiet_writes_tell_nobody_and_a_body_only_whom_it_ne
     assert_eq!(waiting().await, 0, "a copy notes nothing");
 
     // Blocks made from those of another board, as a board is from a template.
-    let source = board_with_owner(&th, ContainerType::Private).await;
+    let source = board_with_owner(&th, ContainerVisibility::Private).await;
     made_from_another_board(&th, &board.id, &source.id, &b.id).await;
     assert_eq!(
         waiting().await,
@@ -657,7 +660,7 @@ async fn copies_restores_and_quiet_writes_tell_nobody_and_a_body_only_whom_it_ne
 async fn what_cannot_be_seen_is_seen_again_once_its_reader_is_let_back() {
     let th = Setup::native().start().await.init_basic().await;
     let b = th.client2.me().await;
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "viewer").await;
     card_with(&th.client, &board.id, &mentioning(&[&b.id])).await;
     assert_eq!(kinds(&told(&th, &th.client2).await), (vec!["mention"], 0));
@@ -688,7 +691,7 @@ async fn a_server_tells_people_by_itself() {
         .init_basic()
         .await;
     let b = th.client2.me().await;
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "viewer").await;
     card_with(&th.client, &board.id, &mentioning(&[&b.id])).await;
 
@@ -713,7 +716,7 @@ async fn a_server_tells_people_by_itself() {
 async fn two_who_name_each_other_in_one_body_are_each_told_by_the_other() {
     let th = Setup::native().start().await.init_basic().await;
     let (a, b) = (th.client.me().await, th.client2.me().await);
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
     let card = card_with(&th.client, &board.id, &Value::Null).await;
     let mut one = Peer::connect(&th.client, 111).await;
@@ -755,7 +758,7 @@ async fn who_typed_a_name_is_known_though_the_log_was_folded_since() {
         .init_basic()
         .await;
     let (a, b) = (th.client.me().await, th.client2.me().await);
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
     let card = card_with(&th.client, &board.id, &Value::Null).await;
     let mut one = Peer::connect(&th.client, 121).await;

@@ -21,8 +21,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Quarterly zebra plan",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -48,8 +48,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Open zebra notes",
-      "type": "O",
       "updateAt": "<ts>",
+      "visibility": "open",
       "workspaceId": "<id:1>"
     }
   },
@@ -75,8 +75,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Private zebra diary",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -103,8 +103,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Quarterly zebra plan",
-        "type": "P",
         "updateAt": "<ts>",
+        "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
@@ -124,8 +124,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open zebra notes",
-        "type": "O",
         "updateAt": "<ts>",
+        "visibility": "open",
         "workspaceId": "<id:1>"
       }
     ]
@@ -153,8 +153,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open zebra notes",
-        "type": "O",
         "updateAt": "<ts>",
+        "visibility": "open",
         "workspaceId": "<id:1>"
       },
       {
@@ -174,8 +174,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Private zebra diary",
-        "type": "P",
         "updateAt": "<ts>",
+        "visibility": "private",
         "workspaceId": "<id:1>"
       }
     ]
@@ -224,8 +224,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Quarterly zebra plan",
-        "type": "P",
         "updateAt": "<ts>",
+        "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
@@ -245,8 +245,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open zebra notes",
-        "type": "O",
         "updateAt": "<ts>",
+        "visibility": "open",
         "workspaceId": "<id:1>"
       }
     ]
@@ -274,8 +274,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Quarterly zebra plan",
-        "type": "P",
         "updateAt": "<ts>",
+        "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
@@ -295,8 +295,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open zebra notes",
-        "type": "O",
         "updateAt": "<ts>",
+        "visibility": "open",
         "workspaceId": "<id:1>"
       }
     ]

@@ -215,7 +215,10 @@ describe('the titles of what references name', () => {
   it('follow a page that is renamed, and pages that go with the one deleted', async () => {
     const { backend, workspace, titles } = await opened();
     const workspaceId = workspace.info?.id ?? '';
-    const wiki = await backend.wiki.createWiki(workspaceId, { title: 'Handbook', type: 'P' });
+    const wiki = await backend.wiki.createWiki(workspaceId, {
+      title: 'Handbook',
+      visibility: 'private',
+    });
     const top = await backend.wiki.createPage(wiki.id, { title: 'Top' });
     const below = await backend.wiki.createPage(wiki.id, { title: 'Below', parentId: top.id });
     titles.of(top.id);

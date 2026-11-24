@@ -2,7 +2,7 @@
 //! room is admitted again, and a periodic answer dropped, for a change of its room's
 //! board and its user, not for one of another board.
 
-use fvoci_model::{ContainerMember, ContainerType};
+use fvoci_model::{ContainerMember, ContainerVisibility};
 use serde_json::json;
 
 use crate::common::{TEST_WORKSPACE_ID, TestServer};
@@ -58,7 +58,7 @@ async fn a_change_of_another_board_does_not_admit_a_joining_member_again() {
     let th = seldom().start().await.init_basic().await;
     let t = table(&th, &paragraphs(&["first"])).await;
     let elsewhere = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let user = th.client2.me().await.id;
     give(&th, &t.board_id, &user, "editor").await;
@@ -93,7 +93,7 @@ async fn a_periodic_answer_is_applied_though_another_board_changed_meanwhile() {
     let th = seldom().start().await.init_basic().await;
     let (t, _owner, mut member) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let elsewhere = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let user = th.client2.me().await.id;
     let collab = th.app.collab();

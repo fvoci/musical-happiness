@@ -8,8 +8,9 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Block, Container, ContainerKind, ContainerType, DAYS_PER_LIST, DeletedDiaryEntry, DiaryDate,
-    DiaryDay, DiaryEntry, DiaryEntryPatch, DiaryMaking, DiaryRun, MonthDay, NewDiaryEntry,
+    Block, Container, ContainerKind, ContainerVisibility, DAYS_PER_LIST, DeletedDiaryEntry,
+    DiaryDate, DiaryDay, DiaryEntry, DiaryEntryPatch, DiaryMaking, DiaryRun, MonthDay,
+    NewDiaryEntry,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -69,8 +70,8 @@ pub(crate) struct NewDiary {
 /// The diaries of the user's own space
 ///
 /// Every diary of the workspace, oldest first: each is a board of the `kind` `diary`,
-/// private (`type` `P`), with the user as its only member. Those in the trash are not
-/// listed (`getDeletedContainers`).
+/// private (`visibility` `private`), with the user as its only member. Those in the
+/// trash are not listed (`getDeletedContainers`).
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/diaries",
@@ -116,7 +117,7 @@ async fn handle_create_diary(InDiary(ws): InDiary, body: Bytes) -> ApiResult {
     } = decode_object(&body)?;
     let diary = Container {
         workspace_id: ws.workspace_id.clone(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Diary,
         title,
         description,

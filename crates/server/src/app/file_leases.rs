@@ -189,7 +189,7 @@ impl App {
 
     /// The file of a lease: the board's file `file_id`, in this handle's organization.
     async fn leased_file(&self, container_id: &str, file_id: &str) -> Result<LeasedFile, AppError> {
-        if self.file_info(container_id, file_id).await?.is_none() {
+        if self.file_record(container_id, file_id).await?.is_none() {
             return Err(AppError::not_found(FILE));
         }
         Ok(LeasedFile {

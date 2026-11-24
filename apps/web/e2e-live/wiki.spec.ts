@@ -59,8 +59,8 @@ test('a wiki is made, filed among the boards, and kept apart from them', async (
   ).json()) as Schemas['Container'][];
   // Among the wikis alone; others' open ones of the shared workspace are listed beside it.
   const mine = wikis.filter((wiki) => wiki.id === wikiId);
-  expect(mine.map((wiki) => [wiki.id, wiki.kind, wiki.title, wiki.type])).toEqual([
-    [wikiId, 'wiki', 'Handbook', 'O'],
+  expect(mine.map((wiki) => [wiki.id, wiki.kind, wiki.title, wiki.visibility])).toEqual([
+    [wikiId, 'wiki', 'Handbook', 'open'],
   ]);
   expect(wikis.every((wiki) => wiki.kind === 'wiki')).toBe(true);
   const boards = (await (
@@ -162,7 +162,7 @@ test('two people write one page together, see each other on it, and the tree fol
   const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
-    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } })
+    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', visibility: 'private' } })
   ).json()) as Schemas['Container'];
   const [found] = (await (
     await api.get(`${inWorkspace}/users`, { params: { search: colleague.username } })
@@ -309,7 +309,7 @@ test('an open wiki is listed to and read by whoever works in the workspace, and 
   const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
-    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Open notes', type: 'O' } })
+    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Open notes', visibility: 'open' } })
   ).json()) as Schemas['Container'];
   const first = (await (
     await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, { data: { title: 'Hello' } })
@@ -352,7 +352,7 @@ test('a connection that drops leaves a page read-only, and once back the reader 
   const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
-    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } })
+    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', visibility: 'private' } })
   ).json()) as Schemas['Container'];
   const first = (await (
     await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, { data: { title: 'Travel' } })

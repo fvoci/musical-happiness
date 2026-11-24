@@ -1,7 +1,7 @@
 //! A check of a request's own shape tells of everything it refuses at once: every
 //! entry of `errors` with where it is, what is wrong and why.
 
-use fvoci_model::ContainerType;
+use fvoci_model::ContainerVisibility;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -242,7 +242,7 @@ async fn the_requests_of_a_user_list_everything_they_refuse() {
 async fn the_requests_of_cards_list_everything_they_refuse() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let cards = format!("{TEST_WS}/boards/{}/cards", board.id);
 
@@ -367,7 +367,7 @@ async fn check_more(client: &crate::common::Client, card: &str) {
 async fn an_upload_and_the_sharing_list_everything_they_refuse() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     let response = th
@@ -390,7 +390,7 @@ async fn an_upload_and_the_sharing_list_everything_they_refuse() {
     let response = th
         .client
         .post(
-            &format!("{TEST_WS}/containers/{}/sharing", board.id),
+            &format!("{TEST_WS}/containers/{}/public-link", board.id),
             &json!({"token": "mine", "regenerate": "yes"}),
         )
         .await;

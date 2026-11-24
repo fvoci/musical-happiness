@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use fvoci_model::{Card, ContainerType, FileInfo, new_id};
+use fvoci_model::{Card, ContainerVisibility, FileRecord, new_id};
 use fvoci_server::Server;
 use fvoci_server::app::{App, ChangeNotification};
 use fvoci_server::auth::now_millis;
@@ -49,7 +49,7 @@ async fn a_sqlite_database_symlink_cannot_bypass_the_server_lock() {
     }
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let config = ts.app.config();
     let database = config
@@ -115,7 +115,7 @@ impl Observer for AfterHoldQuery {
 }
 
 /// The next server removes the previous holder's job and records a replacement at its place.
-async fn replace_as_the_next_server(next: &App, file: FileInfo) -> FileInfo {
+async fn replace_as_the_next_server(next: &App, file: FileRecord) -> FileRecord {
     next.housekeeping()
         .remove_doomed_objects(now_millis())
         .await
@@ -129,7 +129,7 @@ async fn replace_as_the_next_server(next: &App, file: FileInfo) -> FileInfo {
         .write(&file.path, &mut &b"replacement bytes"[..])
         .await
         .expect("replacement written");
-    let replacement = FileInfo {
+    let replacement = FileRecord {
         id: new_id(),
         size: i64::try_from(size).expect("a small file"),
         create_at: now_millis(),
@@ -222,7 +222,7 @@ async fn a_worker_that_observed_lock_loss_cannot_delete_the_new_holders_file() {
     let removed = removing.await.expect("the old worker returns");
     let still_recorded = next_app
         .store()
-        .get_file_info(&replacement.container_id, &replacement.stored_name)
+        .get_file_record(&replacement.container_id, &replacement.stored_name)
         .await
         .is_ok();
     let still_present = next
@@ -258,7 +258,7 @@ async fn shutdown_cannot_release_the_server_lock_before_an_old_write_commits() {
     }
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let user = ts.client.me().await.id;
     let mut config = ts.app.config().clone();

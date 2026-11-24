@@ -2,7 +2,7 @@
 //! again, they outlive the trash, and they go with what is gone for good.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Body, BodyChange, Container, ContainerKind, ContainerType,
+    Block, BlockPatch, BlockType, Body, BodyChange, Container, ContainerKind, ContainerVisibility,
     NewPage, PageLimits, new_id,
 };
 use fvoci_store::Store;
@@ -36,7 +36,7 @@ async fn container(
 ) -> Container {
     let mut board = Container {
         kind,
-        ..new_board(&new_id(), workspace_id, ContainerType::Private)
+        ..new_board(&new_id(), workspace_id, ContainerVisibility::Private)
     };
     store
         .insert_container_with_admin(&mut board, user_id)

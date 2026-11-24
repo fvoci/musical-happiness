@@ -177,15 +177,15 @@ describe('a diary reached by another way than its own routes, in memory', () => 
   it('has no members, no sharing, no card properties and no blocks of a board, and its entries are below no block', async () => {
     const made = await anArchive();
     const { backend, diary, entry, ownId } = made;
-    const wiki = await backend.wiki.createWiki(ownId, { title: 'Notes', type: 'P' });
+    const wiki = await backend.wiki.createWiki(ownId, { title: 'Notes', visibility: 'private' });
     const reader = backend.userId;
     for (const asked of [
       backend.members(diary.id),
       backend.addMember(diary.id, reader, 'editor'),
       backend.setMemberRole(diary.id, reader, 'editor'),
       backend.removeMember(diary.id, reader),
-      backend.sharing(diary.id),
-      backend.setSharing(diary.id, { enabled: true }),
+      backend.publicLink(diary.id),
+      backend.setPublicLink(diary.id, { enabled: true }),
       backend.reorderCardProperties(diary.id, []),
       backend.reorderCardProperties(wiki.id, []),
       backend.deleteBlock(diary.id, entry.id),

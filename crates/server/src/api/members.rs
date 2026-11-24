@@ -2,7 +2,7 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{ContainerMember, ContainerRole, ContainerType, WorkspaceRole};
+use fvoci_model::{ContainerMember, ContainerRole, ContainerVisibility, WorkspaceRole};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -145,7 +145,7 @@ async fn handle_add_member(
     let edits_container = grant.allows(ContainerPermission::ManageProperties);
     // A guest's editing adds nobody: who is in the workspace is not a guest's to learn.
     let adds_to_open_container = edits_container
-        && container.container_type == ContainerType::Open
+        && container.visibility == ContainerVisibility::Open
         && access.actor.works_there();
     if !(manages_roles || adds_to_open_container) {
         return Err(refusal(grant, MODIFY_MEMBERS_DENIED));
@@ -238,7 +238,7 @@ async fn handle_join_container(
     let (container, grant) = (access.container, access.grant);
 
     // Joining is restricted to open boards; workspace administrators follow the same rule.
-    if container.container_type != ContainerType::Open {
+    if container.visibility != ContainerVisibility::Open {
         // A private board exists only for its members, who have nothing to join.
         return Err(refusal(grant, "cannot join a non Open board"));
     }

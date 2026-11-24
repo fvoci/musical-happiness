@@ -4,9 +4,10 @@
 //! stopping being an administrator takes it back, a workspace in the trash is not there
 //! for anybody, and the public links of the organization close and open again.
 
-use fvoci_model::{Container, ContainerType, UserWorkspace, WorkspaceRole};
+use fvoci_model::PublicLinkChange;
+use fvoci_model::{Container, ContainerVisibility, UserWorkspace, WorkspaceRole};
+use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
-use fvoci_store::{DbType, SharingChange};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -469,7 +470,7 @@ async fn board_with_a_file(ts: &TestServer, workspace_id: &str) -> (Container, S
         .client
         .create_board(&Container {
             workspace_id: workspace_id.to_owned(),
-            container_type: ContainerType::Open,
+            visibility: ContainerVisibility::Open,
             title: "Plans".to_owned(),
             ..Container::default()
         })
@@ -592,7 +593,7 @@ async fn the_housekeeping_removes_a_workspace_in_the_trash_for_good_with_its_fil
     let path = ts
         .app
         .store()
-        .get_file_info(&board.id, &file_id)
+        .get_file_record(&board.id, &file_id)
         .await
         .expect("the file is recorded")
         .path;
@@ -620,7 +621,7 @@ async fn the_housekeeping_removes_a_workspace_in_the_trash_for_good_with_its_fil
         .get(&format!("/org/{org_id}/workspaces"))
         .await
         .ok_json();
-    let record = ts.app.store().get_file_info(&board.id, &file_id).await;
+    let record = ts.app.store().get_file_record(&board.id, &file_id).await;
     let object = exists(&ts, &path).await;
     let restore = ts.client.post_empty(&format!("{place}/restore")).await;
     ts.teardown().await;
@@ -644,13 +645,13 @@ async fn the_public_links_of_the_organization_close_and_open_again() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let org_id = org_of(&ts).await;
     let shared_board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let other_board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let stopped_board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let token = ts.share(&shared_board.id).await;
     ts.share(&stopped_board.id).await;
@@ -670,18 +671,18 @@ async fn the_public_links_of_the_organization_close_and_open_again() {
     let share = ts
         .client
         .post(
-            &format!("{TEST_WS}/containers/{}/sharing", other_board.id),
+            &format!("{TEST_WS}/containers/{}/public-link", other_board.id),
             &json!({ "enabled": true }),
         )
         .await;
     let past_the_route = ts
         .app
-        .set_sharing(&other_board.id, SharingChange::On, "")
+        .set_public_link(&other_board.id, PublicLinkChange::On, "")
         .await;
     let stop = ts
         .client
         .post(
-            &format!("{TEST_WS}/containers/{}/sharing", stopped_board.id),
+            &format!("{TEST_WS}/containers/{}/public-link", stopped_board.id),
             &json!({ "enabled": false }),
         )
         .await;

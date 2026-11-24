@@ -80,7 +80,7 @@
     const courses = author.course;
     const made = await courses.createCourse(example.world.workspace.id, {
       title: 'Workspace Onboarding · 시작 가이드',
-      type: 'P',
+      visibility: 'private',
     });
     await author.addMember(
       made.id,

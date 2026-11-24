@@ -2,8 +2,8 @@
 //! bounds checking, and cleanup on purge, workspace removal, org leave, and erasure.
 
 use fvoci_model::{
-    Container, ContainerKind, ContainerMember, ContainerType, CourseExamChange, ExamDateChange,
-    NewCourseExam, ValidatedMyExamScore, new_id,
+    Container, ContainerKind, ContainerMember, ContainerVisibility, CourseExamChange,
+    ExamDateChange, NewCourseExam, ValidatedMyExamScore, new_id,
 };
 use fvoci_store::{ExamScoreOutcome, Store};
 
@@ -14,7 +14,7 @@ async fn create_course(store: &Store, workspace_id: &str, admin: &str) -> String
     let mut course = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Course,
         title: "Algorithms".to_owned(),
         ..Container::default()

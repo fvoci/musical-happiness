@@ -13,7 +13,7 @@ use crate::harness::{API, ROOT_API, Session};
 )]
 pub(crate) async fn trash(s: &mut Session) {
     let [alice, bob, carol, dave] = s.users("trash", ["alice", "bob", "carol", "dave"]).await;
-    let board = new_board(s, &alice, "Trash", "P", json!({})).await;
+    let board = new_board(s, &alice, "Trash", "private", json!({})).await;
     add_member(s, &alice, &board, &bob, "editor").await;
     add_member(s, &alice, &board, &carol, "viewer").await;
     let alice_id = s.user_id(&alice).await;

@@ -148,7 +148,11 @@ test('an open board of another workspace that the reader has not joined is not f
   await register(base, maker);
   joinWorkspace(base, maker, second);
   const api = await signedIn(base, maker);
-  const open = await makeBoard(api, { title: 'Open elsewhere', type: 'O', workspaceId: second });
+  const open = await makeBoard(api, {
+    title: 'Open elsewhere',
+    visibility: 'open',
+    workspaceId: second,
+  });
   await api.dispose();
 
   const errors = watchErrors(page);

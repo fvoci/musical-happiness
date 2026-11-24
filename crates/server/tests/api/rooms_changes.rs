@@ -97,7 +97,7 @@ async fn template_reader(th: &crate::common::TestServer) -> (String, Peer) {
             is_template: true,
             ..crate::boards::new_board(
                 TEST_WORKSPACE_ID,
-                fvoci_model::ContainerType::Open,
+                fvoci_model::ContainerVisibility::Open,
                 "Template",
             )
         })
@@ -140,7 +140,7 @@ async fn a_template_closed_to_the_workspace_puts_out_its_uninvited_readers() {
     th.client
         .patch(
             &format!("/w/{TEST_WORKSPACE_ID}/containers/{board}"),
-            &json!({"type": "P"}),
+            &json!({"visibility": "private"}),
         )
         .await
         .check_ok();
@@ -153,7 +153,7 @@ async fn a_batch_closing_a_template_puts_out_its_uninvited_readers() {
     let th = seldom().start().await.init_basic().await;
     let (board, mut reader) = template_reader(&th).await;
     th.client.patch(&format!("/w/{TEST_WORKSPACE_ID}/boards-and-blocks"), &json!({
-        "containerIds": [board], "containerPatches": [{"type": "P"}], "blockIds": [], "blockPatches": [],
+        "containerIds": [board], "containerPatches": [{"visibility": "private"}], "blockIds": [], "blockPatches": [],
     })).await.check_ok();
     assert_eq!(reader.text("docLeft").await["reason"], json!("not_found"));
     th.teardown().await;
@@ -165,7 +165,7 @@ async fn a_batch_closing_a_template_puts_out_its_uninvited_readers() {
 async fn a_batch_closing_several_templates_puts_out_the_readers_of_each() {
     let th = seldom().start().await.init_basic().await;
     let roomless = th
-        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerVisibility::Open)
         .await
         .id;
     let (first, mut first_reader) = template_reader(&th).await;
@@ -175,7 +175,7 @@ async fn a_batch_closing_several_templates_puts_out_the_readers_of_each() {
             &format!("/w/{TEST_WORKSPACE_ID}/boards-and-blocks"),
             &json!({
                 "containerIds": [roomless, first, second],
-                "containerPatches": [{"type": "P"}, {"type": "P"}, {"type": "P"}],
+                "containerPatches": [{"visibility": "private"}, {"visibility": "private"}, {"visibility": "private"}],
                 "blockIds": [], "blockPatches": [],
             }),
         )

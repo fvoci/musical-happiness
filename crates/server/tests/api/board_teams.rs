@@ -3,7 +3,9 @@
 use crate::boards::{board_with_admin, new_board};
 use crate::common::{ROOT_WORKSPACE_ID, Setup, TestServer};
 use crate::references::{HIDDEN, check_as_nothing, made, named, resolved};
-use fvoci_model::{AuditAction, Container, ContainerMember, ContainerRole, ContainerType, Team};
+use fvoci_model::{
+    AuditAction, Container, ContainerMember, ContainerRole, ContainerVisibility, Team,
+};
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -35,7 +37,7 @@ async fn team_roles_open_edit_find_and_export_a_board_then_end_when_removed() {
         &th,
         new_board(
             ROOT_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Inherited design",
         ),
         &owner,
@@ -114,7 +116,7 @@ async fn the_highest_direct_or_team_role_survives_until_its_source_ends() {
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Roles"),
+        new_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private, "Roles"),
         &owner,
     )
     .await;
@@ -180,7 +182,7 @@ async fn a_manager_cannot_gain_reading_through_a_team_without_a_record() {
     let owner = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Managed"),
+        new_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private, "Managed"),
         &owner,
     )
     .await;
@@ -278,7 +280,7 @@ async fn losing_the_last_team_role_ends_subscriptions_and_live_board_messages() 
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Signals"),
+        new_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private, "Signals"),
         &owner,
     )
     .await;
@@ -356,7 +358,7 @@ async fn workspace_demotion_or_departure_revokes_team_access_without_restoring_i
         let user = th.client2.me().await.id;
         let board = board_with_admin(
             &th,
-            new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Revoked"),
+            new_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private, "Revoked"),
             &owner,
         )
         .await;
@@ -406,7 +408,11 @@ async fn a_private_template_is_listed_while_a_team_role_grants_it() {
     let th = Setup::native().start().await.init_basic().await;
     let manager = th.client.me().await.id;
     let owner = th.client2.me().await.id;
-    let mut template = new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Team template");
+    let mut template = new_board(
+        ROOT_WORKSPACE_ID,
+        ContainerVisibility::Private,
+        "Team template",
+    );
     template.is_template = true;
     let board = board_with_admin(&th, template, &owner).await;
     // The ordinary workspace member administers the board and can assign a team.
@@ -459,7 +465,11 @@ async fn a_template_turned_private_or_open_says_nothing_of_its_team_readers() {
         &th,
         Container {
             is_template: true,
-            ..new_board(ROOT_WORKSPACE_ID, ContainerType::Open, "Team template")
+            ..new_board(
+                ROOT_WORKSPACE_ID,
+                ContainerVisibility::Open,
+                "Team template",
+            )
         },
         &owner,
     )
@@ -486,13 +496,13 @@ async fn a_template_turned_private_or_open_says_nothing_of_its_team_readers() {
             .count()
     };
     for (kind, action) in [
-        ("P", "containerMemberRemoved"),
-        ("O", "containerMemberChanged"),
+        ("private", "containerMemberRemoved"),
+        ("open", "containerMemberChanged"),
     ] {
         th.client
             .patch(
                 &format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", template.id),
-                &json!({"type": kind}),
+                &json!({"visibility": kind}),
             )
             .await
             .check_ok();
@@ -538,7 +548,7 @@ async fn a_board_of_a_team_is_listed_only_to_a_session_its_organization_takes() 
     let user = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Walled"),
+        new_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private, "Walled"),
         &owner,
     )
     .await;
@@ -577,8 +587,8 @@ async fn a_board_of_a_team_is_listed_only_to_a_session_its_organization_takes() 
 async fn a_team_role_is_told_what_references_name_until_it_is_taken_off() {
     let th = Setup::native().start().await.init_basic().await;
     let at = format!("/w/{ROOT_WORKSPACE_ID}");
-    let own = made(&th.client2, &at, "P", "own").await;
-    let private = made(&th.client, &at, "P", HIDDEN).await;
+    let own = made(&th.client2, &at, "private", "own").await;
+    let private = made(&th.client, &at, "private", HIDDEN).await;
     let member = th.client2.me().await.id;
     let team = group(&th, &member, "Readers").await;
     let on_the_board = format!("{at}/containers/{}/teams/{}", private.board, team.id);
@@ -608,7 +618,7 @@ async fn team_members_record_course_progress_and_appear_in_summary() {
         .client
         .post(
             &format!("{at}/courses"),
-            &json!({"type": "P", "title": "Team Course"}),
+            &json!({"visibility": "private", "title": "Team Course"}),
         )
         .await;
     course.check_created();

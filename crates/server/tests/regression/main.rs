@@ -52,7 +52,7 @@ scenarios![
     blocks::blocks,
     blocks::cards,
     sidebar::categories,
-    sidebar::sharing,
+    sidebar::public_links,
     sidebar::subscriptions,
     sidebar::search,
     content::templates,
@@ -63,10 +63,10 @@ scenarios![
 
 #[tokio::test]
 async fn permissions_private() {
-    permissions::record("permissions_private", "P").await;
+    permissions::record("permissions_private", "private").await;
 }
 
 #[tokio::test]
 async fn permissions_open() {
-    permissions::record("permissions_open", "O").await;
+    permissions::record("permissions_open", "open").await;
 }

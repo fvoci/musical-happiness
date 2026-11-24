@@ -21,7 +21,7 @@ const ON_A_COURSE = new RegExp(`/w/${ID}/courses/(${ID})(/(${ID}))?$`);
 interface DevCourse {
   createCourse(
     workspaceId: string,
-    draft: { title: string; type: 'O' | 'P' },
+    draft: { title: string; visibility: 'open' | 'private' },
   ): Promise<{ id: string }>;
   createUnit(
     courseId: string,
@@ -203,7 +203,10 @@ test('keeps unjoined open-course reader read-only until joining, and isolates pu
   const openCourseId = await page.evaluate(async (wsId) => {
     const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
     const other = dev.someoneElse();
-    const course = await other.course.createCourse(wsId, { title: 'Open Seminar', type: 'O' });
+    const course = await other.course.createCourse(wsId, {
+      title: 'Open Seminar',
+      visibility: 'open',
+    });
     const u1 = await other.course.createUnit(course.id, { kind: 'unit', title: 'Reading 1' });
     await other.course.createUnit(course.id, { kind: 'unit', title: 'Reading 2' });
     await other.course.putUnitProgress(course.id, u1.id, {
@@ -263,7 +266,7 @@ test('keeps unjoined open-course reader read-only until joining, and isolates pu
           workspaceId: '',
           kind: 'course',
           title: 'Public Study',
-          type: 'P',
+          visibility: 'private',
           icon: '',
           description: '',
           cardProperties: [],

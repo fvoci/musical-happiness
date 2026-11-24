@@ -88,7 +88,7 @@ pub(crate) async fn new_board(
     let body = merged(
         &json!({
             "workspaceId": ROOT_WORKSPACE_ID,
-            "type": board_type,
+            "visibility": board_type,
             "title": title,
             "properties": {},
             "cardProperties": [],

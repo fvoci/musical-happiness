@@ -128,7 +128,7 @@ test('a page of a wiki is found by a word of its body and opened over its wiki',
   const { workspaceId } = board;
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const made = await api.post(`${inWorkspace}/wikis`, {
-    data: { title: 'Lighthouse handbook', type: 'P' },
+    data: { title: 'Lighthouse handbook', visibility: 'private' },
   });
   expect(made.ok(), await made.text()).toBe(true);
   const wiki = (await made.json()) as Schemas['Container'];

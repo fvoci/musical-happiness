@@ -140,7 +140,9 @@ export async function putAwayWelcomeBoard(api: APIRequestContext): Promise<void>
     await api.get(`/api/v1/w/${workspace.id}/boards`),
     'boards',
   );
-  const given = boards.filter((board) => board.title === WELCOME_TITLE && board.type === 'P');
+  const given = boards.filter(
+    (board) => board.title === WELCOME_TITLE && board.visibility === 'private',
+  );
   if (given.length !== 1) throw new Error(`one welcome board, not ${given.length}`);
   await ok(
     await api.delete(`/api/v1/w/${workspace.id}/containers/${given[0]?.id ?? ''}`),
@@ -230,8 +232,8 @@ export function watchErrors(page: Page): string[] {
  */
 export interface BoardPlan {
   title: string;
-  /** `O`: open to the workspace, anyone may join. `P` (the default): members only. */
-  type?: 'O' | 'P';
+  /** `'open'`: open to the workspace, anyone may join. `'private'` (the default): members only. */
+  visibility?: 'open' | 'private';
   description?: string;
   /** The options of "Status", in order. */
   statuses?: string[];
@@ -269,7 +271,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
   const board = await json<Schemas['Container']>(
     await api.post(`/api/v1/w/${workspaceId}/boards`, {
       data: {
-        type: plan.type ?? 'P',
+        visibility: plan.visibility ?? 'private',
         title: plan.title,
         ...(plan.description ? { description: plan.description } : {}),
         cardProperties: [

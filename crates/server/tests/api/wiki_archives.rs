@@ -135,7 +135,7 @@ async fn check_handbook(ts: &TestServer, at: &str, copy: &str, source: &Handbook
 async fn a_wiki_exported_by_its_route_is_imported_into_another_workspace_as_it_was() {
     let ts = Setup::native().start().await.init_basic().await;
     let client = &ts.client;
-    let elsewhere = made(client, TEST_WS, "O", "elsewhere").await;
+    let elsewhere = made(client, TEST_WS, "open", "elsewhere").await;
     let source = handbook(client, &elsewhere.card).await;
     let exported = client
         .get(&format!(
@@ -165,7 +165,7 @@ async fn a_wiki_exported_by_its_route_is_imported_into_another_workspace_as_it_w
 async fn the_workspace_archive_has_its_wikis_and_a_card_names_the_imported_page() {
     let ts = Setup::native().start().await.init_basic().await;
     let client = &ts.client;
-    let elsewhere = made(client, TEST_WS, "O", "elsewhere").await;
+    let elsewhere = made(client, TEST_WS, "open", "elsewhere").await;
     let source = handbook(client, &elsewhere.card).await;
     // The card of another board of the archive names a page of the wiki.
     let welcome = titled_id(&tree_of(client, TEST_WS, &source.wiki).await, "Welcome");
@@ -230,7 +230,7 @@ fn archive_of(boards: &[&[Value]]) -> Vec<u8> {
 
 fn board_line(id: &str, kind: &str, title: &str) -> Value {
     json!({"type": "container", "data": {
-        "id": id, "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": kind,
+        "id": id, "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": kind,
         "title": title, "createAt": 1, "updateAt": 1,
     }})
 }

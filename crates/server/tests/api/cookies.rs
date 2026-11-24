@@ -3,7 +3,7 @@
 //! using a browser's cookie (the request-forgery header, the origin check, and the
 //! origin check of the websocket handshake).
 
-use fvoci_model::{Container, ContainerType, User};
+use fvoci_model::{Container, ContainerVisibility, User};
 use reqwest::{Method, StatusCode};
 use serde_json::json;
 
@@ -24,7 +24,7 @@ fn login_body() -> serde_json::Value {
 }
 
 fn board_body() -> serde_json::Value {
-    json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "made"})
+    json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": "made"})
 }
 
 #[track_caller]
@@ -198,8 +198,8 @@ async fn a_change_with_the_cookie_needs_the_request_forgery_header() {
         .await
         .created_json();
     assert_eq!(
-        made.container_type,
-        ContainerType::Private,
+        made.visibility,
+        ContainerVisibility::Private,
         "the board was made"
     );
 
@@ -379,7 +379,7 @@ async fn the_cookie_is_renewed_when_the_use_of_the_session_is_recorded() {
         .post(
             &format!("{ROOT_WS}/boards"),
             &json!({
-                "workspaceId": ROOT_WORKSPACE_ID, "type": "P",
+                "workspaceId": ROOT_WORKSPACE_ID, "visibility": "private",
                 "description": "d".repeat(70 * 1024),
             }),
         )
@@ -443,7 +443,7 @@ async fn a_changed_password_puts_a_new_token_in_the_cookie() {
 async fn a_file_is_read_with_the_cookie_alone_and_served_sandboxed() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let uploaded = th
         .client

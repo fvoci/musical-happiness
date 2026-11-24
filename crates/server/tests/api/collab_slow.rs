@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use fvoci_collab::testing::Editor;
 use fvoci_collab::{BodyDoc, READING_STEPS, UpdateLimits, reading_steps};
-use fvoci_model::ContainerType;
+use fvoci_model::ContainerVisibility;
 use fvoci_server::collab::DocChange;
 use fvoci_store::{BodyBefore, body_digest};
 use serde_json::{Value, json};
@@ -583,7 +583,7 @@ async fn an_update_past_reading_steps_in_a_room_acks_resets_keeps_body_version_a
     let (a, b) = (th.client.me().await, th.client2.me().await);
     let c = th.add_user("third").await;
     let c_id = c.me().await.id;
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     for user in [&b.id, &c_id] {
         give(&th, &board.id, user, "editor").await;
     }
@@ -704,7 +704,7 @@ async fn closing_at_paused_before_projection_keeps_an_update_past_reading_steps(
     const LIST: u64 = 10_000;
     let th = roomy().await;
     let (a, b) = (th.client.me().await, th.client2.me().await);
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
     let card_id = card_with(&th.client, &board.id, &paragraphs(&["kept"]))
         .await
@@ -886,7 +886,7 @@ async fn close_finishes_a_forgotten_must_remake_log() {
     const LIST: u64 = 10_000;
     let th = roomy().await;
     let (a, b) = (th.client.me().await, th.client2.me().await);
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
     let card_a = card_with(&th.client, &board.id, &paragraphs(&["kept"])).await;
     let edit_a = Editing {
@@ -956,7 +956,7 @@ async fn recovering_after_projection_and_before_remake_dedups_mentions() {
     const LIST: u64 = 10_000;
     let th = roomy().await;
     let (a, b) = (th.client.me().await, th.client2.me().await);
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
     let card_b = card_with(&th.client, &board.id, &paragraphs(&["kept"])).await;
     let edit_b = Editing {

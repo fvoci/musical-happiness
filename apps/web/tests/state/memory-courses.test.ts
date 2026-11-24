@@ -27,11 +27,11 @@ const rejection = async (promise: Promise<unknown>): Promise<BackendError> => {
   throw new Error('the call did not reject');
 };
 
-async function aCourse(made = setup(), type: 'O' | 'P' = 'P') {
+async function aCourse(made = setup(), visibility: 'open' | 'private' = 'private') {
   const workspaceId = made.world.workspace.id;
   const course = await made.backend.course.createCourse(workspaceId, {
     title: 'Onboarding',
-    type,
+    visibility,
   });
   return { ...made, workspaceId, course };
 }
@@ -140,11 +140,23 @@ describe('a course in memory', () => {
     const beforeCount = made.world.containers.size;
     const courseLine = JSON.stringify({
       type: 'container',
-      data: { id: 'c1', workspaceId: made.workspaceId, type: 'P', kind: 'course', title: 'Bad' },
+      data: {
+        id: 'c1',
+        workspaceId: made.workspaceId,
+        visibility: 'private',
+        kind: 'course',
+        title: 'Bad',
+      },
     });
     const boardLine = JSON.stringify({
       type: 'container',
-      data: { id: 'b1', workspaceId: made.workspaceId, type: 'P', kind: 'board', title: 'Board' },
+      data: {
+        id: 'b1',
+        workspaceId: made.workspaceId,
+        visibility: 'private',
+        kind: 'board',
+        title: 'Board',
+      },
     });
     const cases = [
       [
@@ -400,7 +412,7 @@ describe('a course in memory', () => {
   });
 
   it('allows workspace members to read an open course without joining and exports/imports archives', async () => {
-    const made = await aCourse(setup(), 'O');
+    const made = await aCourse(setup(), 'open');
     const ch = await made.backend.course.createUnit(made.course.id, {
       kind: 'chapter',
       title: 'Intro',
@@ -434,7 +446,7 @@ describe('a course in memory', () => {
   });
 
   it('supports unit comments, versions, conflict checks, and rejects chapters and unjoined writes', async () => {
-    const made = await aCourse(setup(), 'O');
+    const made = await aCourse(setup(), 'open');
     const courses = made.backend.course;
     const ch = await courses.createUnit(made.course.id, { kind: 'chapter', title: 'Ch 1' });
     const u = await courses.createUnit(made.course.id, {
@@ -521,7 +533,7 @@ describe('a course in memory', () => {
   });
 
   it('resolves, searches, and backlinks units while excluding chapters, and allows course sharing', async () => {
-    const made = await aCourse(setup(), 'O');
+    const made = await aCourse(setup(), 'open');
     const courses = made.backend.course;
     const ch = await courses.createUnit(made.course.id, { kind: 'chapter', title: 'Chapter One' });
     const u1 = await courses.createUnit(made.course.id, {
@@ -579,22 +591,25 @@ describe('a course in memory', () => {
     });
 
     // Public sharing enabled for workspace course (and diary remains 404).
-    const shared = await made.backend.setSharing(made.course.id, { enabled: true });
+    const shared = await made.backend.setPublicLink(made.course.id, { enabled: true });
     expect(shared.enabled).toBe(true);
     expect(shared.token).not.toBe('');
 
     const spaces = await made.backend.workspaces();
     const ownSpace = spaces.find(isOwnSpace);
     if (!ownSpace) throw new Error('expected own space');
-    const ownCourse = await courses.createCourse(ownSpace.id, { title: 'My Course', type: 'P' });
+    const ownCourse = await courses.createCourse(ownSpace.id, {
+      title: 'My Course',
+      visibility: 'private',
+    });
     const ownUnit = await courses.createUnit(ownCourse.id, { kind: 'unit', title: 'Own Unit' });
     await courses.createComment(ownCourse.id, ownUnit.id, text('Self note'));
     // Server parity (`notification_noting.rs`): personal own-space comments never auto-watch.
     expect(await courses.watching(ownSpace.id, me.id)).not.toContain(ownUnit.id);
-    const ownShared = await made.backend.setSharing(ownCourse.id, { enabled: true });
+    const ownShared = await made.backend.setPublicLink(ownCourse.id, { enabled: true });
     expect(ownShared.enabled).toBe(true);
     const diary = await made.backend.diary.createDiary(ownSpace.id, { title: 'Diary' });
-    expect((await rejection(made.backend.sharing(diary.id))).status).toBe(404);
+    expect((await rejection(made.backend.publicLink(diary.id))).status).toBe(404);
   });
 
   it('parses years 0001-0099 accurately in archive parseIsoDateDays', () => {

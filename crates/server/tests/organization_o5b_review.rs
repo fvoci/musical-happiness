@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use fvoci_model::{Container, ContainerType};
+use fvoci_model::{Container, ContainerVisibility};
 use fvoci_store::{Access, Call, DbType, Observer};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -24,7 +24,7 @@ async fn shared_views_hide_people_after_their_property_is_deleted() {
         .post(
             &format!("{TEST_WS}/boards"),
             &json!({
-                "type": "P", "title": "Shared plan",
+                "visibility": "private", "title": "Shared plan",
                 "cardProperties": [{"id": "owner", "name": "Owner", "type": "person"}],
             }),
         )
@@ -147,7 +147,7 @@ impl Observer for ReadCalls {
 async fn hidden_resource_identifiers_do_not_add_database_reads() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(common::TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(common::TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let card: Value = ts
         .client

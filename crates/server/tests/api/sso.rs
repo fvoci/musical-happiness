@@ -2,7 +2,7 @@
 //! which sessions open what is the organization's, what keeps the organization from
 //! locking itself out, and that nothing of it is reached around the wall.
 
-use fvoci_model::{Block, Container, ContainerType, OidcProvider, UserWorkspace, new_id};
+use fvoci_model::{Block, Container, ContainerVisibility, OidcProvider, UserWorkspace, new_id};
 use fvoci_server::auth::secret::token_digest;
 use fvoci_store::Identity;
 use reqwest::{Method, StatusCode};
@@ -129,7 +129,7 @@ async fn an_organization_that_takes_no_password_opens_for_its_providers_sessions
     let org_id = org_of(&ts).await;
     set_provider(&ts, &org_id, &fake).await;
     let board = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let admin = admin_through_provider(&ts, &fake, &org_id).await;
     let boards = format!("/w/{ROOT_WORKSPACE_ID}/boards");
@@ -508,7 +508,7 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "getSharedContainer",
     "getSharedCards",
     "getSharedFile",
-    "getSharedFileInfo",
+    "getSharedFileRecord",
     "getSharedPage",
     "getSharedPageTree",
     "getSharedUnit",
@@ -623,7 +623,7 @@ impl Named {
 /// Makes what the sweep names, as `user1` before the organization takes no password.
 async fn named(ts: &TestServer, org_id: &str) -> Named {
     let board = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let card: Value = ts
         .client
@@ -697,7 +697,7 @@ async fn course_fixtures(client: &Client) -> CourseFixtures {
     let course: Value = client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/courses"),
-            &json!({ "title": "A course of the organization", "type": "O" }),
+            &json!({ "title": "A course of the organization", "visibility": "open" }),
         )
         .await
         .value();
@@ -1129,7 +1129,7 @@ async fn one_organizations_wall_is_not_anothers() {
         their_workspace,
     } = two_organizations(&fake).await;
     let board = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let our_boards = format!("/w/{ROOT_WORKSPACE_ID}/boards");
     let their_boards = format!("/w/{their_workspace}/boards");
@@ -1206,7 +1206,7 @@ async fn who_has_no_place_in_the_organization_learns_nothing_of_its_wall() {
         their_workspace,
     } = two_organizations(&fake).await;
     let board = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     // Somebody of theirs alone: their provider let them in, and into nothing of ours.
     let outsider = through_provider(&ts, &fake, &theirs, "subject-of-an-outsider").await;
@@ -1340,7 +1340,7 @@ async fn a_guest_signs_in_through_the_provider_as_a_guest() {
             .client
             .post(
                 &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
-                &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "For a guest"}),
+                &json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": "For a guest"}),
             )
             .await
             .created_json();

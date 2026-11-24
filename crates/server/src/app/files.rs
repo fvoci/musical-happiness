@@ -11,7 +11,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockPatchBatch, Body, Container, FileInfo, FileKey, JsonMap,
+    Block, BlockError, BlockPatch, BlockPatchBatch, Body, Container, FileKey, FileRecord, JsonMap,
     Upload, new_id,
 };
 use serde_json::Value;
@@ -128,15 +128,15 @@ impl App {
                 )));
             }
         };
-        let info = file_info(container_id, place, size, user_id);
-        self.record_written(&info).await?;
-        Ok(info.stored_name)
+        let record = file_record(container_id, place, size, user_id);
+        self.record_written(&record).await?;
+        Ok(record.stored_name)
     }
 
     /// Records a file whose object was written at a marked place; gives the object up
     /// if it cannot be recorded.
-    async fn record_written(&self, info: &FileInfo) -> Result<(), AppError> {
-        match self.store().record_written_file(info).await {
+    async fn record_written(&self, record: &FileRecord) -> Result<(), AppError> {
+        match self.store().record_written_file(record).await {
             Ok(true) => Ok(()),
             // Doomed while it was written, which took longer than any write takes: the
             // store doomed it again, for the housekeeping to remove.
@@ -144,7 +144,7 @@ impl App {
                 "the file was given up while it was written",
             )),
             Err(error) => {
-                self.give_up_writing(&info.path, Written::Settled).await;
+                self.give_up_writing(&record.path, Written::Settled).await;
                 Err(error.into())
             }
         }
@@ -212,9 +212,9 @@ impl App {
         place: FilePlace,
         size: u64,
     ) -> Result<String, AppError> {
-        let info = file_info(&upload.container_id, place, size, &upload.user_id);
-        self.store().save_file_info(&info).await?;
-        Ok(info.stored_name)
+        let record = file_record(&upload.container_id, place, size, &upload.user_id);
+        self.store().save_file_record(&record).await?;
+        Ok(record.stored_name)
     }
 
     /// Stores the bytes of `upload`, read from `reader`, as [`App::save_file_by`] stores
@@ -243,16 +243,20 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if the lookup fails.
-    pub async fn file_info(
+    pub async fn file_record(
         &self,
         container_id: &str,
         stored_name: &str,
-    ) -> Result<Option<FileInfo>, AppError> {
+    ) -> Result<Option<FileRecord>, AppError> {
         if stored_name.is_empty() {
             return Ok(None);
         }
-        match self.store().get_file_info(container_id, stored_name).await {
-            Ok(info) => Ok(Some(info)),
+        match self
+            .store()
+            .get_file_record(container_id, stored_name)
+            .await
+        {
+            Ok(record) => Ok(Some(record)),
             Err(error) if error.is_not_found() => Ok(None),
             Err(error) => Err(error.into()),
         }
@@ -293,7 +297,7 @@ impl App {
             return Ok(true);
         };
         for file_id in body.file_ids() {
-            if self.file_info(container_id, file_id).await?.is_none() {
+            if self.file_record(container_id, file_id).await?.is_none() {
                 return Ok(false);
             }
         }
@@ -311,13 +315,13 @@ impl App {
         container_id: &str,
         stored_name: &str,
     ) -> Result<Option<crate::storage::FileStream>, AppError> {
-        let Some(info) = self.file_info(container_id, stored_name).await? else {
+        let Some(record) = self.file_record(container_id, stored_name).await? else {
             return Ok(None);
         };
-        if !self.files().exists(&info.path).await? {
+        if !self.files().exists(&record.path).await? {
             return Ok(None);
         }
-        Ok(Some(self.files().read(&info.path, None).await?))
+        Ok(Some(self.files().read(&record.path, None).await?))
     }
 
     /// Copies the files that duplicated blocks show or attach, and points each block at
@@ -516,7 +520,7 @@ impl App {
 
             // A block can name any file. One that is not the source board's is not
             // copied; the copied block ends up naming no file.
-            let Some(source) = self.file_info(&source_container.id, &file_id).await? else {
+            let Some(source) = self.file_record(&source_container.id, &file_id).await? else {
                 tracing::warn!(
                     source_container_id,
                     block_id = %block.id,
@@ -553,7 +557,7 @@ impl App {
     /// that is not there.
     async fn copy_file(
         &self,
-        source: &FileInfo,
+        source: &FileRecord,
         org_id: &str,
         container_id: &str,
     ) -> Option<String> {
@@ -563,7 +567,7 @@ impl App {
             container_id,
             secret: &secret,
         };
-        let copy = FileInfo {
+        let copy = FileRecord {
             id: new_id(),
             container_id: container_id.to_owned(),
             stored_name: format!("{secret}{}", source.extension),
@@ -603,13 +607,13 @@ impl App {
 
 /// The record of a file of `container_id` of `size` bytes stored at `place`, made now,
 /// that `user_id` uploaded (empty for nobody known).
-pub(super) fn file_info(
+pub(super) fn file_record(
     container_id: &str,
     place: FilePlace,
     size: u64,
     user_id: &str,
-) -> FileInfo {
-    FileInfo {
+) -> FileRecord {
+    FileRecord {
         id: new_id(),
         container_id: container_id.to_owned(),
         stored_name: place.stored_name,

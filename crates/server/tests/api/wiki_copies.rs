@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use fvoci_model::{
-    ContainerKind, ContainerMember, ContainerType, ContainersAndBlocks, NewPage, PageLimits,
+    ContainerKind, ContainerMember, ContainerVisibility, ContainersAndBlocks, NewPage, PageLimits,
     PageNode,
 };
 use serde_json::{Value, json};
@@ -22,7 +22,7 @@ pub(crate) async fn wiki(client: &Client, title: &str) -> String {
     let made = client
         .post(
             &format!("{TEST_WS}/wikis"),
-            &json!({"type": "O", "title": title, "description": "how we work", "icon": "📗"}),
+            &json!({"visibility": "open", "title": title, "description": "how we work", "icon": "📗"}),
         )
         .await;
     made.check_created();
@@ -116,7 +116,7 @@ async fn a_wiki_is_copied_with_its_file_blocks_and_names_its_own_copies() {
 async fn wiki_copied_with_its_files(kind: &str) {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let client = &ts.client;
-    let elsewhere = made(client, TEST_WS, "O", "elsewhere").await;
+    let elsewhere = made(client, TEST_WS, "open", "elsewhere").await;
     let wiki = wiki(client, "Handbook").await;
     let a = page(client, &wiki, "", "Welcome").await;
     let b = page(client, &wiki, &a, "Getting started").await;
@@ -141,7 +141,7 @@ async fn wiki_copied_with_its_files(kind: &str) {
         .check_created();
     client
         .post(
-            &format!("{TEST_WS}/containers/{wiki}/sharing"),
+            &format!("{TEST_WS}/containers/{wiki}/public-link"),
             &json!({"enabled": true}),
         )
         .await
@@ -165,8 +165,8 @@ async fn wiki_copied_with_its_files(kind: &str) {
         "{kind}"
     );
     assert_eq!(
-        copy.container_type,
-        ContainerType::Private,
+        copy.visibility,
+        ContainerVisibility::Private,
         "a copy is private"
     );
     assert_ne!(copy.id, wiki, "{kind}");
@@ -267,7 +267,7 @@ async fn check_left_behind(ts: &TestServer, copy: &str, copy_a: &str) {
         "who copies it administers the copy"
     );
     let sharing = client
-        .get(&format!("{TEST_WS}/containers/{copy}/sharing"))
+        .get(&format!("{TEST_WS}/containers/{copy}/public-link"))
         .await;
     sharing.check_ok();
     assert_eq!(sharing.value()["enabled"], json!(false), "no public link");
@@ -285,7 +285,7 @@ async fn a_wiki_is_no_template_and_who_does_not_read_it_finds_none() {
     let private = client
         .post(
             &format!("{TEST_WS}/wikis"),
-            &json!({"type": "P", "title": "Private"}),
+            &json!({"visibility": "private", "title": "Private"}),
         )
         .await;
     private.check_created();

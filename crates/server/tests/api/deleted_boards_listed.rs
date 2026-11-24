@@ -2,7 +2,7 @@
 
 use crate::common::TEST_WS;
 use crate::common::{Setup, TEST_WORKSPACE_ID};
-use fvoci_model::{Container, ContainerMember, ContainerType};
+use fvoci_model::{Container, ContainerMember, ContainerVisibility};
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -15,7 +15,7 @@ async fn the_deleted_boards_are_listed_for_their_former_admins() {
     let user2 = th.client2.me().await;
     let titled = |title: &str| Container {
         workspace_id: TEST_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         title: title.to_owned(),
         ..Container::default()
     };

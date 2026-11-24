@@ -107,7 +107,7 @@ function deletedPageOf(page: Schemas['DeletedPage']): DeletedItem {
 function newWikiOf(draft: WikiDraft): Schemas['NewWiki'] {
   return {
     title: draft.title,
-    type: draft.type,
+    visibility: draft.visibility,
     ...(draft.description ? { description: draft.description } : {}),
     ...(draft.icon ? { icon: draft.icon } : {}),
     ...(draft.minimumRole ? { minimumRole: draft.minimumRole } : {}),

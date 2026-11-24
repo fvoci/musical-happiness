@@ -5,7 +5,8 @@
 //! invited only, an administrator who only manages it, or without a session.
 
 use fvoci_model::{
-    Block, BlockType, Container, ContainerKind, ContainerMember, ContainerType, NewPage, PageLimits,
+    Block, BlockType, Container, ContainerKind, ContainerMember, ContainerVisibility, NewPage,
+    PageLimits,
 };
 use reqwest::StatusCode;
 use serde_json::{Value, json};
@@ -34,15 +35,15 @@ impl Made {
     }
 }
 
-/// A board and a wiki of the workspace at `at` that `maker` makes, of the type
-/// `board_type` (`P` for the invited only, `O` for everybody in the workspace), with a
+/// A board and a wiki of the workspace at `at` that `maker` makes, of the visibility
+/// `visibility` (`private` for the invited only, `open` for everybody in the workspace), with a
 /// card and a page called `title`.
-pub(crate) async fn made(maker: &Client, at: &str, board_type: &str, title: &str) -> Made {
+pub(crate) async fn made(maker: &Client, at: &str, visibility: &str, title: &str) -> Made {
     let id_of = |response: ApiResponse| {
         response.check_created();
         response.value()["id"].as_str().expect("an id").to_owned()
     };
-    let named = json!({"type": board_type, "title": format!("{title} (its container)")});
+    let named = json!({"visibility": visibility, "title": format!("{title} (its container)")});
     let board = id_of(maker.post(&format!("{at}/boards"), &named).await);
     let wiki = id_of(maker.post(&format!("{at}/wikis"), &named).await);
     let titled = json!({"title": title});
@@ -130,7 +131,7 @@ pub(crate) async fn let_read(admin: &Client, board_id: &str, user_id: &str) {
 #[tokio::test]
 async fn a_reference_names_a_card_or_a_page_to_who_reads_it() {
     let th = Setup::native().start().await.init_basic().await;
-    let mine = made(&th.client, TEST_WS, "P", "The plan").await;
+    let mine = made(&th.client, TEST_WS, "private", "The plan").await;
     th.client
         .patch(
             &format!("{TEST_WS}/cards/{}", mine.card),
@@ -202,7 +203,7 @@ async fn a_reference_names_a_card_or_a_page_to_who_reads_it() {
 #[tokio::test]
 async fn what_is_in_the_trash_is_resolved_as_nothing() {
     let th = Setup::native().start().await.init_basic().await;
-    let mine = made(&th.client, TEST_WS, "P", "The plan").await;
+    let mine = made(&th.client, TEST_WS, "private", "The plan").await;
     th.client
         .delete(&block_path(&mine.board, &mine.card))
         .await
@@ -235,7 +236,7 @@ async fn what_is_in_the_trash_is_resolved_as_nothing() {
         "a page gone",
     )
     .await;
-    let other = made(&th.client, TEST_WS, "P", HIDDEN).await;
+    let other = made(&th.client, TEST_WS, "private", HIDDEN).await;
     for container in [&other.board, &other.wiki] {
         th.client
             .delete(&format!("{TEST_WS}/containers/{container}"))
@@ -267,9 +268,9 @@ async fn what_is_in_the_trash_is_resolved_as_nothing() {
 #[tokio::test]
 async fn what_a_member_is_not_on_is_resolved_as_nothing() {
     let th = Setup::native().start().await.init_basic().await;
-    let own = made(&th.client2, TEST_WS, "P", "own").await;
-    let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
-    let open = made(&th.client, TEST_WS, "O", HIDDEN).await;
+    let own = made(&th.client2, TEST_WS, "private", "own").await;
+    let private = made(&th.client, TEST_WS, "private", HIDDEN).await;
+    let open = made(&th.client, TEST_WS, "open", HIDDEN).await;
     let member = &th.client2;
     let member_id = member.me().await.id;
 
@@ -296,7 +297,7 @@ async fn what_a_member_is_not_on_is_resolved_as_nothing() {
         [private.page.as_str(), &open.card, &open.page]
     );
     // What stays nothing is nothing wherever it is among what is asked.
-    let other = made(&th.client, TEST_WS, "P", HIDDEN).await;
+    let other = made(&th.client, TEST_WS, "private", HIDDEN).await;
     let still = [private.card.as_str(), other.card.as_str()];
     for ids in [still, [still[1], still[0]]] {
         let known = [own.card.as_str(), ids[0], ids[1]];
@@ -325,9 +326,9 @@ async fn what_a_member_is_not_on_is_resolved_as_nothing() {
 async fn a_guest_is_told_what_it_was_invited_to_and_nothing_else() {
     let th = Setup::native().start().await.init_basic().await;
     let guest = crate::guests::guest_of_the_workspace(&th).await;
-    let invited = made(&th.client, TEST_WS, "P", "for the guest").await;
-    let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
-    let open = made(&th.client, TEST_WS, "O", HIDDEN).await;
+    let invited = made(&th.client, TEST_WS, "private", "for the guest").await;
+    let private = made(&th.client, TEST_WS, "private", HIDDEN).await;
+    let open = made(&th.client, TEST_WS, "open", HIDDEN).await;
     let_read(&th.client, &invited.board, &guest).await;
 
     assert_eq!(
@@ -340,7 +341,7 @@ async fn a_guest_is_told_what_it_was_invited_to_and_nothing_else() {
         .client
         .create_board(&Container {
             is_template: true,
-            ..crate::boards::new_board(TEST_WORKSPACE_ID, ContainerType::Open, HIDDEN)
+            ..crate::boards::new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, HIDDEN)
         })
         .await
         .created_json();
@@ -371,8 +372,8 @@ async fn a_guest_is_told_what_it_was_invited_to_and_nothing_else() {
 async fn who_only_manages_is_told_nothing_of_what_is_on_it() {
     let th = Setup::native().start().await.init_basic().await;
     let admin = crate::workspace_admin::workspace_admin(&th).await;
-    let own = made(&th.client2, TEST_WS, "P", "own").await;
-    let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
+    let own = made(&th.client2, TEST_WS, "private", "own").await;
+    let private = made(&th.client, TEST_WS, "private", HIDDEN).await;
     let managed: Vec<Container> = th.client2.get(&format!("{TEST_WS}/boards")).await.ok_json();
     assert!(
         managed.iter().any(|board| board.id == private.board),
@@ -393,10 +394,10 @@ async fn who_only_manages_is_told_nothing_of_what_is_on_it() {
 #[tokio::test]
 async fn what_is_of_another_workspace_is_resolved_as_nothing() {
     let th = Setup::native().start().await.init_basic().await;
-    let here = made(&th.client, TEST_WS, "O", "known here").await;
-    let test_made = made(&th.client, TEST_WS, "O", HIDDEN).await;
-    let there = made(&th.client, ROOT_WS, "O", "known there").await;
-    let root_made = made(&th.client, ROOT_WS, "O", HIDDEN).await;
+    let here = made(&th.client, TEST_WS, "open", "known here").await;
+    let test_made = made(&th.client, TEST_WS, "open", HIDDEN).await;
+    let there = made(&th.client, ROOT_WS, "open", "known there").await;
+    let root_made = made(&th.client, ROOT_WS, "open", HIDDEN).await;
 
     let (of_test, of_root) = (test_made.both(), root_made.both());
     check_as_nothing(&th.client, TEST_WS, &of_root, &here.card, "of the root").await;
@@ -422,7 +423,7 @@ async fn what_is_of_another_organization_is_resolved_as_nothing() {
         return;
     }
     let th = Setup::native().start().await.init_basic().await;
-    let here = made(&th.client, TEST_WS, "O", "here").await;
+    let here = made(&th.client, TEST_WS, "open", "here").await;
     let (theirs, their_workspace, their_board) = crate::workspaces::another_organization(&th).await;
     let members = theirs.get_members_for_container(&their_board).await;
     let owner = members.expect("their members")[0].user_id.clone();
@@ -440,7 +441,7 @@ async fn what_is_of_another_organization_is_resolved_as_nothing() {
     let mut wiki = Container {
         id: fvoci_model::new_id(),
         workspace_id: their_workspace.clone(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         kind: ContainerKind::Wiki,
         ..Container::default()
     };
@@ -476,7 +477,7 @@ async fn what_is_on_a_built_in_template_is_resolved_as_nothing() {
         .await
         .init_basic()
         .await;
-    let here = made(&th.client, TEST_WS, "O", "here").await;
+    let here = made(&th.client, TEST_WS, "open", "here").await;
     let templates: Vec<Container> = th
         .client
         .get(&format!("{TEST_WS}/templates"))
@@ -506,7 +507,7 @@ async fn what_is_on_a_built_in_template_is_resolved_as_nothing() {
 #[tokio::test]
 async fn a_reader_by_a_link_does_not_ask_what_references_name() {
     let th = Setup::local_mode().start().await.init_basic().await;
-    let shared = made(&th.client, TEST_WS, "O", HIDDEN).await;
+    let shared = made(&th.client, TEST_WS, "open", HIDDEN).await;
     let token = th.share(&shared.board).await;
     let ids = [shared.card.as_str()];
     let reader = th.anonymous();
@@ -546,9 +547,9 @@ async fn the_reads_a_question_takes_tell_nothing_of_what_is_named() {
         .init_basic()
         .await;
     let member = &th.client2;
-    let own = made(member, TEST_WS, "P", "own").await;
-    let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
-    let other = made(&th.client, TEST_WS, "P", HIDDEN).await;
+    let own = made(member, TEST_WS, "private", "own").await;
+    let private = made(&th.client, TEST_WS, "private", HIDDEN).await;
+    let other = made(&th.client, TEST_WS, "private", HIDDEN).await;
     let beside = th
         .client
         .post(

@@ -50,6 +50,7 @@ import {
   groupsOfView,
   roleOf,
   withCardProperty,
+  withVisibility,
   type CardDrop,
 } from './board-parts.ts';
 import { MemberWrites } from './member-writes.ts';
@@ -104,13 +105,10 @@ export class BoardStore {
     // eslint-disable-next-line svelte/prefer-svelte-reactivity -- made anew from the cards, never changed
     new Map(this.realCards.map((card) => [card.id, card])),
   );
-  readonly orderedMembers = $derived.by(() =>
-    orderMembers(
-      this.members,
-      (userId) => this.workspace.userName(userId) ?? '',
-      this.workspace.locale,
-    ),
-  );
+  readonly orderedMembers = $derived.by(() => {
+    const nameOf = (id: string) => this.workspace.userName(id) ?? '';
+    return orderMembers(this.members, nameOf, this.workspace.locale);
+  });
   /**
    * The people a person property of this board can be set to, and a filter
    * can ask for: its members, in their order. Whoever is named on a card
@@ -292,7 +290,7 @@ export class BoardStore {
         this.workspace.evictContainer(this.boardId);
         // An open board may only have been closed to the reader (taken off
         // it): read again, it shows as one to join, or as gone.
-        if (this.board?.type === 'O' && !this.board.isTemplate && !this.#closed) {
+        if (this.board?.visibility === 'open' && !this.board.isTemplate && !this.#closed) {
           void this.load();
           break;
         }
@@ -694,7 +692,7 @@ export class BoardStore {
 
   /** Whether anybody of the workspace may find and join the board. */
   async setOpen(open: boolean): Promise<void> {
-    await this.changeBoard((board) => ({ ...board, type: open ? 'O' : 'P' }), 'changeBoardType');
+    await this.changeBoard((board) => withVisibility(board, open), 'changeVisibility');
   }
 
   /** The role somebody gets by joining the board. Members keep theirs. */

@@ -3,8 +3,8 @@
 //! lifecycle, atomic due-review notification deduplication, and PostgreSQL RLS isolation.
 
 use fvoci_model::{
-    Block, Container, ContainerKind, ContainerMember, ContainerRole, ContainerType, CourseLimits,
-    DEFAULT_REVIEW_INTERVALS, NewUnit, NewUnitNote, NewUnitReview, NotificationKind,
+    Block, Container, ContainerKind, ContainerMember, ContainerRole, ContainerVisibility,
+    CourseLimits, DEFAULT_REVIEW_INTERVALS, NewUnit, NewUnitNote, NewUnitReview, NotificationKind,
     ReviewStatusFilter, UnitKind, UnitNoteChange, UnitNoteKind, new_id,
 };
 use fvoci_store::{
@@ -23,7 +23,7 @@ async fn create_course(
     let mut course = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Course,
         title: title.to_owned(),
         ..Container::default()
@@ -68,14 +68,9 @@ async fn save_role(store: &Store, course_id: &str, user_id: &str, role: Option<C
     store.save_member(&member).await.expect("member saved");
 }
 
-/// Upgrading a database seeded before migration 0067 preserves existing notifications,
-/// creates `unit_reviews` and `unit_notes` behind PostgreSQL forced RLS, and allows
-/// inserting `review_due` notifications.
-#[tokio::test]
-async fn migration_0066_to_0067_creates_tables_widens_notifications_and_enables_rls() {
-    let database = common::empty_database().await;
-    fvoci_store::testing::migrate_to_before_unit_reviews(&database).await;
-    common::execute_raw(&common::raw_connection(&database), "DELETE FROM data_steps").await;
+async fn seed_pre_0067_fixture(
+    database: &fvoci_store::testing::TestDatabase,
+) -> (String, String, Container, fvoci_model::Block, String) {
     let pre = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("open before 0067");
@@ -83,7 +78,29 @@ async fn migration_0066_to_0067_creates_tables_widens_notifications_and_enables_
     let scoped = pre.for_org(&org_id).expect("org handle");
     let owner = common::user(&scoped, "learner").await;
     common::works_in(&scoped, &workspace_id, &owner).await;
-    let course = create_course(&scoped, &workspace_id, &owner, "Rust").await;
+    let course_id = new_id();
+    scoped
+        .execute_unchecked(&format!(
+            "INSERT INTO containers \
+             (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
+              show_description, is_template, properties, card_properties, create_at, update_at) \
+             VALUES ('{course_id}', '{workspace_id}', '{owner}', '{owner}', 'P', 'course', \
+              'Rust', '', '', false, false, '{{}}', '[]', 1, 1)"
+        ))
+        .await
+        .expect("pre-0067 course stored");
+    scoped
+        .execute_unchecked(&format!(
+            "INSERT INTO container_members \
+             (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
+             VALUES ('{course_id}', '{owner}', true, true, false, false)"
+        ))
+        .await
+        .expect("pre-0067 course admin stored");
+    let course = Container {
+        id: course_id,
+        ..Container::default()
+    };
     let unit = create_item(
         &scoped.telling_nobody(),
         &course.id,
@@ -105,6 +122,18 @@ async fn migration_0066_to_0067_creates_tables_widens_notifications_and_enables_
         .await
         .expect("pre-0067 notification inserted");
     pre.close().await;
+    (org_id, owner, course, unit, existing_notif_id)
+}
+
+/// Upgrading a database seeded before migration 0067 preserves existing notifications,
+/// creates `unit_reviews` and `unit_notes` behind PostgreSQL forced RLS, and allows
+/// inserting `review_due` notifications.
+#[tokio::test]
+async fn migration_0066_to_0067_creates_tables_widens_notifications_and_enables_rls() {
+    let database = common::empty_database().await;
+    fvoci_store::testing::migrate_to_before_unit_reviews(&database).await;
+    common::execute_raw(&common::raw_connection(&database), "DELETE FROM data_steps").await;
+    let (org_id, owner, course, unit, existing_notif_id) = seed_pre_0067_fixture(&database).await;
 
     let migrated = Store::connect(database.db_type(), database.database_connection())
         .await

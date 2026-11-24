@@ -7,8 +7,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use fvoci_model::PublicLinkChange;
 use fvoci_model::{
-    Block, Container, ContainerMember, ContainerType, LoginRequest, RegisterRequest, User,
+    Block, Container, ContainerMember, ContainerVisibility, LoginRequest, RegisterRequest, User,
     Workspace, new_id,
 };
 use fvoci_server::app::App;
@@ -17,8 +18,8 @@ use fvoci_server::config::Configuration;
 use fvoci_server::config::collab::CollabSettings;
 use fvoci_server::ws::Hub;
 use fvoci_server::{Server, TlsFiles};
+use fvoci_store::Store;
 use fvoci_store::testing::{TableOwner, TestDatabase};
-use fvoci_store::{SharingChange, Store};
 use reqwest::{Method, StatusCode};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -695,7 +696,7 @@ impl TestServer {
     /// token the server made for it.
     pub(crate) async fn share(&self, board_id: &str) -> String {
         self.app
-            .set_sharing(board_id, SharingChange::On, "")
+            .set_public_link(board_id, PublicLinkChange::On, "")
             .await
             .expect("the board is shared")
             .token
@@ -705,11 +706,11 @@ impl TestServer {
     pub(crate) async fn create_board(
         &self,
         workspace_id: &str,
-        board_type: ContainerType,
+        board_type: ContainerVisibility,
     ) -> Container {
         let board = Container {
             workspace_id: workspace_id.to_owned(),
-            container_type: board_type,
+            visibility: board_type,
             ..Container::default()
         };
         self.client

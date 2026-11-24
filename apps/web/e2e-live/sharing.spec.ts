@@ -31,8 +31,8 @@ async function members(api: APIRequestContext, board: { workspaceId: string; boa
 
 async function sharing(api: APIRequestContext, board: { workspaceId: string; boardId: string }) {
   return (await (
-    await api.get(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}/sharing`)
-  ).json()) as Schemas['Sharing'];
+    await api.get(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}/public-link`)
+  ).json()) as Schemas['PublicLink'];
 }
 
 test('a board is shared from its dialog, and every change is kept on the server', async ({
@@ -105,9 +105,9 @@ test('a board is shared from its dialog, and every change is kept on the server'
       const read = (await (
         await api.get(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}`)
       ).json()) as Schemas['Container'];
-      return [read.type, read.minimumRole];
+      return [read.visibility, read.minimumRole];
     })
-    .toEqual(['O', 'commenter']);
+    .toEqual(['open', 'commenter']);
 
   // The public link: on, made anew (the old token is gone), off.
   await dialog.getByTestId('share-public').click();

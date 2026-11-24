@@ -10,9 +10,9 @@
 //! ([`SessionTaken`]).
 
 use fvoci_model::{
-    BlockType, ContainerKind, ContainerType, OrgKind, StartedTimeEntry, TimeEntry, TimeEntryKind,
-    TimeEntryKindTotals, TimeEntryList, TimeEntryPatch, TimeEntrySummary, TimeTargetKind,
-    WorkspaceRole, is_id, new_id,
+    BlockType, ContainerKind, ContainerVisibility, OrgKind, StartedTimeEntry, TimeEntry,
+    TimeEntryKind, TimeEntryKindTotals, TimeEntryList, TimeEntryPatch, TimeEntrySummary,
+    TimeTargetKind, WorkspaceRole, is_id, new_id,
 };
 
 use crate::Store;
@@ -553,7 +553,7 @@ fn push_readable_container(sql: &mut Sql, scope: &Scope<'_>, user_id: &str) {
     .push(&scope.same_organization(&[("cm", "b")]))
     .push(") OR ");
     container_team_access::push_has_team_role(sql, scope, user_id);
-    sql.push_bind(" OR (b.type = ", ContainerType::Open.as_str())
+    sql.push_bind(" OR (b.visibility = ", ContainerVisibility::Open.as_str())
         .push_bind(" AND b.kind = ", ContainerKind::Course.as_str())
         .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str())
         .push("))");

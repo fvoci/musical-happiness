@@ -175,11 +175,11 @@ async function anonymousVisit(
   board: MadeBoard,
 ): Promise<void> {
   const response = await api.post(
-    `/api/v1/w/${board.workspaceId}/containers/${board.boardId}/sharing`,
+    `/api/v1/w/${board.workspaceId}/containers/${board.boardId}/public-link`,
     { data: { enabled: true } },
   );
   expect(response.ok()).toBe(true);
-  const sharing = (await response.json()) as Schemas['Sharing'];
+  const sharing = (await response.json()) as Schemas['PublicLink'];
   const context = await browser.newContext({ baseURL: base, locale: 'en-US' });
   try {
     const reader = await context.newPage();

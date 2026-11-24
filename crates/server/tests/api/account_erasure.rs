@@ -1,7 +1,9 @@
 //! Erasing an account: by the housekeeping once its wait ran out, and at once on the
 //! operator's word; what is left of it for the people it worked with.
 
-use fvoci_model::{Block, BlockType, Container, ContainerType, PersonName, Title, User, new_id};
+use fvoci_model::{
+    Block, BlockType, Container, ContainerVisibility, PersonName, Title, User, new_id,
+};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -29,7 +31,7 @@ async fn board_with_a_card(client: &Client) -> (Container, Block) {
     let board: Container = client
         .create_board(&Container {
             workspace_id: ROOT_WORKSPACE_ID.to_owned(),
-            container_type: ContainerType::Open,
+            visibility: ContainerVisibility::Open,
             title: "a board".to_owned(),
             ..Container::default()
         })
@@ -388,7 +390,7 @@ async fn erasing_an_account_removes_its_own_space_files(ts: &TestServer) {
         let board: Container = client
             .create_board(&Container {
                 workspace_id: workspace_id.to_owned(),
-                container_type: ContainerType::Private,
+                visibility: ContainerVisibility::Private,
                 title: "with file".to_owned(),
                 ..Container::default()
             })
@@ -406,7 +408,7 @@ async fn erasing_an_account_removes_its_own_space_files(ts: &TestServer) {
         let file_id = crate::files::uploaded_id(&response);
         let store = ts.app.store().for_org(org_id).expect("org id");
         store
-            .get_file_info(&board.id, &file_id)
+            .get_file_record(&board.id, &file_id)
             .await
             .expect("recorded")
             .path

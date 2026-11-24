@@ -1,7 +1,7 @@
 //! The numbers of the cards of a board, as the routes give them, and a card found by
 //! its number (`getCardByNumber`) only by whoever reads it.
 
-use fvoci_model::{Block, BlockType, Card, ContainerKind, ContainerType, new_id};
+use fvoci_model::{Block, BlockType, Card, ContainerKind, ContainerVisibility, new_id};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -49,7 +49,7 @@ async fn listed_numbers(client: &Client, at: &str, board_id: &str) -> Vec<(Strin
 async fn every_way_a_card_is_made_gives_it_the_next_number_and_every_read_says_it() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let first = create_card(
         &ts.client,
@@ -158,7 +158,7 @@ async fn every_way_a_card_is_made_gives_it_the_next_number_and_every_read_says_i
 async fn an_imported_board_numbers_its_cards_from_one() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let mut made = Vec::new();
     for title in ["gone", "second", "third"] {
@@ -221,7 +221,7 @@ async fn an_imported_board_numbers_its_cards_from_one() {
 async fn a_number_a_request_sends_is_never_refused_nor_taken() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let sent = json!({"title": "sent", "number": "7"});
     let card = create_card(&ts.client, TEST_WS, &board.id, sent).await;
@@ -267,7 +267,7 @@ async fn no_such_card(ts: &TestServer, board_id: &str) -> (StatusCode, Value) {
 async fn what_is_no_card_of_the_board_now_is_not_found() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     create_card(&ts.client, TEST_WS, &board.id, json!({"title": "1"})).await;
     let second = create_card(&ts.client, TEST_WS, &board.id, json!({"title": "2"})).await;
@@ -303,7 +303,7 @@ async fn what_is_no_card_of_the_board_now_is_not_found() {
 async fn a_card_by_its_number_is_there_for_who_reads_its_board_and_for_nobody_else() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let first = create_card(&ts.client, TEST_WS, &board.id, json!({"title": "1"})).await;
     let nothing = no_such_card(&ts, &board.id).await;
@@ -317,7 +317,7 @@ async fn a_card_by_its_number_is_there_for_who_reads_its_board_and_for_nobody_el
     let mut elsewhere = fvoci_model::Container {
         id: new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..fvoci_model::Container::default()
     };
     ts.app
@@ -352,7 +352,7 @@ async fn a_card_by_its_number_is_there_for_who_reads_its_board_and_for_nobody_el
     );
     let wiki: Value = ts
         .client
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "O"}))
+        .post(&format!("{TEST_WS}/wikis"), &json!({"visibility": "open"}))
         .await
         .created_json();
     let wiki_id = wiki["id"].as_str().expect("an id");
@@ -374,7 +374,7 @@ async fn a_card_by_its_number_is_there_for_who_reads_its_board_and_for_nobody_el
     let read: Card = by_number(&viewer, TEST_WS, &board.id, "1").await.ok_json();
     assert_eq!(read.id, first.id);
     let open = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     create_card(&ts.client, TEST_WS, &open.id, json!({"title": "open"})).await;
     let open_nothing = no_such_card(&ts, &open.id).await;
@@ -397,7 +397,7 @@ async fn a_card_of_another_organization_is_no_card() {
     }
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let nothing = no_such_card(&ts, &board.id).await;
     let (theirs, _, their_board) = crate::workspaces::another_organization(&ts).await;
@@ -527,7 +527,7 @@ async fn assert_template_hides_number_everywhere(
 async fn converting_a_card_to_template_hides_and_restores_its_number_across_routes() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let first = create_card(&ts.client, TEST_WS, &board.id, json!({"title": "first"})).await;
     let fresh_template = create_card(
@@ -543,7 +543,7 @@ async fn converting_a_card_to_template_hides_and_restores_its_number_across_rout
     let sharing: Value = ts
         .client
         .post(
-            &format!("{TEST_WS}/containers/{}/sharing", board.id),
+            &format!("{TEST_WS}/containers/{}/public-link", board.id),
             &json!({"enabled": true}),
         )
         .await

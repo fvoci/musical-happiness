@@ -28,7 +28,7 @@ test('an open board is joined from its page, not by opening it', async ({ page, 
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, {
     title: 'Commons',
-    type: 'O',
+    visibility: 'open',
     description: 'For the whole workspace',
     cards: [{ title: 'Water the plants', status: 'To do' }],
   });

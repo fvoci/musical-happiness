@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use fvoci_model::{Container, ContainerType, SearchHit, new_id};
+use fvoci_model::{Container, ContainerVisibility, SearchHit, new_id};
 use fvoci_server::config::search::SearchSettings;
 use reqwest::StatusCode;
 
@@ -65,7 +65,7 @@ async fn without_a_search_server_the_letters_of_titles_and_bodies_are_found() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Open,
+            ContainerVisibility::Open,
             "Support",
         ))
         .await
@@ -115,7 +115,7 @@ async fn without_a_search_server_the_letters_of_titles_and_bodies_are_found() {
         .client2
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Theirs",
         ))
         .await
@@ -191,7 +191,7 @@ async fn a_search_of_the_database_that_runs_past_its_time_is_a_503() {
         .await
         .init_basic()
         .await;
-    th.create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+    th.create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     let late = search(&th.client, TEST_WS, "환불").await;
@@ -211,7 +211,11 @@ async fn a_search_server_that_is_down_is_not_stood_in_for_by_the_database() {
     let th = started(&fake).await;
     let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Open"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerVisibility::Open,
+            "Open",
+        ))
         .await
         .created_json();
     new_card(&th.client, &board.id, "환불 안내", "환불규정").await;
@@ -237,7 +241,7 @@ async fn a_user_searches_the_database_only_so_often() {
         .await
         .init_basic()
         .await;
-    th.create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+    th.create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     // One a second, and two at once after a pause: of eight at once, some wait.
@@ -271,7 +275,7 @@ async fn a_user_of_more_boards_than_a_search_server_is_asked_about_finds_in_them
     for number in 0..1001 {
         let mut board = new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             &format!("b{number}"),
         );
         board.id = new_id();
@@ -287,7 +291,7 @@ async fn a_user_of_more_boards_than_a_search_server_is_asked_about_finds_in_them
     let stranger = th.stranger_in(TEST_WORKSPACE_ID).await;
     let theirs = crate::boards::board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Theirs"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "Theirs"),
         &stranger,
     )
     .await;

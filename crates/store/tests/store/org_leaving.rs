@@ -4,7 +4,7 @@
 
 use fvoci_model::{
     AuditAction, AuditRecordActor, Block, BlockType, CompletionChange, Container, ContainerKind,
-    ContainerMember, ContainerType, CourseLimits, LastPositionChange, NewCourseExam, NewUnit,
+    ContainerMember, ContainerVisibility, CourseLimits, LastPositionChange, NewCourseExam, NewUnit,
     NewUnitNote, NewUnitReview, OrgRole, Subscription, UnitNoteKind, UnitProgressChange,
     UserOrganization, ValidatedMyExamScore, Workspace, WorkspaceRole, new_id,
 };
@@ -42,7 +42,7 @@ async fn board_of(store: &Store, workspace_id: &str, user_id: &str) -> (String, 
     let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         title: "a board".to_owned(),
         ..Container::default()
     };
@@ -75,7 +75,7 @@ async fn course_with_progress(
     let mut course = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Course,
         title: "course".to_owned(),
         ..Container::default()

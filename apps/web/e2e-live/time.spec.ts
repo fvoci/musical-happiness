@@ -60,7 +60,7 @@ test('card timer -> course unit auto-switch -> My time CRUD & persistence -> sha
   // Create a course with 1 chapter and 1 unit
   const course = (await (
     await api.post(`/api/v1/w/${made.workspaceId}/courses`, {
-      data: { title: uniqueName('Time Course'), type: 'P' },
+      data: { title: uniqueName('Time Course'), visibility: 'private' },
     })
   ).json()) as Schemas['Container'];
   await api.post(`/api/v1/w/${made.workspaceId}/courses/${course.id}/units`, {
@@ -75,15 +75,15 @@ test('card timer -> course unit auto-switch -> My time CRUD & persistence -> sha
 
   // Enable public sharing on both the board and the course for privacy verification
   const boardShare = (await (
-    await api.post(`/api/v1/w/${made.workspaceId}/containers/${made.boardId}/sharing`, {
+    await api.post(`/api/v1/w/${made.workspaceId}/containers/${made.boardId}/public-link`, {
       data: { enabled: true },
     })
-  ).json()) as Schemas['Sharing'];
+  ).json()) as Schemas['PublicLink'];
   const courseShare = (await (
-    await api.post(`/api/v1/w/${made.workspaceId}/containers/${course.id}/sharing`, {
+    await api.post(`/api/v1/w/${made.workspaceId}/containers/${course.id}/public-link`, {
       data: { enabled: true },
     })
-  ).json()) as Schemas['Sharing'];
+  ).json()) as Schemas['PublicLink'];
 
   // Sign in on page and navigate directly to the card
   await page.goto('/');

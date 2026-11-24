@@ -1,7 +1,7 @@
 //! Integration tests for system endpoints (`ping`, `clientConfig`) and HTTP
 //! routing middleware: request-forgery checks, cache headers, SPA fallback, and base path.
 
-use fvoci_model::ContainerType;
+use fvoci_model::ContainerVisibility;
 use reqwest::header::CONTENT_TYPE;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -226,7 +226,7 @@ async fn a_path_that_is_no_text_is_a_problem_like_any_other_error() {
     let th = Setup::native().start().await.init_basic().await;
     for path in [
         &format!("{ROOT_WS}/containers/%FF"),
-        &format!("{ROOT_WS}/containers/%FF/sharing"),
+        &format!("{ROOT_WS}/containers/%FF/public-link"),
         &format!("{ROOT_WS}/users/%C3%28"),
     ] {
         let response = th.client.get(path).await;
@@ -243,7 +243,7 @@ async fn a_path_that_is_no_text_is_a_problem_like_any_other_error() {
 async fn an_answer_without_a_result_has_no_body_and_no_content_type() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await
         .id;
     let card: Value = th
@@ -411,7 +411,8 @@ async fn a_request_is_finished_when_its_client_disconnects() {
     for round in 0..20 {
         let title = format!("abandoned {round}");
         let body =
-            json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": title}).to_string();
+            json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": title})
+                .to_string();
         let request = format!(
             "POST /api/v1/w/{ROOT_WORKSPACE_ID}/boards HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\n\
              X-Requested-With: XMLHttpRequest\r\nContent-Type: application/json\r\n\

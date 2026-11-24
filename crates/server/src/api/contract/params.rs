@@ -110,7 +110,7 @@ parameter!(OidcIssuer: Query "iss", String, False, "The issuer that answered (RF
 parameter!(OidcState: Query "state", String, False, "The `state` the sign-in was started with, as the provider sends it back.");
 parameter!(OidcCode: Query "code", String, False, "The authorization code the provider gives.");
 parameter!(OidcError: Query "error", String, False, "The provider's code of why it did not let the person sign in.");
-parameter!(SharedReadToken: Query "readToken", String, True, "The read token of the board, as `getSharing` answers it while the board is shared.");
+parameter!(SharedReadToken: Query "readToken", String, True, "The read token of the board, as `getPublicLink` answers it while the board's public link is enabled.");
 parameter!(DisableNotify: Query "disableNotify", bool, False, "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.");
 parameter!(Preview: Query "preview", bool, False, "`true` gives each card its `preview`. Any other value does not, and the cards have none.");
 parameter!(AsTemplate: Query "asTemplate", bool, False, "`true` makes the copy a template. Any other value does not.");

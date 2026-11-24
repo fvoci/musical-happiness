@@ -43,7 +43,7 @@ pub enum StoreError {
         limit: u32,
     },
 
-    /// A lookup of a single session or sharing record matched no row.
+    /// A lookup of a single session or public link record matched no row.
     ///
     /// The message stays in the log: the HTTP layer answers "not found" without it.
     #[error("sql: no rows in result set")]

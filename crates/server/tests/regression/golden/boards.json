@@ -1,15 +1,15 @@
 [
   {
-    "name": "create: no type",
+    "name": "create: no visibility",
     "request": "POST /api/v1/w/<id:1>/boards as boards-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "the type of a board is `O` (open) or `P` (private)",
+      "detail": "the visibility of a board is `open` or `private`",
       "errors": [
         {
-          "detail": "the type of a board is `O` (open) or `P` (private)",
-          "pointer": "/type",
+          "detail": "the visibility of a board is `open` or `private`",
+          "pointer": "/visibility",
           "reason": "invalid"
         }
       ],
@@ -21,16 +21,16 @@
     }
   },
   {
-    "name": "create: bad type",
+    "name": "create: bad visibility",
     "request": "POST /api/v1/w/<id:1>/boards as boards-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "the type of a board is `O` (open) or `P` (private)",
+      "detail": "the visibility of a board is `open` or `private`",
       "errors": [
         {
-          "detail": "the type of a board is `O` (open) or `P` (private)",
-          "pointer": "/type",
+          "detail": "the visibility of a board is `open` or `private`",
+          "pointer": "/visibility",
           "reason": "invalid"
         }
       ],
@@ -63,8 +63,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "x",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -127,8 +127,8 @@
       "showDescription": true,
       "templateVersion": 0,
       "title": "Roadmap",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -154,8 +154,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Open board",
-      "type": "O",
       "updateAt": "<ts>",
+      "visibility": "open",
       "workspaceId": "<id:1>"
     }
   },
@@ -190,8 +190,8 @@
       "showDescription": true,
       "templateVersion": 0,
       "title": "Roadmap",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -231,8 +231,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Open board",
-      "type": "O",
       "updateAt": "<ts>",
+      "visibility": "open",
       "workspaceId": "<id:1>"
     }
   },
@@ -360,8 +360,8 @@
         "showDescription": true,
         "templateVersion": 10,
         "title": "Getting started with fvoci",
-        "type": "P",
         "updateAt": "<ts>",
+        "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
@@ -381,8 +381,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "x",
-        "type": "P",
         "updateAt": "<ts>",
+        "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
@@ -411,8 +411,8 @@
         "showDescription": true,
         "templateVersion": 0,
         "title": "Roadmap",
-        "type": "P",
         "updateAt": "<ts>",
+        "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
@@ -432,8 +432,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open board",
-        "type": "O",
         "updateAt": "<ts>",
+        "visibility": "open",
         "workspaceId": "<id:1>"
       }
     ]
@@ -534,8 +534,8 @@
         "showDescription": true,
         "templateVersion": 10,
         "title": "Getting started with fvoci",
-        "type": "P",
         "updateAt": "<ts>",
+        "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
@@ -555,8 +555,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open board",
-        "type": "O",
         "updateAt": "<ts>",
+        "visibility": "open",
         "workspaceId": "<id:1>"
       }
     ]
@@ -613,8 +613,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -649,8 +649,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -669,16 +669,16 @@
     }
   },
   {
-    "name": "patch: bad type",
+    "name": "patch: bad visibility",
     "request": "PATCH /api/v1/w/<id:1>/containers/<id:4> as boards-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "the type of a board is `O` (open) or `P` (private)",
+      "detail": "the visibility of a board is `open` or `private`",
       "errors": [
         {
-          "detail": "the type of a board is `O` (open) or `P` (private)",
-          "pointer": "/type",
+          "detail": "the visibility of a board is `open` or `private`",
+          "pointer": "/visibility",
           "reason": "invalid"
         }
       ],
@@ -720,8 +720,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "type": "O",
       "updateAt": "<ts>",
+      "visibility": "open",
       "workspaceId": "<id:1>"
     }
   },
@@ -756,8 +756,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -783,8 +783,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Open board",
-      "type": "O",
       "updateAt": "<ts>",
+      "visibility": "open",
       "workspaceId": "<id:1>"
     }
   },
@@ -847,8 +847,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -931,8 +931,8 @@
           "showDescription": false,
           "templateVersion": 0,
           "title": "Roadmap 2 copy",
-          "type": "P",
           "updateAt": "<ts>",
+          "visibility": "private",
           "workspaceId": "<id:1>"
         }
       ]
@@ -991,8 +991,8 @@
           "showDescription": false,
           "templateVersion": 0,
           "title": "New board template",
-          "type": "P",
           "updateAt": "<ts>",
+          "visibility": "private",
           "workspaceId": "<id:1>"
         }
       ]
@@ -1145,8 +1145,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -1181,8 +1181,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -1308,8 +1308,8 @@
         "showDescription": true,
         "templateVersion": 10,
         "title": "Getting started with fvoci",
-        "type": "P",
         "updateAt": "<ts>",
+        "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
@@ -1329,8 +1329,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "x",
-        "type": "P",
         "updateAt": "<ts>",
+        "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
@@ -1359,8 +1359,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Roadmap 2",
-        "type": "P",
         "updateAt": "<ts>",
+        "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
@@ -1380,8 +1380,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open board",
-        "type": "O",
         "updateAt": "<ts>",
+        "visibility": "open",
         "workspaceId": "<id:1>"
       },
       {
@@ -1410,8 +1410,8 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Roadmap 2 copy",
-        "type": "P",
         "updateAt": "<ts>",
+        "visibility": "private",
         "workspaceId": "<id:1>"
       }
     ]

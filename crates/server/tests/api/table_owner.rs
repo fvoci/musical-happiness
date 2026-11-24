@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use fvoci_model::{Card, Container, ContainerType};
+use fvoci_model::{Card, Container, ContainerVisibility};
 use fvoci_server::Server;
 use fvoci_server::config::Configuration;
 use fvoci_store::DbType;
@@ -30,7 +30,11 @@ async fn a_server_serves_tables_its_role_does_not_own() {
             .await;
         let board: Container = th
             .client
-            .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Apart"))
+            .create_board(&new_board(
+                TEST_WORKSPACE_ID,
+                ContainerVisibility::Open,
+                "Apart",
+            ))
             .await
             .created_json();
         let card = new_card(

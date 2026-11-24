@@ -4,7 +4,7 @@
 //! blocks to order and the route `moveContentBlock` was taken out with the card's
 //! `contentOrder` (`docs/contract-pending.md` 1).
 
-use fvoci_model::{Block, BlockType, ContainerType, new_id};
+use fvoci_model::{Block, BlockType, ContainerVisibility, new_id};
 
 use crate::common::{Setup, TEST_WORKSPACE_ID};
 
@@ -14,7 +14,7 @@ use crate::common::{Setup, TEST_WORKSPACE_ID};
 async fn moving_a_content_block_is_no_route() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let block = |id: &str, parent: &str, block_type: BlockType| Block {
         id: id.to_owned(),

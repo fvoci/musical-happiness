@@ -28,7 +28,10 @@ async function openWiki() {
   const made = setup();
   await made.workspace.load();
   const workspaceId = made.world.workspace.id;
-  const wiki = await made.backend.wiki.createWiki(workspaceId, { title: 'Handbook', type: 'P' });
+  const wiki = await made.backend.wiki.createWiki(workspaceId, {
+    title: 'Handbook',
+    visibility: 'private',
+  });
   const page = async (title: string, parentId = '') =>
     (await made.backend.wiki.createPage(wiki.id, { title, parentId })).id;
   const store = new WikiStore(made.workspace, wiki.id);
@@ -91,7 +94,10 @@ describe('moving a page in memory', () => {
       const refused = await rejection(wikis.movePage(made.wikiId, a, { parentId }));
       expect([refused.status, refused.refusalAt('/parentId') !== undefined]).toEqual([400, true]);
     }
-    const other = await wikis.createWiki(made.world.workspace.id, { title: 'Other', type: 'P' });
+    const other = await wikis.createWiki(made.world.workspace.id, {
+      title: 'Other',
+      visibility: 'private',
+    });
     const elsewhere = await wikis.createPage(other.id, { title: 'Elsewhere' });
     const refused = await rejection(wikis.movePage(made.wikiId, a, { parentId: elsewhere.id }));
     expect(refused.refusalAt('/parentId')).toBeDefined();

@@ -7,7 +7,7 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Block, Container, ContainerKind, ContainerType, DeletedPage, MinimumRole, NewPage, Page,
+    Block, Container, ContainerKind, ContainerVisibility, DeletedPage, MinimumRole, NewPage, Page,
     PageDuplicate, PageMove, PageNode, PagePatch,
 };
 use serde::Deserialize;
@@ -47,10 +47,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct NewWiki {
-    /// Whether the wiki is open (`O`), for whoever works in the workspace to read, and to
-    /// join to write in it, or private (`P`), for whom it is shared with.
-    #[serde(rename = "type")]
-    container_type: ContainerType,
+    /// Whether the wiki is `open`, for whoever works in the workspace to read, and to
+    /// join to write in it, or `private`, for whom it is shared with.
+    visibility: ContainerVisibility,
     /// The role a user gets who joins the wiki. Left out, `editor`.
     #[serde(default)]
     minimum_role: MinimumRole,
@@ -105,7 +104,7 @@ async fn handle_get_wikis(InWiki(ws): InWiki) -> ApiResult {
 async fn handle_create_wiki(InWiki(ws): InWiki, body: Bytes) -> ApiResult {
     ws.require_container_maker("access denied to create wiki")?;
     let NewWiki {
-        container_type,
+        visibility,
         minimum_role,
         title,
         description,
@@ -113,7 +112,7 @@ async fn handle_create_wiki(InWiki(ws): InWiki, body: Bytes) -> ApiResult {
     } = decode_object(&body)?;
     let wiki = Container {
         workspace_id: ws.workspace_id.clone(),
-        container_type,
+        visibility,
         kind: ContainerKind::Wiki,
         minimum_role,
         title,

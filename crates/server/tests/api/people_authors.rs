@@ -1,8 +1,8 @@
 //! Departed authors remain named only through work the reader can read.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Body, BodyChange, Container, ContainerMember, ContainerType,
-    NewPage, User, new_id,
+    Block, BlockPatch, BlockType, Body, BodyChange, Container, ContainerMember,
+    ContainerVisibility, NewPage, User, new_id,
 };
 use serde_json::json;
 
@@ -34,7 +34,10 @@ async fn authored_wiki(th: &TestServer, leaver: &str) -> Container {
     let owner = th.client.me().await.id;
     let wiki: Container = th
         .client
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "P"}))
+        .post(
+            &format!("{TEST_WS}/wikis"),
+            &json!({"visibility": "private"}),
+        )
         .await
         .created_json();
     versioned_page(th, &wiki.id, &owner, leaver).await;
@@ -54,7 +57,7 @@ async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -
     let board: Container = creator
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Authored",
         ))
         .await

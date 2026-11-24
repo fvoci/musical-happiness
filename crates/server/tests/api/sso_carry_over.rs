@@ -9,7 +9,8 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use fvoci_model::{
-    ContainerMember, ContainerType, LinkedIdentity, OidcProvider, OidcStart, OrgRole, WorkspaceRole,
+    ContainerMember, ContainerVisibility, LinkedIdentity, OidcProvider, OidcStart, OrgRole,
+    WorkspaceRole,
 };
 use fvoci_store::Identity;
 use reqwest::StatusCode;
@@ -475,7 +476,11 @@ async fn a_guest_carries_their_account_over_and_keeps_their_boards() {
     let board = async |title: &str| {
         let board: fvoci_model::Container = ts
             .client
-            .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Private, title))
+            .create_board(&new_board(
+                TEST_WORKSPACE_ID,
+                ContainerVisibility::Private,
+                title,
+            ))
             .await
             .created_json();
         board.id

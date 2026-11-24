@@ -38,7 +38,7 @@ pub struct Problem {
     pub reason: Option<String>,
     /// What of the request was refused, one entry for each. `register`,
     /// `changePassword`, `patchMe`, `patchUserSettings`, `patchClientState`,
-    /// `createSubscription`, `createUpload`, `createImportUpload`, `setSharing`,
+    /// `createSubscription`, `createUpload`, `createImportUpload`, `setPublicLink`,
     /// `getCards`, `createCard` and `patchCard` list everything their check of the
     /// request's own shape refuses, the first 100; so does the check of a category's
     /// own members. Every other refusal names the one thing it is about: what is only

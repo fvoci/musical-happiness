@@ -54,7 +54,7 @@ async fn private_board(client: &Client, title: &str) -> Container {
     client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
-            &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": title}),
+            &json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": title}),
         )
         .await
         .created_json()
@@ -520,7 +520,7 @@ async fn the_sidebar_of_a_guest_has_the_boards_they_are_on_and_no_other() {
         .client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
-            &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "O", "title": "Open, never joined"}),
+            &json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "open", "title": "Open, never joined"}),
         )
         .await
         .created_json();

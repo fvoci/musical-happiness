@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Category, CategoryContainerMetadata, Container, ContainerType};
+use fvoci_model::{Category, CategoryContainerMetadata, Container, ContainerVisibility};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -232,7 +232,8 @@ async fn the_default_category_is_created_once_by_concurrent_requests() {
     let board = |title: String| {
         let client = th.client.clone();
         async move {
-            let body = json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": title});
+            let body =
+                json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": title});
             client.post(&format!("{ROOT_WS}/boards"), &body).await
         }
     };
@@ -299,7 +300,7 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         .client
         .create_board(&Container {
             workspace_id: ROOT_WORKSPACE_ID.to_owned(),
-            container_type: ContainerType::Open,
+            visibility: ContainerVisibility::Open,
             ..Container::default()
         })
         .await

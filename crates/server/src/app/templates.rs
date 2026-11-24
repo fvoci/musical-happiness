@@ -9,8 +9,8 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, Container, ContainerKind, ContainerType, ContainersAndBlocks,
-    CourseScheduleUpdate, FileInfo, TEMPLATE_SCHEDULE_PROPERTY, WorkspaceRole,
+    Block, BlockType, Container, ContainerKind, ContainerVisibility, ContainersAndBlocks,
+    CourseScheduleUpdate, FileRecord, TEMPLATE_SCHEDULE_PROPERTY, WorkspaceRole,
     renew_containers_and_blocks_ids,
 };
 use fvoci_store::{CopyChanges, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Tenant};
@@ -18,7 +18,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::App;
-use super::files::{FilePlace, file_info};
+use super::files::{FilePlace, file_record};
 use super::language::Language;
 use super::loose_objects::Written;
 use crate::error::AppError;
@@ -196,7 +196,7 @@ struct BuiltinTemplates {
 
 /// A file of a built-in template: its record, at a place of its board, and its bytes.
 struct StoredAsset {
-    info: FileInfo,
+    record: FileRecord,
     bytes: &'static [u8],
 }
 
@@ -374,7 +374,7 @@ fn template_board(
         card_properties,
         is_template: true,
         template_version: DEFAULT_TEMPLATE_VERSION,
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..Container::default()
     };
     board.properties.insert(
@@ -499,9 +499,9 @@ fn place_assets<'b>(
                 format_args!("names the file {}, which is too large", asset.asset),
             )
         })?;
-        let info = file_info(board_id, place, size, "");
+        let record = file_record(board_id, place, size, "");
         if stored_names
-            .insert(&asset.asset, info.stored_name.clone())
+            .insert(&asset.asset, record.stored_name.clone())
             .is_some()
         {
             return Err(mistake(
@@ -509,7 +509,7 @@ fn place_assets<'b>(
                 format_args!("names the file {} twice", asset.asset),
             ));
         }
-        stored.push(StoredAsset { info, bytes });
+        stored.push(StoredAsset { record, bytes });
     }
 
     let mut shown: HashSet<&str> = HashSet::with_capacity(assets.len());
@@ -590,7 +590,7 @@ impl App {
                 .await;
             return Err(error);
         }
-        let records: Vec<FileInfo> = files.iter().map(|file| file.info.clone()).collect();
+        let records: Vec<FileRecord> = files.iter().map(|file| file.record.clone()).collect();
         // One transaction that decides again: of two servers, or requests for a first
         // board, that found the templates missing, one stores them. What is stored on
         // behalf of nobody is the system's own.
@@ -630,7 +630,7 @@ impl App {
     /// Writes the files of the templates, each at its place, marked as being written.
     async fn write_template_files(&self, files: &[StoredAsset]) -> Result<(), NotStored> {
         for file in files {
-            let path = &file.info.path;
+            let path = &file.record.path;
             self.mark_writing(path).await.map_err(NotStored::Other)?;
             let mut bytes = file.bytes;
             let write = self.files().write(path, &mut bytes);
@@ -657,7 +657,7 @@ impl App {
     /// recorded (the templates were stored, with the answer lost), is left alone.
     async fn give_up_template_files(&self, files: &[StoredAsset], written: Written) {
         for file in files {
-            self.give_up_writing(&file.info.path, written).await;
+            self.give_up_writing(&file.record.path, written).await;
         }
     }
 

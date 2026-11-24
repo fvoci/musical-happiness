@@ -210,8 +210,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "made",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:2>"
     }
   },
@@ -237,8 +237,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "made",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:2>"
     }
   },
@@ -264,8 +264,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "made",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:2>"
     }
   },

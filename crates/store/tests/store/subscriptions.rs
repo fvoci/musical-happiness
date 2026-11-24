@@ -1290,10 +1290,21 @@ async fn seed_pre_0069(pre: &Store) -> Pre0069Fixture {
     let bob = common::user(&scoped_a, "bob").await;
     common::works_in(&scoped_a, &ws_a, &alice).await;
     common::works_in(&scoped_a, &ws_a, &bob).await;
-    let board_a = common::create_test_boards(&scoped_a, &ws_a, &alice, 1)
+    let board_a_id = new_id();
+    scoped_a
+        .execute_unchecked(&format!(
+            "INSERT INTO containers \
+             (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
+              show_description, is_template, properties, card_properties, create_at, update_at) \
+             VALUES ('{board_a_id}', '{ws_a}', '{alice}', '{alice}', 'O', 'board', 'board 0', \
+              '', '', false, false, '{{}}', '[]', 1, 1)"
+        ))
         .await
-        .pop()
-        .expect("board");
+        .expect("pre-0069 board_a");
+    let board_a = fvoci_model::Container {
+        id: board_a_id,
+        ..fvoci_model::Container::default()
+    };
     let mut cards_a = vec![
         card_on(&board_a.id, &alice),
         card_on(&board_a.id, &alice),
@@ -1357,10 +1368,21 @@ async fn seed_pre_0069_second_org(pre: &Store, alice: &str) -> Pre0069SecondOrg 
     let scoped_b = pre.for_org(&org_b).expect("org-b scope");
     let carol = common::user(&scoped_b, "carol").await;
     common::works_in(&scoped_b, &ws_b, &carol).await;
-    let board_b = common::create_test_boards(&scoped_b, &ws_b, &carol, 1)
+    let board_b_id = new_id();
+    scoped_b
+        .execute_unchecked(&format!(
+            "INSERT INTO containers \
+             (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
+              show_description, is_template, properties, card_properties, create_at, update_at) \
+             VALUES ('{board_b_id}', '{ws_b}', '{carol}', '{carol}', 'O', 'board', 'board 0', \
+              '', '', false, false, '{{}}', '[]', 1, 1)"
+        ))
         .await
-        .pop()
-        .expect("board-b");
+        .expect("pre-0069 board_b");
+    let board_b = fvoci_model::Container {
+        id: board_b_id,
+        ..fvoci_model::Container::default()
+    };
     let mut cards_b = vec![card_on(&board_b.id, &carol), card_on(&board_b.id, &carol)];
     common::insert_blocks(&scoped_b.telling_nobody(), &mut cards_b, &carol).await;
     let (live_b, trashed_b) = (cards_b[0].clone(), cards_b[1].clone());

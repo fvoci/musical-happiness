@@ -1,6 +1,6 @@
 //! The previews the card list gives when asked.
 
-use fvoci_model::{Container, ContainerType, new_id};
+use fvoci_model::{Container, ContainerVisibility, new_id};
 use serde_json::{Value, json};
 
 use crate::cards::cards_path;
@@ -13,7 +13,7 @@ use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
 /// file of the image in the list, and the first user's identifier.
 async fn board_with_previewed_card(th: &TestServer) -> (Container, String, String) {
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let me = th.client.me().await;
     let upload = crate::files::upload(&th.client, &board.id, "picture.png", b"png").await;

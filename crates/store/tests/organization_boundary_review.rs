@@ -23,7 +23,7 @@ async fn failed_and_cancelled_transactions_do_not_leave_an_organization_on_the_p
     let mut board = fvoci_model::Container {
         id: new_id(),
         workspace_id: test.workspace_id.clone(),
-        container_type: fvoci_model::ContainerType::Private,
+        visibility: fvoci_model::ContainerVisibility::Private,
         ..fvoci_model::Container::default()
     };
     test.insert_container(&mut board, &user_id)
@@ -128,7 +128,7 @@ async fn an_org_cannot_attach_a_board_to_another_orgs_workspace() {
     let mut board = fvoci_model::Container {
         id: new_id(),
         workspace_id: other_workspace,
-        container_type: fvoci_model::ContainerType::Private,
+        visibility: fvoci_model::ContainerVisibility::Private,
         ..fvoci_model::Container::default()
     };
     let inserted = test.insert_container(&mut board, &user_id).await;

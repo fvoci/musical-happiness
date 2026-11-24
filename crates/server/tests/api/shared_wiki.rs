@@ -38,8 +38,8 @@ struct SharedWiki {
 async fn shared_wiki(th: &TestServer) -> SharedWiki {
     let owner = &th.client;
     let other = &th.client2;
-    let mine = made(owner, TEST_WS, "P", "shared").await;
-    let elsewhere = made(owner, TEST_WS, "P", "elsewhere").await;
+    let mine = made(owner, TEST_WS, "private", "shared").await;
+    let elsewhere = made(owner, TEST_WS, "private", "elsewhere").await;
     let owner_id = owner.me().await.id;
     let other_id = other.me().await.id;
     let wiki = mine.wiki.clone();
@@ -174,7 +174,7 @@ async fn a_wiki_link_reads_no_blocks_or_cards_and_a_board_link_no_pages() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let shared = shared_wiki(&th).await;
     let owner = &th.client;
-    let board = made(owner, TEST_WS, "P", "a board").await;
+    let board = made(owner, TEST_WS, "private", "a board").await;
     let board_token = th.share(&board.board).await;
     let anonymous = th.anonymous();
     for rest in ["/blocks?all=true", "/cards", "/blocks?type=comment"] {
@@ -213,7 +213,7 @@ async fn a_wiki_link_opens_nothing_once_it_is_off() {
     let reads = |shared: &SharedWiki| [shared.at(""), shared.at("/pages")];
     // A new token.
     let shared = shared_wiki(&th).await;
-    let sharing = format!("{TEST_WS}/containers/{}/sharing", shared.wiki);
+    let sharing = format!("{TEST_WS}/containers/{}/public-link", shared.wiki);
     owner
         .post(&sharing, &json!({"enabled": true, "regenerate": true}))
         .await
@@ -221,7 +221,7 @@ async fn a_wiki_link_opens_nothing_once_it_is_off() {
     for path in reads(&shared) {
         anonymous.get(&path).await.check_not_found();
     }
-    // Sharing off.
+    // PublicLink off.
     let shared = SharedWiki {
         token: th.share(&shared.wiki).await,
         ..shared
@@ -329,7 +329,7 @@ async fn a_visit_by_a_wiki_link_ends_with_its_token() {
     assert_eq!(people(&mut member, 1).await["anonymousCount"], 1);
     th.client
         .post(
-            &format!("{TEST_WS}/containers/{}/sharing", shared.wiki),
+            &format!("{TEST_WS}/containers/{}/public-link", shared.wiki),
             &json!({"enabled": true, "regenerate": true}),
         )
         .await

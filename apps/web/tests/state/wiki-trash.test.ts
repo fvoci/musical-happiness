@@ -27,7 +27,10 @@ async function openWiki() {
   const made = setup();
   await made.workspace.load();
   const workspaceId = made.world.workspace.id;
-  const wiki = await made.backend.wiki.createWiki(workspaceId, { title: 'Handbook', type: 'P' });
+  const wiki = await made.backend.wiki.createWiki(workspaceId, {
+    title: 'Handbook',
+    visibility: 'private',
+  });
   const page = async (title: string, parentId = '') =>
     (await made.backend.wiki.createPage(wiki.id, { title, parentId })).id;
   const store = new WikiStore(made.workspace, wiki.id);

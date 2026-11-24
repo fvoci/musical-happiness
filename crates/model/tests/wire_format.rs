@@ -3,9 +3,9 @@
 use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Card, Category, CategoryContainerMetadata,
     CategoryContainers, CategoryType, ClientConfig, Container, ContainerKind, ContainerMember,
-    ContainerPatch, ContainerType, Credential, InvalidInput, LoginRequest, MinimumRole, NameShown,
-    PatchContainersAndBlocks, PersonName, Problem, Sharing, Subscriber, Subscription, Title, User,
-    UserPreferencesPatch, Workspace,
+    ContainerPatch, ContainerVisibility, Credential, InvalidInput, LoginRequest, MinimumRole,
+    NameShown, PatchContainersAndBlocks, PersonName, Problem, PublicLink, Subscriber, Subscription,
+    Title, User, UserPreferencesPatch, Workspace,
 };
 use serde_json::{Value, json};
 
@@ -212,7 +212,7 @@ fn container_json_members() {
         workspace_id: "0".to_owned(),
         created_by: "u1".to_owned(),
         modified_by: "u1".to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Board,
         minimum_role: MinimumRole::Commenter,
         title: "Roadmap".to_owned(),
@@ -231,7 +231,7 @@ fn container_json_members() {
     };
     let want = json!({
         "id": "b1", "workspaceId": "0", "createdBy": "u1", "modifiedBy": "u1",
-        "type": "P", "kind": "board", "minimumRole": "commenter", "title": "Roadmap", "description": "d",
+        "visibility": "private", "kind": "board", "minimumRole": "commenter", "title": "Roadmap", "description": "d",
         "icon": "🚀", "showDescription": true, "isTemplate": false, "isBuiltin": false, "templateVersion": 6,
         "properties": { "k": "v" }, "cardProperties": [{ "id": "p1", "name": "Status" }],
         "createAt": 1, "updateAt": 2, "deleteAt": 0
@@ -244,17 +244,18 @@ fn container_json_members() {
 }
 
 #[test]
-fn container_requires_a_valid_type_and_role() {
-    let minimal: Container = serde_json::from_value(json!({ "type": "O" })).expect("decodes");
+fn container_requires_a_valid_visibility_and_role() {
+    let minimal: Container =
+        serde_json::from_value(json!({ "visibility": "open" })).expect("decodes");
     assert_eq!(minimal, Container::default());
     // A board always has a minimum role. One that names none starts with editor.
     assert_eq!(minimal.minimum_role, MinimumRole::Editor);
     assert_eq!(to_json(&minimal)["minimumRole"], json!("editor"));
-    serde_json::from_value::<Container>(json!({ "type": "O", "minimumRole": null }))
+    serde_json::from_value::<Container>(json!({ "visibility": "open", "minimumRole": null }))
         .expect_err("a null minimum role is refused: it may only be left out");
     for role in MinimumRole::ALL {
         let board: Container =
-            serde_json::from_value(json!({ "type": "O", "minimumRole": role.as_str() }))
+            serde_json::from_value(json!({ "visibility": "open", "minimumRole": role.as_str() }))
                 .expect("decodes");
         assert_eq!(board.minimum_role, role);
     }
@@ -263,12 +264,18 @@ fn container_requires_a_valid_type_and_role() {
     // of a board by joining it.
     for body in [
         json!({}),
-        json!({ "type": "" }),
-        json!({ "type": "X" }),
-        json!({ "type": "O", "minimumRole": "owner" }),
-        json!({ "type": "O", "minimumRole": "" }),
-        json!({ "type": "O", "minimumRole": "admin" }),
-        json!({ "type": "O", "minimumRole": "Editor" }),
+        json!({ "visibility": "" }),
+        json!({ "visibility": "X" }),
+        json!({ "visibility": "Open" }),
+        json!({ "visibility": "O" }),
+        json!({ "visibility": "P" }),
+        json!({ "type": "O" }),
+        json!({ "type": "P" }),
+        json!({ "type": "open" }),
+        json!({ "visibility": "open", "minimumRole": "owner" }),
+        json!({ "visibility": "open", "minimumRole": "" }),
+        json!({ "visibility": "open", "minimumRole": "admin" }),
+        json!({ "visibility": "open", "minimumRole": "Editor" }),
     ] {
         assert!(
             serde_json::from_value::<Container>(body.clone()).is_err(),
@@ -291,7 +298,7 @@ fn container_patch_apply_merges_card_properties_in_order() {
         ..Container::default()
     };
     let patch: ContainerPatch = serde_json::from_value(json!({
-        "type": "P", "minimumRole": "viewer", "title": "t", "description": "d", "icon": "i",
+        "visibility": "private", "minimumRole": "viewer", "title": "t", "description": "d", "icon": "i",
         "showDescription": true,
         "updatedProperties": { "new": 3 }, "deletedProperties": ["drop"],
         "updatedCardProperties": [{ "id": "b", "name": "B2" }, { "id": "d", "name": "D" }, { "name": "skipped" }],
@@ -301,7 +308,7 @@ fn container_patch_apply_merges_card_properties_in_order() {
 
     patch.apply(&mut board);
 
-    assert_eq!(board.container_type, ContainerType::Private);
+    assert_eq!(board.visibility, ContainerVisibility::Private);
     assert_eq!(board.minimum_role, MinimumRole::Viewer);
     assert_eq!(
         (board.title.as_str(), board.description.as_str()),
@@ -560,7 +567,7 @@ fn user_json_hides_credentials_and_carries_the_name() {
 }
 
 #[test]
-fn workspace_and_sharing_json_members() {
+fn workspace_and_public_link_json_members() {
     let workspace = Workspace {
         id: "0".to_owned(),
         title: "t".to_owned(),
@@ -577,9 +584,9 @@ fn workspace_and_sharing_json_members() {
         })
     );
 
-    // What is answered about sharing: whether, the token while there is one, and when.
-    // Whose board it is and who changed it are not part of the answer.
-    let sharing = Sharing {
+    // What is answered about a public link: whether it is enabled, the token while
+    // there is one, and when. Whose board it is and who changed it are not part of the answer.
+    let link = PublicLink {
         container_id: "b".to_owned(),
         enabled: true,
         token: "tok".to_owned(),
@@ -587,16 +594,16 @@ fn workspace_and_sharing_json_members() {
         update_at: 9,
     };
     assert_eq!(
-        to_json(&sharing),
+        to_json(&link),
         json!({ "enabled": true, "token": "tok", "updateAt": 9 })
     );
     assert_eq!(
-        to_json(&Sharing {
+        to_json(&PublicLink {
             container_id: "b".to_owned(),
-            ..Sharing::default()
+            ..PublicLink::default()
         }),
         json!({ "enabled": false }),
-        "a board that was never shared"
+        "a board that never had a public link"
     );
 }
 
@@ -819,12 +826,12 @@ fn null_is_refused_for_members_that_are_not_nullable() {
     refuses::<Container>(
         &json!({
             "id": "b1", "workspaceId": "w1", "createdBy": "u1", "modifiedBy": "u1",
-            "type": "P", "minimumRole": "editor", "title": "t", "description": "", "icon": "",
+            "visibility": "private", "minimumRole": "editor", "title": "t", "description": "", "icon": "",
             "showDescription": false, "isTemplate": false, "templateVersion": 0,
             "properties": {}, "cardProperties": [], "createAt": 1, "updateAt": 1,
             "deleteAt": 0,
         }),
-        &["type"],
+        &["visibility"],
         "a board",
     );
     refuses::<ContainerMember>(

@@ -11,7 +11,7 @@ pub(super) async fn exercise(case: &mut Case) {
         .run(
             "createBoard",
             &[],
-            json!({"title": format!("secret {} board", case.label), "type": "O", "cardProperties": [{"id": "first", "name": "First", "type": "text"}, {"id": "second", "name": "Second", "type": "text"}]}),
+            json!({"title": format!("secret {} board", case.label), "visibility": "open", "cardProperties": [{"id": "first", "name": "First", "type": "text"}, {"id": "second", "name": "Second", "type": "text"}]}),
         )
         .await
         .value();
@@ -41,7 +41,7 @@ pub(super) async fn exercise(case: &mut Case) {
             .run(
                 "createBoard",
                 &[],
-                json!({"title": format!("{} private fixture", case.label), "type": "P", "isTemplate": template}),
+                json!({"title": format!("{} private fixture", case.label), "visibility": "private", "isTemplate": template}),
             )
             .await
             .value();
@@ -78,8 +78,9 @@ async fn boards(case: &mut Case, board: &str) {
         json!(["second", "first"]),
         "nonempty properties are reordered"
     );
-    case.run("setSharing", at, json!({"enabled": true})).await;
-    let sharing = case.run("getSharing", at, json!({})).await.value();
+    case.run("setPublicLink", at, json!({"enabled": true}))
+        .await;
+    let sharing = case.run("getPublicLink", at, json!({})).await.value();
     assert_eq!(sharing["enabled"], true, "sharing was enabled");
 }
 
@@ -89,7 +90,7 @@ async fn wikis(case: &mut Case) {
         .run(
             "createWiki",
             &[],
-            json!({"title": format!("secret {} wiki", case.label), "type": "P"}),
+            json!({"title": format!("secret {} wiki", case.label), "visibility": "private"}),
         )
         .await
         .value();
@@ -108,7 +109,7 @@ async fn courses(case: &mut Case) {
         .run(
             "createCourse",
             &[],
-            json!({"title": format!("secret {} course", case.label), "type": "P"}),
+            json!({"title": format!("secret {} course", case.label), "visibility": "private"}),
         )
         .await
         .value();
@@ -740,7 +741,7 @@ async fn joining(case: &mut Case) {
         .run(
             "createBoard",
             &[],
-            json!({"title": "Join and leave", "type": "O"}),
+            json!({"title": "Join and leave", "visibility": "open"}),
         )
         .await
         .value();
@@ -761,7 +762,7 @@ async fn audit_admission(case: &mut Case) -> String {
         .run(
             "createBoard",
             &[],
-            json!({"title": "Audit admission", "type": "P"}),
+            json!({"title": "Audit admission", "visibility": "private"}),
         )
         .await
         .value();
@@ -809,7 +810,7 @@ async fn subscriptions(case: &mut Case, card: &str) {
 
 async fn bulk(case: &mut Case) {
     let made = case.run("createBoardsAndBlocks", &[], json!({
-        "containers": [{"id": "board-reference", "title": "Bulk board", "type": "P", "workspaceId": case.workspace}],
+        "containers": [{"id": "board-reference", "title": "Bulk board", "visibility": "private", "workspaceId": case.workspace}],
         "blocks": [{"id": "card-reference", "containerId": "board-reference", "title": "Bulk card", "type": "card", "createAt": 1, "updateAt": 1}]
     })).await.value();
     let board = case.remember(&made["containers"][0], "id");
@@ -828,7 +829,7 @@ async fn templates(case: &mut Case) {
         .run(
             "createBoard",
             &[],
-            json!({"title": format!("{} template", case.label), "type": "P", "isTemplate": true}),
+            json!({"title": format!("{} template", case.label), "visibility": "private", "isTemplate": true}),
         )
         .await
         .value();

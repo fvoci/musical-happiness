@@ -1,12 +1,13 @@
 //! Files, read tokens, partial uploads and housekeeping across organizations.
 
 use bytes::Bytes;
+use fvoci_model::PublicLinkChange;
 use fvoci_model::{
-    Block, BlockType, Container, ContainerType, Upload, Workspace, WorkspaceRole, new_id,
+    Block, BlockType, Container, ContainerVisibility, Upload, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_server::app::{App, FileToUpload};
 use fvoci_server::config::{Configuration, S3Config};
-use fvoci_store::{DbType, SharingChange, Tenant};
+use fvoci_store::{DbType, Tenant};
 use reqwest::{Method, StatusCode};
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
@@ -78,7 +79,7 @@ impl Scene {
         let ts = setup.start().await.init_basic().await;
         let user = ts.client.me().await.id;
         let a = ts
-            .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+            .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private)
             .await;
         let workspace = Workspace {
             id: new_id(),
@@ -101,7 +102,7 @@ impl Scene {
         let mut b = Container {
             id: new_id(),
             workspace_id: workspace.id.clone(),
-            container_type: ContainerType::Private,
+            visibility: ContainerVisibility::Private,
             title: "B only".to_owned(),
             ..Container::default()
         };
@@ -113,7 +114,7 @@ impl Scene {
         let mut other = Container {
             id: new_id(),
             workspace_id: workspace.id,
-            container_type: ContainerType::Private,
+            visibility: ContainerVisibility::Private,
             ..Container::default()
         };
         b_app
@@ -219,7 +220,7 @@ impl Scene {
         ] {
             let info = app
                 .store()
-                .get_file_info(board, name)
+                .get_file_record(board, name)
                 .await
                 .expect("the file's record");
             assert!(
@@ -253,7 +254,7 @@ impl Scene {
         let bytes_b = b"organization B file";
         let token_b = b_app
             .store()
-            .set_sharing(&b.id, SharingChange::On, "media-b-read-token", user)
+            .set_public_link(&b.id, PublicLinkChange::On, "media-b-read-token", user)
             .await
             .expect("B's read token")
             .token;
@@ -338,12 +339,12 @@ impl Scene {
         let info_a = ts
             .app
             .store()
-            .get_file_info(&a.id, name_a)
+            .get_file_record(&a.id, name_a)
             .await
             .expect("A's key");
         let info_b = b_app
             .store()
-            .get_file_info(&b.id, name_b)
+            .get_file_record(&b.id, name_b)
             .await
             .expect("B's key");
         assert_ne!(
@@ -481,7 +482,7 @@ async fn cancelling_a_misbound_upload_does_not_delete_another_orgs_recorded_file
     let victim = scene
         .b_app
         .store()
-        .get_file_info(&scene.b.id, &name_b)
+        .get_file_record(&scene.b.id, &name_b)
         .await
         .expect("B's real file");
     let mut forged = scene
@@ -518,7 +519,7 @@ async fn cancelling_a_misbound_upload_does_not_delete_another_orgs_recorded_file
     let record_exists = scene
         .b_app
         .store()
-        .get_file_info(&scene.b.id, &name_b)
+        .get_file_record(&scene.b.id, &name_b)
         .await
         .is_ok();
     scene.ts.teardown().await;
@@ -542,7 +543,7 @@ async fn purging_a_trash_row_does_not_delete_another_orgs_file() {
     let victim = scene
         .b_app
         .store()
-        .get_file_info(&scene.b.id, &name_b)
+        .get_file_record(&scene.b.id, &name_b)
         .await
         .expect("B's real file");
     let files = json!([{

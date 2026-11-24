@@ -168,7 +168,7 @@ export function putBack(
   const memberIds = (world.members.get(board.id) ?? []).map((member) => member.userId);
   const told: string[] = [];
   for (const place of places) {
-    if (board.type !== 'O' && !memberIds.includes(place.userId)) continue;
+    if (board.visibility !== 'open' && !memberIds.includes(place.userId)) continue;
     const theirs = categoriesIn(world, place.userId, board.workspaceId);
     const kept = theirs.find((category) => category.id === place.categoryId);
     const category = kept ?? theirs.find((each) => each.type === 'system');
@@ -209,7 +209,7 @@ export function mayManageCards(
   // Only boards have cards: wikis, diaries and courses answer as not found.
   if (!board || (board.kind ?? 'board') !== 'board') fail(404, 'no such board');
   const member = world.members.get(boardId)?.find((each) => each.userId === userId);
-  if (!member && board.type !== 'O') fail(404, 'no such board');
+  if (!member && board.visibility !== 'open') fail(404, 'no such board');
   if (!member?.schemeAdmin && !member?.schemeEditor) fail(403, refusal);
 }
 

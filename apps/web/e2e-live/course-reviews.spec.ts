@@ -83,7 +83,7 @@ test('full review & note lifecycle on live server with strict user and public-li
 
     const course = await postJson<Schemas['Container']>(adaApi, `${inWorkspace}/courses`, {
       title: 'Live Reviews Course',
-      type: 'O',
+      visibility: 'open',
       minimumRole: 'viewer',
     });
     await postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {

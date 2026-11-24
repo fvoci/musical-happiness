@@ -4,7 +4,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use axum::http::HeaderMap;
 use fvoci_model::{
-    Container, ContainerKind, ContainerPatch, ContainerType, ContainersAndBlocks, JsonMap,
+    Container, ContainerKind, ContainerPatch, ContainerVisibility, ContainersAndBlocks, JsonMap,
     MinimumRole,
 };
 use serde::de::DeserializeOwned;
@@ -49,21 +49,22 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// What a JSON object of a request is, for [`check_closed_members`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BoardObject {
-    /// A new board: it has a `type`.
+    /// A new board: it has a `visibility`.
     Board,
     /// A patch of a board: each member may be left out or `null`.
     Patch,
 }
 
-/// Refuses a board or a board patch whose `type` or `minimumRole` is outside its closed
-/// set, a board whose `kind` is, and a board without a `type`, naming the member below `at` (the JSON
-/// Pointer of the object in the body, empty for the body itself). The refusal does not
-/// repeat the value: decoding would refuse it too, in words that do.
+/// Refuses a board or a board patch whose `visibility` or `minimumRole` is outside its
+/// closed set, a board whose `kind` is, and a board without a `visibility`, naming the
+/// member below `at` (the JSON Pointer of the object in the body, empty for the body
+/// itself). The refusal does not repeat the value: decoding would refuse it too, in words
+/// that do.
 ///
 /// # Errors
 ///
-/// Returns a bad request naming the first of `type`, `minimumRole` and `kind` that is
-/// refused.
+/// Returns a bad request naming the first of `visibility`, `minimumRole` and `kind` that
+/// is refused.
 pub(super) fn check_closed_members(
     object: &JsonMap,
     at: &str,
@@ -74,12 +75,12 @@ pub(super) fn check_closed_members(
         value.is_some_and(|value| !value.is_null() && T::deserialize(value).is_err())
     }
 
-    let type_value = object.get("type");
-    let no_type = kind == BoardObject::Board && type_value.is_none_or(Value::is_null);
-    if no_type || is_outside::<ContainerType>(type_value) {
+    let visibility_value = object.get("visibility");
+    let no_visibility = kind == BoardObject::Board && visibility_value.is_none_or(Value::is_null);
+    if no_visibility || is_outside::<ContainerVisibility>(visibility_value) {
         return Err(
-            AppError::bad_request("the type of a board is `O` (open) or `P` (private)")
-                .with_pointer(format!("{at}/type")),
+            AppError::bad_request("the visibility of a board is `open` or `private`")
+                .with_pointer(format!("{at}/visibility")),
         );
     }
     if is_outside::<MinimumRole>(object.get("minimumRole")) {
@@ -199,11 +200,11 @@ async fn handle_get_container(
 
 /// Change a board
 ///
-/// For who may manage the board's properties. Changing `type` or `minimumRole` is for
-/// the board's admins. A wiki is changed here too, by its identifier; it takes no card
-/// properties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board:
-/// a patch with a `kind`, even the board's own, is 400 at `/kind`. Other members it does
-/// not know are left out.
+/// For who may manage the board's properties. Changing `visibility` or `minimumRole` is
+/// for the board's admins. A wiki is changed here too, by its identifier; it takes no
+/// card properties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a
+/// board: a patch with a `kind`, even the board's own, is 400 at `/kind`. Other members
+/// it does not know are left out.
 #[utoipa::path(
     patch,
     path = "/w/{workspaceId}/containers/{containerId}",
@@ -228,7 +229,7 @@ async fn handle_patch_container(
     )
     .await?;
     let patch = decode_container_patch(&body)?;
-    if patch.container_type.is_some() || patch.minimum_role.is_some() {
+    if patch.visibility.is_some() || patch.minimum_role.is_some() {
         require_container_permission(
             &ws.app,
             user_id,

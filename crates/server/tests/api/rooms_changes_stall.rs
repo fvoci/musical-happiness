@@ -58,7 +58,7 @@ async fn a_slow_permission_read_does_not_hold_other_changes_of_the_organization(
     let th = slow_store_deadline().start().await.init_basic().await;
     let (table, _owner, _member) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let elsewhere = th
-        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerVisibility::Private)
         .await;
     let user = th.client2.me().await.id;
     let waiting = th.app.collab().stall_next_access_check();

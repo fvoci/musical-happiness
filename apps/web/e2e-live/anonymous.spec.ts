@@ -63,10 +63,10 @@ test('a body read with a read token alone names nobody in its mentions, is drawn
   });
   expect(written.ok()).toBe(true);
   const shared = (await (
-    await api.post(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}/sharing`, {
+    await api.post(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}/public-link`, {
       data: { enabled: true },
     })
-  ).json()) as Schemas['Sharing'];
+  ).json()) as Schemas['PublicLink'];
   expect(shared.token).toBeTruthy();
 
   // Read with the read token alone, signed in as nobody.

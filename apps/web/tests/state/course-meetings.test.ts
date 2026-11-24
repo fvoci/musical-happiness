@@ -170,7 +170,7 @@ describe('in-memory course meetings, attendance, exams, privacy & tombstones', (
 
     const course = await made.backend.course.createCourse(wsId, {
       title: 'Databases',
-      type: 'O',
+      visibility: 'open',
       minimumRole: 'viewer',
     });
     const unit = await made.backend.course.createUnit(course.id, {

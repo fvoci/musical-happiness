@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use fvoci_collab::reading_steps;
 use fvoci_collab::testing::Editor;
-use fvoci_model::ContainerType;
+use fvoci_model::ContainerVisibility;
 use fvoci_server::collab::FOLD_AFTER;
 use serde_json::{Value, json};
 
@@ -320,7 +320,7 @@ async fn wait_version_body(th: &TestServer, card_id: &str, actor_id: &str) -> Va
 async fn collab_fold_settle_failure_recovers_via_remake_preserving_body_mentions_and_version() {
     let th = Setup::native().start().await.init_basic().await;
     let (a, b) = (th.client.me().await, th.client2.me().await);
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
     let initial = card_with(&th.client, &board.id, &paragraphs(&["start"])).await;
     let e = Editing {
@@ -423,7 +423,7 @@ async fn collab_fold_settle_failure_recovers_via_remake_preserving_body_mentions
 async fn collab_close_settle_failure_recovers_via_remake_preserving_body_mentions_and_version() {
     let th = Setup::native().start().await.init_basic().await;
     let (a, b) = (th.client.me().await, th.client2.me().await);
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
     let initial = card_with(&th.client, &board.id, &paragraphs(&["close-start"])).await;
     let e = Editing {
@@ -486,7 +486,7 @@ async fn collab_close_settle_failure_recovers_via_remake_preserving_body_mention
 async fn collab_open_while_unsettled_settle_failure_remakes_without_losing_edits() {
     let th = Setup::native().start().await.init_basic().await;
     let (a, b) = (th.client.me().await, th.client2.me().await);
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
     let initial = card_with(&th.client, &board.id, &paragraphs(&["open-start"])).await;
     let e = Editing {

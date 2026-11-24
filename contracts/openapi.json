@@ -1321,7 +1321,7 @@
           },
           "kind": {
             "$ref": "#/components/schemas/ContainerKind",
-            "description": "What the board is for: `board` for cards, `wiki` for pages, `diary` for the\nentries of its days, `course` for chapters and units. It is what the board was\nmade as and never changes; a board decoded without it is a `board`. A wiki, a\ndiary and a course are no template and have no card properties, and the\noperations that are about cards answer for them as for a board that is not there.\nA diary is private (`type` `P`) besides, and is only in the workspace of a user's\nown space (\"Diaries\")."
+            "description": "What the board is for: `board` for cards, `wiki` for pages, `diary` for the\nentries of its days, `course` for chapters and units. It is what the board was\nmade as and never changes; a board decoded without it is a `board`. A wiki, a\ndiary and a course are no template and have no card properties, and the\noperations that are about cards answer for them as for a board that is not there.\nA diary is private (`visibility` `private`) besides, and is only in the workspace\nof a user's own space (\"Diaries\")."
           },
           "minimumRole": {
             "$ref": "#/components/schemas/MinimumRole",
@@ -1349,14 +1349,14 @@
             "description": "The board's title. No text of a board (this, `description`, `icon`, and the\nstrings and member names of `properties` and `cardProperties`) holds U+0000:\n400 naming the member.",
             "type": "string"
           },
-          "type": {
-            "$ref": "#/components/schemas/ContainerType",
-            "description": "Whether the board is open or private."
-          },
           "updateAt": {
             "description": "Last modification time in milliseconds since the Unix epoch.",
             "format": "int64",
             "type": "integer"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/ContainerVisibility",
+            "description": "Whether the board is open or private."
           },
           "workspaceId": {
             "description": "The identifier of the workspace the board belongs to.",
@@ -1380,8 +1380,8 @@
           "showDescription",
           "templateVersion",
           "title",
-          "type",
           "updateAt",
+          "visibility",
           "workspaceId"
         ],
         "type": "object"
@@ -1505,17 +1505,6 @@
               "null"
             ]
           },
-          "type": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ContainerType",
-                "description": "The new board type."
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "updatedCardProperties": {
             "description": "Card property definitions to add or replace, matched by their `id`.",
             "items": {
@@ -1528,6 +1517,17 @@
             "additionalProperties": true,
             "description": "Board properties to set.",
             "type": "object"
+          },
+          "visibility": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ContainerVisibility",
+                "description": "The new board visibility."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object"
@@ -1563,11 +1563,11 @@
         ],
         "type": "object"
       },
-      "ContainerType": {
+      "ContainerVisibility": {
         "description": "Who may see and join a board.",
         "enum": [
-          "O",
-          "P"
+          "open",
+          "private"
         ],
         "type": "string"
       },
@@ -2544,7 +2544,38 @@
         ],
         "type": "object"
       },
-      "FileInfo": {
+      "FileLease": {
+        "description": "Whether somebody has a file open in the editor now, and who.",
+        "properties": {
+          "editing": {
+            "description": "Whether somebody holds the file's lease: has it open in the editor.",
+            "type": "boolean"
+          },
+          "editorId": {
+            "description": "Who holds it, where the caller may see who that is (the caller included); empty\nfor nobody, and for somebody the caller does not see.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "editing",
+          "editorId"
+        ],
+        "type": "object"
+      },
+      "FileLeaseRequest": {
+        "description": "The lease a caller asks to hold: one held already, to be held on, or none.",
+        "properties": {
+          "leaseId": {
+            "description": "The lease the caller holds, as `holdFileLease` gave it; empty to take one.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "leaseId"
+        ],
+        "type": "object"
+      },
+      "FileRecord": {
         "description": "What the server records about an uploaded file.",
         "properties": {
           "createAt": {
@@ -2576,37 +2607,6 @@
           "id",
           "name",
           "size"
-        ],
-        "type": "object"
-      },
-      "FileLease": {
-        "description": "Whether somebody has a file open in the editor now, and who.",
-        "properties": {
-          "editing": {
-            "description": "Whether somebody holds the file's lease: has it open in the editor.",
-            "type": "boolean"
-          },
-          "editorId": {
-            "description": "Who holds it, where the caller may see who that is (the caller included); empty\nfor nobody, and for somebody the caller does not see.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "editing",
-          "editorId"
-        ],
-        "type": "object"
-      },
-      "FileLeaseRequest": {
-        "description": "The lease a caller asks to hold: one held already, to be held on, or none.",
-        "properties": {
-          "leaseId": {
-            "description": "The lease the caller holds, as `holdFileLease` gave it; empty to take one.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "leaseId"
         ],
         "type": "object"
       },
@@ -3743,13 +3743,13 @@
             "description": "The board's title.",
             "type": "string"
           },
-          "type": {
-            "$ref": "#/components/schemas/ContainerType",
+          "visibility": {
+            "$ref": "#/components/schemas/ContainerVisibility",
             "description": "Whether the board is open or private."
           }
         },
         "required": [
-          "type"
+          "visibility"
         ],
         "type": "object"
       },
@@ -3878,13 +3878,13 @@
             "description": "The course's title. Left out, empty.",
             "type": "string"
           },
-          "type": {
-            "$ref": "#/components/schemas/ContainerType",
-            "description": "Whether the course is open (`O`), for whoever works in the workspace to read and\nsearch without joining, and to join to enroll, or private (`P`), for whom it is\nshared with."
+          "visibility": {
+            "$ref": "#/components/schemas/ContainerVisibility",
+            "description": "Whether the course is `open`, for whoever works in the workspace to read and\nsearch without joining, and to join to enroll, or `private`, for whom it is\nshared with."
           }
         },
         "required": [
-          "type"
+          "visibility"
         ],
         "type": "object"
       },
@@ -4288,13 +4288,13 @@
             "description": "The wiki's title. Left out, empty.",
             "type": "string"
           },
-          "type": {
-            "$ref": "#/components/schemas/ContainerType",
-            "description": "Whether the wiki is open (`O`), for whoever works in the workspace to read, and to\njoin to write in it, or private (`P`), for whom it is shared with."
+          "visibility": {
+            "$ref": "#/components/schemas/ContainerVisibility",
+            "description": "Whether the wiki is `open`, for whoever works in the workspace to read, and to\njoin to write in it, or `private`, for whom it is shared with."
           }
         },
         "required": [
-          "type"
+          "visibility"
         ],
         "type": "object"
       },
@@ -5161,7 +5161,7 @@
             "type": "string"
           },
           "errors": {
-            "description": "What of the request was refused, one entry for each. `register`,\n`changePassword`, `patchMe`, `patchUserSettings`, `patchClientState`,\n`createSubscription`, `createUpload`, `createImportUpload`, `setSharing`,\n`getCards`, `createCard` and `patchCard` list everything their check of the\nrequest's own shape refuses, the first 100; so does the check of a category's\nown members. Every other refusal names the one thing it is about: what is only\nknown from what is stored, a block of a request with several, and the first\nnode of a document (`body`) that may not be stored.",
+            "description": "What of the request was refused, one entry for each. `register`,\n`changePassword`, `patchMe`, `patchUserSettings`, `patchClientState`,\n`createSubscription`, `createUpload`, `createImportUpload`, `setPublicLink`,\n`getCards`, `createCard` and `patchCard` list everything their check of the\nrequest's own shape refuses, the first 100; so does the check of a category's\nown members. Every other refusal names the one thing it is about: what is only\nknown from what is stored, a block of a request with several, and the first\nnode of a document (`body`) that may not be stored.",
             "items": {
               "$ref": "#/components/schemas/InvalidInput"
             },
@@ -5755,6 +5755,48 @@
           }
         ]
       },
+      "PublicLink": {
+        "description": "The public link state of a board.\n\nThe JSON form is what is answered to those who may manage the board's public link:\nwhether it is enabled, the read token while it is, and when the state last changed.\nA board that never had a public link is `{\"enabled\": false}`.",
+        "properties": {
+          "enabled": {
+            "description": "Whether the public link is enabled.",
+            "type": "boolean"
+          },
+          "token": {
+            "description": "The read token: whoever has it reads the board. The server makes it. Empty, and\nleft out of the JSON form, while the public link is disabled.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "When the state last changed, in milliseconds since the Unix epoch. Zero, and\nleft out of the JSON form, for a board that never had a public link.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "PublicLinkRequest": {
+        "description": "Whether a container's public link is to be enabled.",
+        "properties": {
+          "enabled": {
+            "description": "`true` enables the public link, `false` turns it off. The read token a container\nhad stops working when the link is turned off.",
+            "type": "boolean"
+          },
+          "regenerate": {
+            "description": "With `enabled`, `true` gives the container a new read token; the old one stops\nworking.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
       "Readiness": {
         "description": "The checks of the readiness: what the server depends on to serve.",
         "properties": {
@@ -6274,48 +6316,6 @@
             ]
           }
         },
-        "type": "object"
-      },
-      "Sharing": {
-        "description": "The sharing state of a board.\n\nThe JSON form is what is answered to those who may share the board: whether it is\nshared, the read token while it is, and when the state last changed. A board that\nwas never shared is `{\"enabled\": false}`.",
-        "properties": {
-          "enabled": {
-            "description": "Whether the board is shared.",
-            "type": "boolean"
-          },
-          "token": {
-            "description": "The read token: whoever has it reads the board. The server makes it. Empty, and\nleft out of the JSON form, while the board is not shared.",
-            "type": "string"
-          },
-          "updateAt": {
-            "description": "When the state last changed, in milliseconds since the Unix epoch. Zero, and\nleft out of the JSON form, for a board that was never shared.",
-            "format": "int64",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "enabled"
-        ],
-        "type": "object"
-      },
-      "SharingRequest": {
-        "description": "Whether a board is to be shared.",
-        "properties": {
-          "enabled": {
-            "description": "`true` shares the board, `false` stops sharing it. The read token a board had\nstops working when sharing stops.",
-            "type": "boolean"
-          },
-          "regenerate": {
-            "description": "With `enabled`, `true` gives the board a new read token; the old one stops\nworking.",
-            "type": [
-              "boolean",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "enabled"
-        ],
         "type": "object"
       },
       "SnippetPart": {
@@ -7432,7 +7432,7 @@
         "description": "What an upload answers: the name the file is asked for by.",
         "properties": {
           "fileId": {
-            "description": "The identifier of the file: what `getFile` and `getFileInfo` take, and what an\nattachment block, an image or a file block of a body names in its `fileId`.",
+            "description": "The identifier of the file: what `getFile` and `getFileRecord` take, and what an\nattachment block, an image or a file block of a body names in its `fileId`.",
             "type": "string"
           }
         },
@@ -7847,7 +7847,7 @@
     }
   },
   "info": {
-    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its `readToken`, and look at no session that comes along.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401. A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` in bytes.\n\nAny request may be answered 503 with the reason `database_busy`: the database did not take one of its statements in time (another write held the file, or no connection to it was to be had). That statement did nothing and may be taken a moment later. A request of one step may be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done before stays done, and sent again it is answered as its operation says.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## The user's own space\n\nEvery account has a space of its own from the moment it is made, however it was made: an organization of the `kind` `personal` with the account as its only member and one workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, the trash, export and import, and sharing by a public link (`setSharing`) work in it as anywhere. It has no name (a client calls it by the reader's language) and takes none.\n\nWhat it has not is other people, and anybody to administer it. Its identifier is 404 for every operation under `/org/{orgId}` (the organization and its settings, its members, its workspaces, joining one as an administrator, its audit log, its provider of sign-ins), for its owner as for anybody else, and no answer of those operations names it. Under its workspace these are 404, as for a workspace that is not there: `createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, `setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is under it) and on the teams of a board or a wiki (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page (`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is moved to or from another organization but by export and import, and no reference reaches into it from outside or out of it. What changes in it is told to nobody else: the server's operator is posted no block of it (`block_change_webhooks`), and it is in no audit log anybody but its owner reads.\n\nAn account that was made by a sign-in through an organization's provider has no password (`hasPassword` of `getMe`), and until it has one its space is reached by any session of the account. It is given one by `setPassword`, so that its person reaches the space when they are no longer in that organization. Once the account has a password, the space takes only sessions that have shown it: one made with it (`login`), and one made through a provider that gave it since (`confirmPassword`). A provider is an organization's, and whoever holds it could make a session of the account. To a session made through a provider that has not given the password, the routes under the space's `/w/{workspaceId}` then answer 401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space with `passwordRequired` true, `getMyMemberships` leaves its boards out, `getAccountDeletion` names it without what is in it, and the websocket follows nothing of it for such a session (`contracts/websocket.md`). The session stays and opens what it opened of the organizations.\n\nThere are two ways in from there. `confirmPassword` keeps the session: it gives the password once, and from then until it ends the session opens the space beside what it opened before, so that somebody whose organization takes only sessions made through its provider (`sso_required`) goes between that organization and the space without signing in again. Signing in with the password (`login`) opens the space too, in a new session, which such an organization then asks to sign in through its provider again. What a session confirmed opens the account's own space and nothing else: not what is another account's, and nothing of an organization that takes only sessions made through a provider other than the session's own. It goes with the session: a change of the password (`changePassword`, a reset, the operator's) ends the account's other sessions, as it always did, and what they confirmed with them. What is shared from the space by a public link is read without a session, and is not closed so.\n\nIt goes with its account: `getAccountDeletion` names it among `organizations` always, and while the account waits to be deleted it is closed with the account: what is shared from it by a public link answers 404 as a link that is not there, and answers again if the deletion is cancelled.\n\n## Bodies edited together\n\nWhile people edit a card's body together the server holds it as a Y document. What it refuses of an editor has the reason `update_refused`, `update_out_of_step`, `update_too_large`, `document_too_large` or `table_too_large` (`table_too_large` also comes from writing a body whole over HTTP when a table has more than 200 rows or more than 20 columns); `too_many_documents` and `document_unavailable` say that it cannot take the document for now. A write of a card's whole body here (a patch of the card or of blocks, a card stored again) first writes to the card what its editors typed: a `readAt` from before that is refused with 409, and if it cannot be written the write is refused with `document_unavailable`. The editors themselves speak to the server over the websocket, whose messages name the same reasons (`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, `too_many_documents_joined`, `document_full`, `too_many_connections_joined` and `too_many_frames` come only there. The page of each kind says when it comes. `search_not_configured` comes from none of these operations: only from the reindex of the administration socket, on a server configured without a search server (a search there searches its database).\n\n## Request bodies\n\nA request schema lists the members a request is for. A member that is not required may be left out. `null` is a value only of a member whose schema allows it, and is then none; `null` for any other member is refused with 400, as a value of another type is. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings`, `patchMe` and `createSubscription` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setSharing` refuses a `token`.",
+    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its `readToken`, and look at no session that comes along.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401. A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` in bytes.\n\nAny request may be answered 503 with the reason `database_busy`: the database did not take one of its statements in time (another write held the file, or no connection to it was to be had). That statement did nothing and may be taken a moment later. A request of one step may be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done before stays done, and sent again it is answered as its operation says.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## The user's own space\n\nEvery account has a space of its own from the moment it is made, however it was made: an organization of the `kind` `personal` with the account as its only member and one workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, the trash, export and import, and sharing by a public link (`setPublicLink`) work in it as anywhere. It has no name (a client calls it by the reader's language) and takes none.\n\nWhat it has not is other people, and anybody to administer it. Its identifier is 404 for every operation under `/org/{orgId}` (the organization and its settings, its members, its workspaces, joining one as an administrator, its audit log, its provider of sign-ins), for its owner as for anybody else, and no answer of those operations names it. Under its workspace these are 404, as for a workspace that is not there: `createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, `setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is under it) and on the teams of a board or a wiki (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page (`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is moved to or from another organization but by export and import, and no reference reaches into it from outside or out of it. What changes in it is told to nobody else: the server's operator is posted no block of it (`block_change_webhooks`), and it is in no audit log anybody but its owner reads.\n\nAn account that was made by a sign-in through an organization's provider has no password (`hasPassword` of `getMe`), and until it has one its space is reached by any session of the account. It is given one by `setPassword`, so that its person reaches the space when they are no longer in that organization. Once the account has a password, the space takes only sessions that have shown it: one made with it (`login`), and one made through a provider that gave it since (`confirmPassword`). A provider is an organization's, and whoever holds it could make a session of the account. To a session made through a provider that has not given the password, the routes under the space's `/w/{workspaceId}` then answer 401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space with `passwordRequired` true, `getMyMemberships` leaves its boards out, `getAccountDeletion` names it without what is in it, and the websocket follows nothing of it for such a session (`contracts/websocket.md`). The session stays and opens what it opened of the organizations.\n\nThere are two ways in from there. `confirmPassword` keeps the session: it gives the password once, and from then until it ends the session opens the space beside what it opened before, so that somebody whose organization takes only sessions made through its provider (`sso_required`) goes between that organization and the space without signing in again. Signing in with the password (`login`) opens the space too, in a new session, which such an organization then asks to sign in through its provider again. What a session confirmed opens the account's own space and nothing else: not what is another account's, and nothing of an organization that takes only sessions made through a provider other than the session's own. It goes with the session: a change of the password (`changePassword`, a reset, the operator's) ends the account's other sessions, as it always did, and what they confirmed with them. What is shared from the space by a public link is read without a session, and is not closed so.\n\nIt goes with its account: `getAccountDeletion` names it among `organizations` always, and while the account waits to be deleted it is closed with the account: what is shared from it by a public link answers 404 as a link that is not there, and answers again if the deletion is cancelled.\n\n## Bodies edited together\n\nWhile people edit a card's body together the server holds it as a Y document. What it refuses of an editor has the reason `update_refused`, `update_out_of_step`, `update_too_large`, `document_too_large` or `table_too_large` (`table_too_large` also comes from writing a body whole over HTTP when a table has more than 200 rows or more than 20 columns); `too_many_documents` and `document_unavailable` say that it cannot take the document for now. A write of a card's whole body here (a patch of the card or of blocks, a card stored again) first writes to the card what its editors typed: a `readAt` from before that is refused with 409, and if it cannot be written the write is refused with `document_unavailable`. The editors themselves speak to the server over the websocket, whose messages name the same reasons (`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, `too_many_documents_joined`, `document_full`, `too_many_connections_joined` and `too_many_frames` come only there. The page of each kind says when it comes. `search_not_configured` comes from none of these operations: only from the reindex of the administration socket, on a server configured without a search server (a search there searches its database).\n\n## Request bodies\n\nA request schema lists the members a request is for. A member that is not required may be left out. `null` is a value only of a member whose schema allows it, and is then none; `null` for any other member is refused with 400, as a value of another type is. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings`, `patchMe` and `createSubscription` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setPublicLink` refuses a `token`.",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -10347,7 +10347,7 @@
             }
           },
           {
-            "description": "The read token of the board, as `getSharing` answers it while the board is shared.",
+            "description": "The read token of the board, as `getPublicLink` answers it while the board's public link is enabled.",
             "in": "query",
             "name": "readToken",
             "required": true,
@@ -10383,7 +10383,7 @@
         ],
         "summary": "A shared board, wiki or course",
         "tags": [
-          "sharing"
+          "public-links"
         ]
       }
     },
@@ -10402,7 +10402,7 @@
             }
           },
           {
-            "description": "The read token of the board, as `getSharing` answers it while the board is shared.",
+            "description": "The read token of the board, as `getPublicLink` answers it while the board's public link is enabled.",
             "in": "query",
             "name": "readToken",
             "required": true,
@@ -10477,7 +10477,7 @@
         ],
         "summary": "The blocks of a shared board",
         "tags": [
-          "sharing"
+          "public-links"
         ]
       }
     },
@@ -10496,7 +10496,7 @@
             }
           },
           {
-            "description": "The read token of the board, as `getSharing` answers it while the board is shared.",
+            "description": "The read token of the board, as `getPublicLink` answers it while the board's public link is enabled.",
             "in": "query",
             "name": "readToken",
             "required": true,
@@ -10567,7 +10567,7 @@
         ],
         "summary": "The cards of a shared board",
         "tags": [
-          "sharing"
+          "public-links"
         ]
       }
     },
@@ -10595,7 +10595,7 @@
             }
           },
           {
-            "description": "The read token of the board, as `getSharing` answers it while the board is shared.",
+            "description": "The read token of the board, as `getPublicLink` answers it while the board's public link is enabled.",
             "in": "query",
             "name": "readToken",
             "required": true,
@@ -10645,14 +10645,14 @@
         ],
         "summary": "A file of a shared board, wiki or course",
         "tags": [
-          "sharing"
+          "public-links"
         ]
       }
     },
     "/api/v1/shared/{containerId}/files/{fileId}/info": {
       "get": {
-        "description": "What `getFileInfo` gives of a file of the board, wiki or course, read with its read\ntoken as `getSharedContainer` is.",
-        "operationId": "getSharedFileInfo",
+        "description": "What `getFileRecord` gives of a file of the board, wiki or course, read with its read\ntoken as `getSharedContainer` is.",
+        "operationId": "getSharedFileRecord",
         "parameters": [
           {
             "description": "The identifier of the board, the wiki, the diary or the course.",
@@ -10673,7 +10673,7 @@
             }
           },
           {
-            "description": "The read token of the board, as `getSharing` answers it while the board is shared.",
+            "description": "The read token of the board, as `getPublicLink` answers it while the board's public link is enabled.",
             "in": "query",
             "name": "readToken",
             "required": true,
@@ -10687,7 +10687,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileInfo"
+                  "$ref": "#/components/schemas/FileRecord"
                 }
               }
             },
@@ -10709,7 +10709,7 @@
         ],
         "summary": "What is known about a file of a shared board, wiki or course",
         "tags": [
-          "sharing"
+          "public-links"
         ]
       }
     },
@@ -10728,7 +10728,7 @@
             }
           },
           {
-            "description": "The read token of the board, as `getSharing` answers it while the board is shared.",
+            "description": "The read token of the board, as `getPublicLink` answers it while the board's public link is enabled.",
             "in": "query",
             "name": "readToken",
             "required": true,
@@ -10767,7 +10767,7 @@
         ],
         "summary": "The pages of a shared wiki",
         "tags": [
-          "sharing"
+          "public-links"
         ]
       }
     },
@@ -10795,7 +10795,7 @@
             }
           },
           {
-            "description": "The read token of the board, as `getSharing` answers it while the board is shared.",
+            "description": "The read token of the board, as `getPublicLink` answers it while the board's public link is enabled.",
             "in": "query",
             "name": "readToken",
             "required": true,
@@ -10831,7 +10831,7 @@
         ],
         "summary": "A page of a shared wiki",
         "tags": [
-          "sharing"
+          "public-links"
         ]
       }
     },
@@ -10850,7 +10850,7 @@
             }
           },
           {
-            "description": "The read token of the board, as `getSharing` answers it while the board is shared.",
+            "description": "The read token of the board, as `getPublicLink` answers it while the board's public link is enabled.",
             "in": "query",
             "name": "readToken",
             "required": true,
@@ -10889,7 +10889,7 @@
         ],
         "summary": "The chapters and units of a shared course",
         "tags": [
-          "sharing"
+          "public-links"
         ]
       }
     },
@@ -10917,7 +10917,7 @@
             }
           },
           {
-            "description": "The read token of the board, as `getSharing` answers it while the board is shared.",
+            "description": "The read token of the board, as `getPublicLink` answers it while the board's public link is enabled.",
             "in": "query",
             "name": "readToken",
             "required": true,
@@ -10953,7 +10953,7 @@
         ],
         "summary": "A unit of a shared course",
         "tags": [
-          "sharing"
+          "public-links"
         ]
       }
     },
@@ -14655,7 +14655,7 @@
         ]
       },
       "patch": {
-        "description": "For who may manage the board's properties. Changing `type` or `minimumRole` is for\nthe board's admins. A wiki is changed here too, by its identifier; it takes no card\nproperties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board:\na patch with a `kind`, even the board's own, is 400 at `/kind`. Other members it does\nnot know are left out.",
+        "description": "For who may manage the board's properties. Changing `visibility` or `minimumRole` is\nfor the board's admins. A wiki is changed here too, by its identifier; it takes no\ncard properties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a\nboard: a patch with a `kind`, even the board's own, is 400 at `/kind`. Other members\nit does not know are left out.",
         "operationId": "patchContainer",
         "parameters": [
           {
@@ -14928,7 +14928,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}": {
       "get": {
-        "description": "The content of a file of the board, for the board's members. A file is asked for\nthrough its own board only: through another board it is not there.\n\nEvery file is sent as `application/octet-stream` and offered as a download\n(`Content-Disposition: attachment`) under the name it was uploaded with, which\n`getFileInfo` has: `filename*` carries that name, and `filename` the `fileId` for a\nreader that knows no `filename*`. A file whose record has no name, or one of more\nthan 255 characters, is offered under its `fileId`. The answer honours `Range` with one range,\nunless the request has `If-Range`. It may be cached by the browser of who asked but\nmust be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no\ndownload: the `Last-Modified` of an answer is the time of that answer, so a request\nwith the `If-Modified-Since` of an earlier answer gets the whole file again.",
+        "description": "The content of a file of the board, for the board's members. A file is asked for\nthrough its own board only: through another board it is not there.\n\nEvery file is sent as `application/octet-stream` and offered as a download\n(`Content-Disposition: attachment`) under the name it was uploaded with, which\n`getFileRecord` has: `filename*` carries that name, and `filename` the `fileId` for a\nreader that knows no `filename*`. A file whose record has no name, or one of more\nthan 255 characters, is offered under its `fileId`. The answer honours `Range` with one range,\nunless the request has `If-Range`. It may be cached by the browser of who asked but\nmust be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no\ndownload: the `Last-Modified` of an answer is the time of that answer, so a request\nwith the `If-Modified-Since` of an earlier answer gets the whole file again.",
         "operationId": "getFile",
         "parameters": [
           {
@@ -15027,7 +15027,7 @@
     "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/info": {
       "get": {
         "description": "The name a file was uploaded under, its size and when it was uploaded. For the\nboard's members.",
-        "operationId": "getFileInfo",
+        "operationId": "getFileRecord",
         "parameters": [
           {
             "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
@@ -15062,7 +15062,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileInfo"
+                  "$ref": "#/components/schemas/FileRecord"
                 }
               }
             },
@@ -15965,10 +15965,10 @@
         ]
       }
     },
-    "/api/v1/w/{workspaceId}/containers/{containerId}/sharing": {
+    "/api/v1/w/{workspaceId}/containers/{containerId}/public-link": {
       "get": {
-        "description": "Whether the board is shared, and with which read token. A board that was never\nshared is not shared. For the board's admins.",
-        "operationId": "getSharing",
+        "description": "Whether the container has an active public link, and with which read token. A\ncontainer that never had a public link is disabled. For the container's admins.",
+        "operationId": "getPublicLink",
         "parameters": [
           {
             "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
@@ -15994,11 +15994,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Sharing"
+                  "$ref": "#/components/schemas/PublicLink"
                 }
               }
             },
-            "description": "The sharing state."
+            "description": "The public link state."
           },
           "default": {
             "content": {
@@ -16011,14 +16011,14 @@
             "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
           }
         },
-        "summary": "Whether a board is shared",
+        "summary": "Whether a board, wiki or course has a public link",
         "tags": [
-          "sharing"
+          "public-links"
         ]
       },
       "post": {
-        "description": "Shares the board, shares it under a new read token, or stops sharing it. The server\nmakes the token; a request that names one is 400. Where the server is configured\nwithout public sharing, every request is refused with 403 and the reason\n`sharing_disabled`, also one that stops sharing. While the organization has its\npublic links off (`patchOrganization`), sharing a board is refused with 403 and the\nreason `public_links_off`; stopping it is not. For the board's admins.",
-        "operationId": "setSharing",
+        "description": "Enables the container's public link, gives it a new read token, or disables it. The\nserver makes the token; a request that names one is 400. Where the server is\nconfigured without public links, every request is refused with 403 and the reason\n`sharing_disabled`, also one that turns a public link off. While the organization has\nits public links off (`patchOrganization`), enabling a public link is refused with\n403 and the reason `public_links_off`; disabling it is not. For the container's\nadmins.",
+        "operationId": "setPublicLink",
         "parameters": [
           {
             "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
@@ -16043,7 +16043,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SharingRequest"
+                "$ref": "#/components/schemas/PublicLinkRequest"
               }
             }
           },
@@ -16054,11 +16054,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Sharing"
+                  "$ref": "#/components/schemas/PublicLink"
                 }
               }
             },
-            "description": "The sharing state as it is now, with the token while the board is shared."
+            "description": "The public link state as it is now, with the token while the public link is enabled."
           },
           "default": {
             "content": {
@@ -16071,9 +16071,9 @@
             "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
           }
         },
-        "summary": "Share a board, or stop sharing it",
+        "summary": "Enable, regenerate or disable a container's public link",
         "tags": [
-          "sharing"
+          "public-links"
         ]
       }
     },
@@ -19391,7 +19391,7 @@
     },
     "/api/v1/w/{workspaceId}/diaries": {
       "get": {
-        "description": "Every diary of the workspace, oldest first: each is a board of the `kind` `diary`,\nprivate (`type` `P`), with the user as its only member. Those in the trash are not\nlisted (`getDeletedContainers`).",
+        "description": "Every diary of the workspace, oldest first: each is a board of the `kind` `diary`,\nprivate (`visibility` `private`), with the user as its only member. Those in the\ntrash are not listed (`getDeletedContainers`).",
         "operationId": "getDiaries",
         "parameters": [
           {
@@ -23568,11 +23568,11 @@
       "name": "wikis"
     },
     {
-      "description": "Diaries and their entries, in the workspace of a user's own space and nowhere else. A diary is a board of the kind `diary` that holds one entry a day and nothing else; its owner alone reads it. What it shares with a board is asked under `/containers/{containerId}` with the diary's identifier: the diary itself (`getContainer`), its title, description and icon (`patchContainer`), the trash (`deleteContainer`, `undeleteContainer`, `getDeletedContainers`), its files and their versions and leases, its place in the sidebar, and its archive (`exportContainer`; the archive of the workspace holds its diaries, and an archive that is imported makes each diary anew, in the user's own space only). Its entries are found by `searchWorkspaceContent`, by their writer. What is about the people of a board answers 404 for a diary, as for an identifier of nothing: its members, joining and leaving it, its teams, its link (`/sharing`, `/shared/{containerId}`), invitations to it, and `duplicateContainer`. So do the operations under `/boards/{boardId}` and `/wikis/{wikiId}`: a diary has no blocks but its entries, no cards, no views, no pages, no comments and no templates; and no reference names an entry.",
+      "description": "Diaries and their entries, in the workspace of a user's own space and nowhere else. A diary is a board of the kind `diary` that holds one entry a day and nothing else; its owner alone reads it. What it shares with a board is asked under `/containers/{containerId}` with the diary's identifier: the diary itself (`getContainer`), its title, description and icon (`patchContainer`), the trash (`deleteContainer`, `undeleteContainer`, `getDeletedContainers`), its files and their versions and leases, its place in the sidebar, and its archive (`exportContainer`; the archive of the workspace holds its diaries, and an archive that is imported makes each diary anew, in the user's own space only). Its entries are found by `searchWorkspaceContent`, by their writer. What is about the people of a board answers 404 for a diary, as for an identifier of nothing: its members, joining and leaving it, its teams, its link (`/public-link`, `/shared/{containerId}`), invitations to it, and `duplicateContainer`. So do the operations under `/boards/{boardId}` and `/wikis/{wikiId}`: a diary has no blocks but its entries, no cards, no views, no pages, no comments and no templates; and no reference names an entry.",
       "name": "diaries"
     },
     {
-      "description": "Courses and their chapters and units. A course is a container of the kind `course`: who is on it, its groups, invitations, sharing, files, place in the sidebar and trash, and export and import work under `/containers/{containerId}` with the course's identifier. Open courses are read and searched without joining, as open wikis are.",
+      "description": "Courses and their chapters and units. A course is a container of the kind `course`: who is on it, its groups, invitations, public link, files, place in the sidebar and trash, and export and import work under `/containers/{containerId}` with the course's identifier. Open courses are read and searched without joining, as open wikis are.",
       "name": "courses"
     },
     {
@@ -23580,8 +23580,8 @@
       "name": "members"
     },
     {
-      "description": "Sharing a board with whoever has its link.",
-      "name": "sharing"
+      "description": "Sharing a board with whoever has its public link.",
+      "name": "public-links"
     },
     {
       "description": "The blocks of a board: cards, views, comments, and what a card is made of.",

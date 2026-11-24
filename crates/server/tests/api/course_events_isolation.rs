@@ -31,7 +31,7 @@ async fn create_course(client: &Client, ws: &str, course_type: &str, title: &str
     let made = client
         .post(
             &format!("{ws}/courses"),
-            &json!({"type": course_type, "title": title}),
+            &json!({"visibility": course_type, "title": title}),
         )
         .await;
     made.check_created();
@@ -170,7 +170,7 @@ async fn setup_isolation_actors(ts: &TestServer, org_id: &str) -> IsolationActor
             .expect("ws2 member");
     }
 
-    let course_id = create_course(&bob, &ws2, "O", "Isolated Exams Course").await;
+    let course_id = create_course(&bob, &ws2, "open", "Isolated Exams Course").await;
     add_member(&bob, &ws2, &course_id, &alice_id, "viewer").await;
     add_member(&bob, &ws2, &course_id, &guest_id, "viewer").await;
     add_member(&bob, &ws2, &course_id, &removed_id, "viewer").await;
@@ -368,7 +368,7 @@ async fn assert_k_anonymity_api_progression(a: &IsolationActors) {
 }
 
 async fn assert_removed_public_cross_org_and_own_space(ts: &TestServer, a: &IsolationActors) {
-    let priv_course = create_course(&a.bob, &a.ws2, "P", "Private Exams").await;
+    let priv_course = create_course(&a.bob, &a.ws2, "private", "Private Exams").await;
     add_member(&a.bob, &a.ws2, &priv_course, &a.alice_id, "viewer").await;
     add_member(&a.bob, &a.ws2, &priv_course, &a.removed_id, "viewer").await;
     let priv_exam = create_exam(&a.bob, &a.ws2, &priv_course, "Secret Quiz").await;
@@ -397,7 +397,7 @@ async fn assert_removed_public_cross_org_and_own_space(ts: &TestServer, a: &Isol
     let share = a
         .bob
         .post(
-            &format!("{}/containers/{}/sharing", a.ws2, a.course_id),
+            &format!("{}/containers/{}/public-link", a.ws2, a.course_id),
             &json!({"enabled": true}),
         )
         .await;
@@ -444,7 +444,7 @@ async fn assert_removed_public_cross_org_and_own_space(ts: &TestServer, a: &Isol
 
     let own = own_workspace(&a.alice).await;
     let own_ws = format!("/w/{}", own.id);
-    let own_course = create_course(&a.alice, &own_ws, "P", "Self Study").await;
+    let own_course = create_course(&a.alice, &own_ws, "private", "Self Study").await;
     let own_exam = create_exam(&a.alice, &own_ws, &own_course, "Practice").await;
     a.alice
         .put(
@@ -480,7 +480,7 @@ async fn personal_exam_scores_leave_no_trace_in_ws_search_export_webhooks_or_aud
         .await;
     let admin_id = ts.client.me().await.id;
     let bob_id = ts.client2.me().await.id;
-    let course_id = create_course(&ts.client, TEST_WS, "P", "Silent Scores").await;
+    let course_id = create_course(&ts.client, TEST_WS, "private", "Silent Scores").await;
     add_member(&ts.client, TEST_WS, &course_id, &bob_id, "viewer").await;
     let exam = create_exam(&ts.client, TEST_WS, &course_id, "Final").await;
 
@@ -598,7 +598,7 @@ async fn meeting_attendance_permission_matrix() {
         .await
         .expect("ws guest role");
 
-    let course_id = create_course(&ts.client, TEST_WS, "O", "Attendance Course").await;
+    let course_id = create_course(&ts.client, TEST_WS, "open", "Attendance Course").await;
     add_member(&ts.client, TEST_WS, &course_id, &editor_id, "editor").await;
     add_member(&ts.client, TEST_WS, &course_id, &viewer_id, "viewer").await;
     add_member(&ts.client, TEST_WS, &course_id, &guest_id, "viewer").await;
@@ -691,7 +691,7 @@ async fn upcoming_meeting_notifications_deliver_once_and_hide_when_access_ends()
         .await
         .expect("guest role in ws");
 
-    let course_id = create_course(&ts.client, TEST_WS, "O", "Reminder Course").await;
+    let course_id = create_course(&ts.client, TEST_WS, "open", "Reminder Course").await;
     add_member(&ts.client, TEST_WS, &course_id, &member_id, "viewer").await;
 
     let now = 1_800_000_000_000_i64;
@@ -761,7 +761,7 @@ async fn account_erasure_keeps_attendance_tombstone_and_removes_exam_score_from_
     let peer_id = peer.me().await.id;
     let observer = ts.add_user("exam-observer").await;
     let observer_id = observer.me().await.id;
-    let course_id = create_course(&ts.client, ROOT_WS, "P", "Erasure Course").await;
+    let course_id = create_course(&ts.client, ROOT_WS, "private", "Erasure Course").await;
     for uid in [&a_id, &peer_id, &observer_id] {
         add_member(&ts.client, ROOT_WS, &course_id, uid, "viewer").await;
     }

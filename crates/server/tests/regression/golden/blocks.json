@@ -21,8 +21,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Blocks",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -1191,8 +1191,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Order of a request",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },

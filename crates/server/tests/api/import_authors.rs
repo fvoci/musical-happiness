@@ -99,7 +99,7 @@ async fn everything_imported_is_the_importers_whoever_the_archive_names() {
     }});
     let bytes = archive(&[
         json!({"type": "container", "data": {
-            "id": "board", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Authored",
+            "id": "board", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Authored",
             "createdBy": outsider, "modifiedBy": colleague, "createAt": 1, "updateAt": 1,
         }}),
         block("theirs", "card", &outsider, &outsider),

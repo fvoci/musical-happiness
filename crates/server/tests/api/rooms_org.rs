@@ -3,7 +3,7 @@
 //! workspace they joined, empty the rooms of its cards of the people they concern, at
 //! once the workspace operation completes.
 
-use fvoci_model::{Card, ContainerMember, ContainerType, WorkspaceRole};
+use fvoci_model::{Card, ContainerMember, ContainerVisibility, WorkspaceRole};
 use serde_json::json;
 
 use crate::boards::new_board;
@@ -14,7 +14,9 @@ use crate::rooms_changes::seldom;
 
 /// A card with a body on a private board of the workspace, made by the first user.
 async fn card_in(th: &TestServer, workspace_id: &str) -> (String, String) {
-    let board = th.create_board(workspace_id, ContainerType::Private).await;
+    let board = th
+        .create_board(workspace_id, ContainerVisibility::Private)
+        .await;
     let card: Card = th
         .client
         .post(
@@ -131,7 +133,11 @@ async fn an_org_admin_who_leaves_a_workspace_they_joined_is_put_out_of_its_rooms
     let_in(&th, &workspace, &member, WorkspaceRole::Member).await;
     let board: fvoci_model::Container = th
         .client2
-        .create_board(&new_board(&workspace, ContainerType::Private, "Theirs"))
+        .create_board(&new_board(
+            &workspace,
+            ContainerVisibility::Private,
+            "Theirs",
+        ))
         .await
         .created_json();
     let card: Card = th

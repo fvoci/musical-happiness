@@ -4,8 +4,9 @@
 
 use fvoci_model::{
     Block, BlockType, CompletionChange, Container, ContainerKind, ContainerMember, ContainerRole,
-    ContainerType, CourseLimits, CourseProgressSummary, LastPositionChange, MemberCourseProgress,
-    NewUnit, UnitKind, UnitProgress, UnitProgressChange, WorkspaceRole, new_id,
+    ContainerVisibility, CourseLimits, CourseProgressSummary, LastPositionChange,
+    MemberCourseProgress, NewUnit, UnitKind, UnitProgress, UnitProgressChange, WorkspaceRole,
+    new_id,
 };
 use fvoci_store::{DbType, Joining, Store, Tenant};
 
@@ -15,7 +16,7 @@ async fn create_course(store: &Store, workspace_id: &str, owner_id: &str) -> Con
     let mut course = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Course,
         title: "Course".to_owned(),
         ..Container::default()
@@ -84,7 +85,29 @@ async fn migration_0062_to_0063_creates_unit_progress_behind_rls() {
     let scoped = pre.for_org(&org_id).expect("org handle");
     let owner = common::user(&scoped, "teacher").await;
     common::works_in(&scoped, &workspace_id, &owner).await;
-    let course = create_course(&scoped, &workspace_id, &owner).await;
+    let course_id = new_id();
+    scoped
+        .execute_unchecked(&format!(
+            "INSERT INTO containers \
+             (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
+              show_description, is_template, properties, card_properties, create_at, update_at) \
+             VALUES ('{course_id}', '{workspace_id}', '{owner}', '{owner}', 'P', 'course', \
+              'Course', '', '', false, false, '{{}}', '[]', 1, 1)"
+        ))
+        .await
+        .expect("pre-0063 course stored");
+    scoped
+        .execute_unchecked(&format!(
+            "INSERT INTO container_members \
+             (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
+             VALUES ('{course_id}', '{owner}', true, true, false, false)"
+        ))
+        .await
+        .expect("pre-0063 course admin stored");
+    let course = Container {
+        id: course_id,
+        ..Container::default()
+    };
     let unit = create_item(
         &scoped.telling_nobody(),
         &course.id,

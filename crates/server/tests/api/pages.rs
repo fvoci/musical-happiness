@@ -19,7 +19,10 @@ fn body_of(text: &str) -> Value {
 async fn wiki(ts: &TestServer) -> (String, String) {
     let made = ts
         .client
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "P"}))
+        .post(
+            &format!("{TEST_WS}/wikis"),
+            &json!({"visibility": "private"}),
+        )
         .await;
     made.check_created();
     let id = made.value()["id"].as_str().expect("an id").to_owned();
@@ -269,7 +272,7 @@ async fn the_operations_of_blocks_and_cards_neither_make_nor_reach_a_page() {
     let board = ts
         .create_board(
             crate::common::TEST_WORKSPACE_ID,
-            fvoci_model::ContainerType::Private,
+            fvoci_model::ContainerVisibility::Private,
         )
         .await;
     let card = client
@@ -290,7 +293,7 @@ async fn the_operations_of_blocks_and_cards_neither_make_nor_reach_a_page() {
         .await;
     check_refused_at(&becoming, "/type");
     let with_board = json!({
-        "containers": [{"id": "b", "type": "P"}],
+        "containers": [{"id": "b", "visibility": "private"}],
         "blocks": [{"id": "p", "containerId": "b", "type": "page", "createAt": 1, "updateAt": 1}],
     });
     let with_board = client
@@ -364,7 +367,7 @@ async fn a_page_is_subscribed_to_by_its_readers_and_not_brought_back_as_a_block(
     let board = ts
         .create_board(
             crate::common::TEST_WORKSPACE_ID,
-            fvoci_model::ContainerType::Private,
+            fvoci_model::ContainerVisibility::Private,
         )
         .await;
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);

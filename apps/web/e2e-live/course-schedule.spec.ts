@@ -78,7 +78,7 @@ test('saves schedule with auto-assign, preserves overdue units, isolates viewer 
 
     const course = await postJson<Schemas['Container']>(adaApi, `${inWorkspace}/courses`, {
       title: 'Live Schedule Course',
-      type: 'O',
+      visibility: 'open',
       minimumRole: 'viewer',
     });
     await postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {

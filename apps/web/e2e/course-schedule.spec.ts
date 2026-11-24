@@ -28,7 +28,7 @@ const ON_A_COURSE = new RegExp(`/w/${ID}/courses/(${ID})(/(${ID}))?$`);
 interface DevCourse {
   createCourse(
     workspaceId: string,
-    draft: { title: string; type: 'O' | 'P'; minimumRole?: 'viewer' | 'editor' },
+    draft: { title: string; visibility: 'open' | 'private'; minimumRole?: 'viewer' | 'editor' },
   ): Promise<{ id: string }>;
   createUnit(
     courseId: string,
@@ -116,7 +116,7 @@ test('configures amounts & schedule, preserves overdue units without auto-shift,
     const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
     const course = await dev.backend.course.createCourse(wsId, {
       title: 'Distributed Systems',
-      type: 'O',
+      visibility: 'open',
     });
     const ch = await dev.backend.course.createUnit(course.id, {
       kind: 'chapter',
@@ -241,7 +241,7 @@ test('isolates unjoined open-course readers and strips all schedule UI/requests 
       const other = dev.someoneElse();
       const course = await other.course.createCourse(wsId, {
         title: 'Open Physics',
-        type: 'O',
+        visibility: 'open',
         minimumRole: 'viewer',
       });
       const u1 = await other.course.createUnit(course.id, {
@@ -287,7 +287,7 @@ test('isolates unjoined open-course readers and strips all schedule UI/requests 
           workspaceId: '',
           kind: 'course',
           title: 'Public Course',
-          type: 'P',
+          visibility: 'private',
           icon: '',
           description: '',
           cardProperties: [],
@@ -373,7 +373,7 @@ test('direct Today’s learning navigation syncs auto timeZone without closing t
     const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
     const course = await dev.backend.course.createCourse(wsId, {
       title: 'Direct Today Course',
-      type: 'O',
+      visibility: 'open',
     });
     await dev.backend.course.createUnit(course.id, {
       kind: 'unit',

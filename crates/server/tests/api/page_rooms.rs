@@ -34,7 +34,10 @@ impl Desk {
 pub(crate) async fn desk(th: &TestServer, body: &Value) -> Desk {
     let wiki = th
         .client
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "P"}))
+        .post(
+            &format!("{TEST_WS}/wikis"),
+            &json!({"visibility": "private"}),
+        )
         .await;
     wiki.check_created();
     let wiki_id = wiki.value()["id"].as_str().expect("an id").to_owned();

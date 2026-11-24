@@ -402,7 +402,7 @@ export function seedBuiltinTemplate(world: World, template: SeedTemplate, reader
     kind,
     createdBy: reader.id,
     modifiedBy: reader.id,
-    type: 'O',
+    visibility: 'open',
     minimumRole: 'editor',
     isTemplate: true,
     isBuiltin: true,

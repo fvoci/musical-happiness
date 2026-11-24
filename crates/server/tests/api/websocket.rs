@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
-    Block, BlockType, Category, Container, ContainerMember, ContainerPatch, ContainerType, new_id,
+    Block, BlockType, Category, Container, ContainerMember, ContainerPatch, ContainerVisibility,
+    new_id,
 };
 use fvoci_server::app::Former;
 use fvoci_server::permissions::ContainerScope;
@@ -352,7 +353,7 @@ async fn board_changes_go_to_subscribed_members() {
     let mut board = Container {
         id: new_id(),
         workspace_id: ROOT_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         title: "Roadmap".to_owned(),
         ..Container::default()
     };
@@ -454,7 +455,7 @@ async fn block_subscription_needs_the_read_token() {
     let mut board = Container {
         id: new_id(),
         workspace_id: ROOT_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         ..Container::default()
     };
     th.app
@@ -639,7 +640,7 @@ pub(crate) async fn shared_board_with_a_card(
     let mut board = Container {
         id: new_id(),
         workspace_id: ROOT_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         ..Container::default()
     };
     th.app
@@ -900,12 +901,12 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
 async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connection() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let sharing = |board_id: &str| format!("{ROOT_WS}/containers/{board_id}/sharing");
+    let sharing = |board_id: &str| format!("{ROOT_WS}/containers/{board_id}/public-link");
 
-    // Sharing turned off.
+    // PublicLink turned off.
     let (board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
     let (mut reader, _) = follow_block(&th, &block, &token).await;
-    // Sharing what is shared changes nothing for who follows it.
+    // PublicLink what is shared changes nothing for who follows it.
     th.client
         .post(&sharing(&board.id), &json!({"enabled": true}))
         .await
@@ -1177,7 +1178,7 @@ async fn board_with_a_card(th: &TestServer, user_id: &str) -> (Container, Block)
     let mut board = Container {
         id: new_id(),
         workspace_id: ROOT_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         title: "Roadmap".to_owned(),
         ..Container::default()
     };
@@ -1395,7 +1396,7 @@ async fn board_with_three_properties(th: &TestServer, admin: &str) -> Container 
     let mut board = Container {
         id: new_id(),
         workspace_id: ROOT_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         card_properties: vec![property("a"), property("b"), property("c")],
         ..Container::default()
     };

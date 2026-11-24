@@ -4,8 +4,8 @@ use crate::boards::{board_with_admin, new_board};
 use crate::common::{ROOT_WORKSPACE_ID, Setup, TestServer};
 use crate::org_admin::{let_in, make_workspace, org_of};
 use fvoci_model::{
-    AuditAction, ContainerMember, ContainerRole, ContainerType, MinimumRole, Team, WorkspaceMember,
-    WorkspaceRole,
+    AuditAction, ContainerMember, ContainerRole, ContainerVisibility, MinimumRole, Team,
+    WorkspaceMember, WorkspaceRole,
 };
 use fvoci_store::{Acceptance, Acceptor, Inviter, InviterOfContainer, NewLink, Standing};
 use reqwest::StatusCode;
@@ -18,7 +18,11 @@ async fn a_revoked_team_role_invalidates_direct_grants_and_invitation_acceptance
     let owner = th.client2.me().await.id;
     let board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, ContainerType::Private, "Racing access"),
+        new_board(
+            ROOT_WORKSPACE_ID,
+            ContainerVisibility::Private,
+            "Racing access",
+        ),
         &owner,
     )
     .await;
@@ -283,7 +287,7 @@ async fn independently_added(
         .ok_json();
     let board = board_with_admin(
         th,
-        new_board(workspace, ContainerType::Private, "Independent grant"),
+        new_board(workspace, ContainerVisibility::Private, "Independent grant"),
         colleague,
     )
     .await;

@@ -242,7 +242,7 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
         isCourse(board) &&
         !board.isTemplate &&
         board.workspaceId === workspaceId &&
-        (board.type === 'O' ||
+        (board.visibility === 'open' ||
           (this.#world.members.get(board.id) ?? []).some((member) => member.userId === userId)),
     );
     return scramble(theirs).map(copy);
@@ -261,7 +261,7 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
       kind: 'course',
       createdBy: userId,
       modifiedBy: userId,
-      type: draft.type,
+      visibility: draft.visibility,
       minimumRole: draft.minimumRole ?? 'editor',
       title: draft.title,
       description: draft.description ?? '',

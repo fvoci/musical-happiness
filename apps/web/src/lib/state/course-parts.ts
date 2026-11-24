@@ -31,8 +31,8 @@ export async function createCourseFromTemplate(
   if (!made) return undefined;
   const patch: ContainerPatch = {};
   if (draft.title && draft.title !== made.title) patch.title = draft.title;
-  if (draft.type !== made.type) patch.type = draft.type;
-  if (patch.title === undefined && patch.type === undefined) return made;
+  if (draft.visibility !== made.visibility) patch.visibility = draft.visibility;
+  if (patch.title === undefined && patch.visibility === undefined) return made;
   try {
     const updated = await workspace.backend.patchContainer(made.id, patch);
     workspace.receiveContainer(updated);

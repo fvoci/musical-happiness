@@ -35,7 +35,7 @@ async fn create_course(client: &Client, ws: &str, course_type: &str, title: &str
     let made = client
         .post(
             &format!("{ws}/courses"),
-            &json!({"type": course_type, "title": title}),
+            &json!({"visibility": course_type, "title": title}),
         )
         .await;
     made.check_created();
@@ -145,7 +145,7 @@ async fn own_space_progress_isolation_sso_password_and_deletion_grace() {
     let user1 = th.client.me().await;
     let own = own_workspace(&th.client).await;
     let own_ws = format!("/w/{}", own.id);
-    let course = create_course(&th.client, &own_ws, "P", "Solo Rust").await;
+    let course = create_course(&th.client, &own_ws, "private", "Solo Rust").await;
     let chapter = create_item(&th.client, &own_ws, &course, "chapter", "Part 1").await;
     let unit = create_item(&th.client, &own_ws, &course, "unit", "Lesson 1").await;
 
@@ -275,7 +275,7 @@ async fn check_own_space_blocked_for_sso_and_deletion_grace(
     let user2 = th.client2.me().await;
     let second_space = own_workspace(&th.client2).await;
     let second_ws = format!("/w/{}", second_space.id);
-    let course2 = create_course(&th.client2, &second_ws, "P", "Grace Course").await;
+    let course2 = create_course(&th.client2, &second_ws, "private", "Grace Course").await;
     let unit2 = create_item(&th.client2, &second_ws, &course2, "unit", "U1").await;
     th.client
         .put(
@@ -334,7 +334,7 @@ async fn shared_course_progress_isolation_and_zero_side_channel_leakage() {
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
 
-    let private_course = create_course(&th.client, TEST_WS, "P", "Private Course").await;
+    let private_course = create_course(&th.client, TEST_WS, "private", "Private Course").await;
     let ch = create_item(&th.client, TEST_WS, &private_course, "chapter", "Chapter 1").await;
     let u1 = create_item(&th.client, TEST_WS, &private_course, "unit", "Unit 1").await;
     let u2 = create_item(&th.client, TEST_WS, &private_course, "unit", "Unit 2").await;
@@ -608,14 +608,14 @@ async fn check_viewer_summary_and_public_links(
 
     th.client
         .post(
-            &format!("{TEST_WS}/containers/{course}/sharing"),
+            &format!("{TEST_WS}/containers/{course}/public-link"),
             &json!({"enabled": true}),
         )
         .await
         .check_ok();
     let sharing: Value = th
         .client
-        .get(&format!("{TEST_WS}/containers/{course}/sharing"))
+        .get(&format!("{TEST_WS}/containers/{course}/public-link"))
         .await
         .ok_json();
     let token = sharing["token"].as_str().expect("readToken");
@@ -643,7 +643,7 @@ async fn check_viewer_summary_and_public_links(
 async fn check_open_course_isolation(th: &TestServer) {
     // Open course: unjoined worker gets 200 [] on GET, 403 on PUT, 200 on summary; after
     // joining can record own progress.
-    let open = create_course(&th.client, TEST_WS, "O", "Open Course").await;
+    let open = create_course(&th.client, TEST_WS, "open", "Open Course").await;
     let open_u = create_item(&th.client, TEST_WS, &open, "unit", "Open 1").await;
     th.client
         .put(
@@ -707,9 +707,9 @@ async fn check_org_admin_joining_isolation(th: &TestServer, org_id: &str, user2_
         .add_workspace_member(&lab_id, user2_id, WorkspaceRole::Admin)
         .await
         .expect("user2 in lab");
-    let lab_private = create_course(&th.client2, &lab_ws, "P", "Lab Private").await;
+    let lab_private = create_course(&th.client2, &lab_ws, "private", "Lab Private").await;
     let private_unit = create_item(&th.client2, &lab_ws, &lab_private, "unit", "LP1").await;
-    let lab_open = create_course(&th.client2, &lab_ws, "O", "Lab Open").await;
+    let lab_open = create_course(&th.client2, &lab_ws, "open", "Lab Open").await;
     let open_unit = create_item(&th.client2, &lab_ws, &lab_open, "unit", "LO1").await;
     for (cid, uid) in [(&lab_private, &private_unit.id), (&lab_open, &open_unit.id)] {
         th.client2
@@ -761,7 +761,7 @@ async fn check_org_admin_joining_isolation(th: &TestServer, org_id: &str, user2_
 async fn check_guest_and_removed_member_isolation(th: &TestServer, user1_id: &str, user2_id: &str) {
     let guest_id = crate::guests::guest_of_the_workspace(th).await;
     assert_eq!(guest_id, user2_id, "guest helper must reuse user2");
-    let invited = create_course(&th.client, TEST_WS, "P", "Guest Course").await;
+    let invited = create_course(&th.client, TEST_WS, "private", "Guest Course").await;
     let inv_u = create_item(&th.client, TEST_WS, &invited, "unit", "G1").await;
     th.client
         .put(
@@ -770,7 +770,7 @@ async fn check_guest_and_removed_member_isolation(th: &TestServer, user1_id: &st
         )
         .await
         .check_ok();
-    let uninvited_open = create_course(&th.client, TEST_WS, "O", "Hidden From Guest").await;
+    let uninvited_open = create_course(&th.client, TEST_WS, "open", "Hidden From Guest").await;
     let uninv_u = create_item(&th.client, TEST_WS, &uninvited_open, "unit", "H1").await;
     crate::references::let_read(&th.client, &invited, &guest_id).await;
 
@@ -877,7 +877,7 @@ async fn deletion_grace_org_leave_and_account_erasure_clean_progress() {
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
 
-    let course = create_course(&th.client, ROOT_WS, "O", "Lifecycle Course").await;
+    let course = create_course(&th.client, ROOT_WS, "open", "Lifecycle Course").await;
     let unit = create_item(&th.client, ROOT_WS, &course, "unit", "L1").await;
     th.client2
         .post(&format!("{ROOT_WS}/containers/{course}/join"), &json!({}))
@@ -887,7 +887,7 @@ async fn deletion_grace_org_leave_and_account_erasure_clean_progress() {
 
     let own2 = own_workspace(&th.client2).await;
     let own2_ws = format!("/w/{}", own2.id);
-    let own_course = create_course(&th.client2, &own2_ws, "P", "Own Course").await;
+    let own_course = create_course(&th.client2, &own2_ws, "private", "Own Course").await;
     let own_unit = create_item(&th.client2, &own2_ws, &own_course, "unit", "Own 1").await;
     mark_done(&th.client2, &own2_ws, &own_course, &own_unit.id, "own-pos").await;
 

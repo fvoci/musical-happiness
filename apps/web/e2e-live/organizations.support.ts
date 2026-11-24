@@ -42,7 +42,7 @@ export async function firstOrganization(base: string): Promise<string[]> {
   for (const kind of ['board', 'template', 'discarded']) {
     const title = `Sealed first ${kind}`;
     const made = await api.post(`/api/v1/w/${workspace}/boards`, {
-      data: { title, type: 'O', isTemplate: kind === 'template' },
+      data: { title, visibility: 'open', isTemplate: kind === 'template' },
     });
     expect(made.status()).toBe(201);
     const board = (await made.json()) as Schemas['Container'];

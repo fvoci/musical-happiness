@@ -27,7 +27,7 @@ interface DevReviews {
 interface DevCourse {
   createCourse(
     workspaceId: string,
-    draft: { title: string; type: 'O' | 'P' },
+    draft: { title: string; visibility: 'open' | 'private' },
   ): Promise<{ id: string }>;
   createUnit(
     courseId: string,
@@ -74,7 +74,7 @@ test('completes unit with interval suggestion, manages Today reviews, CRUDs pers
     const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
     const course = await dev.backend.course.createCourse(wsId, {
       title: 'Spaced Repetition 101',
-      type: 'P',
+      visibility: 'private',
     });
     const u1 = await dev.backend.course.createUnit(course.id, {
       kind: 'unit',
@@ -214,7 +214,7 @@ test('isolates unjoined open-course reader and public shared links from reviews 
     const other = dev.someoneElse();
     const course = await other.course.createCourse(wsId, {
       title: 'Open Course Privacy',
-      type: 'O',
+      visibility: 'open',
     });
     const u1 = await other.course.createUnit(course.id, { kind: 'unit', title: 'Lesson 1' });
     await other.course.reviews.scheduleUnitReview(course.id, u1.id, { intervalDays: 1 });
@@ -254,7 +254,7 @@ test('isolates unjoined open-course reader and public shared links from reviews 
           workspaceId: '',
           kind: 'course',
           title: 'Public Study',
-          type: 'P',
+          visibility: 'private',
           icon: '',
           description: '',
           cardProperties: [],

@@ -8,7 +8,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
 use futures_util::StreamExt as _;
-use fvoci_model::{ContainerMember, ContainerType, UploadPart};
+use fvoci_model::{ContainerMember, ContainerVisibility, UploadPart};
 use fvoci_server::app::{CLOSED_UPLOAD_GRACE_MILLIS, UPLOAD_LIFETIME_MILLIS};
 use fvoci_server::auth::now_millis;
 use fvoci_server::config::{Configuration, S3Config};
@@ -145,7 +145,7 @@ fn files_in(directory: &Path) -> Vec<String> {
 async fn a_file_sent_in_parts_is_stored_whole() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let data = file_of(PART + 1000);
 
@@ -233,7 +233,7 @@ async fn a_file_sent_in_parts_is_stored_whole() {
 async fn an_empty_file_has_no_part() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = open(&ts.client, &board.id, "empty.txt", 0).await;
     response.check_created();
@@ -271,7 +271,7 @@ async fn an_empty_file_has_no_part() {
 async fn a_part_that_fails_a_check_is_not_kept() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let data = file_of(PART + 10);
     let upload_id = opened(&ts.client, &board.id, "a.bin", data.len()).await;
@@ -336,7 +336,7 @@ async fn a_part_that_fails_a_check_is_not_kept() {
 async fn another_users_upload_is_not_found() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
 
@@ -369,7 +369,7 @@ async fn another_users_upload_is_not_found() {
 async fn an_upload_for_a_board_in_the_trash_is_ended_in_its_workspace() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
     ts.client
@@ -392,7 +392,7 @@ async fn an_upload_for_a_board_in_the_trash_is_ended_in_its_workspace() {
 async fn an_abandoned_upload_leaves_nothing() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
     put_part(&ts.client, &upload_id, 1, b"abc")
@@ -426,7 +426,7 @@ async fn opening_an_upload_is_checked() {
         .init_basic()
         .await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     open(&ts.client, &board.id, "a.txt", 1000)
@@ -490,7 +490,7 @@ async fn opening_an_upload_is_checked() {
 async fn a_completion_without_the_permission_throws_the_upload_away() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let editor = ts.client2.me().await;
     ts.client
@@ -533,7 +533,7 @@ async fn a_completion_without_the_permission_throws_the_upload_away() {
 async fn a_closed_upload_is_left_to_whoever_closed_it() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
     put_part(&ts.client, &upload_id, 1, b"abc")
@@ -572,7 +572,7 @@ async fn a_closed_upload_is_left_to_whoever_closed_it() {
 async fn a_part_that_ends_after_the_upload_closed_is_not_kept() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
     let me = ts.client.me().await;
@@ -614,7 +614,7 @@ async fn a_part_that_ends_after_the_upload_closed_is_not_kept() {
 async fn a_late_part_sent_again_leaves_the_recorded_part() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
     put_part(&ts.client, &upload_id, 1, b"abc")
@@ -659,7 +659,7 @@ async fn a_late_part_sent_again_leaves_the_recorded_part() {
 async fn a_user_has_at_most_eight_uploads_open() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let mut open_ones = Vec::new();
     for _ in 0..8 {
@@ -710,7 +710,7 @@ async fn the_bytes_open_uploads_hold_back_are_limited() {
         .init_basic()
         .await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     opened(&ts.client, &board.id, "a.bin", 1000).await;
@@ -732,7 +732,7 @@ async fn the_bytes_open_uploads_hold_back_are_limited() {
 async fn ended_uploads_are_thrown_away_with_their_parts() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let ending = opened(&ts.client, &board.id, "a.txt", 3).await;
     put_part(&ts.client, &ending, 1, b"abc")
@@ -797,7 +797,7 @@ async fn ended_uploads_are_thrown_away_with_their_parts() {
 async fn the_sweep_removes_what_no_upload_owns() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let live = opened(&ts.client, &board.id, "a.txt", 3).await;
     put_part(&ts.client, &live, 1, b"abc")
@@ -838,7 +838,7 @@ async fn the_sweep_removes_what_no_upload_owns() {
 async fn a_single_upload_takes_one_part() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let files = Path::new(&ts.app.config().file_storage_path).to_path_buf();
 
@@ -895,7 +895,7 @@ fn stored_files(root: &Path) -> Vec<PathBuf> {
 async fn uploads_opened_at_once_keep_to_the_limit() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let answers =
         futures_util::future::join_all((0..20).map(|_| open(&ts.client, &board.id, "a.txt", 1)))
@@ -917,7 +917,7 @@ async fn uploads_opened_at_once_keep_to_the_limit() {
 async fn an_upload_closed_just_before_its_end_gets_the_grace() {
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = open(&ts.client, &board.id, "a.txt", 3).await;
     response.check_created();
@@ -961,7 +961,7 @@ async fn a_single_upload_declared_too_large_is_refused_before_it_is_sent() {
 
     let ts = server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let address = ts.base_url.trim_start_matches("http://").to_owned();
     let request = format!(
@@ -1055,7 +1055,7 @@ async fn upload_path(ts: &TestServer, upload_id: &str) -> String {
 async fn with_s3_the_parts_go_to_the_bucket() {
     let ts = s3_server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let data = file_of(PART + 1000);
 
@@ -1160,7 +1160,7 @@ async fn with_s3_the_parts_go_to_the_bucket() {
 async fn with_s3_what_fails_leaves_nothing() {
     let ts = s3_server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     // A part sent after the session was closed, as by a completion that began.
@@ -1221,7 +1221,7 @@ async fn with_s3_what_fails_leaves_nothing() {
         .init_basic()
         .await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = open(&ts.client, &board.id, "a.txt", 3).await;
     assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
@@ -1285,7 +1285,7 @@ async fn complete_behind_the_back(ts: &TestServer, upload_id: &str) -> String {
 async fn with_s3_a_completion_without_record_leaves_no_object() {
     let ts = s3_server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
@@ -1359,7 +1359,7 @@ async fn with_s3_a_completion_without_record_leaves_no_object() {
 async fn with_s3_parts_sent_at_once_are_all_taken() {
     let ts = s3_server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let data = file_of(PART * 3 + 10);
     let upload_id = opened(&ts.client, &board.id, "a.bin", data.len()).await;

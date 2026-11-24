@@ -2,7 +2,7 @@
 //! account erasure tombstones, and upcoming-meeting notifications.
 
 use fvoci_model::{
-    AttendanceStatus, Container, ContainerKind, ContainerMember, ContainerType, CourseLimits,
+    AttendanceStatus, Container, ContainerKind, ContainerMember, ContainerVisibility, CourseLimits,
     CourseMeetingChange, NewCourseMeeting, NewUnit, NotificationKind, OptionalIdChange,
     WorkspaceRole, new_id,
 };
@@ -15,7 +15,7 @@ async fn create_course(store: &Store, workspace_id: &str, admin: &str) -> String
     let mut course = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Course,
         title: "Rust Study".to_owned(),
         ..Container::default()
@@ -275,7 +275,7 @@ async fn notify_upcoming_meetings_targets_active_members_once_and_skips_others()
     let mut course = Container {
         id: new_id(),
         workspace_id: test.workspace_id.clone(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         kind: ContainerKind::Course,
         title: "Open Course".to_owned(),
         ..Container::default()

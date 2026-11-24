@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use fvoci_model::{Container, ContainerKind, ContainerMember, FileInfo, ValidatedCourseSchedule};
+use fvoci_model::{Container, ContainerKind, ContainerMember, FileRecord, ValidatedCourseSchedule};
 use fvoci_store::StreamCreateError;
 use tokio::fs;
 
@@ -33,7 +33,7 @@ use super::{
 use crate::app::App;
 use crate::app::container_copies::counted_as;
 use crate::app::doomed::Doomed;
-use crate::app::files::{FilePlace, file_info};
+use crate::app::files::{FilePlace, file_record};
 use crate::app::loose_objects::{WRITE_TIMEOUT, Written};
 use crate::auth::secret::new_secret;
 use crate::collab::AccessScope;
@@ -55,7 +55,7 @@ struct PreparedStreamedArchive {
 
 /// Files staged and written to `FileBackend` prior to the single database transaction.
 struct StagedNativeFiles {
-    records: Vec<FileInfo>,
+    records: Vec<FileRecord>,
     written_paths: Vec<String>,
     /// Container ID -> original archive filename -> stored filename.
     file_map: Arc<HashMap<String, HashMap<String, String>>>,
@@ -319,12 +319,12 @@ impl App {
                 }
             };
             written_paths.push(place.path.clone());
-            let info = file_info(&container_id, place, size, "");
+            let record = file_record(&container_id, place, size, "");
             file_map
                 .entry(container_id)
                 .or_default()
-                .insert(filename, info.stored_name.clone());
-            records.push(info);
+                .insert(filename, record.stored_name.clone());
+            records.push(record);
         }
 
         doomed_dir.remove().await;

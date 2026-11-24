@@ -27,7 +27,10 @@ const rejection = async (promise: Promise<unknown>): Promise<number> => {
 async function aPage(role: Exclude<MemberRole, '' | 'admin'> = 'commenter') {
   const made = setup();
   const workspaceId = made.world.workspace.id;
-  const wiki = await made.backend.wiki.createWiki(workspaceId, { title: 'Handbook', type: 'O' });
+  const wiki = await made.backend.wiki.createWiki(workspaceId, {
+    title: 'Handbook',
+    visibility: 'open',
+  });
   await made.backend.patchContainer(wiki.id, { minimumRole: role });
   await made.other.joinContainer(wiki.id);
   const page = await made.backend.wiki.createPage(wiki.id, { title: 'Page' });

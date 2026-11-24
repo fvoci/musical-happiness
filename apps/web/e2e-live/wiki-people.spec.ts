@@ -28,14 +28,14 @@ import {
 test.use({ locale: 'en-US' });
 
 /** A wiki of `api`'s account with one page, in its first workspace. */
-async function makeWiki(api: APIRequestContext, title: string, type: 'O' | 'P') {
+async function makeWiki(api: APIRequestContext, title: string, visibility: 'open' | 'private') {
   const [workspace] = (await (
     await api.get('/api/v1/users/me/workspaces')
   ).json()) as Schemas['UserWorkspace'][];
   const workspaceId = workspace?.id ?? '';
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
-    await api.post(`${inWorkspace}/wikis`, { data: { title, type } })
+    await api.post(`${inWorkspace}/wikis`, { data: { title, visibility } })
   ).json()) as Schemas['Container'];
   const page = (await (
     await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, { data: { title: 'Hello' } })
@@ -71,7 +71,7 @@ test('a wiki is shared from its head: a colleague added, their role changed, and
   const colleagueApi = await signedIn(base, colleague);
   const colleagueId = await idOf(colleagueApi);
   const title = uniqueName('Shared handbook');
-  const wiki = await makeWiki(api, title, 'P');
+  const wiki = await makeWiki(api, title, 'private');
 
   const page = await (await browser.newContext({ locale: 'en-US', baseURL: base })).newPage();
   const errors = watchErrors(page);
@@ -106,9 +106,9 @@ test('a wiki is shared from its head: a colleague added, their role changed, and
       const listed = (await (
         await colleagueApi.get(`/api/v1/w/${wiki.workspaceId}/wikis`)
       ).json()) as Schemas['Container'][];
-      return listed.find((one) => one.id === wiki.wikiId)?.type;
+      return listed.find((one) => one.id === wiki.wikiId)?.visibility;
     })
-    .toBe('O');
+    .toBe('open');
   await koreanShots(browser, page, 'wiki-people', 'share-dialog', async (seen) => {
     await expect(seen.getByTestId('page-title')).toHaveValue('Hello');
     await showTree(seen);
@@ -129,7 +129,7 @@ test('a wiki for the invited only is managed by the workspace’s administrator 
   await register(base, owner);
   const api = await signedIn(base, owner);
   const title = uniqueName('Private notes');
-  const wiki = await makeWiki(api, title, 'P');
+  const wiki = await makeWiki(api, title, 'private');
 
   const errors = watchErrors(page);
   await page.goto(wiki.path);
@@ -174,8 +174,8 @@ test('a guest comes in by a link to one wiki, and writes in it with nothing else
   await register(base, owner);
   const api = await signedIn(base, owner);
   const title = uniqueName('Guest wiki');
-  const wiki = await makeWiki(api, title, 'P');
-  const other = await makeWiki(api, uniqueName('Not for guests'), 'O');
+  const wiki = await makeWiki(api, title, 'private');
+  const other = await makeWiki(api, uniqueName('Not for guests'), 'open');
 
   const errors = watchErrors(page);
   await page.goto(wiki.path);

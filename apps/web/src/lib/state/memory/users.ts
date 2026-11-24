@@ -86,7 +86,7 @@ export function usersNamed(
   for (const board of world.containers.values()) {
     if (board.workspaceId !== workspaceId) continue;
     const role = roleOn(world.members.get(board.id) ?? [], readerId);
-    if (!role && !(board.isTemplate && board.type === 'O') && !isOpenWiki(board)) continue;
+    if (!role && !(board.isTemplate && board.visibility === 'open') && !isOpenWiki(board)) continue;
     visible.add(board.createdBy);
     for (const block of world.blocksOf(board.id)) {
       visible.add(block.createdBy);

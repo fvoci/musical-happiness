@@ -13,7 +13,7 @@ import type {
   Change,
   ChangeListener,
   CommentVersion,
-  Sharing,
+  PublicLink,
   UserOrganization,
   WorkspaceInfo,
   User,
@@ -145,7 +145,7 @@ export class World {
   readonly containers = new Map<string, Container>();
   readonly members = new Map<string, ContainerMember[]>();
   /** Public links of boards, by board. */
-  readonly sharing = new Map<string, Sharing>();
+  readonly publicLinks = new Map<string, PublicLink>();
   readonly blocks = new Map<string, StoredBlock>();
   readonly files = new Map<string, StoredFile>();
   readonly categories = new Map<string, Category[]>();

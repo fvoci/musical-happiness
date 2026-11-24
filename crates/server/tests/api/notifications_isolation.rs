@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use fvoci_model::{Block, BlockPatch, BodyChange, Container, ContainerType, Notification};
+use fvoci_model::{Block, BlockPatch, BodyChange, Container, ContainerVisibility, Notification};
 use fvoci_server::app::tend_notifications;
 use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, Making, NotificationReader, Paging, Store};
@@ -79,7 +79,7 @@ pub(crate) async fn open_page_mentioning(
     author: &str,
     users: &[&str],
 ) {
-    let (_, page_id) = stored_wiki(store, workspace_id, ContainerType::Open, author).await;
+    let (_, page_id) = stored_wiki(store, workspace_id, ContainerVisibility::Open, author).await;
     let patch = BlockPatch {
         body: BodyChange::Set(
             fvoci_model::Body::parse(mentioning(users))
@@ -99,7 +99,7 @@ pub(crate) async fn open_page_mentioning(
 async fn open_wiki_page(th: &TestServer, body: &Value) -> String {
     let wiki = th
         .client
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "O"}))
+        .post(&format!("{TEST_WS}/wikis"), &json!({"visibility": "open"}))
         .await
         .value()["id"]
         .as_str()
@@ -137,8 +137,8 @@ async fn stored_member(th: &TestServer, workspace_id: &str, username: &str) -> S
 async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
     let th = Setup::native().start().await.init_basic().await;
     let a = th.client.me().await;
-    let board = board_with_owner(&th, ContainerType::Private).await;
-    let other_board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
+    let other_board = board_with_owner(&th, ContainerVisibility::Private).await;
 
     // Who reads the card: a viewer, and a guest invited to this board.
     let viewer = th.client2.me().await.id;
@@ -224,7 +224,7 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
 
     // An open board is theirs to join, and told of as theirs to read; an open wiki
     // is read by whoever works in the workspace.
-    let open = board_with_owner(&th, ContainerType::Open).await;
+    let open = board_with_owner(&th, ContainerVisibility::Open).await;
     card_with(&th.client, &open.id, &mentioning(&[&no_role, &other_guest])).await;
     let open_names = mentioning(&[&no_role, &other_guest, &elsewhere, &of_another_org, &ghost]);
     open_wiki_page(&th, &open_names).await;
@@ -272,7 +272,7 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
     let space = own_workspace(&th.client).await;
     let own: Container = th
         .client
-        .create_board(&new_board(&space.id, ContainerType::Private, "Diary"))
+        .create_board(&new_board(&space.id, ContainerVisibility::Private, "Diary"))
         .await
         .created_json();
     let entry: Value = th
@@ -313,7 +313,7 @@ async fn what_its_reader_reads_no_more_says_nothing_of_itself() {
     let b = th.client2.me().await;
     let c = th.add_user("third").await;
     let c_id = c.me().await.id;
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     for user in [&b.id, &c_id] {
         give(&th, &board.id, user, "editor").await;
     }
@@ -461,7 +461,7 @@ async fn a_session_its_organization_does_not_take_reaches_nothing_it_was_told_th
         .client
         .create_board(&new_board(
             ROOT_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Walled",
         ))
         .await
@@ -530,7 +530,7 @@ async fn only_what_the_organization_behind_its_provider_told_is_kept_back() {
     let user2 = th.client2.me().await.id;
 
     // Told once in each: by a card of ours, and by an open page of theirs.
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &user2, "editor").await;
     let card = card_with(&th.client2, &board.id, &mentioning(&[&user1])).await;
     let their_store = th.app.store().for_org(&theirs).expect("an identifier");

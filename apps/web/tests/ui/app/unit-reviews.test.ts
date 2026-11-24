@@ -35,7 +35,7 @@ describe('course unit reviews & notes UI', () => {
     await made.workspace.load();
     const course = await made.backend.course.createCourse(made.world.workspace.id, {
       title: 'Algorithms',
-      type: 'O',
+      visibility: 'open',
     });
     const u1 = await made.backend.course.createUnit(course.id, { kind: 'unit', title: 'Sorting' });
     const store = new CourseStore(made.workspace, course.id);
@@ -70,7 +70,7 @@ describe('course unit reviews & notes UI', () => {
     await made.workspace.load();
     const course = await made.backend.course.createCourse(made.world.workspace.id, {
       title: 'Systems',
-      type: 'O',
+      visibility: 'open',
     });
     const u1 = await made.backend.course.createUnit(course.id, { kind: 'unit', title: 'Threads' });
     const today = dateOfInstant(made.world.now(), 'UTC');
@@ -122,7 +122,7 @@ describe('course unit reviews & notes UI', () => {
     await made.workspace.load();
     const course = await made.backend.course.createCourse(made.world.workspace.id, {
       title: 'Compilers',
-      type: 'P',
+      visibility: 'private',
     });
     const u1 = await made.backend.course.createUnit(course.id, { kind: 'unit', title: 'Parsing' });
     const store = new CourseStore(made.workspace, course.id);
@@ -188,7 +188,10 @@ describe('course unit reviews & notes UI', () => {
     const made = setup();
     await made.workspace.load();
     const wsId = made.world.workspace.id;
-    const course = await made.backend.course.createCourse(wsId, { title: 'Physics', type: 'P' });
+    const course = await made.backend.course.createCourse(wsId, {
+      title: 'Physics',
+      visibility: 'private',
+    });
     const u1 = await made.backend.course.createUnit(course.id, {
       kind: 'unit',
       title: 'Kinematics',
@@ -227,7 +230,10 @@ describe('course unit reviews & notes UI', () => {
     const made = setup();
     await made.workspace.load();
     const wsId = made.world.workspace.id;
-    const course = await made.backend.course.createCourse(wsId, { title: 'Biology', type: 'P' });
+    const course = await made.backend.course.createCourse(wsId, {
+      title: 'Biology',
+      visibility: 'private',
+    });
     const u1 = await made.backend.course.createUnit(course.id, {
       kind: 'unit',
       title: 'Cell Cycle',
@@ -259,7 +265,7 @@ describe('course unit reviews & notes UI', () => {
     const wsId = made.world.workspace.id;
     const course = await made.backend.course.createCourse(wsId, {
       title: 'Custom Intervals',
-      type: 'P',
+      visibility: 'private',
     });
     const storedCourse = made.world.containers.get(course.id);
     if (storedCourse) {
@@ -338,7 +344,10 @@ describe('course unit reviews & notes UI', () => {
     made.world.useClock(() => Date.UTC(2026, 10, 24, 16, 30, 0));
     await made.workspace.load();
     const wsId = made.world.workspace.id;
-    const course = await made.backend.course.createCourse(wsId, { title: 'TZ Course', type: 'P' });
+    const course = await made.backend.course.createCourse(wsId, {
+      title: 'TZ Course',
+      visibility: 'private',
+    });
     const u1 = await made.backend.course.createUnit(course.id, {
       kind: 'unit',
       title: 'Seoul Due',
@@ -383,7 +392,7 @@ describe('course unit reviews & notes UI', () => {
     await made.workspace.changeSettings({ timeZone: 'UTC' });
     const course = await made.backend.course.createCourse(made.world.workspace.id, {
       title: 'Midnight Course',
-      type: 'P',
+      visibility: 'private',
     });
     const u1 = await made.backend.course.createUnit(course.id, { kind: 'unit', title: 'Rollover' });
     await made.backend.course.reviews.scheduleUnitReview(course.id, u1.id, {

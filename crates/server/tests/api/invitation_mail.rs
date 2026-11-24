@@ -132,7 +132,7 @@ async fn invitation_mail_sends_guest_links_and_stops_when_guests_are_disabled() 
         .init_basic()
         .await;
     let board = th
-        .create_board(ROOT_WORKSPACE_ID, fvoci_model::ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, fvoci_model::ContainerVisibility::Open)
         .await;
     let path = format!("/w/{ROOT_WORKSPACE_ID}/invitations");
     let link: Invitation = th
@@ -360,7 +360,7 @@ async fn guest_invitation_mail_gives_each_recipient_a_one_use_link_of_their_own(
         .init_basic()
         .await;
     let board = th
-        .create_board(ROOT_WORKSPACE_ID, fvoci_model::ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, fvoci_model::ContainerVisibility::Open)
         .await;
     let path = format!("/w/{ROOT_WORKSPACE_ID}/invitations");
     let link: Invitation = th
@@ -437,7 +437,7 @@ async fn a_guest_link_mailed_by_another_inviter_is_made_by_the_sender_and_gone_w
         .client2
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
-            &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Plans"}),
+            &json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": "Plans"}),
         )
         .await
         .created_json();
@@ -503,7 +503,7 @@ async fn a_guest_link_to_a_wiki_is_mailed_and_lets_its_recipient_onto_the_wiki()
         .client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/wikis"),
-            &json!({"type": "P", "title": "Handbook"}),
+            &json!({"visibility": "private", "title": "Handbook"}),
         )
         .await
         .value()["id"]

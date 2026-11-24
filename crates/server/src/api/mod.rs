@@ -43,12 +43,12 @@ mod page_comments;
 mod page_versions;
 mod paging;
 mod password_reset;
+mod public_links;
 mod recovery;
 mod references;
 mod search;
 mod session;
 mod shared;
-mod sharing;
 mod signup_cookie;
 mod subscriptions;
 mod system;
@@ -170,7 +170,7 @@ fn routes() -> Routes {
         .merge(references::routes())
         .merge(search::routes())
         .merge(content_search::routes())
-        .merge(sharing::routes())
+        .merge(public_links::routes())
         .merge(subscriptions::routes())
         .merge(templates::routes())
         .merge(time_entries::routes())

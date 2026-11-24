@@ -226,7 +226,7 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
     let original = scene
         .b_app
         .store()
-        .get_file_info(&scene.b.id, &name_b)
+        .get_file_record(&scene.b.id, &name_b)
         .await
         .expect("the original is still B's");
     assert!(

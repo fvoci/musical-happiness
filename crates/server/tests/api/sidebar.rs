@@ -5,7 +5,7 @@
 
 use fvoci_model::{
     Category, CategoryContainerMetadata, CategoryContainers, CategoryType, Container,
-    ContainerType, User, is_id, new_id,
+    ContainerVisibility, User, is_id, new_id,
 };
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -52,7 +52,7 @@ async fn board_with_admin(th: &TestServer, workspace_id: &str, user_id: &str) ->
     let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..Container::default()
     };
     th.app
@@ -68,7 +68,7 @@ async fn board_without_member(th: &TestServer, workspace_id: &str, creator_id: &
     let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..Container::default()
     };
     th.app
@@ -102,7 +102,7 @@ async fn board_of_somebody_else(th: &TestServer, workspace_id: &str) -> String {
     let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         ..Container::default()
     };
     th.app
@@ -218,7 +218,7 @@ async fn sidebar() {
 
     // A new board ends up in the default "Boards" category.
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     let listed = category_boards(&th.client, TEST_WORKSPACE_ID).await;
@@ -227,7 +227,7 @@ async fn sidebar() {
 
     // A second board is moved into a new category.
     let board2 = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let created = create_category(
         &th.client,

@@ -8,7 +8,7 @@ use crate::common::TEST_WS;
 use crate::common::{Setup, TEST_WORKSPACE_ID};
 use fvoci_model::{
     BLOCK_FIELDS_MAX_CHARS, Block, BlockPatch, BlockPatchBatch, BlockType, CARD_FIELDS_MAX_CHARS,
-    ContainerType,
+    ContainerVisibility,
 };
 use serde_json::json;
 
@@ -20,7 +20,7 @@ use serde_json::json;
 #[tokio::test]
 async fn a_new_block_of_another_type_is_refused() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
     for name in [
         "text",
@@ -42,7 +42,7 @@ async fn a_new_block_of_another_type_is_refused() {
             .post(
                 &format!("{TEST_WS}/boards-and-blocks"),
                 &json!({
-                    "containers": [{"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "O"}],
+                    "containers": [{"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "open"}],
                     "blocks": [{
                         "id": "x1", "containerId": "b1", "type": name, "createAt": 1, "updateAt": 1,
                     }],
@@ -68,7 +68,7 @@ async fn a_new_block_of_another_type_is_refused() {
 #[tokio::test]
 async fn a_patch_does_not_make_a_block_of_another_type() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
     let to_text = BlockPatch {
         block_type: Some(BlockType::from("text")),
@@ -102,7 +102,7 @@ async fn a_patch_does_not_make_a_block_of_another_type() {
 #[tokio::test]
 async fn the_fields_of_a_block_are_limited_by_its_type() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
     // {"k":"<value>"} is the value and eight characters.
     let sized = |block_type: BlockType, len: usize| Block {

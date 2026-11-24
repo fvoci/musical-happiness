@@ -233,7 +233,10 @@ describe('unit reviews & notes in memory backend', () => {
 
     const made = setup();
     const wsId = made.world.workspace.id;
-    const course = await made.backend.course.createCourse(wsId, { title: 'Rust 101', type: 'O' });
+    const course = await made.backend.course.createCourse(wsId, {
+      title: 'Rust 101',
+      visibility: 'open',
+    });
     const ch = await made.backend.course.createUnit(course.id, { kind: 'chapter', title: 'Ch 1' });
     const u1 = await made.backend.course.createUnit(course.id, {
       kind: 'unit',
@@ -413,7 +416,10 @@ describe('unit reviews & notes in memory backend', () => {
     const made = setup();
     await made.workspace.load();
     const wsId = made.world.workspace.id;
-    const course = await made.backend.course.createCourse(wsId, { title: 'Math', type: 'P' });
+    const course = await made.backend.course.createCourse(wsId, {
+      title: 'Math',
+      visibility: 'private',
+    });
     const u1 = await made.backend.course.createUnit(course.id, {
       kind: 'unit',
       title: 'Linear Algebra',
@@ -458,7 +464,10 @@ describe('unit reviews & notes in memory backend', () => {
   it('prevents cross-user reads when another workspace store loads', async () => {
     const made = setup();
     const wsId = made.world.workspace.id;
-    const course = await made.backend.course.createCourse(wsId, { title: 'Private', type: 'O' });
+    const course = await made.backend.course.createCourse(wsId, {
+      title: 'Private',
+      visibility: 'open',
+    });
     const u1 = await made.backend.course.createUnit(course.id, {
       kind: 'unit',
       title: 'Secret Unit',

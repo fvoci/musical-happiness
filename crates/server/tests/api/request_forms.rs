@@ -1,7 +1,7 @@
 //! The forms requests are read in: a member that is `null` only where it may be, the
 //! paging of lists from 0, and a block on its board that has no parent.
 
-use fvoci_model::{Block, BlockType, ContainerType};
+use fvoci_model::{Block, BlockType, ContainerVisibility};
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -15,7 +15,7 @@ use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS};
 #[tokio::test]
 async fn null_is_refused_where_the_contract_does_not_allow_it() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let path = blocks_path(&board.id);
     let block = |member: &str, value: serde_json::Value| {
         let mut block = json!({
@@ -73,7 +73,7 @@ async fn null_is_refused_where_the_contract_does_not_allow_it() {
 #[tokio::test]
 async fn null_is_refused_by_cards_where_the_contract_does_not_allow_it() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let cards = format!("{TEST_WS}/boards/{}/cards", board.id);
 
     for member in ["title", "properties", "icon"] {
@@ -100,7 +100,7 @@ async fn null_is_refused_by_cards_where_the_contract_does_not_allow_it() {
 #[tokio::test]
 async fn the_pages_of_a_list_are_of_1_to_1000() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let cards: Vec<Block> = (0..60)
         .map(|index| new_block(&board.id, BlockType::Card, &format!("card {index}")))
         .collect();
@@ -175,7 +175,7 @@ async fn the_pages_of_a_list_are_of_1_to_1000() {
 #[tokio::test]
 async fn the_board_is_no_parent_of_its_blocks() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let path = blocks_path(&board.id);
 
     let on_board = Block {
@@ -225,11 +225,14 @@ async fn every_list_takes_1_to_1000_to_a_page() {
     let org = crate::org_admin::org_of(&th).await;
     let made = th
         .client
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "P"}))
+        .post(
+            &format!("{TEST_WS}/wikis"),
+            &json!({"visibility": "private"}),
+        )
         .await;
     made.check_created();
     let wiki = made.value()["id"].as_str().expect("an id").to_owned();
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
     for path in [
         format!("/org/{org}/members"),
@@ -251,7 +254,7 @@ async fn every_list_takes_1_to_1000_to_a_page() {
 #[tokio::test]
 async fn the_cards_of_a_shared_board_take_1_to_1000_to_a_page() {
     let th = Setup::local_mode().start().await.init_basic().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
     let token = th.share(&board.id).await;
     let path = format!("/shared/{}/cards?readToken={token}&", board.id);
@@ -287,7 +290,7 @@ async fn takes_1_to_1000_to_a_page(client: &Client, path: &str) {
 #[tokio::test]
 async fn the_board_is_no_parent_in_a_batch_or_with_new_boards() {
     let th = Setup::one_user().start().await;
-    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
 
     let response = th
@@ -306,7 +309,7 @@ async fn the_board_is_no_parent_in_a_batch_or_with_new_boards() {
         .post(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "containers": [{"id": "b", "workspaceId": crate::common::TEST_WORKSPACE_ID, "type": "P"}],
+                "containers": [{"id": "b", "workspaceId": crate::common::TEST_WORKSPACE_ID, "visibility": "private"}],
                 "blocks": [{"id": "x", "containerId": "b", "parentId": "b", "type": "card",
                             "createAt": 1, "updateAt": 1}],
             }),

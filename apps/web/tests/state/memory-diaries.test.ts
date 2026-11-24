@@ -80,7 +80,7 @@ describe('diaries in memory', () => {
     const first = await backend.diary.createDiary(own, { ifNone: true });
     const again = await backend.diary.createDiary(own, { ifNone: true });
     expect(again.id).toBe(first.id);
-    expect(first).toMatchObject({ kind: 'diary', type: 'P', workspaceId: own });
+    expect(first).toMatchObject({ kind: 'diary', visibility: 'private', workspaceId: own });
     for (let made = 1; made < DIARIES_PER_SPACE; made += 1) {
       await backend.diary.createDiary(own, {});
     }

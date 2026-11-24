@@ -3,7 +3,7 @@
 //! `collab_images.rs`, the copies, the archives, the versions); these are the ways an
 //! image has no test of its own for, and what only a file block is held to.
 
-use fvoci_model::{BlockError, ContainerType, ContainersAndBlocks};
+use fvoci_model::{BlockError, ContainerVisibility, ContainersAndBlocks};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
@@ -39,7 +39,7 @@ fn file_of(body: &Value) -> String {
 async fn a_comment_has_no_file_block() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "minutes.pdf", b"%PDF").await);
     let cards = format!("{TEST_WS}/boards/{}/cards", board.id);
@@ -58,7 +58,7 @@ async fn a_comment_has_no_file_block() {
 
     // Refused before the file of another board is copied for it.
     let other = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let other_file = uploaded_id(&upload(&ts.client, &other.id, "other.pdf", b"%PDF").await);
     let refused = ts
@@ -126,7 +126,7 @@ async fn a_comment_has_no_file_block() {
 
     // A board made with one: a new board has no file for any block to name, so the comment
     // is refused at its body for that first.
-    let new_board = json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"});
+    let new_board = json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"});
     let new_card =
         json!({"id": "c1", "containerId": "bd", "type": "card", "createAt": 1, "updateAt": 1});
     let new_comment = json!({"id": "m1", "containerId": "bd", "parentId": "c1",
@@ -224,7 +224,7 @@ fn check_refused_body(response: &ApiResponse, place: &str) {
 async fn a_page_names_no_file_of_another_container() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let board_file = uploaded_id(&upload(&ts.client, &board.id, "minutes.pdf", b"%PDF").await);
     let other_wiki = wiki(&ts.client, "Other").await;
@@ -261,7 +261,7 @@ async fn a_page_names_no_file_of_another_container() {
 async fn a_template_and_a_board_made_of_it_have_files_of_their_own() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "minutes.html", PAGE).await);
     ts.client
@@ -309,7 +309,7 @@ async fn a_public_link_reader_downloads_the_file_of_a_file_block() {
     // Public links are a switch of the organization, on in local mode.
     let ts = Setup::local_mode().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let board_file = uploaded_id(&upload(&ts.client, &board.id, "minutes.html", PAGE).await);
     ts.client
@@ -422,7 +422,7 @@ async fn check_downloaded(client: &Client, path: &str, file_id: &str) {
 async fn a_file_block_in_the_trash_keeps_its_file_until_it_is_gone_for_good() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "minutes.pdf", b"%PDF").await);
     let card: Value = ts

@@ -12,7 +12,7 @@
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { isBackendError, type Sharing, type Workspace } from '$lib/state/index.ts';
+  import { isBackendError, type PublicLink, type Workspace } from '$lib/state/index.ts';
   import { Input } from '$lib/ui/input/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
 
@@ -29,7 +29,7 @@
 
   const uid = $props.id();
 
-  let sharing = $state.raw<Sharing | undefined>(undefined);
+  let publicLink = $state.raw<PublicLink | undefined>(undefined);
   /** The server does not allow public links (403). */
   let sharingOff = $state(false);
   let sharingBusy = $state(false);
@@ -40,34 +40,34 @@
   let confirmOpen = $state(false);
   let readings = 0;
 
-  const link = $derived(sharing?.enabled && sharing.token ? linkOf(sharing.token) : '');
+  const link = $derived(publicLink?.enabled && publicLink.token ? linkOf(publicLink.token) : '');
 
-  async function readSharing(id: string): Promise<void> {
+  async function readPublicLink(id: string): Promise<void> {
     readings += 1;
     const reading = readings;
-    sharing = undefined;
+    publicLink = undefined;
     sharingOff = false;
     copied = false;
     try {
-      const read = await workspace.backend.sharing(id);
-      if (reading === readings && id === containerId) sharing = read;
+      const read = await workspace.backend.publicLink(id);
+      if (reading === readings && id === containerId) publicLink = read;
     } catch (error) {
       if (reading === readings && id === containerId) workspace.report('load', error);
     }
   }
 
-  function syncSharing(): () => void {
+  function syncPublicLink(): () => void {
     const id = containerId;
     const version = openVersion;
     untrack(() => {
-      if (version >= 0) void readSharing(id);
+      if (version >= 0) void readPublicLink(id);
     });
     return () => {
       readings += 1;
     };
   }
 
-  async function changeSharing(enabled: boolean, regenerate = false): Promise<void> {
+  async function changePublicLink(enabled: boolean, regenerate = false): Promise<void> {
     if (sharingBusy) return;
     const id = containerId;
     readings += 1;
@@ -75,8 +75,8 @@
     sharingBusy = true;
     copied = false;
     try {
-      const changed = await workspace.backend.setSharing(id, { enabled, regenerate });
-      if (reading === readings && id === containerId) sharing = changed;
+      const changed = await workspace.backend.setPublicLink(id, { enabled, regenerate });
+      if (reading === readings && id === containerId) publicLink = changed;
     } catch (error) {
       if (reading !== readings || id !== containerId) return;
       if (isBackendError(error) && error.reason === 'sharing_disabled') sharingOff = true;
@@ -102,7 +102,7 @@
   class={['grid gap-2', !linkOnly && 'border-t pt-4']}
   aria-labelledby="{uid}-public"
   data-testid="share-public-section"
-  {@attach syncSharing}
+  {@attach syncPublicLink}
 >
   <h3 id="{uid}-public" class="font-medium">{m['ShareBoard.PublishTitle']()}</h3>
   <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
@@ -111,10 +111,10 @@
     </span>
     {#key switchVersion}
       <Switch
-        checked={sharing?.enabled ?? false}
-        disabled={!sharing || sharingBusy || sharingOff}
+        checked={publicLink?.enabled ?? false}
+        disabled={!publicLink || sharingBusy || sharingOff}
         data-testid="share-public"
-        onCheckedChange={(checked: boolean) => void changeSharing(checked)}
+        onCheckedChange={(checked: boolean) => void changePublicLink(checked)}
       />
     {/key}
   </label>
@@ -158,5 +158,5 @@
   title={m['ShareBoard.regenerate']()}
   description={m['ShareBoard.confirmRegenerateToken']()}
   confirmLabel={m['ShareBoard.regenerate']()}
-  onConfirm={() => void changeSharing(true, true)}
+  onConfirm={() => void changePublicLink(true, true)}
 />

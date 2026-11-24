@@ -14,20 +14,20 @@ use crate::harness::{API, Session, id_by_title};
 pub(crate) async fn boards(s: &mut Session) {
     let [alice, bob] = s.users("boards", ["alice", "bob"]).await;
     let boards = format!("{ROOT_API}/boards");
-    s.post("create: no type", &boards)
+    s.post("create: no visibility", &boards)
         .json(json!({"workspaceId": ROOT_WORKSPACE_ID, "title": "x"}))
         .user(&alice)
         .await;
-    s.post("create: bad type", &boards)
-        .json(json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "X", "title": "x"}))
+    s.post("create: bad visibility", &boards)
+        .json(json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "X", "title": "x"}))
         .user(&alice)
         .await;
     s.post("create: no workspace", &boards)
-        .json(json!({"type": "P", "title": "x"}))
+        .json(json!({"visibility": "private", "title": "x"}))
         .user(&alice)
         .await;
     s.post("create: without session", &boards)
-        .json(json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P"}))
+        .json(json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private"}))
         .await;
     s.post("create: malformed body", &boards)
         .raw(b"{nope")
@@ -37,7 +37,7 @@ pub(crate) async fn boards(s: &mut Session) {
         s,
         &alice,
         "Roadmap",
-        "P",
+        "private",
         json!({
             "description": "plans",
             "icon": "🎯",
@@ -47,7 +47,7 @@ pub(crate) async fn boards(s: &mut Session) {
         }),
     )
     .await;
-    let open_board = new_board(s, &alice, "Open board", "O", json!({})).await;
+    let open_board = new_board(s, &alice, "Open board", "open", json!({})).await;
     let path = format!("{ROOT_API}/containers/{board}");
     let open_path = format!("{ROOT_API}/containers/{open_board}");
     let unknown = format!("{ROOT_API}/containers/unknown-board");
@@ -84,16 +84,16 @@ pub(crate) async fn boards(s: &mut Session) {
         .json(json!({"title": "hijack"}))
         .user(&bob)
         .await;
-    s.patch("patch: bad type", &path)
-        .json(json!({"type": "Z"}))
+    s.patch("patch: bad visibility", &path)
+        .json(json!({"visibility": "Z"}))
         .user(&alice)
         .await;
     s.patch("patch: to open", &path)
-        .json(json!({"type": "O"}))
+        .json(json!({"visibility": "open"}))
         .user(&alice)
         .await;
     s.patch("patch: back to private", &path)
-        .json(json!({"type": "P"}))
+        .json(json!({"visibility": "private"}))
         .user(&alice)
         .await;
     s.patch("patch: minimum role", &open_path)
@@ -175,8 +175,8 @@ pub(crate) async fn members(s: &mut Session) {
     let boards_api = format!("{ROOT_API}/boards");
     let containers_api = format!("{ROOT_API}/containers");
     let [alice, bob, carol] = s.users("members", ["alice", "bob", "carol"]).await;
-    let board = new_board(s, &alice, "Workspace board", "P", json!({})).await;
-    let open_board = new_board(s, &alice, "Open board", "O", json!({})).await;
+    let board = new_board(s, &alice, "Workspace board", "private", json!({})).await;
+    let open_board = new_board(s, &alice, "Open board", "open", json!({})).await;
     let bob_id = s.user_id(&bob).await;
     let carol_id = s.user_id(&carol).await;
     let alice_id = s.user_id(&alice).await;
@@ -286,7 +286,7 @@ pub(crate) async fn members(s: &mut Session) {
     // -- the minimum role ----------------------------------------------------------------
     // What joining gives, and what somebody gives who adds a member without managing the
     // board's roles. A board always has one; a new board has editor.
-    let role_board = new_board(s, &alice, "Role board", "O", json!({})).await;
+    let role_board = new_board(s, &alice, "Role board", "open", json!({})).await;
     let role_path = format!("{containers_api}/{role_board}");
     let role_members = format!("{role_path}/members");
     s.patch("minimum role: none", &role_path)
@@ -301,7 +301,7 @@ pub(crate) async fn members(s: &mut Session) {
         "create a board with no minimum role",
         &format!("{ROOT_API}/boards"),
     )
-    .json(json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "O", "minimumRole": ""}))
+    .json(json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "open", "minimumRole": ""}))
     .user(&alice)
     .await;
     s.patch("minimum role: commenter", &role_path)
@@ -373,8 +373,8 @@ pub(crate) async fn boards_and_blocks(s: &mut Session) {
     let path = format!("{ROOT_API}/boards-and-blocks");
     let body = json!({
         "containers": [
-            {"id": "board-a", "workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Board A"},
-            {"id": "board-b", "workspaceId": ROOT_WORKSPACE_ID, "type": "O", "title": "Board B"},
+            {"id": "board-a", "workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": "Board A"},
+            {"id": "board-b", "workspaceId": ROOT_WORKSPACE_ID, "visibility": "open", "title": "Board B"},
         ],
         "blocks": [
             block("blk-a", "board-a", "card", "Card A", "", json!({})),
@@ -398,19 +398,19 @@ pub(crate) async fn boards_and_blocks(s: &mut Session) {
         .await;
     s.post("create: block of another board", &path)
         .json(json!({
-            "containers": [{"id": "b1", "workspaceId": ROOT_WORKSPACE_ID, "type": "P"}],
+            "containers": [{"id": "b1", "workspaceId": ROOT_WORKSPACE_ID, "visibility": "private"}],
             "blocks": [block("k1", "elsewhere", "card", "", "", json!({}))],
         }))
         .user(&alice)
         .await;
     s.post("create: boards of two workspaces", &path)
         .json(json!({
-            "containers": [{"id": "b1", "workspaceId": ROOT_WORKSPACE_ID, "type": "P"}, {"id": "b2", "workspaceId": "1", "type": "P"}],
+            "containers": [{"id": "b1", "workspaceId": ROOT_WORKSPACE_ID, "visibility": "private"}, {"id": "b2", "workspaceId": "1", "visibility": "private"}],
             "blocks": [],
         }))
         .user(&alice)
         .await;
-    s.post("create: board without type", &path)
+    s.post("create: board without visibility", &path)
         .json(json!({"containers": [{"id": "b1", "workspaceId": ROOT_WORKSPACE_ID}], "blocks": []}))
         .user(&alice)
         .await;

@@ -3,9 +3,9 @@
 use axum::body::Bytes;
 use axum::extract::Path;
 use fvoci_model::{
-    Category, CategoryContainers, CategoryError, CategoryType, RefusalReason, WorkspaceRole,
+    Category, CategoryContainers, CategoryError, CategoryType, RefusalReason, SidebarVisibility,
+    WorkspaceRole,
 };
-use fvoci_store::ContainerVisibility;
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -391,7 +391,7 @@ async fn handle_hide_container(
     Path(place): Path<ContainerPlace>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    set_container_visibility(&ws, &place, ContainerVisibility::Hidden).await
+    set_sidebar_visibility(&ws, &place, SidebarVisibility::Hidden).await
 }
 
 /// Show a hidden board again
@@ -412,19 +412,19 @@ async fn handle_unhide_container(
     Path(place): Path<ContainerPlace>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    set_container_visibility(&ws, &place, ContainerVisibility::Visible).await
+    set_sidebar_visibility(&ws, &place, SidebarVisibility::Visible).await
 }
 
-async fn set_container_visibility(
+async fn set_sidebar_visibility(
     ws: &InWorkspace,
     (_, category_id, container_id): &ContainerPlace,
-    visibility: ContainerVisibility,
+    visibility: SidebarVisibility,
 ) -> ApiResult {
     let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
     app.user_category(workspace_id, user_id, category_id)
         .await?;
     require_container_visible(app, user_id, container_id).await?;
-    app.set_container_visibility(workspace_id, user_id, category_id, container_id, visibility)
+    app.set_sidebar_visibility(workspace_id, user_id, category_id, container_id, visibility)
         .await?;
     Ok(no_content())
 }

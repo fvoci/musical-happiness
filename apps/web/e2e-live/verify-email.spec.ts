@@ -213,7 +213,7 @@ test('a guest of a wiki who confirms is on that wiki', async ({ page, baseURL })
   }[];
   if (!workspace) throw new Error('the founder has no organization');
   const wikis = await api.post(`/api/v1/w/${workspace.id}/wikis`, {
-    data: { type: 'P', title: 'Handbook' },
+    data: { visibility: 'private', title: 'Handbook' },
   });
   expect(wikis.ok(), await wikis.text()).toBe(true);
   const wiki = (await wikis.json()) as { id: string };

@@ -51,7 +51,7 @@ export function wikiLooksBack(before: Container, looks: WikiLooks): WikiLooks {
     ...(looks.title === undefined ? {} : { title: before.title }),
     ...(looks.description === undefined ? {} : { description: before.description }),
     ...(looks.icon === undefined ? {} : { icon: before.icon ?? '' }),
-    ...(looks.type === undefined ? {} : { type: before.type }),
+    ...(looks.visibility === undefined ? {} : { visibility: before.visibility }),
     ...(looks.minimumRole === undefined ? {} : { minimumRole: before.minimumRole }),
   };
 }
@@ -110,7 +110,7 @@ export async function performWikiLooks(
     takeWiki(wiki: Container): void;
   },
   looks: WikiLooks,
-  step: 'changeWiki' | 'changeBoardType' | 'changeMinimumRole',
+  step: 'changeWiki' | 'changeVisibility' | 'changeMinimumRole',
 ): Promise<void> {
   const before = host.wiki;
   if (!before) return;

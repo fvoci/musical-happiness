@@ -36,6 +36,15 @@ impl CategoryType {
     }
 }
 
+/// Whether a board shows in its user's sidebar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SidebarVisibility {
+    /// The board shows.
+    Visible,
+    /// The user has hidden the board.
+    Hidden,
+}
+
 /// Why a [`Category`] is rejected before it is stored: every member that is refused.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("{0}")]

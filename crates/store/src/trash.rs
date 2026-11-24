@@ -25,7 +25,8 @@ pub(crate) use watchers::{
 use std::collections::HashMap;
 
 use fvoci_model::{
-    Block, Body, Container, ContainerKinds, ContainerMember, ContainerType, FileInfo, new_id,
+    Block, Body, Container, ContainerKinds, ContainerMember, ContainerVisibility, FileRecord,
+    new_id,
 };
 use serde::de::DeserializeOwned;
 use stored::{StoredFiles, StoredPlace};
@@ -39,8 +40,8 @@ use crate::category_containers::{self, ContainerPlace};
 use crate::containers;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::file_info;
 use crate::file_refs::NewBodyFiles;
+use crate::files;
 use crate::loose_objects;
 use crate::members;
 use crate::org_admin;
@@ -432,7 +433,7 @@ pub(crate) async fn remove_containers(
         gone.push(row.id(0)?);
         let of_container: StoredFiles = from_json(row, 1, "files")?;
         let org_id = org.map(|_| row.id(2)).transpose()?;
-        for file in Vec::<FileInfo>::from(of_container) {
+        for file in Vec::<FileRecord>::from(of_container) {
             // Nothing else says where the file is once the board is gone.
             doomed.push((file.path.clone(), org_id.clone()));
             files.push(file);
@@ -490,7 +491,7 @@ pub struct Purged {
     /// How many boards and blocks went.
     pub records: u64,
     /// The file records of the boards that went. Their objects are doomed.
-    pub files: Vec<FileInfo>,
+    pub files: Vec<FileRecord>,
 }
 
 pub(crate) fn block_not_in_trash() -> StoreError {
@@ -807,7 +808,7 @@ pub(crate) async fn delete_container(
     containers::lock_container_for_deletion(scope, container_id).await?;
     let container = containers::get_container(scope, container_id).await?;
     let members = containers::get_members_for_container(scope, container_id).await?;
-    let files = file_info::file_infos_of_container(scope, container_id).await?;
+    let files = files::files_of_container(scope, container_id).await?;
     let container_blocks =
         blocks::get_blocks(scope, &blocks::BlockFilter::container(container_id)).await?;
     // Where users filed the board, to file it there again when it comes back.
@@ -917,7 +918,7 @@ pub(crate) async fn undelete_container(
     // board, only those who are its members again (a member removed earlier keeps the
     // place but cannot see the board).
     for place in places.into_iter().map(ContainerPlace::from) {
-        let sees = container.container_type == ContainerType::Open
+        let sees = container.visibility == ContainerVisibility::Open
             || members.iter().any(|member| member.user_id == place.user_id)
             || crate::container_team_access::role_for(scope, container_id, &place.user_id)
                 .await?
@@ -927,18 +928,18 @@ pub(crate) async fn undelete_container(
                 .await?;
         }
     }
-    for file in Vec::<FileInfo>::from(files) {
-        file_info::save_file_info(scope, &file).await?;
+    for file in Vec::<FileRecord>::from(files) {
+        files::save_file_record(scope, &file).await?;
     }
     take_blocks_out_of_trash(scope, &deletion_id, user_id, now, |_| {}).await?;
     // The trash kept no marks: a file that no block of the board shows is counted from
     // now, as at a file's upload, and one that a block shows has none.
-    let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = NULL WHERE container_id = ");
+    let mut sql = scope.sql("UPDATE files SET unreferenced_at = NULL WHERE container_id = ");
     sql.bind(Id(container_id));
     scope.execute(sql).await?;
-    let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = ");
+    let mut sql = scope.sql("UPDATE files SET unreferenced_at = ");
     sql.bind(now)
-        .push(" WHERE NOT EXISTS (SELECT 1 FROM file_refs r WHERE r.container_id = file_info.container_id AND r.name = file_info.name) AND container_id = ")
+        .push(" WHERE NOT EXISTS (SELECT 1 FROM file_refs r WHERE r.container_id = files.container_id AND r.name = files.name) AND container_id = ")
         .bind(Id(container_id));
     scope.execute(sql).await?;
 

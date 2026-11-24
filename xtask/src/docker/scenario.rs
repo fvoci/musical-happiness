@@ -225,7 +225,7 @@ pub(super) fn run(trial: &Trial, directory: &Path) -> Result<()> {
     let board = client.expect(
         "POST",
         &format!("{w}/boards"),
-        Some(&json!({"type": "O", "title": "Smoke"})),
+        Some(&json!({"visibility": "open", "title": "Smoke"})),
     )?;
     let board = text(&board, "id")?;
     let card_id = write_card(&client, &w, &board)?;

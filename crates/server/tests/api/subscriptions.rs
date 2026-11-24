@@ -3,7 +3,9 @@
 
 use std::time::Duration;
 
-use fvoci_model::{Block, BlockType, Container, ContainerMember, ContainerType, Subscription};
+use fvoci_model::{
+    Block, BlockType, Container, ContainerMember, ContainerVisibility, Subscription,
+};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
@@ -94,7 +96,7 @@ async fn create_test_subscriptions(client: &Client, count: usize) -> (Vec<Subscr
     let user = client.me().await;
     let board = Container {
         workspace_id: TEST_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         create_at: 1,
         update_at: 1,
         ..Container::default()
@@ -240,7 +242,7 @@ async fn create_subscription_validation() {
     let me = th.client.me().await.id;
     let other = th.client2.me().await.id;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let card = insert_card(&th.client, &board.id).await;
     let without = |member: &str| {
@@ -343,7 +345,7 @@ async fn create_subscription_answer_and_subscribing_again() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let card = insert_card(&th.client, &board.id).await;
     let before = fvoci_server::auth::now_millis();
@@ -424,7 +426,7 @@ async fn subscriptions_of_another_user_are_refused() {
     let user1 = th.client.me().await.id;
     let user2 = th.client2.me().await.id;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let card = insert_card(&th.client, &board.id).await;
     let subscription = subscribe(&th.client, &card.id, &user1).await;
@@ -462,7 +464,7 @@ async fn delete_subscription_twice() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let card = insert_card(&th.client, &board.id).await;
     let response = unsubscribe(&th.client, &card.id, &me).await;
@@ -486,7 +488,7 @@ async fn a_subscription_goes_to_the_trash_with_its_block_and_comes_back_with_it(
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let card = insert_card(&th.client, &board.id).await;
     let created = subscribe(&th.client, &card.id, &me).await;
@@ -523,7 +525,7 @@ async fn subscription_changes_are_not_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let card = insert_card(&th.client, &board.id).await;
     assert!(
@@ -554,10 +556,10 @@ async fn subscription_to_a_block_of_a_board_the_user_cannot_view_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
     let outsider = th.client2.me().await.id;
     let private_board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let open_board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     // The request names a block and no board, so a block the user cannot read answers
@@ -657,7 +659,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     let mut boards = Vec::new();
     for _ in 0..2 {
         let board = th
-            .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+            .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
             .await;
         let member = ContainerMember {
             container_id: board.id.clone(),

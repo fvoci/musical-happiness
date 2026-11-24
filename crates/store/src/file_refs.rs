@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use fvoci_model::{Block, BlockError, FileInfo};
+use fvoci_model::{Block, BlockError, FileRecord};
 
 use crate::Store;
 use crate::block_derived::Refreshing;
@@ -22,7 +22,7 @@ use crate::body_versions;
 use crate::comment_versions;
 use crate::db::{Dialect, Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::file_info::{FILE_INFO_COLUMN_COUNT, FILE_INFO_COLUMNS, file_info_from_row};
+use crate::files::{FILE_COLUMN_COUNT, FILE_COLUMNS, file_from_row};
 use crate::loose_objects;
 
 /// Bounded parameters even when a purge visits every stored file.
@@ -39,7 +39,7 @@ impl Store {
     pub async fn collect_unreferenced_files(
         &self,
         before: i64,
-    ) -> Result<Vec<FileInfo>, StoreError> {
+    ) -> Result<Vec<FileRecord>, StoreError> {
         self.transaction(async |scope| {
             // One statement decides and deletes. On PostgreSQL a record that a write
             // holds (`hold_new_body_files`) or changes is skipped, not waited for: left to
@@ -54,26 +54,26 @@ impl Store {
                 Dialect::Sqlite => "",
             };
             let mut sql = scope.sql(
-                "DELETE FROM file_info WHERE id IN (SELECT id FROM file_info \
+                "DELETE FROM files WHERE id IN (SELECT id FROM files \
                  WHERE unreferenced_at IS NOT NULL AND unreferenced_at < ",
             );
             sql.bind(before)
                 .push(
                     " AND NOT EXISTS (SELECT 1 FROM file_refs r \
-                       WHERE r.container_id = file_info.container_id AND r.name = file_info.name",
+                       WHERE r.container_id = files.container_id AND r.name = files.name",
                 )
-                .push(&scope.same_organization(&[("r", "file_info")]))
+                .push(&scope.same_organization(&[("r", "files")]))
                 .push(")")
                 .push(&format!(
-                    "{skip_held}) RETURNING {FILE_INFO_COLUMNS}{}",
+                    "{skip_held}) RETURNING {FILE_COLUMNS}{}",
                     org.map_or(String::new(), |column| format!(", {column}"))
                 ));
             let rows = scope.fetch_all(sql).await?;
             let mut files = Vec::with_capacity(rows.len());
             let mut doomed = Vec::with_capacity(rows.len());
             for row in &rows {
-                let file = file_info_from_row(row)?;
-                let org_id = org.map(|_| row.id(FILE_INFO_COLUMN_COUNT)).transpose()?;
+                let file = file_from_row(row)?;
+                let org_id = org.map(|_| row.id(FILE_COLUMN_COUNT)).transpose()?;
                 doomed.push((file.path.clone(), org_id));
                 files.push(file);
             }
@@ -168,7 +168,7 @@ async fn hold_new_body_files(
     if new.is_empty() {
         return Ok(());
     }
-    let mut sql = scope.sql("SELECT name FROM file_info WHERE container_id = ");
+    let mut sql = scope.sql("SELECT name FROM files WHERE container_id = ");
     sql.bind(Id(&block.container_id))
         .push(" AND name IN (")
         .bind_list(new.iter().copied())
@@ -228,7 +228,7 @@ pub(crate) async fn show_body_files(
         .await?
         .ok_or_else(|| StoreError::not_found(format_args!("block ID={block_id}")))?
         .id(0)?;
-    let mut sql = scope.sql("SELECT name FROM file_info WHERE container_id = ");
+    let mut sql = scope.sql("SELECT name FROM files WHERE container_id = ");
     sql.bind(Id(&container_id))
         .push(" AND name IN (")
         .bind_list(new.iter().map(String::as_str))
@@ -287,9 +287,9 @@ pub(crate) async fn mark(
 ) -> Result<(), StoreError> {
     let changing = [
         "(unreferenced_at IS NULL) = (NOT EXISTS (\
-         SELECT 1 FROM file_refs r WHERE r.container_id = file_info.container_id \
-         AND r.name = file_info.name",
-        &scope.same_organization(&[("r", "file_info")]),
+         SELECT 1 FROM file_refs r WHERE r.container_id = files.container_id \
+         AND r.name = files.name",
+        &scope.same_organization(&[("r", "files")]),
         "))",
     ]
     .concat();
@@ -313,7 +313,7 @@ pub(crate) async fn mark(
 
 fn mark_statement(scope: &Scope<'_>, changing: &str) -> Sql {
     let mut sql =
-        scope.sql("UPDATE file_info SET unreferenced_at = CASE WHEN unreferenced_at IS NULL THEN ");
+        scope.sql("UPDATE files SET unreferenced_at = CASE WHEN unreferenced_at IS NULL THEN ");
     sql.bind(now_millis())
         .push(" ELSE NULL END WHERE ")
         .push(changing);
@@ -337,7 +337,7 @@ async fn hold_marks(
     only: Option<(&str, &[String])>,
     changing: &str,
 ) -> Result<Vec<String>, StoreError> {
-    let mut sql = scope.sql("SELECT id FROM file_info WHERE ");
+    let mut sql = scope.sql("SELECT id FROM files WHERE ");
     // Writers hold every affected row, even if their current snapshot needs no flip.
     sql.push(if only.is_some() { "TRUE" } else { changing });
     narrow_marks(&mut sql, only);

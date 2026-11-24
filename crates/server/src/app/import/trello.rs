@@ -16,7 +16,7 @@ use std::path::Path;
 
 use fvoci_model::{
     BLOCK_TITLE_MAX_CHARS, BODY_MAX_NODES, Block, BlockType, Container, ContainerKind,
-    ContainerType, JsonMap, check_date_value, new_id,
+    ContainerVisibility, JsonMap, check_date_value, new_id,
 };
 use serde_json::{Map, Value, json};
 
@@ -184,7 +184,7 @@ fn build_trello_container(
     let description = raw_desc.trim().to_owned();
     Container {
         id: board_id,
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Board,
         title,
         show_description: !description.is_empty(),

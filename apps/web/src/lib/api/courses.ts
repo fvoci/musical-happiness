@@ -134,7 +134,7 @@ function deletedUnitOf(unit: Schemas['DeletedUnit']): DeletedItem {
 function newCourseOf(draft: CourseDraft): Schemas['NewCourse'] {
   return {
     title: draft.title,
-    type: draft.type,
+    visibility: draft.visibility,
     ...(draft.description ? { description: draft.description } : {}),
     ...(draft.icon ? { icon: draft.icon } : {}),
     ...(draft.minimumRole ? { minimumRole: draft.minimumRole } : {}),

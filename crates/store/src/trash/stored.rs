@@ -1,6 +1,6 @@
 //! The JSON forms of a board's sidebar places and file records in `deleted_containers`.
 
-use fvoci_model::FileInfo;
+use fvoci_model::FileRecord;
 
 use crate::category_containers::ContainerPlace;
 
@@ -63,8 +63,8 @@ const fn first_version() -> i64 {
     1
 }
 
-impl From<Vec<FileInfo>> for StoredFiles {
-    fn from(files: Vec<FileInfo>) -> Self {
+impl From<Vec<FileRecord>> for StoredFiles {
+    fn from(files: Vec<FileRecord>) -> Self {
         Self(
             files
                 .into_iter()
@@ -85,12 +85,12 @@ impl From<Vec<FileInfo>> for StoredFiles {
     }
 }
 
-impl From<StoredFiles> for Vec<FileInfo> {
+impl From<StoredFiles> for Vec<FileRecord> {
     fn from(files: StoredFiles) -> Self {
         files
             .0
             .into_iter()
-            .map(|file| FileInfo {
+            .map(|file| FileRecord {
                 id: file.id,
                 container_id: file.container_id,
                 stored_name: file.stored_name,

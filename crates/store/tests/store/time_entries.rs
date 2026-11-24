@@ -98,9 +98,8 @@ async fn migration_0064_preserves_existing_rows_and_enforces_constraints() {
         "pre-0064 schema has no time_entries table"
     );
 
-    let store = Store::connect(database.db_type(), database.database_connection())
-        .await
-        .expect("migration 0064 applies cleanly");
+    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 64)
+        .await;
     let after = by_column(&dump(&database).await);
     assert!(
         after.contains_key("time_entries"),
@@ -110,6 +109,9 @@ async fn migration_0064_preserves_existing_rows_and_enforces_constraints() {
         assert_eq!(&after[table], rows, "existing table {table} preserved");
     }
 
+    let store = Store::connect(database.db_type(), database.database_connection())
+        .await
+        .expect("migrations up to latest apply cleanly");
     assert_db_constraints(&store, &org_id, &user_id).await;
 
     store.close().await;

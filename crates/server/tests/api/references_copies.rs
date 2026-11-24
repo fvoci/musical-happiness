@@ -25,11 +25,11 @@ struct Named {
 
 async fn named_board(th: &TestServer) -> Named {
     let user = &th.client;
-    let elsewhere = made(user, TEST_WS, "P", "elsewhere").await;
+    let elsewhere = made(user, TEST_WS, "private", "elsewhere").await;
     let board: Container = user
         .post(
             &format!("{TEST_WS}/boards"),
-            &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Named"}),
+            &json!({"workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Named"}),
         )
         .await
         .created_json();
@@ -236,7 +236,7 @@ async fn an_imported_archive_of_boards_names_the_copies_on_its_other_boards() {
         let board: Container = user
             .post(
                 &format!("{TEST_WS}/boards"),
-                &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": title}),
+                &json!({"workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": title}),
             )
             .await
             .created_json();

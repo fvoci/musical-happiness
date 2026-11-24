@@ -58,7 +58,7 @@ export function exampleWorkspace({
     workspaceId: world.workspace.id,
     createdBy: 'example-reader',
     modifiedBy: 'example-reader',
-    type: 'P',
+    visibility: 'private',
     minimumRole: 'editor',
     title: 'Example board with a long name · 이름이 긴 예시 보드',
     description: '',

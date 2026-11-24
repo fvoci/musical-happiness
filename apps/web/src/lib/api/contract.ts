@@ -1473,10 +1473,10 @@ export interface paths {
         };
         /**
          * What is known about a file of a shared board, wiki or course
-         * @description What `getFileInfo` gives of a file of the board, wiki or course, read with its read
+         * @description What `getFileRecord` gives of a file of the board, wiki or course, read with its read
          *     token as `getSharedContainer` is.
          */
-        get: operations["getSharedFileInfo"];
+        get: operations["getSharedFileRecord"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3089,11 +3089,11 @@ export interface paths {
         head?: never;
         /**
          * Change a board
-         * @description For who may manage the board's properties. Changing `type` or `minimumRole` is for
-         *     the board's admins. A wiki is changed here too, by its identifier; it takes no card
-         *     properties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a board:
-         *     a patch with a `kind`, even the board's own, is 400 at `/kind`. Other members it does
-         *     not know are left out.
+         * @description For who may manage the board's properties. Changing `visibility` or `minimumRole` is
+         *     for the board's admins. A wiki is changed here too, by its identifier; it takes no
+         *     card properties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a
+         *     board: a patch with a `kind`, even the board's own, is 400 at `/kind`. Other members
+         *     it does not know are left out.
          */
         patch: operations["patchContainer"];
         trace?: never;
@@ -3232,7 +3232,7 @@ export interface paths {
          *
          *     Every file is sent as `application/octet-stream` and offered as a download
          *     (`Content-Disposition: attachment`) under the name it was uploaded with, which
-         *     `getFileInfo` has: `filename*` carries that name, and `filename` the `fileId` for a
+         *     `getFileRecord` has: `filename*` carries that name, and `filename` the `fileId` for a
          *     reader that knows no `filename*`. A file whose record has no name, or one of more
          *     than 255 characters, is offered under its `fileId`. The answer honours `Range` with one range,
          *     unless the request has `If-Range`. It may be cached by the browser of who asked but
@@ -3261,7 +3261,7 @@ export interface paths {
          * @description The name a file was uploaded under, its size and when it was uploaded. For the
          *     board's members.
          */
-        get: operations["getFileInfo"];
+        get: operations["getFileRecord"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3526,7 +3526,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/w/{workspaceId}/containers/{containerId}/sharing": {
+    "/api/v1/w/{workspaceId}/containers/{containerId}/public-link": {
         parameters: {
             query?: never;
             header?: never;
@@ -3534,22 +3534,23 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Whether a board is shared
-         * @description Whether the board is shared, and with which read token. A board that was never
-         *     shared is not shared. For the board's admins.
+         * Whether a board, wiki or course has a public link
+         * @description Whether the container has an active public link, and with which read token. A
+         *     container that never had a public link is disabled. For the container's admins.
          */
-        get: operations["getSharing"];
+        get: operations["getPublicLink"];
         put?: never;
         /**
-         * Share a board, or stop sharing it
-         * @description Shares the board, shares it under a new read token, or stops sharing it. The server
-         *     makes the token; a request that names one is 400. Where the server is configured
-         *     without public sharing, every request is refused with 403 and the reason
-         *     `sharing_disabled`, also one that stops sharing. While the organization has its
-         *     public links off (`patchOrganization`), sharing a board is refused with 403 and the
-         *     reason `public_links_off`; stopping it is not. For the board's admins.
+         * Enable, regenerate or disable a container's public link
+         * @description Enables the container's public link, gives it a new read token, or disables it. The
+         *     server makes the token; a request that names one is 400. Where the server is
+         *     configured without public links, every request is refused with 403 and the reason
+         *     `sharing_disabled`, also one that turns a public link off. While the organization has
+         *     its public links off (`patchOrganization`), enabling a public link is refused with
+         *     403 and the reason `public_links_off`; disabling it is not. For the container's
+         *     admins.
          */
-        post: operations["setSharing"];
+        post: operations["setPublicLink"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4608,8 +4609,8 @@ export interface paths {
         /**
          * The diaries of the user's own space
          * @description Every diary of the workspace, oldest first: each is a board of the `kind` `diary`,
-         *     private (`type` `P`), with the user as its only member. Those in the trash are not
-         *     listed (`getDeletedContainers`).
+         *     private (`visibility` `private`), with the user as its only member. Those in the
+         *     trash are not listed (`getDeletedContainers`).
          */
         get: operations["getDiaries"];
         put?: never;
@@ -6842,8 +6843,8 @@ export interface components {
              *     made as and never changes; a board decoded without it is a `board`. A wiki, a
              *     diary and a course are no template and have no card properties, and the
              *     operations that are about cards answer for them as for a board that is not there.
-             *     A diary is private (`type` `P`) besides, and is only in the workspace of a user's
-             *     own space ("Diaries").
+             *     A diary is private (`visibility` `private`) besides, and is only in the workspace
+             *     of a user's own space ("Diaries").
              */
             kind: components["schemas"]["ContainerKind"];
             /**
@@ -6870,13 +6871,13 @@ export interface components {
              *     400 naming the member.
              */
             title: string;
-            /** @description Whether the board is open or private. */
-            type: components["schemas"]["ContainerType"];
             /**
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
             updateAt: number;
+            /** @description Whether the board is open or private. */
+            visibility: components["schemas"]["ContainerVisibility"];
             /** @description The identifier of the workspace the board belongs to. */
             workspaceId: string;
         };
@@ -6920,7 +6921,6 @@ export interface components {
             showDescription?: boolean | null;
             /** @description The new title. */
             title?: string | null;
-            type?: components["schemas"]["ContainerType"] | null;
             /** @description Card property definitions to add or replace, matched by their `id`. */
             updatedCardProperties?: {
                 [key: string]: unknown;
@@ -6929,6 +6929,7 @@ export interface components {
             updatedProperties?: {
                 [key: string]: unknown;
             };
+            visibility?: components["schemas"]["ContainerVisibility"] | null;
         };
         /** @description A workspace team and the role its members inherit on a board. */
         ContainerTeam: {
@@ -6946,7 +6947,7 @@ export interface components {
          * @description Who may see and join a board.
          * @enum {string}
          */
-        ContainerType: "O" | "P";
+        ContainerVisibility: "open" | "private";
         /** @description Boards and the blocks that belong to them, created together. */
         ContainersAndBlocks: {
             /** @description The blocks; each must belong to one of `containers`. */
@@ -7411,8 +7412,23 @@ export interface components {
              */
             file: string;
         };
+        /** @description Whether somebody has a file open in the editor now, and who. */
+        FileLease: {
+            /** @description Whether somebody holds the file's lease: has it open in the editor. */
+            editing: boolean;
+            /**
+             * @description Who holds it, where the caller may see who that is (the caller included); empty
+             *     for nobody, and for somebody the caller does not see.
+             */
+            editorId: string;
+        };
+        /** @description The lease a caller asks to hold: one held already, to be held on, or none. */
+        FileLeaseRequest: {
+            /** @description The lease the caller holds, as `holdFileLease` gave it; empty to take one. */
+            leaseId: string;
+        };
         /** @description What the server records about an uploaded file. */
-        FileInfo: {
+        FileRecord: {
             /**
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
@@ -7429,21 +7445,6 @@ export interface components {
              * @description The size of the file in bytes.
              */
             size: number;
-        };
-        /** @description Whether somebody has a file open in the editor now, and who. */
-        FileLease: {
-            /** @description Whether somebody holds the file's lease: has it open in the editor. */
-            editing: boolean;
-            /**
-             * @description Who holds it, where the caller may see who that is (the caller included); empty
-             *     for nobody, and for somebody the caller does not see.
-             */
-            editorId: string;
-        };
-        /** @description The lease a caller asks to hold: one held already, to be held on, or none. */
-        FileLeaseRequest: {
-            /** @description The lease the caller holds, as `holdFileLease` gave it; empty to take one. */
-            leaseId: string;
         };
         /**
          * @description A version kept of a file: the bytes the file had, when they were written and by
@@ -8081,7 +8082,7 @@ export interface components {
             /** @description The board's title. */
             title?: string;
             /** @description Whether the board is open or private. */
-            type: components["schemas"]["ContainerType"];
+            visibility: components["schemas"]["ContainerVisibility"];
         };
         /** @description A card to make. */
         NewCard: {
@@ -8148,11 +8149,11 @@ export interface components {
             /** @description The course's title. Left out, empty. */
             title?: string;
             /**
-             * @description Whether the course is open (`O`), for whoever works in the workspace to read and
-             *     search without joining, and to join to enroll, or private (`P`), for whom it is
+             * @description Whether the course is `open`, for whoever works in the workspace to read and
+             *     search without joining, and to join to enroll, or `private`, for whom it is
              *     shared with.
              */
-            type: components["schemas"]["ContainerType"];
+            visibility: components["schemas"]["ContainerVisibility"];
         };
         /** @description Request body for creating a course exam. */
         NewCourseExam: {
@@ -8370,10 +8371,10 @@ export interface components {
             /** @description The wiki's title. Left out, empty. */
             title?: string;
             /**
-             * @description Whether the wiki is open (`O`), for whoever works in the workspace to read, and to
-             *     join to write in it, or private (`P`), for whom it is shared with.
+             * @description Whether the wiki is `open`, for whoever works in the workspace to read, and to
+             *     join to write in it, or `private`, for whom it is shared with.
              */
-            type: components["schemas"]["ContainerType"];
+            visibility: components["schemas"]["ContainerVisibility"];
         };
         /** @description One thing a person was told. */
         Notification: {
@@ -8857,7 +8858,7 @@ export interface components {
             /**
              * @description What of the request was refused, one entry for each. `register`,
              *     `changePassword`, `patchMe`, `patchUserSettings`, `patchClientState`,
-             *     `createSubscription`, `createUpload`, `createImportUpload`, `setSharing`,
+             *     `createSubscription`, `createUpload`, `createImportUpload`, `setPublicLink`,
              *     `getCards`, `createCard` and `patchCard` list everything their check of the
              *     request's own shape refuses, the first 100; so does the check of a category's
              *     own members. Every other refusal names the one thing it is about: what is only
@@ -8908,6 +8909,41 @@ export interface components {
              *     `/problems/last-admin`, `/problems/not-found`.
              */
             type: string;
+        };
+        /**
+         * @description The public link state of a board.
+         *
+         *     The JSON form is what is answered to those who may manage the board's public link:
+         *     whether it is enabled, the read token while it is, and when the state last changed.
+         *     A board that never had a public link is `{"enabled": false}`.
+         */
+        PublicLink: {
+            /** @description Whether the public link is enabled. */
+            enabled: boolean;
+            /**
+             * @description The read token: whoever has it reads the board. The server makes it. Empty, and
+             *     left out of the JSON form, while the public link is disabled.
+             */
+            token?: string;
+            /**
+             * Format: int64
+             * @description When the state last changed, in milliseconds since the Unix epoch. Zero, and
+             *     left out of the JSON form, for a board that never had a public link.
+             */
+            updateAt?: number;
+        };
+        /** @description Whether a container's public link is to be enabled. */
+        PublicLinkRequest: {
+            /**
+             * @description `true` enables the public link, `false` turns it off. The read token a container
+             *     had stops working when the link is turned off.
+             */
+            enabled: boolean;
+            /**
+             * @description With `enabled`, `true` gives the container a new read token; the old one stops
+             *     working.
+             */
+            regenerate?: boolean | null;
         };
         /** @description The checks of the readiness: what the server depends on to serve. */
         Readiness: {
@@ -9172,41 +9208,6 @@ export interface components {
              */
             timeZone?: string | null;
             weekStart?: components["schemas"]["WeekStart"] | null;
-        };
-        /**
-         * @description The sharing state of a board.
-         *
-         *     The JSON form is what is answered to those who may share the board: whether it is
-         *     shared, the read token while it is, and when the state last changed. A board that
-         *     was never shared is `{"enabled": false}`.
-         */
-        Sharing: {
-            /** @description Whether the board is shared. */
-            enabled: boolean;
-            /**
-             * @description The read token: whoever has it reads the board. The server makes it. Empty, and
-             *     left out of the JSON form, while the board is not shared.
-             */
-            token?: string;
-            /**
-             * Format: int64
-             * @description When the state last changed, in milliseconds since the Unix epoch. Zero, and
-             *     left out of the JSON form, for a board that was never shared.
-             */
-            updateAt?: number;
-        };
-        /** @description Whether a board is to be shared. */
-        SharingRequest: {
-            /**
-             * @description `true` shares the board, `false` stops sharing it. The read token a board had
-             *     stops working when sharing stops.
-             */
-            enabled: boolean;
-            /**
-             * @description With `enabled`, `true` gives the board a new read token; the old one stops
-             *     working.
-             */
-            regenerate?: boolean | null;
         };
         /** @description A stretch of a snippet: text as it is in the body, never markup. */
         SnippetPart: {
@@ -9804,7 +9805,7 @@ export interface components {
         /** @description What an upload answers: the name the file is asked for by. */
         UploadedFile: {
             /**
-             * @description The identifier of the file: what `getFile` and `getFileInfo` take, and what an
+             * @description The identifier of the file: what `getFile` and `getFileRecord` take, and what an
              *     attachment block, an image or a file block of a body names in its `fileId`.
              */
             fileId: string;
@@ -11746,7 +11747,7 @@ export interface operations {
     getSharedContainer: {
         parameters: {
             query: {
-                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                /** @description The read token of the board, as `getPublicLink` answers it while the board's public link is enabled. */
                 readToken: string;
             };
             header?: never;
@@ -11781,7 +11782,7 @@ export interface operations {
     getSharedBlocks: {
         parameters: {
             query: {
-                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                /** @description The read token of the board, as `getPublicLink` answers it while the board's public link is enabled. */
                 readToken: string;
                 /** @description Any value that is not empty asks for every block of the board, and the other parameters are not looked at. */
                 all?: string;
@@ -11824,7 +11825,7 @@ export interface operations {
     getSharedCards: {
         parameters: {
             query: {
-                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                /** @description The read token of the board, as `getPublicLink` answers it while the board's public link is enabled. */
                 readToken: string;
                 /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
@@ -11865,7 +11866,7 @@ export interface operations {
     getSharedFile: {
         parameters: {
             query: {
-                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                /** @description The read token of the board, as `getPublicLink` answers it while the board's public link is enabled. */
                 readToken: string;
             };
             header?: never;
@@ -11908,10 +11909,10 @@ export interface operations {
             };
         };
     };
-    getSharedFileInfo: {
+    getSharedFileRecord: {
         parameters: {
             query: {
-                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                /** @description The read token of the board, as `getPublicLink` answers it while the board's public link is enabled. */
                 readToken: string;
             };
             header?: never;
@@ -11931,7 +11932,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FileInfo"];
+                    "application/json": components["schemas"]["FileRecord"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -11948,7 +11949,7 @@ export interface operations {
     getSharedPageTree: {
         parameters: {
             query: {
-                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                /** @description The read token of the board, as `getPublicLink` answers it while the board's public link is enabled. */
                 readToken: string;
             };
             header?: never;
@@ -11983,7 +11984,7 @@ export interface operations {
     getSharedPage: {
         parameters: {
             query: {
-                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                /** @description The read token of the board, as `getPublicLink` answers it while the board's public link is enabled. */
                 readToken: string;
             };
             header?: never;
@@ -12020,7 +12021,7 @@ export interface operations {
     getSharedUnitTree: {
         parameters: {
             query: {
-                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                /** @description The read token of the board, as `getPublicLink` answers it while the board's public link is enabled. */
                 readToken: string;
             };
             header?: never;
@@ -12055,7 +12056,7 @@ export interface operations {
     getSharedUnit: {
         parameters: {
             query: {
-                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                /** @description The read token of the board, as `getPublicLink` answers it while the board's public link is enabled. */
                 readToken: string;
             };
             header?: never;
@@ -14759,7 +14760,7 @@ export interface operations {
             };
         };
     };
-    getFileInfo: {
+    getFileRecord: {
         parameters: {
             query?: never;
             header?: never;
@@ -14781,7 +14782,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FileInfo"];
+                    "application/json": components["schemas"]["FileRecord"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -15336,7 +15337,7 @@ export interface operations {
             };
         };
     };
-    getSharing: {
+    getPublicLink: {
         parameters: {
             query?: never;
             header?: never;
@@ -15350,13 +15351,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The sharing state. */
+            /** @description The public link state. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Sharing"];
+                    "application/json": components["schemas"]["PublicLink"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -15370,7 +15371,7 @@ export interface operations {
             };
         };
     };
-    setSharing: {
+    setPublicLink: {
         parameters: {
             query?: never;
             header?: never;
@@ -15384,17 +15385,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SharingRequest"];
+                "application/json": components["schemas"]["PublicLinkRequest"];
             };
         };
         responses: {
-            /** @description The sharing state as it is now, with the token while the board is shared. */
+            /** @description The public link state as it is now, with the token while the public link is enabled. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Sharing"];
+                    "application/json": components["schemas"]["PublicLink"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

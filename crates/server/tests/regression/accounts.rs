@@ -644,7 +644,7 @@ pub(crate) async fn cookies(s: &mut Session) {
     let me = format!("{API}/users/me");
     let boards = format!("{ROOT_API}/boards");
     let credentials = json!({"username": alice, "password": "test-password"});
-    let board = json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "made"});
+    let board = json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": "made"});
     // The address the test servers take for their own: the default `server_url`.
     let own_origin = "http://localhost:8000";
     let foreign_origin = "https://evil.example";

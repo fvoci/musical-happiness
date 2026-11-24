@@ -5,9 +5,10 @@
 use std::time::Duration;
 
 use futures_util::SinkExt as _;
-use fvoci_model::{Block, BlockType, ContainerType, OrgRole, WorkspaceRole, new_id};
+use fvoci_model::PublicLinkChange;
+use fvoci_model::{Block, BlockType, ContainerVisibility, OrgRole, WorkspaceRole, new_id};
+use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
-use fvoci_store::{DbType, SharingChange};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -46,12 +47,15 @@ async fn checked_again_after(
 /// trashed and its administrator logged out.
 async fn first_organization_takes_back(ts: &TestServer) {
     let shared = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     ts.share(&shared.id).await;
     ts.client
         .post(
-            &format!("/w/{TEST_WORKSPACE_ID}/containers/{}/sharing", shared.id),
+            &format!(
+                "/w/{TEST_WORKSPACE_ID}/containers/{}/public-link",
+                shared.id
+            ),
             &json!({"enabled": false}),
         )
         .await
@@ -127,7 +131,7 @@ async fn one_organizations_links_do_not_check_anothers_reader_again() {
     let token = ts
         .app
         .scoped(theirs.tenant())
-        .set_sharing(&their_board, SharingChange::On, "")
+        .set_public_link(&their_board, PublicLinkChange::On, "")
         .await
         .expect("their board is shared")
         .token;

@@ -1,7 +1,7 @@
 //! A shared board read by its link: `/shared/{boardId}` with the read token, and no
 //! session.
 
-use fvoci_model::{Container, Sharing, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{Container, PublicLink, Workspace, WorkspaceRole, new_id};
 use fvoci_store::DbType;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -32,7 +32,7 @@ async fn fixture() -> Fixture {
             &format!("{TEST_WS}/boards"),
             &json!({
                 "workspaceId": TEST_WORKSPACE_ID,
-                "type": "O",
+                "visibility": "open",
                 "title": "Shared",
                 "cardProperties": [{"id": "owner", "name": "Owner", "type": "person", "options": []}],
             }),
@@ -70,10 +70,10 @@ async fn fixture() -> Fixture {
         .await
         .check_created();
     let file_id = upload(&ts.client, &board.id).await;
-    let sharing: Sharing = ts
+    let sharing: PublicLink = ts
         .client
         .post(
-            &format!("{TEST_WS}/containers/{}/sharing", board.id),
+            &format!("{TEST_WS}/containers/{}/public-link", board.id),
             &json!({"enabled": true}),
         )
         .await
@@ -211,14 +211,15 @@ async fn a_shared_board_is_not_there_without_its_token() {
         assert_eq!(not_there(path.clone()).await, absent, "{path}");
     }
     // Another board's file, with this board's token, is a file that is not there.
-    let other: Container =
-        f.ts.client
-            .post(
-                &format!("{TEST_WS}/boards"),
-                &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Other"}),
-            )
-            .await
-            .created_json();
+    let other: Container = f
+        .ts
+        .client
+        .post(
+            &format!("{TEST_WS}/boards"),
+            &json!({"workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Other"}),
+        )
+        .await
+        .created_json();
     let others_file = upload(&f.ts.client, &other.id).await;
     let file_path = |file_id: &str| {
         format!(
@@ -232,7 +233,7 @@ async fn a_shared_board_is_not_there_without_its_token() {
 
     f.ts.client
         .post(
-            &format!("{TEST_WS}/containers/{}/sharing", f.board.id),
+            &format!("{TEST_WS}/containers/{}/public-link", f.board.id),
             &json!({"enabled": false}),
         )
         .await
@@ -242,7 +243,7 @@ async fn a_shared_board_is_not_there_without_its_token() {
     }
     f.ts.client
         .post(
-            &format!("{TEST_WS}/containers/{}/sharing", f.board.id),
+            &format!("{TEST_WS}/containers/{}/public-link", f.board.id),
             &json!({"enabled": true}),
         )
         .await
@@ -271,7 +272,7 @@ async fn the_board_routes_take_no_read_token() {
     f.ts.client
         .patch(
             &format!("{TEST_WS}/containers/{}", f.board.id),
-            &json!({"type": "P"}),
+            &json!({"visibility": "private"}),
         )
         .await
         .check_ok();
@@ -358,7 +359,7 @@ async fn a_board_of_a_second_organization_is_read_by_its_link() {
     let token = ts
         .app
         .scoped(fvoci_store::Tenant::org(&org).expect("an identifier"))
-        .set_sharing(&board.id, fvoci_store::SharingChange::On, "")
+        .set_public_link(&board.id, fvoci_model::PublicLinkChange::On, "")
         .await
         .expect("shared")
         .token;

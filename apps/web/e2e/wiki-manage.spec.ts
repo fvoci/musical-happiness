@@ -289,7 +289,7 @@ test.describe('a wiki looked after', () => {
     await openApp(page);
     const made = await wikiBySomebodyElse(page, {
       title: 'Design notes',
-      type: 'O',
+      visibility: 'open',
       page: 'Hello',
     });
     await goInside(page, wikiPath(made.wikiId));
@@ -346,7 +346,7 @@ test.describe('a wiki looked after', () => {
       await openApp(page);
       const made = await wikiBySomebodyElse(page, {
         title: 'Rules',
-        type: 'P',
+        visibility: 'private',
         page: 'Read me',
         readerRole: role,
       });
@@ -593,7 +593,11 @@ test.describe('screens', () => {
       await expect(page.getByTestId('share-dialog')).toHaveCount(0);
 
       // An open wiki of somebody else's, read before it is joined.
-      const made = await wikiBySomebodyElse(page, { title: '디자인 노트', type: 'O', page: '색' });
+      const made = await wikiBySomebodyElse(page, {
+        title: '디자인 노트',
+        visibility: 'open',
+        page: '색',
+      });
       await goInside(page, wikiPath(made.wikiId));
       await expect(page.getByTestId('wiki-join')).toBeVisible();
       // The sidebar's drawer has slid all the way out.

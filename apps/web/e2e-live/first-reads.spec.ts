@@ -26,7 +26,9 @@ test('the workspaces are read once, and a wiki is told as visited once, with its
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, { title: 'Plans', cards: [{ title: 'Kick-off' }] });
   const inWorkspace = `/api/v1/w/${board.workspaceId}`;
-  const made = await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } });
+  const made = await api.post(`${inWorkspace}/wikis`, {
+    data: { title: 'Handbook', visibility: 'private' },
+  });
   expect(made.ok(), await made.text()).toBe(true);
   const wiki = (await made.json()) as { id: string };
   const written = await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, {

@@ -3,7 +3,7 @@
 
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockType, Container, ContainerKind, ContainerKinds,
-    ContainerType, NewPage, PageLimits, PageNode, new_id,
+    ContainerVisibility, NewPage, PageLimits, PageNode, new_id,
 };
 use fvoci_store::{DbType, Store, StoreError, Tenant};
 
@@ -19,7 +19,7 @@ pub(crate) async fn stored(
 ) -> Container {
     let mut board = Container {
         kind,
-        ..new_board(&new_id(), workspace_id, ContainerType::Private)
+        ..new_board(&new_id(), workspace_id, ContainerVisibility::Private)
     };
     store
         .insert_container_with_admin(&mut board, user_id)
@@ -462,7 +462,7 @@ async fn the_pages_of_two_organizations_are_out_of_each_others_reach() {
     let wiki_in = async |store: &Store, workspace_id: &str| {
         let mut wiki = Container {
             kind: ContainerKind::Wiki,
-            ..new_board(&new_id(), workspace_id, ContainerType::Open)
+            ..new_board(&new_id(), workspace_id, ContainerVisibility::Open)
         };
         store
             .insert_container(&mut wiki, &user_id)

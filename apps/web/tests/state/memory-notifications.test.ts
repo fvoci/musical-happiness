@@ -122,7 +122,7 @@ describe('the notifications of comments, in memory', () => {
 
     const wiki = await made.backend.wiki.createWiki(made.workspaceId, {
       title: 'Notes',
-      type: 'O',
+      visibility: 'open',
     });
     await made.other.joinContainer(wiki.id);
     const page = await made.backend.wiki.createPage(wiki.id, { title: 'Minutes' });

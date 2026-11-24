@@ -5,7 +5,7 @@
 use std::io::{Cursor, Write as _};
 use std::path::PathBuf;
 
-use fvoci_model::{Block, BlockType, ContainerType, new_id};
+use fvoci_model::{Block, BlockType, ContainerVisibility, new_id};
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -80,7 +80,7 @@ fn incompressible(size: usize) -> Vec<u8> {
 /// `container.jsonl`, each written with `method`.
 fn archive_with(entries: &[(&str, &[u8])], method: zip::CompressionMethod) -> Vec<u8> {
     let board = json!({"type": "container", "data": {
-        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Limits", "createAt": 1, "updateAt": 1,
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Limits", "createAt": 1, "updateAt": 1,
     }});
     archive_of(&board, entries, method)
 }
@@ -122,7 +122,7 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
         .init_basic()
         .await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     // A file is at most a part when sent whole: two of them make an archive of two.
     let data = incompressible(PART);
@@ -186,7 +186,7 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
 async fn an_archive_board_validates_workspace_id_and_ignores_unknown_keys() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = json!({"type": "container", "data": {
-        "id": "b1", "workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Imported board",
+        "id": "b1", "workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": "Imported board",
         "createAt": 1, "updateAt": 1,
     }});
     let archive = archive_of(&board, &[], zip::CompressionMethod::Deflated);
@@ -202,7 +202,7 @@ async fn an_archive_board_validates_workspace_id_and_ignores_unknown_keys() {
     assert_eq!(imported[0].workspace_id, TEST_WORKSPACE_ID);
 
     let invalid = json!({"type": "container", "data": {
-        "id": "b2", "workspaceId": 5, "type": "P", "title": "Numbered", "createAt": 1, "updateAt": 1,
+        "id": "b2", "workspaceId": 5, "visibility": "private", "title": "Numbered", "createAt": 1, "updateAt": 1,
     }});
     let archive = archive_of(&invalid, &[], zip::CompressionMethod::Deflated);
     let refused = import(&ts.client, TEST_WORKSPACE_ID, &archive).await;
@@ -215,7 +215,7 @@ async fn an_archive_board_validates_workspace_id_and_ignores_unknown_keys() {
 
     // An unknown workspace-like key is ignored rather than aliased to `workspaceId`.
     let unknown_key = json!({"type": "container", "data": {
-        "id": "b3", "legacyWorkspaceId": 5, "type": "P", "title": "Unknown key ignored",
+        "id": "b3", "legacyWorkspaceId": 5, "visibility": "private", "title": "Unknown key ignored",
         "createAt": 1, "updateAt": 1,
     }});
     let archive = archive_of(&unknown_key, &[], zip::CompressionMethod::Deflated);
@@ -241,7 +241,7 @@ async fn an_archive_makes_its_wiki_a_wiki_and_refuses_a_template_wiki_whole() {
     let ts = Setup::native().start().await.init_basic().await;
     let board_of = |kind: &str, template: bool| {
         json!({"type": "container", "data": {
-            "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": kind,
+            "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": kind,
             "isTemplate": template, "title": format!("Archived {kind}"), "createAt": 1,
             "updateAt": 1,
         }})
@@ -354,7 +354,7 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
 
     // An upload of a file is not imported.
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = ts
         .client
@@ -467,7 +467,7 @@ async fn the_share_of_a_user_is_twice_the_larger_limit() {
         .init_basic()
         .await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let open_file = |size: usize| {
         let path = format!("{TEST_WS}/containers/{}/uploads", board.id);
@@ -499,7 +499,7 @@ async fn the_share_of_a_user_is_twice_the_larger_limit() {
 async fn with_s3_an_archive_is_received_on_the_disk() {
     let ts = crate::uploads::s3_server().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = crate::files::upload(&ts.client, &board.id, "a.bin", b"in the bucket").await;
     response.check_created();
@@ -593,7 +593,7 @@ async fn a_large_version_json_is_no_archive() {
 async fn imports_run_one_per_user_and_two_on_the_server() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let archive = ts
         .client
@@ -636,7 +636,7 @@ async fn duplicate_entries_in_native_archive_are_refused_with_400() {
     let ts = Setup::native().start().await.init_basic().await;
     let before = boards_of(&ts).await.len();
     let board = json!({"type": "container", "data": {
-        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Dup", "createAt": 1, "updateAt": 1,
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Dup", "createAt": 1, "updateAt": 1,
     }});
     let opts = zip::write::SimpleFileOptions::default();
 
@@ -691,10 +691,10 @@ fn oversized_after_rename_native_zip() -> Vec<u8> {
     );
 
     let b1 = json!({"type": "container", "data": {
-        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Valid First", "createAt": 1, "updateAt": 1,
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Valid First", "createAt": 1, "updateAt": 1,
     }});
     let b2 = json!({"type": "container", "data": {
-        "id": "b2", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Overflow Second", "createAt": 1, "updateAt": 1,
+        "id": "b2", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Overflow Second", "createAt": 1, "updateAt": 1,
     }});
     let card = json!({"type": "block", "data": {
         "id": "c1", "containerId": "b2", "parentId": "", "type": "card", "title": "Big",

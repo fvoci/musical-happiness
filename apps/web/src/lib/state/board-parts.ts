@@ -131,6 +131,11 @@ export function roleFlags(
   };
 }
 
+/** A container with its workspace visibility set to `'open'` or `'private'`. */
+export function withVisibility(container: Container, open: boolean): Container {
+  return { ...container, visibility: open ? 'open' : 'private' };
+}
+
 /** A card with one property set to `value`, or cleared when empty. */
 export function withCardProperty(
   card: CardSummary,

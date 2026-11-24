@@ -55,7 +55,7 @@ fn read_all_jsonl(zip_bytes: &[u8]) -> String {
 
 fn board_line(id: &str, kind: &str, title: &str) -> Value {
     json!({"type": "container", "data": {
-        "id": id, "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": kind,
+        "id": id, "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": kind,
         "title": title, "createAt": 1, "updateAt": 1,
     }})
 }
@@ -89,7 +89,7 @@ async fn seed_course_for_archive(client: &Client, external_card: &str) -> Seeded
     let course = client
         .post(
             &format!("{TEST_WS}/courses"),
-            &json!({"type": "O", "title": "Distributed Systems", "description": "8-week plan"}),
+            &json!({"visibility": "open", "title": "Distributed Systems", "description": "8-week plan"}),
         )
         .await
         .created_json::<Container>();
@@ -281,7 +281,7 @@ async fn course_archive_round_trip_preserves_units_amounts_schedule_files_refs_a
  {
     let ts = Setup::native().start().await.init_basic().await;
     let client = &ts.client;
-    let elsewhere = made(client, TEST_WS, "O", "elsewhere").await;
+    let elsewhere = made(client, TEST_WS, "open", "elsewhere").await;
     let src = seed_course_for_archive(client, &elsewhere.card).await;
 
     let exported = client

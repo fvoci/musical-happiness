@@ -34,7 +34,7 @@ test('a guest comes in by a link from the share dialog, and opens and edits that
     title: 'Guest invitation',
     cards: [{ title: 'Visible to the invited guest', status: 'To do' }],
   });
-  const other = await makeBoard(api, { title: 'Not for guests', type: 'O' });
+  const other = await makeBoard(api, { title: 'Not for guests', visibility: 'open' });
 
   // The board's admin makes the link where the board is shared.
   const errors = watchErrors(page);

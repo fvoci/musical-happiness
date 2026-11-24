@@ -32,7 +32,7 @@ function inviteOnlyBoard(): MemoryBackend {
     ...createBoard(),
     id: 'b',
     workspaceId: 'w',
-    type: 'P' as const,
+    visibility: 'private' as const,
     title: 'Hidden',
   };
   world.containers.set(board.id, board);
@@ -139,7 +139,7 @@ describe('membership changes', () => {
     const backend = inviteOnlyBoard();
     const board = backend.world.containers.get('b');
     if (!board) throw new Error('missing test board');
-    board.type = 'O';
+    board.visibility = 'open';
     expect(await statusOf(backend.views('b'))).toBe(403);
     expect(await statusOf(backend.cards('b'))).toBe(403);
     expect(await statusOf(backend.card('b', 'c'))).toBe(403);

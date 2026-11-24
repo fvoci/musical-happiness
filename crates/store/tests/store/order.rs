@@ -12,7 +12,7 @@
 
 use fvoci_model::{
     Block, BlockType, Category, Container, ContainerKinds, ContainerMember, ContainerSearchField,
-    ContainerType, Subscription, User, WorkspaceRole, new_id,
+    ContainerVisibility, Subscription, User, WorkspaceRole, new_id,
 };
 use fvoci_store::{Looking, Paging, PublicContainers, Reach, Sight, Store};
 
@@ -64,7 +64,7 @@ async fn boards_come_oldest_first() {
     let user_id = common::user(store, "user").await;
     let workspace_id = common::workspace_of(store, &[&user_id]).await;
     let open = |title: &str| Container {
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         title: title.to_owned(),
         ..Container::default()
     };
@@ -149,7 +149,7 @@ async fn templates_come_oldest_first() {
     let user_id = common::user(store, "user").await;
     let workspace_id = common::workspace(store).await;
     let template = || Container {
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         is_template: true,
         ..Container::default()
     };
@@ -208,7 +208,7 @@ async fn memberships_come_by_identifier() {
     ];
     let workspace_id = common::workspace_of(store, &[&users[0]]).await;
     let open = || Container {
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..Container::default()
     };
     let boards = [
@@ -459,7 +459,7 @@ async fn subscription_ties_fall_back_to_identifiers() {
         &workspace_id,
         &users[0],
         Container {
-            container_type: ContainerType::Open,
+            visibility: ContainerVisibility::Open,
             ..Container::default()
         },
     )

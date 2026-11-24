@@ -91,7 +91,9 @@ test('a PDF and a Word document are viewed on the card, and by the reader of the
 
   // The public link: a browser signed in as nobody.
   const at = `/api/v1/w/${board.workspaceId}/containers/${board.boardId}`;
-  const shared = (await (await api.post(`${at}/sharing`, { data: { enabled: true } })).json()) as {
+  const shared = (await (
+    await api.post(`${at}/public-link`, { data: { enabled: true } })
+  ).json()) as {
     token?: string;
   };
   const token = shared.token ?? '';

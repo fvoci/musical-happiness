@@ -44,8 +44,8 @@ import {
   type ImportOptions,
   type ImportSummary,
   type Paging,
-  type Sharing,
-  type SharingChange,
+  type PublicLink,
+  type PublicLinkChange,
   type UserOrganization,
   type WorkspaceInfo,
   type UploadedFile,
@@ -345,7 +345,7 @@ export class MemoryBackend implements Backend {
       workspaceId,
       createdBy: this.userId,
       modifiedBy: this.userId,
-      type: draft.type ?? 'P',
+      visibility: draft.visibility ?? 'private',
       minimumRole: 'editor',
       title: draft.title,
       description: draft.description ?? '',
@@ -527,7 +527,7 @@ export class MemoryBackend implements Backend {
     const board = this.#container(id);
     if (board.isTemplate) fail(403, 'a template cannot be joined');
     const works = spaces.workersOf(this.world, board.workspaceId).has(this.userId);
-    if (board.type !== 'O' || !works) fail(404, 'no such open board');
+    if (board.visibility !== 'open' || !works) fail(404, 'no such open board');
     const members = this.world.members.get(id) ?? [];
     const existing = members.find((member) => member.userId === this.userId);
     if (existing) return copy(existing);
@@ -595,21 +595,21 @@ export class MemoryBackend implements Backend {
     this.world.tellContainer(id, { kind: 'members', containerId: id, members: copy(members) });
   }
 
-  async sharing(id: string): Promise<Sharing> {
-    await this.#enter('sharing');
+  async publicLink(id: string): Promise<PublicLink> {
+    await this.#enter('publicLink');
     this.#container(id, 'shared');
-    return copy(this.world.sharing.get(id) ?? { enabled: false, token: '' });
+    return copy(this.world.publicLinks.get(id) ?? { enabled: false, token: '' });
   }
 
-  async setSharing(id: string, change: SharingChange): Promise<Sharing> {
-    await this.#enter('setSharing');
+  async setPublicLink(id: string, change: PublicLinkChange): Promise<PublicLink> {
+    await this.#enter('setPublicLink');
     this.#container(id, 'shared');
-    const before = this.world.sharing.get(id);
+    const before = this.world.publicLinks.get(id);
     const token =
       !before?.token || change.regenerate ? this.world.newId().replaceAll('-', '') : before.token;
-    const sharing = { enabled: change.enabled, token };
-    this.world.sharing.set(id, sharing);
-    return copy(sharing);
+    const link = { enabled: change.enabled, token };
+    this.world.publicLinks.set(id, link);
+    return copy(link);
   }
 
   /** As the server: by the login name or the name, whatever the case, the oldest first, ten at most. */

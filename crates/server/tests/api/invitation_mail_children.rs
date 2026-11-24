@@ -18,7 +18,7 @@ pub(crate) fn links_path() -> String {
 /// A new guest link of a new board, made by user1.
 async fn guest_link(th: &TestServer) -> Invitation {
     let board = th
-        .create_board(ROOT_WORKSPACE_ID, fvoci_model::ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, fvoci_model::ContainerVisibility::Open)
         .await;
     th.client
         .post(

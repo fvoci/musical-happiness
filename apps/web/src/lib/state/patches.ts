@@ -154,7 +154,7 @@ export function applyContainerPatch(board: Container, patch: ContainerPatch): Co
   }
   return {
     ...board,
-    type: patch.type ?? board.type,
+    visibility: patch.visibility ?? board.visibility,
     minimumRole: patch.minimumRole ?? board.minimumRole,
     title: patch.title ?? board.title,
     description: patch.description ?? board.description,

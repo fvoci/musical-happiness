@@ -11,7 +11,7 @@
  * comments and versions of its body as a card has, by the card's rules.
  */
 import type { DocNode } from '../editor/schema.ts';
-import type { Container, ContainerType, MemberRole } from '../logic/wire.ts';
+import type { Container, ContainerVisibility, MemberRole } from '../logic/wire.ts';
 
 import type { BodyWrite, Comment, CommentVersion } from './backend.ts';
 import type { BodyVersions } from './body-versions.ts';
@@ -48,8 +48,8 @@ export interface WikiDraft {
   title: string;
   description?: string;
   icon?: string;
-  /** `O`: for whoever works in the workspace to find and join; `P`: for whom it is shared with. */
-  type: ContainerType;
+  /** `open`: for whoever works in the workspace to find and join; `private`: for whom it is shared with. */
+  visibility: ContainerVisibility;
   minimumRole?: Exclude<MemberRole, '' | 'admin'>;
 }
 

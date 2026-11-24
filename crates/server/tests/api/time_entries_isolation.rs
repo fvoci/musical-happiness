@@ -18,7 +18,7 @@ use axum::Router;
 use axum::routing::post;
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
-    ActiveTimeEntry, Container, ContainerMember, ContainerType, OrgRole, StartedTimeEntry,
+    ActiveTimeEntry, Container, ContainerMember, ContainerVisibility, OrgRole, StartedTimeEntry,
     TimeEntry, TimeEntryList, Unit,
 };
 use fvoci_store::DbType;
@@ -98,7 +98,7 @@ async fn seed_victim_scenario(th: &TestServer) -> VictimScenario {
     let victim_board: Container = victim
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Victim Board",
         ))
         .await
@@ -107,7 +107,7 @@ async fn seed_victim_scenario(th: &TestServer) -> VictimScenario {
     let victim_course: Value = victim
         .post(
             &format!("{TEST_WS}/courses"),
-            &json!({"type": "P", "title": "Victim Course"}),
+            &json!({"visibility": "private", "title": "Victim Course"}),
         )
         .await
         .created_json();
@@ -378,7 +378,7 @@ async fn time_entries_do_not_leak_via_export_search_audit_webhooks_or_ws() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Open,
+            ContainerVisibility::Open,
             "Shared Board",
         ))
         .await
@@ -520,7 +520,7 @@ async fn own_space_password_wall_and_private_sso_block_no_oracle() {
         .client
         .create_board(&new_board(
             ROOT_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Admin Only",
         ))
         .await
@@ -812,7 +812,7 @@ async fn guest_tracking_and_removal_cleans_up_org_time_entries() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Guest Board",
         ))
         .await

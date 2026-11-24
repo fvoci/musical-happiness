@@ -22,7 +22,7 @@ use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery};
 use axum::http::HeaderMap;
 use axum::http::request::Parts;
 use fvoci_model::{
-    Block, Card, Container, ContainerKind, FileInfo, Page, PageNode, PersonProperties, Unit,
+    Block, Card, Container, ContainerKind, FileRecord, Page, PageNode, PersonProperties, Unit,
     UnitNode,
 };
 use utoipa_axum::router::OpenApiRouter;
@@ -36,7 +36,7 @@ use super::contract::params::{
     ParentId, PerPage, Preview, SharedReadToken, UnitId,
 };
 use super::contract::tag;
-use super::files::{container_file_info, serve_container_file};
+use super::files::{container_file_record, serve_container_file};
 use super::{ApiResult, json_response, query_param};
 use crate::app::App;
 use crate::client_address::ClientAddress;
@@ -54,7 +54,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_shared_blocks))
         .routes(routes!(handle_get_shared_cards))
         .routes(routes!(handle_get_shared_file))
-        .routes(routes!(handle_get_shared_file_info))
+        .routes(routes!(handle_get_shared_file_record))
         .routes(routes!(handle_get_shared_page_tree))
         .routes(routes!(handle_get_shared_page))
         .routes(routes!(handle_get_shared_unit_tree))
@@ -144,7 +144,7 @@ impl InSharedContainer {
     get,
     path = "/shared/{containerId}",
     operation_id = "getSharedContainer",
-    tag = tag::SHARING,
+    tag = tag::PUBLIC_LINKS,
     params(ContainerId, SharedReadToken),
     security(()),
     responses((status = 200, description = "The board, wiki or course.", body = Container)),
@@ -173,7 +173,7 @@ async fn handle_get_shared_container(shared: InSharedContainer) -> ApiResult {
     get,
     path = "/shared/{containerId}/blocks",
     operation_id = "getSharedBlocks",
-    tag = tag::SHARING,
+    tag = tag::PUBLIC_LINKS,
     params(ContainerId, SharedReadToken, AllBlocks, OneBlockId, ParentId, BlockTypeFilter),
     security(()),
     responses((status = 200, description = "The blocks.", body = Vec<Block>)),
@@ -211,7 +211,7 @@ async fn handle_get_shared_blocks(
     get,
     path = "/shared/{containerId}/cards",
     operation_id = "getSharedCards",
-    tag = tag::SHARING,
+    tag = tag::PUBLIC_LINKS,
     params(ContainerId, SharedReadToken, PageNumber, PerPage, Preview),
     security(()),
     responses((status = 200, description = "The cards of the page.", body = Vec<Card>)),
@@ -238,7 +238,7 @@ async fn handle_get_shared_cards(
     get,
     path = "/shared/{containerId}/files/{fileId}",
     operation_id = "getSharedFile",
-    tag = tag::SHARING,
+    tag = tag::PUBLIC_LINKS,
     params(ContainerId, FileId, SharedReadToken),
     security(()),
     responses(
@@ -256,23 +256,23 @@ async fn handle_get_shared_file(
 
 /// What is known about a file of a shared board, wiki or course
 ///
-/// What `getFileInfo` gives of a file of the board, wiki or course, read with its read
+/// What `getFileRecord` gives of a file of the board, wiki or course, read with its read
 /// token as `getSharedContainer` is.
 #[utoipa::path(
     get,
     path = "/shared/{containerId}/files/{fileId}/info",
-    operation_id = "getSharedFileInfo",
-    tag = tag::SHARING,
+    operation_id = "getSharedFileRecord",
+    tag = tag::PUBLIC_LINKS,
     params(ContainerId, FileId, SharedReadToken),
     security(()),
-    responses((status = 200, description = "What is known about the file.", body = FileInfo)),
+    responses((status = 200, description = "What is known about the file.", body = FileRecord)),
 )]
-async fn handle_get_shared_file_info(
+async fn handle_get_shared_file_record(
     shared: InSharedContainer,
     Path((_, file_id)): Path<(String, String)>,
 ) -> ApiResult {
     Ok(json_response(
-        &container_file_info(&shared.app, &shared.container_id, &file_id).await?,
+        &container_file_record(&shared.app, &shared.container_id, &file_id).await?,
     ))
 }
 
@@ -285,7 +285,7 @@ async fn handle_get_shared_file_info(
     get,
     path = "/shared/{containerId}/pages",
     operation_id = "getSharedPageTree",
-    tag = tag::SHARING,
+    tag = tag::PUBLIC_LINKS,
     params(ContainerId, SharedReadToken),
     security(()),
     responses((status = 200, description = "The pages.", body = Vec<PageNode>)),
@@ -310,7 +310,7 @@ async fn handle_get_shared_page_tree(shared: InSharedContainer) -> ApiResult {
     get,
     path = "/shared/{containerId}/pages/{pageId}",
     operation_id = "getSharedPage",
-    tag = tag::SHARING,
+    tag = tag::PUBLIC_LINKS,
     params(ContainerId, PageId, SharedReadToken),
     security(()),
     responses((status = 200, description = "The page.", body = Page)),
@@ -341,7 +341,7 @@ async fn handle_get_shared_page(
     get,
     path = "/shared/{containerId}/units",
     operation_id = "getSharedUnitTree",
-    tag = tag::SHARING,
+    tag = tag::PUBLIC_LINKS,
     params(ContainerId, SharedReadToken),
     security(()),
     responses((status = 200, description = "The chapters and units.", body = Vec<UnitNode>)),
@@ -366,7 +366,7 @@ async fn handle_get_shared_unit_tree(shared: InSharedContainer) -> ApiResult {
     get,
     path = "/shared/{containerId}/units/{unitId}",
     operation_id = "getSharedUnit",
-    tag = tag::SHARING,
+    tag = tag::PUBLIC_LINKS,
     params(ContainerId, UnitId, SharedReadToken),
     security(()),
     responses((status = 200, description = "The unit.", body = Unit)),

@@ -122,7 +122,7 @@ impl Store {
                 }
             }
             let mut sql = scope.sql(
-                "SELECT CAST(COUNT(*) AS BIGINT) FROM file_info AS f \
+                "SELECT CAST(COUNT(*) AS BIGINT) FROM files AS f \
                  JOIN containers AS c ON c.id = f.container_id \
                  JOIN workspaces AS w ON w.id = c.workspace_id \
                  WHERE w.delete_at = 0 AND w.org_id = ",

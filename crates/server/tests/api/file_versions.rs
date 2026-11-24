@@ -2,7 +2,7 @@
 //! an uploaded file and gone back to by who edits it, each write made from the version
 //! it names; kept as many as the server is set to; and gone with the file.
 
-use fvoci_model::{Block, BlockType, Container, ContainerType, FileInfo, JsonMap, new_id};
+use fvoci_model::{Block, BlockType, Container, ContainerVisibility, FileRecord, JsonMap, new_id};
 use fvoci_server::app::ChangeNotification;
 use fvoci_server::auth::now_millis;
 use fvoci_store::testing::db_type_of_the_tests;
@@ -99,7 +99,7 @@ async fn version_bytes(client: &Client, board_id: &str, file_id: &str, version: 
 /// An open board of the first user with a file `a.txt` that says "first".
 async fn board_with_file(ts: &TestServer) -> (Container, String) {
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "a.txt", b"first").await);
     (board, file_id)
@@ -520,7 +520,7 @@ async fn an_upload_that_cannot_become_a_version_is_refused() {
         .0
         .check_created();
     let other_board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let elsewhere = uploaded_id(&upload(&ts.client, &other_board.id, "c.txt", b"bytes").await);
 
@@ -566,7 +566,7 @@ async fn versions_are_read_by_readers_and_written_by_editors() {
     // Public links are allowed, so that the link is one a reader holds.
     let ts = Setup::local_mode().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "a.txt", b"first").await);
     add_version(&ts.client, &board.id, &file_id, 1, b"the second")
@@ -944,7 +944,10 @@ async fn a_file_of_a_wiki_has_versions() {
     let ts = Setup::native().start().await.init_basic().await;
     let wiki: Container = ts
         .client
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "P"}))
+        .post(
+            &format!("{TEST_WS}/wikis"),
+            &json!({"visibility": "private"}),
+        )
         .await
         .created_json();
     let file_id = uploaded_id(&upload(&ts.client, &wiki.id, "a.txt", b"first").await);
@@ -980,7 +983,7 @@ async fn the_versions_of_two_organizations_stay_apart() {
     let (theirs, their_workspace, their_board) = crate::workspaces::another_organization(&ts).await;
     let record = |name: &str| {
         let stored_name = format!("{}.txt", fvoci_server::auth::secret::new_secret());
-        FileInfo {
+        FileRecord {
             id: new_id(),
             container_id: their_board.clone(),
             path: format!("boards/20261118/{their_board}/{stored_name}"),
@@ -989,7 +992,7 @@ async fn the_versions_of_two_organizations_stay_apart() {
             extension: ".txt".to_owned(),
             size: 6,
             create_at: 1,
-            ..FileInfo::default()
+            ..FileRecord::default()
         }
     };
     let (file, next) = (record("theirs.txt"), record("next.txt"));
@@ -999,7 +1002,7 @@ async fn the_versions_of_two_organizations_stay_apart() {
             .write(&info.path, &mut &b"theirs"[..])
             .await
             .expect("written");
-        theirs.save_file_info(info).await.expect("recorded");
+        theirs.save_file_record(info).await.expect("recorded");
     }
     let owner = theirs
         .get_members_for_container(&their_board)

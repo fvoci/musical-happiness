@@ -112,7 +112,7 @@
   /** Inviting a guest by a link, where the backend has that. */
   const access = $derived(peopleOf(workspace));
 
-  const isOpen = $derived(shareable.container?.type === 'O');
+  const isOpen = $derived(shareable.container?.visibility === 'open');
   const minimumRole = $derived<ContainerRole>(
     shareable.container?.minimumRole && shareable.container.minimumRole !== 'admin'
       ? shareable.container.minimumRole

@@ -193,7 +193,10 @@ describe('in-memory course schedule contract & store integration', () => {
     await made.workspace.load();
 
     const wsId = made.world.workspace.id;
-    const course = await made.backend.course.createCourse(wsId, { title: 'Algorithms', type: 'O' });
+    const course = await made.backend.course.createCourse(wsId, {
+      title: 'Algorithms',
+      visibility: 'open',
+    });
     const ch = await made.backend.course.createUnit(course.id, { kind: 'chapter', title: 'Ch 1' });
     const u1 = await made.backend.course.createUnit(course.id, {
       kind: 'unit',
@@ -335,7 +338,10 @@ describe('in-memory course schedule contract & store integration', () => {
     made.world.useClock(() => Date.UTC(2026, 10, 10, 12, 0, 0));
     await made.workspace.load();
 
-    const live = await made.backend.course.createCourse(wsId, { title: 'Live Course', type: 'P' });
+    const live = await made.backend.course.createCourse(wsId, {
+      title: 'Live Course',
+      visibility: 'private',
+    });
     await made.backend.course.createUnit(live.id, {
       kind: 'unit',
       title: 'Live Unit',

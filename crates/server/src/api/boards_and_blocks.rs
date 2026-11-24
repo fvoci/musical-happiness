@@ -199,7 +199,7 @@ async fn handle_patch_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResu
             return Err(AppError::bad_request("the kind of a board never changes")
                 .with_pointer(format!("/containerPatches/{index}/kind")));
         }
-        if patch.container_type.is_some() || patch.minimum_role.is_some() {
+        if patch.visibility.is_some() || patch.minimum_role.is_some() {
             require_container_permission(
                 &ws.app,
                 user_id,
