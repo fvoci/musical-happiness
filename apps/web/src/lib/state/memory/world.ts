@@ -23,8 +23,20 @@ import { reads } from './container-access.ts';
 import type { KeptOfCard } from './body-versions.ts';
 import type { StoredNotification } from './notifications.ts';
 import type { ContainerPlace } from './trash.ts';
-import type { CourseSchedule, UnitProgress } from '../course-types.ts';
+import type { CourseMeeting, CourseSchedule, MyExamScore, UnitProgress } from '../course-types.ts';
 import type { TimeEntry } from '../time-types.ts';
+
+/** Stored exam metadata in `World` (individual scores live in `World.examScores`). */
+export interface StoredCourseExam {
+  id: string;
+  containerId: string;
+  title: string;
+  examDate: string | null;
+  maxScore: number;
+  description: string;
+  createAt: number;
+  updateAt: number;
+}
 
 /** A view, card, comment or attachment as the world stores it. */
 export interface StoredBlock extends Block {
@@ -151,6 +163,12 @@ export class World {
   readonly unitProgress = new Map<string, Map<string, UnitProgress>>();
   /** Saved shared course schedules keyed by `courseId` (survive course soft-delete/restore). */
   readonly courseSchedules = new Map<string, CourseSchedule>();
+  /** Course study meetings keyed by `courseId`. */
+  readonly courseMeetings = new Map<string, CourseMeeting[]>();
+  /** Course exam metadata keyed by `courseId`. */
+  readonly courseExams = new Map<string, StoredCourseExam[]>();
+  /** Personal exam scores keyed by `userId -> Map<examId, MyExamScore>`. */
+  readonly examScores = new Map<string, Map<string, MyExamScore>>();
   /** Personal time entries, by user (`time.ts`). */
   readonly timeEntries = new Map<string, TimeEntry[]>();
 

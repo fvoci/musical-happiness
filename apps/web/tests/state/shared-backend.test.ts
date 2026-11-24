@@ -194,6 +194,15 @@ describe('the backend of a course’s public link', () => {
       () => courses.redistributeSchedule('c1', {}),
       () => courses.redistributeMySchedule('c1', {}),
       () => courses.putUnitSchedule('c1', 'u1', { plannedDate: '2026-05-02' }),
+      () => courses.meetings.create('c1', { title: 'Sync', startsAt: 1000 }),
+      () => courses.meetings.patch('c1', 'm1', { title: 'Sync 2' }),
+      () => courses.meetings.delete('c1', 'm1'),
+      () => courses.meetings.putAttendance('c1', 'm1', 'u1', { status: 'present' }),
+      () => courses.exams.create('c1', { title: 'Midterm', maxScore: 100 }),
+      () => courses.exams.patch('c1', 'e1', { title: 'Final' }),
+      () => courses.exams.delete('c1', 'e1'),
+      () => courses.exams.putMyScore('c1', 'e1', { score: 90 }),
+      () => courses.exams.deleteMyScore('c1', 'e1'),
     ]) {
       await expect(write()).rejects.toSatisfy(isBackendError);
     }
@@ -211,6 +220,8 @@ describe('the backend of a course’s public link', () => {
       await courses.progressSummary('c1'),
       await courses.schedule('c1'),
       await courses.learningToday('shared'),
+      await courses.meetings.list('c1'),
+      await courses.exams.list('c1'),
     ]).toEqual([
       [],
       [],
@@ -220,6 +231,8 @@ describe('the backend of a course’s public link', () => {
       { totalUnits: 0, members: [] },
       { schedule: null, today: '1970-01-01', todayCount: 0, overdueCount: 0, units: [] },
       { today: '1970-01-01', todayUnits: [], overdueUnits: [] },
+      [],
+      [],
     ]);
     expect(sent).toEqual([]);
     for (const write of [

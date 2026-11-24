@@ -71,6 +71,7 @@ import { MemoryPresence } from './presence.ts';
 import { MemoryWikis } from './wikis.ts';
 import { MemoryDiaries } from './diaries.ts';
 import { MemoryCourses } from './courses.ts';
+import { purgeMemberExamScores } from './course-exams.ts';
 import { checkDiariesComing } from './diary-places.ts';
 import { MemoryCategories, fileAsNew } from './categories.ts';
 import * as spaces from './spaces.ts';
@@ -586,6 +587,7 @@ export class MemoryBackend implements Backend {
     const next = members.filter((member) => member.userId !== userId);
     if (next.length === members.length) return;
     this.#keepAnAdmin(next);
+    purgeMemberExamScores(this.world, id, userId);
     this.#setMembers(id, next);
     this.world.tellGone(userId, id);
   }

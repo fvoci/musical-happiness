@@ -294,6 +294,43 @@ describe('the address of a course', () => {
     goToPlace(router, hit);
     expect(location.pathname).toBe('/w/ws/courses/c2/u9');
     expect(router.route).toMatchObject({ courseId: 'c2', unitId: 'u9' });
+
+    // Course tabs (`?tab=meetings&meeting=<id>`, `?tab=exams`) and meeting notifications.
+    expect(parseRoute('/w/ws/courses/c2', '', '?tab=meetings&meeting=m1')).toMatchObject({
+      workspaceId: 'ws',
+      courseId: 'c2',
+      courseTab: 'meetings',
+      meetingId: 'm1',
+    });
+    expect(routePath(parseRoute('/w/ws/courses/c2', '', '?tab=meetings&meeting=m1'), '')).toBe(
+      '/w/ws/courses/c2?tab=meetings&meeting=m1',
+    );
+    const examsParsed = parseRoute('/w/ws/courses/c2', '', '?tab=exams&meeting=m1');
+    expect(examsParsed.courseTab).toBe('exams');
+    expect(examsParsed.meetingId).toBeUndefined();
+    expect(parseRoute('/w/ws/courses/c2', '', '?tab=other').courseTab).toBeUndefined();
+
+    const meetingHit = {
+      kind: 'meeting' as const,
+      id: 'm42',
+      containerId: 'c2',
+      workspaceId: 'ws',
+      title: 'Weekly Sync',
+    };
+    expect(routeOfPlace(router, meetingHit)).toEqual({
+      workspaceId: 'ws',
+      courseId: 'c2',
+      courseTab: 'meetings',
+      meetingId: 'm42',
+    });
+    goToPlace(router, meetingHit);
+    expect(`${location.pathname}${location.search}`).toBe(
+      '/w/ws/courses/c2/u9?tab=meetings&meeting=m42',
+    );
+    router.openCourseTab('exams');
+    expect(`${location.pathname}${location.search}`).toBe('/w/ws/courses/c2/u9?tab=exams');
+    router.openCourseTab('units');
+    expect(`${location.pathname}${location.search}`).toBe('/w/ws/courses/c2/u9');
     stop();
   });
 });

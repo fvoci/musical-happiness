@@ -14,20 +14,23 @@ import type { Route, Router } from './router.svelte.ts';
  */
 export const ANY_VIEW = '-';
 
-/** A card, a page, a diary entry, or a course unit, and where it is. */
+/** A card, a page, a diary entry, a course unit, or a course meeting, and where it is. */
 export interface Place {
-  kind: 'card' | 'page' | 'entry' | 'unit';
+  kind: 'card' | 'page' | 'entry' | 'unit' | 'meeting';
   id: string;
-  /** The board the card is on, the wiki the page is in, the diary the entry is in, or the course the unit is in. */
+  /** The board the card is on, the wiki the page is in, the diary the entry is in, or the course the unit/meeting is in. */
   containerId: string;
   workspaceId: string | undefined;
   /** The entry's day (`YYYY-MM-DD`), for a diary entry. */
   title?: string;
 }
 
-/** The route of a card (over the view shown where its board is shown, else over any), a page, a diary entry, or a course unit. */
+/** The route of a card (over the view shown where its board is shown, else over any), a page, a diary entry, a course unit, or a course meeting. */
 export function routeOfPlace(router: Router, place: Place): Partial<Route> {
   const { workspaceId, containerId, id } = place;
+  if (place.kind === 'meeting') {
+    return { workspaceId, courseId: containerId, courseTab: 'meetings', meetingId: id };
+  }
   if (place.kind === 'unit') return { workspaceId, courseId: containerId, unitId: id };
   if (place.kind === 'entry') {
     const date = parseCalendarDate(place.title ?? '');
@@ -51,6 +54,8 @@ export function goToPlace(router: Router, place: Place): void {
   const route = routeOfPlace(router, place);
   if (place.kind === 'page' && router.route.wikiId === place.containerId) {
     router.openPage(place.id);
+  } else if (place.kind === 'meeting' && router.route.courseId === place.containerId) {
+    router.openCourseTab('meetings', { meetingId: place.id });
   } else if (place.kind === 'unit' && router.route.courseId === place.containerId) {
     router.openUnit(place.id);
   } else if (place.kind === 'card' && route.viewId !== ANY_VIEW) {
@@ -58,9 +63,9 @@ export function goToPlace(router: Router, place: Place): void {
   } else if (place.kind === 'entry' && router.route.diaryId === place.containerId) {
     router.go(route);
   } else {
-    const kind = ({ card: 'board', page: 'wiki', entry: 'diary', unit: 'course' } as const)[
-      place.kind
-    ];
+    const kind = (
+      { card: 'board', page: 'wiki', entry: 'diary', unit: 'course', meeting: 'course' } as const
+    )[place.kind];
     router.openContainer({ id: place.containerId, workspaceId: place.workspaceId ?? '', kind });
     router.go(route, { replace: true });
   }

@@ -10,24 +10,20 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
 
-  import CircleIcon from '@lucide/svelte/icons/circle';
-  import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
-
   import { holdSaveKey } from '$lib/editor/save-key.ts';
   import BodyVersions from '$lib/features/card/BodyVersions.svelte';
   import { unitVersions, VersionsReading } from '$lib/features/card/body-versions.svelte.ts';
+  import CourseExamsTab from '$lib/features/course/CourseExamsTab.svelte';
   import CourseJoin from '$lib/features/course/CourseJoin.svelte';
+  import CourseMeetingsTab from '$lib/features/course/CourseMeetingsTab.svelte';
   import CourseProgressBar from '$lib/features/course/CourseProgressBar.svelte';
   import CourseSchedulePanel from '$lib/features/course/CourseSchedulePanel.svelte';
   import CourseScreen from '$lib/features/course/CourseScreen.svelte';
   import UnitMenu from '$lib/features/course/UnitMenu.svelte';
-  import UnitTreeScheduleBadge from '$lib/features/course/UnitTreeScheduleBadge.svelte';
   import OutlineButton from '$lib/features/wiki/OutlineButton.svelte';
   import OutlineColumns from '$lib/features/wiki/OutlineColumns.svelte';
   import { PageOutline } from '$lib/features/wiki/page-outline.svelte.ts';
-  import PageTree from '$lib/features/wiki/PageTree.svelte';
   import PageViewers from '$lib/features/wiki/PageViewers.svelte';
-  import { COURSE_TREE_LABELS } from '$lib/features/wiki/tree-actions.ts';
   import { TreeOpen } from '$lib/features/wiki/tree-open.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { courseTreeRules, type PagePlace } from '$lib/logic/page-moves.ts';
@@ -44,14 +40,14 @@
     type UnitStore,
     type Workspace,
   } from '$lib/state/index.ts';
-  import { Button } from '$lib/ui/button/index.js';
 
   import CourseDialogs from './CourseDialogs.svelte';
   import CourseUnitContent from './CourseUnitContent.svelte';
+  import CourseUnitTree from './CourseUnitTree.svelte';
   import ManagedContainer from './ManagedContainer.svelte';
   import NotFound from './NotFound.svelte';
   import { referencePlaces } from './reference-places.ts';
-  import type { Router } from './router.svelte.ts';
+  import type { CourseTab, Router } from './router.svelte.ts';
   import TimeTargetControl from './TimeTargetControl.svelte';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
@@ -63,6 +59,8 @@
   const uid = $props.id();
   const courseId = $derived(router.route.courseId);
   const unitId = $derived(router.route.unitId);
+  const activeTab = $derived<CourseTab>(router.route.courseTab ?? 'units');
+  const focusMeetingId = $derived(router.route.meetingId);
 
   const course = $derived(courseId ? new CourseStore(workspace, courseId) : undefined);
   const rules = courseTreeRules<CourseUnit>();
@@ -94,9 +92,20 @@
     };
   });
 
-  // Without a unit in the address (or if it points at a chapter): open the first unit.
+  // Refresh meetings or exams when switching to those tabs so teammates' updates appear immediately.
   $effect(() => {
-    if (course?.status !== 'ready') return;
+    const shown = course;
+    const tab = activeTab;
+    if (shown?.status !== 'ready') return;
+    untrack(() => {
+      if (tab === 'meetings') void shown.events.refreshMeetings();
+      else if (tab === 'exams') void shown.events.refreshExams();
+    });
+  });
+
+  // Without a unit in the address (or if it points at a chapter): open the first unit on the Units tab.
+  $effect(() => {
+    if (course?.status !== 'ready' || activeTab !== 'units') return;
     if (!unitId) {
       const first = firstUnit(course.units);
       if (first) router.openUnit(first.id, { replace: true });
@@ -148,7 +157,12 @@
     course?.presence.setCard(unitId);
   });
 
-  const placed = $derived(unitId !== undefined || !course || firstUnit(course.units) === undefined);
+  const placed = $derived(
+    activeTab !== 'units' ||
+      unitId !== undefined ||
+      !course ||
+      firstUnit(course.units) === undefined,
+  );
 
   $effect(() => {
     const shown = course;
@@ -304,6 +318,10 @@
       <CourseScreen
         course={store}
         unit={store.openUnit}
+        {activeTab}
+        onSelectTab={(tab: CourseTab) => {
+          router.openCourseTab(tab);
+        }}
         autofocusUnit={made === store.openUnit?.unitId}
         {creating}
         {notice}
@@ -336,92 +354,56 @@
           <CourseProgressBar course={store} />
           <CourseSchedulePanel course={store} />
         {/snippet}
-        {#snippet tree({ closeDrawer }: { closeDrawer: (restoreFocus?: boolean) => void })}
-          <PageTree
-            wiki={store}
-            currentId={store.openUnit?.unitId}
-            open={treeOpen}
-            pageHref={(id: string) => router.href({ ...router.route, unitId: id })}
-            onOpenPage={(id: string) => {
-              closeDrawer();
+        {#snippet meetingsTab()}
+          <CourseMeetingsTab
+            course={store}
+            {focusMeetingId}
+            onOpenUnit={(id: string) => {
               made = undefined;
               router.openUnit(id);
             }}
-            onCreate={(draft: PageDraft) => {
-              void createUnit(store, draft, () => {
-                closeDrawer(false);
-              });
+          />
+        {/snippet}
+        {#snippet examsTab()}
+          <CourseExamsTab course={store} />
+        {/snippet}
+        {#snippet tree({ closeDrawer }: { closeDrawer: (restoreFocus?: boolean) => void })}
+          <CourseUnitTree
+            course={store}
+            {treeOpen}
+            {rules}
+            {creating}
+            pageHref={(id: string) =>
+              router.href({
+                workspaceId: router.route.workspaceId,
+                courseId: router.route.courseId,
+                unitId: id,
+              })}
+            {closeDrawer}
+            onOpenUnit={(id: string) => {
+              made = undefined;
+              router.openUnit(id);
             }}
-            onRename={(chapter: CourseUnit) => {
+            onCreateUnit={(draft: PageDraft, onCreated?: () => void) => {
+              void createUnit(store, draft, onCreated);
+            }}
+            onNewChapter={() => {
+              chapterDialog = { mode: 'create' };
+              chapterOpen = true;
+            }}
+            onRenameChapter={(chapter: CourseUnit) => {
               chapterDialog = { mode: 'rename', chapter };
               chapterOpen = true;
             }}
-            onDelete={(item: CourseUnit) => {
+            onDeleteItem={(item: CourseUnit) => {
               deleting = item;
               deleteOpen = true;
             }}
-            onMove={(id: string, to: PagePlace) => moveUnit(store, id, to)}
+            onMoveUnit={(id: string, to: PagePlace) => moveUnit(store, id, to)}
             onMoveTo={(chosen: CourseUnit) => {
               [moving, movingOpen] = [chosen.id, true];
             }}
-            {rules}
-            labels={COURSE_TREE_LABELS}
-            testId="unit-tree"
-            busy={creating}
-          >
-            {#snippet itemLeading(item: CourseUnit)}
-              {#if store.canTrackProgress && item.kind === 'unit'}
-                {@const done = store.progress.isCompleted(item.id)}
-                <span
-                  class={['shrink-0', done ? 'text-primary' : 'text-muted-foreground/40']}
-                  data-testid="unit-tree-progress"
-                  data-completed={done ? 'true' : 'false'}
-                  aria-hidden="true"
-                >
-                  {#if done}<CircleCheckIcon class="size-3.5" />{:else}<CircleIcon
-                      class="size-3.5"
-                    />{/if}
-                </span>
-                <span class="sr-only"
-                  >{done ? m.course_unit_completed() : m.course_unit_incomplete()}</span
-                >
-              {/if}
-            {/snippet}
-            {#snippet itemTrailing(item: CourseUnit)}
-              <UnitTreeScheduleBadge course={store} unit={item} />
-            {/snippet}
-            {#snippet headerActions()}
-              <div class="flex shrink-0 items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 px-2 text-xs text-muted-foreground roomy:min-h-touch"
-                  data-testid="new-chapter"
-                  disabled={creating}
-                  onclick={() => {
-                    chapterDialog = { mode: 'create' };
-                    chapterOpen = true;
-                  }}
-                >
-                  {m.course_new_chapter()}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 px-2 text-xs text-muted-foreground roomy:min-h-touch"
-                  data-testid="new-unit"
-                  disabled={creating}
-                  onclick={() => {
-                    void createUnit(store, {}, () => {
-                      closeDrawer(false);
-                    });
-                  }}
-                >
-                  {m.course_new_unit()}
-                </Button>
-              </div>
-            {/snippet}
-          </PageTree>
+          />
         {/snippet}
         {#snippet outlineButton()}
           {#if outline.mode === 'button'}

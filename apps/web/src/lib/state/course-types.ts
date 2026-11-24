@@ -14,7 +14,46 @@ import type { Container, ContainerType, MemberRole } from '../logic/wire.ts';
 
 import type { BodyWrite, Comment, CommentVersion } from './backend.ts';
 import type { BodyVersions } from './body-versions.ts';
+import type { CourseExamsApi, CourseMeetingsApi } from './course-meeting-types.ts';
 import type { DeletedItem, Paging } from './trash-reads.ts';
+
+/** What the reader can change of the course itself. */
+export interface CourseLooks {
+  title?: string;
+  description?: string;
+  icon?: string;
+  type?: Container['type'];
+  minimumRole?: Container['minimumRole'];
+}
+
+export {
+  ATTENDANCE_STATUSES,
+  compareCourseExams,
+  compareCourseMeetings,
+  COURSE_EXAM_DESCRIPTION_MAX_CHARS,
+  COURSE_EXAM_MAX_SCORE_LIMIT,
+  COURSE_EXAM_TITLE_MAX_CHARS,
+  COURSE_MEETING_LAST_MS,
+  COURSE_MEETING_LOCATION_MAX_CHARS,
+  COURSE_MEETING_MAX_UNITS,
+  COURSE_MEETING_NOTES_MAX_CHARS,
+  COURSE_MEETING_TITLE_MAX_CHARS,
+  EXAM_SCORE_NOTE_MAX_CHARS,
+  isAttendanceStatus,
+  type AttendanceStatus,
+  type CourseExam,
+  type CourseExamPatch,
+  type CourseExamsApi,
+  type CourseMeeting,
+  type CourseMeetingPatch,
+  type CourseMeetingsApi,
+  type MeetingAttendance,
+  type MeetingAttendanceUpdate,
+  type MyExamScore,
+  type MyExamScoreUpdate,
+  type NewCourseExam,
+  type NewCourseMeeting,
+} from './course-meeting-types.ts';
 
 export {
   AMOUNT_UNITS,
@@ -329,6 +368,11 @@ export interface Courses {
   ): Promise<UnitProgress>;
   /** Caller's incomplete today and overdue units across enrolled live courses of a workspace. */
   learningToday(workspaceId: string): Promise<WorkspaceLearningToday>;
+
+  /** Course study meetings and shared attendance (never called on public links). */
+  readonly meetings: CourseMeetingsApi;
+  /** Course exams and strictly personal exam scores (never called on public links). */
+  readonly exams: CourseExamsApi;
 }
 
 /** Where a backend keeps its courses. One by a public link reads only its course's outline and units. */

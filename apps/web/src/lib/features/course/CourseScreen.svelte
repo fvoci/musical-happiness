@@ -24,11 +24,18 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import CourseHeader from './CourseHeader.svelte';
+  import CourseTabBar from './CourseTabBar.svelte';
+  import type { CourseSectionTab } from './course-meeting-labels.ts';
   import UnitView from './UnitView.svelte';
 
   interface Props {
     course: CourseStore;
     unit: UnitStore | undefined;
+    /** Active section tab of the course (`units` by default). */
+    activeTab?: CourseSectionTab;
+    onSelectTab?: ((tab: CourseSectionTab) => void) | undefined;
+    meetingsTab?: Snippet | undefined;
+    examsTab?: Snippet | undefined;
     /** Whether the unit shown was just created here (autofocus its title). */
     autofocusUnit?: boolean;
     /** Whether a unit/chapter creation is currently in flight. */
@@ -72,6 +79,10 @@
   let {
     course,
     unit,
+    activeTab = 'units',
+    onSelectTab,
+    meetingsTab,
+    examsTab,
     autofocusUnit = false,
     creating = false,
     onCreateFirstUnit,
@@ -103,7 +114,7 @@
     hasUnits && !unit?.missing && shown !== undefined && shown.kind !== 'chapter',
   );
   const narrow = $derived(pane.measured && !pane.columns);
-  const place = $derived(`${course.courseId} ${unit?.unitId ?? ''}`);
+  const place = $derived(`${course.courseId} ${unit?.unitId ?? ''} ${activeTab}`);
   const away = (_over: string): boolean => false;
   let drawer = $derived(away(place));
   const drawerOut = $derived(narrow && drawer);
@@ -230,11 +241,11 @@
     inert={drawerOut}
     {@attach scrollAttach ?? noopAttach}
   >
-    {#if narrow || showBar}
+    {#if narrow || showBar || onSelectTab}
       <div
         class={[
-          'top-0 z-10 flex min-h-9 items-center gap-1 px-2 py-1 roomy:min-h-[calc(var(--spacing-touch)+0.5rem)]',
-          (narrow || stickyBar) && 'sticky bg-background/95',
+          'top-0 z-10 flex min-h-10 items-center gap-2 border-b bg-background/95 px-2 py-1 roomy:min-h-[calc(var(--spacing-touch)+0.5rem)]',
+          (narrow || stickyBar || Boolean(onSelectTab)) && 'sticky',
         ]}
         {@attach barAttach ?? noopAttach}
       >
@@ -243,7 +254,7 @@
             bind:ref={opener}
             variant="ghost"
             size="sm"
-            class="text-muted-foreground roomy:min-h-touch"
+            class="shrink-0 text-muted-foreground roomy:min-h-touch"
             data-testid="open-unit-tree"
             aria-haspopup="dialog"
             aria-expanded={drawer}
@@ -254,56 +265,84 @@
             {m.course_units()}
           </Button>
         {/if}
+        {#if onSelectTab}
+          <CourseTabBar
+            active={activeTab}
+            meetingsCount={course.events.meetings.length}
+            examsCount={course.events.exams.length}
+            panelIdPrefix={uid}
+            onSelect={onSelectTab}
+          />
+        {/if}
         <div class="min-w-0 flex-1"></div>
-        {@render outlineButton?.()}
+        {#if activeTab === 'units'}
+          {@render outlineButton?.()}
+        {/if}
       </div>
     {/if}
 
-    {#if notice && !reading}{@render told(notice)}{/if}
-    {#if !hasUnits && !unit?.missing}
-      <div class="grid h-full place-items-center p-6 text-center" data-testid="course-empty">
-        <div class="flex max-w-md flex-col items-center gap-3">
-          <p class="text-muted-foreground">{m.course_no_units()}</p>
-          {#if course.canEdit}
-            <Button
-              class="roomy:min-h-touch"
-              data-testid="course-first-unit"
-              disabled={creating}
-              onclick={onCreateFirstUnit}
-            >
-              <FilePlusIcon aria-hidden="true" />
-              {m.course_first_unit()}
-            </Button>
-          {/if}
-        </div>
+    {#if activeTab === 'meetings' && meetingsTab}
+      <div role="tabpanel" id="{uid}-panel-meetings" aria-labelledby="{uid}-tab-meetings">
+        {@render meetingsTab()}
       </div>
-    {:else if unit?.missing}
-      {@render missingUnit()}
-    {:else if unit && shown && shown.kind !== 'chapter'}
-      {@const openUnit = unit}
-      {@const shownUnit = shown}
-      {#snippet unitContent()}
-        {#if notice}{@render told(notice)}{/if}
-        {#key openUnit}
-          {#snippet unitViewers()}
-            {@render viewers?.(shownUnit.id)}
+    {:else if activeTab === 'exams' && examsTab}
+      <div role="tabpanel" id="{uid}-panel-exams" aria-labelledby="{uid}-tab-exams">
+        {@render examsTab()}
+      </div>
+    {:else}
+      <div
+        role={onSelectTab ? 'tabpanel' : undefined}
+        id="{uid}-panel-units"
+        aria-labelledby={onSelectTab ? `${uid}-tab-units` : undefined}
+        class="h-full"
+      >
+        {#if notice && !reading}{@render told(notice)}{/if}
+        {#if !hasUnits && !unit?.missing}
+          <div class="grid h-full place-items-center p-6 text-center" data-testid="course-empty">
+            <div class="flex max-w-md flex-col items-center gap-3">
+              <p class="text-muted-foreground">{m.course_no_units()}</p>
+              {#if course.canEdit}
+                <Button
+                  class="roomy:min-h-touch"
+                  data-testid="course-first-unit"
+                  disabled={creating}
+                  onclick={onCreateFirstUnit}
+                >
+                  <FilePlusIcon aria-hidden="true" />
+                  {m.course_first_unit()}
+                </Button>
+              {/if}
+            </div>
+          </div>
+        {:else if unit?.missing}
+          {@render missingUnit()}
+        {:else if unit && shown && shown.kind !== 'chapter'}
+          {@const openUnit = unit}
+          {@const shownUnit = shown}
+          {#snippet unitContent()}
+            {#if notice}{@render told(notice)}{/if}
+            {#key openUnit}
+              {#snippet unitViewers()}
+                {@render viewers?.(shownUnit.id)}
+              {/snippet}
+              <UnitView
+                {course}
+                store={openUnit}
+                unit={shownUnit}
+                autofocus={autofocusUnit}
+                viewers={viewers ? unitViewers : undefined}
+                actions={unitActions}
+                {body}
+              />
+            {/key}
           {/snippet}
-          <UnitView
-            {course}
-            store={openUnit}
-            unit={shownUnit}
-            autofocus={autofocusUnit}
-            viewers={viewers ? unitViewers : undefined}
-            actions={unitActions}
-            {body}
-          />
-        {/key}
-      {/snippet}
-      {#if outlineWrap}
-        {@render outlineWrap(unitContent)}
-      {:else}
-        {@render unitContent()}
-      {/if}
+          {#if outlineWrap}
+            {@render outlineWrap(unitContent)}
+          {:else}
+            {@render unitContent()}
+          {/if}
+        {/if}
+      </div>
     {/if}
   </div>
 </div>

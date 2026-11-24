@@ -128,11 +128,13 @@ export async function startBackend(): Promise<StartedBackend> {
 }
 
 async function startMemory(): Promise<StartedBackend> {
-  const [{ MemoryBackend }, { loadTemplates, seedWorld }, { eraseUser }] = await Promise.all([
-    import('$lib/state/memory/backend.ts'),
-    import('$lib/state/memory/seed.ts'),
-    import('$lib/state/memory/users.ts'),
-  ]);
+  const [{ MemoryBackend }, { loadTemplates, seedWorld }, { eraseUser }, { noteUpcomingMeeting }] =
+    await Promise.all([
+      import('$lib/state/memory/backend.ts'),
+      import('$lib/state/memory/seed.ts'),
+      import('$lib/state/memory/users.ts'),
+      import('$lib/state/memory/notifications.ts'),
+    ]);
   const { world, readerId } = seedWorld(await loadTemplates());
   // The tabs of this browser edit their bodies together, as through one server.
   world.shareRooms = 'fvoci:memory-rooms';
@@ -155,6 +157,12 @@ async function startMemory(): Promise<StartedBackend> {
   (window as unknown as { fvociDev?: unknown }).fvociDev = {
     backend,
     someoneElse: asSomeoneElse,
+    notifyUpcomingMeeting: (courseId: string, meetingId: string) => {
+      noteUpcomingMeeting(world, courseId, meetingId);
+    },
+    eraseUser: (userId: string) => {
+      eraseUser(world, userId);
+    },
   };
   return { backend };
 }

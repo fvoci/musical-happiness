@@ -14,6 +14,8 @@ import { createBoard, type Container } from '../../logic/wire.ts';
 import { BackendError, type DeletedItem, type Paging } from '../backend.ts';
 import type {
   CourseDraft,
+  CourseExamsApi,
+  CourseMeetingsApi,
   CourseProgressSummary,
   Courses,
   CourseScheduleUpdate,
@@ -35,6 +37,8 @@ import { checkedWhole } from './bodies.ts';
 import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { fileAsNew } from './categories.ts';
 import { memberRole } from './container-access.ts';
+import { memoryCourseExams } from './course-exams.ts';
+import { memoryCourseMeetings } from './course-meetings.ts';
 import {
   memoryDeleteCourseSchedule,
   memoryGetCourseSchedule,
@@ -82,10 +86,14 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
   /** The limits a memory course is held to; a test may lower them to reach them. */
   limits: CourseLimits = DEFAULT_COURSE_LIMITS;
   #bodyVersions: MemoryBodyVersions | undefined;
+  readonly meetings: CourseMeetingsApi;
+  readonly exams: CourseExamsApi;
 
   constructor(host: WikiHost) {
     super();
     this.#host = host;
+    this.meetings = memoryCourseMeetings(host, () => this.#enter('meetings'));
+    this.exams = memoryCourseExams(host, () => this.#enter('exams'));
   }
 
   get #world(): World {

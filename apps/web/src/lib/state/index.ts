@@ -93,6 +93,7 @@ export { createWiki } from './wiki-parts.ts';
 export { shownWiki } from './shown-wiki.svelte.ts';
 export type { PageDraft, PageMove, WikiDraft, WikiPage, WikiPageDetail } from './wiki-types.ts';
 export { CourseStore, type CourseLooks } from './course.svelte.ts';
+export { CourseMeetingsState, type CourseEventWriteResult } from './course-meetings.svelte.ts';
 export { CourseScheduleState, type ScheduleWriteResult } from './course-schedule.svelte.ts';
 export { LearningTodayStore } from './learning-today.svelte.ts';
 export { syncDeviceTimeZone } from './time-zone-sync.ts';
@@ -102,7 +103,20 @@ export { createCourse } from './course-parts.ts';
 export { shownCourse } from './shown-course.svelte.ts';
 export {
   AMOUNT_UNITS,
+  ATTENDANCE_STATUSES,
+  compareCourseExams,
+  compareCourseMeetings,
+  COURSE_EXAM_DESCRIPTION_MAX_CHARS,
+  COURSE_EXAM_MAX_SCORE_LIMIT,
+  COURSE_EXAM_TITLE_MAX_CHARS,
+  COURSE_MEETING_LAST_MS,
+  COURSE_MEETING_LOCATION_MAX_CHARS,
+  COURSE_MEETING_MAX_UNITS,
+  COURSE_MEETING_NOTES_MAX_CHARS,
+  COURSE_MEETING_TITLE_MAX_CHARS,
+  EXAM_SCORE_NOTE_MAX_CHARS,
   hasControlChars,
+  isAttendanceStatus,
   MAX_SCHEDULE_SPAN_DAYS,
   STUDY_DAYS_ALL,
   STUDY_DAYS_FRIDAY,
@@ -120,7 +134,14 @@ export {
 } from './course-types.ts';
 export type {
   AmountUnit,
+  AttendanceStatus,
   CourseDraft,
+  CourseExam,
+  CourseExamPatch,
+  CourseExamsApi,
+  CourseMeeting,
+  CourseMeetingPatch,
+  CourseMeetingsApi,
   CourseProgressSummary,
   CourseSchedule,
   CourseScheduleUpdate,
@@ -129,7 +150,13 @@ export type {
   CourseUnit,
   CourseUnitDetail,
   LearningTodayItem,
+  MeetingAttendance,
+  MeetingAttendanceUpdate,
   MemberCourseProgress,
+  MyExamScore,
+  MyExamScoreUpdate,
+  NewCourseExam,
+  NewCourseMeeting,
   RedistributeScheduleRequest,
   ScheduledUnit,
   StudyWeekdayKey,

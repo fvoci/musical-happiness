@@ -75,7 +75,8 @@
 
   function placeOf({ subject }: Notification): Place | undefined {
     if (!subject) return undefined;
-    const { blockKind: kind, blockId: id, containerId, workspaceId, title } = subject;
+    const { blockKind, blockId: id, containerId, workspaceId, title } = subject;
+    const kind = subject.kind === 'meeting_upcoming' ? 'meeting' : blockKind;
     return { kind, id, containerId, workspaceId, title };
   }
 
