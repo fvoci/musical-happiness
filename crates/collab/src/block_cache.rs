@@ -38,7 +38,7 @@ pub(crate) struct ApplyDelta {
     pub(crate) changed_branches: Vec<ID>,
     /// All ID ranges deleted by the transaction.
     pub(crate) delete_set: IdSet,
-    /// Shared-type IDs newly introduced by the update (from `update::read`).
+    /// Shared-type IDs newly introduced without an explicit wire `member` (from `update::read`).
     pub(crate) new_types: Vec<ID>,
 }
 
@@ -162,6 +162,34 @@ impl BlockCache {
     /// Empties all cached blocks and releases backing table allocations.
     pub(crate) fn clear(&mut self) {
         *self = Self::new();
+    }
+
+    /// Removes any cached entries that are not currently live `XmlElement` list children
+    /// of `root` (`parent_sub` is `None`), keeping running totals and `file_ids` exact.
+    pub(crate) fn retain_live_root_elements<T: ReadTxn>(&mut self, txn: &T, root: &XmlFragmentRef) {
+        let mut live = HashSet::new();
+        let mut next = root.first_child();
+        while let Some(node) = next {
+            next = match &node {
+                XmlOut::Element(element) => element.siblings(txn).next(),
+                XmlOut::Text(text) => text.siblings(txn).next(),
+                XmlOut::Fragment(_) => None,
+            };
+            if let XmlOut::Element(element) = node
+                && let Some(id) = element_id(&element)
+            {
+                live.insert(id);
+            }
+        }
+        let stale: Vec<ID> = self
+            .blocks
+            .keys()
+            .copied()
+            .filter(|id| !live.contains(id))
+            .collect();
+        for id in stale {
+            self.remove(&id);
+        }
     }
 
     /// Whether the cached blocks represent a single empty paragraph (`Body::parse` -> `None`).
@@ -290,20 +318,30 @@ impl BlockCache {
             }
         }
 
-        // 2. Collect dirty top-level block IDs: newly inserted live root elements and
-        //    existing cached blocks whose subtrees or attributes changed.
+        // 2. Collect dirty top-level block IDs: newly inserted live root list elements
+        //    (`parent_sub` is `None`) and existing cached blocks whose subtrees or
+        //    attributes changed.
+        let first_child_id = root.first_child().map(|first| first.id());
+        let mut list_check = RootListCheck::default();
         let mut dirty = BTreeSet::new();
-        for id in &delta.new_types {
-            let Some(branch) = BranchID::get_nested(&txn, id) else {
+        for &id in &delta.new_types {
+            let Some(branch) = BranchID::get_nested(&txn, &id) else {
                 continue;
             };
             if branch.is_deleted() {
                 continue;
             }
             if let Ok(XmlOut::Element(element)) = XmlOut::try_from(branch)
-                && is_direct_child_of_root(&element, &root)
+                && list_check.is_direct_list_child(
+                    &txn,
+                    self,
+                    &root,
+                    first_child_id.as_ref(),
+                    id,
+                    &element,
+                )
             {
-                dirty.insert(*id);
+                dirty.insert(id);
             }
         }
         for id in &delta.changed_branches {
@@ -462,8 +500,72 @@ pub(crate) fn check_totals(totals: DocTotals) -> Result<(), BodyError> {
     Ok(())
 }
 
-fn is_direct_child_of_root(element: &XmlElementRef, root: &XmlFragmentRef) -> bool {
-    matches!(element.parent(), Some(XmlOut::Fragment(parent)) if parent == *root)
+/// Memoized classifier verifying that newly inserted `XmlElement`s belong to `root`'s
+/// sequence list (`parent_sub` is `None`) rather than a map entry (`parent_sub` is
+/// `Some(_)`), visiting each root-list item at most once across `apply_delta`.
+///
+/// In `yrs 0.28`, `Xml::parent()` returns `Some(XmlOut::Fragment(root))` for map entries
+/// attached to `root` as well as list children, whereas each `Branch` links sequence
+/// items (`parent_sub == None`) into `branch.start` and map entries into disjoint chains
+/// in `branch.map`. Walking `Siblings::next_back` until hitting either an already-cached
+/// (or already-confirmed) root-list element or the list's leftmost `XmlOut` and matching
+/// that head against `root.first_child()` distinguishes `branch.start` from every map
+/// chain (including multi-client concurrent map chains on the same key).
+#[derive(Default)]
+struct RootListCheck {
+    in_list: HashSet<ID>,
+    not_in_list: HashSet<ID>,
+}
+
+impl RootListCheck {
+    fn is_direct_list_child<T: ReadTxn>(
+        &mut self,
+        txn: &T,
+        cache: &BlockCache,
+        root: &XmlFragmentRef,
+        first_child_id: Option<&BranchID>,
+        id: ID,
+        element: &XmlElementRef,
+    ) -> bool {
+        if !matches!(element.parent(), Some(XmlOut::Fragment(parent)) if parent == *root) {
+            return false;
+        }
+        if cache.contains(&id) || self.in_list.contains(&id) {
+            return true;
+        }
+        if self.not_in_list.contains(&id) {
+            return false;
+        }
+        let mut visited = vec![id];
+        let mut leftmost = BranchID::Nested(id);
+        let mut siblings = element.siblings(txn);
+        while let Some(prev) = siblings.next_back() {
+            let prev_branch_id = prev.id();
+            if let BranchID::Nested(prev_id) = &prev_branch_id {
+                if matches!(prev, XmlOut::Element(_))
+                    && (cache.contains(prev_id) || self.in_list.contains(prev_id))
+                {
+                    self.in_list.extend(visited);
+                    return true;
+                }
+                if self.not_in_list.contains(prev_id) {
+                    self.not_in_list.extend(visited);
+                    return false;
+                }
+                if matches!(prev, XmlOut::Element(_)) {
+                    visited.push(*prev_id);
+                }
+            }
+            leftmost = prev_branch_id;
+        }
+        if first_child_id == Some(&leftmost) {
+            self.in_list.extend(visited);
+            true
+        } else {
+            self.not_in_list.extend(visited);
+            false
+        }
+    }
 }
 
 /// Returns the immutable nested [`ID`] of an XML element, or `None` for a root branch.
@@ -499,5 +601,239 @@ mod tests {
         let whole =
             u64::try_from(json_size_of(&json!({"type": "doc", "content": blocks}))).expect("fits");
         assert_eq!(whole, document_json_bytes(sum, blocks.len()));
+    }
+
+    fn apply_raw_update_with_delta(doc: &Doc, update_bytes: &[u8]) -> ApplyDelta {
+        use yrs::updates::decoder::Decode as _;
+        let mut txn = doc.transact_mut();
+        let before = txn.state_vector();
+        txn.apply_update(yrs::Update::decode_v1(update_bytes).expect("valid yrs v1 update"))
+            .expect("applies");
+        txn.commit();
+        let after = txn.state_vector();
+        // Collect every newly introduced nested branch ID across `before..after` (including
+        // map entries, proving `BlockCache` rejects them even when present in `new_types`).
+        let mut new_types = Vec::new();
+        for (&client, &end_clock) in after.iter() {
+            let start = before.get(&client);
+            for clock in start..end_clock {
+                let id = ID::new(client, clock);
+                if BranchID::get_nested(&txn, &id).is_some() {
+                    new_types.push(id);
+                }
+            }
+        }
+        let changed_branches = txn
+            .changed_parent_types()
+            .iter()
+            .filter_map(|branch| match branch.id() {
+                BranchID::Nested(id) => Some(id),
+                BranchID::Root(_) => None,
+            })
+            .collect();
+        let delete_set = txn.delete_set().clone();
+        ApplyDelta {
+            changed_branches,
+            delete_set,
+            new_types,
+        }
+    }
+
+    fn doc_with_paragraph(client: u64, text: &str) -> Doc {
+        use yrs::{OffsetKind, Options, XmlElementPrelim, XmlTextPrelim};
+        let doc = Doc::with_options(Options {
+            offset_kind: OffsetKind::Utf16,
+            skip_gc: true,
+            ..Options::with_client_id(ClientID::new(client))
+        });
+        {
+            let root = doc.get_or_insert_xml_fragment(FIELD);
+            let mut txn = doc.transact_mut();
+            let p = root.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
+            p.push_back(&mut txn, XmlTextPrelim::new(text));
+        }
+        doc
+    }
+
+    /// Attack scenario 1: injecting an invalid root list item (`XmlText("evil")`) together
+    /// with valid `XmlElement` entries in `root`'s map (`parent_sub = Some("k")`, including
+    /// `image`/`file` nodes and multi-client concurrent map entries) in a single update
+    /// must NOT satisfy `cache.len() == root_len`: repair must delete `XmlText("evil")`,
+    /// match `repaired(&ref_doc)` + `to_body(&doc)`, and never leak map-entry `file_ids`.
+    #[test]
+    fn root_map_entry_plus_evil_list_item_repairs_and_never_leaks_file_ids() {
+        use yrs::updates::decoder::Decode as _;
+        use yrs::{Map as _, OffsetKind, Options, XmlElementPrelim, XmlTextPrelim};
+
+        let doc = doc_with_paragraph(1, "P1");
+        let base_state = crate::update::state_of(&doc);
+        let mut cache = BlockCache::build(&doc).expect("valid initial cache");
+        assert_eq!(cache.len(), 1);
+
+        // Build a single update on peer 20 that injects BOTH `XmlText("evil")` into
+        // `root`'s sequence list AND a valid `paragraph` + `image`/`file` into `root`'s map
+        // (`parent_sub = Some("k")` / `Some("f")`), plus a concurrent map entry on `"k"`
+        // from peer 19 so `M_20.siblings().next_back()` is `Some(M_19)`!
+        let make_peer = |cid: u64| {
+            let peer = Doc::with_options(Options {
+                offset_kind: OffsetKind::Utf16,
+                skip_gc: true,
+                ..Options::with_client_id(ClientID::new(cid))
+            });
+            peer.get_or_insert_xml_fragment(FIELD);
+            peer.transact_mut()
+                .apply_update(yrs::Update::decode_v1(&base_state).expect("base"))
+                .expect("apply");
+            peer
+        };
+        let peer_lo = make_peer(19);
+        let before = peer_lo.transact().state_vector();
+        {
+            let root_map = peer_lo.get_or_insert_map(FIELD);
+            let mut txn = peer_lo.transact_mut();
+            let m_lo = root_map.insert(&mut txn, "k", XmlElementPrelim::empty("paragraph"));
+            m_lo.push_back(&mut txn, XmlTextPrelim::new("concurrent-map-para"));
+        }
+        let u_lo = peer_lo.transact().encode_diff_v1(&before);
+
+        let peer_hi = make_peer(20);
+        {
+            let root = peer_hi.get_or_insert_xml_fragment(FIELD);
+            let root_map = peer_hi.get_or_insert_map(FIELD);
+            let mut txn = peer_hi.transact_mut();
+            root.push_back(&mut txn, XmlTextPrelim::new("evil"));
+            let bq = root_map.insert(&mut txn, "k", XmlElementPrelim::empty("blockquote"));
+            let img = bq.push_back(&mut txn, XmlElementPrelim::empty("image"));
+            img.insert_attribute(&mut txn, "fileId", "secret-map.png");
+            let file = root_map.insert(&mut txn, "f", XmlElementPrelim::empty("file"));
+            file.insert_attribute(&mut txn, "fileId", "secret-map.pdf");
+        }
+        let u_hi = peer_hi.transact().encode_diff_v1(&before);
+        let combined = yrs::merge_updates_v1([&u_lo, &u_hi]).expect("merged");
+
+        let ref_doc = make_peer(99);
+        ref_doc
+            .transact_mut()
+            .apply_update(yrs::Update::decode_v1(&combined).expect("decode"))
+            .expect("apply ref");
+        let expected = crate::repair::repaired(&ref_doc).expect("ref repairs");
+        assert_eq!(expected.deleted, 1, "cold repair deletes XmlText(\"evil\")");
+
+        let delta = apply_raw_update_with_delta(&doc, &combined);
+        // Confirm `yrs 0.28` really reports `Some(XmlOut::Fragment(root))` for the map entries.
+        {
+            let txn = doc.transact();
+            let root = txn.get_xml_fragment(FIELD).expect("root");
+            let map_elements = delta
+                .new_types
+                .iter()
+                .filter_map(|id| BranchID::get_nested(&txn, id))
+                .filter_map(|b| XmlOut::try_from(b).ok())
+                .filter(|out| {
+                    matches!(out, XmlOut::Element(el)
+                        if matches!(el.parent(), Some(XmlOut::Fragment(p)) if p == root))
+                })
+                .count();
+            assert_eq!(map_elements, 3, "all 3 map elements report root as parent");
+        }
+
+        let (got_repair, _) =
+            crate::repair::validate_or_repair_in_place(&doc, &mut cache, &delta).expect("repairs");
+        assert_eq!(got_repair.deleted, 1, "XmlText(\"evil\") must be repaired");
+        assert_eq!(got_repair.update, expected.update);
+        assert_eq!(crate::project::to_body(&doc), Ok(expected.body));
+        assert_eq!(cache.len(), 1);
+        assert_eq!(
+            cache.file_ids_in_order(&doc),
+            Vec::<String>::new(),
+            "map-entry image/file IDs must never appear in file_ids()"
+        );
+    }
+
+    /// Scenario 2: injecting ONLY a valid `XmlElement("paragraph")` in `root`'s map
+    /// (`parent_sub = Some("k")`) leaves `cache.len() == root_len == 1` without triggering
+    /// a false `Dirty` error, and `deleting_with_cache` purges any pre-existing non-list
+    /// entry in `cache`.
+    #[test]
+    fn root_map_entry_alone_keeps_cache_consistent_and_purges_on_repair() {
+        use yrs::updates::decoder::Decode as _;
+        use yrs::{Map as _, OffsetKind, Options, XmlElementPrelim, XmlTextPrelim};
+
+        let doc = doc_with_paragraph(1, "P1");
+        let base_state = crate::update::state_of(&doc);
+        let mut cache = BlockCache::build(&doc).expect("valid initial cache");
+
+        let peer = Doc::with_options(Options {
+            offset_kind: OffsetKind::Utf16,
+            skip_gc: true,
+            ..Options::with_client_id(ClientID::new(30))
+        });
+        peer.get_or_insert_xml_fragment(FIELD);
+        peer.transact_mut()
+            .apply_update(yrs::Update::decode_v1(&base_state).expect("base"))
+            .expect("apply");
+        let before = peer.transact().state_vector();
+        {
+            let root_map = peer.get_or_insert_map(FIELD);
+            let mut txn = peer.transact_mut();
+            let m = root_map.insert(&mut txn, "k", XmlElementPrelim::empty("paragraph"));
+            m.push_back(&mut txn, XmlTextPrelim::new("map-only"));
+        }
+        let map_only = peer.transact().encode_diff_v1(&before);
+
+        let ref_clean = {
+            let d = Doc::with_options(Options {
+                offset_kind: OffsetKind::Utf16,
+                skip_gc: true,
+                ..Options::with_client_id(ClientID::new(98))
+            });
+            d.get_or_insert_xml_fragment(FIELD);
+            d.transact_mut()
+                .apply_update(yrs::Update::decode_v1(&base_state).expect("base"))
+                .expect("apply");
+            d.transact_mut()
+                .apply_update(yrs::Update::decode_v1(&map_only).expect("map_only"))
+                .expect("apply");
+            d
+        };
+        let expected = crate::repair::repaired(&ref_clean).expect("cold repair");
+        assert_eq!(expected.deleted, 0);
+
+        let delta = apply_raw_update_with_delta(&doc, &map_only);
+        let map_id = *delta.new_types.first().expect("map element ID");
+        let (got_repair, _) = crate::repair::validate_or_repair_in_place(&doc, &mut cache, &delta)
+            .expect("map-only update must not trigger false Dirty error");
+        assert_eq!(got_repair.deleted, 0);
+        assert!(got_repair.update.is_none());
+        assert_eq!(cache.len(), 1);
+        assert_eq!(crate::project::to_body(&doc), Ok(expected.body.clone()));
+
+        // Even if a non-list ID were somehow polluted into `cache`, `deleting_with_cache`
+        // (`refresh_cache_after_repair`) purges it cleanly.
+        cache.upsert(
+            map_id,
+            BlockEntry {
+                summary: BlockSummary {
+                    nodes: 2,
+                    json_bytes: 40,
+                    is_empty_paragraph: false,
+                    has_empty_row_text: false,
+                },
+                file_ids: vec!["bogus.png".to_owned()].into_boxed_slice(),
+            },
+        );
+        assert_eq!(cache.len(), 2);
+        let empty_delta = ApplyDelta {
+            changed_branches: Vec::new(),
+            delete_set: IdSet::new(),
+            new_types: Vec::new(),
+        };
+        let (purged_repair, _) =
+            crate::repair::validate_or_repair_in_place(&doc, &mut cache, &empty_delta)
+                .expect("purges polluted map entry cleanly");
+        assert_eq!(purged_repair.deleted, 0);
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.file_ids_in_order(&doc), Vec::<String>::new());
+        assert_eq!(crate::project::to_body(&doc), Ok(expected.body));
     }
 }

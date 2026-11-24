@@ -21,16 +21,19 @@ pub(super) const SNAPSHOT_REPLAY_STEPS: u64 = 16_384;
 #[derive(Debug)]
 pub(super) struct Held {
     pub(super) doc: BodyDoc,
-    /// Checkpoint state as of opening, making, or the last rebase (`Request::State` or
-    /// `Retake` rebase). Empty once `must_remake` is set.
+    /// Checkpoint state as of opening, making, or the last rebase (`Request::State`,
+    /// `Retake` rebase, or settled `Dirty` restore). Cleared to `Vec::new()` as soon as
+    /// `last_state` is populated or `must_remake` is set so two full state copies are
+    /// never held at once.
     pub(super) base: Vec<u8>,
-    /// Accepted updates and repairs applied since `base`, replayed from
+    /// Accepted updates and repairs applied since the last rebase, replayed from
     /// `snapshot_since_start` when an in-place update is refused after mutating `doc`.
     pub(super) since: Vec<Vec<u8>>,
     /// Total bytes of every entry in `since`, counted in [`super::Worker::held_bytes`].
     pub(super) since_bytes: u64,
-    /// Optional snapshot state as of `since[..snapshot_since_start]`; `None` means `base`
-    /// is the snapshot (at `snapshot_since_start == 0`).
+    /// Snapshot state as of `since[..snapshot_since_start]` once a lazy or pre-encoded
+    /// snapshot has replaced `base`; `None` means `base` holds the snapshot (at
+    /// `snapshot_since_start == 0`).
     pub(super) last_state: Option<Vec<u8>>,
     /// Index into `since` at which `snapshot_state()` was captured (`<= since.len()`).
     pub(super) snapshot_since_start: usize,
@@ -94,6 +97,15 @@ pub(super) struct Checkpoint {
 }
 
 impl Checkpoint {
+    /// Records a fresh intermediate state snapshot covering all current entries of
+    /// `since`, releasing `base`'s buffer so two full state copies are never held at once.
+    pub(super) fn take_snapshot(&mut self, state: Vec<u8>) {
+        self.base = Vec::new();
+        self.last_state = Some(state);
+        self.snapshot_since_start = self.since.len();
+        self.since_replay_steps = 0;
+    }
+
     /// Returns the exact current state if the latest snapshot covers all of `since`, or
     /// `None` when `&since[snapshot_since_start..]` is non-empty.
     pub(super) fn exact_current_state(&self) -> Option<&[u8]> {

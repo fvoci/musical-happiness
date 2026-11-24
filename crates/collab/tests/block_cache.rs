@@ -1143,3 +1143,143 @@ fn table_too_large_refuses_in_place_and_matches_take_update() {
         "colspan pushing width past TABLE_MAX_COLUMNS",
     );
 }
+
+/// Regression tests for `XmlFragment` root map entries (`parent_sub = Some("k")`):
+/// 1. Single update combining an invalid root list item (`XmlText("evil")`) with a valid
+///    `XmlElement("paragraph")` / `image` / `file` map entry on `root` (and cross-parent
+///    `(left = root item, right = element attr)` attempts) matches `take_update` 100% and
+///    never accepts `"evil"` or leaks map-entry `file_ids()`.
+/// 2. Single update inserting only a map-entry `XmlElement("paragraph")` on `root` matches
+///    cold `take_update` 100% without diverging on rollback or cache invariants.
+#[test]
+fn root_map_entry_injection_matches_scratch_take_and_never_leaks_files() {
+    let initial = body_of(&json!({
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "P1"}]},
+            {"type": "image", "attrs": {"fileId": "legit.png"}},
+        ],
+    }));
+    let opened = BodyDoc::from_state(&BodyDoc::from_body(Some(&initial)).state(), &ROOMY)
+        .expect("initial opens");
+    let mut state = opened.state.expect("from_state encodes");
+    let mut changes = opened.changes;
+    let mut held = opened.doc;
+
+    // Scenario 1a: wire update injecting `XmlText("evil")` list child + valid `paragraph`
+    // and `image`/`file` map entries (`key = Some(b"k")` / `Some(b"f")`) under `root`.
+    let scenario_1_wire = Update::of(
+        40,
+        0,
+        vec![
+            Change::under(Parent::body(), Content::xml_text()),
+            Change::under(Parent::Change((40, 0)), Content::text("evil")),
+            Change::member(Parent::body(), "k", Content::element("paragraph")),
+            Change::member(Parent::body(), "f", Content::element("image")),
+            Change::member(
+                Parent::Change((40, 6)),
+                "fileId",
+                Content::values(vec![value::text("evil-leaked.png")]),
+            ),
+        ],
+    )
+    .bytes();
+    held = assert_step_equivalent(
+        held,
+        &mut state,
+        &mut changes,
+        &scenario_1_wire,
+        &ROOMY,
+        "scenario 1a: XmlText(evil) + map-entry paragraph/image on root",
+    );
+    assert_eq!(held.file_ids(), vec!["legit.png"]);
+
+    // Scenario 1b: cross-parent `(left = root list block, right = image fileId attribute)`
+    // attempting to smuggle `parent_sub = Some("fileId")` onto `root` via `yrs` neighbor copy.
+    let doc_ref = from_state(&state, &ROOMY).expect("ref").doc;
+    let client_id = doc_ref
+        .transact()
+        .state_vector()
+        .iter()
+        .next()
+        .map(|(c, _)| c.get())
+        .expect("initial writer");
+    let cross_parent = Update::of(
+        41,
+        0,
+        vec![
+            Change::under(Parent::body(), Content::xml_text()),
+            Change::Item {
+                left: Some((client_id, 0)),
+                right: Some((client_id, 1)),
+                parent: Parent::body(),
+                key: None,
+                content: Content::element("file"),
+            },
+            Change::member(
+                Parent::Change((41, 1)),
+                "fileId",
+                Content::values(vec![value::text("cross-leaked.pdf")]),
+            ),
+        ],
+    )
+    .bytes();
+    held = assert_step_equivalent(
+        held,
+        &mut state,
+        &mut changes,
+        &cross_parent,
+        &ROOMY,
+        "scenario 1b: cross-parent neighbor parent_sub copy onto root",
+    );
+    assert_eq!(held.file_ids(), vec!["legit.png"]);
+}
+
+/// Scenario 2: standalone map-entry `XmlElement("paragraph")` on `root` matches cold
+/// `take_update` 100% without false `Dirty` divergence, and subsequent valid edits work.
+#[test]
+fn standalone_root_map_entry_matches_scratch_take_and_recovers() {
+    let initial = body_of(&json!({
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "P1"}]},
+            {"type": "image", "attrs": {"fileId": "legit.png"}},
+        ],
+    }));
+    let opened = BodyDoc::from_state(&BodyDoc::from_body(Some(&initial)).state(), &ROOMY)
+        .expect("initial opens");
+    let mut state = opened.state.expect("from_state encodes");
+    let mut changes = opened.changes;
+    let mut held = opened.doc;
+
+    let scenario_2_wire = Update::of(
+        42,
+        0,
+        vec![Change::member(
+            Parent::body(),
+            "k",
+            Content::element("paragraph"),
+        )],
+    )
+    .bytes();
+    held = assert_step_equivalent(
+        held,
+        &mut state,
+        &mut changes,
+        &scenario_2_wire,
+        &ROOMY,
+        "scenario 2: standalone map-entry paragraph on root",
+    );
+    assert_eq!(held.file_ids(), vec!["legit.png"]);
+
+    let clean = Editor::join(43, &state).append_paragraph("clean follow-up");
+    let held = assert_step_equivalent(
+        held,
+        &mut state,
+        &mut changes,
+        &clean,
+        &ROOMY,
+        "clean edit after map-entry attempts",
+    );
+    assert_eq!(held.file_ids(), vec!["legit.png"]);
+}

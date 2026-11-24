@@ -309,7 +309,8 @@ pub(crate) struct ReadFlags {
     /// same client sharing a `right_origin` that could squash in `commit()`, requiring a
     /// pre-apply linear origin check before handing the update to `yrs`.
     pub(crate) check_origins_before_apply: bool,
-    /// Shared-type (`Content::Type`) IDs newly introduced by this update (`begin >= floor`).
+    /// Shared-type (`Content::Type`) IDs newly introduced without an explicit wire
+    /// `member` (`begin >= floor`, `member == None`).
     pub(crate) new_types: Vec<ID>,
 }
 
@@ -345,6 +346,7 @@ pub(crate) fn read(doc: &Doc, update: &[u8]) -> Result<(Update, usize, ReadFlags
         let floor = u64::from(known.get(&ClientID::new(client)));
         if end > floor {
             if matches!(change.content, Content::Type)
+                && change.member.is_none()
                 && let Ok(clock) = u32::try_from(begin)
             {
                 flags.new_types.push(ID::new(ClientID::new(client), clock));
