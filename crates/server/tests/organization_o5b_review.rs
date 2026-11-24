@@ -37,14 +37,14 @@ async fn shared_views_hide_people_after_their_property_is_deleted() {
                 "type": "view", "title": "By owner", "containerId": board.id,
                 "createAt": 1, "updateAt": 1,
                 "fields": {
-                    "viewType": "board", "groupById": "owner",
+                    "viewType": "board", "groupBy": "owner",
                     "filter": {"operation": "and", "filters": [
                         {"propertyId": "owner", "condition": "includes", "values": [person]},
                     ]},
-                    "visibleOptionIds": [person, ""],
-                    "hiddenOptionIds": [person],
-                    "collapsedOptionIds": [person],
-                    "kanbanCalculations": {(person.clone()): {"calculation": "count"}},
+                    "visibleGroups": [person, ""],
+                    "hiddenGroups": [person],
+                    "collapsedGroups": [person],
+                    "groupCalculations": {(person.clone()): {"calculation": "count"}},
                 },
             }]),
         )

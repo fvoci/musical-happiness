@@ -37,7 +37,7 @@ export interface FaceHierarchy {
 /** What the face of every card of a view is drawn with. */
 export interface FaceContext {
   templates: readonly PropertyTemplate[];
-  visiblePropertyIds: readonly string[];
+  shownProperties: readonly string[];
   locale: string;
   regional: Regional;
   users: readonly PropertyUser[];
@@ -52,7 +52,7 @@ export function faceContextOf(board: BoardStore, view: BoardView): FaceContext {
   const untitled = m['KanbanCard.untitled']();
   return {
     templates,
-    visiblePropertyIds: view.fields.visiblePropertyIds,
+    shownProperties: view.fields.shownProperties,
     locale: board.workspace.locale,
     regional: board.workspace.regional,
     users: board.workspace.users,
@@ -82,8 +82,8 @@ export function badgesOf(card: Card): Pick<CardSummary, 'hasBody' | 'tasksTotal'
 }
 
 /** The value a card has for the property a board is grouped by, as the board store reads it. */
-export function columnValue(card: Card, groupById: string): string {
-  const value = card.fields.properties[groupById];
+export function columnValue(card: Card, groupBy: string): string {
+  const value = card.fields.properties[groupBy];
   return typeof value === 'string' ? value : '';
 }
 
@@ -95,14 +95,14 @@ export function columnValue(card: Card, groupById: string): string {
 export function propertiesForColumn(
   board: Container,
   view: BoardView,
-  groupById: string,
+  groupBy: string,
   optionId: string,
 ): Record<string, PropertyValue> {
   const met = propertiesThatMeetFilterGroup(view.fields.filter, board.cardProperties);
   const properties: Record<string, PropertyValue> = Object.fromEntries(
-    Object.entries(met).filter(([propertyId]) => propertyId !== groupById),
+    Object.entries(met).filter(([propertyId]) => propertyId !== groupBy),
   );
-  if (optionId !== '') properties[groupById] = optionId;
+  if (optionId !== '') properties[groupBy] = optionId;
   return properties;
 }
 
@@ -180,7 +180,7 @@ export async function addGroup(
     );
     await board.setViewFields(
       view.id,
-      { visibleOptionIds: [...shownOptionIds, option.id] },
+      { visibleGroups: [...shownOptionIds, option.id] },
       'addOption',
       groupId,
     );

@@ -351,7 +351,7 @@ describe('a date without a time is the same date for every reader', () => {
     for (const timeZone of ZONES) {
       const sorted = sortCards(cards, {
         templates,
-        sortOptions: [{ propertyId: 'due', reversed: false }],
+        sort: [{ propertyId: 'due', reversed: false }],
         cardOrder: [],
         locale: 'en',
         timeZone,

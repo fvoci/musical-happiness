@@ -166,8 +166,8 @@
   );
 
   const templates = $derived(face.templates);
-  const visiblePropertyIds = $derived(face.visiblePropertyIds);
-  const heightKey = $derived(`${viewId}\u0000${visiblePropertyIds.join('\u0000')}`);
+  const shownProperties = $derived(face.shownProperties);
+  const heightKey = $derived(`${viewId}\u0000${shownProperties.join('\u0000')}`);
   let lastHeightKey = untrack(() => heightKey);
   $effect(() => {
     const next = heightKey;
@@ -185,10 +185,7 @@
   const guesses = $derived(
     windowed
       ? new Map(
-          group.cards.map((card) => [
-            card.id,
-            guessHeight(card, { templates, visiblePropertyIds }),
-          ]),
+          group.cards.map((card) => [card.id, guessHeight(card, { templates, shownProperties })]),
         )
       : undefined,
   );
@@ -457,7 +454,7 @@
           <CardFace
             card={carried}
             templates={face.templates}
-            visiblePropertyIds={face.visiblePropertyIds}
+            shownProperties={face.shownProperties}
             hasBody={badges.hasBody}
             tasksTotal={badges.tasksTotal}
             tasksDone={badges.tasksDone}

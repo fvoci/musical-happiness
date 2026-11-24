@@ -14,10 +14,10 @@ export async function dropCardsOn(board: BoardStore, drop: CardDrop): Promise<vo
   const view = board.view(drop.viewId);
   if (!view) return;
   await board.inOneStep(async (groupId) => {
-    const groupById = board.groupingOf(view)?.id;
+    const groupBy = board.groupingOf(view)?.id;
     const optionId = drop.optionId;
     const valueOf = (card: Card): string => {
-      const value = groupById ? card.fields.properties[groupById] : undefined;
+      const value = groupBy ? card.fields.properties[groupBy] : undefined;
       return typeof value === 'string' ? value : '';
     };
 
@@ -50,13 +50,13 @@ export async function dropCardsOn(board: BoardStore, drop: CardDrop): Promise<vo
       );
     }
 
-    if (groupById && optionId !== undefined) {
+    if (groupBy && optionId !== undefined) {
       for (const cardId of drop.cardIds) {
         const card = board.card(cardId);
         if (!card || valueOf(card) === optionId) continue;
         await board.setCardProperty(
           cardId,
-          groupById,
+          groupBy,
           optionId === '' ? undefined : optionId,
           groupId,
         );

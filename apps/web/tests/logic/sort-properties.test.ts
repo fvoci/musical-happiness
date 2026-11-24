@@ -83,7 +83,7 @@ const cards = fc.array(cardFields, { minLength: 0, maxLength: 12 }).map((fields)
   }),
 );
 
-const sortOptions = fc.array(
+const sortArb = fc.array(
   fc.record({
     propertyId: fc.constantFrom(TITLE_COLUMN_ID, 'n', 't', 'd', 's', 'created', 'gone'),
     reversed: fc.boolean(),
@@ -128,7 +128,7 @@ describe('the manual order is an ordering', () => {
         const sorted = ids(
           sortCards(list, {
             templates,
-            sortOptions: [],
+            sort: [],
             cardOrder: order,
             locale: 'en',
             timeZone: 'UTC',
@@ -153,7 +153,7 @@ describe('the manual order is an ordering', () => {
         (list, order, keys) => {
           const context: SortContext = {
             templates,
-            sortOptions: [],
+            sort: [],
             cardOrder: order,
             locale: 'en',
             timeZone: 'UTC',
@@ -173,10 +173,10 @@ describe('the manual order is an ordering', () => {
 describe('the order by sort options is an ordering', () => {
   it('for any cards and any options', () => {
     fc.assert(
-      fc.property(cards, sortOptions, (list, options) => {
+      fc.property(cards, sortArb, (list, options) => {
         const context: SortContext = {
           templates,
-          sortOptions: options,
+          sort: options,
           cardOrder: [],
           locale: 'en',
           timeZone: 'UTC',
@@ -189,10 +189,10 @@ describe('the order by sort options is an ordering', () => {
 
   it('sorts to the same result whatever order the cards arrive in', () => {
     fc.assert(
-      fc.property(cards, sortOptions, (list, options) => {
+      fc.property(cards, sortArb, (list, options) => {
         const context: SortContext = {
           templates,
-          sortOptions: options,
+          sort: options,
           cardOrder: [],
           locale: 'en',
           timeZone: 'UTC',
@@ -223,7 +223,7 @@ describe('the order by sort options is an ordering', () => {
         (list, propertyId, reversed) => {
           const sorted = sortCards(list, {
             templates,
-            sortOptions: [{ propertyId, reversed }],
+            sort: [{ propertyId, reversed }],
             cardOrder: [],
             locale: 'en',
             timeZone: 'UTC',

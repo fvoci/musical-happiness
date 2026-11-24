@@ -21,7 +21,7 @@ export function cardsOfView(
   return sortCards(result, {
     ...context,
     templates,
-    sortOptions: view.sortOptions,
+    sort: view.sort,
     cardOrder: view.cardOrder,
   });
 }

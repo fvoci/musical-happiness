@@ -34,7 +34,7 @@ function viewOf(fields: Partial<BoardView['fields']>): BoardView {
 describe('the columns of a view', () => {
   it('are its visible properties, in its order, at their stored widths', () => {
     const view = viewOf({
-      visiblePropertyIds: ['hours', 'status'],
+      shownProperties: ['hours', 'status'],
       columnWidths: { hours: 120, status: 240 },
     });
     expect(tableColumns(view, TEMPLATES).map(({ id, width }) => [id, width])).toEqual([
@@ -44,19 +44,19 @@ describe('the columns of a view', () => {
   });
 
   it('leave out a property the board no longer has, and one named twice', () => {
-    const view = viewOf({ visiblePropertyIds: ['gone', 'status', 'status', 'owner'] });
+    const view = viewOf({ shownProperties: ['gone', 'status', 'status', 'owner'] });
     expect(tableColumns(view, TEMPLATES).map((column) => column.id)).toEqual(['status', 'owner']);
   });
 
   it('get the default width where the view stores none', () => {
-    const view = viewOf({ visiblePropertyIds: ['status'], columnWidths: { status: 0 } });
+    const view = viewOf({ shownProperties: ['status'], columnWidths: { status: 0 } });
     expect(tableColumns(view, TEMPLATES)[0]?.width).toBe(TABLE_SETTINGS.defaultColumnWidth);
     expect(storedWidth({}, 'status')).toBe(TABLE_SETTINGS.defaultColumnWidth);
   });
 
   it('show a width that is being dragged in place of the stored one', () => {
     const view = viewOf({
-      visiblePropertyIds: ['status', 'owner'],
+      shownProperties: ['status', 'owner'],
       columnWidths: { status: 200, owner: 200 },
     });
     const columns = tableColumns(view, TEMPLATES, { owner: 317 });

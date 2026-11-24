@@ -64,7 +64,7 @@ test('a board is made with its first view, changed, deleted and brought back', a
   const [first, ...others] = await views(api, { workspaceId, boardId });
   expect(others).toEqual([]);
   expect(first).toMatchObject({ id: viewId, title: 'Board view' });
-  expect(first?.fields).toMatchObject({ viewType: 'board', groupById: status?.id });
+  expect(first?.fields).toMatchObject({ viewType: 'board', groupBy: status?.id });
   // Filed under the reader's default category by the server.
   const categories = (await (
     await api.get(`/api/v1/w/${board.workspaceId}/categories`)

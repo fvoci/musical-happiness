@@ -29,9 +29,9 @@ export function hasFaceValue(card: Card, template: PropertyTemplate): boolean {
 export function faceProperties(
   card: Card,
   templates: readonly PropertyTemplate[],
-  visiblePropertyIds: readonly string[],
+  shownProperties: readonly string[],
 ): PropertyTemplate[] {
   return templates.filter(
-    (template) => visiblePropertyIds.includes(template.id) && hasFaceValue(card, template),
+    (template) => shownProperties.includes(template.id) && hasFaceValue(card, template),
   );
 }

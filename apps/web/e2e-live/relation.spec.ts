@@ -214,7 +214,7 @@ test('a copy of a board names its own cards in the relation its Gantt chart read
         title: 'Plan',
         createAt: 1,
         updateAt: 1,
-        fields: { viewType: 'gantt', dateDisplayPropertyId: 'due', dependencyPropertyId: 'after' },
+        fields: { viewType: 'gantt', dateProperty: 'due', dependencyPropertyId: 'after' },
       },
     ],
   });

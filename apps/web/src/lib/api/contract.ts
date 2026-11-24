@@ -1401,8 +1401,8 @@ export interface paths {
          *     name in a card's `fields.properties` and in the clauses of a view's `fields.filter`;
          *     a list keeps its length, so how many people a card has still shows. A card's values
          *     of properties the board does not define are left out, and a view grouped by a person
-         *     property keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and
-         *     `kanbanCalculations` only the group of the cards without a value (`""`). A reference
+         *     property keeps of `visibleGroups`, `hiddenGroups`, `collapsedGroups` and
+         *     `groupCalculations` only the group of the cards without a value (`""`). A reference
          *     in a body keeps its `id` if it names a card of this board, and has an empty one for
          *     anything else: of what is elsewhere in the workspace nothing is told, nor whether
          *     there is anything. Oldest

@@ -49,7 +49,7 @@ export function groupProperty(
   view: BoardView,
   templates: readonly PropertyTemplate[],
 ): PropertyTemplate | undefined {
-  const named = templates.find((template) => template.id === view.fields.groupById);
+  const named = templates.find((template) => template.id === view.fields.groupBy);
   if (named || view.fields.viewType !== 'board') return named;
   return templates.find((template) => template.type === 'select');
 }
@@ -62,13 +62,13 @@ export function groupProperty(
  */
 export function groupingFields(
   template: PropertyTemplate | undefined,
-): Pick<ViewFields, 'groupById' | 'visibleOptionIds' | 'hiddenOptionIds' | 'collapsedOptionIds'> {
+): Pick<ViewFields, 'groupBy' | 'visibleGroups' | 'hiddenGroups' | 'collapsedGroups'> {
   return {
     // Not grouped is the empty identifier, as the built-in templates write it.
-    groupById: template?.id ?? '',
-    visibleOptionIds: template ? ['', ...template.options.map((option) => option.id)] : [],
-    hiddenOptionIds: [],
-    collapsedOptionIds: [],
+    groupBy: template?.id ?? '',
+    visibleGroups: template ? ['', ...template.options.map((option) => option.id)] : [],
+    hiddenGroups: [],
+    collapsedGroups: [],
   };
 }
 
@@ -94,18 +94,18 @@ export function newViewFields(
     return {
       ...fields,
       ...groupingFields(undefined),
-      visiblePropertyIds: templates.map((template) => template.id),
+      shownProperties: templates.map((template) => template.id),
     };
   }
   if (viewType === 'calendar' || viewType === 'gantt') {
     return {
       ...fields,
       ...(viewType === 'gantt' ? ganttFields(templates) : {}),
-      visiblePropertyIds: [TITLE_COLUMN_ID],
-      dateDisplayPropertyId: displayProperty(undefined, templates)?.id,
+      shownProperties: [TITLE_COLUMN_ID],
+      dateProperty: displayProperty(undefined, templates)?.id,
     };
   }
-  return { ...fields, visiblePropertyIds: [TITLE_COLUMN_ID] };
+  return { ...fields, shownProperties: [TITLE_COLUMN_ID] };
 }
 
 /**
@@ -133,7 +133,7 @@ export function displayByName(
   templates: readonly PropertyTemplate[],
   madeName: string,
 ): string {
-  return displayProperty(view.fields.dateDisplayPropertyId, templates)?.name ?? madeName;
+  return displayProperty(view.fields.dateProperty, templates)?.name ?? madeName;
 }
 
 /** One line of the list "display by" or "dependencies" offers. `write`: choosing it changes the view. */
@@ -156,7 +156,7 @@ export function displayByChoices(
   templates: readonly PropertyTemplate[],
   madeName: string,
 ): DisplayByChoice[] {
-  const named = view.fields.dateDisplayPropertyId;
+  const named = view.fields.dateProperty;
   const used = displayProperty(named, templates);
   const choices = displayableProperties(templates).map((template) => ({
     id: template.id,
@@ -233,13 +233,11 @@ export function propertyToggles(
 
 /** The visible properties with `propertyId` shown or hidden. A newly shown one goes last. */
 export function withPropertyVisible(
-  visiblePropertyIds: readonly string[],
+  shownProperties: readonly string[],
   propertyId: string,
   visible: boolean,
 ): string[] {
-  const others = visiblePropertyIds.filter((id) => id !== propertyId);
+  const others = shownProperties.filter((id) => id !== propertyId);
   if (!visible) return others;
-  return visiblePropertyIds.includes(propertyId)
-    ? [...visiblePropertyIds]
-    : [...others, propertyId];
+  return shownProperties.includes(propertyId) ? [...shownProperties] : [...others, propertyId];
 }

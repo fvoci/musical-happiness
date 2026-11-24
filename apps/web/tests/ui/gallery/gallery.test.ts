@@ -54,7 +54,7 @@ describe('the gallery', () => {
   });
 
   it('draws the large face, with the properties the view turned on', async () => {
-    const { container } = await show({ visiblePropertyIds: [STATUS] });
+    const { container } = await show({ shownProperties: [STATUS] });
     const faces = [...container.querySelectorAll('[data-slot="card-face"]')];
     expect(faces).toHaveLength(3);
     expect(faces.every((face) => face.getAttribute('data-size') === 'large')).toBe(true);

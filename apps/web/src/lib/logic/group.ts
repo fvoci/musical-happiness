@@ -47,22 +47,22 @@ function groupCardsByOptions(
 
 function getOptionGroups(
   cards: readonly Card[],
-  visibleOptionIds: readonly string[],
-  hiddenOptionIds: readonly string[],
+  visibleGroups: readonly string[],
+  hiddenGroups: readonly string[],
   groupBy: PropertyTemplate | undefined,
   noValueLabel: NoValueLabel,
 ): BoardGroups {
   // An option the view does not mention yet is shown, after the mentioned ones.
   const unassigned = (groupBy?.options ?? [])
     .map((option) => option.id)
-    .filter((id) => !visibleOptionIds.includes(id) && !hiddenOptionIds.includes(id));
-  const visible = [...visibleOptionIds, ...unassigned];
+    .filter((id) => !visibleGroups.includes(id) && !hiddenGroups.includes(id));
+  const visible = [...visibleGroups, ...unassigned];
   // Unless the view placed it, the column of cards without a value comes first.
-  if (!visible.includes('') && !hiddenOptionIds.includes('')) visible.unshift('');
+  if (!visible.includes('') && !hiddenGroups.includes('')) visible.unshift('');
 
   return {
     visible: groupCardsByOptions(cards, visible, groupBy, noValueLabel),
-    hidden: groupCardsByOptions(cards, hiddenOptionIds, groupBy, noValueLabel),
+    hidden: groupCardsByOptions(cards, hiddenGroups, groupBy, noValueLabel),
   };
 }
 
@@ -74,7 +74,7 @@ function getOptionGroups(
 function getPersonGroups(
   cards: readonly Card[],
   groupBy: PropertyTemplate,
-  hiddenOptionIds: readonly string[],
+  hiddenGroups: readonly string[],
   noValueLabel: NoValueLabel,
 ): BoardGroups {
   const byPerson = new Map<string, Card[]>([['', []]]);
@@ -94,7 +94,7 @@ function getPersonGroups(
     if (person === '' && groupCards.length === 0) continue;
     const label = person === '' ? noValueLabel(groupBy.name) : person;
     const group = { option: { id: person, value: label, color: '' }, cards: groupCards };
-    if (hiddenOptionIds.includes(person)) groups.hidden.push(group);
+    if (hiddenGroups.includes(person)) groups.hidden.push(group);
     else groups.visible.push(group);
   }
   return groups;
@@ -103,8 +103,8 @@ function getPersonGroups(
 /** The visible and the hidden columns of a view, each with its cards in the order given. */
 export function getVisibleAndHiddenGroups(
   cards: readonly Card[],
-  visibleOptionIds: readonly string[],
-  hiddenOptionIds: readonly string[],
+  visibleGroups: readonly string[],
+  hiddenGroups: readonly string[],
   groupBy: PropertyTemplate | undefined,
   noValueLabel: NoValueLabel,
 ): BoardGroups {
@@ -112,7 +112,7 @@ export function getVisibleAndHiddenGroups(
     groupBy &&
     (groupBy.type === 'createdBy' || groupBy.type === 'updatedBy' || groupBy.type === 'person')
   ) {
-    return getPersonGroups(cards, groupBy, hiddenOptionIds, noValueLabel);
+    return getPersonGroups(cards, groupBy, hiddenGroups, noValueLabel);
   }
-  return getOptionGroups(cards, visibleOptionIds, hiddenOptionIds, groupBy, noValueLabel);
+  return getOptionGroups(cards, visibleGroups, hiddenGroups, groupBy, noValueLabel);
 }

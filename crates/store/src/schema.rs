@@ -91,6 +91,10 @@ pub(crate) const BEFORE_SUBSCRIPTIONS_USER_ID_VERSION: i64 = 68;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_CONTAINER_VISIBILITY_VERSION: i64 = 69;
 
+/// The migration before native view `fields` keys (0071).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_NATIVE_VIEW_FIELD_KEYS_VERSION: i64 = 70;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -483,5 +487,16 @@ mod tests {
             .expect("migration 70 is in the list");
         assert_eq!(step.version, 70);
         assert_eq!(step.description, "container visibility public links files");
+    }
+
+    /// Migration 71 is native view field keys, immediately following `BEFORE_NATIVE_VIEW_FIELD_KEYS_VERSION` (70).
+    #[test]
+    fn migration_71_is_native_view_field_keys() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_NATIVE_VIEW_FIELD_KEYS_VERSION + 1)
+            .expect("migration 71 is in the list");
+        assert_eq!(step.version, 71);
+        assert_eq!(step.description, "native view field keys");
     }
 }

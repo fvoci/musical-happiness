@@ -205,7 +205,7 @@
             id={TITLE_COLUMN_ID}
             name={titleName}
             pinned
-            sorted={sortDirection(view.fields.sortOptions, TITLE_COLUMN_ID)}
+            sorted={sortDirection(view.fields.sort, TITLE_COLUMN_ID)}
             canEdit={table.canEdit}
             actions={table.headerActions(TITLE_COLUMN_ID)}
             width={table.titleWidth}
@@ -215,7 +215,7 @@
             <HeaderCell
               id={column.id}
               name={column.template.name}
-              sorted={sortDirection(view.fields.sortOptions, column.id)}
+              sorted={sortDirection(view.fields.sort, column.id)}
               canEdit={table.canEdit}
               actions={table.headerActions(column.id)}
               dragging={columnDrag?.mode === 'pointer' && columnDrag.itemId === column.id}

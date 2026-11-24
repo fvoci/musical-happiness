@@ -57,7 +57,7 @@ test('a Gantt view is made from the list of kinds, placed by the first date, zoo
         (property) => property.name === 'Day',
       )?.id,
   );
-  expect(fields.dateDisplayPropertyId).toBe(due);
+  expect(fields.dateProperty).toBe(due);
   // No card of the board has a date yet.
   await expect(page.getByTestId('gantt-empty')).toBeVisible();
   // The axis has today on it and begins on a Sunday.
@@ -357,7 +357,7 @@ test('the chart in light and dark, and at 390 pixels', async ({ page }, info) =>
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
     const select = store.board.cardProperties.find((property) => property.type === 'select');
     if (!select) throw new Error('nothing to group by');
-    await store.setViewFields(id, { groupById: select.id });
+    await store.setViewFields(id, { groupBy: select.id });
   }, viewIdOf(page.url()));
   await expect(gantt(page).locator('[data-group]').first()).toBeVisible();
   await shoot(`${info.project.name}-grouped`);
@@ -369,7 +369,7 @@ test('the chart in light and dark, and at 390 pixels', async ({ page }, info) =>
   // Not grouped again, for the picture of a phone below.
   await page.evaluate(async (id) => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    await store.setViewFields(id, { groupById: '' });
+    await store.setViewFields(id, { groupBy: '' });
   }, viewIdOf(page.url()));
   await expect(gantt(page).locator('[data-group]')).toHaveCount(0);
 

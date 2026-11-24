@@ -19,13 +19,13 @@ interface StoredView {
   id: string;
   title: string;
   fields: {
-    visiblePropertyIds: string[];
+    shownProperties: string[];
     columnWidths: Record<string, number>;
     columnCalculations: Record<string, string>;
-    collapsedOptionIds: string[];
-    sortOptions: { propertyId: string; reversed: boolean }[];
+    collapsedGroups: string[];
+    sort: { propertyId: string; reversed: boolean }[];
     cardOrder: string[];
-    groupById?: string;
+    groupBy?: string;
   };
 }
 
@@ -98,9 +98,9 @@ async function openUnsortedView(
   const opened = await openView(page, boardTitle, viewTitle);
   await page.evaluate(async ({ boardId, viewId }) => {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-    await backend.patchView(boardId, viewId, { updatedFields: { sortOptions: [] } });
+    await backend.patchView(boardId, viewId, { updatedFields: { sort: [] } });
   }, opened);
-  await expect.poll(async () => (await storedView(page, opened)).sortOptions).toEqual([]);
+  await expect.poll(async () => (await storedView(page, opened)).sort).toEqual([]);
   return opened;
 }
 
@@ -270,7 +270,7 @@ test.describe('what the table shows', () => {
     const shown = await table(page)
       .locator('[data-kind="header"]')
       .evaluateAll((cells) => cells.map((cell) => cell.getAttribute('data-col')));
-    expect(shown).toEqual([TITLE, ...fields.visiblePropertyIds]);
+    expect(shown).toEqual([TITLE, ...fields.shownProperties]);
     await expect(header(page, 'Name')).toBeVisible();
     for (const name of ['Status', 'Phase', 'Estimated hours']) {
       await expect(header(page, name)).toHaveCount(1);
@@ -728,7 +728,7 @@ test.describe('columns', () => {
 
   test('the menu of a heading moves the column a step, and hides it', async ({ page }) => {
     const opened = await openView(page, 'Project schedule', 'Task table');
-    const before = (await storedView(page, opened)).visiblePropertyIds;
+    const before = (await storedView(page, opened)).shownProperties;
     const status = await columnId(page, 'Status');
     expect(before[0]).toBe(status);
 
@@ -736,9 +736,7 @@ test.describe('columns', () => {
     await expect(menuItem(page, 'moveLeft')).toBeDisabled();
     await menuItem(page, 'moveRight').click();
     const moved = [before[1], before[0], ...before.slice(2)];
-    await expect
-      .poll(async () => (await storedView(page, opened)).visiblePropertyIds)
-      .toEqual(moved);
+    await expect.poll(async () => (await storedView(page, opened)).shownProperties).toEqual(moved);
     const shown = await table(page)
       .locator('[data-kind="header"]')
       .evaluateAll((cells) => cells.map((cell) => cell.getAttribute('data-col')));
@@ -754,7 +752,7 @@ test.describe('columns', () => {
     await menuItem(page, 'hide').click();
     await expect(header(page, 'Status')).toHaveCount(0);
     await expect
-      .poll(async () => (await storedView(page, opened)).visiblePropertyIds)
+      .poll(async () => (await storedView(page, opened)).shownProperties)
       .toEqual(moved.filter((each) => each !== status));
 
     await undo(page);
@@ -764,7 +762,7 @@ test.describe('columns', () => {
   test('a heading is dragged to another place with the mouse', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'dragging a heading needs a mouse');
     const opened = await openView(page, 'Project schedule', 'Task table');
-    const before = (await storedView(page, opened)).visiblePropertyIds;
+    const before = (await storedView(page, opened)).shownProperties;
     const from = await centre(header(page, 'Status'));
     const to = await centre(header(page, 'Owner'));
 
@@ -780,7 +778,7 @@ test.describe('columns', () => {
 
     const expected = [before[1], before[2], before[0], ...before.slice(3)];
     await expect
-      .poll(async () => (await storedView(page, opened)).visiblePropertyIds)
+      .poll(async () => (await storedView(page, opened)).shownProperties)
       .toEqual(expected);
     // The drag was not a click: the menu of the heading did not open.
     await expect(surface(page)).toHaveCount(0);
@@ -788,7 +786,7 @@ test.describe('columns', () => {
 
   test('a heading is moved with the keyboard: Space, arrows, Space', async ({ page }) => {
     const opened = await openView(page, 'Project schedule', 'Task table');
-    const before = (await storedView(page, opened)).visiblePropertyIds;
+    const before = (await storedView(page, opened)).shownProperties;
     await header(page, 'Status').focus();
     await page.keyboard.press('Space');
     await expect(table(page)).toHaveAttribute('data-dragging', 'keyboard');
@@ -803,7 +801,7 @@ test.describe('columns', () => {
 
     const expected = [before[1], before[2], before[0], ...before.slice(3)];
     await expect
-      .poll(async () => (await storedView(page, opened)).visiblePropertyIds)
+      .poll(async () => (await storedView(page, opened)).shownProperties)
       .toEqual(expected);
     await expect(header(page, 'Status')).toBeFocused();
 
@@ -812,7 +810,7 @@ test.describe('columns', () => {
     await page.keyboard.press('ArrowLeft');
     await page.keyboard.press('Escape');
     await expect(table(page)).not.toHaveAttribute('data-dragging');
-    expect((await storedView(page, opened)).visiblePropertyIds).toEqual(expected);
+    expect((await storedView(page, opened)).shownProperties).toEqual(expected);
   });
 
   test('the menu of a heading sorts the view by its column', async ({ page }) => {
@@ -821,7 +819,7 @@ test.describe('columns', () => {
     await menuItem(page, 'sortDescending').click();
     await expect(header(page, 'Name')).toHaveAttribute('aria-sort', 'descending');
     await expect
-      .poll(async () => (await storedView(page, opened)).sortOptions)
+      .poll(async () => (await storedView(page, opened)).sort)
       .toEqual([{ propertyId: TITLE, reversed: true }]);
     const descending = await rowTitles(page);
     expect(descending).toEqual([...descending].sort((a, b) => b.localeCompare(a, 'en')));
@@ -864,12 +862,12 @@ test.describe('groups', () => {
     // The heading still says how many there are.
     await expect(first.locator('[data-slot="group-count"] [aria-hidden]')).toHaveText(String(size));
     await expect
-      .poll(async () => (await storedView(page, opened)).collapsedOptionIds)
+      .poll(async () => (await storedView(page, opened)).collapsedGroups)
       .toEqual([optionId]);
 
     await first.getByRole('button', { name: `Expand ${name.trim()}` }).click();
     await expect(inFirst).toHaveCount(size);
-    await expect.poll(async () => (await storedView(page, opened)).collapsedOptionIds).toEqual([]);
+    await expect.poll(async () => (await storedView(page, opened)).collapsedGroups).toEqual([]);
   });
 
   test('"+" on a group makes a card with the value of the group', async ({ page }) => {
@@ -892,7 +890,7 @@ test.describe('groups', () => {
         const card = (await storedCards(page, opened)).find(
           (each) => each.title === 'Grouped card',
         );
-        return card?.fields.properties[fields.groupById ?? ''];
+        return card?.fields.properties[fields.groupBy ?? ''];
       })
       .toBe(optionId);
     // The calculation still counts every card, not those of one group.
@@ -918,7 +916,7 @@ test.describe('groups', () => {
     await expect
       .poll(async () => {
         const card = (await storedCards(page, opened)).find((each) => each.title === 'At the foot');
-        return card?.fields.properties[fields.groupById ?? ''];
+        return card?.fields.properties[fields.groupBy ?? ''];
       })
       .toBe(optionId);
   });
@@ -1162,7 +1160,7 @@ test.describe('moving rows', () => {
     await expect
       .poll(async () => {
         const card = (await storedCards(page, opened)).find((each) => each.id === id);
-        return card?.fields.properties[fields.groupById ?? ''];
+        return card?.fields.properties[fields.groupBy ?? ''];
       })
       .toBe(to);
     // The value and the place are one step back.
@@ -1196,9 +1194,9 @@ test.describe('a board the reader may only look at', () => {
       if (!subject) throw new Error('no Subject property');
       await dev.someoneElse().patchView(boardId, viewId, {
         updatedFields: {
-          groupById: subject.id,
-          visibleOptionIds: subject.options.map((option) => option.id),
-          hiddenOptionIds: [''],
+          groupBy: subject.id,
+          visibleGroups: subject.options.map((option) => option.id),
+          hiddenGroups: [''],
         },
       });
     }, opened);
@@ -1240,7 +1238,7 @@ test.describe('a board the reader may only look at', () => {
     await expect(inGroup).not.toHaveCount(0);
     await group.getByRole('button', { name: /^Collapse / }).click();
     await expect(inGroup).toHaveCount(0);
-    expect((await storedView(page, opened)).collapsedOptionIds).toEqual([]);
+    expect((await storedView(page, opened)).collapsedGroups).toEqual([]);
   });
 });
 
@@ -1427,7 +1425,7 @@ test.describe('with the keyboard alone', () => {
     const titles = await rowTitles(page);
     const ids = await Promise.all(titles.map((title) => rowId(page, title)));
     const contact = await columnId(page, 'Contact name');
-    const contactAt = fields.visiblePropertyIds.indexOf(contact) + 1;
+    const contactAt = fields.shownProperties.indexOf(contact) + 1;
 
     // From the heading of the title column, down to the first card and along its row.
     await header(page, 'Name').focus();

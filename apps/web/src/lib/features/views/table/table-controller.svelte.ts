@@ -164,23 +164,22 @@ export class TableController {
   });
 
   #setVisible(ids: string[] | undefined, description: string): void {
-    if (ids)
-      void this.#board.setViewFields(this.#view.id, { visiblePropertyIds: ids }, description);
+    if (ids) void this.#board.setViewFields(this.#view.id, { shownProperties: ids }, description);
   }
 
   /** The lines of the menu of a heading. */
   headerActions(id: string): MenuAction[] {
     const view = this.#view;
     const shown = this.columns.map((column) => column.id);
-    const visible = view.fields.visiblePropertyIds;
+    const visible = view.fields.shownProperties;
     return headerMenu({
-      sorted: sortDirection(view.fields.sortOptions, id),
+      sorted: sortDirection(view.fields.sort, id),
       place: id === TITLE_COLUMN_ID ? undefined : { at: shown.indexOf(id), count: shown.length },
       width: this.columns.find((column) => column.id === id)?.width,
       onSort: (reversed) => {
         void this.#board.setViewFields(
           view.id,
-          { sortOptions: [{ propertyId: id, reversed }] },
+          { sort: [{ propertyId: id, reversed }] },
           'sortColumn',
         );
       },
@@ -207,7 +206,7 @@ export class TableController {
     onDrop: ({ itemIds, to }) => {
       if (to.kind !== 'index') return;
       const shown = moveItems(this.#columnOrder, itemIds, to)[0]?.items ?? [];
-      this.#setVisible(reorderedIds(this.#view.fields.visiblePropertyIds, shown), 'moveColumn');
+      this.#setVisible(reorderedIds(this.#view.fields.shownProperties, shown), 'moveColumn');
     },
     messages: COLUMN_DRAG_MESSAGES,
     itemLabel: (id) => this.columns.find((column) => column.id === id)?.template.name ?? id,
@@ -217,7 +216,7 @@ export class TableController {
 
   /** The property the view groups by, when the board still has it. */
   readonly groupBy = $derived.by<PropertyTemplate | undefined>(() => {
-    const id = this.#view.fields.groupById;
+    const id = this.#view.fields.groupBy;
     return id ? this.#templates.find((template) => template.id === id) : undefined;
   });
   /** The group of a card is not a value that can be set: who made it, who changed it last. */
@@ -225,7 +224,7 @@ export class TableController {
     () => this.groupBy !== undefined && propertyBehavior(this.groupBy.type).isReadOnly,
   );
   readonly #collapsed = $derived.by<readonly string[]>(() =>
-    this.canEdit ? this.#view.fields.collapsedOptionIds : this.#folded,
+    this.canEdit ? this.#view.fields.collapsedGroups : this.#folded,
   );
 
   /** The rows as lists, grouped by parent-child hierarchy. */
@@ -263,9 +262,7 @@ export class TableController {
   }
 
   /** Rows can be moved by hand: the view has no sort, and the reader may change it. */
-  readonly canDragRows = $derived.by(
-    () => this.canEdit && this.#view.fields.sortOptions.length === 0,
-  );
+  readonly canDragRows = $derived.by(() => this.canEdit && this.#view.fields.sort.length === 0);
 
   /**
    * Where a row dragged by a pointer would land: just above the row
@@ -333,7 +330,7 @@ export class TableController {
       ? collapsed.filter((other) => other !== id)
       : [...collapsed, id];
     if (this.canEdit) {
-      void this.#board.setViewFields(this.#view.id, { collapsedOptionIds: next }, 'foldGroup');
+      void this.#board.setViewFields(this.#view.id, { collapsedGroups: next }, 'foldGroup');
     } else {
       this.#folded = next;
     }

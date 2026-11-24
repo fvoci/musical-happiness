@@ -77,7 +77,7 @@ test('grouped as a table is: a heading before the cards of each group, the arrow
   await expect(gantt(page).locator('[data-group]')).toHaveCount(0);
   const { select, optionOf } = await grouping(page);
   await chooseGroup(page, select.name);
-  expect((await storedFields(page)).groupById).toBe(select.id);
+  expect((await storedFields(page)).groupBy).toBe(select.id);
 
   // One heading for the cards without a value and one for each option, as in a table.
   const headings = gantt(page).locator('[data-group]');
@@ -299,16 +299,16 @@ test('a reader who may not change the view zooms for the visit, and the view sta
     const fields = {
       viewType: 'gantt',
       ganttZoom: 'week',
-      sortOptions: [],
-      visiblePropertyIds: ['__title'],
-      visibleOptionIds: [],
-      hiddenOptionIds: [],
-      collapsedOptionIds: [],
+      sort: [],
+      shownProperties: ['__title'],
+      visibleGroups: [],
+      hiddenGroups: [],
+      collapsedGroups: [],
       filter: { operation: 'and', filters: [] },
       cardOrder: [],
       columnWidths: {},
       columnCalculations: {},
-      kanbanCalculations: {},
+      groupCalculations: {},
       defaultTemplateId: '',
     };
     const author = dev.someoneElse?.() ?? dev.backend;
@@ -332,7 +332,7 @@ test('a reader who may not change the view zooms for the visit, and the view sta
     });
     const view = await author.createView(boardId, {
       title: 'Read only',
-      fields: { ...fields, dateDisplayPropertyId: due.id, dependencyPropertyId: 'after' },
+      fields: { ...fields, dateProperty: due.id, dependencyPropertyId: 'after' },
     });
     return { boardId, viewId: view.id };
   });

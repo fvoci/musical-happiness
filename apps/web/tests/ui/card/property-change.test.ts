@@ -195,16 +195,16 @@ describe('a view without a property', () => {
   const using = (): BoardView =>
     view({
       viewType: 'board',
-      groupById: ID,
-      dateDisplayPropertyId: ID,
-      visiblePropertyIds: ['other', ID],
-      sortOptions: [
+      groupBy: ID,
+      dateProperty: ID,
+      shownProperties: ['other', ID],
+      sort: [
         { propertyId: ID, reversed: false },
         { propertyId: 'other', reversed: true },
       ],
-      visibleOptionIds: ['id-one', ''],
-      hiddenOptionIds: ['id-two'],
-      collapsedOptionIds: ['id-one'],
+      visibleGroups: ['id-one', ''],
+      hiddenGroups: ['id-two'],
+      collapsedGroups: ['id-one'],
       filter: {
         operation: 'and',
         filters: [
@@ -215,7 +215,7 @@ describe('a view without a property', () => {
       },
       columnWidths: { [ID]: 120, other: 80 },
       columnCalculations: { [ID]: 'count', other: 'sum' },
-      kanbanCalculations: {
+      groupCalculations: {
         'id-one': { calculation: 'sum', propertyId: ID },
         'id-two': { calculation: 'count', propertyId: 'other' },
       },
@@ -223,27 +223,27 @@ describe('a view without a property', () => {
 
   it('loses every mention of a deleted property', () => {
     const { fields } = viewWithoutProperty(using(), ID);
-    expect(fields.visiblePropertyIds).toEqual(['other']);
-    expect(fields.sortOptions).toEqual([{ propertyId: 'other', reversed: true }]);
+    expect(fields.shownProperties).toEqual(['other']);
+    expect(fields.sort).toEqual([{ propertyId: 'other', reversed: true }]);
     // The nested group was only about the property: it goes with its clause.
     expect(fields.filter).toEqual({
       operation: 'and',
       filters: [{ propertyId: 'other', condition: 'isNotEmpty', values: [] }],
     });
-    expect('groupById' in fields).toBe(false);
-    expect('dateDisplayPropertyId' in fields).toBe(false);
-    expect(fields.visibleOptionIds).toEqual([]);
-    expect(fields.hiddenOptionIds).toEqual([]);
-    expect(fields.collapsedOptionIds).toEqual([]);
+    expect('groupBy' in fields).toBe(false);
+    expect('dateProperty' in fields).toBe(false);
+    expect(fields.visibleGroups).toEqual([]);
+    expect(fields.hiddenGroups).toEqual([]);
+    expect(fields.collapsedGroups).toEqual([]);
     expect(fields.columnWidths).toEqual({ other: 80 });
     expect(fields.columnCalculations).toEqual({ other: 'sum' });
-    expect(fields.kanbanCalculations).toEqual({
+    expect(fields.groupCalculations).toEqual({
       'id-two': { calculation: 'count', propertyId: 'other' },
     });
   });
 
   it('is the view it was given when the property is not used in it', () => {
-    const plain = view({ visiblePropertyIds: ['other'] });
+    const plain = view({ shownProperties: ['other'] });
     expect(viewWithoutProperty(plain, ID)).toBe(plain);
     expect(viewWithoutProperty(plain, ID, 'text')).toBe(plain);
   });
@@ -258,8 +258,8 @@ describe('a view without a property', () => {
 
   it('keeps where a property is shown and sorted by when only its kind changes', () => {
     const { fields } = viewWithoutProperty(using(), ID, 'text');
-    expect(fields.visiblePropertyIds).toEqual(['other', ID]);
-    expect(fields.sortOptions).toHaveLength(2);
+    expect(fields.shownProperties).toEqual(['other', ID]);
+    expect(fields.sort).toHaveLength(2);
     expect(fields.columnWidths).toEqual({ [ID]: 120, other: 80 });
   });
 
@@ -269,24 +269,24 @@ describe('a view without a property', () => {
       { propertyId: 'other', condition: 'isNotEmpty', values: [] },
     ]);
     expect(fields.columnCalculations).toEqual({ other: 'sum' });
-    expect(Object.keys(fields.kanbanCalculations)).toEqual(['id-two']);
-    expect(fields.visibleOptionIds).toEqual([]);
+    expect(Object.keys(fields.groupCalculations)).toEqual(['id-two']);
+    expect(fields.visibleGroups).toEqual([]);
     // A text cannot group cards or place them on a calendar.
-    expect('groupById' in fields).toBe(false);
-    expect('dateDisplayPropertyId' in fields).toBe(false);
+    expect('groupBy' in fields).toBe(false);
+    expect('dateProperty' in fields).toBe(false);
   });
 
   it('keeps the grouping for a kind that can group, with its columns emptied', () => {
     const { fields } = viewWithoutProperty(using(), ID, 'person');
-    expect(fields.groupById).toBe(ID);
-    expect(fields.visibleOptionIds).toEqual([]);
-    expect('dateDisplayPropertyId' in fields).toBe(false);
+    expect(fields.groupBy).toBe(ID);
+    expect(fields.visibleGroups).toEqual([]);
+    expect('dateProperty' in fields).toBe(false);
   });
 
   it('keeps the calendar date for a kind that has days', () => {
     const { fields } = viewWithoutProperty(using(), ID, 'date');
-    expect(fields.dateDisplayPropertyId).toBe(ID);
-    expect('groupById' in fields).toBe(false);
+    expect(fields.dateProperty).toBe(ID);
+    expect('groupBy' in fields).toBe(false);
   });
 });
 
@@ -319,10 +319,10 @@ describe('a Gantt view, when the relation it draws arrows by goes', () => {
 describe('a view, when a property becomes a card relation', () => {
   it('takes a view off grouping and calculating by it', () => {
     const view = createBoardView();
-    view.fields.groupById = 'after';
+    view.fields.groupBy = 'after';
     view.fields.columnCalculations = { after: 'count' };
     const next = viewWithoutProperty(view, 'after', 'relation');
-    expect(next.fields.groupById).toBeUndefined();
+    expect(next.fields.groupBy).toBeUndefined();
     expect(next.fields.columnCalculations).toEqual({});
   });
 });

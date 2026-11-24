@@ -121,7 +121,7 @@ test('a board is read by its public link without signing in, and not when the li
         type: 'view',
         containerId: board.boardId,
         title: 'Table of it all',
-        fields: { viewType: 'table', visiblePropertyIds: ['status', 'note'] },
+        fields: { viewType: 'table', shownProperties: ['status', 'note'] },
         createAt: Date.now(),
         updateAt: Date.now(),
       },

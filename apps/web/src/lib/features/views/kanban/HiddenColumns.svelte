@@ -127,7 +127,7 @@
               <CardFace
                 card={carried}
                 templates={face.templates}
-                visiblePropertyIds={face.visiblePropertyIds}
+                shownProperties={face.shownProperties}
                 hasBody={badges.hasBody}
                 tasksTotal={badges.tasksTotal}
                 tasksDone={badges.tasksDone}

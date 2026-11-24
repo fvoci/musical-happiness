@@ -76,7 +76,7 @@
     groupBy !== undefined && groupBy.type !== 'createdBy' && groupBy.type !== 'updatedBy',
   );
   /** The view sorts its cards: a drop chooses the column, and the sort the place. */
-  const sorted = $derived(view.fields.sortOptions.length > 0);
+  const sorted = $derived(view.fields.sort.length > 0);
   const face = $derived(faceContextOf(board, view));
 
   const cardOrder = $derived(cards.map((card) => card.id));
@@ -183,23 +183,23 @@
     // The columns of people are not listed by the view: only which are hidden.
     void board.setViewFields(
       view.id,
-      isOption ? next : { hiddenOptionIds: next.hiddenOptionIds },
+      isOption ? next : { hiddenGroups: next.hiddenGroups },
       'changeColumns',
     );
   }
 
   function hideColumn(optionId: string): void {
-    setColumns(withColumnHidden(shownIds, view.fields.hiddenOptionIds, optionId));
+    setColumns(withColumnHidden(shownIds, view.fields.hiddenGroups, optionId));
   }
 
   function showColumn(optionId: string): void {
-    setColumns(withColumnShown(shownIds, view.fields.hiddenOptionIds, optionId));
+    setColumns(withColumnShown(shownIds, view.fields.hiddenGroups, optionId));
   }
 
   function stepColumn(optionId: string, step: -1 | 1): void {
     void board.setViewFields(
       view.id,
-      { visibleOptionIds: withColumnStepped(shownIds, optionId, step) },
+      { visibleGroups: withColumnStepped(shownIds, optionId, step) },
       'moveColumn',
     );
   }
@@ -242,7 +242,7 @@
     onDrop: ({ itemIds, to }) => {
       if (to.kind !== 'index') return;
       const ids = moveItems(row, itemIds, to)[0]?.items ?? [];
-      void board.setViewFields(view.id, { visibleOptionIds: ids.map(optionIdOf) }, 'moveColumn');
+      void board.setViewFields(view.id, { visibleGroups: ids.map(optionIdOf) }, 'moveColumn');
     },
     messages: COLUMN_MESSAGES,
     itemLabel: (id) => nameOfOption(optionIdOf(id)),

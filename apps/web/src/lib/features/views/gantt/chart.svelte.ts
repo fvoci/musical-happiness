@@ -134,7 +134,7 @@ export class GanttChart {
 
   /** The property the bars are placed by; none: by when the cards were made. */
   readonly template = $derived.by<PropertyTemplate | undefined>(() =>
-    displayProperty(this.#source.view().fields.dateDisplayPropertyId, this.#templates),
+    displayProperty(this.#source.view().fields.dateProperty, this.#templates),
   );
 
   /** The days of each card for the reader, and the cards that have none. */
@@ -178,7 +178,7 @@ export class GanttChart {
 
   /** The property the view groups by, when the board still has it; as the table reads it. */
   readonly groupBy = $derived.by<PropertyTemplate | undefined>(() => {
-    const id = this.#source.view().fields.groupById;
+    const id = this.#source.view().fields.groupBy;
     return id ? this.#templates.find((template) => template.id === id) : undefined;
   });
 

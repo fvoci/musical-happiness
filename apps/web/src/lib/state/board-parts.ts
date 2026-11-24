@@ -178,7 +178,7 @@ export function groupingPropertyOf(
   properties: readonly PropertyTemplate[],
   view: BoardView,
 ): PropertyTemplate | undefined {
-  const named = properties.find((template) => template.id === view.fields.groupById);
+  const named = properties.find((template) => template.id === view.fields.groupBy);
   if (view.fields.viewType !== 'board') return named;
   if (named && propertyBehavior(named.type).canGroup) return named;
   return properties.find((template) => propertyBehavior(template.type).canGroup);
@@ -194,8 +194,8 @@ export function groupsOfView(
   const grouping = viewGrouping(view);
   return getVisibleAndHiddenGroups(
     cards,
-    grouping.visibleOptionIds,
-    grouping.hiddenOptionIds,
+    grouping.visibleGroups,
+    grouping.hiddenGroups,
     groupingPropertyOf(properties, view),
     noValueLabel,
   );

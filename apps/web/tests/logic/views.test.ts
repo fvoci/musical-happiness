@@ -326,8 +326,8 @@ describe('CSV rows', () => {
   const templates = [status, tags, notes, amount, due];
   const view = {
     viewType: 'table' as const,
-    visiblePropertyIds: ['notes', 'status', 'tags', 'amount'],
-    dateDisplayPropertyId: undefined,
+    shownProperties: ['notes', 'status', 'tags', 'amount'],
+    dateProperty: undefined,
   };
   const first = card('1', 'Say "hi" #1', {
     status: 'done',
@@ -347,7 +347,7 @@ describe('CSV rows', () => {
   });
 
   it('adds the date a calendar view places its cards by', () => {
-    const calendar = { ...view, viewType: 'calendar' as const, dateDisplayPropertyId: 'due' };
+    const calendar = { ...view, viewType: 'calendar' as const, dateProperty: 'due' };
     expect(tableRows([], templates, calendar, 'Name', context)[0]).toEqual([
       '"Name"',
       '"Status"',
@@ -357,7 +357,7 @@ describe('CSV rows', () => {
       '"Due"',
     ]);
     expect(
-      tableRows([], templates, { ...view, dateDisplayPropertyId: 'due' }, 'Name', context)[0],
+      tableRows([], templates, { ...view, dateProperty: 'due' }, 'Name', context)[0],
     ).toHaveLength(5);
   });
 
@@ -370,10 +370,10 @@ describe('CSV rows', () => {
     const gantt = { ...view, viewType: 'gantt' as const };
     expect(tableRows([], templates, gantt, 'Name', context)[0]?.at(-1)).toBe('"Due"');
     expect(
-      tableRows([], templates, { ...gantt, dateDisplayPropertyId: 'due' }, 'Name', context)[0],
+      tableRows([], templates, { ...gantt, dateProperty: 'due' }, 'Name', context)[0],
     ).toHaveLength(6);
     // Shown already: not twice.
-    const shown = { ...gantt, visiblePropertyIds: ['due'] };
+    const shown = { ...gantt, shownProperties: ['due'] };
     expect(tableRows([], templates, shown, 'Name', context)[0]).toEqual(['"Name"', '"Due"']);
   });
 
@@ -381,13 +381,7 @@ describe('CSV rows', () => {
     const by: PropertyTemplate = { id: 'by', name: 'By', type: 'createdBy', options: [] };
     const created = card('1', 't');
     created.createdBy = 'user-1';
-    const rows = tableRows(
-      [created],
-      [by],
-      { ...view, visiblePropertyIds: ['by'] },
-      'Name',
-      context,
-    );
+    const rows = tableRows([created], [by], { ...view, shownProperties: ['by'] }, 'Name', context);
     expect(rows[1]).toEqual(['"t"', '"user-1"']);
   });
 
@@ -398,7 +392,7 @@ describe('CSV rows', () => {
       type: 'text',
       options: [],
     };
-    const rows = tableRows([], [awkward], { ...view, visiblePropertyIds: ['c'] }, 'Name', context);
+    const rows = tableRows([], [awkward], { ...view, shownProperties: ['c'] }, 'Name', context);
     expect(csvText(rows)).toBe(`"Name","Cost, ""total"" ${HASH_SIGN_TOKEN}1"\r\n`);
   });
 });

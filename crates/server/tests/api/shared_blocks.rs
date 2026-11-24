@@ -50,9 +50,9 @@ async fn board_with_people(th: &TestServer, board_id: &str, me: &str, editor: &s
                 {"propertyId": "note", "condition": "includes", "values": [me]},
             ]},
         ]},
-        "groupById": "owner",
-        "hiddenOptionIds": [me, ""],
-        "collapsedOptionIds": [editor],
+        "groupBy": "owner",
+        "hiddenGroups": [me, ""],
+        "collapsedGroups": [editor],
     }));
     insert_one(&th.client, &view).await;
 }
@@ -75,8 +75,8 @@ fn people_in(blocks: &Value) -> Value {
         "mention": card["body"]["content"][0]["content"][0]["attrs"]["userId"],
         "properties": card["fields"]["properties"],
         "filter": view["fields"]["filter"],
-        "hidden": view["fields"]["hiddenOptionIds"],
-        "collapsed": view["fields"]["collapsedOptionIds"],
+        "hidden": view["fields"]["hiddenGroups"],
+        "collapsed": view["fields"]["collapsedGroups"],
         "viewBy": view["modifiedBy"],
     })
 }

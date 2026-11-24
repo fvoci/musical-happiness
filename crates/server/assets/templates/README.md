@@ -24,13 +24,13 @@
   "baseDate": "2026-12-01",       // 날짜의 기준일. 보드를 만들 때 이 날이 만드는 사람의 오늘이 되게 날짜를 옮긴다
   "onboarding": false,            // 새 계정이 받는 환영 보드만 true
   "board": { "id", "title", "description", "icon", "showDescription", "cardProperties": [{ "id", "name", "type", "options": [{ "id", "value", "color" }] }] },
-  "views": [{ "id", "type": "view", "title", "fields": { /* viewType, groupById, cardOrder, filter, sortOptions, … */ } }],
+  "views": [{ "id", "type": "view", "title", "fields": { /* viewType, groupBy, cardOrder, filter, sort, … */ } }],
   "cards": [{ "id", "type": "card", "title", "fields": { "icon", "isTemplate", "properties": { "<속성 id>": "…" } }, "body": { "type": "doc", "content": [] } }],
   "files": [{ "asset": "board.png", "name": "보드.png" }]   // files/의 이름과, 보일 이름
 }
 ```
 
 - **본문**(`body`)은 카드마다 문서 하나다. 그림과 파일 블록은 `fileId`에 `files/`의 이름을 적고, 서버가 넣을 때 저장된 이름으로 바꾼다. 본문이 보이는 파일과 `files`는 꼭 맞아야 한다.
-- **식별자**는 한 템플릿 안에서 참조(뷰의 `cardOrder`·`groupById`·`defaultTemplateId`, 선택지 값, 카드 관계, 본문의 카드 참조)를 잇는 데만 쓴다. 서버가 넣을 때 새 식별자로 바꾼다.
+- **식별자**는 한 템플릿 안에서 참조(뷰의 `cardOrder`·`groupBy`·`defaultTemplateId`, 선택지 값, 카드 관계, 본문의 카드 참조)를 잇는 데만 쓴다. 서버가 넣을 때 새 식별자로 바꾼다.
 - **보드에 넣지 않은 것**: `isTemplate`·`templateVersion`·보드 종류·만든 사람과 시각. 서버가 넣을 때 정한다.
 - **카드의 `isTemplate`**은 보드 안의 카드 템플릿이다. 뷰의 `defaultTemplateId`가 가리킨다.

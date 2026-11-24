@@ -142,7 +142,7 @@ test('a Gantt view made on the page draws dated cards as bars, and the server ke
   const fields = (): Promise<Record<string, unknown>> => storedFields(api, board, viewId);
 
   // Made as the page makes one: placed by the first date, zoomed to weeks, no relation to read.
-  expect(await fields()).toMatchObject({ dateDisplayPropertyId: 'due', ganttZoom: 'week' });
+  expect(await fields()).toMatchObject({ dateProperty: 'due', ganttZoom: 'week' });
   expect('dependencyPropertyId' in (await fields())).toBe(false);
   const gantt = page.getByTestId('gantt');
   await expect(gantt).toHaveAttribute('data-zoom', 'week');
@@ -164,7 +164,7 @@ test('a Gantt view made on the page draws dated cards as bars, and the server ke
   await expect(tool).toHaveAccessibleName('Display by: Due');
   await tool.click();
   await page.locator('[role="menuitem"][data-action="start"]').click();
-  await expect.poll(async () => (await fields()).dateDisplayPropertyId).toBe('start');
+  await expect.poll(async () => (await fields()).dateProperty).toBe('start');
   await expect(bar(page, 'Press cider')).toHaveAccessibleName('number 2, Press cider, November 4');
 
   // After a reload the view is still a Gantt chart, placed by "Start" as the server keeps it.
@@ -260,7 +260,7 @@ test('the dependencies and the zoom chosen on the page are kept by the server, a
   await page.keyboard.press('Escape');
   expect(await fields()).toMatchObject({
     viewType: 'gantt',
-    dateDisplayPropertyId: 'due',
+    dateProperty: 'due',
     dependencyPropertyId: 'after',
     ganttZoom: 'day',
   });
@@ -289,11 +289,11 @@ test('"display by" chosen for a view that named no date can be taken back on the
         updateAt: 1,
         fields: {
           viewType: 'gantt',
-          sortOptions: [],
-          visiblePropertyIds: ['__title'],
-          visibleOptionIds: [],
-          hiddenOptionIds: [],
-          collapsedOptionIds: [],
+          sort: [],
+          shownProperties: ['__title'],
+          visibleGroups: [],
+          hiddenGroups: [],
+          collapsedGroups: [],
           cardOrder: [],
           filter: { operation: 'and', filters: [] },
         },
@@ -315,14 +315,14 @@ test('"display by" chosen for a view that named no date can be taken back on the
   const tool = page.getByTestId('view-header').locator('[data-tool="display-by"]');
   await tool.click();
   await page.locator('[role="menuitem"][data-action="start"]').click();
-  await expect.poll(async () => (await fields()).dateDisplayPropertyId).toBe('start');
+  await expect.poll(async () => (await fields()).dateProperty).toBe('start');
   await expect(bar(page, 'Sow the beans')).toHaveAccessibleName(
     'number 1, Sow the beans, November 3',
   );
 
   // Taken back: the server drops the name, and a reload shows the view as it was.
   await page.getByTestId('undo').click();
-  await expect.poll(async () => 'dateDisplayPropertyId' in (await fields())).toBe(false);
+  await expect.poll(async () => 'dateProperty' in (await fields())).toBe(false);
   await page.reload();
   await expect(bar(page, 'Sow the beans')).toHaveAccessibleName(
     'number 1, Sow the beans, November 12',

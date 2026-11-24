@@ -31,7 +31,7 @@
     /** The definitions of the board's card properties. */
     templates: readonly PropertyTemplate[];
     /** The properties the view shows on its cards, in its order. */
-    visiblePropertyIds: readonly string[];
+    shownProperties: readonly string[];
     /** The card has a body. */
     hasBody?: boolean;
     /** The tasks in the body: how many, and how many are done. */
@@ -70,7 +70,7 @@
     card,
     readers,
     templates,
-    visiblePropertyIds,
+    shownProperties,
     hasBody = false,
     tasksTotal = 0,
     tasksDone = 0,
@@ -92,7 +92,7 @@
     class: className,
   }: Props = $props();
 
-  const shown = $derived(faceProperties(card, templates, visiblePropertyIds));
+  const shown = $derived(faceProperties(card, templates, shownProperties));
   const title = $derived(card.title || m['KanbanCard.untitled']());
   const large = $derived(size === 'large');
 </script>

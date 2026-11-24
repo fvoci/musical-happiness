@@ -64,41 +64,41 @@ describe('a new view', () => {
   it('as a board is grouped by the first select property, every column showing', () => {
     const fields = newViewFields('board', TEMPLATES);
     expect(fields.viewType).toBe('board');
-    expect(fields.groupById).toBe('status');
-    expect(fields.visibleOptionIds).toEqual(['', 'todo', 'done']);
-    expect(fields.hiddenOptionIds).toEqual([]);
-    expect(fields.visiblePropertyIds).toEqual([]);
+    expect(fields.groupBy).toBe('status');
+    expect(fields.visibleGroups).toEqual(['', 'todo', 'done']);
+    expect(fields.hiddenGroups).toEqual([]);
+    expect(fields.shownProperties).toEqual([]);
   });
 
   it('as a board on a board without a select property is grouped by nothing yet', () => {
     const fields = newViewFields('board', TEMPLATES.slice(0, 1));
-    expect(fields.groupById).toBeUndefined();
-    expect(fields.visibleOptionIds).toEqual([]);
+    expect(fields.groupBy).toBeUndefined();
+    expect(fields.visibleGroups).toEqual([]);
   });
 
   it('as a table shows every property, ungrouped, and leaves the width of the title column to the table', () => {
     const fields = newViewFields('table', TEMPLATES);
     expect(fields.viewType).toBe('table');
-    expect(fields.visiblePropertyIds).toEqual(['hours', 'status', 'tags', 'owner', 'made']);
-    expect(fields.groupById).toBe('');
+    expect(fields.shownProperties).toEqual(['hours', 'status', 'tags', 'owner', 'made']);
+    expect(fields.groupBy).toBe('');
     expect(fields.columnWidths).toEqual({});
   });
 
   it('as a gallery shows the titles', () => {
     const fields = newViewFields('gallery', TEMPLATES);
     expect(fields.viewType).toBe('gallery');
-    expect(fields.visiblePropertyIds).toEqual([TITLE_COLUMN_ID]);
+    expect(fields.shownProperties).toEqual([TITLE_COLUMN_ID]);
   });
 
   it('has every member a view has, none shared with another new view', () => {
     const first = newViewFields('table', TEMPLATES);
     const second = newViewFields('table', TEMPLATES);
     expect(Object.keys(first).sort()).toEqual(
-      Object.keys({ ...createBoardView().fields, groupById: '' }).sort(),
+      Object.keys({ ...createBoardView().fields, groupBy: '' }).sort(),
     );
     expect(first.filter).toEqual({ operation: 'and', filters: [] });
     expect(first.filter).not.toBe(second.filter);
-    expect(first.sortOptions).toEqual([]);
+    expect(first.sort).toEqual([]);
   });
 });
 
@@ -114,10 +114,10 @@ describe('a calendar', () => {
   it('when new, is placed by the first date property and shows the titles (C15)', () => {
     const fields = newViewFields('calendar', [...TEMPLATES, made, due]);
     expect(fields.viewType).toBe('calendar');
-    expect(fields.dateDisplayPropertyId).toBe('due');
-    expect(fields.visiblePropertyIds).toEqual([TITLE_COLUMN_ID]);
-    expect(newViewFields('calendar', [...TEMPLATES, made]).dateDisplayPropertyId).toBe('created');
-    expect(newViewFields('calendar', TEMPLATES).dateDisplayPropertyId).toBeUndefined();
+    expect(fields.dateProperty).toBe('due');
+    expect(fields.shownProperties).toEqual([TITLE_COLUMN_ID]);
+    expect(newViewFields('calendar', [...TEMPLATES, made]).dateProperty).toBe('created');
+    expect(newViewFields('calendar', TEMPLATES).dateProperty).toBeUndefined();
   });
 
   it('has "display by" and no grouping or sort', () => {
@@ -128,7 +128,7 @@ describe('a calendar', () => {
   });
 
   it('offers every kind of date, the one in use checked, and writes only a change', () => {
-    const named = viewOf({ viewType: 'calendar', dateDisplayPropertyId: 'created' });
+    const named = viewOf({ viewType: 'calendar', dateProperty: 'created' });
     expect(displayByChoices(named, [...TEMPLATES, made, due], 'Created time')).toEqual([
       { id: 'created', label: 'Created', checked: true, write: false },
       { id: 'due', label: 'Due', checked: false, write: true },
@@ -157,11 +157,11 @@ describe('a Gantt chart', () => {
   it('when new, is placed by the first date property, not grouped, zoomed to weeks', () => {
     const fields = newViewFields('gantt', [...TEMPLATES, due]);
     expect(fields.viewType).toBe('gantt');
-    expect(fields.dateDisplayPropertyId).toBe('due');
+    expect(fields.dateProperty).toBe('due');
     expect(fields.ganttZoom).toBe('week');
-    expect(fields.groupById).toBe('');
-    expect(fields.visiblePropertyIds).toEqual([TITLE_COLUMN_ID]);
-    expect(newViewFields('gantt', TEMPLATES).dateDisplayPropertyId).toBeUndefined();
+    expect(fields.groupBy).toBe('');
+    expect(fields.shownProperties).toEqual([TITLE_COLUMN_ID]);
+    expect(newViewFields('gantt', TEMPLATES).dateProperty).toBeUndefined();
   });
 
   it('when new, reads the first card relation of the board as its dependencies', () => {
@@ -208,21 +208,18 @@ describe('a Gantt chart', () => {
 
   it('takes a first choice of "display by" or of a grouping back the same way', () => {
     const before = createBoardView({ ...createBoardView(), fields: { viewType: 'gantt' } });
-    expect('dateDisplayPropertyId' in before.fields).toBe(false);
-    expect('groupById' in before.fields).toBe(false);
+    expect('dateProperty' in before.fields).toBe(false);
+    expect('groupBy' in before.fields).toBe(false);
     const after = createBoardView({
       ...before,
-      fields: { ...before.fields, dateDisplayPropertyId: 'start', groupById: 'status' },
+      fields: { ...before.fields, dateProperty: 'start', groupBy: 'status' },
     });
     const [, backward] = viewPatches(after, before);
-    expect([...(backward.deletedFields ?? [])].sort()).toEqual([
-      'dateDisplayPropertyId',
-      'groupById',
-    ]);
+    expect([...(backward.deletedFields ?? [])].sort()).toEqual(['dateProperty', 'groupBy']);
     // A member that is there, the empty one too, is kept as it is.
-    expect(createBoardView(viewOf({ groupById: '' })).fields.groupById).toBe('');
-    expect(optionalViewFields({ groupById: '', ganttZoom: undefined })).toStrictEqual({
-      groupById: '',
+    expect(createBoardView(viewOf({ groupBy: '' })).fields.groupBy).toBe('');
+    expect(optionalViewFields({ groupBy: '', ganttZoom: undefined })).toStrictEqual({
+      groupBy: '',
     });
     expect(optionalViewFields({})).toStrictEqual({});
   });
@@ -270,33 +267,33 @@ describe('grouping', () => {
 
   it('starts the columns over: no value first, then the options, nothing hidden or collapsed', () => {
     expect(groupingFields(TEMPLATES[1])).toEqual({
-      groupById: 'status',
-      visibleOptionIds: ['', 'todo', 'done'],
-      hiddenOptionIds: [],
-      collapsedOptionIds: [],
+      groupBy: 'status',
+      visibleGroups: ['', 'todo', 'done'],
+      hiddenGroups: [],
+      collapsedGroups: [],
     });
     // A person has no options: the columns are the people the cards have.
-    expect(groupingFields(TEMPLATES[3]).visibleOptionIds).toEqual(['']);
+    expect(groupingFields(TEMPLATES[3]).visibleGroups).toEqual(['']);
   });
 
   it('by nothing is the empty identifier and no columns', () => {
     expect(groupingFields(undefined)).toEqual({
-      groupById: '',
-      visibleOptionIds: [],
-      hiddenOptionIds: [],
-      collapsedOptionIds: [],
+      groupBy: '',
+      visibleGroups: [],
+      hiddenGroups: [],
+      collapsedGroups: [],
     });
   });
 
   it('of a view is the property it names; a board that names none uses the first select', () => {
-    expect(groupProperty(viewOf({ viewType: 'board', groupById: 'owner' }), TEMPLATES)?.id).toBe(
+    expect(groupProperty(viewOf({ viewType: 'board', groupBy: 'owner' }), TEMPLATES)?.id).toBe(
       'owner',
     );
     expect(groupProperty(viewOf({ viewType: 'board' }), TEMPLATES)?.id).toBe('status');
-    expect(groupProperty(viewOf({ viewType: 'board', groupById: 'gone' }), TEMPLATES)?.id).toBe(
+    expect(groupProperty(viewOf({ viewType: 'board', groupBy: 'gone' }), TEMPLATES)?.id).toBe(
       'status',
     );
-    expect(groupProperty(viewOf({ viewType: 'table', groupById: '' }), TEMPLATES)).toBeUndefined();
+    expect(groupProperty(viewOf({ viewType: 'table', groupBy: '' }), TEMPLATES)).toBeUndefined();
     expect(groupProperty(viewOf({ viewType: 'table' }), TEMPLATES)).toBeUndefined();
   });
 });

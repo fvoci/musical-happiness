@@ -97,7 +97,7 @@ test.describe('columns and cards', () => {
             };
           }
         ).fvociDev;
-        await backend.patchView(boardId, viewId, { updatedFields: { groupById: '' } });
+        await backend.patchView(boardId, viewId, { updatedFields: { groupBy: '' } });
       },
       { boardId: placeOf(page.url()).boardId, viewId: viewIdOf(page.url()) },
     );

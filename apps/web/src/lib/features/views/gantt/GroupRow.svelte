@@ -1,7 +1,7 @@
 <!--
   The row that starts a group of the chart: the value the group stands for
   and how many of its cards have a bar. What it says stays at the left edge
-  while the days scroll. The view is grouped as a table is (`groupById`).
+  while the days scroll. The view is grouped as a table is (`groupBy`).
 -->
 <script lang="ts">
   import OptionChip from '$lib/components/option-chip/OptionChip.svelte';

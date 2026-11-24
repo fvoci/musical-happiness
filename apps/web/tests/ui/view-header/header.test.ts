@@ -43,11 +43,11 @@ const TWO_VIEWS: SeedTemplate = {
       title: 'List',
       fields: {
         viewType: 'table',
-        groupById: '',
-        visiblePropertyIds: [STATUS],
-        visibleOptionIds: [],
-        hiddenOptionIds: [],
-        sortOptions: [],
+        groupBy: '',
+        shownProperties: [STATUS],
+        visibleGroups: [],
+        hiddenGroups: [],
+        sort: [],
         cardOrder: ['c1', 'c2', 'c3'],
         filter: EMPTY_FILTER,
       },
@@ -363,7 +363,7 @@ describe('views', () => {
     });
     const made = board.views.find((view) => view.title === 'Gallery view');
     expect(made?.fields.viewType).toBe('gallery');
-    expect(made?.fields.visiblePropertyIds).toEqual(['__title']);
+    expect(made?.fields.shownProperties).toEqual(['__title']);
     expect(onOpenView).toHaveBeenCalledWith(made?.id);
   });
 
@@ -618,7 +618,7 @@ describe('views', () => {
     });
     const copy = board.views.find((view) => view.title === 'List copy');
     expect(copy?.fields.viewType).toBe('table');
-    expect(copy?.fields.visiblePropertyIds).toEqual([STATUS]);
+    expect(copy?.fields.shownProperties).toEqual([STATUS]);
     expect(onOpenView).toHaveBeenCalledWith(copy?.id);
   });
 
@@ -661,9 +661,9 @@ describe('grouping', () => {
   it('by another property refills the columns in one change that one undo takes back', async () => {
     const { board, view, workspace } = await mount('Board');
     await board.setViewFields(view().id, {
-      visibleOptionIds: ['todo', 'done', ''],
-      hiddenOptionIds: ['doing'],
-      collapsedOptionIds: ['done'],
+      visibleGroups: ['todo', 'done', ''],
+      hiddenGroups: ['doing'],
+      collapsedGroups: ['done'],
     });
     workspace.undo.clear();
     expect(toolButton('group')).toHaveAccessibleName('Group by: Status');
@@ -675,19 +675,19 @@ describe('grouping', () => {
     await choose('Owner');
     await settled();
     expect(view().fields).toMatchObject({
-      groupById: OWNER,
-      visibleOptionIds: [''],
-      hiddenOptionIds: [],
-      collapsedOptionIds: [],
+      groupBy: OWNER,
+      visibleGroups: [''],
+      hiddenGroups: [],
+      collapsedGroups: [],
     });
     expect(toolButton('group')).toHaveAccessibleName('Group by: Owner');
 
     await workspace.undoLast();
     expect(view().fields).toMatchObject({
-      groupById: STATUS,
-      visibleOptionIds: ['todo', 'done', ''],
-      hiddenOptionIds: ['doing'],
-      collapsedOptionIds: ['done'],
+      groupBy: STATUS,
+      visibleGroups: ['todo', 'done', ''],
+      hiddenGroups: ['doing'],
+      collapsedGroups: ['done'],
     });
     expect(workspace.canUndo).toBe(false);
   });
@@ -698,13 +698,13 @@ describe('grouping', () => {
     await openMenu(toolButton('group'));
     await choose('Status');
     await settled();
-    expect(view().fields.groupById).toBe(STATUS);
-    expect(view().fields.visibleOptionIds).toEqual(['', 'todo', 'doing', 'done']);
+    expect(view().fields.groupBy).toBe(STATUS);
+    expect(view().fields.visibleGroups).toEqual(['', 'todo', 'doing', 'done']);
     await openMenu(toolButton('group'));
     await choose('Ungroup');
     await settled();
-    expect(view().fields.groupById).toBe('');
-    expect(view().fields.visibleOptionIds).toEqual([]);
+    expect(view().fields.groupBy).toBe('');
+    expect(view().fields.visibleGroups).toEqual([]);
   });
 
   it('by the property it already is changes nothing', async () => {
@@ -732,13 +732,13 @@ describe('the properties a view shows', () => {
     await fireEvent.click(within(panel).getByLabelText('Note'));
     await fireEvent.click(within(panel).getByLabelText('Status'));
     await settled();
-    expect(view().fields.visiblePropertyIds).toEqual(['note']);
+    expect(view().fields.shownProperties).toEqual(['note']);
     expect(toolButton('properties')).toHaveAccessibleName('Properties (1)');
     await workspace.undoLast();
-    expect(view().fields.visiblePropertyIds).toEqual([STATUS, 'note']);
+    expect(view().fields.shownProperties).toEqual([STATUS, 'note']);
     expect(toolButton('properties')).toHaveAccessibleName('Properties (2)');
     await workspace.undoLast();
-    expect(view().fields.visiblePropertyIds).toEqual([STATUS]);
+    expect(view().fields.shownProperties).toEqual([STATUS]);
   });
 });
 
@@ -917,7 +917,7 @@ describe('the sort', () => {
     expect(lineTexts()).toEqual(['Title', 'Owner', 'Note']);
     await choose('Title');
     await settled();
-    expect(view().fields.sortOptions).toEqual([
+    expect(view().fields.sort).toEqual([
       { propertyId: STATUS, reversed: false },
       { propertyId: '__title', reversed: false },
     ]);
@@ -926,7 +926,7 @@ describe('the sort', () => {
 
     await fireEvent.click(within(editor).getByLabelText('Title: Ascending. Press to reverse.'));
     await settled();
-    expect(view().fields.sortOptions[1]).toEqual({ propertyId: '__title', reversed: true });
+    expect(view().fields.sort[1]).toEqual({ propertyId: '__title', reversed: true });
     expect(within(editor).getByLabelText('Title: Descending. Press to reverse.')).toHaveTextContent(
       'Descending',
     );
@@ -935,10 +935,7 @@ describe('the sort', () => {
     expect(within(editor).getByLabelText('Move Title down')).toBeDisabled();
     await fireEvent.click(within(editor).getByLabelText('Move Title up'));
     await settled();
-    expect(view().fields.sortOptions.map((option) => option.propertyId)).toEqual([
-      '__title',
-      STATUS,
-    ]);
+    expect(view().fields.sort.map((option) => option.propertyId)).toEqual(['__title', STATUS]);
     expect(editor.querySelector('[role="status"]')).toHaveTextContent(
       'Title is now number 1 of 2.',
     );
@@ -947,7 +944,7 @@ describe('the sort', () => {
 
     await fireEvent.click(within(editor).getByLabelText('Remove the sort by Title'));
     await settled();
-    expect(view().fields.sortOptions).toEqual([{ propertyId: STATUS, reversed: false }]);
+    expect(view().fields.sort).toEqual([{ propertyId: STATUS, reversed: false }]);
     expect(add).toHaveFocus();
   });
 });

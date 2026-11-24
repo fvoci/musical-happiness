@@ -52,10 +52,10 @@ function createTestView(viewType: 'board' | 'table', board?: Container): BoardVi
     ...createBoardView(),
     fields: {
       viewType,
-      groupById: 'property1',
-      hiddenOptionIds: ['value1'],
+      groupBy: 'property1',
+      hiddenGroups: ['value1'],
       cardOrder: ['card1', 'card2', 'card3'],
-      sortOptions: [
+      sort: [
         { propertyId: 'property1', reversed: true },
         { propertyId: 'property2', reversed: false },
       ],

@@ -14,13 +14,13 @@ import { cardProperty, type Card, type PropertyTemplate, type ViewQuery } from '
 export function tableRows(
   cards: readonly Card[],
   templates: readonly PropertyTemplate[],
-  view: Pick<ViewQuery, 'viewType' | 'visiblePropertyIds' | 'dateDisplayPropertyId'>,
+  view: Pick<ViewQuery, 'viewType' | 'shownProperties' | 'dateProperty'>,
   nameHeader: string,
   context: DisplayContext,
 ): string[][] {
-  const visible = templates.filter((template) => view.visiblePropertyIds.includes(template.id));
+  const visible = templates.filter((template) => view.shownProperties.includes(template.id));
   if (view.viewType === 'calendar' || view.viewType === 'gantt') {
-    const dateDisplay = displayProperty(view.dateDisplayPropertyId, templates);
+    const dateDisplay = displayProperty(view.dateProperty, templates);
     if (dateDisplay && !visible.includes(dateDisplay)) visible.push(dateDisplay);
   }
 

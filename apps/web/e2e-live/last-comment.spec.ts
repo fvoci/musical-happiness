@@ -56,7 +56,7 @@ test('a comment somebody else posts moves the card in a view sorted by last upda
   });
   await api.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks/${board.viewId}`, {
     data: {
-      updatedFields: { sortOptions: [{ propertyId: 'updated', reversed: true }] },
+      updatedFields: { sort: [{ propertyId: 'updated', reversed: true }] },
     },
   });
 

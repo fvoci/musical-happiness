@@ -372,10 +372,10 @@ pub fn assigned_users<'v>(values: &'v JsonMap, definitions: &[JsonMap]) -> Vec<&
 
 /// The members of a view's `fields` that are lists of the groups (the options, or for a
 /// person property the users) the view shows, hides or folds.
-const VIEW_GROUP_LISTS: [&str; 3] = ["visibleOptionIds", "hiddenOptionIds", "collapsedOptionIds"];
+const VIEW_GROUP_LISTS: [&str; 3] = ["visibleGroups", "hiddenGroups", "collapsedGroups"];
 
 /// The member of a view's `fields` that is keyed by the groups the view shows.
-const VIEW_GROUP_KEYED: &str = "kanbanCalculations";
+const VIEW_GROUP_KEYED: &str = "groupCalculations";
 
 /// The property of a view's filter that is the card's title, defined by no board.
 const TITLE: &str = "title";
@@ -441,9 +441,9 @@ impl PersonProperties {
     /// Empties the users that a view's `fields` name. In the clauses of its filter
     /// (`filter`, a group `{operation, filters}` whose filters are groups or clauses
     /// `{propertyId, condition, values}`) the values compared with a person property
-    /// become empty strings. A view grouped by a person property (`groupById`) keeps of
-    /// its lists of groups (`visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds`)
-    /// and of `kanbanCalculations` only the group of the cards without a value, the
+    /// become empty strings. A view grouped by a person property (`groupBy`) keeps of
+    /// its lists of groups (`visibleGroups`, `hiddenGroups`, `collapsedGroups`)
+    /// and of `groupCalculations` only the group of the cards without a value, the
     /// empty string: an emptied user would be taken for it.
     ///
     /// A property the board no longer defines may have been a person property, whose
@@ -457,7 +457,7 @@ impl PersonProperties {
             self.hide_filter_values(filter);
         }
         let options = fields
-            .get("groupById")
+            .get("groupBy")
             .and_then(Value::as_str)
             .and_then(|id| self.options.get(id))
             .cloned();
@@ -534,9 +534,9 @@ mod tests {
             object(json!({"id": "note", "type": "text"})),
         ]);
         let mut fields = object(json!({
-            "groupById": "owner",
-            "hiddenOptionIds": ["u1", ""],
-            "kanbanCalculations": {"u1": {"calculation": "count"}},
+            "groupBy": "owner",
+            "hiddenGroups": ["u1", ""],
+            "groupCalculations": {"u1": {"calculation": "count"}},
             "filter": {"operation": "and", "filters": [
                 {"propertyId": "owner", "condition": "includes", "values": ["u1"]},
                 {"propertyId": "title", "condition": "contains", "values": ["beans"]},
@@ -547,9 +547,9 @@ mod tests {
         assert_eq!(
             Value::Object(fields),
             json!({
-                "groupById": "owner",
-                "hiddenOptionIds": [""],
-                "kanbanCalculations": {},
+                "groupBy": "owner",
+                "hiddenGroups": [""],
+                "groupCalculations": {},
                 "filter": {"operation": "and", "filters": [
                     {"propertyId": "owner", "condition": "includes", "values": [""]},
                     {"propertyId": "title", "condition": "contains", "values": ["beans"]},
@@ -558,19 +558,19 @@ mod tests {
             }),
             "a deleted property may have named users; the title and a select do not"
         );
-        let mut by_stage = object(json!({"groupById": "stage", "hiddenOptionIds": ["s1", "u1"]}));
+        let mut by_stage = object(json!({"groupBy": "stage", "hiddenGroups": ["s1", "u1"]}));
         people.hide_view_fields(&mut by_stage);
-        let kept = &by_stage["hiddenOptionIds"];
+        let kept = &by_stage["hiddenGroups"];
         assert_eq!(
             kept,
             &json!(["s1"]),
             "a select's options stay, anything else goes"
         );
         // Grouped by a text, the app groups by a property of its choosing.
-        let mut by_note = object(json!({"groupById": "note", "collapsedOptionIds": ["u1", ""]}));
+        let mut by_note = object(json!({"groupBy": "note", "collapsedGroups": ["u1", ""]}));
         people.hide_view_fields(&mut by_note);
         assert_eq!(
-            by_note["collapsedOptionIds"],
+            by_note["collapsedGroups"],
             json!([""]),
             "only the empty group stays"
         );
@@ -596,11 +596,11 @@ mod tests {
         );
 
         let mut fields = object(json!({
-            "groupById": "owner",
-            "hiddenOptionIds": ["u1", ""],
-            "visibleOptionIds": ["u2"],
-            "collapsedOptionIds": [""],
-            "kanbanCalculations": {"u1": {"calculation": "count"}, "": {"calculation": "sum"}},
+            "groupBy": "owner",
+            "hiddenGroups": ["u1", ""],
+            "visibleGroups": ["u2"],
+            "collapsedGroups": [""],
+            "groupCalculations": {"u1": {"calculation": "count"}, "": {"calculation": "sum"}},
             "cardOrder": ["c1"],
             "filter": {"operation": "and", "filters": [
                 {"propertyId": "owner", "condition": "includes", "values": ["u1"]},
@@ -614,11 +614,11 @@ mod tests {
         assert_eq!(
             Value::Object(fields),
             json!({
-                "groupById": "owner",
-                "hiddenOptionIds": [""],
-                "visibleOptionIds": [],
-                "collapsedOptionIds": [""],
-                "kanbanCalculations": {"": {"calculation": "sum"}},
+                "groupBy": "owner",
+                "hiddenGroups": [""],
+                "visibleGroups": [],
+                "collapsedGroups": [""],
+                "groupCalculations": {"": {"calculation": "sum"}},
                 "cardOrder": ["c1"],
                 "filter": {"operation": "and", "filters": [
                     {"propertyId": "owner", "condition": "includes", "values": [""]},
@@ -634,11 +634,11 @@ mod tests {
         let stages = PersonProperties::of(&[object(
             json!({"id": "stage", "type": "select", "options": [{"id": "o1"}]}),
         )]);
-        let mut by_select = object(json!({"groupById": "stage", "hiddenOptionIds": ["o1"]}));
+        let mut by_select = object(json!({"groupBy": "stage", "hiddenGroups": ["o1"]}));
         stages.hide_view_fields(&mut by_select);
         assert_eq!(
             Value::Object(by_select),
-            json!({"groupById": "stage", "hiddenOptionIds": ["o1"]}),
+            json!({"groupBy": "stage", "hiddenGroups": ["o1"]}),
             "groups of options stay"
         );
     }
