@@ -504,8 +504,8 @@ async fn assert_template_hides_number_everywhere(
     let mut jsonl = String::new();
     std::io::Read::read_to_string(
         &mut zip
-            .by_name(&format!("{board_id}/board.jsonl"))
-            .expect("board.jsonl"),
+            .by_name(&format!("{board_id}/container.jsonl"))
+            .expect("container.jsonl"),
         &mut jsonl,
     )
     .expect("archive text");

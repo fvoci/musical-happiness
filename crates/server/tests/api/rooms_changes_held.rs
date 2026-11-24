@@ -1,7 +1,7 @@
 //! What the room sends a member while an immediate permission check holds them: nothing
 //! of the others' changes until the store answered of them. Put out, they were sent
 //! none of what was written after the change; kept, they are sent all of it at once,
-//! after `DOC_MODE`.
+//! after `docModeChanged`.
 
 use std::time::Duration;
 
@@ -54,7 +54,7 @@ async fn held_lines(member: &mut Peer) -> Vec<String> {
 /// The next message, which is to be the JSON message of `action`.
 async fn next_text(peer: &mut Peer, action: &str) -> Value {
     match peer.incoming(PATIENCE).await {
-        Incoming::Text(message) if message["action"] == json!(action) => message,
+        Incoming::Text(message) if message["type"] == json!(action) => message,
         other => panic!("{action} was to come next: {other:?}"),
     }
 }
@@ -92,7 +92,7 @@ async fn a_member_taken_off_the_board_is_sent_nothing_written_after() {
         "the held member was sent the owner's update"
     );
     assert_eq!(
-        next_text(&mut member, "DOC_LEFT").await["reason"],
+        next_text(&mut member, "docLeft").await["reason"],
         json!("not_found")
     );
     member.settle().await;
@@ -102,7 +102,7 @@ async fn a_member_taken_off_the_board_is_sent_nothing_written_after() {
 
 /// The member's role goes down to viewer; the owner writes twice while the member is
 /// held. The member is sent none of it while held, and once kept (reading from then
-/// on) `DOC_MODE` and then all of it in one update.
+/// on) `docModeChanged` and then all of it in one update.
 #[tokio::test]
 async fn a_member_kept_is_sent_at_once_what_was_held_from_them() {
     let th = server().await;
@@ -121,7 +121,7 @@ async fn a_member_kept_is_sent_at_once_what_was_held_from_them() {
         "the held member was sent the owner's updates"
     );
     assert_eq!(
-        next_text(&mut member, "DOC_MODE").await["mode"],
+        next_text(&mut member, "docModeChanged").await["mode"],
         json!("read")
     );
     member.settle().await;
@@ -159,7 +159,7 @@ async fn under_two_checks_what_was_held_is_sent_once() {
         ["first", "under the first"],
         "not sent once the later check kept them"
     );
-    assert_eq!(member.text("DOC_MODE").await["mode"], json!("read"));
+    assert_eq!(member.text("docModeChanged").await["mode"], json!("read"));
     owner.write_acked("after both").await;
     member.settle().await;
     assert_eq!(member.lines(), ["first", "under the first", "after both"]);
@@ -169,14 +169,14 @@ async fn under_two_checks_what_was_held_is_sent_once() {
         "one update for what was held, one for what came after"
     );
     let answered_again = member.unread().into_iter().find(|message| {
-        ["DOC_MODE", "DOC_LEFT", "DOC_RESET"].contains(&message["action"].as_str().unwrap_or(""))
+        ["docModeChanged", "docLeft", "docReset"].contains(&message["type"].as_str().unwrap_or(""))
     });
     assert_eq!(answered_again, None, "the earlier answer took effect");
     th.teardown().await;
 }
 
 /// A member held across the document being made anew (the card's body written whole
-/// over HTTP) is sent the new document once kept, after `DOC_MODE`, and not before.
+/// over HTTP) is sent the new document once kept, after `docModeChanged`, and not before.
 #[tokio::test]
 async fn a_member_kept_after_the_document_was_made_anew_is_sent_it_then() {
     let th = server().await;
@@ -198,18 +198,18 @@ async fn a_member_kept_after_the_document_was_made_anew_is_sent_it_then() {
         "the held member was sent the new document"
     );
     assert_eq!(
-        next_text(&mut member, "DOC_MODE").await["mode"],
+        next_text(&mut member, "docModeChanged").await["mode"],
         json!("read")
     );
     member.step(PATIENCE).await;
-    assert!(member.epoch > epoch_before, "DOC_RESET comes next");
+    assert!(member.epoch > epoch_before, "docReset comes next");
     member.settle().await;
     assert_eq!(member.lines(), ["replaced"]);
     th.teardown().await;
 }
 
 /// A held member asks what they are missing (a sync step 1): answered once the check
-/// keeps them, after `DOC_MODE`, and not before.
+/// keeps them, after `docModeChanged`, and not before.
 #[tokio::test]
 async fn a_held_member_asking_what_they_miss_is_answered_once_kept() {
     let th = server().await;
@@ -229,7 +229,7 @@ async fn a_held_member_asking_what_they_miss_is_answered_once_kept() {
         "the held member's sync step 1 was answered while held"
     );
     assert_eq!(
-        next_text(&mut member, "DOC_MODE").await["mode"],
+        next_text(&mut member, "docModeChanged").await["mode"],
         json!("read")
     );
     member.settle().await;

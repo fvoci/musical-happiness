@@ -392,8 +392,8 @@ async fn time_entries_do_not_leak_via_export_search_audit_webhooks_or_ws() {
 
     let mut ws = th.client2.connect_websocket().await;
     for msg in [
-        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": TEST_WORKSPACE_ID}),
-        json!({"action": "SUBSCRIBE_BLOCKS", "blockIds": [board.id, card_id]}),
+        json!({"type": "subscribeWorkspace", "workspaceId": TEST_WORKSPACE_ID}),
+        json!({"type": "subscribeBlocks", "blockIds": [board.id, card_id]}),
     ] {
         ws.send(Message::Text(msg.to_string().into()))
             .await

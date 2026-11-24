@@ -1,7 +1,7 @@
 //! Subscriptions, templates, and an explicitly authorized archive transfer.
 
 use base64::Engine as _;
-use fvoci_model::{Container, ContainerMember, SubscriberType, Subscription, User, new_id};
+use fvoci_model::{Container, ContainerMember, Subscription, User, new_id};
 use fvoci_store::{BlockFilter, DbType, DuplicateAs};
 use reqwest::Method;
 use serde_json::json;
@@ -56,8 +56,7 @@ async fn subscriptions_are_scoped_even_when_the_subscriber_uses_both_organizatio
         app.create_subscription(Subscription {
             block_type: card.block_type.clone(),
             block_id: card.id.clone(),
-            subscriber_id: scene.user.clone(),
-            subscriber_type: SubscriberType::User,
+            user_id: scene.user.clone(),
             notified_at: 0,
             create_at: 0,
             delete_at: 0,
@@ -102,7 +101,14 @@ async fn subscriptions_are_scoped_even_when_the_subscriber_uses_both_organizatio
         .get(&format!("{ROOT_WS}/subscriptions/{}", scene.user))
         .await
         .check_not_found();
-    let hidden = scene.ts.client2.post(&format!("{ROOT_WS}/subscriptions"), &json!({"blockId": scene.card_b.id, "blockType": "card", "subscriberId": scene.ts.client2.me().await.id, "subscriberType": "user"})).await;
+    let hidden = scene
+        .ts
+        .client2
+        .post(
+            &format!("{ROOT_WS}/subscriptions"),
+            &json!({"blockId": scene.card_b.id, "blockType": "card", "userId": scene.ts.client2.me().await.id}),
+        )
+        .await;
     hidden.check_not_found();
     scene.ts.teardown().await;
 }

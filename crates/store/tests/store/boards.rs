@@ -8,8 +8,7 @@ use std::time::Duration;
 
 use fvoci_model::{
     Block, BlockType, Body, Category, Container, ContainerKind, ContainerKinds, ContainerMember,
-    ContainerPatch, ContainerType, FileInfo, JsonMap, MinimumRole, SubscriberType, Subscription,
-    new_id,
+    ContainerPatch, ContainerType, FileInfo, JsonMap, MinimumRole, Subscription, new_id,
 };
 use fvoci_store::{
     BlockFilter, Joined, MemberChange, PublicContainers, Purged, SharingChange, Store, StoreError,
@@ -1719,8 +1718,7 @@ async fn subscribe(store: &Store, card_id: &str, user_id: &str) {
     let subscription = Subscription {
         block_type: BlockType::Card,
         block_id: card_id.to_owned(),
-        subscriber_type: SubscriberType::User,
-        subscriber_id: user_id.to_owned(),
+        user_id: user_id.to_owned(),
         notified_at: 0,
         create_at: 0,
         delete_at: 0,
@@ -1872,7 +1870,7 @@ impl FullBoard {
             .get_subscribers_for_block(&self.card_id)
             .await
             .expect("subs");
-        let mut got: Vec<&str> = subs.iter().map(|s| s.subscriber_id.as_str()).collect();
+        let mut got: Vec<&str> = subs.iter().map(|s| s.user_id.as_str()).collect();
         let mut expected = want.to_vec();
         got.sort_unstable();
         expected.sort_unstable();

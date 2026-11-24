@@ -186,7 +186,7 @@ fn a_workspace_in_the_trash_is_followed_by_nobody() {
         assert_eq!(
             told,
             serde_json::json!({
-                "action": "UNSUBSCRIBED_WORKSPACE",
+                "type": "workspaceUnsubscribed",
                 "workspaceId": "trashed",
                 "reason": "workspace access ended",
             })
@@ -413,7 +413,7 @@ fn an_ending_checked_against_one_role_leaves_a_later_subscription() {
 #[test]
 fn command_block_ids_defaults_when_omitted_and_rejects_null() {
     let omitted: Command =
-        serde_json::from_str(r#"{"action":"SUBSCRIBE_BLOCKS"}"#).expect("omitted blockIds");
+        serde_json::from_str(r#"{"type":"subscribeBlocks"}"#).expect("omitted blockIds");
     assert_eq!(
         omitted.block_ids,
         Vec::<String>::new(),
@@ -421,7 +421,7 @@ fn command_block_ids_defaults_when_omitted_and_rejects_null() {
     );
 
     let listed: Command =
-        serde_json::from_str(r#"{"action":"SUBSCRIBE_BLOCKS","blockIds":["b1","b2"]}"#)
+        serde_json::from_str(r#"{"type":"subscribeBlocks","blockIds":["b1","b2"]}"#)
             .expect("listed blockIds");
     assert_eq!(
         listed.block_ids,
@@ -429,7 +429,6 @@ fn command_block_ids_defaults_when_omitted_and_rejects_null() {
         "listed blockIds are preserved"
     );
 
-    let null_err =
-        serde_json::from_str::<Command>(r#"{"action":"SUBSCRIBE_BLOCKS","blockIds":null}"#);
+    let null_err = serde_json::from_str::<Command>(r#"{"type":"subscribeBlocks","blockIds":null}"#);
     assert!(null_err.is_err(), "explicit null blockIds must be rejected");
 }

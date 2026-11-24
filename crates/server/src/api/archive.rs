@@ -29,7 +29,7 @@ struct ImportRequest {
     /// The upload of the archive, every part of it received. It is thrown away by the
     /// import, whether the import succeeds or not.
     upload_id: String,
-    /// Source format of the uploaded file: `fvoci` (native archive `.boardarchive`/`.zip`,
+    /// Source format of the uploaded file: `fvoci` (native archive `.fvoci`/`.zip`,
     /// default when omitted), `trello` (Trello board `.json`), or `notion` (Notion
     /// Markdown & CSV `.zip`).
     #[serde(default)]
@@ -61,18 +61,18 @@ pub(super) async fn require_import_access(
 /// Export a board or a wiki
 ///
 /// An archive of the board with its blocks, its files and its members, offered as a
-/// download with its length. For the board's members. The archive is a ZIP of version
-/// 3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
-/// `block` or `boardMember` per line, in the shapes of this contract, bodies included,
-/// but that a block and a member name their board or wiki `boardId`, not `containerId`)
+/// download with its length. For the board's members. The archive is a `.fvoci` ZIP of
+/// version 1: `version.json`, and per container a directory with `container.jsonl` (one
+/// `container`, `block`, `containerMember` or `courseSchedule` per line, in the shapes
+/// of this contract, bodies included, naming their container `containerId`)
 /// and the files the blocks show, those of the images and file blocks of bodies among
-/// them. A board's line also carries `fileNames`: the name of each of its files, by
+/// them. A container's line also carries `fileNames`: the name of each of its files, by
 /// stored name, which an import gives the files it stores. A name an upload could not
 /// have (blank, `.` or `..` after its last `/` or `\`, with U+0000, over 255 characters, or of another extension than the
 /// stored name) is passed over and its file keeps the name of its entry, and an archive
 /// without the member is read as before. A file a block shows that the board does not
 /// have, its record or its bytes gone, gets no entry: it is listed under `missingFiles`
-/// of the board's line, by stored name. A wiki is written as a board is, its `kind` `wiki`: its
+/// of the container's line, by stored name. A wiki is written as a board is, its `kind` `wiki`: its
 /// pages as they stand and the comments on them are its blocks (not the pages in its
 /// trash, nor the versions of bodies).
 ///
@@ -95,7 +95,7 @@ pub(super) async fn require_import_access(
         content_type = "application/octet-stream",
         headers(
             ("Content-Length" = u64, description = "The size of the archive in bytes."),
-            ("Content-Disposition" = String, description = "`attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC)."),
+            ("Content-Disposition" = String, description = "`attachment; filename=archive-YYYY-MM-DD.fvoci`, for the day (UTC)."),
         ),
     )),
 )]
@@ -147,7 +147,7 @@ async fn handle_export_container(
         content_type = "application/octet-stream",
         headers(
             ("Content-Length" = u64, description = "The size of the archive in bytes."),
-            ("Content-Disposition" = String, description = "`attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC)."),
+            ("Content-Disposition" = String, description = "`attachment; filename=archive-YYYY-MM-DD.fvoci`, for the day (UTC)."),
         ),
     )),
 )]
@@ -186,15 +186,15 @@ async fn handle_export_workspace(
 /// the upload was opened: a user who may not import any more is refused, and the upload
 /// is thrown away.
 ///
-/// The archive is of version 3, as the export routes write it. Older archive versions
-/// (the line-based version 1 and the ZIP of version 2) and a ZIP without
-/// `version.json` are 400, and nothing of them is stored. An archive of more than
-/// 10,000 entries, whose entries unpack to more than 1 GiB together, or with a
-/// `board.jsonl` of more than 64 MiB (or a single JSONL line over 10 MiB) or a file larger
-/// than `maxFileBytes` is 413 with the `limit` passed, and nothing of it is stored; for the
-/// entry or line that is too large the reason is `archive_entry_too_large`. The blocks that show files are
+/// The archive is of version 1, as the export routes write it. Any other version in
+/// `version.json`, a non-ZIP payload, and a ZIP without `version.json` are 400, and
+/// nothing of them is stored. An archive of more than 10,000 entries, whose entries
+/// unpack to more than 1 GiB together, or with a `container.jsonl` of more than 64 MiB
+/// (or a single JSONL line over 10 MiB) or a file larger than `maxFileBytes` is 413 with
+/// the `limit` passed, and nothing of it is stored; for the entry or line that is too
+/// large the reason is `archive_entry_too_large`. The blocks that show files are
 /// pointed at the board's new copies of them, the images and file blocks of bodies
-/// included. A file the board's line lists under `missingFiles` is not stored, even when
+/// included. A file the container's line lists under `missingFiles` is not stored, even when
 /// the archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy
 /// does. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the
 /// comments on them with it. What a write would refuse of an archive's boards, wikis
@@ -216,7 +216,7 @@ async fn handle_export_workspace(
 /// `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
 /// `import_running` or `server_imports_busy`; the upload stays open, to be named again.
 ///
-/// Optional `format` selects `"fvoci"` (default, `.boardarchive`/`.zip`), `"trello"`
+/// Optional `format` selects `"fvoci"` (default, `.fvoci`/`.zip`), `"trello"`
 /// (`.json`), or `"notion"` (`.zip`). External formats commit all boards, wikis, blocks,
 /// and bundled local files atomically: any validation, limit, or storage failure leaves
 /// nothing stored. Returns a structured `ImportSummary` with counts, newly created
@@ -299,7 +299,7 @@ fn breaker_of(connection: Option<Extension<ConnectInfo<Connection>>>) -> Option<
     connection.and_then(|Extension(ConnectInfo(connection))| connection.breaker)
 }
 
-/// The file name an export is offered under: `archive-YYYY-MM-DD.boardarchive` for today
+/// The file name an export is offered under: `archive-YYYY-MM-DD.fvoci` for today
 /// (UTC).
 fn export_filename(now_millis: i64) -> String {
     let days = now_millis.div_euclid(86_400_000);
@@ -312,7 +312,7 @@ fn export_filename(now_millis: i64) -> String {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
-    format!("archive-{year:04}-{month:02}-{day:02}.boardarchive")
+    format!("archive-{year:04}-{month:02}-{day:02}.fvoci")
 }
 
 #[cfg(test)]
@@ -336,7 +336,7 @@ mod tests {
         // 2026-11-10T05:15:39Z.
         assert_eq!(
             export_filename(1_794_287_739_000),
-            "archive-2026-11-10.boardarchive",
+            "archive-2026-11-10.fvoci",
             "the archive file name for a known date"
         );
     }

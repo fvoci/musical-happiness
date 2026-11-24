@@ -374,7 +374,7 @@ async fn a_page_is_subscribed_to_by_its_readers_and_not_brought_back_as_a_block(
     // does not read the wiki is answered as for no block at all.
     let subscription = |block: &str, who: &str| {
         json!({
-            "blockId": block, "blockType": "page", "subscriberId": who, "subscriberType": "user",
+            "blockId": block, "blockType": "page", "userId": who,
         })
     };
     let subscriptions = format!("{TEST_WS}/subscriptions");

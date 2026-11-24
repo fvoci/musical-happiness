@@ -88,7 +88,7 @@ async fn one_organizations_revocations_do_not_check_anothers_workspace_again() {
         .await
         .expect("the second user is let into their workspace");
     let mut socket = ts.client2.connect_websocket().await;
-    let command = json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": their_workspace});
+    let command = json!({"type": "subscribeWorkspace", "workspaceId": their_workspace});
     assert!(
         !checked_again_after(&ts, &mut socket, command, async || {
             first_organization_takes_back(&ts).await;
@@ -133,7 +133,7 @@ async fn one_organizations_links_do_not_check_anothers_reader_again() {
         .token;
     let mut socket = ts.anonymous().as_browser().connect_websocket().await;
     let command = json!({
-        "action": "SUBSCRIBE_BLOCKS", "workspaceId": their_workspace,
+        "type": "subscribeBlocks", "workspaceId": their_workspace,
         "blockIds": [card.id], "readToken": token,
     });
     assert!(

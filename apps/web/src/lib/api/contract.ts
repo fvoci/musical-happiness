@@ -377,27 +377,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/hello": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Whether the server is there
-         * @description Answers the text `Hello`, and asks nothing of what the server depends on: the check
-         *     that the process is alive. Whether it can serve is `ready`'s.
-         */
-        get: operations["hello"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/invitations/accept": {
         parameters: {
             query?: never;
@@ -801,7 +780,7 @@ export interface paths {
          *     server's own first organization administers the server no more. Its sessions,
          *     its identities and what it wrote stay, and the organization stays one it made. Its
          *     open connections stop following the organization's workspaces
-         *     (`UNSUBSCRIBED_WORKSPACE`). It comes back only as anybody new does: by an invitation,
+         *     (`workspaceUnsubscribed`). It comes back only as anybody new does: by an invitation,
          *     or as the organization lets in who signs in through its provider. Asked of any
          *     session: leaving is the account's own, whatever provider the organization takes.
          *
@@ -867,8 +846,8 @@ export interface paths {
          *     subscriptions, unused invitation links, and membership of the organization, and ends
          *     instance administration if this is the server's own first organization. Recorded in
          *     the organization's audit log (`org_member_removed`). Their open connections stop
-         *     following the organization's workspaces (`UNSUBSCRIBED_WORKSPACE`) and leave open
-         *     body rooms (`DOC_LEFT`). Unlike `leaveOrganization`, this does not require the
+         *     following the organization's workspaces (`workspaceUnsubscribed`) and leave open
+         *     body rooms (`docLeft`). Unlike `leaveOrganization`, this does not require the
          *     removed account to have a password.
          *
          *     404 for a user who is no member of the organization, or for a caller who does not
@@ -2308,15 +2287,15 @@ export interface paths {
          *     the upload was opened: a user who may not import any more is refused, and the upload
          *     is thrown away.
          *
-         *     The archive is of version 3, as the export routes write it. Older archive versions
-         *     (the line-based version 1 and the ZIP of version 2) and a ZIP without
-         *     `version.json` are 400, and nothing of them is stored. An archive of more than
-         *     10,000 entries, whose entries unpack to more than 1 GiB together, or with a
-         *     `board.jsonl` of more than 64 MiB (or a single JSONL line over 10 MiB) or a file larger
-         *     than `maxFileBytes` is 413 with the `limit` passed, and nothing of it is stored; for the
-         *     entry or line that is too large the reason is `archive_entry_too_large`. The blocks that show files are
+         *     The archive is of version 1, as the export routes write it. Any other version in
+         *     `version.json`, a non-ZIP payload, and a ZIP without `version.json` are 400, and
+         *     nothing of them is stored. An archive of more than 10,000 entries, whose entries
+         *     unpack to more than 1 GiB together, or with a `container.jsonl` of more than 64 MiB
+         *     (or a single JSONL line over 10 MiB) or a file larger than `maxFileBytes` is 413 with
+         *     the `limit` passed, and nothing of it is stored; for the entry or line that is too
+         *     large the reason is `archive_entry_too_large`. The blocks that show files are
          *     pointed at the board's new copies of them, the images and file blocks of bodies
-         *     included. A file the board's line lists under `missingFiles` is not stored, even when
+         *     included. A file the container's line lists under `missingFiles` is not stored, even when
          *     the archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy
          *     does. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the
          *     comments on them with it. What a write would refuse of an archive's boards, wikis
@@ -2338,7 +2317,7 @@ export interface paths {
          *     `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
          *     `import_running` or `server_imports_busy`; the upload stays open, to be named again.
          *
-         *     Optional `format` selects `"fvoci"` (default, `.boardarchive`/`.zip`), `"trello"`
+         *     Optional `format` selects `"fvoci"` (default, `.fvoci`/`.zip`), `"trello"`
          *     (`.json`), or `"notion"` (`.zip`). External formats commit all boards, wikis, blocks,
          *     and bundled local files atomically: any validation, limit, or storage failure leaves
          *     nothing stored. Returns a structured `ImportSummary` with counts, newly created
@@ -2745,7 +2724,7 @@ export interface paths {
          * @description The body names every card property of the board (`cardProperties`, by `id`) once,
          *     in the new order, as `reorderCategories` names categories; one left out, one named
          *     twice or one the board does not have is 400, and nothing changes. For who may manage
-         *     the board's properties, as `patchContainer`. The board's listeners get `UPDATE_CONTAINER`, as
+         *     the board's properties, as `patchContainer`. The board's listeners get `containerChanged`, as
          *     for any change of the board.
          */
         put: operations["reorderCardProperties"];
@@ -3129,18 +3108,18 @@ export interface paths {
         /**
          * Export a board or a wiki
          * @description An archive of the board with its blocks, its files and its members, offered as a
-         *     download with its length. For the board's members. The archive is a ZIP of version
-         *     3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
-         *     `block` or `boardMember` per line, in the shapes of this contract, bodies included,
-         *     but that a block and a member name their board or wiki `boardId`, not `containerId`)
+         *     download with its length. For the board's members. The archive is a `.fvoci` ZIP of
+         *     version 1: `version.json`, and per container a directory with `container.jsonl` (one
+         *     `container`, `block`, `containerMember` or `courseSchedule` per line, in the shapes
+         *     of this contract, bodies included, naming their container `containerId`)
          *     and the files the blocks show, those of the images and file blocks of bodies among
-         *     them. A board's line also carries `fileNames`: the name of each of its files, by
+         *     them. A container's line also carries `fileNames`: the name of each of its files, by
          *     stored name, which an import gives the files it stores. A name an upload could not
          *     have (blank, `.` or `..` after its last `/` or `\`, with U+0000, over 255 characters, or of another extension than the
          *     stored name) is passed over and its file keeps the name of its entry, and an archive
          *     without the member is read as before. A file a block shows that the board does not
          *     have, its record or its bytes gone, gets no entry: it is listed under `missingFiles`
-         *     of the board's line, by stored name. A wiki is written as a board is, its `kind` `wiki`: its
+         *     of the container's line, by stored name. A wiki is written as a board is, its `kind` `wiki`: its
          *     pages as they stand and the comments on them are its blocks (not the pages in its
          *     trash, nor the versions of bodies).
          *
@@ -3641,8 +3620,8 @@ export interface paths {
          * @description Restores a board from the trash with its blocks and its members. Each user who had
          *     filed it, and can see it again, finds it where it was in the sidebar (the same
          *     category and place, hidden or not) or in the default category if that one was
-         *     deleted since, and is told with `UPDATE_CONTAINER_CATEGORY` and the category's
-         *     `REORDER_CATEGORY_CONTAINERS`. Its sharing and the subscriptions to its blocks ended with
+         *     deleted since, and is told with `containerCategoriesChanged` and the category's
+         *     `categoryContainersReordered`. Its sharing and the subscriptions to its blocks ended with
          *     the deletion and stay ended. Surviving teams regain their saved roles for their
          *     current members; deleted teams are skipped. For who was an admin of the board when
          *     it was deleted, and for the workspace's administrators (who, if they were no member,
@@ -4195,14 +4174,14 @@ export interface paths {
          *     last if it is left out. A unit may also carry optional study-schedule fields
          *     (`amount` `1..=100_000`, `amountUnit`, and shared `scheduledDate` `YYYY-MM-DD`;
          *     forbidden on chapters with 400). A unit's body is written by `patchUnit`, or together
-         *     in its room (`JOIN_DOC`).
+         *     in its room (`joinDoc`).
          *
          *     A course holds at most 2,000 units and 200 chapters, those in the trash not counted
          *     (chapters do not count toward the 2,000-unit limit): one more unit is 400 with the
          *     reason `too_many_units` and the `limit`, and one more chapter is 400 with the reason
          *     `too_many_chapters` and the `limit`.
          *
-         *     The course's listeners are told with `UPDATE_BLOCK`, whose block of the `type` `unit`
+         *     The course's listeners are told with `blockChanged`, whose block of the `type` `unit`
          *     or `chapter` carries its `order` among its `fields`. Any sibling numbered anew to
          *     leave room is told of too.
          */
@@ -4232,7 +4211,7 @@ export interface paths {
          * Delete a unit or chapter
          * @description Moves the unit to the trash of its course, or moves the chapter together with every
          *     unit below it as one deletion, for editors of the course. The course's listeners are
-         *     told with `UPDATE_BLOCK` of the deleted block alone, whose `deleteAt` is not 0.
+         *     told with `blockChanged` of the deleted block alone, whose `deleteAt` is not 0.
          */
         delete: operations["deleteUnit"];
         options?: never;
@@ -4355,7 +4334,7 @@ export interface paths {
          *     without joining it is refused with 403). The server chooses the identifier, the
          *     author and the times. Every image of the text shows a file of the course (400
          *     otherwise), and the text has no file block (400). A chapter takes no comments (404).
-         *     Who reads the course is told with `UPDATE_BLOCK`, as of a comment on a card or page.
+         *     Who reads the course is told with `blockChanged`, as of a comment on a card or page.
          */
         post: operations["createUnitComment"];
         delete?: never;
@@ -4379,7 +4358,7 @@ export interface paths {
          * @description The comment goes to the trash, as a comment on a card or page does: by its author
          *     from the commenter's role up, and the comment of somebody else by the course's admins
          *     only (403, `access denied to delete other users' comments`). Who reads the course is
-         *     told with `UPDATE_BLOCK` whose `deleteAt` is not 0.
+         *     told with `blockChanged` whose `deleteAt` is not 0.
          */
         delete: operations["deleteUnitComment"];
         options?: never;
@@ -4414,7 +4393,7 @@ export interface paths {
          *     board's admins`). A comment that went to the trash with its unit comes back with the
          *     unit (`undeleteUnit`), not on its own; that one, one not in the trash, and one of
          *     another unit are not there (404), nor is any while the unit is in the trash. Who
-         *     reads the course is told with `UPDATE_BLOCK`.
+         *     reads the course is told with `blockChanged`.
          */
         post: operations["undeleteUnitComment"];
         delete?: never;
@@ -4466,7 +4445,7 @@ export interface paths {
          *     course or is the unit itself; 400 at `/after` if that is no other sibling of the
          *     parent. Nothing is changed then.
          *
-         *     The course's listeners are told with `UPDATE_BLOCK` of the moved node and of any
+         *     The course's listeners are told with `blockChanged` of the moved node and of any
          *     sibling numbered anew to leave it room; a chapter's units keep their parent and are
          *     not told of.
          */
@@ -4608,7 +4587,7 @@ export interface paths {
          *     of the course. Held to the course's limits: 400 with the reason `too_many_units` or
          *     `too_many_chapters` (each with the `limit`) if restoring would exceed them. A block
          *     not in this course's trash, or a unit that went with its chapter (it comes back with
-         *     that chapter), is 404. The course's listeners are told with `UPDATE_BLOCK` of each
+         *     that chapter), is 404. The course's listeners are told with `blockChanged` of each
          *     block that came back (a chapter before its units, and each unit before its comments)
          *     and each sibling numbered anew.
          */
@@ -4712,7 +4691,7 @@ export interface paths {
          *     nothing of the request is stored, so of two requests that make the entry of one day
          *     at once, one makes it and the other is answered with it. The server chooses the
          *     identifier, the creator and the times. The body of the entry is written by
-         *     `patchDiaryEntry`, or together in its room (`JOIN_DOC`).
+         *     `patchDiaryEntry`, or together in its room (`joinDoc`).
          *
          *     `date` is the day as the writer's own calendar has it, which the server does not
          *     know: it must be a day of the calendar (`2026-02-30` is 400 at `/date`), and no more
@@ -4724,7 +4703,7 @@ export interface paths {
          *     with the reason `too_many_entries` and the `limit`. An entry in the trash holds no
          *     day: its day takes a new entry.
          *
-         *     The user's other sessions are told with `UPDATE_BLOCK`, whose block of the `type`
+         *     The user's other sessions are told with `blockChanged`, whose block of the `type`
          *     `entry` has the day as its `title` and the day, mood, weather and place among its
          *     `fields`.
          */
@@ -5376,10 +5355,10 @@ export interface paths {
          * @description Subscribes the user of the session to a block of a board, a page of a wiki, or a unit
          *     of a course they may read: whoever writes a card, a page or a unit watches it, and
          *     may stop and start again. A chapter of a course takes no subscriptions (404). A
-         *     `subscriberId` that is not the user of the session is 403, and a `subscriberType`
-         *     other than `user` is 400. The `blockType` is stored as it is sent, and not compared
-         *     with the block. Subscribing again is no error: the subscription stays as it was
-         *     made, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.
+         *     `userId` that is not the user of the session is 403. The `blockType` is stored as it
+         *     is sent, and not compared with the block. Subscribing again is no error: the
+         *     subscription stays as it was made, with its `blockType` and `createAt`, and only its
+         *     `notifiedAt` is set anew.
          */
         post: operations["createSubscription"];
         delete?: never;
@@ -5388,7 +5367,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/w/{workspaceId}/subscriptions/{blockId}/{subscriberId}": {
+    "/api/v1/w/{workspaceId}/subscriptions/{blockId}/{userId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -5410,7 +5389,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/w/{workspaceId}/subscriptions/{subscriberId}": {
+    "/api/v1/w/{workspaceId}/subscriptions/{userId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -5774,14 +5753,14 @@ export interface paths {
          *     `/parentId` otherwise), or at the top of the wiki; among the pages of that parent it
          *     goes right after the page `after` (400 at `/after` if that is no page of the same
          *     parent), first if `after` is empty, and last if it is left out. Its body is written
-         *     by `patchPage`, or together in its room (`JOIN_DOC`).
+         *     by `patchPage`, or together in its room (`joinDoc`).
          *
          *     The tree is held to the organization's limits: a page deeper than its depth is 400
          *     at `/parentId` with the reason `page_too_deep`, and one more page than a wiki may
          *     have (those in the trash not counted) is 400 with the reason `too_many_pages`, each
          *     with the `limit`.
          *
-         *     The wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`
+         *     The wiki's members are told with `blockChanged`, whose block of the `type` `page`
          *     has the icon and the order among its `fields`. Where the pages of the parent had no
          *     room left between them (two of one order, or orders grown long), they are numbered
          *     anew, and each that changed is told of too.
@@ -5810,7 +5789,7 @@ export interface paths {
         /**
          * Delete a page
          * @description The page goes to the trash with every page below it and the comments on them, for
-         *     editors of the wiki. The wiki's members are told with `UPDATE_BLOCK` of the page
+         *     editors of the wiki. The wiki's members are told with `blockChanged` of the page
          *     alone, whose `deleteAt` is not 0, as for any block that is deleted; what went with
          *     it is not told of one by one.
          */
@@ -5929,7 +5908,7 @@ export interface paths {
          * @description For the wiki's members from the commenter's role up. The server chooses the
          *     identifier, the author and the times. Every image of the text shows a file of the
          *     wiki (400 otherwise), and the text has no file block (400). Who reads the wiki is
-         *     told with `UPDATE_BLOCK`, as of a comment on a card.
+         *     told with `blockChanged`, as of a comment on a card.
          */
         post: operations["createPageComment"];
         delete?: never;
@@ -5953,7 +5932,7 @@ export interface paths {
          * @description The comment goes to the trash, as a comment on a card does: by its author from the
          *     commenter's role up, and the comment of somebody else by the wiki's admins only
          *     (403, `access denied to delete other users' comments`). Who reads the wiki is told
-         *     with `UPDATE_BLOCK` whose `deleteAt` is not 0.
+         *     with `blockChanged` whose `deleteAt` is not 0.
          */
         delete: operations["deletePageComment"];
         options?: never;
@@ -5988,7 +5967,7 @@ export interface paths {
          *     comment that went to the trash with its page comes back with the page
          *     (`undeletePage`), not on its own; that one, one not in the trash, and one of another
          *     page are not there (404), nor is any while the page is in the trash. Who reads the
-         *     wiki is told with `UPDATE_BLOCK`.
+         *     wiki is told with `blockChanged`.
          */
         post: operations["undeletePageComment"];
         delete?: never;
@@ -6043,7 +6022,7 @@ export interface paths {
          *     would be deeper, or the wiki larger, than they let it be; 400 at `/title` for a
          *     title longer than 16383 characters. Nothing is changed then.
          *
-         *     The wiki's members are told with `UPDATE_BLOCK` of each copy, a page before those
+         *     The wiki's members are told with `blockChanged` of each copy, a page before those
          *     below it, and of each page of the parent numbered anew to leave the copy room.
          */
         post: operations["duplicatePage"];
@@ -6073,7 +6052,7 @@ export interface paths {
          *     deeper than the organization's limit; 400 at `/after` if that is no other page of
          *     the parent. Nothing is changed then.
          *
-         *     The wiki's members are told with `UPDATE_BLOCK` of the page, and of every page of
+         *     The wiki's members are told with `blockChanged` of the page, and of every page of
          *     the parent numbered anew to leave it room; the pages below it keep their parents
          *     and are not told of.
          */
@@ -6104,7 +6083,7 @@ export interface paths {
          *     larger, than they let it be. A page that is not in this wiki's trash, or went there
          *     with the page it was below (it comes back with that page), is 404. The comments on
          *     the pages come back with them; the limits count pages. The wiki's members are told
-         *     with `UPDATE_BLOCK` of each page and comment that came back, a page before what is
+         *     with `blockChanged` of each page and comment that came back, a page before what is
          *     below it, and of each page numbered anew to leave it room.
          */
         post: operations["undeletePage"];
@@ -6536,7 +6515,7 @@ export interface components {
              *     the Unix epoch; zero if it has none. Changing a comment does not change it; a
              *     deleted comment does not count, and counts again with its time if restored. A
              *     comment does not change the card's `updateAt`. A new comment comes as
-             *     `UPDATE_BLOCK`, so a client can keep the newer time; after a deletion the card is
+             *     `blockChanged`, so a client can keep the newer time; after a deletion the card is
              *     read again for it. A number sent here in a request is ignored.
              */
             lastCommentAt: number;
@@ -7353,7 +7332,7 @@ export interface components {
             date: string;
             /** @description The identifier of the diary the entry is of. */
             diaryId: string;
-            /** @description The entry's identifier: what its room is joined by (`JOIN_DOC`). */
+            /** @description The entry's identifier: what its room is joined by (`joinDoc`). */
             id: string;
             /** @description The identifier of the user who last changed the entry. */
             modifiedBy: string;
@@ -7563,7 +7542,7 @@ export interface components {
         /** @description An archive or external export to import: sent in parts with `createImportUpload`. */
         ImportRequest: {
             /**
-             * @description Source format of the uploaded file: `fvoci` (native archive `.boardarchive`/`.zip`,
+             * @description Source format of the uploaded file: `fvoci` (native archive `.fvoci`/`.zip`,
              *     default when omitted), `trello` (Trello board `.json`), or `notion` (Notion
              *     Markdown & CSV `.zip`).
              */
@@ -8322,9 +8301,7 @@ export interface components {
             /** @description The type of the block subscribed to. */
             blockType: string;
             /** @description The user of the session: a user subscribes for themselves only. */
-            subscriberId: string;
-            /** @description Always `user`. */
-            subscriberType: string;
+            userId: string;
         };
         /** @description A unit or chapter to make in a course. */
         NewUnit: {
@@ -9151,26 +9128,13 @@ export interface components {
         /** @description What `ping` reports about the server. */
         ServerMetadata: {
             /** @description The build date; empty unless set at build time. */
-            build_date: string;
-            /** @description The build number; empty unless set at build time. */
-            build_number: string;
+            buildDate: string;
             /** @description The commit the server was built from; empty unless set at build time. */
             commit: string;
             /** @description The database kind: `sqlite` or `postgres`. */
-            db_type: string;
+            dbType: string;
             /** @description The database's version string. */
-            db_version: string;
-            /** @description The edition of the server. */
-            edition: string;
-            /** @description The CPU architecture the server runs on, as Rust names it (`x86_64`, `aarch64`). */
-            os_arch: string;
-            /**
-             * @description The operating system the server runs on, as Rust names it (`linux`, `macos`,
-             *     `windows`).
-             */
-            os_type: string;
-            /** @description The kind of deployment: always `personal_server`. */
-            sku: string;
+            dbVersion: string;
             /** @description The version of the server, the one the contract's `info.version` gives too. */
             version: string;
         };
@@ -9277,12 +9241,7 @@ export interface components {
              */
             stopped?: components["schemas"]["TimeEntry"];
         };
-        /**
-         * @description The kind of entity that subscribes.
-         * @enum {string}
-         */
-        SubscriberType: "user" | "channel";
-        /** @description A subscription to the changes of a board or card. */
+        /** @description A subscription to the changes of a block. */
         Subscription: {
             /** @description The identifier of the block subscribed to. */
             blockId: string;
@@ -9304,10 +9263,8 @@ export interface components {
              *     since the Unix epoch.
              */
             notifiedAt: number;
-            /** @description The identifier of the subscriber. */
-            subscriberId: string;
-            /** @description The kind of entity that subscribes. */
-            subscriberType: components["schemas"]["SubscriberType"];
+            /** @description The identifier of the subscribed user. */
+            userId: string;
         };
         /** @description A named group of people within a workspace. */
         Team: {
@@ -10515,35 +10472,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    hello: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The server is there. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -13160,7 +13088,7 @@ export interface operations {
             /** @description The archive. */
             200: {
                 headers: {
-                    /** @description `attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC). */
+                    /** @description `attachment; filename=archive-YYYY-MM-DD.fvoci`, for the day (UTC). */
                     "Content-Disposition"?: string;
                     /** @description The size of the archive in bytes. */
                     "Content-Length"?: number;
@@ -14660,7 +14588,7 @@ export interface operations {
             /** @description The archive. */
             200: {
                 headers: {
-                    /** @description `attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC). */
+                    /** @description `attachment; filename=archive-YYYY-MM-DD.fvoci`, for the day (UTC). */
                     "Content-Disposition"?: string;
                     /** @description The size of the archive in bytes. */
                     "Content-Length"?: number;
@@ -18574,8 +18502,8 @@ export interface operations {
                 workspaceId: string;
                 /** @description The identifier of the block. */
                 blockId: string;
-                /** @description The identifier of the subscriber: the user of the session. */
-                subscriberId: string;
+                /** @description The identifier of the user: the user of the session. */
+                userId: string;
             };
             cookie?: never;
         };
@@ -18606,8 +18534,8 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the subscriber: the user of the session. */
-                subscriberId: string;
+                /** @description The identifier of the user: the user of the session. */
+                userId: string;
             };
             cookie?: never;
         };

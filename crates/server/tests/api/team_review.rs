@@ -180,7 +180,7 @@ async fn following_through_a_team(th: &TestServer, name: &str) -> (String, Team)
     th.client2
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/subscriptions"),
-            &json!({"blockType":"card", "blockId":block.id, "subscriberType":"user", "subscriberId":user}),
+            &json!({"blockType":"card", "blockId":block.id, "userId":user}),
         )
         .await
         .check_created();

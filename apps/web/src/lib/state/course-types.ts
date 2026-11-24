@@ -322,11 +322,11 @@ export interface Courses {
 
   // Subscriptions (watching) for shared-workspace units.
   /** Block IDs the user is subscribed to in the workspace. */
-  watching(workspaceId: string, subscriberId: string): Promise<string[]>;
+  watching(workspaceId: string, userId: string): Promise<string[]>;
   /** Subscribes the user to notifications on a unit. */
-  watchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void>;
+  watchUnit(workspaceId: string, unitId: string, userId: string): Promise<void>;
   /** Unsubscribes the user from notifications on a unit. */
-  unwatchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void>;
+  unwatchUnit(workspaceId: string, unitId: string, userId: string): Promise<void>;
 
   // Personal unit progress & course summary (never called on public links).
   /** The caller's own progress rows for live units of the course, ordered by `unitId`. */

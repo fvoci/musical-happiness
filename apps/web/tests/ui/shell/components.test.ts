@@ -430,7 +430,7 @@ describe('an import from the settings', () => {
     const dialog = render(SettingsDialog, { props: { open: true, workspace } });
     const choose = async () => {
       const field = await screen.findByTestId('import-archive');
-      const file = new File(['PK'], 'boards.boardarchive');
+      const file = new File(['PK'], 'boards.fvoci');
       Object.defineProperty(field, 'files', { value: [file], configurable: true });
       await fireEvent.change(field);
       await settle();
@@ -488,7 +488,7 @@ describe('an import from the settings', () => {
       },
     });
     const field = await screen.findByTestId<HTMLInputElement>('import-archive');
-    expect(field.accept).toContain('.boardarchive');
+    expect(field.accept).toContain('.fvoci');
 
     const trelloOption = screen.getByRole('radio', { name: /Trello/i });
     await fireEvent.click(trelloOption);
@@ -537,7 +537,7 @@ describe('an import from the settings', () => {
 
     const dialog = render(SettingsDialog, { props: { open: true, workspace } });
     const field = await screen.findByTestId<HTMLInputElement>('import-archive');
-    const file = new File(['PK'], 'boards.boardarchive');
+    const file = new File(['PK'], 'boards.fvoci');
     Object.defineProperty(field, 'files', { value: [file], configurable: true });
     await fireEvent.change(field);
 

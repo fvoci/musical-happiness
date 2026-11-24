@@ -4,8 +4,8 @@ use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Card, Category, CategoryContainerMetadata,
     CategoryContainers, CategoryType, ClientConfig, Container, ContainerKind, ContainerMember,
     ContainerPatch, ContainerType, Credential, InvalidInput, LoginRequest, MinimumRole, NameShown,
-    PatchContainersAndBlocks, PersonName, Problem, Sharing, Subscriber, SubscriberType,
-    Subscription, Title, User, UserPreferencesPatch, Workspace,
+    PatchContainersAndBlocks, PersonName, Problem, Sharing, Subscriber, Subscription, Title, User,
+    UserPreferencesPatch, Workspace,
 };
 use serde_json::{Value, json};
 
@@ -605,14 +605,13 @@ fn subscription_json_members() {
     let subscription = Subscription {
         block_type: BlockType::Card,
         block_id: "c".to_owned(),
-        subscriber_type: SubscriberType::User,
-        subscriber_id: "u".to_owned(),
+        user_id: "u".to_owned(),
         notified_at: 0,
         create_at: 1,
         delete_at: 0,
     };
     let want = json!({
-        "blockType": "card", "blockId": "c", "subscriberType": "user", "subscriberId": "u",
+        "blockType": "card", "blockId": "c", "userId": "u",
         "notifiedAt": 0, "createAt": 1, "deleteAt": 0
     });
     assert_eq!(to_json(&subscription), want);
@@ -620,19 +619,14 @@ fn subscription_json_members() {
         serde_json::from_value::<Subscription>(want).expect("decodes"),
         subscription
     );
-    assert!(
-        serde_json::from_value::<Subscription>(json!({ "subscriberType": "workspace" })).is_err(),
-        "an unknown subscriber type must not decode"
-    );
 
     let subscriber = Subscriber {
-        subscriber_type: SubscriberType::Channel,
-        subscriber_id: "ch".to_owned(),
+        user_id: "u".to_owned(),
         notified_at: 4,
     };
     assert_eq!(
         to_json(&subscriber),
-        json!({ "subscriberType": "channel", "subscriberId": "ch", "notifiedAt": 4 })
+        json!({ "userId": "u", "notifiedAt": 4 })
     );
 }
 
@@ -742,8 +736,7 @@ fn subscription_validate() {
     let valid = Subscription {
         block_type: BlockType::Card,
         block_id: "c".to_owned(),
-        subscriber_type: SubscriberType::User,
-        subscriber_id: "u".to_owned(),
+        user_id: "u".to_owned(),
         notified_at: 0,
         create_at: 0,
         delete_at: 0,
@@ -767,10 +760,10 @@ fn subscription_validate() {
         ),
         (
             Subscription {
-                subscriber_id: String::new(),
+                user_id: String::new(),
                 ..valid
             },
-            "missing subscriber id",
+            "missing user id",
         ),
     ];
     for (subscription, message) in cases {

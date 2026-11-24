@@ -2,7 +2,7 @@
 //! directions (`contracts/websocket.md`):
 //!
 //! ```text
-//! varuint doc      which of the connection's rooms, as `DOC_JOINED` named it
+//! varuint doc      which of the connection's rooms, as `docJoined` named it
 //! varuint kind     0: a sync message, 1: carets
 //! varuint epoch    which making of the document the frame is about
 //! ```

@@ -33,7 +33,7 @@ async fn told_of(reader: &mut Peer, card_id: &str, text: &str, me: &str) -> Valu
                     !message.to_string().contains(me),
                     "nobody is named: {message}"
                 );
-                let about = message["action"] == "UPDATE_BLOCK"
+                let about = message["type"] == "blockChanged"
                     && message["block"]["id"] == card_id
                     && message["summary"]["preview"]["text"]
                         .as_str()
@@ -72,13 +72,13 @@ async fn a_reader_by_link_is_kept_out_of_the_room_and_told_its_body_naming_nobod
     for reader in &mut readers {
         reader
             .send_json(json!({
-                "action": "SUBSCRIBE_BLOCKS", "workspaceId": TEST_WORKSPACE_ID,
+                "type": "subscribeBlocks", "workspaceId": TEST_WORKSPACE_ID,
                 "readToken": token, "blockIds": [t.card_id],
             }))
             .await;
         reader
             .send_json(json!({
-                "action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID,
+                "type": "joinDoc", "workspaceId": TEST_WORKSPACE_ID,
                 "cardId": t.card_id, "readToken": token,
             }))
             .await;
@@ -86,7 +86,7 @@ async fn a_reader_by_link_is_kept_out_of_the_room_and_told_its_body_naming_nobod
         assert_eq!(
             reader.incoming(PATIENCE).await,
             Incoming::Text(json!({
-                "action": "DOC_REFUSED", "workspaceId": TEST_WORKSPACE_ID,
+                "type": "docRefused", "workspaceId": TEST_WORKSPACE_ID,
                 "cardId": t.card_id, "reason": "not_found",
             }))
         );

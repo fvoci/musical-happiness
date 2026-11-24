@@ -12,7 +12,7 @@
 
 use fvoci_model::{
     Block, BlockType, Category, Container, ContainerKinds, ContainerMember, ContainerSearchField,
-    ContainerType, SubscriberType, Subscription, User, WorkspaceRole, new_id,
+    ContainerType, Subscription, User, WorkspaceRole, new_id,
 };
 use fvoci_store::{Looking, Paging, PublicContainers, Reach, Sight, Store};
 
@@ -479,8 +479,7 @@ async fn subscription_ties_fall_back_to_identifiers() {
         let subscription = Subscription {
             block_type: block.block_type.clone(),
             block_id: block.id.clone(),
-            subscriber_type: SubscriberType::User,
-            subscriber_id: user_id.to_owned(),
+            user_id: user_id.to_owned(),
             notified_at: 0,
             create_at: 0,
             delete_at: 0,
@@ -503,11 +502,11 @@ async fn subscription_ties_fall_back_to_identifiers() {
         .get_subscribers_for_block(&cards[1].id)
         .await
         .expect("the subscribers are read");
-    let subscriber_ids: Vec<&str> = subscribers
+    let user_ids: Vec<&str> = subscribers
         .iter()
-        .map(|subscriber| subscriber.subscriber_id.as_str())
+        .map(|subscriber| subscriber.user_id.as_str())
         .collect();
-    assert_eq!(subscriber_ids, users.each_ref().map(String::as_str));
+    assert_eq!(user_ids, users.each_ref().map(String::as_str));
 
     let subscriptions = store
         .get_subscriptions(&users[1])

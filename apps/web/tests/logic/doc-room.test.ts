@@ -49,7 +49,7 @@ class Harness {
   /** Up, joined as room `doc` of `epoch`, and the whole document received. */
   joined(doc = 1, epoch = 7, mode: 'write' | 'read' = 'write'): void {
     this.take({ type: 'up' });
-    this.take({ type: 'message', message: { action: 'DOC_JOINED', doc, epoch, mode } });
+    this.take({ type: 'message', message: { type: 'docJoined', doc, epoch, mode } });
     this.take({ type: 'frame', frame: { doc, epoch, sync: STEP_2, payload: WHOLE } });
   }
 
@@ -74,7 +74,7 @@ describe('joining', () => {
     expect(room.room.status.phase).toBe('joining');
     room.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 4, epoch: 2, mode: 'write' },
+      message: { type: 'docJoined', doc: 4, epoch: 2, mode: 'write' },
     });
     expect(room.room.status.writable).toBe(false);
     // A frame of another room, then an update before the whole document: dropped.
@@ -105,7 +105,7 @@ describe('joining', () => {
   it('is refused for good when the card is not there for the reader, and its document let go', () => {
     const room = new Harness();
     room.joined();
-    room.take({ type: 'message', message: { action: 'DOC_LEFT', doc: 1, reason: 'not_found' } });
+    room.take({ type: 'message', message: { type: 'docLeft', doc: 1, reason: 'not_found' } });
     expect(room.room.status).toMatchObject({
       phase: 'out',
       reason: 'not_found',
@@ -120,7 +120,7 @@ describe('joining', () => {
     room.take({ type: 'up' });
     const waits: number[] = [];
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      room.take({ type: 'message', message: { action: 'DOC_REFUSED', reason: 'document_full' } });
+      room.take({ type: 'message', message: { type: 'docRefused', reason: 'document_full' } });
       const timer = room.of('timer')[0];
       waits.push(timer?.wait ?? 0);
       expect(room.room.status).toMatchObject({ phase: 'out', retrying: true });
@@ -149,7 +149,7 @@ describe('the frames of a room', () => {
     expect(
       room.take({
         type: 'message',
-        message: { action: 'DOC_NACK', doc: 2, epoch: 7, reason: 'update_refused' },
+        message: { type: 'docNack', doc: 2, epoch: 7, reason: 'update_refused' },
       }),
     ).toEqual([]);
   });
@@ -165,7 +165,7 @@ describe('gathering changes', () => {
     room.take({ type: 'timer', timer: 'flush' });
     expect(room.sent()).toHaveLength(1);
     expect(room.room.status.pending).toBe(true);
-    room.take({ type: 'message', message: { action: 'DOC_ACK', doc: 1, epoch: 7 } });
+    room.take({ type: 'message', message: { type: 'docAck', doc: 1, epoch: 7 } });
     expect(room.room.status.pending).toBe(false);
   });
 
@@ -194,7 +194,7 @@ describe('gathering changes', () => {
     expect(room.of('join')).toHaveLength(1);
     room.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+      message: { type: 'docJoined', doc: 2, epoch: 7, mode: 'write' },
     });
     room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
     expect(room.of('discarded')).toEqual([{ type: 'discarded', why: 'update_too_large' }]);
@@ -211,17 +211,17 @@ describe('gathering changes', () => {
 });
 
 describe('receiving the document again', () => {
-  it('DOC_RESET of a new epoch: the document is another, and changes not taken are said lost', () => {
+  it('docReset of a new epoch: the document is another, and changes not taken are said lost', () => {
     const room = new Harness();
     room.joined(1, 7);
     room.write();
-    room.take({ type: 'message', message: { action: 'DOC_RESET', doc: 1, epoch: 8 } });
+    room.take({ type: 'message', message: { type: 'docReset', doc: 1, epoch: 8 } });
     expect(room.room.status).toMatchObject({ phase: 'receiving', writable: false });
     // The late answer of the change sent in epoch 7 is about the document dropped.
     expect(
       room.take({
         type: 'message',
-        message: { action: 'DOC_NACK', doc: 1, epoch: 7, reason: 'update_refused' },
+        message: { type: 'docNack', doc: 1, epoch: 7, reason: 'update_refused' },
       }),
     ).toEqual([]);
     expect(
@@ -233,50 +233,50 @@ describe('receiving the document again', () => {
     expect(room.room.status).toMatchObject({ phase: 'joined', pending: false, writable: true });
   });
 
-  it('DOC_RESET of the same epoch: the whole is merged into the document held, nothing lost', () => {
+  it('docReset of the same epoch: the whole is merged into the document held, nothing lost', () => {
     const room = new Harness();
     room.joined(1, 7);
     room.write();
-    room.take({ type: 'message', message: { action: 'DOC_RESET', doc: 1, epoch: 7 } });
+    room.take({ type: 'message', message: { type: 'docReset', doc: 1, epoch: 7 } });
     room.take({ type: 'frame', frame: { doc: 1, epoch: 7, sync: STEP_2, payload: WHOLE } });
     expect(room.effects.map((effect) => effect.type)).toEqual(['apply']);
-    room.take({ type: 'message', message: { action: 'DOC_ACK', doc: 1, epoch: 7 } });
+    room.take({ type: 'message', message: { type: 'docAck', doc: 1, epoch: 7 } });
     expect(room.room.status.pending).toBe(false);
   });
 
-  it('DOC_NACK: joins once more, drops the document for the server, and says the change is lost', () => {
+  it('docNack: joins once more, drops the document for the server, and says the change is lost', () => {
     const room = new Harness();
     room.joined(1, 7);
     room.write();
     room.write();
     room.take({
       type: 'message',
-      message: { action: 'DOC_NACK', doc: 1, epoch: 7, reason: 'update_refused' },
+      message: { type: 'docNack', doc: 1, epoch: 7, reason: 'update_refused' },
     });
     expect(room.of('join')).toHaveLength(1);
     // The second change's answer comes for a room left: nothing more.
     expect(
       room.take({
         type: 'message',
-        message: { action: 'DOC_NACK', doc: 1, epoch: 7, reason: 'update_refused' },
+        message: { type: 'docNack', doc: 1, epoch: 7, reason: 'update_refused' },
       }),
     ).toEqual([]);
     room.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+      message: { type: 'docJoined', doc: 2, epoch: 7, mode: 'write' },
     });
     room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
     expect(room.of('discarded')).toEqual([{ type: 'discarded', why: 'update_refused' }]);
     expect(room.of('fresh')).toHaveLength(1);
   });
 
-  it('DOC_NACK out of step: waits for the DOC_RESET that explains it, then joins if none came', () => {
+  it('docNack out of step: waits for the docReset that explains it, then joins if none came', () => {
     const room = new Harness();
     room.joined(1, 7);
     room.write();
     room.take({
       type: 'message',
-      message: { action: 'DOC_NACK', doc: 1, epoch: 7, reason: 'update_out_of_step' },
+      message: { type: 'docNack', doc: 1, epoch: 7, reason: 'update_out_of_step' },
     });
     expect(room.of('timer')).toEqual([{ type: 'timer', timer: 'reset', wait: RESET_WAIT }]);
     expect(room.room.status.writable).toBe(false);
@@ -284,19 +284,19 @@ describe('receiving the document again', () => {
     expect(room.of('join')).toHaveLength(1);
   });
 
-  it('DOC_NACK document unavailable: the change is kept and offered again once let in', () => {
+  it('docNack document unavailable: the change is kept and offered again once let in', () => {
     const room = new Harness();
     room.joined(1, 7);
     room.write();
     room.take({
       type: 'message',
-      message: { action: 'DOC_NACK', doc: 1, epoch: 7, reason: 'document_unavailable' },
+      message: { type: 'docNack', doc: 1, epoch: 7, reason: 'document_unavailable' },
     });
     expect(room.of('timer')).toEqual([{ type: 'timer', timer: 'retry', wait: PACE_WAIT }]);
     room.take({ type: 'timer', timer: 'retry' });
     room.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+      message: { type: 'docJoined', doc: 2, epoch: 7, mode: 'write' },
     });
     room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
     expect(room.of('discarded')).toEqual([]);
@@ -307,17 +307,17 @@ describe('receiving the document again', () => {
   });
 
   it.each([['too_many_frames'], ['connection_too_slow']])(
-    'DOC_LEFT for %s: joins again after a pause, going on with the document held',
+    'docLeft for %s: joins again after a pause, going on with the document held',
     (reason) => {
       const room = new Harness();
       room.joined(1, 7);
-      room.take({ type: 'message', message: { action: 'DOC_LEFT', doc: 1, reason } });
+      room.take({ type: 'message', message: { type: 'docLeft', doc: 1, reason } });
       expect(room.room.status.phase).toBe('receiving');
       expect(room.of('timer')).toEqual([{ type: 'timer', timer: 'retry', wait: PACE_WAIT }]);
       room.take({ type: 'timer', timer: 'retry' });
       room.take({
         type: 'message',
-        message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+        message: { type: 'docJoined', doc: 2, epoch: 7, mode: 'write' },
       });
       room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
       expect(room.effects.map((effect) => effect.type)).toEqual(['apply', 'changed']);
@@ -325,11 +325,11 @@ describe('receiving the document again', () => {
   );
 
   it.each([['document_unavailable'], ['too_many_documents'], ['internal']])(
-    'DOC_LEFT for %s: out, and tried again by itself',
+    'docLeft for %s: out, and tried again by itself',
     (reason) => {
       const room = new Harness();
       room.joined(1, 7);
-      room.take({ type: 'message', message: { action: 'DOC_LEFT', doc: 1, reason } });
+      room.take({ type: 'message', message: { type: 'docLeft', doc: 1, reason } });
       expect(room.room.status).toMatchObject({ phase: 'out', reason, retrying: true, held: true });
       room.take({ type: 'timer', timer: 'retry' });
       expect(room.of('join')).toHaveLength(1);
@@ -347,7 +347,7 @@ describe('receiving the document again', () => {
     expect(room.of('join')).toHaveLength(1);
     room.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+      message: { type: 'docJoined', doc: 2, epoch: 7, mode: 'write' },
     });
     room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
     // The document held goes on; what was written meanwhile is offered.
@@ -365,7 +365,7 @@ describe('receiving the document again', () => {
     expect(room.take({ type: 'up' })).toContainEqual({ type: 'join', held: 7 });
     room.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+      message: { type: 'docJoined', doc: 2, epoch: 7, mode: 'write' },
     });
     // The server's state vector first: nothing is done with it yet.
     room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_1, payload: theirs } });
@@ -381,7 +381,7 @@ describe('receiving the document again', () => {
     room.take({ type: 'timer', timer: 'flush' });
     expect(room.sent()).toEqual([{ doc: 2, epoch: 7, sync: UPDATE, payload: lacked }]);
     expect(room.room.status.pending).toBe(true);
-    room.take({ type: 'message', message: { action: 'DOC_ACK', doc: 2, epoch: 7 } });
+    room.take({ type: 'message', message: { type: 'docAck', doc: 2, epoch: 7 } });
     expect(room.room.status.pending).toBe(false);
 
     // Nothing written meanwhile: the state vector is not answered.
@@ -389,7 +389,7 @@ describe('receiving the document again', () => {
     room.take({ type: 'up' });
     room.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 3, epoch: 7, mode: 'write' },
+      message: { type: 'docJoined', doc: 3, epoch: 7, mode: 'write' },
     });
     room.take({ type: 'frame', frame: { doc: 3, epoch: 7, sync: STEP_1, payload: theirs } });
     room.take({ type: 'frame', frame: { doc: 3, epoch: 7, sync: STEP_2, payload: WHOLE } });
@@ -405,7 +405,7 @@ describe('receiving the document again', () => {
       room.take({ type: 'up' });
       room.take({
         type: 'message',
-        message: { action: 'DOC_JOINED', doc, epoch: 7, mode: 'write' },
+        message: { type: 'docJoined', doc, epoch: 7, mode: 'write' },
       });
     };
     // Dropped between the two: the next room's whole is answered by the whole, not by a
@@ -417,7 +417,7 @@ describe('receiving the document again', () => {
     room.take({ type: 'up' });
     room.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+      message: { type: 'docJoined', doc: 2, epoch: 7, mode: 'write' },
     });
     room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_1, payload: theirs } });
     back(room, 3);
@@ -433,10 +433,10 @@ describe('receiving the document again', () => {
     reset.take({ type: 'up' });
     reset.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+      message: { type: 'docJoined', doc: 2, epoch: 7, mode: 'write' },
     });
     reset.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_1, payload: theirs } });
-    reset.take({ type: 'message', message: { action: 'DOC_RESET', doc: 2, epoch: 8 } });
+    reset.take({ type: 'message', message: { type: 'docReset', doc: 2, epoch: 8 } });
     reset.take({ type: 'frame', frame: { doc: 2, epoch: 8, sync: STEP_2, payload: WHOLE } });
     expect(reset.of('fresh')).toHaveLength(1);
     expect(reset.of('answer')).toEqual([]);
@@ -452,7 +452,7 @@ describe('receiving the document again', () => {
     room.take({ type: 'up' });
     room.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'read' },
+      message: { type: 'docJoined', doc: 2, epoch: 7, mode: 'read' },
     });
     room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
     expect(room.of('offer')).toEqual([{ type: 'offer', have: WHOLE }]);
@@ -469,7 +469,7 @@ describe('receiving the document again', () => {
     lacks.take({ type: 'up' });
     lacks.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'read' },
+      message: { type: 'docJoined', doc: 2, epoch: 7, mode: 'read' },
     });
     lacks.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
     lacks.take({ type: 'missing', update: update() });
@@ -484,7 +484,7 @@ describe('receiving the document again', () => {
     // A change refused: the document is the reader's alone, and is not named.
     const refused = room.take({
       type: 'message',
-      message: { action: 'DOC_NACK', doc: 1, epoch: 7, reason: 'update_refused' },
+      message: { type: 'docNack', doc: 1, epoch: 7, reason: 'update_refused' },
     });
     expect(refused).toContainEqual({ type: 'join', held: undefined });
     // Holding none, none is named.
@@ -498,7 +498,7 @@ describe('receiving the document again', () => {
     away.take({ type: 'up' });
     away.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 9, mode: 'write' },
+      message: { type: 'docJoined', doc: 2, epoch: 9, mode: 'write' },
     });
     away.take({
       type: 'frame',
@@ -512,7 +512,7 @@ describe('receiving the document again', () => {
     expect(away.of('join')).toEqual([{ type: 'join', held: undefined }]);
     away.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 3, epoch: 9, mode: 'write' },
+      message: { type: 'docJoined', doc: 3, epoch: 9, mode: 'write' },
     });
     away.take({ type: 'frame', frame: { doc: 3, epoch: 9, sync: STEP_2, payload: WHOLE } });
     expect(away.of('fresh')).toHaveLength(1);
@@ -527,7 +527,7 @@ describe('receiving the document again', () => {
     gave.take({ type: 'up' });
     gave.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+      message: { type: 'docJoined', doc: 2, epoch: 7, mode: 'write' },
     });
     gave.take({
       type: 'frame',
@@ -543,7 +543,7 @@ describe('receiving the document again', () => {
     // The answer of a join that named the document comes first: not taken for the whole.
     gave.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 3, epoch: 7, mode: 'write' },
+      message: { type: 'docJoined', doc: 3, epoch: 7, mode: 'write' },
     });
     gave.take({
       type: 'frame',
@@ -563,7 +563,7 @@ describe('receiving the document again', () => {
     room.take({ type: 'up' });
     room.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 9, mode: 'write' },
+      message: { type: 'docJoined', doc: 2, epoch: 9, mode: 'write' },
     });
     room.take({ type: 'frame', frame: { doc: 2, epoch: 9, sync: STEP_2, payload: WHOLE } });
     expect(room.of('discarded')).toEqual([{ type: 'discarded', why: 'document_reset' }]);
@@ -572,13 +572,13 @@ describe('receiving the document again', () => {
 });
 
 describe('the way of writing', () => {
-  it('DOC_MODE read stops the sending; a change made meanwhile is the document no longer being the server, joined again on write', () => {
+  it('docModeChanged read stops the sending; a change made meanwhile is the document no longer being the server, joined again on write', () => {
     const room = new Harness();
     room.joined(1, 7);
-    room.take({ type: 'message', message: { action: 'DOC_MODE', doc: 1, mode: 'read' } });
+    room.take({ type: 'message', message: { type: 'docModeChanged', doc: 1, mode: 'read' } });
     expect(room.room.status.writable).toBe(false);
     room.take({ type: 'local', update: update() });
-    room.take({ type: 'message', message: { action: 'DOC_MODE', doc: 1, mode: 'write' } });
+    room.take({ type: 'message', message: { type: 'docModeChanged', doc: 1, mode: 'write' } });
     expect(room.of('join')).toHaveLength(1);
   });
 
@@ -588,7 +588,7 @@ describe('the way of writing', () => {
     room.write();
     room.take({
       type: 'message',
-      message: { action: 'DOC_NACK', doc: 1, epoch: 7, reason: 'document_read_only' },
+      message: { type: 'docNack', doc: 1, epoch: 7, reason: 'document_read_only' },
     });
     expect(room.room.status.mode).toBe('read');
     expect(room.of('join')).toHaveLength(1);
@@ -600,11 +600,11 @@ describe('answers that come late, and joins that cross', () => {
     const room = new Harness();
     room.joined(1, 7);
     room.take({ type: 'local', update: update() });
-    room.take({ type: 'message', message: { action: 'DOC_MODE', doc: 1, mode: 'read' } });
+    room.take({ type: 'message', message: { type: 'docModeChanged', doc: 1, mode: 'read' } });
     expect(room.of('join')).toHaveLength(1);
     room.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'read' },
+      message: { type: 'docJoined', doc: 2, epoch: 7, mode: 'read' },
     });
     room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
     expect(room.of('discarded')).toEqual([{ type: 'discarded', why: 'document_read_only' }]);
@@ -643,18 +643,18 @@ describe('answers that come late, and joins that cross', () => {
     room.take({ type: 'settle' });
     room.take({
       type: 'message',
-      message: { action: 'DOC_NACK', doc: 1, epoch: 7, reason: 'update_out_of_step' },
+      message: { type: 'docNack', doc: 1, epoch: 7, reason: 'update_out_of_step' },
     });
-    room.take({ type: 'message', message: { action: 'DOC_RESET', doc: 1, epoch: 7 } });
+    room.take({ type: 'message', message: { type: 'docReset', doc: 1, epoch: 7 } });
     room.take({ type: 'frame', frame: { doc: 1, epoch: 7, sync: STEP_2, payload: WHOLE } });
     expect(room.of('offer')).toHaveLength(1);
     room.take({ type: 'missing', update: update() });
     room.take({ type: 'settle' });
     expect(room.sent()).toHaveLength(1);
     // The answer of the second change, sent before the refusal, comes now.
-    room.take({ type: 'message', message: { action: 'DOC_ACK', doc: 1, epoch: 7 } });
+    room.take({ type: 'message', message: { type: 'docAck', doc: 1, epoch: 7 } });
     expect(room.room.status.pending).toBe(true);
-    room.take({ type: 'message', message: { action: 'DOC_ACK', doc: 1, epoch: 7 } });
+    room.take({ type: 'message', message: { type: 'docAck', doc: 1, epoch: 7 } });
     expect(room.room.status.pending).toBe(false);
   });
 
@@ -666,7 +666,7 @@ describe('answers that come late, and joins that cross', () => {
     room.take({ type: 'up' });
     room.take({
       type: 'message',
-      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+      message: { type: 'docJoined', doc: 2, epoch: 7, mode: 'write' },
     });
     room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
     expect(room.of('offer')).toHaveLength(1);
@@ -679,7 +679,7 @@ describe('answers that come late, and joins that cross', () => {
   it('stays out after not_found when the connection comes back', () => {
     const room = new Harness();
     room.joined(1, 7);
-    room.take({ type: 'message', message: { action: 'DOC_LEFT', doc: 1, reason: 'not_found' } });
+    room.take({ type: 'message', message: { type: 'docLeft', doc: 1, reason: 'not_found' } });
     room.take({ type: 'down' });
     expect(room.take({ type: 'up' }).some((effect) => effect.type === 'join')).toBe(false);
   });
@@ -699,7 +699,7 @@ describe('the carets of a room', () => {
     room.take({ type: 'carets', carets: { doc: 4, epoch: 6, update: CARET } });
     expect(room.of('carets')).toEqual([]);
     // While another document is on its way.
-    room.take({ type: 'message', message: { action: 'DOC_RESET', doc: 4, epoch: 8 } });
+    room.take({ type: 'message', message: { type: 'docReset', doc: 4, epoch: 8 } });
     room.take({ type: 'carets', carets: { doc: 4, epoch: 7, update: CARET } });
     room.take({ type: 'carets', carets: { doc: 4, epoch: 8, update: CARET } });
     expect(room.of('carets')).toEqual([]);
@@ -715,7 +715,7 @@ describe('the carets of a room', () => {
     expect(room.of('tell')).toEqual([
       { type: 'tell', carets: { doc: 4, epoch: 7, update: CARET } },
     ]);
-    room.take({ type: 'message', message: { action: 'DOC_MODE', doc: 4, mode: 'read' } });
+    room.take({ type: 'message', message: { type: 'docModeChanged', doc: 4, mode: 'read' } });
     room.take({ type: 'caret', update: CARET });
     expect(room.of('tell')).toEqual([]);
     const reader = new Harness();
@@ -730,7 +730,7 @@ describe('the carets of a room', () => {
   it("lets go of the others' when the room is left: put out, joined again, the connection gone", () => {
     const room = new Harness();
     room.joined(4, 7);
-    room.take({ type: 'message', message: { action: 'DOC_LEFT', doc: 4, reason: 'not_found' } });
+    room.take({ type: 'message', message: { type: 'docLeft', doc: 4, reason: 'not_found' } });
     expect(room.of('unseen')).toHaveLength(1);
     const dropped = new Harness();
     dropped.joined(4, 7);

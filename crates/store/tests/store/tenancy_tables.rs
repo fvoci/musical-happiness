@@ -9,8 +9,8 @@ use fvoci_model::{
     AttendanceStatus, AuditAction, BlockType, Category, CompletionChange, Container, ContainerKind,
     ContainerMember, ContainerType, CourseLimits, LastPositionChange, NewCourseExam,
     NewCourseMeeting, NewUnit, NewUnitNote, NewUnitReview, STUDY_DAYS_WEEKDAYS, StudyDays,
-    SubscriberType, Subscription, UnitNoteKind, UnitProgressChange, Upload, UploadPart,
-    ValidatedCourseSchedule, ValidatedMyExamScore, WorkspaceRole, new_id,
+    Subscription, UnitNoteKind, UnitProgressChange, Upload, UploadPart, ValidatedCourseSchedule,
+    ValidatedMyExamScore, WorkspaceRole, new_id,
 };
 use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
 use fvoci_store::{AuditEntry, DbType, SYSTEM_ORG_ID, SharingChange, Store, Tenant};
@@ -387,8 +387,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .create_subscription(Subscription {
             block_type: BlockType::Card,
             block_id: comment.parent_id.clone(),
-            subscriber_type: SubscriberType::User,
-            subscriber_id: user_id.clone(),
+            user_id: user_id.clone(),
             notified_at: 0,
             create_at: 0,
             delete_at: 0,

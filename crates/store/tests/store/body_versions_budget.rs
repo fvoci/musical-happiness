@@ -416,7 +416,7 @@ async fn seed_pre_0062_versions(
     let scoped1 = before.for_org(&org1).expect("org1");
     let author = common::user(&scoped1, "mig62.author").await;
     let board_id = board_with_files(&scoped1, &author, &[]).await;
-    let card1 = card_with(&scoped1, &board_id, None, &author).await;
+    let card1 = card_with(&scoped1.telling_nobody(), &board_id, None, &author).await;
     before.close().await;
 
     let empty_digest_hex: String =

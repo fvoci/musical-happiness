@@ -130,14 +130,14 @@ async fn document_only_sockets_are_put_out_when_workspace_access_ends() {
             ts.teardown().await;
             continue;
         }
-        let left = peer.text("DOC_LEFT").await;
+        let left = peer.text("docLeft").await;
         assert_eq!(
             left["reason"], "not_found",
             "{ending:?} puts a document-only socket out before the periodic recheck"
         );
         let refused = peer.join(TEST_WORKSPACE_ID, &room.card_id).await;
         assert_eq!(
-            refused["action"], "DOC_REFUSED",
+            refused["type"], "docRefused",
             "{ending:?}: the connection stays, and is let in no more"
         );
         ts.teardown().await;
@@ -157,7 +157,7 @@ async fn document_admission_cannot_miss_concurrent_workspace_revocation() {
         let (reached, resume) = ts.app.collab().pause_next_admission();
         socket
             .send(Message::Text(
-                json!({"action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID,
+                json!({"type": "joinDoc", "workspaceId": TEST_WORKSPACE_ID,
                     "cardId": room.card_id})
                 .to_string()
                 .into(),
@@ -179,11 +179,11 @@ async fn document_admission_cannot_miss_concurrent_workspace_revocation() {
         };
         let answer: serde_json::Value = serde_json::from_str(&text).expect("JSON");
         let expected = if ending.takes_the_card() {
-            "DOC_REFUSED"
+            "docRefused"
         } else {
-            "DOC_JOINED"
+            "docJoined"
         };
-        assert_eq!(answer["action"], expected, "{ending:?}: {answer}");
+        assert_eq!(answer["type"], expected, "{ending:?}: {answer}");
         ts.teardown().await;
     }
 }
@@ -193,8 +193,8 @@ async fn a_revoked_document_connection_cannot_write_or_receive_another_update() 
     let ts = server().await;
     let (_, mut one, mut two) = two_in_a_room(&ts, &paragraphs(&["initial"])).await;
     // Sidebar subscriptions have a separate lifetime from the document.
-    for action in ["SUBSCRIBE_WORKSPACE", "UNSUBSCRIBE_WORKSPACE"] {
-        two.send_json(json!({"action": action, "workspaceId": TEST_WORKSPACE_ID}))
+    for action in ["subscribeWorkspace", "unsubscribeWorkspace"] {
+        two.send_json(json!({"type": action, "workspaceId": TEST_WORKSPACE_ID}))
             .await;
     }
     two.write_acked("before removal").await;
@@ -202,7 +202,7 @@ async fn a_revoked_document_connection_cannot_write_or_receive_another_update() 
     let late = two.editor().append_paragraph("must not be stored");
     let user = ts.client2.me().await.id;
     Revocation::Remove.apply(&ts, &user).await;
-    let left = two.text("DOC_LEFT").await;
+    let left = two.text("docLeft").await;
     assert_eq!(left["reason"], "not_found", "{left}");
     two.try_send_binary(frame(two.doc, two.epoch, UPDATE, &late))
         .await;
@@ -234,10 +234,7 @@ async fn leaving_a_document_removes_its_workspace_watch() {
     peer.joined(TEST_WORKSPACE_ID, &room.card_id).await;
     peer.leave().await;
     let refused = peer.join("no-workspace", "no-card").await;
-    assert_eq!(
-        refused["action"], "DOC_REFUSED",
-        "later command is answered"
-    );
+    assert_eq!(refused["type"], "docRefused", "later command is answered");
     Revocation::Remove.apply(&ts, &user).await;
     assert_eq!(
         peer.incoming(QUIET).await,
@@ -272,16 +269,14 @@ async fn malformed_and_server_evicted_documents_leave_no_workspace_watch() {
         ))
         .await
         .check_no_content();
-    let left = peer.text("DOC_LEFT").await;
+    let left = peer.text("docLeft").await;
     assert_eq!(
         left["reason"], "not_found",
         "the board's room evicts the member"
     );
-    peer.send_json(
-        json!({"action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID,
-        "cardId": room.card_id, "doc": null}),
-    )
-    .await;
+    peer.send_json(json!({"type": "joinDoc", "workspaceId": TEST_WORKSPACE_ID,
+        "cardId": room.card_id, "doc": null}))
+        .await;
     peer.barrier(&ts).await;
     Revocation::Remove.apply(&ts, &user).await;
     assert_eq!(
@@ -304,7 +299,7 @@ async fn unrelated_admin_withdrawal_does_not_close_pending_document_admission() 
     let (reached, resume) = ts.app.collab().pause_next_admission();
     socket
         .send(Message::Text(
-            json!({"action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID,
+            json!({"type": "joinDoc", "workspaceId": TEST_WORKSPACE_ID,
         "cardId": room.card_id})
             .to_string()
             .into(),
@@ -329,7 +324,7 @@ async fn unrelated_admin_withdrawal_does_not_close_pending_document_admission() 
     };
     let joined: serde_json::Value = serde_json::from_str(&text).expect("JSON message");
     assert_eq!(
-        joined["action"], "DOC_JOINED",
+        joined["type"], "docJoined",
         "unrelated withdrawal preserves admission"
     );
     ts.teardown().await;
@@ -368,7 +363,7 @@ async fn an_admission_read_before_admin_revocation_is_asked_again() {
         let (reached, resume) = ts.app.collab().pause_next_admission();
         socket
             .send(Message::Text(
-                json!({"action": "JOIN_DOC", "workspaceId": workspace,
+                json!({"type": "joinDoc", "workspaceId": workspace,
             "cardId": card.id})
                 .to_string()
                 .into(),
@@ -404,7 +399,7 @@ async fn an_admission_read_before_admin_revocation_is_asked_again() {
         };
         let refused: serde_json::Value = serde_json::from_str(&text).expect("JSON message");
         assert_eq!(
-            refused["action"], "DOC_REFUSED",
+            refused["type"], "docRefused",
             "unadmitted connection receives no document"
         );
         assert_eq!(
@@ -425,14 +420,14 @@ async fn ending_one_workspace_leaves_a_room_of_another() {
     give(&ts, &room.board_id, &user, "editor").await;
     let mut peer = Peer::connect(&ts.client2, 202).await;
     peer.joined(TEST_WORKSPACE_ID, &room.card_id).await;
-    peer.send_json(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
+    peer.send_json(json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID}))
         .await;
     peer.barrier(&ts).await;
     ts.client
         .delete(&format!("/w/{ROOT_WORKSPACE_ID}/members/{user}"))
         .await
         .check_no_content();
-    let ended = peer.text("UNSUBSCRIBED_WORKSPACE").await;
+    let ended = peer.text("workspaceUnsubscribed").await;
     assert_eq!(ended["workspaceId"], ROOT_WORKSPACE_ID, "{ended}");
     peer.write_acked("still in the room").await;
     ts.teardown().await;

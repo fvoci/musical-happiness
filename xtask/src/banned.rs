@@ -25,7 +25,11 @@ type Digest = [u8; 32];
 /// The banned words: the number of letters of each and its digest in hexadecimal.
 ///
 /// A word is added by its digest alone: `printf %s <the word in lowercase> | sha256sum`.
-const BANNED: [(usize, &str); 8] = [
+const BANNED: [(usize, &str); 9] = [
+    (
+        12,
+        "4a7fed951cb0747c34015743118c82a0363a486c87f76acec059bc6cfb91ec60",
+    ),
     (
         10,
         "7267391c427b5cef8b2f0a37903f2d460ba94e8cf09bb02eacf6310c8c4a958d",

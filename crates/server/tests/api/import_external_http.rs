@@ -197,7 +197,7 @@ async fn http_import_supports_trello_notion_and_default_fvoci_with_summary() {
     let native_res = http_import(
         &ts.client,
         TEST_WORKSPACE_ID,
-        "archive.boardarchive",
+        "archive.fvoci",
         &exported.body,
         None,
     )
@@ -256,7 +256,7 @@ async fn http_import_rejects_mismatched_extension_empty_upload_and_invalid_forma
     for (name, fmt) in [
         ("empty.json", Some("trello")),
         ("empty.zip", Some("notion")),
-        ("empty.boardarchive", None),
+        ("empty.fvoci", None),
     ] {
         http_import(&ts.client, TEST_WORKSPACE_ID, name, b"", fmt)
             .await

@@ -294,7 +294,7 @@ test('a member who leaves an organization finds it no more, and its only adminis
   // The other tab was told, and hears the workspace no more: a card made now
   // reaches the founder's page, not it.
   await expect
-    .poll(() => heard.some((frame) => frame.includes('UNSUBSCRIBED_WORKSPACE')))
+    .poll(() => heard.some((frame) => frame.includes('workspaceUnsubscribed')))
     .toBe(true);
   await card('Made after leaving');
   await expect(founderPage.getByText('Made after leaving', { exact: true })).toBeVisible();
@@ -380,7 +380,7 @@ test('an organization administrator removes a member and a zero-workspace member
   ).toBeVisible();
 
   await expect
-    .poll(() => memberFrames.some((frame) => frame.includes('UNSUBSCRIBED_WORKSPACE')))
+    .poll(() => memberFrames.some((frame) => frame.includes('workspaceUnsubscribed')))
     .toBe(true);
   await memberPage.goto(address);
   await expect(memberPage.getByTestId('not-found')).toBeVisible();

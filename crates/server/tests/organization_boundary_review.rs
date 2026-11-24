@@ -384,7 +384,7 @@ async fn removing_workspace_membership_stops_websocket_content_from_that_organiz
     let mut socket = ts.client2.connect_websocket().await;
     socket
         .send(Message::Text(
-            json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace.id})
+            json!({"type": "subscribeWorkspace", "workspaceId": workspace.id})
                 .to_string()
                 .into(),
         ))

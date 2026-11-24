@@ -86,14 +86,14 @@ test.describe('a wiki looked after', () => {
       .getByRole('button', { name: 'Menu of the wiki Handbook', exact: true })
       .click();
     await page.getByRole('menuitem', { name: 'Export the wiki' }).click();
-    const archive = testInfo.outputPath('wiki.boardarchive');
+    const archive = testInfo.outputPath('wiki.fvoci');
     await (await saving).saveAs(archive);
     await showSidebar(page);
     await sidebar(page).getByTestId('open-settings').click();
     await page.getByTestId('settings-dialog').getByTestId('import-archive').setInputFiles(archive);
     await expect(
       page.getByTestId('transfers').locator('[data-transfer="import"][data-finished]'),
-    ).toContainText('wiki.boardarchive is imported.');
+    ).toContainText('wiki.fvoci is imported.');
     await page.keyboard.press('Escape');
     await showSidebar(page);
     const titled = async () =>

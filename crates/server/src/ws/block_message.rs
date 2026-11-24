@@ -1,4 +1,4 @@
-//! The message `UPDATE_BLOCK`: a block that changed. A card's, a page's or an entry's
+//! The message `blockChanged`: a block that changed. A card's, a page's or an entry's
 //! carries a summary of its body in place of the body, which its room and HTTP give
 //! (`contracts/websocket.md` 3); every other block goes whole.
 
@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use super::Outgoing;
 
-/// What `UPDATE_BLOCK` says of a card's, a page's or an entry's body in its place, as a
+/// What `blockChanged` says of a card's, a page's or an entry's body in its place, as a
 /// list of cards says it (`getCards`, and its `preview`).
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,12 +35,13 @@ impl Summary {
     }
 }
 
-/// `UPDATE_BLOCK`: the block, without its body and with its summary if it is a card, a
+/// `blockChanged`: the block, without its body and with its summary if it is a card, a
 /// page or an entry.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct UpdateBlockMessage<'a> {
-    action: &'static str,
+    #[serde(rename = "type")]
+    kind: &'static str,
     workspace_id: &'a str,
     block: Cow<'a, Block>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -60,7 +61,7 @@ impl<'a> UpdateBlockMessage<'a> {
             (Cow::Borrowed(block), None)
         };
         Self {
-            action: "UPDATE_BLOCK",
+            kind: "blockChanged",
             workspace_id,
             block,
             summary,
@@ -84,8 +85,8 @@ impl<'a> UpdateBlockMessage<'a> {
 }
 
 impl Outgoing for UpdateBlockMessage<'_> {
-    fn action(&self) -> &'static str {
-        self.action
+    fn kind(&self) -> &'static str {
+        self.kind
     }
 }
 

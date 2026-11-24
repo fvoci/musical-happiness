@@ -132,9 +132,9 @@ impl App {
 
     /// Tells of an account's leaving the handle's organization, as it is erased or of
     /// its own accord: its connections stop following each workspace it left
-    /// (`UNSUBSCRIBED_WORKSPACE`), whose rooms ask about it again, as for a member taken
+    /// (`workspaceUnsubscribed`), whose rooms ask about it again, as for a member taken
     /// out; each board that passed to somebody is announced to who is on it
-    /// (`UPDATE_MEMBER`), and its rooms ask about the heir, who may write there now.
+    /// (`containerMemberChanged`), and its rooms ask about the heir, who may write there now.
     pub(super) async fn announce_leaving(&self, user_id: &str, left: &LeftFrom) {
         for workspace_id in &left.left {
             self.ws().workspace_role_changed(workspace_id, user_id);

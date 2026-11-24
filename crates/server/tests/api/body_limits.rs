@@ -229,21 +229,23 @@ async fn the_deepest_body_is_read_back_from_every_place_it_is_written_in() {
 
 /// An archive of one board with one card of the given body.
 fn archive_of(body: &Value) -> Vec<u8> {
-    let board = json!({"type": "board", "data": {
+    let board = json!({"type": "container", "data": {
         "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Limits",
         "createAt": 1, "updateAt": 1,
     }});
     let card = json!({"type": "block", "data": {
-        "id": "c1", "boardId": "b1", "parentId": "", "type": "card", "title": "Most",
+        "id": "c1", "containerId": "b1", "parentId": "", "type": "card", "title": "Most",
         "createAt": 1, "updateAt": 1, "body": body,
     }});
     let options = zip::write::SimpleFileOptions::default();
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     writer.start_file("version.json", options).expect("start");
     writer
-        .write_all(br#"{"version":3,"date":1}"#)
+        .write_all(br#"{"version":1,"date":1}"#)
         .expect("write");
-    writer.start_file("b1/board.jsonl", options).expect("start");
+    writer
+        .start_file("b1/container.jsonl", options)
+        .expect("start");
     writer
         .write_all(format!("{board}\n{card}\n").as_bytes())
         .expect("write");
@@ -307,11 +309,11 @@ async fn the_room_takes_the_update_to_the_largest_body_and_refuses_the_next() {
 
     let letter = one.editor().type_at_end("x");
     one.send_update(&letter).await;
-    let nack = one.text("DOC_NACK").await;
+    let nack = one.text("docNack").await;
     assert_eq!(
         nack,
         json!({
-            "action": "DOC_NACK", "doc": one.doc, "epoch": one.epoch,
+            "type": "docNack", "doc": one.doc, "epoch": one.epoch,
             "reason": "document_too_large",
         })
     );

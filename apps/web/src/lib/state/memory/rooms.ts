@@ -13,10 +13,10 @@
  *   with its reason; one taken is answered and sent to the room's others.
  * - The card's body is written from the document 2 seconds after the last
  *   change, 10 at most after the first, and when the last who writes leaves:
- *   the board's listeners are told the card, as `UPDATE_BLOCK` tells them.
+ *   the board's listeners are told the card, as `blockChanged` tells them.
  * - A body written whole (`MemoryBackend.writeCardBody`, a version restored)
  *   is written after the room's changes, and makes the document anew
- *   (`DOC_RESET`). Versions are kept as it is written in and left.
+ *   (`docReset`). Versions are kept as it is written in and left.
  *
  * The tabs of one browser that each run a world in memory can be joined
  * (`shareRooms`): their documents are made alike from the seed, so that the
@@ -139,7 +139,7 @@ export class MemoryRooms {
             this.#take(seat, cardId, bytes);
           });
         },
-        // Leaving comes after what was sent before it, as `LEAVE_DOC` does.
+        // Leaving comes after what was sent before it, as `leaveDoc` does.
         close: () => {
           seat.hearing = false;
           this.#hear(seat, () => {
@@ -245,7 +245,7 @@ export class MemoryRooms {
     const mode = this.#modeOf(seat.user, containerId, cardId);
     // Refused, the room before (if any) stays the seat's.
     if (mode === undefined) {
-      this.#say(seat, { message: { action: 'DOC_REFUSED', reason: 'not_found' } });
+      this.#say(seat, { message: { type: 'docRefused', reason: 'not_found' } });
       return;
     }
     const room = this.#room(containerId, cardId);
@@ -256,7 +256,7 @@ export class MemoryRooms {
     seat.doc = doc;
     seat.mode = mode;
     room.seats.add(seat);
-    this.#say(seat, { message: { action: 'DOC_JOINED', doc, epoch: room.epoch, mode } });
+    this.#say(seat, { message: { type: 'docJoined', doc, epoch: room.epoch, mode } });
     // Who holds this document already, and writes, is sent the room's state vector and what
     // they lack of it; who reads has nothing to send, and is sent the whole.
     const named = mode === 'write' && held?.epoch === room.epoch ? held.stateVector : undefined;
@@ -319,7 +319,7 @@ export class MemoryRooms {
     const refusal = this.#refusal(seat, room, frame.epoch, frame.payload);
     if (refusal) {
       this.#say(seat, {
-        message: { action: 'DOC_NACK', doc, epoch: frame.epoch, reason: refusal },
+        message: { type: 'docNack', doc, epoch: frame.epoch, reason: refusal },
       });
       return;
     }
@@ -328,7 +328,7 @@ export class MemoryRooms {
     if (card) typedBy(this.#world, card, seat.user.userId, holdsAll);
     Y.applyUpdate(room.doc, frame.payload, seat);
     room.lastWriter = seat.user.userId;
-    this.#say(seat, { message: { action: 'DOC_ACK', doc, epoch: frame.epoch } });
+    this.#say(seat, { message: { type: 'docAck', doc, epoch: frame.epoch } });
     this.#spread(room, frame.payload, seat);
     this.#post({ kind: 'update', cardId, tab: room.tab, update: frame.payload });
     this.#mend(room);
@@ -439,7 +439,7 @@ export class MemoryRooms {
     for (const seat of room.seats) {
       const doc = seat.doc;
       if (doc === undefined) continue;
-      this.#say(seat, { message: { action: 'DOC_RESET', doc, epoch: room.epoch } });
+      this.#say(seat, { message: { type: 'docReset', doc, epoch: room.epoch } });
       this.#sendWhole(seat, room, whole);
     }
   }
@@ -454,11 +454,11 @@ export class MemoryRooms {
         room.seats.delete(seat);
         seat.doc = undefined;
         this.#carets.left(room, seat);
-        this.#say(seat, { message: { action: 'DOC_LEFT', doc, reason: 'not_found' } });
+        this.#say(seat, { message: { type: 'docLeft', doc, reason: 'not_found' } });
       } else if (mode !== seat.mode) {
         seat.mode = mode;
         if (mode === 'read') this.#carets.gone(room, seat);
-        this.#say(seat, { message: { action: 'DOC_MODE', doc, mode } });
+        this.#say(seat, { message: { type: 'docModeChanged', doc, mode } });
       }
     }
     this.#afterLeft(room);

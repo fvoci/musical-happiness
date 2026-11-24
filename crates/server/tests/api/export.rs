@@ -27,7 +27,7 @@ pub(crate) async fn import(client: &Client, workspace_id: &str, bytes: &[u8]) ->
     let opened = client
         .post(
             &format!("/w/{workspace_id}/archive/uploads"),
-            &serde_json::json!({"name": "archive.boardarchive", "size": bytes.len()}),
+            &serde_json::json!({"name": "archive.fvoci", "size": bytes.len()}),
         )
         .await;
     if opened.status != StatusCode::CREATED {
@@ -198,9 +198,9 @@ async fn export_has_the_download_headers() {
         response.header("content-disposition")
     );
     assert!(
-        response
-            .header("content-disposition")
-            .ends_with(".boardarchive"),
+        std::path::Path::new(&response.header("content-disposition"))
+            .extension()
+            .is_some_and(|ext| ext == "fvoci"),
         "the extension"
     );
     assert_eq!(
@@ -209,28 +209,28 @@ async fn export_has_the_download_headers() {
         "transfer encoding"
     );
 
-    // The body is a ZIP with version 3 and the board's directory.
+    // The body is a ZIP with version 1 and the container's directory.
     let mut zip = zip::ZipArchive::new(Cursor::new(response.body.clone())).expect("a zip");
     let mut version = String::new();
     zip.by_name("version.json")
         .expect("version.json")
         .read_to_string(&mut version)
         .expect("read");
-    assert!(version.contains("\"version\":3"), "version 3: {version}");
+    assert!(version.contains("\"version\":1"), "version 1: {version}");
     assert!(
         (0..zip.len()).any(|index| {
             zip.by_index(index)
                 .expect("entry")
                 .name()
-                .is_ok_and(|name| name.ends_with("board.jsonl"))
+                .is_ok_and(|name| name.ends_with("container.jsonl"))
         }),
-        "a board.jsonl is present"
+        "a container.jsonl is present"
     );
     ts.teardown().await;
 }
 
-/// The lines of `board.jsonl` keep the archive's field name: a block and a member name
-/// their board `boardId`, never `containerId`.
+/// The lines of `container.jsonl` keep the contract's field name: a block and a member
+/// name their container `containerId`, never `boardId`.
 #[tokio::test]
 async fn an_exported_block_and_member_name_their_board_by_the_archives_name() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -241,25 +241,25 @@ async fn an_exported_block_and_member_name_their_board_by_the_archives_name() {
     let jsonl = zip
         .file_names()
         .filter_map(Result::ok)
-        .find(|name| name.ends_with("board.jsonl"))
+        .find(|name| name.ends_with("container.jsonl"))
         .map(std::borrow::Cow::into_owned)
-        .expect("a board.jsonl is present");
+        .expect("a container.jsonl is present");
     let mut lines = String::new();
     zip.by_name(&jsonl)
-        .expect("board.jsonl")
+        .expect("container.jsonl")
         .read_to_string(&mut lines)
         .expect("read");
     let mut kinds = Vec::new();
     for line in lines.lines() {
         let line: serde_json::Value = serde_json::from_str(line).expect("a JSON line");
         let kind = line["type"].as_str().expect("a line type").to_owned();
-        if kind == "block" || kind == "boardMember" {
-            assert_eq!(line["data"]["boardId"], board.id.as_str(), "{line}");
-            assert!(line["data"].get("containerId").is_none(), "{line}");
+        if kind == "block" || kind == "containerMember" {
+            assert_eq!(line["data"]["containerId"], board.id.as_str(), "{line}");
+            assert!(line["data"].get("boardId").is_none(), "{line}");
         }
         kinds.push(kind);
     }
-    for kind in ["board", "block", "boardMember"] {
+    for kind in ["container", "block", "containerMember"] {
         assert!(
             kinds.iter().any(|one| one == kind),
             "a {kind} line: {kinds:?}"
@@ -383,7 +383,7 @@ async fn import_of_a_traversing_entry_is_harmless() {
     let options = zip::write::SimpleFileOptions::default();
     writer.start_file("version.json", options).expect("start");
     writer
-        .write_all(br#"{"version":3,"date":1}"#)
+        .write_all(br#"{"version":1,"date":1}"#)
         .expect("write");
     writer
         .start_file("board1/../../../evil.txt", options)
@@ -468,12 +468,12 @@ pub(crate) async fn boards_of(ts: &TestServer) -> Vec<Container> {
     ts.client.get(&format!("{TEST_WS}/boards")).await.ok_json()
 }
 
-/// Older archive formats (line-based version 1 and ZIP version 2) and a ZIP without
-/// `version.json` are refused, and nothing of them is stored (`docs/s6-design.md` 3.10).
+/// Non-v1 archive versions (ZIP version 2 or 3, line-based non-ZIP) and a ZIP without
+/// `version.json` are refused, and nothing of them is stored.
 #[tokio::test]
 async fn archives_of_the_former_formats_are_refused() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = serde_json::json!({"type": "board", "data": {
+    let board = serde_json::json!({"type": "container", "data": {
         "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Former", "createAt": 1, "updateAt": 1,
     }});
     let zip_of = |entries: &[(&str, String)]| {
@@ -488,20 +488,53 @@ async fn archives_of_the_former_formats_are_refused() {
     };
     let version_two = zip_of(&[
         ("version.json", r#"{"version":2,"date":1}"#.to_owned()),
-        ("b1/board.jsonl", format!("{board}\n")),
+        ("b1/container.jsonl", format!("{board}\n")),
     ]);
-    let without_version = zip_of(&[("b1/board.jsonl", format!("{board}\n"))]);
+    let version_three = zip_of(&[
+        ("version.json", r#"{"version":3,"date":1}"#.to_owned()),
+        ("b1/container.jsonl", format!("{board}\n")),
+    ]);
+    let without_version = zip_of(&[("b1/container.jsonl", format!("{board}\n"))]);
     let legacy = format!(
         "{{\"version\":1,\"date\":1}}\n{}\n",
         serde_json::json!({"type": "block", "data": {
             "id": "b1", "type": "board", "title": "Former", "createAt": 1, "updateAt": 1,
         }})
     );
+    let legacy_board_line = zip_of(&[
+        ("version.json", r#"{"version":1,"date":1}"#.to_owned()),
+        (
+            "b1/container.jsonl",
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "type": "board",
+                    "data": {"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Former"}
+                })
+            ),
+        ),
+    ]);
+    let legacy_member_line = zip_of(&[
+        ("version.json", r#"{"version":1,"date":1}"#.to_owned()),
+        (
+            "b1/container.jsonl",
+            format!(
+                "{board}\n{}\n",
+                serde_json::json!({
+                    "type": "boardMember",
+                    "data": {"containerId": "b1", "userId": "u1", "schemeAdmin": true}
+                })
+            ),
+        ),
+    ]);
     let before = boards_of(&ts).await.len();
     for (what, bytes) in [
         ("version 2", version_two),
+        ("version 3", version_three),
         ("no version.json", without_version),
-        ("version 1", legacy.into_bytes()),
+        ("non-zip jsonl", legacy.into_bytes()),
+        ("legacy board line", legacy_board_line),
+        ("legacy boardMember line", legacy_member_line),
     ] {
         let response = import(&ts.client, TEST_WORKSPACE_ID, &bytes).await;
         response.check_bad_request();
@@ -530,12 +563,12 @@ async fn an_archive_carries_the_files_of_file_blocks() {
     an_archive_carries_the_files_of_bodies("file").await;
 }
 
-/// The first line of the board's `board.jsonl` in an archive: the board's own.
+/// The first line of the board's `container.jsonl` in an archive: the board's own.
 fn board_line(mut archive: zip::ZipArchive<Cursor<Vec<u8>>>, board_id: &str) -> serde_json::Value {
     let mut lines = String::new();
     std::io::Read::read_to_string(
         &mut archive
-            .by_name(&format!("{board_id}/board.jsonl"))
+            .by_name(&format!("{board_id}/container.jsonl"))
             .expect("the board's lines"),
         &mut lines,
     )
@@ -734,12 +767,12 @@ async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
     let block = |id: &str, parent: &str, kind: &str| {
         line(
             "block",
-            serde_json::json!({"id": id, "boardId": "b1", "parentId": parent, "type": kind,
+            serde_json::json!({"id": id, "containerId": "b1", "parentId": parent, "type": kind,
                                "title": id, "createAt": 1, "updateAt": 1}),
         )
     };
     let board = line(
-        "board",
+        "container",
         serde_json::json!({"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Comments",
                            "createAt": 1, "updateAt": 1}),
     );
@@ -758,9 +791,11 @@ async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
         writer.start_file("version.json", stored).expect("start");
         writer
-            .write_all(br#"{"version":3,"date":1}"#)
+            .write_all(br#"{"version":1,"date":1}"#)
             .expect("write");
-        writer.start_file("b1/board.jsonl", stored).expect("start");
+        writer
+            .start_file("b1/container.jsonl", stored)
+            .expect("start");
         writer
             .write_all(format!("{board}{blocks}").as_bytes())
             .expect("write");
@@ -780,7 +815,7 @@ async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
 #[tokio::test]
 async fn an_archive_with_a_broken_entry_stores_nothing() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = serde_json::json!({"type": "board", "data": {
+    let board = serde_json::json!({"type": "container", "data": {
         "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Broken", "createAt": 1, "updateAt": 1,
     }});
     let stored =
@@ -788,9 +823,11 @@ async fn an_archive_with_a_broken_entry_stores_nothing() {
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     writer.start_file("version.json", stored).expect("start");
     writer
-        .write_all(br#"{"version":3,"date":1}"#)
+        .write_all(br#"{"version":1,"date":1}"#)
         .expect("write");
-    writer.start_file("b1/board.jsonl", stored).expect("start");
+    writer
+        .start_file("b1/container.jsonl", stored)
+        .expect("start");
     writer
         .write_all(format!("{board}\n").as_bytes())
         .expect("write");
@@ -837,8 +874,8 @@ async fn an_archive_reads_back_whatever_an_attachment_names() {
         .insert_blocks(
             &board.id,
             &[
-                image("board.jsonl"),
-                image("x/board.jsonl"),
+                image("container.jsonl"),
+                image("x/container.jsonl"),
                 image("version.json"),
             ],
         )
@@ -859,14 +896,14 @@ async fn an_archive_reads_back_whatever_an_attachment_names() {
 /// given blocks below it.
 pub(crate) fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> {
     let board = |id: &str| {
-        serde_json::json!({"type": "board", "data": {
+        serde_json::json!({"type": "container", "data": {
             "id": id, "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": id, "createAt": 1,
             "updateAt": 1,
         }})
     };
     let card = |id: &str, board_id: &str| {
         serde_json::json!({"type": "block", "data": {
-            "id": id, "boardId": board_id, "type": "card", "title": "card", "createAt": 1,
+            "id": id, "containerId": board_id, "type": "card", "title": "card", "createAt": 1,
             "updateAt": 1,
         }})
     };
@@ -877,11 +914,11 @@ pub(crate) fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> 
     let options = zip::write::SimpleFileOptions::default();
     writer.start_file("version.json", options).expect("start");
     writer
-        .write_all(br#"{"version":3,"date":1}"#)
+        .write_all(br#"{"version":1,"date":1}"#)
         .expect("write");
     for (dir, lines) in [("b1", &first), ("b2", &second)] {
         writer
-            .start_file(format!("{dir}/board.jsonl"), options)
+            .start_file(format!("{dir}/container.jsonl"), options)
             .expect("start");
         for line in lines {
             writer
@@ -901,11 +938,11 @@ pub(crate) fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> 
 async fn an_archive_with_a_refused_board_stores_nothing() {
     let ts = Setup::native().start().await.init_basic().await;
     let older_type = serde_json::json!({"type": "block", "data": {
-        "id": "t2", "boardId": "b2", "parentId": "c2", "type": "text", "title": "text",
+        "id": "t2", "containerId": "b2", "parentId": "c2", "type": "text", "title": "text",
         "createAt": 1, "updateAt": 1,
     }});
     let oversized = serde_json::json!({"type": "block", "data": {
-        "id": "c3", "boardId": "b2", "type": "card", "title": "big", "createAt": 1,
+        "id": "c3", "containerId": "b2", "type": "card", "title": "big", "createAt": 1,
         "updateAt": 1, "fields": {"note": "x".repeat(70_000)},
     }});
     for (block, says) in [
@@ -961,7 +998,7 @@ async fn an_export_is_sent_with_its_length_and_leaves_nothing() {
 
     // What a stopped server left is removed when it starts.
     std::fs::create_dir_all(&exports).expect("the directory is made");
-    std::fs::write(exports.join("stopped.boardarchive"), b"half").expect("written");
+    std::fs::write(exports.join("stopped.fvoci"), b"half").expect("written");
     let removed = ts
         .app
         .sweep_temporary_files()
@@ -1228,7 +1265,7 @@ async fn a_missing_file_is_listed_and_imported_as_missing(ts: &TestServer) {
     entries.sort_unstable();
     let mut expected = vec![
         "version.json".to_owned(),
-        format!("{}/board.jsonl", board.id),
+        format!("{}/container.jsonl", board.id),
         format!("{}/{present}", board.id),
     ];
     expected.sort_unstable();

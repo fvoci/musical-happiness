@@ -84,7 +84,7 @@ async fn listed(client: &Client, at: &str) -> Vec<String> {
 async fn at_the_door(client: &Client, workspace_id: &str, page_id: &str) -> String {
     let mut peer = Peer::connect(client, 301).await;
     let answer = peer.join(workspace_id, page_id).await;
-    let said = if answer["action"] == json!("DOC_JOINED") {
+    let said = if answer["type"] == json!("docJoined") {
         &answer["mode"]
     } else {
         &answer["reason"]
@@ -540,7 +540,7 @@ async fn who_may_not_read_a_wiki_is_told_nothing_of_its_pages() {
         }
         let of_pages: Vec<&Value> = heard
             .iter()
-            .filter(|told| told["action"] == json!("UPDATE_BLOCK"))
+            .filter(|told| told["type"] == json!("blockChanged"))
             .collect();
         assert_eq!(of_pages.len(), 1, "{standing}: {of_pages:?}");
         assert_eq!(

@@ -34,7 +34,7 @@ describe('an export', () => {
           status: 200,
           headers: {
             'Content-Length': '8',
-            'Content-Disposition': 'attachment; filename=archive-2026-11-11.boardarchive',
+            'Content-Disposition': 'attachment; filename=archive-2026-11-11.fvoci',
           },
         }),
       );
@@ -44,7 +44,7 @@ describe('an export', () => {
       onProgress: (progress) => seen.push([progress.sentBytes, progress.totalBytes]),
     });
     expect(urls).toEqual(['/base/api/v1/w/w1/containers/b1/archive/export']);
-    expect(archive.name).toBe('archive-2026-11-11.boardarchive');
+    expect(archive.name).toBe('archive-2026-11-11.fvoci');
     expect(await archive.bytes.text()).toBe('PK1234ab');
     expect(seen).toEqual([
       [0, 8],
@@ -82,7 +82,7 @@ describe('an export', () => {
   });
 
   it('reads the name of a Content-Disposition, plain, quoted or encoded', () => {
-    expect(dispositionName('attachment; filename=a.boardarchive')).toBe('a.boardarchive');
+    expect(dispositionName('attachment; filename=a.fvoci')).toBe('a.fvoci');
     expect(dispositionName('attachment; filename="a b.zip"')).toBe('a b.zip');
     expect(dispositionName("attachment; filename*=UTF-8''%EB%B3%B4%EB%93%9C.zip")).toBe('보드.zip');
     expect(dispositionName(null)).toBeUndefined();
@@ -136,7 +136,7 @@ describe('an import', () => {
     const seen: number[] = [];
     const imported = await serverBackend('').importArchive(
       't1',
-      new File(['12345678'], 'boards.boardarchive', { type: 'application/zip' }),
+      new File(['12345678'], 'boards.fvoci', { type: 'application/zip' }),
       { onProgress: (progress) => seen.push(progress.sentBytes) },
     );
     expect(imported).toEqual({
@@ -155,7 +155,7 @@ describe('an import', () => {
       'POST /api/v1/w/t1/archive/import',
     ]);
     expect(calls[1]?.json).toEqual({
-      name: 'boards.boardarchive',
+      name: 'boards.fvoci',
       size: 8,
       contentType: 'application/zip',
     });
@@ -185,7 +185,7 @@ describe('an import', () => {
   it('refuses an archive over the server’s limit before sending anything', async () => {
     const calls = importServer(5);
     const refused = await serverBackend('')
-      .importArchive('t1', new File(['12345678'], 'big.boardarchive'))
+      .importArchive('t1', new File(['12345678'], 'big.fvoci'))
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && [refused.status, refused.limit, refused.reason]).toEqual([
       413,

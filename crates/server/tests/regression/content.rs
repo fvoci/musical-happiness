@@ -443,7 +443,7 @@ pub(crate) async fn archive(s: &mut Session) {
         .user(&bob)
         .await;
     s.post("import: anonymous", &format!("{ROOT_API}/archive/uploads"))
-        .json(json!({"name": "export.boardarchive", "size": exported.len()}))
+        .json(json!({"name": "export.fvoci", "size": exported.len()}))
         .await;
     let upload = upload_archive(s, &bob, b"this is not an archive").await;
     s.post("import: not an archive", &import)
@@ -542,7 +542,7 @@ async fn upload_archive(s: &mut Session, user: &str, bytes: &[u8]) -> String {
             "open an upload of an archive",
             &format!("{ROOT_API}/archive/uploads"),
         )
-        .json(json!({"name": "export.boardarchive", "size": bytes.len()}))
+        .json(json!({"name": "export.fvoci", "size": bytes.len()}))
         .user(user)
         .unrecorded()
         .await;

@@ -154,7 +154,7 @@ async fn archives(case: &mut Case, board: &str) {
         .run(
             "createImportUpload",
             &[],
-            json!({"name": "parity.boardarchive", "size": archive.body.len()}),
+            json!({"name": "parity.fvoci", "size": archive.body.len()}),
         )
         .await
         .value();

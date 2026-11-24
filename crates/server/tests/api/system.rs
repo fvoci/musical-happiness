@@ -1,4 +1,4 @@
-//! Integration tests for system endpoints (`hello`, `ping`, `clientConfig`) and HTTP
+//! Integration tests for system endpoints (`ping`, `clientConfig`) and HTTP
 //! routing middleware: request-forgery checks, cache headers, SPA fallback, and base path.
 
 use fvoci_model::ContainerType;
@@ -12,19 +12,18 @@ use crate::common::{
     Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, USER1_USERNAME,
 };
 
-/// `GET /hello` returns `"Hello"`.
+/// Retired `/api/v1/hello` returns 404.
 #[tokio::test]
-async fn hello_returns_hello_on_success() {
+async fn retired_hello_route_returns_not_found() {
     let th = Setup::native().start().await;
 
     let response = Client::send(th.client.raw_request(Method::GET, "/api/v1/hello")).await;
 
-    response.check_ok();
-    assert_eq!(response.text(), "Hello", "the greeting");
+    response.check_error(StatusCode::NOT_FOUND, "route not found");
     th.teardown().await;
 }
 
-/// `GET /ping` returns server metadata fields.
+/// `GET /ping` returns camelCase fvoci server metadata fields.
 #[tokio::test]
 async fn ping_returns_metadata_on_success() {
     let th = Setup::native().start().await;
@@ -37,27 +36,14 @@ async fn ping_returns_metadata_on_success() {
         json!(env!("CARGO_PKG_VERSION")),
         "the server's own version: {metadata}"
     );
-    assert_eq!(metadata["sku"], json!("personal_server"), "{metadata}");
-    assert_eq!(metadata["edition"], json!("dev"), "{metadata}");
-    assert_eq!(metadata["build_number"], json!(""), "{metadata}");
-    let db_type = metadata["db_type"].as_str().unwrap_or_default();
+    let db_type = metadata["dbType"].as_str().unwrap_or_default();
     assert!(db_type == "sqlite" || db_type == "postgres", "{metadata}");
     assert!(
-        !metadata["db_version"]
+        !metadata["dbVersion"]
             .as_str()
             .unwrap_or_default()
             .is_empty(),
         "the database reports a version: {metadata}"
-    );
-    assert_eq!(
-        metadata["os_type"],
-        json!(std::env::consts::OS),
-        "{metadata}"
-    );
-    assert_eq!(
-        metadata["os_arch"],
-        json!(std::env::consts::ARCH),
-        "{metadata}"
     );
     let mut keys: Vec<&str> = metadata
         .as_object()
@@ -67,18 +53,7 @@ async fn ping_returns_metadata_on_success() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        [
-            "build_date",
-            "build_number",
-            "commit",
-            "db_type",
-            "db_version",
-            "edition",
-            "os_arch",
-            "os_type",
-            "sku",
-            "version"
-        ],
+        ["buildDate", "commit", "dbType", "dbVersion", "version"],
         "expected ping metadata keys"
     );
     th.teardown().await;
@@ -133,7 +108,7 @@ async fn reading_needs_no_requested_with_header() {
             .bearer_auth(&th.client.token);
         Client::send(request).await.check_ok();
     }
-    Client::send(th.client.raw_request(Method::GET, "/api/v1/hello"))
+    Client::send(th.client.raw_request(Method::GET, "/api/v1/ping"))
         .await
         .check_ok();
     th.teardown().await;
@@ -408,14 +383,18 @@ async fn startup_refuses_a_malformed_base_path() {
         .base_path(&format!("{ROOT_WS}/boards/"))
         .start()
         .await;
-    let hello = format!("{}/api/v1/hello", th.base_url.trim_end_matches('/'));
+    let ping = format!("{}/api/v1/ping", th.base_url.trim_end_matches('/'));
     assert!(
-        hello.ends_with(&format!("{ROOT_WS}/boards/api/v1/hello")),
-        "{hello}"
+        ping.ends_with(&format!("{ROOT_WS}/boards/api/v1/ping")),
+        "{ping}"
     );
-    let response = Client::send(reqwest::Client::new().get(hello)).await;
+    let response = Client::send(reqwest::Client::new().get(ping)).await;
     response.check_ok();
-    assert_eq!(response.text(), "Hello", "the API, not the web app's page");
+    assert_eq!(
+        response.value()["version"],
+        json!(env!("CARGO_PKG_VERSION")),
+        "the API, not the web app's page"
+    );
     th.teardown().await;
 }
 

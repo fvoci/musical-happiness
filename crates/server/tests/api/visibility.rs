@@ -105,8 +105,7 @@ impl Hidden {
                 &json!({
                     "blockType": "card",
                     "blockId": card.id,
-                    "subscriberType": "user",
-                    "subscriberId": owner.id,
+                    "userId": owner.id,
                 }),
             )
             .await
@@ -456,7 +455,7 @@ fn content_cases() -> Vec<Case> {
             |h, i| {
                 json!({
                     "blockType": "card", "blockId": h.card[i],
-                    "subscriberType": "user", "subscriberId": h.outsider,
+                    "userId": h.outsider,
                 })
             },
         ),
@@ -1100,7 +1099,7 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
         (
             Method::POST,
             format!("{TEST_WS}/subscriptions"),
-            json!({"blockType": "card", "blockId": "{}", "subscriberType": "user", "subscriberId": me}),
+            json!({"blockType": "card", "blockId": "{}", "userId": me}),
         ),
     ];
     requests.extend(the_people_of_a_workspace(me));

@@ -214,7 +214,7 @@ impl Asked {
 
 impl Turn {
     /// Has an answer of the store take effect for a member: told how they are in the
-    /// room if that changed (`DOC_MODE`), or put out if they are not let in, if the
+    /// room if that changed (`docModeChanged`), or put out if they are not let in, if the
     /// store could not be asked (`None`: not answered in time).
     fn settle(&mut self, index: usize, answer: Option<&Answer>) {
         let member = &mut self.members[index];
@@ -378,7 +378,7 @@ impl Collab {
 
     /// Asks again whether each member of a room may be in it, and how: who may no
     /// longer read the card's board is put out, and who is to be in the room otherwise
-    /// than they are is told so (`DOC_MODE`). Nobody stays unasked: a member the store
+    /// than they are is told so (`docModeChanged`). Nobody stays unasked: a member the store
     /// could not be asked about, or was not asked about within the time of one
     /// asking, is asked about once more two seconds later, and put out if the store
     /// does not answer then either. The store is asked while the room is not held; what

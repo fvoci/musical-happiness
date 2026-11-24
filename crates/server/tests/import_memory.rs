@@ -1,4 +1,4 @@
-//! Peak allocator and RSS memory tests for native `board.jsonl` archive imports (T12).
+//! Peak allocator and RSS memory tests for native `container.jsonl` archive imports (T12).
 //!
 //! Uses a counting [`GlobalAlloc`] so peak heap usage during `App::import_external_archive`
 //! is measured directly in bytes, alongside Linux `VmHWM` when available.
@@ -138,7 +138,7 @@ impl CardShape {
     }
 }
 
-/// Streams a native v3 ZIP archive directly to `dest` whose `b1/board.jsonl` is at least
+/// Streams a native v1 ZIP archive directly to `dest` whose `b1/container.jsonl` is at least
 /// `target_jsonl_bytes` long (never exceeding 64 MiB), returning `(actual_bytes, cards)`.
 fn write_large_native_archive(
     dest: &Path,
@@ -153,16 +153,16 @@ fn write_large_native_archive(
         .start_file("version.json", opts)
         .expect("start version");
     writer
-        .write_all(br#"{"version":3,"date":1}"#)
+        .write_all(br#"{"version":1,"date":1}"#)
         .expect("write version");
 
     writer
-        .start_file("b1/board.jsonl", opts)
-        .expect("start board.jsonl");
+        .start_file("b1/container.jsonl", opts)
+        .expect("start container.jsonl");
     let board_line = format!(
         "{}\n",
         json!({
-            "type": "board",
+            "type": "container",
             "data": {
                 "id": "b1",
                 "workspaceId": TEST_WORKSPACE_ID,
@@ -189,7 +189,7 @@ fn write_large_native_archive(
                 "type": "block",
                 "data": {
                     "id": card_id,
-                    "boardId": "b1",
+                    "containerId": "b1",
                     "parentId": "",
                     "type": "card",
                     "title": format!("Card {cards}"),
@@ -217,7 +217,7 @@ fn write_large_native_archive(
 async fn measure_native_archive_import_memory() {
     let tmp = TempDir::new();
     println!(
-        "| fixture | board.jsonl MiB | cards | peak heap delta MiB | VmHWM MiB | elapsed ms |"
+        "| fixture | container.jsonl MiB | cards | peak heap delta MiB | VmHWM MiB | elapsed ms |"
     );
     println!("| --- | ---: | ---: | ---: | ---: | ---: |");
 
@@ -229,7 +229,7 @@ async fn measure_native_archive_import_memory() {
     ] {
         let archive_path = tmp
             .path()
-            .join(format!("{}-{target_mib}.boardarchive", shape.label()));
+            .join(format!("{}-{target_mib}.fvoci", shape.label()));
         let (jsonl_bytes, expected_cards) =
             write_large_native_archive(&archive_path, target_mib * 1024 * 1024, shape);
 
@@ -277,13 +277,13 @@ async fn measure_native_archive_import_memory() {
 }
 
 /// Fast regression guard (runs in standard test suite): imports an 8 MiB small-nodes
-/// `board.jsonl` archive AND an out-of-order parent archive (comments before cards),
+/// `container.jsonl` archive AND an out-of-order parent archive (comments before cards),
 /// verifying all blocks/comments round-trip and peak heap stays far below the ~200+ MiB
 /// non-streaming expansion.
 #[tokio::test]
 async fn streaming_native_import_bounds_peak_memory_and_handles_out_of_order_parents() {
     let tmp = TempDir::new();
-    let archive_path = tmp.path().join("small-nodes-8mib.boardarchive");
+    let archive_path = tmp.path().join("small-nodes-8mib.fvoci");
     let (_jsonl_bytes, expected_cards) =
         write_large_native_archive(&archive_path, 8 * 1024 * 1024, CardShape::SmallNodes);
 
@@ -314,28 +314,30 @@ async fn streaming_native_import_bounds_peak_memory_and_handles_out_of_order_par
         bytes_to_mib(peak_bytes)
     );
 
-    // Out-of-order parents: comments appear BEFORE their parent cards in `board.jsonl`.
-    let ooo_path = tmp.path().join("out-of-order.boardarchive");
+    // Out-of-order parents: comments appear BEFORE their parent cards in `container.jsonl`.
+    let ooo_path = tmp.path().join("out-of-order.fvoci");
     {
         let file = File::create(&ooo_path).expect("create ooo archive");
         let mut writer = zip::ZipWriter::new(BufWriter::new(file));
         let opts =
             SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         writer.start_file("version.json", opts).expect("version");
-        writer.write_all(br#"{"version":3,"date":1}"#).expect("w");
-        writer.start_file("b1/board.jsonl", opts).expect("board");
+        writer.write_all(br#"{"version":1,"date":1}"#).expect("w");
+        writer
+            .start_file("b1/container.jsonl", opts)
+            .expect("board");
         let lines = [
-            json!({"type": "board", "data": {
+            json!({"type": "container", "data": {
                 "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": "board",
                 "title": "Out Of Order", "createAt": 1, "updateAt": 1
             }}),
             json!({"type": "block", "data": {
-                "id": "cm1", "boardId": "b1", "parentId": "c1", "type": "comment",
+                "id": "cm1", "containerId": "b1", "parentId": "c1", "type": "comment",
                 "title": "", "fields": {}, "createAt": 1, "updateAt": 1,
                 "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "before parent"}]}]}
             }}),
             json!({"type": "block", "data": {
-                "id": "c1", "boardId": "b1", "parentId": "", "type": "card",
+                "id": "c1", "containerId": "b1", "parentId": "", "type": "card",
                 "title": "Parent Card", "fields": {}, "createAt": 1, "updateAt": 1
             }}),
         ];
@@ -410,27 +412,27 @@ async fn streaming_native_import_handles_revisit_spillover_and_bounds_deep_rever
 
     // 1. Revisit spillover: 10 x ~260 KiB comments BEFORE their parent card (>2 MiB pending).
     let big_text = "x".repeat(260 * 1024);
-    let mut revisit_lines = vec![json!({"type": "board", "data": {
+    let mut revisit_lines = vec![json!({"type": "container", "data": {
         "id": "b-rev", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": "board",
         "title": "Revisit Spillover", "createAt": 1, "updateAt": 1
     }})];
     for i in 0..10 {
         revisit_lines.push(json!({"type": "block", "data": {
-            "id": format!("cm-{i}"), "boardId": "b-rev", "parentId": "c-parent", "type": "comment",
+            "id": format!("cm-{i}"), "containerId": "b-rev", "parentId": "c-parent", "type": "comment",
             "title": "", "fields": {}, "createAt": 1, "updateAt": 1,
             "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": big_text}]}]}
         }}));
     }
     revisit_lines.push(json!({"type": "block", "data": {
-        "id": "c-parent", "boardId": "b-rev", "parentId": "", "type": "card",
+        "id": "c-parent", "containerId": "b-rev", "parentId": "", "type": "card",
         "title": "Late Parent", "fields": {}, "createAt": 1, "updateAt": 1
     }}));
-    let revisit_path = tmp.path().join("revisit.boardarchive");
+    let revisit_path = tmp.path().join("revisit.fvoci");
     write_zip_entries(
         &revisit_path,
         &[
-            ("version.json", br#"{"version":3,"date":1}"#),
-            ("b-rev/board.jsonl", &jsonl_bytes(&revisit_lines)),
+            ("version.json", br#"{"version":1,"date":1}"#),
+            ("b-rev/container.jsonl", &jsonl_bytes(&revisit_lines)),
         ],
     );
     let rev = ts
@@ -458,27 +460,27 @@ async fn streaming_native_import_handles_revisit_spillover_and_bounds_deep_rever
         .await
         .expect("list containers")
         .len();
-    let mut deep_lines = vec![json!({"type": "board", "data": {
+    let mut deep_lines = vec![json!({"type": "container", "data": {
         "id": "b-deep", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": "board",
         "title": "Too Deep Reverse", "createAt": 1, "updateAt": 1
     }})];
     for i in (1..=45).rev() {
         deep_lines.push(json!({"type": "block", "data": {
-            "id": format!("n-{i}"), "boardId": "b-deep", "parentId": format!("n-{}", i - 1),
+            "id": format!("n-{i}"), "containerId": "b-deep", "parentId": format!("n-{}", i - 1),
             "type": "view", "title": format!("N{i}"), "fields": {"pad": big_text},
             "createAt": 1, "updateAt": 1
         }}));
     }
     deep_lines.push(json!({"type": "block", "data": {
-        "id": "n-0", "boardId": "b-deep", "parentId": "", "type": "view",
+        "id": "n-0", "containerId": "b-deep", "parentId": "", "type": "view",
         "title": "Root", "fields": {}, "createAt": 1, "updateAt": 1
     }}));
-    let deep_path = tmp.path().join("deep-reverse.boardarchive");
+    let deep_path = tmp.path().join("deep-reverse.fvoci");
     write_zip_entries(
         &deep_path,
         &[
-            ("version.json", br#"{"version":3,"date":1}"#),
-            ("b-deep/board.jsonl", &jsonl_bytes(&deep_lines)),
+            ("version.json", br#"{"version":1,"date":1}"#),
+            ("b-deep/container.jsonl", &jsonl_bytes(&deep_lines)),
         ],
     );
     let err = ts
@@ -517,36 +519,36 @@ async fn streaming_native_import_handles_empty_board_id_attachments_and_cross_bo
     // 1. Empty board ID + file attachment pointing + cross-board body references.
     let old_target_id = new_id();
     let b1_lines = jsonl_bytes(&[
-        json!({"type": "board", "data": {
+        json!({"type": "container", "data": {
             "id": "", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": "board",
             "title": "Empty ID Target", "createAt": 1, "updateAt": 1
         }}),
         json!({"type": "block", "data": {
-            "id": old_target_id, "boardId": "", "parentId": "", "type": "card",
+            "id": old_target_id, "containerId": "", "parentId": "", "type": "card",
             "title": "Target", "fields": {}, "createAt": 1, "updateAt": 1
         }}),
     ]);
     let b2_lines = jsonl_bytes(&[
-        json!({"type": "board", "data": {
+        json!({"type": "container", "data": {
             "id": "b-src", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": "board",
             "title": "Attachment And CrossRef", "createAt": 1, "updateAt": 1
         }}),
         json!({"type": "block", "data": {
-            "id": "card-a", "boardId": "b-src", "parentId": "", "type": "card",
+            "id": "card-a", "containerId": "b-src", "parentId": "", "type": "card",
             "title": "First", "fields": {}, "createAt": 1, "updateAt": 1,
             "body": {"type": "doc", "content": [{"type": "paragraph", "content": [
                 {"type": "reference", "attrs": {"id": old_target_id}}
             ]}]}
         }}),
         json!({"type": "block", "data": {
-            "id": "card-b", "boardId": "b-src", "parentId": "", "type": "card",
+            "id": "card-b", "containerId": "b-src", "parentId": "", "type": "card",
             "title": "Second", "fields": {}, "createAt": 1, "updateAt": 1,
             "body": {"type": "doc", "content": [{"type": "paragraph", "content": [
                 {"type": "reference", "attrs": {"id": old_target_id}}
             ]}]}
         }}),
         json!({"type": "block", "data": {
-            "id": "att-1", "boardId": "b-src", "parentId": "card-a", "type": "attachment",
+            "id": "att-1", "containerId": "b-src", "parentId": "card-a", "type": "attachment",
             "title": "pic.png", "fields": {"fileId": "old.png"}, "createAt": 1, "updateAt": 1
         }}),
     ]);
@@ -557,13 +559,13 @@ async fn streaming_native_import_handles_empty_board_id_attachments_and_cross_bo
         0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
         0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     ];
-    let combo_path = tmp.path().join("combo.boardarchive");
+    let combo_path = tmp.path().join("combo.fvoci");
     write_zip_entries(
         &combo_path,
         &[
-            ("version.json", br#"{"version":3,"date":1}"#),
-            ("b1/board.jsonl", &b1_lines),
-            ("b2/board.jsonl", &b2_lines),
+            ("version.json", br#"{"version":1,"date":1}"#),
+            ("b1/container.jsonl", &b1_lines),
+            ("b2/container.jsonl", &b2_lines),
             ("b2/old.png", png_1x1),
         ],
     );

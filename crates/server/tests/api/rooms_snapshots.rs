@@ -70,7 +70,7 @@ async fn snapshot(th: &TestServer, table: &Table, operation: &str) -> Option<Val
         response.check_ok();
         let mut zip = zip::ZipArchive::new(Cursor::new(response.body)).expect("a ZIP archive");
         let mut lines = String::new();
-        zip.by_name(&format!("{}/board.jsonl", table.board_id))
+        zip.by_name(&format!("{}/container.jsonl", table.board_id))
             .expect("the board")
             .read_to_string(&mut lines)
             .expect("JSONL");
@@ -273,9 +273,9 @@ async fn a_full_server_still_writes_a_closed_documents_log_before_a_copy_or_an_e
     let mut other = Peer::connect(&th.client, 105).await;
     let answer = other.join(TEST_WORKSPACE_ID, &refused).await;
     assert_eq!(
-        (&answer["action"], &answer["reason"]),
+        (&answer["type"], &answer["reason"]),
         (
-            &serde_json::json!("DOC_REFUSED"),
+            &serde_json::json!("docRefused"),
             &serde_json::json!("too_many_documents")
         ),
         "the server holds as many documents as it may: {answer}"

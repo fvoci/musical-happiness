@@ -206,7 +206,6 @@ impl Named {
             .replace("{fileId}", &self.file)
             .replace("{uploadId}", &self.upload)
             .replace("{userId}", &self.member_id)
-            .replace("{subscriberId}", &self.member_id)
             .replace("{categoryId}", &self.category)
             .replace("{invitationId}", &self.invitation_id)
             .replace("{teamId}", &self.team)
@@ -395,8 +394,7 @@ async fn member_card_activity(
     member
         .post(
             &format!("{at}/subscriptions"),
-            &json!({"blockType": "card", "blockId": card_id,
-                "subscriberType": "user", "subscriberId": member_id}),
+            &json!({"blockType": "card", "blockId": card_id, "userId": member_id}),
         )
         .await
         .check_created();

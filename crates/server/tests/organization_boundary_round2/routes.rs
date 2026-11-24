@@ -238,10 +238,10 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/subscriptions", "createSubscription"),
     (
         "DELETE",
-        "/subscriptions/{blockId}/{subscriberId}",
+        "/subscriptions/{blockId}/{userId}",
         "deleteSubscription",
     ),
-    ("GET", "/subscriptions/{subscriberId}", "getSubscriptions"),
+    ("GET", "/subscriptions/{userId}", "getSubscriptions"),
     ("GET", "/templates", "getTemplates"),
     ("GET", "/trash/containers", "getDeletedContainers"),
     ("DELETE", "/uploads/{uploadId}", "deleteUpload"),
@@ -1391,10 +1391,16 @@ impl Items<'_> {
             .replace("{monthDay}", "02-29")
             .replace("{fileId}", &pick(self.file, "missing-file"))
             .replace("{uploadId}", &pick(self.upload_id, "missing-upload"))
-            .replace("{userId}", &pick(self.user, UNKNOWN_ID))
+            .replace(
+                "{userId}",
+                &if template.contains("/subscriptions/") {
+                    subscriber.to_owned()
+                } else {
+                    pick(self.user, UNKNOWN_ID)
+                },
+            )
             .replace("{invitationId}", &pick(self.invitation, UNKNOWN_ID))
             .replace("{teamId}", &pick(self.team, UNKNOWN_ID))
-            .replace("{subscriberId}", subscriber)
             .replace("{partNumber}", "1")
             .replace("{version}", "1")
             // The card's number on its board; of nothing, one that no card has.
@@ -1466,7 +1472,7 @@ pub(super) async fn compare_resource_routes(
                 "setSharing" => json!({"enabled": true}),
                 "holdFileLease" => json!({"leaseId": ""}),
                 "createSubscription" => {
-                    json!({"blockId": block(absent), "blockType": "card", "subscriberType": "user", "subscriberId": caller})
+                    json!({"blockId": block(absent), "blockType": "card", "userId": caller})
                 }
                 _ => json!({}),
             };
@@ -1580,8 +1586,7 @@ async fn follow(store: &fvoci_store::Store, card: &Block, user_id: &str) {
         .create_subscription(fvoci_model::Subscription {
             block_type: BlockType::Card,
             block_id: card.id.clone(),
-            subscriber_type: fvoci_model::SubscriberType::User,
-            subscriber_id: user_id.to_owned(),
+            user_id: user_id.to_owned(),
             notified_at: 0,
             create_at: 0,
             delete_at: 0,

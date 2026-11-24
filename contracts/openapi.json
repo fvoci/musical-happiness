@@ -443,7 +443,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The body of a card, a comment, a page, an entry or a unit; `null` for a block\nwithout one. Only those have one: a body on another block is refused (400 naming\n`body`). Every image of it shows a file of the block's board. Whoever reads it by\nthe board's link gets every mention with an empty `userId`: a shape that is only\nsent, which a write would have refused. A change message (`UPDATE_BLOCK`) of a\ncard, a page, an entry or a unit has it `null`, with a summary of it beside the\nblock."
+                "description": "The body of a card, a comment, a page, an entry or a unit; `null` for a block\nwithout one. Only those have one: a body on another block is refused (400 naming\n`body`). Every image of it shows a file of the block's board. Whoever reads it by\nthe board's link gets every mention with an empty `userId`: a shape that is only\nsent, which a write would have refused. A change message (`blockChanged`) of a\ncard, a page, an entry or a unit has it `null`, with a summary of it beside the\nblock."
               },
               {
                 "type": "null"
@@ -776,7 +776,7 @@
             "type": "boolean"
           },
           "lastCommentAt": {
-            "description": "When the card's last comment was posted (the `createAt` of the newest of its\ncomments, the blocks of the type `comment` directly on it), in milliseconds since\nthe Unix epoch; zero if it has none. Changing a comment does not change it; a\ndeleted comment does not count, and counts again with its time if restored. A\ncomment does not change the card's `updateAt`. A new comment comes as\n`UPDATE_BLOCK`, so a client can keep the newer time; after a deletion the card is\nread again for it. A number sent here in a request is ignored.",
+            "description": "When the card's last comment was posted (the `createAt` of the newest of its\ncomments, the blocks of the type `comment` directly on it), in milliseconds since\nthe Unix epoch; zero if it has none. Changing a comment does not change it; a\ndeleted comment does not count, and counts again with its time if restored. A\ncomment does not change the card's `updateAt`. A new comment comes as\n`blockChanged`, so a client can keep the newer time; after a deletion the card is\nread again for it. A number sent here in a request is ignored.",
             "format": "int64",
             "type": "integer"
           },
@@ -2360,7 +2360,7 @@
             "type": "string"
           },
           "id": {
-            "description": "The entry's identifier: what its room is joined by (`JOIN_DOC`).",
+            "description": "The entry's identifier: what its room is joined by (`joinDoc`).",
             "type": "string"
           },
           "modifiedBy": {
@@ -2799,7 +2799,7 @@
         "properties": {
           "format": {
             "$ref": "#/components/schemas/ImportFormat",
-            "description": "Source format of the uploaded file: `fvoci` (native archive `.boardarchive`/`.zip`,\ndefault when omitted), `trello` (Trello board `.json`), or `notion` (Notion\nMarkdown & CSV `.zip`)."
+            "description": "Source format of the uploaded file: `fvoci` (native archive `.fvoci`/`.zip`,\ndefault when omitted), `trello` (Trello board `.json`), or `notion` (Notion\nMarkdown & CSV `.zip`)."
           },
           "uploadId": {
             "description": "The upload of the archive, every part of it received. It is thrown away by the\nimport, whether the import succeeds or not.",
@@ -4164,20 +4164,15 @@
             "description": "The type of the block subscribed to.",
             "type": "string"
           },
-          "subscriberId": {
+          "userId": {
             "description": "The user of the session: a user subscribes for themselves only.",
-            "type": "string"
-          },
-          "subscriberType": {
-            "description": "Always `user`.",
             "type": "string"
           }
         },
         "required": [
           "blockType",
           "blockId",
-          "subscriberType",
-          "subscriberId"
+          "userId"
         ],
         "type": "object"
       },
@@ -6134,40 +6129,20 @@
       "ServerMetadata": {
         "description": "What `ping` reports about the server.",
         "properties": {
-          "build_date": {
+          "buildDate": {
             "description": "The build date; empty unless set at build time.",
-            "type": "string"
-          },
-          "build_number": {
-            "description": "The build number; empty unless set at build time.",
             "type": "string"
           },
           "commit": {
             "description": "The commit the server was built from; empty unless set at build time.",
             "type": "string"
           },
-          "db_type": {
+          "dbType": {
             "description": "The database kind: `sqlite` or `postgres`.",
             "type": "string"
           },
-          "db_version": {
+          "dbVersion": {
             "description": "The database's version string.",
-            "type": "string"
-          },
-          "edition": {
-            "description": "The edition of the server.",
-            "type": "string"
-          },
-          "os_arch": {
-            "description": "The CPU architecture the server runs on, as Rust names it (`x86_64`, `aarch64`).",
-            "type": "string"
-          },
-          "os_type": {
-            "description": "The operating system the server runs on, as Rust names it (`linux`, `macos`,\n`windows`).",
-            "type": "string"
-          },
-          "sku": {
-            "description": "The kind of deployment: always `personal_server`.",
             "type": "string"
           },
           "version": {
@@ -6177,15 +6152,10 @@
         },
         "required": [
           "version",
-          "build_number",
-          "build_date",
           "commit",
-          "edition",
-          "db_type",
-          "db_version",
-          "os_type",
-          "os_arch",
-          "sku"
+          "buildDate",
+          "dbType",
+          "dbVersion"
         ],
         "type": "object"
       },
@@ -6422,16 +6392,8 @@
         ],
         "type": "object"
       },
-      "SubscriberType": {
-        "description": "The kind of entity that subscribes.",
-        "enum": [
-          "user",
-          "channel"
-        ],
-        "type": "string"
-      },
       "Subscription": {
-        "description": "A subscription to the changes of a board or card.",
+        "description": "A subscription to the changes of a block.",
         "properties": {
           "blockId": {
             "description": "The identifier of the block subscribed to.",
@@ -6456,13 +6418,9 @@
             "format": "int64",
             "type": "integer"
           },
-          "subscriberId": {
-            "description": "The identifier of the subscriber.",
+          "userId": {
+            "description": "The identifier of the subscribed user.",
             "type": "string"
-          },
-          "subscriberType": {
-            "$ref": "#/components/schemas/SubscriberType",
-            "description": "The kind of entity that subscribes."
           }
         },
         "required": [
@@ -6471,8 +6429,7 @@
           "createAt",
           "deleteAt",
           "notifiedAt",
-          "subscriberId",
-          "subscriberType"
+          "userId"
         ],
         "type": "object"
       },
@@ -7890,7 +7847,7 @@
     }
   },
   "info": {
-    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its `readToken`, and look at no session that comes along.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401. A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` in bytes.\n\nAny request may be answered 503 with the reason `database_busy`: the database did not take one of its statements in time (another write held the file, or no connection to it was to be had). That statement did nothing and may be taken a moment later. A request of one step may be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done before stays done, and sent again it is answered as its operation says.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## The user's own space\n\nEvery account has a space of its own from the moment it is made, however it was made: an organization of the `kind` `personal` with the account as its only member and one workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, the trash, export and import, and sharing by a public link (`setSharing`) work in it as anywhere. It has no name (a client calls it by the reader's language) and takes none.\n\nWhat it has not is other people, and anybody to administer it. Its identifier is 404 for every operation under `/org/{orgId}` (the organization and its settings, its members, its workspaces, joining one as an administrator, its audit log, its provider of sign-ins), for its owner as for anybody else, and no answer of those operations names it. Under its workspace these are 404, as for a workspace that is not there: `createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, `setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is under it) and on the teams of a board or a wiki (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page (`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is moved to or from another organization but by export and import, and no reference reaches into it from outside or out of it. What changes in it is told to nobody else: the server's operator is posted no block of it (`block_change_webhooks`), and it is in no audit log anybody but its owner reads.\n\nAn account that was made by a sign-in through an organization's provider has no password (`hasPassword` of `getMe`), and until it has one its space is reached by any session of the account. It is given one by `setPassword`, so that its person reaches the space when they are no longer in that organization. Once the account has a password, the space takes only sessions that have shown it: one made with it (`login`), and one made through a provider that gave it since (`confirmPassword`). A provider is an organization's, and whoever holds it could make a session of the account. To a session made through a provider that has not given the password, the routes under the space's `/w/{workspaceId}` then answer 401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space with `passwordRequired` true, `getMyMemberships` leaves its boards out, `getAccountDeletion` names it without what is in it, and the websocket follows nothing of it for such a session (`contracts/websocket.md`). The session stays and opens what it opened of the organizations.\n\nThere are two ways in from there. `confirmPassword` keeps the session: it gives the password once, and from then until it ends the session opens the space beside what it opened before, so that somebody whose organization takes only sessions made through its provider (`sso_required`) goes between that organization and the space without signing in again. Signing in with the password (`login`) opens the space too, in a new session, which such an organization then asks to sign in through its provider again. What a session confirmed opens the account's own space and nothing else: not what is another account's, and nothing of an organization that takes only sessions made through a provider other than the session's own. It goes with the session: a change of the password (`changePassword`, a reset, the operator's) ends the account's other sessions, as it always did, and what they confirmed with them. What is shared from the space by a public link is read without a session, and is not closed so.\n\nIt goes with its account: `getAccountDeletion` names it among `organizations` always, and while the account waits to be deleted it is closed with the account: what is shared from it by a public link answers 404 as a link that is not there, and answers again if the deletion is cancelled.\n\n## Bodies edited together\n\nWhile people edit a card's body together the server holds it as a Y document. What it refuses of an editor has the reason `update_refused`, `update_out_of_step`, `update_too_large`, `document_too_large` or `table_too_large` (`table_too_large` also comes from writing a body whole over HTTP when a table has more than 200 rows or more than 20 columns); `too_many_documents` and `document_unavailable` say that it cannot take the document for now. A write of a card's whole body here (a patch of the card or of blocks, a card stored again) first writes to the card what its editors typed: a `readAt` from before that is refused with 409, and if it cannot be written the write is refused with `document_unavailable`. The editors themselves speak to the server over the websocket, whose messages name the same reasons (`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, `too_many_documents_joined`, `document_full`, `too_many_connections_joined` and `too_many_frames` come only there. The page of each kind says when it comes. `search_not_configured` comes from none of these operations: only from the reindex of the administration socket, on a server configured without a search server (a search there searches its database).\n\n## Request bodies\n\nA request schema lists the members a request is for. A member that is not required may be left out. `null` is a value only of a member whose schema allows it, and is then none; `null` for any other member is refused with 400, as a value of another type is. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings` and `patchMe` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setSharing` refuses a `token`.",
+    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its `readToken`, and look at no session that comes along.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401. A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` in bytes.\n\nAny request may be answered 503 with the reason `database_busy`: the database did not take one of its statements in time (another write held the file, or no connection to it was to be had). That statement did nothing and may be taken a moment later. A request of one step may be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done before stays done, and sent again it is answered as its operation says.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## The user's own space\n\nEvery account has a space of its own from the moment it is made, however it was made: an organization of the `kind` `personal` with the account as its only member and one workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, the trash, export and import, and sharing by a public link (`setSharing`) work in it as anywhere. It has no name (a client calls it by the reader's language) and takes none.\n\nWhat it has not is other people, and anybody to administer it. Its identifier is 404 for every operation under `/org/{orgId}` (the organization and its settings, its members, its workspaces, joining one as an administrator, its audit log, its provider of sign-ins), for its owner as for anybody else, and no answer of those operations names it. Under its workspace these are 404, as for a workspace that is not there: `createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, `setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is under it) and on the teams of a board or a wiki (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page (`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is moved to or from another organization but by export and import, and no reference reaches into it from outside or out of it. What changes in it is told to nobody else: the server's operator is posted no block of it (`block_change_webhooks`), and it is in no audit log anybody but its owner reads.\n\nAn account that was made by a sign-in through an organization's provider has no password (`hasPassword` of `getMe`), and until it has one its space is reached by any session of the account. It is given one by `setPassword`, so that its person reaches the space when they are no longer in that organization. Once the account has a password, the space takes only sessions that have shown it: one made with it (`login`), and one made through a provider that gave it since (`confirmPassword`). A provider is an organization's, and whoever holds it could make a session of the account. To a session made through a provider that has not given the password, the routes under the space's `/w/{workspaceId}` then answer 401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space with `passwordRequired` true, `getMyMemberships` leaves its boards out, `getAccountDeletion` names it without what is in it, and the websocket follows nothing of it for such a session (`contracts/websocket.md`). The session stays and opens what it opened of the organizations.\n\nThere are two ways in from there. `confirmPassword` keeps the session: it gives the password once, and from then until it ends the session opens the space beside what it opened before, so that somebody whose organization takes only sessions made through its provider (`sso_required`) goes between that organization and the space without signing in again. Signing in with the password (`login`) opens the space too, in a new session, which such an organization then asks to sign in through its provider again. What a session confirmed opens the account's own space and nothing else: not what is another account's, and nothing of an organization that takes only sessions made through a provider other than the session's own. It goes with the session: a change of the password (`changePassword`, a reset, the operator's) ends the account's other sessions, as it always did, and what they confirmed with them. What is shared from the space by a public link is read without a session, and is not closed so.\n\nIt goes with its account: `getAccountDeletion` names it among `organizations` always, and while the account waits to be deleted it is closed with the account: what is shared from it by a public link answers 404 as a link that is not there, and answers again if the deletion is cancelled.\n\n## Bodies edited together\n\nWhile people edit a card's body together the server holds it as a Y document. What it refuses of an editor has the reason `update_refused`, `update_out_of_step`, `update_too_large`, `document_too_large` or `table_too_large` (`table_too_large` also comes from writing a body whole over HTTP when a table has more than 200 rows or more than 20 columns); `too_many_documents` and `document_unavailable` say that it cannot take the document for now. A write of a card's whole body here (a patch of the card or of blocks, a card stored again) first writes to the card what its editors typed: a `readAt` from before that is refused with 409, and if it cannot be written the write is refused with `document_unavailable`. The editors themselves speak to the server over the websocket, whose messages name the same reasons (`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, `too_many_documents_joined`, `document_full`, `too_many_connections_joined` and `too_many_frames` come only there. The page of each kind says when it comes. `search_not_configured` comes from none of these operations: only from the reindex of the administration socket, on a server configured without a search server (a search there searches its database).\n\n## Request bodies\n\nA request schema lists the members a request is for. A member that is not required may be left out. `null` is a value only of a member whose schema allows it, and is then none; `null` for any other member is refused with 400, as a value of another type is. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings`, `patchMe` and `createSubscription` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setSharing` refuses a `token`.",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -8583,41 +8540,6 @@
         "summary": "Mail a new confirmation link",
         "tags": [
           "auth"
-        ]
-      }
-    },
-    "/api/v1/hello": {
-      "get": {
-        "description": "Answers the text `Hello`, and asks nothing of what the server depends on: the check\nthat the process is alive. Whether it can serve is `ready`'s.",
-        "operationId": "hello",
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "The server is there."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "security": [
-          {}
-        ],
-        "summary": "Whether the server is there",
-        "tags": [
-          "system"
         ]
       }
     },
@@ -9316,7 +9238,7 @@
     },
     "/api/v1/org/{orgId}/leave": {
       "post": {
-        "description": "Takes the account of the session out of an organization that people work in\ntogether, at its own asking, all at once or not at all. It leaves each workspace of\nthe organization, in use or in the trash, as `removeWorkspaceMember` takes a member\nout: a board it was the only admin of passes to the workspace's oldest other\nadministrator, and a workspace it joined as the organization's administrator\n(`joinOrgWorkspace`) records that it left. Its roles on boards and wikis, its teams,\nwhat it follows (`subscriptions`) in the organization and the links of invitations it\nmade there that nobody used go with it, and so does its membership; who leaves the\nserver's own first organization administers the server no more. Its sessions,\nits identities and what it wrote stay, and the organization stays one it made. Its\nopen connections stop following the organization's workspaces\n(`UNSUBSCRIBED_WORKSPACE`). It comes back only as anybody new does: by an invitation,\nor as the organization lets in who signs in through its provider. Asked of any\nsession: leaving is the account's own, whatever provider the organization takes.\n\n404 for an organization that is not there or the account is no member of, and for\nan own space, which nobody leaves. A guest of a workspace is no member of its\norganization: 404 here, and it leaves a workspace or board by `leaveContainer`.\n\nWhat stands in the way is 409, and nothing changes: an account without a password\n(`hasPassword` of `getMe` is false) must set one (`setPassword`) before leaving\n(reason `password_required`); the server's only administrator stays in the server's\nown first organization (reason `last_instance_admin`); the only administrator of an\norganization that has other people in it stays until somebody else is one (reason\n`sole_org_admin`); and nobody leaves an organization they are the only person in\n(reason `alone_in_organization`). Asked in that order (`password_required`,\n`last_instance_admin`, `sole_org_admin`, `alone_in_organization`). Of two\nadministrators who leave at once, the second is asked once the first is out.",
+        "description": "Takes the account of the session out of an organization that people work in\ntogether, at its own asking, all at once or not at all. It leaves each workspace of\nthe organization, in use or in the trash, as `removeWorkspaceMember` takes a member\nout: a board it was the only admin of passes to the workspace's oldest other\nadministrator, and a workspace it joined as the organization's administrator\n(`joinOrgWorkspace`) records that it left. Its roles on boards and wikis, its teams,\nwhat it follows (`subscriptions`) in the organization and the links of invitations it\nmade there that nobody used go with it, and so does its membership; who leaves the\nserver's own first organization administers the server no more. Its sessions,\nits identities and what it wrote stay, and the organization stays one it made. Its\nopen connections stop following the organization's workspaces\n(`workspaceUnsubscribed`). It comes back only as anybody new does: by an invitation,\nor as the organization lets in who signs in through its provider. Asked of any\nsession: leaving is the account's own, whatever provider the organization takes.\n\n404 for an organization that is not there or the account is no member of, and for\nan own space, which nobody leaves. A guest of a workspace is no member of its\norganization: 404 here, and it leaves a workspace or board by `leaveContainer`.\n\nWhat stands in the way is 409, and nothing changes: an account without a password\n(`hasPassword` of `getMe` is false) must set one (`setPassword`) before leaving\n(reason `password_required`); the server's only administrator stays in the server's\nown first organization (reason `last_instance_admin`); the only administrator of an\norganization that has other people in it stays until somebody else is one (reason\n`sole_org_admin`); and nobody leaves an organization they are the only person in\n(reason `alone_in_organization`). Asked in that order (`password_required`,\n`last_instance_admin`, `sole_org_admin`, `alone_in_organization`). Of two\nadministrators who leave at once, the second is asked once the first is out.",
         "operationId": "leaveOrganization",
         "parameters": [
           {
@@ -9421,7 +9343,7 @@
     },
     "/api/v1/org/{orgId}/members/{userId}": {
       "delete": {
-        "description": "Takes a member out of the organization, all at once or not at all: ends their\njoinings of workspaces as organization administrator (recorded in each workspace as\n`org_admin_revoked`), takes them out of every workspace of the organization in use\nor in the trash, passes any board they were the only admin of to that workspace's\noldest other administrator on their own account (recorded under the administrator\nwho takes them out), removes their roles on boards and wikis, workspace groups,\nsubscriptions, unused invitation links, and membership of the organization, and ends\ninstance administration if this is the server's own first organization. Recorded in\nthe organization's audit log (`org_member_removed`). Their open connections stop\nfollowing the organization's workspaces (`UNSUBSCRIBED_WORKSPACE`) and leave open\nbody rooms (`DOC_LEFT`). Unlike `leaveOrganization`, this does not require the\nremoved account to have a password.\n\n404 for a user who is no member of the organization, or for a caller who does not\nadminister it (or for an own space or an organization that does not exist).\n\nWhat stands in the way is 409, and nothing changes: an administrator cannot remove\nthemselves here (reason `cannot_remove_self`; use `leaveOrganization` instead); the\nserver's only administrator stays in the server's own first organization (reason\n`last_instance_admin`); the only administrator of an organization that has other\npeople in it stays until somebody else is one (reason `sole_org_admin`); and the\nonly person in the organization is not removed (reason `alone_in_organization`).",
+        "description": "Takes a member out of the organization, all at once or not at all: ends their\njoinings of workspaces as organization administrator (recorded in each workspace as\n`org_admin_revoked`), takes them out of every workspace of the organization in use\nor in the trash, passes any board they were the only admin of to that workspace's\noldest other administrator on their own account (recorded under the administrator\nwho takes them out), removes their roles on boards and wikis, workspace groups,\nsubscriptions, unused invitation links, and membership of the organization, and ends\ninstance administration if this is the server's own first organization. Recorded in\nthe organization's audit log (`org_member_removed`). Their open connections stop\nfollowing the organization's workspaces (`workspaceUnsubscribed`) and leave open\nbody rooms (`docLeft`). Unlike `leaveOrganization`, this does not require the\nremoved account to have a password.\n\n404 for a user who is no member of the organization, or for a caller who does not\nadminister it (or for an own space or an organization that does not exist).\n\nWhat stands in the way is 409, and nothing changes: an administrator cannot remove\nthemselves here (reason `cannot_remove_self`; use `leaveOrganization` instead); the\nserver's only administrator stays in the server's own first organization (reason\n`last_instance_admin`); the only administrator of an organization that has other\npeople in it stays until somebody else is one (reason `sole_org_admin`); and the\nonly person in the organization is not removed (reason `alone_in_organization`).",
         "operationId": "removeOrgMember",
         "parameters": [
           {
@@ -12348,7 +12270,7 @@
             "description": "The archive.",
             "headers": {
               "Content-Disposition": {
-                "description": "`attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC).",
+                "description": "`attachment; filename=archive-YYYY-MM-DD.fvoci`, for the day (UTC).",
                 "schema": {
                   "type": "string"
                 }
@@ -12382,7 +12304,7 @@
     },
     "/api/v1/w/{workspaceId}/archive/import": {
       "post": {
-        "description": "Makes the boards and wikis of an archive in the workspace, with the user as their\nadmin. The members the archive names for a board become members of it with the roles\nthey had, where they are in the workspace. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, one that has ended, and one for another workspace are\n404; an upload of a file is 400. A workspace the user is not in is 404 before the\nbody is read. For users of the workspace who are not guests, at the import as when\nthe upload was opened: a user who may not import any more is refused, and the upload\nis thrown away.\n\nThe archive is of version 3, as the export routes write it. Older archive versions\n(the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB (or a single JSONL line over 10 MiB) or a file larger\nthan `maxFileBytes` is 413 with the `limit` passed, and nothing of it is stored; for the\nentry or line that is too large the reason is `archive_entry_too_large`. The blocks that show files are\npointed at the board's new copies of them, the images and file blocks of bodies\nincluded. A file the board's line lists under `missingFiles` is not stored, even when\nthe archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy\ndoes. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the\ncomments on them with it. What a write would refuse of an archive's boards, wikis\nand blocks is 400 before any of them is stored, with the message the write has: a\nblock of a type of the other kind (a page on a board, a card on a wiki), a page\nbelow anything but a page of its wiki or below a page the archive does not have,\npages that are each other's parents, a comment on anything but a card or page, a\nwiki that is a template, and a wiki deeper or with more pages than the\norganization's limits allow (400 with the reason `page_too_deep` or\n`too_many_pages`).\n\nThe containers, blocks, memberships and files of the archive are committed all or\nnone: if any container or file fails, all staged files are removed and nothing is\nstored. The members of a board who are not in the workspace are left out of it, a\nguest of the workspace keeps no role above editor; the answer says how many users\nwere left out, not who.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.\n\nOptional `format` selects `\"fvoci\"` (default, `.boardarchive`/`.zip`), `\"trello\"`\n(`.json`), or `\"notion\"` (`.zip`). External formats commit all boards, wikis, blocks,\nand bundled local files atomically: any validation, limit, or storage failure leaves\nnothing stored. Returns a structured `ImportSummary` with counts, newly created\ncontainer identifiers, native `membersLeftOut`, and bounded `skipped` / `warnings`.",
+        "description": "Makes the boards and wikis of an archive in the workspace, with the user as their\nadmin. The members the archive names for a board become members of it with the roles\nthey had, where they are in the workspace. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, one that has ended, and one for another workspace are\n404; an upload of a file is 400. A workspace the user is not in is 404 before the\nbody is read. For users of the workspace who are not guests, at the import as when\nthe upload was opened: a user who may not import any more is refused, and the upload\nis thrown away.\n\nThe archive is of version 1, as the export routes write it. Any other version in\n`version.json`, a non-ZIP payload, and a ZIP without `version.json` are 400, and\nnothing of them is stored. An archive of more than 10,000 entries, whose entries\nunpack to more than 1 GiB together, or with a `container.jsonl` of more than 64 MiB\n(or a single JSONL line over 10 MiB) or a file larger than `maxFileBytes` is 413 with\nthe `limit` passed, and nothing of it is stored; for the entry or line that is too\nlarge the reason is `archive_entry_too_large`. The blocks that show files are\npointed at the board's new copies of them, the images and file blocks of bodies\nincluded. A file the container's line lists under `missingFiles` is not stored, even when\nthe archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy\ndoes. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the\ncomments on them with it. What a write would refuse of an archive's boards, wikis\nand blocks is 400 before any of them is stored, with the message the write has: a\nblock of a type of the other kind (a page on a board, a card on a wiki), a page\nbelow anything but a page of its wiki or below a page the archive does not have,\npages that are each other's parents, a comment on anything but a card or page, a\nwiki that is a template, and a wiki deeper or with more pages than the\norganization's limits allow (400 with the reason `page_too_deep` or\n`too_many_pages`).\n\nThe containers, blocks, memberships and files of the archive are committed all or\nnone: if any container or file fails, all staged files are removed and nothing is\nstored. The members of a board who are not in the workspace are left out of it, a\nguest of the workspace keeps no role above editor; the answer says how many users\nwere left out, not who.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.\n\nOptional `format` selects `\"fvoci\"` (default, `.fvoci`/`.zip`), `\"trello\"`\n(`.json`), or `\"notion\"` (`.zip`). External formats commit all boards, wikis, blocks,\nand bundled local files atomically: any validation, limit, or storage failure leaves\nnothing stored. Returns a structured `ImportSummary` with counts, newly created\ncontainer identifiers, native `membersLeftOut`, and bounded `skipped` / `warnings`.",
         "operationId": "importArchive",
         "parameters": [
           {
@@ -13653,7 +13575,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/property-order": {
       "put": {
-        "description": "The body names every card property of the board (`cardProperties`, by `id`) once,\nin the new order, as `reorderCategories` names categories; one left out, one named\ntwice or one the board does not have is 400, and nothing changes. For who may manage\nthe board's properties, as `patchContainer`. The board's listeners get `UPDATE_CONTAINER`, as\nfor any change of the board.",
+        "description": "The body names every card property of the board (`cardProperties`, by `id`) once,\nin the new order, as `reorderCategories` names categories; one left out, one named\ntwice or one the board does not have is 400, and nothing changes. For who may manage\nthe board's properties, as `patchContainer`. The board's listeners get `containerChanged`, as\nfor any change of the board.",
         "operationId": "reorderCardProperties",
         "parameters": [
           {
@@ -14795,7 +14717,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/archive/export": {
       "get": {
-        "description": "An archive of the board with its blocks, its files and its members, offered as a\ndownload with its length. For the board's members. The archive is a ZIP of version\n3: `version.json`, and per board a directory with `board.jsonl` (one `board`,\n`block` or `boardMember` per line, in the shapes of this contract, bodies included,\nbut that a block and a member name their board or wiki `boardId`, not `containerId`)\nand the files the blocks show, those of the images and file blocks of bodies among\nthem. A board's line also carries `fileNames`: the name of each of its files, by\nstored name, which an import gives the files it stores. A name an upload could not\nhave (blank, `.` or `..` after its last `/` or `\\`, with U+0000, over 255 characters, or of another extension than the\nstored name) is passed over and its file keeps the name of its entry, and an archive\nwithout the member is read as before. A file a block shows that the board does not\nhave, its record or its bytes gone, gets no entry: it is listed under `missingFiles`\nof the board's line, by stored name. A wiki is written as a board is, its `kind` `wiki`: its\npages as they stand and the comments on them are its blocks (not the pages in its\ntrash, nor the versions of bodies).\n\nA user runs one export at a time, and the server as many as its setting\n`max_concurrent_exports` (2 unless set). Over either it is 429 with the reason\n`export_running` or `server_exports_busy`, and is to be asked for again later. An\nexport runs until its archive is sent or the client goes away; a download that takes\nnothing for `export_stall_seconds` (60 unless set) is given up, and its connection\nbroken before the archive's end.",
+        "description": "An archive of the board with its blocks, its files and its members, offered as a\ndownload with its length. For the board's members. The archive is a `.fvoci` ZIP of\nversion 1: `version.json`, and per container a directory with `container.jsonl` (one\n`container`, `block`, `containerMember` or `courseSchedule` per line, in the shapes\nof this contract, bodies included, naming their container `containerId`)\nand the files the blocks show, those of the images and file blocks of bodies among\nthem. A container's line also carries `fileNames`: the name of each of its files, by\nstored name, which an import gives the files it stores. A name an upload could not\nhave (blank, `.` or `..` after its last `/` or `\\`, with U+0000, over 255 characters, or of another extension than the\nstored name) is passed over and its file keeps the name of its entry, and an archive\nwithout the member is read as before. A file a block shows that the board does not\nhave, its record or its bytes gone, gets no entry: it is listed under `missingFiles`\nof the container's line, by stored name. A wiki is written as a board is, its `kind` `wiki`: its\npages as they stand and the comments on them are its blocks (not the pages in its\ntrash, nor the versions of bodies).\n\nA user runs one export at a time, and the server as many as its setting\n`max_concurrent_exports` (2 unless set). Over either it is 429 with the reason\n`export_running` or `server_exports_busy`, and is to be asked for again later. An\nexport runs until its archive is sent or the client goes away; a download that takes\nnothing for `export_stall_seconds` (60 unless set) is given up, and its connection\nbroken before the archive's end.",
         "operationId": "exportContainerArchive",
         "parameters": [
           {
@@ -14831,7 +14753,7 @@
             "description": "The archive.",
             "headers": {
               "Content-Disposition": {
-                "description": "`attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC).",
+                "description": "`attachment; filename=archive-YYYY-MM-DD.fvoci`, for the day (UTC).",
                 "schema": {
                   "type": "string"
                 }
@@ -16328,7 +16250,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/undelete": {
       "post": {
-        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `UPDATE_CONTAINER_CATEGORY` and the category's\n`REORDER_CATEGORY_CONTAINERS`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. Surviving teams regain their saved roles for their\ncurrent members; deleted teams are skipped. For who was an admin of the board when\nit was deleted, and for the workspace's administrators (who, if they were no member,\nget it without its description and properties); to anybody else there is no such board.",
+        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `containerCategoriesChanged` and the category's\n`categoryContainersReordered`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. Surviving teams regain their saved roles for their\ncurrent members; deleted teams are skipped. For who was an admin of the board when\nit was deleted, and for the workspace's administrators (who, if they were no member,\nget it without its description and properties); to anybody else there is no such board.",
         "operationId": "undeleteContainer",
         "parameters": [
           {
@@ -18056,7 +17978,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the course. With `kind` `unit` (also when left out), the unit goes below\n`parentId`, a chapter of the same course (400 at `/parentId` otherwise), or at the\ntop of the course. With `kind` `chapter`, the chapter is a title-only heading at the\ntop of the course (`parentId` must be empty; 400 at `/parentId` otherwise) with no\nbody and no room. Among the siblings of that parent it goes right after `after` (400\nat `/after` if that is no sibling of the same parent), first if `after` is empty, and\nlast if it is left out. A unit may also carry optional study-schedule fields\n(`amount` `1..=100_000`, `amountUnit`, and shared `scheduledDate` `YYYY-MM-DD`;\nforbidden on chapters with 400). A unit's body is written by `patchUnit`, or together\nin its room (`JOIN_DOC`).\n\nA course holds at most 2,000 units and 200 chapters, those in the trash not counted\n(chapters do not count toward the 2,000-unit limit): one more unit is 400 with the\nreason `too_many_units` and the `limit`, and one more chapter is 400 with the reason\n`too_many_chapters` and the `limit`.\n\nThe course's listeners are told with `UPDATE_BLOCK`, whose block of the `type` `unit`\nor `chapter` carries its `order` among its `fields`. Any sibling numbered anew to\nleave room is told of too.",
+        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the course. With `kind` `unit` (also when left out), the unit goes below\n`parentId`, a chapter of the same course (400 at `/parentId` otherwise), or at the\ntop of the course. With `kind` `chapter`, the chapter is a title-only heading at the\ntop of the course (`parentId` must be empty; 400 at `/parentId` otherwise) with no\nbody and no room. Among the siblings of that parent it goes right after `after` (400\nat `/after` if that is no sibling of the same parent), first if `after` is empty, and\nlast if it is left out. A unit may also carry optional study-schedule fields\n(`amount` `1..=100_000`, `amountUnit`, and shared `scheduledDate` `YYYY-MM-DD`;\nforbidden on chapters with 400). A unit's body is written by `patchUnit`, or together\nin its room (`joinDoc`).\n\nA course holds at most 2,000 units and 200 chapters, those in the trash not counted\n(chapters do not count toward the 2,000-unit limit): one more unit is 400 with the\nreason `too_many_units` and the `limit`, and one more chapter is 400 with the reason\n`too_many_chapters` and the `limit`.\n\nThe course's listeners are told with `blockChanged`, whose block of the `type` `unit`\nor `chapter` carries its `order` among its `fields`. Any sibling numbered anew to\nleave room is told of too.",
         "operationId": "createUnit",
         "parameters": [
           {
@@ -18118,7 +18040,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}": {
       "delete": {
-        "description": "Moves the unit to the trash of its course, or moves the chapter together with every\nunit below it as one deletion, for editors of the course. The course's listeners are\ntold with `UPDATE_BLOCK` of the deleted block alone, whose `deleteAt` is not 0.",
+        "description": "Moves the unit to the trash of its course, or moves the chapter together with every\nunit below it as one deletion, for editors of the course. The course's listeners are\ntold with `blockChanged` of the deleted block alone, whose `deleteAt` is not 0.",
         "operationId": "deleteUnit",
         "parameters": [
           {
@@ -18627,7 +18549,7 @@
         ]
       },
       "post": {
-        "description": "For the course's members from the commenter's role up (whoever reads an open course\nwithout joining it is refused with 403). The server chooses the identifier, the\nauthor and the times. Every image of the text shows a file of the course (400\notherwise), and the text has no file block (400). A chapter takes no comments (404).\nWho reads the course is told with `UPDATE_BLOCK`, as of a comment on a card or page.",
+        "description": "For the course's members from the commenter's role up (whoever reads an open course\nwithout joining it is refused with 403). The server chooses the identifier, the\nauthor and the times. Every image of the text shows a file of the course (400\notherwise), and the text has no file block (400). A chapter takes no comments (404).\nWho reads the course is told with `blockChanged`, as of a comment on a card or page.",
         "operationId": "createUnitComment",
         "parameters": [
           {
@@ -18698,7 +18620,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}": {
       "delete": {
-        "description": "The comment goes to the trash, as a comment on a card or page does: by its author\nfrom the commenter's role up, and the comment of somebody else by the course's admins\nonly (403, `access denied to delete other users' comments`). Who reads the course is\ntold with `UPDATE_BLOCK` whose `deleteAt` is not 0.",
+        "description": "The comment goes to the trash, as a comment on a card or page does: by its author\nfrom the commenter's role up, and the comment of somebody else by the course's admins\nonly (403, `access denied to delete other users' comments`). Who reads the course is\ntold with `blockChanged` whose `deleteAt` is not 0.",
         "operationId": "deleteUnitComment",
         "parameters": [
           {
@@ -18839,7 +18761,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/undelete": {
       "post": {
-        "description": "A comment deleted on its own comes back onto its unit, as `undeletePageComment`\nbrings a page's comment back: for its author from the commenter's role up if they\ndeleted it themselves, and for the course's admins whoever wrote or deleted it (403,\n`access denied to undelete other users' comments`, and for the author of a comment\nsomebody else deleted, `a comment somebody else deleted is brought back by the\nboard's admins`). A comment that went to the trash with its unit comes back with the\nunit (`undeleteUnit`), not on its own; that one, one not in the trash, and one of\nanother unit are not there (404), nor is any while the unit is in the trash. Who\nreads the course is told with `UPDATE_BLOCK`.",
+        "description": "A comment deleted on its own comes back onto its unit, as `undeletePageComment`\nbrings a page's comment back: for its author from the commenter's role up if they\ndeleted it themselves, and for the course's admins whoever wrote or deleted it (403,\n`access denied to undelete other users' comments`, and for the author of a comment\nsomebody else deleted, `a comment somebody else deleted is brought back by the\nboard's admins`). A comment that went to the trash with its unit comes back with the\nunit (`undeleteUnit`), not on its own; that one, one not in the trash, and one of\nanother unit are not there (404), nor is any while the unit is in the trash. Who\nreads the course is told with `blockChanged`.",
         "operationId": "undeleteUnitComment",
         "parameters": [
           {
@@ -18982,7 +18904,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/move": {
       "post": {
-        "description": "Moves a unit to the top of the course (left out or empty `parentId`) or below a\nchapter of the same course, right after `after` among the siblings there (empty for\nfirst, left out or `null` for last). Moves a chapter among the top-level siblings\n(`parentId` must be empty; 400 at `/parentId` otherwise), keeping its units below it.\nFor editors of the course. 400 at `/parentId` if the parent is no chapter of the\ncourse or is the unit itself; 400 at `/after` if that is no other sibling of the\nparent. Nothing is changed then.\n\nThe course's listeners are told with `UPDATE_BLOCK` of the moved node and of any\nsibling numbered anew to leave it room; a chapter's units keep their parent and are\nnot told of.",
+        "description": "Moves a unit to the top of the course (left out or empty `parentId`) or below a\nchapter of the same course, right after `after` among the siblings there (empty for\nfirst, left out or `null` for last). Moves a chapter among the top-level siblings\n(`parentId` must be empty; 400 at `/parentId` otherwise), keeping its units below it.\nFor editors of the course. 400 at `/parentId` if the parent is no chapter of the\ncourse or is the unit itself; 400 at `/after` if that is no other sibling of the\nparent. Nothing is changed then.\n\nThe course's listeners are told with `blockChanged` of the moved node and of any\nsibling numbered anew to leave it room; a chapter's units keep their parent and are\nnot told of.",
         "operationId": "moveUnit",
         "parameters": [
           {
@@ -19408,7 +19330,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/undelete": {
       "post": {
-        "description": "Restores the unit from the course's trash, or restores the chapter together with the\nunits deleted along with it, for editors of the course: below the chapter it was\nbelow at the place it had (right after the siblings before it if a sibling took that\nplace since), or, if that chapter is gone (in the trash or purged), last at the top\nof the course. Held to the course's limits: 400 with the reason `too_many_units` or\n`too_many_chapters` (each with the `limit`) if restoring would exceed them. A block\nnot in this course's trash, or a unit that went with its chapter (it comes back with\nthat chapter), is 404. The course's listeners are told with `UPDATE_BLOCK` of each\nblock that came back (a chapter before its units, and each unit before its comments)\nand each sibling numbered anew.",
+        "description": "Restores the unit from the course's trash, or restores the chapter together with the\nunits deleted along with it, for editors of the course: below the chapter it was\nbelow at the place it had (right after the siblings before it if a sibling took that\nplace since), or, if that chapter is gone (in the trash or purged), last at the top\nof the course. Held to the course's limits: 400 with the reason `too_many_units` or\n`too_many_chapters` (each with the `limit`) if restoring would exceed them. A block\nnot in this course's trash, or a unit that went with its chapter (it comes back with\nthat chapter), is 404. The course's listeners are told with `blockChanged` of each\nblock that came back (a chapter before its units, and each unit before its comments)\nand each sibling numbered anew.",
         "operationId": "undeleteUnit",
         "parameters": [
           {
@@ -19713,7 +19635,7 @@
     },
     "/api/v1/w/{workspaceId}/diaries/{diaryId}/entries": {
       "post": {
-        "description": "A diary has one entry a day. The entry of `date` is made (201) with its mood, weather\nand place; where the day has an entry, that entry is answered as it is (200) and\nnothing of the request is stored, so of two requests that make the entry of one day\nat once, one makes it and the other is answered with it. The server chooses the\nidentifier, the creator and the times. The body of the entry is written by\n`patchDiaryEntry`, or together in its room (`JOIN_DOC`).\n\n`date` is the day as the writer's own calendar has it, which the server does not\nknow: it must be a day of the calendar (`2026-02-30` is 400 at `/date`), and no more\nthan two days after the server's own day in UTC (400 at `/date`), which every time\nzone's today is within. A day in the past is written as any other. The day of an\nentry never changes afterwards.\n\nA diary has at most 40,000 entries, those in the trash not counted: one more is 400\nwith the reason `too_many_entries` and the `limit`. An entry in the trash holds no\nday: its day takes a new entry.\n\nThe user's other sessions are told with `UPDATE_BLOCK`, whose block of the `type`\n`entry` has the day as its `title` and the day, mood, weather and place among its\n`fields`.",
+        "description": "A diary has one entry a day. The entry of `date` is made (201) with its mood, weather\nand place; where the day has an entry, that entry is answered as it is (200) and\nnothing of the request is stored, so of two requests that make the entry of one day\nat once, one makes it and the other is answered with it. The server chooses the\nidentifier, the creator and the times. The body of the entry is written by\n`patchDiaryEntry`, or together in its room (`joinDoc`).\n\n`date` is the day as the writer's own calendar has it, which the server does not\nknow: it must be a day of the calendar (`2026-02-30` is 400 at `/date`), and no more\nthan two days after the server's own day in UTC (400 at `/date`), which every time\nzone's today is within. A day in the past is written as any other. The day of an\nentry never changes afterwards.\n\nA diary has at most 40,000 entries, those in the trash not counted: one more is 400\nwith the reason `too_many_entries` and the `limit`. An entry in the trash holds no\nday: its day takes a new entry.\n\nThe user's other sessions are told with `blockChanged`, whose block of the `type`\n`entry` has the day as its `title` and the day, mood, weather and place among its\n`fields`.",
         "operationId": "createDiaryEntry",
         "parameters": [
           {
@@ -21222,7 +21144,7 @@
     },
     "/api/v1/w/{workspaceId}/subscriptions": {
       "post": {
-        "description": "Subscribes the user of the session to a block of a board, a page of a wiki, or a unit\nof a course they may read: whoever writes a card, a page or a unit watches it, and\nmay stop and start again. A chapter of a course takes no subscriptions (404). A\n`subscriberId` that is not the user of the session is 403, and a `subscriberType`\nother than `user` is 400. The `blockType` is stored as it is sent, and not compared\nwith the block. Subscribing again is no error: the subscription stays as it was\nmade, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.",
+        "description": "Subscribes the user of the session to a block of a board, a page of a wiki, or a unit\nof a course they may read: whoever writes a card, a page or a unit watches it, and\nmay stop and start again. A chapter of a course takes no subscriptions (404). A\n`userId` that is not the user of the session is 403. The `blockType` is stored as it\nis sent, and not compared with the block. Subscribing again is no error: the\nsubscription stays as it was made, with its `blockType` and `createAt`, and only its\n`notifiedAt` is set anew.",
         "operationId": "createSubscription",
         "parameters": [
           {
@@ -21273,7 +21195,7 @@
         ]
       }
     },
-    "/api/v1/w/{workspaceId}/subscriptions/{blockId}/{subscriberId}": {
+    "/api/v1/w/{workspaceId}/subscriptions/{blockId}/{userId}": {
       "delete": {
         "description": "Ends the subscription of the user of the session to a block. Nothing about the\nblock is checked: a subscription to a block the user may no longer see can still be\nended. A subscription that is not there is 404, and so are those of another user.",
         "operationId": "deleteSubscription",
@@ -21297,9 +21219,9 @@
             }
           },
           {
-            "description": "The identifier of the subscriber: the user of the session.",
+            "description": "The identifier of the user: the user of the session.",
             "in": "path",
-            "name": "subscriberId",
+            "name": "userId",
             "required": true,
             "schema": {
               "type": "string"
@@ -21327,7 +21249,7 @@
         ]
       }
     },
-    "/api/v1/w/{workspaceId}/subscriptions/{subscriberId}": {
+    "/api/v1/w/{workspaceId}/subscriptions/{userId}": {
       "get": {
         "description": "The subscriptions of the user of the session; those of another user are not there.\nOldest first, and by the identifier of the block among those made in the same\nmillisecond.",
         "operationId": "getSubscriptions",
@@ -21342,9 +21264,9 @@
             }
           },
           {
-            "description": "The identifier of the subscriber: the user of the session.",
+            "description": "The identifier of the user: the user of the session.",
             "in": "path",
-            "name": "subscriberId",
+            "name": "userId",
             "required": true,
             "schema": {
               "type": "string"
@@ -22400,7 +22322,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the wiki. The page goes below `parentId`, a page of the same wiki (400 at\n`/parentId` otherwise), or at the top of the wiki; among the pages of that parent it\ngoes right after the page `after` (400 at `/after` if that is no page of the same\nparent), first if `after` is empty, and last if it is left out. Its body is written\nby `patchPage`, or together in its room (`JOIN_DOC`).\n\nThe tree is held to the organization's limits: a page deeper than its depth is 400\nat `/parentId` with the reason `page_too_deep`, and one more page than a wiki may\nhave (those in the trash not counted) is 400 with the reason `too_many_pages`, each\nwith the `limit`.\n\nThe wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`\nhas the icon and the order among its `fields`. Where the pages of the parent had no\nroom left between them (two of one order, or orders grown long), they are numbered\nanew, and each that changed is told of too.",
+        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the wiki. The page goes below `parentId`, a page of the same wiki (400 at\n`/parentId` otherwise), or at the top of the wiki; among the pages of that parent it\ngoes right after the page `after` (400 at `/after` if that is no page of the same\nparent), first if `after` is empty, and last if it is left out. Its body is written\nby `patchPage`, or together in its room (`joinDoc`).\n\nThe tree is held to the organization's limits: a page deeper than its depth is 400\nat `/parentId` with the reason `page_too_deep`, and one more page than a wiki may\nhave (those in the trash not counted) is 400 with the reason `too_many_pages`, each\nwith the `limit`.\n\nThe wiki's members are told with `blockChanged`, whose block of the `type` `page`\nhas the icon and the order among its `fields`. Where the pages of the parent had no\nroom left between them (two of one order, or orders grown long), they are numbered\nanew, and each that changed is told of too.",
         "operationId": "createPage",
         "parameters": [
           {
@@ -22462,7 +22384,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}": {
       "delete": {
-        "description": "The page goes to the trash with every page below it and the comments on them, for\neditors of the wiki. The wiki's members are told with `UPDATE_BLOCK` of the page\nalone, whose `deleteAt` is not 0, as for any block that is deleted; what went with\nit is not told of one by one.",
+        "description": "The page goes to the trash with every page below it and the comments on them, for\neditors of the wiki. The wiki's members are told with `blockChanged` of the page\nalone, whose `deleteAt` is not 0, as for any block that is deleted; what went with\nit is not told of one by one.",
         "operationId": "deletePage",
         "parameters": [
           {
@@ -22971,7 +22893,7 @@
         ]
       },
       "post": {
-        "description": "For the wiki's members from the commenter's role up. The server chooses the\nidentifier, the author and the times. Every image of the text shows a file of the\nwiki (400 otherwise), and the text has no file block (400). Who reads the wiki is\ntold with `UPDATE_BLOCK`, as of a comment on a card.",
+        "description": "For the wiki's members from the commenter's role up. The server chooses the\nidentifier, the author and the times. Every image of the text shows a file of the\nwiki (400 otherwise), and the text has no file block (400). Who reads the wiki is\ntold with `blockChanged`, as of a comment on a card.",
         "operationId": "createPageComment",
         "parameters": [
           {
@@ -23042,7 +22964,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}": {
       "delete": {
-        "description": "The comment goes to the trash, as a comment on a card does: by its author from the\ncommenter's role up, and the comment of somebody else by the wiki's admins only\n(403, `access denied to delete other users' comments`). Who reads the wiki is told\nwith `UPDATE_BLOCK` whose `deleteAt` is not 0.",
+        "description": "The comment goes to the trash, as a comment on a card does: by its author from the\ncommenter's role up, and the comment of somebody else by the wiki's admins only\n(403, `access denied to delete other users' comments`). Who reads the wiki is told\nwith `blockChanged` whose `deleteAt` is not 0.",
         "operationId": "deletePageComment",
         "parameters": [
           {
@@ -23183,7 +23105,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/undelete": {
       "post": {
-        "description": "A comment deleted on its own comes back onto its page, as `undeleteBlock` brings a\ncard's comment back: for its author from the commenter's role up if they deleted it\nthemselves, and for the wiki's admins whoever wrote or deleted it (403, `access denied\nto undelete other users' comments`, and for the author of a comment somebody else\ndeleted, `a comment somebody else deleted is brought back by the board's admins`). A\ncomment that went to the trash with its page comes back with the page\n(`undeletePage`), not on its own; that one, one not in the trash, and one of another\npage are not there (404), nor is any while the page is in the trash. Who reads the\nwiki is told with `UPDATE_BLOCK`.",
+        "description": "A comment deleted on its own comes back onto its page, as `undeleteBlock` brings a\ncard's comment back: for its author from the commenter's role up if they deleted it\nthemselves, and for the wiki's admins whoever wrote or deleted it (403, `access denied\nto undelete other users' comments`, and for the author of a comment somebody else\ndeleted, `a comment somebody else deleted is brought back by the board's admins`). A\ncomment that went to the trash with its page comes back with the page\n(`undeletePage`), not on its own; that one, one not in the trash, and one of another\npage are not there (404), nor is any while the page is in the trash. Who reads the\nwiki is told with `blockChanged`.",
         "operationId": "undeletePageComment",
         "parameters": [
           {
@@ -23326,7 +23248,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/duplicate": {
       "post": {
-        "description": "Copies the page with every page below it, within its wiki, for editors of the wiki:\nthe copy goes right after the page among its siblings, titled `title` if given (the\npage's own title otherwise; a client names it in its reader's language), and the\npages below it are copied below it as they are, with their titles, icons, places and\nbodies, what is typed in them now included. The images and file blocks in the bodies\nget files of their own, as a card's duplicate's do. The versions of the bodies and\nthe comments are not copied. The tree is held to the organization's limits: 400 with\nthe reason `page_too_deep` or `too_many_pages` (with the `limit`) if the copies\nwould be deeper, or the wiki larger, than they let it be; 400 at `/title` for a\ntitle longer than 16383 characters. Nothing is changed then.\n\nThe wiki's members are told with `UPDATE_BLOCK` of each copy, a page before those\nbelow it, and of each page of the parent numbered anew to leave the copy room.",
+        "description": "Copies the page with every page below it, within its wiki, for editors of the wiki:\nthe copy goes right after the page among its siblings, titled `title` if given (the\npage's own title otherwise; a client names it in its reader's language), and the\npages below it are copied below it as they are, with their titles, icons, places and\nbodies, what is typed in them now included. The images and file blocks in the bodies\nget files of their own, as a card's duplicate's do. The versions of the bodies and\nthe comments are not copied. The tree is held to the organization's limits: 400 with\nthe reason `page_too_deep` or `too_many_pages` (with the `limit`) if the copies\nwould be deeper, or the wiki larger, than they let it be; 400 at `/title` for a\ntitle longer than 16383 characters. Nothing is changed then.\n\nThe wiki's members are told with `blockChanged` of each copy, a page before those\nbelow it, and of each page of the parent numbered anew to leave the copy room.",
         "operationId": "duplicatePage",
         "parameters": [
           {
@@ -23397,7 +23319,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/move": {
       "post": {
-        "description": "The page goes, with every page below it, below `parentId` (a page of the same wiki;\nleft out or empty, the top of the wiki), right after the page `after` among the\npages there, first if `after` is empty, and last if it is left out, as for\n`createPage`. For editors of the wiki. A page moves within its wiki only. 400 at\n`/parentId` if the parent is no page of the wiki or is the page itself or a page\nbelow it, and with the reason `page_too_deep` (and the `limit`) if a page would be\ndeeper than the organization's limit; 400 at `/after` if that is no other page of\nthe parent. Nothing is changed then.\n\nThe wiki's members are told with `UPDATE_BLOCK` of the page, and of every page of\nthe parent numbered anew to leave it room; the pages below it keep their parents\nand are not told of.",
+        "description": "The page goes, with every page below it, below `parentId` (a page of the same wiki;\nleft out or empty, the top of the wiki), right after the page `after` among the\npages there, first if `after` is empty, and last if it is left out, as for\n`createPage`. For editors of the wiki. A page moves within its wiki only. 400 at\n`/parentId` if the parent is no page of the wiki or is the page itself or a page\nbelow it, and with the reason `page_too_deep` (and the `limit`) if a page would be\ndeeper than the organization's limit; 400 at `/after` if that is no other page of\nthe parent. Nothing is changed then.\n\nThe wiki's members are told with `blockChanged` of the page, and of every page of\nthe parent numbered anew to leave it room; the pages below it keep their parents\nand are not told of.",
         "operationId": "movePage",
         "parameters": [
           {
@@ -23468,7 +23390,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/undelete": {
       "post": {
-        "description": "The page comes back from the wiki's trash with every page that was deleted along\nwith it, for editors of the wiki: below the page it was below, at the place it had\n(right after the pages before it there, if a page made since has that place), or,\nthat page gone (in the trash, or gone for good), last at the top of the wiki.\nThe tree is held to the organization's limits: 400 with the reason `page_too_deep`\nor `too_many_pages` (with the `limit`) if the pages would be deeper, or the wiki\nlarger, than they let it be. A page that is not in this wiki's trash, or went there\nwith the page it was below (it comes back with that page), is 404. The comments on\nthe pages come back with them; the limits count pages. The wiki's members are told\nwith `UPDATE_BLOCK` of each page and comment that came back, a page before what is\nbelow it, and of each page numbered anew to leave it room.",
+        "description": "The page comes back from the wiki's trash with every page that was deleted along\nwith it, for editors of the wiki: below the page it was below, at the place it had\n(right after the pages before it there, if a page made since has that place), or,\nthat page gone (in the trash, or gone for good), last at the top of the wiki.\nThe tree is held to the organization's limits: 400 with the reason `page_too_deep`\nor `too_many_pages` (with the `limit`) if the pages would be deeper, or the wiki\nlarger, than they let it be. A page that is not in this wiki's trash, or went there\nwith the page it was below (it comes back with that page), is 404. The comments on\nthe pages come back with them; the limits count pages. The wiki's members are told\nwith `blockChanged` of each page and comment that came back, a page before what is\nbelow it, and of each page numbered anew to leave it room.",
         "operationId": "undeletePage",
         "parameters": [
           {

@@ -16,7 +16,7 @@ use crate::export::{boards_of, import, import_upload, put_part};
 /// The smallest part size, so that an archive of two parts stays small.
 const PART: usize = 5 * 1024 * 1024;
 
-/// The largest `board.jsonl` an import reads.
+/// The largest `container.jsonl` an import reads.
 const JSONL_LIMIT: usize = 64 * 1024 * 1024;
 
 /// The directory under which the parts of uploads are kept.
@@ -49,7 +49,7 @@ async fn open_import(
     client
         .post(
             &format!("/w/{workspace_id}/archive/uploads"),
-            &json!({"name": "archive.boardarchive", "size": size}),
+            &json!({"name": "archive.fvoci", "size": size}),
         )
         .await
 }
@@ -76,16 +76,16 @@ fn incompressible(size: usize) -> Vec<u8> {
         .collect()
 }
 
-/// An archive of version 3 with one board and the given entries beside its
-/// `board.jsonl`, each written with `method`.
+/// An archive of version 1 with one board and the given entries beside its
+/// `container.jsonl`, each written with `method`.
 fn archive_with(entries: &[(&str, &[u8])], method: zip::CompressionMethod) -> Vec<u8> {
-    let board = json!({"type": "board", "data": {
+    let board = json!({"type": "container", "data": {
         "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Limits", "createAt": 1, "updateAt": 1,
     }});
     archive_of(&board, entries, method)
 }
 
-/// An archive of version 3 with one board, the line `board` of its `board.jsonl`, and
+/// An archive of version 1 with one board, the line `board` of its `container.jsonl`, and
 /// the given entries beside it.
 fn archive_of(
     board: &serde_json::Value,
@@ -96,9 +96,11 @@ fn archive_of(
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     writer.start_file("version.json", options).expect("start");
     writer
-        .write_all(br#"{"version":3,"date":1}"#)
+        .write_all(br#"{"version":1,"date":1}"#)
         .expect("write");
-    writer.start_file("b1/board.jsonl", options).expect("start");
+    writer
+        .start_file("b1/container.jsonl", options)
+        .expect("start");
     writer
         .write_all(format!("{board}\n").as_bytes())
         .expect("write");
@@ -183,7 +185,7 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
 #[tokio::test]
 async fn an_archive_board_validates_workspace_id_and_ignores_unknown_keys() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = json!({"type": "board", "data": {
+    let board = json!({"type": "container", "data": {
         "id": "b1", "workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Imported board",
         "createAt": 1, "updateAt": 1,
     }});
@@ -199,7 +201,7 @@ async fn an_archive_board_validates_workspace_id_and_ignores_unknown_keys() {
     assert_eq!(imported.len(), 1, "{imported:?}");
     assert_eq!(imported[0].workspace_id, TEST_WORKSPACE_ID);
 
-    let invalid = json!({"type": "board", "data": {
+    let invalid = json!({"type": "container", "data": {
         "id": "b2", "workspaceId": 5, "type": "P", "title": "Numbered", "createAt": 1, "updateAt": 1,
     }});
     let archive = archive_of(&invalid, &[], zip::CompressionMethod::Deflated);
@@ -207,12 +209,12 @@ async fn an_archive_board_validates_workspace_id_and_ignores_unknown_keys() {
     refused.check_bad_request();
     let detail = refused.value()["detail"].as_str().unwrap_or("").to_owned();
     assert!(
-        detail.starts_with("invalid board in archive line 1"),
+        detail.starts_with("invalid container in archive line 1"),
         "workspaceId: {detail}"
     );
 
     // An unknown workspace-like key is ignored rather than aliased to `workspaceId`.
-    let unknown_key = json!({"type": "board", "data": {
+    let unknown_key = json!({"type": "container", "data": {
         "id": "b3", "legacyWorkspaceId": 5, "type": "P", "title": "Unknown key ignored",
         "createAt": 1, "updateAt": 1,
     }});
@@ -238,7 +240,7 @@ async fn an_archive_board_validates_workspace_id_and_ignores_unknown_keys() {
 async fn an_archive_makes_its_wiki_a_wiki_and_refuses_a_template_wiki_whole() {
     let ts = Setup::native().start().await.init_basic().await;
     let board_of = |kind: &str, template: bool| {
-        json!({"type": "board", "data": {
+        json!({"type": "container", "data": {
             "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": kind,
             "isTemplate": template, "title": format!("Archived {kind}"), "createAt": 1,
             "updateAt": 1,
@@ -255,7 +257,7 @@ async fn an_archive_makes_its_wiki_a_wiki_and_refuses_a_template_wiki_whole() {
     let wiki_line = format!("{}\n", board_of("wiki", true)).into_bytes();
     let board_then_wiki = archive_of(
         &board_of("board", false),
-        &[("b2/board.jsonl", &wiki_line)],
+        &[("b2/container.jsonl", &wiki_line)],
         zip::CompressionMethod::Deflated,
     );
     let refused = import(&ts.client, TEST_WORKSPACE_ID, &board_then_wiki).await;
@@ -426,7 +428,7 @@ async fn an_archive_over_its_limits_stores_nothing() {
     let deflated = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
     writer
-        .start_file("b1/board.jsonl", deflated)
+        .start_file("b1/container.jsonl", deflated)
         .expect("start");
     writer
         .write_all(&vec![b' '; JSONL_LIMIT + 1])
@@ -566,7 +568,7 @@ async fn a_large_version_json_is_no_archive() {
     let ts = Setup::native().start().await.init_basic().await;
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
-    let mut version = br#"{"version":3,"date":1}"#.to_vec();
+    let mut version = br#"{"version":1,"date":1}"#.to_vec();
     version.resize(65 * 1024, b' ');
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     writer.start_file("version.json", options).expect("start");
@@ -627,22 +629,22 @@ async fn imports_run_one_per_user_and_two_on_the_server() {
     ts.teardown().await;
 }
 
-/// Native archives with duplicate `(dir, "board.jsonl")` or duplicate `(dir, filename)`
+/// Native archives with duplicate `(dir, "container.jsonl")` or duplicate `(dir, filename)`
 /// entries are rejected with 400 before staging any files or creating boards.
 #[tokio::test]
 async fn duplicate_entries_in_native_archive_are_refused_with_400() {
     let ts = Setup::native().start().await.init_basic().await;
     let before = boards_of(&ts).await.len();
-    let board = json!({"type": "board", "data": {
+    let board = json!({"type": "container", "data": {
         "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Dup", "createAt": 1, "updateAt": 1,
     }});
     let opts = zip::write::SimpleFileOptions::default();
 
-    // Case 1: duplicate `(dir, "board.jsonl")` via normalized path alias.
+    // Case 1: duplicate `(dir, "container.jsonl")` via normalized path alias.
     let mut w1 = zip::ZipWriter::new(Cursor::new(Vec::new()));
     w1.start_file("version.json", opts).expect("start");
-    w1.write_all(br#"{"version":3,"date":1}"#).expect("write");
-    for path in ["b1/board.jsonl", "./b1/board.jsonl"] {
+    w1.write_all(br#"{"version":1,"date":1}"#).expect("write");
+    for path in ["b1/container.jsonl", "./b1/container.jsonl"] {
         w1.start_file(path, opts).expect("start");
         w1.write_all(format!("{board}\n").as_bytes())
             .expect("write");
@@ -688,24 +690,24 @@ fn oversized_after_rename_native_zip() -> Vec<u8> {
         "pre-rename body fits within BODY_MAX_BYTES"
     );
 
-    let b1 = json!({"type": "board", "data": {
+    let b1 = json!({"type": "container", "data": {
         "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Valid First", "createAt": 1, "updateAt": 1,
     }});
-    let b2 = json!({"type": "board", "data": {
+    let b2 = json!({"type": "container", "data": {
         "id": "b2", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Overflow Second", "createAt": 1, "updateAt": 1,
     }});
     let card = json!({"type": "block", "data": {
-        "id": "c1", "boardId": "b2", "parentId": "", "type": "card", "title": "Big",
+        "id": "c1", "containerId": "b2", "parentId": "", "type": "card", "title": "Big",
         "fields": {}, "body": doc, "createAt": 1, "updateAt": 1,
     }});
     let opts = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     writer.start_file("version.json", opts).expect("v");
-    writer.write_all(br#"{"version":3,"date":1}"#).expect("v");
-    writer.start_file("b1/board.jsonl", opts).expect("b1");
+    writer.write_all(br#"{"version":1,"date":1}"#).expect("v");
+    writer.start_file("b1/container.jsonl", opts).expect("b1");
     writer.write_all(format!("{b1}\n").as_bytes()).expect("b1");
-    writer.start_file("b2/board.jsonl", opts).expect("b2");
+    writer.start_file("b2/container.jsonl", opts).expect("b2");
     writer
         .write_all(format!("{b2}\n{card}\n").as_bytes())
         .expect("b2");

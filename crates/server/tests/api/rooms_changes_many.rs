@@ -66,7 +66,7 @@ async fn trashing_a_large_workspace_reads_everybody_at_once_and_puts_them_out() 
     for (index, peer) in peers.iter_mut().enumerate() {
         let mut reasons = Vec::new();
         while reasons.len() < BOARDS {
-            reasons.push(peer.text("DOC_LEFT").await["reason"].clone());
+            reasons.push(peer.text("docLeft").await["reason"].clone());
         }
         assert!(
             reasons.iter().all(|reason| *reason == json!("not_found")),

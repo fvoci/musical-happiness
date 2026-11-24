@@ -122,7 +122,7 @@ describe('changes from the server', () => {
     const { socket } = await connected();
     expect(FakeSocket.made).toHaveLength(1);
     expect(socket.url).toBe('ws://here/ws');
-    expect(socket.sent).toEqual([{ action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' }]);
+    expect(socket.sent).toEqual([{ type: 'subscribeWorkspace', workspaceId: 't' }]);
   });
 
   it('hands a block to the listeners of its board alone, as the screens’ block', async () => {
@@ -135,7 +135,7 @@ describe('changes from the server', () => {
       preview: { imageFileId: 'f1', text: 'To do' },
     };
     socket.message({
-      action: 'UPDATE_BLOCK',
+      type: 'blockChanged',
       workspaceId: 't',
       block: {
         ...BLOCK,
@@ -148,7 +148,7 @@ describe('changes from the server', () => {
       summary,
     });
     socket.message({
-      action: 'UPDATE_BLOCK',
+      type: 'blockChanged',
       workspaceId: 't',
       block: { ...BLOCK, id: 'c1', containerId: 'b1', deleteAt: 5, type: '', fields: {} },
     });
@@ -186,12 +186,12 @@ describe('changes from the server', () => {
       updateAt: 2,
     };
     socket.message({
-      action: 'UPDATE_CONTAINER',
+      type: 'containerChanged',
       workspaceId: 't',
       container: { ...shape, id: 'b1', deleteAt: 0 },
     });
     socket.message({
-      action: 'UPDATE_CONTAINER',
+      type: 'containerChanged',
       workspaceId: 't',
       container: { ...shape, id: 'b1', deleteAt: 9 },
     });
@@ -204,13 +204,13 @@ describe('changes from the server', () => {
     const members = vi.spyOn(reads, 'members');
     const { socket, board, self } = await connected();
     socket.message({
-      action: 'UPDATE_MEMBER',
+      type: 'containerMemberChanged',
       workspaceId: 't',
       member: { containerId: 'b1', userId: 'u2', schemeViewer: true },
     });
     // A board nobody here watches: its members are not read.
     socket.message({
-      action: 'DELETE_MEMBER',
+      type: 'containerMemberRemoved',
       workspaceId: 't',
       member: { containerId: 'b9', userId: 'u2' },
     });
@@ -239,7 +239,7 @@ describe('changes from the server', () => {
       .mockImplementationOnce(() => Promise.reject(new BackendError(403, { detail: 'no' })));
     const { socket, board } = await connected();
     const message = {
-      action: 'UPDATE_MEMBER',
+      type: 'containerMemberChanged',
       workspaceId: 't',
       member: { containerId: 'b1', userId: 'u2' },
     };
@@ -254,9 +254,9 @@ describe('changes from the server', () => {
 
   it("tells the reader's own listeners whose name changed, and the board nothing", async () => {
     const { socket, self, board } = await connected();
-    socket.message({ action: 'UPDATE_USER', workspaceId: 't', userId: 'u2' });
+    socket.message({ type: 'userChanged', workspaceId: 't', userId: 'u2' });
     // Of a workspace that was left: not told.
-    socket.message({ action: 'UPDATE_USER', workspaceId: 'gone', userId: 'u3' });
+    socket.message({ type: 'userChanged', workspaceId: 'gone', userId: 'u3' });
     await settle();
     expect(self).toEqual([{ kind: 'user', userId: 'u2' }]);
     expect(board).toEqual([]);
@@ -264,7 +264,7 @@ describe('changes from the server', () => {
 
   it("tells the reader's own listeners that their notifications changed, whatever workspace is followed", async () => {
     const { socket, self, board } = await connected();
-    socket.message({ action: 'UPDATE_NOTIFICATIONS' });
+    socket.message({ type: 'notificationsChanged' });
     await settle();
     expect(self).toEqual([{ kind: 'notifications' }]);
     expect(board).toEqual([]);
@@ -272,8 +272,8 @@ describe('changes from the server', () => {
 
   it('reads the sidebar again on a message of the categories', async () => {
     const { socket, self, board } = await connected();
-    socket.message({ action: 'UPDATE_CATEGORY', workspaceId: 't', category: {} });
-    socket.message({ action: 'REORDER_CATEGORIES', workspaceId: 't', categoryOrder: [] });
+    socket.message({ type: 'categoryChanged', workspaceId: 't', category: {} });
+    socket.message({ type: 'categoriesReordered', workspaceId: 't', categoryOrder: [] });
     await vi.advanceTimersByTimeAsync(200);
     expect(self).toEqual([{ kind: 'resync' }]);
     expect(board).toEqual([]);
@@ -282,20 +282,20 @@ describe('changes from the server', () => {
   it('asks again for a workspace whose subscription the server ended, and has everyone read again', async () => {
     const { socket, board, self } = await connected();
     socket.message({
-      action: 'UNSUBSCRIBED_WORKSPACE',
+      type: 'workspaceUnsubscribed',
       workspaceId: 't',
       reason: 'workspace access ended',
     });
     socket.message({
-      action: 'UNSUBSCRIBED_WORKSPACE',
+      type: 'workspaceUnsubscribed',
       workspaceId: 'left',
       reason: 'workspace access ended',
     });
     await settle();
     expect(socket.closed).toBe(false);
     expect(socket.sent).toEqual([
-      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
-      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
+      { type: 'subscribeWorkspace', workspaceId: 't' },
+      { type: 'subscribeWorkspace', workspaceId: 't' },
     ]);
     expect(board).toEqual([{ kind: 'resync' }]);
     expect(self).toEqual([{ kind: 'resync' }]);
@@ -303,10 +303,10 @@ describe('changes from the server', () => {
 
   it('asks again for its workspace whenever it is entered again, also on a connection made since the server ended it', async () => {
     const { live, socket, board } = await connected();
-    const subscribe = { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' };
+    const subscribe = { type: 'subscribeWorkspace', workspaceId: 't' };
     // As the server ends the own space for a session that has not shown the password:
     // asked again at once, which the server ignores and says nothing of.
-    socket.message({ action: 'UNSUBSCRIBED_WORKSPACE', workspaceId: 't' });
+    socket.message({ type: 'workspaceUnsubscribed', workspaceId: 't' });
     expect(socket.sent).toEqual([subscribe, subscribe]);
     expect(board).toEqual([{ kind: 'resync' }]);
     // The connection comes again meanwhile, and its asking is ignored as silently.
@@ -339,7 +339,7 @@ describe('changes from the server', () => {
     await settle();
     const again = FakeSocket.made[1];
     again?.open();
-    expect(again?.sent).toEqual([{ action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' }]);
+    expect(again?.sent).toEqual([{ type: 'subscribeWorkspace', workspaceId: 't' }]);
     expect(board).toEqual([{ kind: 'resync' }]);
   });
 
@@ -350,7 +350,7 @@ describe('changes from the server', () => {
     expect(FakeSocket.made).toHaveLength(0);
     live.enter('t');
     FakeSocket.made[0]?.open();
-    expect(FakeSocket.made[0]?.sent).toEqual([{ action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' }]);
+    expect(FakeSocket.made[0]?.sent).toEqual([{ type: 'subscribeWorkspace', workspaceId: 't' }]);
   });
 
   it('moves the subscription to another workspace, and lets go of what the old one still sends', async () => {
@@ -359,14 +359,14 @@ describe('changes from the server', () => {
     live.enter('t2');
     expect(FakeSocket.made).toHaveLength(1);
     expect(socket.sent).toEqual([
-      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
-      { action: 'UNSUBSCRIBE_WORKSPACE', workspaceId: 't' },
-      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't2' },
+      { type: 'subscribeWorkspace', workspaceId: 't' },
+      { type: 'unsubscribeWorkspace', workspaceId: 't' },
+      { type: 'subscribeWorkspace', workspaceId: 't2' },
       // Entered again, asked for again: the server takes that for what is followed.
-      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't2' },
+      { type: 'subscribeWorkspace', workspaceId: 't2' },
     ]);
     const board = (workspaceId: string, id: string): unknown => ({
-      action: 'UPDATE_CONTAINER',
+      type: 'containerChanged',
       workspaceId,
       container: { id, workspaceId, deleteAt: 0, title: id, cardProperties: [], properties: {} },
     });
@@ -386,9 +386,7 @@ describe('changes from the server', () => {
     live.enter('t2');
     FakeSocket.made[0]?.open();
     expect(FakeSocket.made).toHaveLength(1);
-    expect(FakeSocket.made[0]?.sent).toEqual([
-      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't2' },
-    ]);
+    expect(FakeSocket.made[0]?.sent).toEqual([{ type: 'subscribeWorkspace', workspaceId: 't2' }]);
   });
 
   it('opens again at once on signing in, subscribed to the workspace entered', async () => {
@@ -396,7 +394,7 @@ describe('changes from the server', () => {
     live.restart();
     expect(socket.closed).toBe(true);
     FakeSocket.made[1]?.open();
-    expect(FakeSocket.made[1]?.sent).toEqual([{ action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' }]);
+    expect(FakeSocket.made[1]?.sent).toEqual([{ type: 'subscribeWorkspace', workspaceId: 't' }]);
   });
 
   it('waits from the first wait again only after a connection has held', async () => {
@@ -431,7 +429,7 @@ describe('changes from the server', () => {
     await vi.advanceTimersByTimeAsync(1);
     const again = FakeSocket.made[2];
     again?.open();
-    expect(again?.sent).toEqual([{ action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' }]);
+    expect(again?.sent).toEqual([{ type: 'subscribeWorkspace', workspaceId: 't' }]);
     for (const changes of [board, self, other]) expect(changes).toEqual([{ kind: 'resync' }]);
   });
 

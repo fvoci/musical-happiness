@@ -1,22 +1,21 @@
 //! Subscriptions of users to the changes of a block.
 //!
-//! A subscription is a row while it lasts. It ends when the subscriber ends it, when the
-//! block goes for good, and when the subscriber leaves the block's board. A block that
+//! A subscription is a row while it lasts. It ends when the user ends it, when the
+//! block goes for good, and when the user leaves the block's board. A block that
 //! goes into the trash takes the subscriptions to it along, and brings them back
 //! (`trash/watchers.rs`).
 
-use fvoci_model::{BlockType, Subscriber, SubscriberType, Subscription};
+use fvoci_model::{BlockType, Subscriber, Subscription};
 
 use crate::Store;
 use crate::db::{Id, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 
 /// The columns of a subscription, in the order [`subscription_from_row`] reads them.
-const SUBSCRIPTION_COLUMNS: &str =
-    "block_type, block_id, subscriber_type, subscriber_id, notified_at, create_at";
+const SUBSCRIPTION_COLUMNS: &str = "block_type, block_id, user_id, notified_at, create_at";
 
 /// A subscription, and the board or the wiki its block is on: what decides whether its
-/// subscriber may know of it.
+/// user may know of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatchedBlock {
     /// The subscription.
@@ -26,12 +25,12 @@ pub struct WatchedBlock {
 }
 
 impl Store {
-    /// Subscribes a subscriber to a block and returns the subscription as it is stored:
+    /// Subscribes a user to a block and returns the subscription as it is stored:
     /// created and notified now.
     ///
-    /// If the subscriber is subscribed to the block already, that subscription stays as
-    /// it is, creation time and types included, and is marked as notified now; that one
-    /// is returned.
+    /// If the user is subscribed to the block already, that subscription stays as
+    /// it is, creation time and block type included, and is marked as notified now; that
+    /// one is returned.
     ///
     /// # Errors
     ///
@@ -45,29 +44,29 @@ impl Store {
             .await
     }
 
-    /// Ends the subscription of a subscriber to a block.
+    /// Ends the subscription of a user to a block.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if the subscriber is not subscribed to the block.
+    /// Returns [`StoreError::NotFound`] if the user is not subscribed to the block.
     pub async fn delete_subscription(
         &self,
         block_id: &str,
-        subscriber_id: &str,
+        user_id: &str,
     ) -> Result<(), StoreError> {
         self.with_write_conn(async |scope| {
             let mut sql = scope.sql("DELETE FROM subscriptions WHERE block_id = ");
             sql.bind(Id(block_id))
-                .push_bind(" AND subscriber_id = ", Id(subscriber_id));
+                .push_bind(" AND user_id = ", Id(user_id));
             if scope.execute(sql).await? == 0 {
-                return Err(subscription_not_found(block_id, subscriber_id));
+                return Err(subscription_not_found(block_id, user_id));
             }
             Ok(())
         })
         .await
     }
 
-    /// Returns the subscription of a subscriber to a block.
+    /// Returns the subscription of a user to a block.
     ///
     /// # Errors
     ///
@@ -75,40 +74,37 @@ impl Store {
     pub async fn get_subscription(
         &self,
         block_id: &str,
-        subscriber_id: &str,
+        user_id: &str,
     ) -> Result<Subscription, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_subscriptions(scope);
             sql.push_bind(" AND block_id = ", Id(block_id))
-                .push_bind(" AND subscriber_id = ", Id(subscriber_id));
+                .push_bind(" AND user_id = ", Id(user_id));
             fetch_subscriptions(scope, sql)
                 .await?
                 .into_iter()
                 .next()
-                .ok_or_else(|| subscription_not_found(block_id, subscriber_id))
+                .ok_or_else(|| subscription_not_found(block_id, user_id))
         })
         .await
     }
 
-    /// Returns the subscriptions of a subscriber, oldest first.
+    /// Returns the subscriptions of a user, oldest first.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_subscriptions(
-        &self,
-        subscriber_id: &str,
-    ) -> Result<Vec<Subscription>, StoreError> {
+    pub async fn get_subscriptions(&self, user_id: &str) -> Result<Vec<Subscription>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_subscriptions(scope);
-            sql.push_bind(" AND subscriber_id = ", Id(subscriber_id))
+            sql.push_bind(" AND user_id = ", Id(user_id))
                 .push(" ORDER BY create_at, block_id");
             fetch_subscriptions(scope, sql).await
         })
         .await
     }
 
-    /// Returns the subscriptions of a subscriber to blocks of the boards of a workspace,
+    /// Returns the subscriptions of a user to blocks of the boards of a workspace,
     /// oldest first, as [`Store::get_subscriptions`] orders them.
     ///
     /// # Errors
@@ -116,12 +112,12 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn get_subscriptions_in_workspace(
         &self,
-        subscriber_id: &str,
+        user_id: &str,
         workspace_id: &str,
     ) -> Result<Vec<Subscription>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_subscriptions(scope);
-            sql.push_bind(" AND subscriber_id = ", Id(subscriber_id))
+            sql.push_bind(" AND user_id = ", Id(user_id))
                 .push(&format!(
                     " AND block_id IN (SELECT bl.id FROM blocks AS bl \
                      JOIN containers AS bo ON bo.id = bl.container_id{} WHERE bo.workspace_id = ",
@@ -134,7 +130,7 @@ impl Store {
         .await
     }
 
-    /// Returns the subscriptions of a subscriber, with the board or the wiki of each
+    /// Returns the subscriptions of a user, with the board or the wiki of each
     /// block, oldest first as [`Store::get_subscriptions`] orders them: of the boards and
     /// the wikis of `workspace_id` alone, if there is one.
     ///
@@ -143,19 +139,19 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn get_watched_blocks(
         &self,
-        subscriber_id: &str,
+        user_id: &str,
         workspace_id: Option<&str>,
     ) -> Result<Vec<WatchedBlock>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(&format!(
-                "SELECT s.block_type, s.block_id, s.subscriber_type, s.subscriber_id, \
-                 s.notified_at, s.create_at, bl.container_id FROM subscriptions AS s \
+                "SELECT s.block_type, s.block_id, s.user_id, s.notified_at, s.create_at, \
+                 bl.container_id FROM subscriptions AS s \
                  JOIN blocks AS bl ON bl.id = s.block_id{} \
-                 JOIN containers AS bo ON bo.id = bl.container_id{} WHERE s.subscriber_id = ",
+                 JOIN containers AS bo ON bo.id = bl.container_id{} WHERE s.user_id = ",
                 scope.same_organization(&[("bl", "s")]),
                 scope.same_organization(&[("bo", "bl")]),
             ));
-            sql.bind(Id(subscriber_id));
+            sql.bind(Id(user_id));
             if let Some(workspace_id) = workspace_id {
                 sql.push_bind(" AND bo.workspace_id = ", Id(workspace_id));
             }
@@ -167,7 +163,7 @@ impl Store {
                 .map(|row| {
                     Ok(WatchedBlock {
                         subscription: subscription_from_row(row)?,
-                        container_id: row.id(6)?,
+                        container_id: row.id(5)?,
                     })
                 })
                 .collect()
@@ -175,7 +171,7 @@ impl Store {
         .await
     }
 
-    /// Returns the subscribers of a block, the one notified longest ago first; those
+    /// Returns the subscribed users of a block, the one notified longest ago first; those
     /// notified at the same time come by identifier.
     ///
     /// # Errors
@@ -186,21 +182,18 @@ impl Store {
         block_id: &str,
     ) -> Result<Vec<Subscriber>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(
-                "SELECT subscriber_type, subscriber_id, notified_at FROM subscriptions \
-                 WHERE block_id = ",
-            );
+            let mut sql =
+                scope.sql("SELECT user_id, notified_at FROM subscriptions WHERE block_id = ");
             sql.bind(Id(block_id))
-                .push(" ORDER BY notified_at, subscriber_id");
+                .push(" ORDER BY notified_at, user_id");
             scope
                 .fetch_all(sql)
                 .await?
                 .iter()
                 .map(|row| {
                     Ok(Subscriber {
-                        subscriber_type: subscriber_type_from_text(&row.text(0)?)?,
-                        subscriber_id: row.id(1)?,
-                        notified_at: row.int(2)?,
+                        user_id: row.id(0)?,
+                        notified_at: row.int(1)?,
                     })
                 })
                 .collect()
@@ -208,15 +201,14 @@ impl Store {
         .await
     }
 
-    /// Returns the number of subscribers of a block.
+    /// Returns the number of subscribed users of a block.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn get_subscribers_count_for_block(&self, block_id: &str) -> Result<i64, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql =
-                scope.sql("SELECT COUNT(subscriber_id) FROM subscriptions WHERE block_id = ");
+            let mut sql = scope.sql("SELECT COUNT(user_id) FROM subscriptions WHERE block_id = ");
             sql.bind(Id(block_id));
             match scope.fetch_optional(sql).await? {
                 Some(row) => row.int(0),
@@ -250,39 +242,28 @@ fn subscription_from_row(row: &Row) -> Result<Subscription, StoreError> {
     Ok(Subscription {
         block_type: BlockType::from(row.text(0)?),
         block_id: row.id(1)?,
-        subscriber_type: subscriber_type_from_text(&row.text(2)?)?,
-        subscriber_id: row.id(3)?,
-        notified_at: row.int(4)?,
-        create_at: row.int(5)?,
+        user_id: row.id(2)?,
+        notified_at: row.int(3)?,
+        create_at: row.int(4)?,
         // A subscription that exists is not ended.
         delete_at: 0,
     })
 }
 
-fn subscriber_type_from_text(text: &str) -> Result<SubscriberType, StoreError> {
-    [SubscriberType::User, SubscriberType::Channel]
-        .into_iter()
-        .find(|subscriber_type| subscriber_type.as_str() == text)
-        .ok_or_else(|| StoreError::Corrupt {
-            column: "subscriber_type",
-            reason: format!("unknown subscriber type {text:?}"),
-        })
-}
-
-fn subscription_not_found(block_id: &str, subscriber_id: &str) -> StoreError {
+fn subscription_not_found(block_id: &str, user_id: &str) -> StoreError {
     StoreError::not_found(format_args!(
-        "subscription BlockID={block_id} SubscriberID={subscriber_id}"
+        "subscription BlockID={block_id} UserID={user_id}"
     ))
 }
 
-/// Ends every subscription of a subscriber to a block of the board.
+/// Ends every subscription of a user to a block of the board.
 pub(crate) async fn end_subscriptions_to_container(
     scope: &mut Scope<'_>,
     container_id: &str,
-    subscriber_id: &str,
+    user_id: &str,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql("DELETE FROM subscriptions WHERE subscriber_id = ");
-    sql.bind(Id(subscriber_id))
+    let mut sql = scope.sql("DELETE FROM subscriptions WHERE user_id = ");
+    sql.bind(Id(user_id))
         .push_bind(
             " AND block_id IN (SELECT id FROM blocks WHERE container_id = ",
             Id(container_id),
@@ -309,31 +290,30 @@ pub(crate) async fn create_subscription(
     };
 
     // Subscribing again to what one is subscribed to keeps the subscription as it is,
-    // creation time and types included, and marks it as notified now.
+    // creation time and block type included, and marks it as notified now.
     let mut sql = scope.sql(&format!(
         "INSERT INTO subscriptions ({SUBSCRIPTION_COLUMNS}) VALUES ("
     ));
     sql.bind(subscription.block_type.as_str())
         .push_bind(", ", Id(&subscription.block_id))
-        .push_bind(", ", subscription.subscriber_type.as_str())
-        .push_bind(", ", Id(&subscription.subscriber_id))
+        .push_bind(", ", Id(&subscription.user_id))
         .push_bind(", ", subscription.notified_at)
         .push_bind(", ", subscription.create_at)
         .push(
-            ") ON CONFLICT (block_id, subscriber_id) DO UPDATE SET \
+            ") ON CONFLICT (block_id, user_id) DO UPDATE SET \
              notified_at = EXCLUDED.notified_at",
         );
     scope
         .execute(sql)
         .await
-        .map_err(|error| error.missing_reference("block or subscriber"))?;
+        .map_err(|error| error.missing_reference("block or user"))?;
 
     let mut sql = select_subscriptions(scope);
     sql.push_bind(" AND block_id = ", Id(&subscription.block_id))
-        .push_bind(" AND subscriber_id = ", Id(&subscription.subscriber_id));
+        .push_bind(" AND user_id = ", Id(&subscription.user_id));
     fetch_subscriptions(scope, sql)
         .await?
         .into_iter()
         .next()
-        .ok_or_else(|| subscription_not_found(&subscription.block_id, &subscription.subscriber_id))
+        .ok_or_else(|| subscription_not_found(&subscription.block_id, &subscription.user_id))
 }

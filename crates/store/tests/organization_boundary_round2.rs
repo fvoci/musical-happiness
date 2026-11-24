@@ -675,7 +675,7 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             ("sharing", "(container_id)"),
             // A secret the server makes.
             ("sharing", "(token)"),
-            ("subscriptions", "(block_id, subscriber_id)"),
+            ("subscriptions", "(block_id, user_id)"),
             // Server-generated identifier for each personal time entry.
             ("time_entries", "(id)"),
             // At most one active timer per account across every organization.

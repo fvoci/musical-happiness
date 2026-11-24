@@ -1704,7 +1704,7 @@ async fn card_changes_are_broadcast() {
             .post(&path, &json!({"title": title}))
             .await
             .created_json();
-        let message = member.expect("UPDATE_BLOCK", "/block/id", &card.id).await;
+        let message = member.expect("blockChanged", "/block/id", &card.id).await;
         assert_eq!(
             message["workspaceId"],
             json!(TEST_WORKSPACE_ID),
@@ -1726,7 +1726,7 @@ async fn card_changes_are_broadcast() {
                 )
                 .await
                 .check_ok();
-            let message = member.expect("UPDATE_BLOCK", "/block/id", &card.id).await;
+            let message = member.expect("blockChanged", "/block/id", &card.id).await;
             assert_eq!(message["block"]["title"], json!(title), "{message}");
         }
     }
@@ -1835,8 +1835,7 @@ async fn card_changes_call_the_webhook() {
             &json!({
                 "blockType": "card",
                 "blockId": card.id,
-                "subscriberType": "user",
-                "subscriberId": me.id,
+                "userId": me.id,
             }),
         )
         .await

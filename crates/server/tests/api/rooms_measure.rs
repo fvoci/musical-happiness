@@ -80,7 +80,7 @@ async fn twenty_connections_edit_one_body() {
         for writer in 0..PEERS {
             let began = Instant::now();
             peers[writer].write(&format!("{round}.{writer}")).await;
-            let ack = peers[writer].text("DOC_ACK").await;
+            let ack = peers[writer].text("docAck").await;
             assert_eq!(ack["epoch"], json!(1), "{ack}");
             answered.push(began.elapsed());
             for (reader, peer) in peers.iter_mut().enumerate() {
@@ -99,7 +99,7 @@ async fn twenty_connections_edit_one_body() {
         }
     }
     report(&format!(
-        "{PEERS} connections in one room, {} updates in turn: answered (DOC_ACK) {}; \
+        "{PEERS} connections in one room, {} updates in turn: answered (docAck) {}; \
          at the last of the other {} {}",
         answered.len(),
         spread(&mut answered),
@@ -113,7 +113,7 @@ async fn twenty_connections_edit_one_body() {
         peer.write(&format!("at once {writer}")).await;
     }
     for peer in &mut peers {
-        peer.text("DOC_ACK").await;
+        peer.text("docAck").await;
     }
     let all_answered = began.elapsed();
     for peer in &mut peers {
@@ -227,7 +227,7 @@ impl Seen {
                 }
                 peer.editor().receive(&frame.payload);
             }
-            Incoming::Text(message) if message["action"] == json!("DOC_ACK") => {
+            Incoming::Text(message) if message["type"] == json!("docAck") => {
                 let at = self.waiting.pop_front().expect("an update is waiting");
                 self.answered.push(at.elapsed());
             }
@@ -379,7 +379,7 @@ async fn twenty_connections_write_at_once_for_a_while() {
     report(&format!(
         "{} connections of {USERS} users in one room, all writing every {} ms for {} s: \
          {written} updates, everywhere {} ms after the first was sent; at each of the \
-         other {} {}; answered (DOC_ACK) {}; the \
+         other {} {}; answered (docAck) {}; the \
          worker holds {held} bytes of the document's state and its resident memory is {} \
          KiB; the whole test process (the server, the test's editors, and any other test \
          running meanwhile) {} KiB before the connections, {} KiB with them in the \

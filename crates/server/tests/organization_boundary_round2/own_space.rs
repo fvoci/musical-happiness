@@ -807,7 +807,7 @@ async fn check_the_room_of_the_entry(
 ) {
     let workspace = &space.workspace.id;
     let join = |workspace: &str, id: &str| {
-        let command = json!({"action": "JOIN_DOC", "workspaceId": workspace, "cardId": id});
+        let command = json!({"type": "joinDoc", "workspaceId": workspace, "cardId": id});
         Message::Text(command.to_string().into())
     };
     for (index, socket) in sockets.iter_mut().enumerate() {
@@ -820,7 +820,7 @@ async fn check_the_room_of_the_entry(
                     answers.push(answer.replace(id, "ID"));
                 }
                 assert!(
-                    answers[0] == answers[1] && answers[0].contains("DOC_REFUSED"),
+                    answers[0] == answers[1] && answers[0].contains("docRefused"),
                     "connection {index} asks for room {target} under {under}: {answers:?}"
                 );
             }
@@ -830,7 +830,7 @@ async fn check_the_room_of_the_entry(
         owner.send(join(workspace, target)).await.expect("sent");
         let joined = heard(owner).await;
         assert!(
-            !joined.is_empty() && !joined.iter().any(|message| message.contains("DOC_REFUSED")),
+            !joined.is_empty() && !joined.iter().any(|message| message.contains("docRefused")),
             "the owner joins the room of {target}: {joined:?}"
         );
     }
@@ -840,7 +840,7 @@ async fn check_the_room_of_the_entry(
         .expect("sent");
     let refused = heard(owner).await.join("\n");
     assert!(
-        refused.contains("DOC_REFUSED"),
+        refused.contains("docRefused"),
         "a chapter has no room: {refused}"
     );
 }
@@ -866,22 +866,22 @@ async fn a_change_in_a_space_is_told_to_its_owner_alone() {
         ts.anonymous().as_browser().connect_websocket().await,
     ];
     let follow = [
-        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace}),
+        json!({"type": "subscribeWorkspace", "workspaceId": workspace}),
         json!({
-            "action": "SUBSCRIBE_BLOCKS", "workspaceId": workspace,
+            "type": "subscribeBlocks", "workspaceId": workspace,
             "blockIds": [space.card.id, space.entry.id, space.unit.id, space.chapter.id],
         }),
         json!({
-            "action": "SUBSCRIBE_BLOCKS", "workspaceId": workspace,
-            "blockIds": [space.card.id, space.entry.id, space.unit.id, space.chapter.id],
-            "readToken": token,
-        }),
-        json!({
-            "action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID,
+            "type": "subscribeBlocks", "workspaceId": workspace,
             "blockIds": [space.card.id, space.entry.id, space.unit.id, space.chapter.id],
             "readToken": token,
         }),
-        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}),
+        json!({
+            "type": "subscribeBlocks", "workspaceId": ROOT_WORKSPACE_ID,
+            "blockIds": [space.card.id, space.entry.id, space.unit.id, space.chapter.id],
+            "readToken": token,
+        }),
+        json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID}),
     ];
     for socket in sockets.iter_mut().chain([&mut owner]) {
         for command in &follow {
@@ -1235,7 +1235,7 @@ async fn the_links_of_a_space_are_closed_while_its_account_waits() {
 
     let mut reader = ts.anonymous().as_browser().connect_websocket().await;
     let follow = json!({
-        "action": "SUBSCRIBE_BLOCKS", "workspaceId": space.workspace.id,
+        "type": "subscribeBlocks", "workspaceId": space.workspace.id,
         "blockIds": [space.card.id], "readToken": token,
     });
     reader
@@ -1386,13 +1386,13 @@ async fn told_of_a_change(space: &Space, socket: &mut super::common::WebSocket) 
     let mut owners = space.owner.connect_websocket().await;
     let workspace = &space.workspace.id;
     let follow = [
-        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace}),
+        json!({"type": "subscribeWorkspace", "workspaceId": workspace}),
         json!({
-            "action": "SUBSCRIBE_BLOCKS", "workspaceId": workspace,
+            "type": "subscribeBlocks", "workspaceId": workspace,
             "blockIds": [space.card.id, space.entry.id],
         }),
         json!({
-            "action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID,
+            "type": "subscribeBlocks", "workspaceId": ROOT_WORKSPACE_ID,
             "blockIds": [space.card.id, space.entry.id],
         }),
     ];

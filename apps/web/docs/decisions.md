@@ -76,7 +76,7 @@
   - 왜: 둘이 한 본문을 치면 글자 단위로 합쳐진다. 묻거나 덮을 일이 없다.
   - 다른 안: HTTP로 통째 쓰고 409에 묻기(전의 방식).
   - 바꾸려면: `card.svelte.ts`의 `openBody`, `doc-room.ts`.
-- **11.** 방의 문서를 가진 동안 UPDATE_BLOCK으로 온 카드는 본문을 다시 읽지 않는다: 방의 것이 이긴다. 방이 없을 때는 남의 변경이 바로 보인다.
+- **11.** 방의 문서를 가진 동안 `blockChanged`로 온 카드는 본문을 다시 읽지 않는다: 방의 것이 이긴다. 방이 없을 때는 남의 변경이 바로 보인다.
   - 왜: 서버의 투영은 방보다 늦다. 늦은 것이 화면을 덮으면 깜빡인다.
   - 바꾸려면: `card.svelte.ts`의 `cardChanged`.
 - **12.** 실행 취소는 작업 공간에 하나다(보드를 바꿔도 이어진다). 한 번의 동작(여러 장 끌기)은 한 묶음.
@@ -1275,7 +1275,7 @@
 
 - **연결 1.** 어느 구현을 쓸지는 페이지가 말한다: `<meta name="fvoci:backend" content="memory">`가 있으면 메모리, `server`이거나 없으면 서버. 서버 없이 빌드를 서빙하는 도구(`tools/preview.ts`, `tools/serve.ts`)가 `memory`를 적어 넣고(`tools/build/in-memory.ts`), 서버는 아무것도 적지 않는다. Vite의 개발 서버는 소스를 그대로 서빙해 태그가 없고, 그때는 메모리다(`import.meta.env.DEV`).
   - 왜: 같은 빌드(`dist/`)를 메모리의 종단 테스트(미리 보기)와 서버가 함께 쓴다. 빌드할 때 고르면 빌드가 둘이 된다. 서버를 고칠 필요가 없다.
-  - 다른 안: 빌드 때의 환경 변수 / 시작할 때 `/api/v1/hello`를 물어 보기(요청 하나와 시간 제한이 더 든다) / 주소의 인자.
+  - 다른 안: 빌드 때의 환경 변수 / 시작할 때 `/api/v1/ping`을 물어 보기(요청 하나와 시간 제한이 더 든다) / 주소의 인자.
   - 바꾸려면: `src/app/backend.ts`의 `chosenBackend`.
 - **연결 2.** 서버 구현은 `src/lib/api/`(높이 3)에 둔다. 타입은 계약에서 만든 `contract.ts`이고(`pnpm run api:types`), `check`가 계약과 어긋나면 실패한다(`--check`).
   - 왜: 린트(`fvoci/no-direct-server`)가 이미 `api/`를 경계의 구현으로 보고 있었다. `state/`의 인터페이스를 가져와야 하므로 `state`보다 높다.
@@ -1310,7 +1310,7 @@
   - 실패하면 알리지 않는다(401만 로그인 화면으로). 서버는 읽는 사람이 못 보는 사람을 없는 사람처럼 빼고 답하고, 같은 식별자는 한 번 준다. 빈 목록은 묻지 않는다(서버는 400).
   - 메모리 구현도 서버처럼 모르는 사람을 빼고 답한다.
   - 바꾸려면: `state/backend.ts`의 `usersById`, `workspace.svelte.ts`의 `learnUsers`와 `load`, `board.svelte.ts`의 `load`와 `#apply`.
-- **연결 10.** 보드의 카드는 다 읽는다(`getCards`를 1000장씩 쪽을 넘겨, `state/page-reads.ts`. 쪽 사이에 앞 쪽의 카드가 지워지면 뒤의 한 장을 건너뛸 수 있다: 1000장을 넘는 보드에서만이고, 다시 읽으면 보인다). 카드 상세는 `getCard`이고 본문을 싣는다. 본문은 방에서 쓴다(`contracts/websocket.md` 6절, `api/live-rooms.ts`, `logic/doc-room.ts`). 방에 든 동안 `UPDATE_BLOCK`이 가져온 본문은 다시 읽지 않는다(방의 것이 이긴다).
+- **연결 10.** 보드의 카드는 다 읽는다(`getCards`를 1000장씩 쪽을 넘겨, `state/page-reads.ts`. 쪽 사이에 앞 쪽의 카드가 지워지면 뒤의 한 장을 건너뛸 수 있다: 1000장을 넘는 보드에서만이고, 다시 읽으면 보인다). 카드 상세는 `getCard`이고 본문을 싣는다. 본문은 방에서 쓴다(`contracts/websocket.md` 6절, `api/live-rooms.ts`, `logic/doc-room.ts`). 방에 든 동안 `blockChanged`가 가져온 본문은 다시 읽지 않는다(방의 것이 이긴다).
   - 왜: 화면의 저장소가 보드의 카드를 모두 들고 거르고 묶는다. 쪽을 나눠 읽으면 그 가정이 깨진다.
   - 카드 하나를 읽는 라우트(`GET /cards/{cardId}`)는 읽을 수 있는 어느 보드의 카드든 준다. 다른 보드의 카드면 404로 바꾼다(메모리 구현과 같다): 주소에 남의 보드의 카드가 있어도 이 보드에 섞이지 않게.
   - 바꾸려면: `lib/api/backend.ts`의 `cards`, `card`.

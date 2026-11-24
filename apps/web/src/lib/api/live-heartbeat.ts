@@ -32,9 +32,9 @@ export const LONGEST_PONG_WAIT = 60_000;
 /** A wait that ends more than this late was a page held back, in milliseconds. */
 const LATE = 1000;
 
-export const PING = JSON.stringify({ action: 'PING' });
+export const PING = JSON.stringify({ type: 'ping' });
 /** The server's answer, as it sends it. */
-export const PONG = JSON.stringify({ action: 'PONG' });
+export const PONG = JSON.stringify({ type: 'pong' });
 
 /** How long the `PING`s of one page's connections wait: longer after one was let go unanswered. */
 export class Patience {

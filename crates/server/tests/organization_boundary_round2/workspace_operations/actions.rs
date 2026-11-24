@@ -786,9 +786,14 @@ async fn audit_admission(case: &mut Case) -> String {
 
 async fn subscriptions(case: &mut Case, card: &str) {
     let user = case.user.clone();
-    case.run("createSubscription", &[], json!({"blockId": card, "blockType": "card", "subscriberId": user, "subscriberType": "user"})).await;
+    case.run(
+        "createSubscription",
+        &[],
+        json!({"blockId": card, "blockType": "card", "userId": user}),
+    )
+    .await;
     let subscriptions = case
-        .run("getSubscriptions", &[("subscriberId", &user)], json!({}))
+        .run("getSubscriptions", &[("userId", &user)], json!({}))
         .await;
     assert!(
         subscriptions.text().contains(card),
@@ -796,7 +801,7 @@ async fn subscriptions(case: &mut Case, card: &str) {
     );
     case.run(
         "deleteSubscription",
-        &[("subscriberId", &user), ("blockId", card)],
+        &[("userId", &user), ("blockId", card)],
         json!({}),
     )
     .await;

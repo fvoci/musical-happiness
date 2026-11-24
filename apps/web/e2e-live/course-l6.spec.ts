@@ -142,7 +142,7 @@ test('built-in course template -> duplicate -> export/import preserves amounts &
     .getByRole('button', { name: 'Menu of the course Live L6 Study', exact: true })
     .click();
   await page.getByRole('menuitem', { name: 'Export the course' }).click();
-  const archive = testInfo.outputPath('live-course-l6.boardarchive');
+  const archive = testInfo.outputPath('live-course-l6.fvoci');
   await (await saving).saveAs(archive);
 
   await page.goto(`/w/${second}`);

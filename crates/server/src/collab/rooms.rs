@@ -367,7 +367,7 @@ impl Turn {
         });
     }
 
-    /// Queues the answer to something a connection sent (`DOC_ACK`, `DOC_NACK`) for
+    /// Queues the answer to something a connection sent (`docAck`, `docNack`) for
     /// it, whatever waits for it: the answer to an update that is logged is never
     /// lost. A connection for which it was one too many is put out after it.
     fn answer(&mut self, connection: &Connection, doc: u32, answer: String) {
@@ -640,7 +640,7 @@ impl Collab {
     }
 
     /// Lets a connection into the room of a card of a board of `workspace_id`, to be
-    /// known there as `doc`, and sends it `DOC_JOINED` and the document: the whole of
+    /// known there as `doc`, and sends it `docJoined` and the document: the whole of
     /// it, or what the connection lacks of the document it says it holds
     /// ([`Self::first_of`]). A connection that is in the room already is in it anew:
     /// what it knew the room as before is no room of its any more. `home` is the

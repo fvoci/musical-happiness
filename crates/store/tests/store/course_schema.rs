@@ -79,6 +79,7 @@ async fn database_before_courses() -> PreMigration {
             ContainerKind::Wiki => BlockType::Page,
             _ => BlockType::Card,
         };
+        let mut blocks = Vec::with_capacity(2);
         for title in ["one", "two"] {
             let mut block = Block {
                 id: new_id(),
@@ -88,15 +89,14 @@ async fn database_before_courses() -> PreMigration {
                 ..Block::default()
             };
             scoped
+                .telling_nobody()
                 .insert_block(&mut block, &user_id)
                 .await
                 .expect("stored");
+            blocks.push(block);
         }
         if trashed {
-            scoped
-                .delete_container(&container.id, &user_id)
-                .await
-                .expect("deleted");
+            trash_container_before_courses(&scoped, &container, &blocks, &user_id).await;
         } else if !is_template {
             scoped
                 .set_sharing(&container.id, SharingChange::On, &new_id(), &user_id)
@@ -119,6 +119,58 @@ async fn database_before_courses() -> PreMigration {
         own_ws,
         board_id,
         diary_id,
+    }
+}
+
+/// Moves a pre-`0069` container and its blocks to `deleted_containers` and
+/// `deleted_blocks` directly so seeding at migration `0060` does not query post-`0069`
+/// `subscriptions.user_id`.
+async fn trash_container_before_courses(
+    scoped: &Store,
+    container: &Container,
+    blocks: &[Block],
+    user_id: &str,
+) {
+    let deletion_id = new_id();
+    let now = 1_000_i64;
+    for block in blocks {
+        let mut trashed = block.clone();
+        trashed.delete_at = now;
+        let json = serde_json::to_string(&trashed)
+            .expect("block json")
+            .replace('\'', "''");
+        scoped
+            .execute_unchecked(&format!(
+                "INSERT INTO deleted_blocks \
+                 (id, container_id, parent_id, deleted_at, deleted_by, deletion_id, block) \
+                 VALUES ('{}', '{}', NULL, {now}, '{user_id}', '{deletion_id}', '{json}')",
+                block.id, container.id
+            ))
+            .await
+            .expect("deleted_block stored");
+    }
+    let mut in_trash = container.clone();
+    in_trash.delete_at = now;
+    let json = serde_json::to_string(&in_trash)
+        .expect("container json")
+        .replace('\'', "''");
+    scoped
+        .execute_unchecked(&format!(
+            "INSERT INTO deleted_containers \
+             (id, workspace_id, deleted_at, deleted_by, deletion_id, container, members, files, places) \
+             VALUES ('{}', '{}', {now}, '{user_id}', '{deletion_id}', '{json}', '[]', '[]', '[]')",
+            container.id, container.workspace_id
+        ))
+        .await
+        .expect("deleted_container stored");
+    for sql in [
+        format!("DELETE FROM blocks WHERE container_id = '{}'", container.id),
+        format!("DELETE FROM containers WHERE id = '{}'", container.id),
+    ] {
+        scoped
+            .execute_unchecked(&sql)
+            .await
+            .expect("live row deleted");
     }
 }
 

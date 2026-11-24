@@ -4,8 +4,7 @@
 use std::collections::HashMap;
 
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockType, Body, MAX_CARD_DEPTH, SubscriberType, Subscription,
-    new_id,
+    Block, BlockError, BlockPatch, BlockType, Body, MAX_CARD_DEPTH, Subscription, new_id,
 };
 use fvoci_store::{BlockFilter, CopyChanges, CopyTitles, DuplicateAs, Store, StoreError};
 use serde_json::json;
@@ -370,8 +369,7 @@ async fn trash_and_restore_handle_card_hierarchies() {
         .create_subscription(Subscription {
             block_type: BlockType::Card,
             block_id: d2.id.clone(),
-            subscriber_type: SubscriberType::User,
-            subscriber_id: user_id.clone(),
+            user_id: user_id.clone(),
             notified_at: 0,
             create_at: 0,
             delete_at: 0,
@@ -464,8 +462,7 @@ async fn restore_refusals_and_purge_handle_card_hierarchies() {
         .create_subscription(Subscription {
             block_type: BlockType::Card,
             block_id: d2.id.clone(),
-            subscriber_type: SubscriberType::User,
-            subscriber_id: user_id.clone(),
+            user_id: user_id.clone(),
             notified_at: 0,
             create_at: 0,
             delete_at: 0,

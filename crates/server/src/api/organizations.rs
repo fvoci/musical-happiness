@@ -81,7 +81,7 @@ async fn handle_create_organization(
 /// server's own first organization administers the server no more. Its sessions,
 /// its identities and what it wrote stay, and the organization stays one it made. Its
 /// open connections stop following the organization's workspaces
-/// (`UNSUBSCRIBED_WORKSPACE`). It comes back only as anybody new does: by an invitation,
+/// (`workspaceUnsubscribed`). It comes back only as anybody new does: by an invitation,
 /// or as the organization lets in who signs in through its provider. Asked of any
 /// session: leaving is the account's own, whatever provider the organization takes.
 ///

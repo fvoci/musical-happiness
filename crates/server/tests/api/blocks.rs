@@ -278,7 +278,7 @@ impl Socket {
         let stream = client.connect_websocket().await;
         let mut socket = Self { stream };
         socket
-            .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace_id}))
+            .send(json!({"type": "subscribeWorkspace", "workspaceId": workspace_id}))
             .await;
 
         let probe = Category {
@@ -325,7 +325,7 @@ impl Socket {
             .next_json(PATIENCE)
             .await
             .expect("a block change is announced");
-        assert_eq!(message["action"], json!("UPDATE_BLOCK"), "{message}");
+        assert_eq!(message["type"], json!("blockChanged"), "{message}");
         assert_eq!(
             message["workspaceId"],
             json!(TEST_WORKSPACE_ID),

@@ -55,7 +55,7 @@
   }
 
   const ACCEPT_BY_FORMAT: Record<ImportFormat, string> = {
-    fvoci: '.boardarchive,.zip,application/zip',
+    fvoci: '.fvoci,.zip,application/zip',
     trello: '.json,application/json',
     notion: '.zip,application/zip',
   };

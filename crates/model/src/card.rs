@@ -104,7 +104,7 @@ pub struct Card {
     /// the Unix epoch; zero if it has none. Changing a comment does not change it; a
     /// deleted comment does not count, and counts again with its time if restored. A
     /// comment does not change the card's `updateAt`. A new comment comes as
-    /// `UPDATE_BLOCK`, so a client can keep the newer time; after a deletion the card is
+    /// `blockChanged`, so a client can keep the newer time; after a deletion the card is
     /// read again for it. A number sent here in a request is ignored.
     pub last_comment_at: i64,
     /// What a gallery shows of the card's body: only in a list asked for it

@@ -93,7 +93,7 @@ function amountUnitOf(value: unknown): Schemas['AmountUnit'] | null {
 }
 
 /**
- * A unit or chapter as a change message (`UPDATE_BLOCK`) brings it: a block of
+ * A unit or chapter as a change message (`blockChanged`) brings it: a block of
  * type `unit` or `chapter` whose `order` and optional schedule fields are among
  * its `fields`.
  */
@@ -345,22 +345,21 @@ export class ServerCourses implements Courses {
     return versions.map(commentVersionOf);
   }
 
-  async watching(workspaceId: string, subscriberId: string): Promise<string[]> {
+  async watching(workspaceId: string, userId: string): Promise<string[]> {
     const subs = await this.#request<Schemas['Subscription'][]>(
-      '/subscriptions/{subscriberId}',
-      { subscriberId },
+      '/subscriptions/{userId}',
+      { userId },
       {},
       workspaceId,
     );
     return subs.filter((sub) => sub.deleteAt === 0).map((sub) => sub.blockId);
   }
 
-  async watchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void> {
+  async watchUnit(workspaceId: string, unitId: string, userId: string): Promise<void> {
     const request: Schemas['NewSubscription'] = {
       blockId: unitId,
       blockType: 'unit',
-      subscriberId,
-      subscriberType: 'user',
+      userId,
     };
     await this.#request<Schemas['Subscription']>(
       '/subscriptions',
@@ -370,10 +369,10 @@ export class ServerCourses implements Courses {
     );
   }
 
-  async unwatchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void> {
+  async unwatchUnit(workspaceId: string, unitId: string, userId: string): Promise<void> {
     await this.#request(
-      '/subscriptions/{blockId}/{subscriberId}',
-      { blockId: unitId, subscriberId },
+      '/subscriptions/{blockId}/{userId}',
+      { blockId: unitId, userId },
       { method: 'DELETE' },
       workspaceId,
     );

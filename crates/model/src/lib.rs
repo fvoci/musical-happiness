@@ -203,7 +203,7 @@ pub use settings::{
     check_client_state_value,
 };
 pub use sharing::Sharing;
-pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
+pub use subscription::{Subscriber, Subscription, SubscriptionError};
 pub use table_grid::{
     CellFit, Reach, RowFit, TABLE_MAX_COLUMNS, TABLE_MAX_ROWS, TableGrid, TableTooLarge,
 };

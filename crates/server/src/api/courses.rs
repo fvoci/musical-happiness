@@ -202,14 +202,14 @@ async fn handle_get_unit_tree(
 /// last if it is left out. A unit may also carry optional study-schedule fields
 /// (`amount` `1..=100_000`, `amountUnit`, and shared `scheduledDate` `YYYY-MM-DD`;
 /// forbidden on chapters with 400). A unit's body is written by `patchUnit`, or together
-/// in its room (`JOIN_DOC`).
+/// in its room (`joinDoc`).
 ///
 /// A course holds at most 2,000 units and 200 chapters, those in the trash not counted
 /// (chapters do not count toward the 2,000-unit limit): one more unit is 400 with the
 /// reason `too_many_units` and the `limit`, and one more chapter is 400 with the reason
 /// `too_many_chapters` and the `limit`.
 ///
-/// The course's listeners are told with `UPDATE_BLOCK`, whose block of the `type` `unit`
+/// The course's listeners are told with `blockChanged`, whose block of the `type` `unit`
 /// or `chapter` carries its `order` among its `fields`. Any sibling numbered anew to
 /// leave room is told of too.
 #[utoipa::path(
@@ -335,7 +335,7 @@ async fn handle_patch_unit(
 /// course or is the unit itself; 400 at `/after` if that is no other sibling of the
 /// parent. Nothing is changed then.
 ///
-/// The course's listeners are told with `UPDATE_BLOCK` of the moved node and of any
+/// The course's listeners are told with `blockChanged` of the moved node and of any
 /// sibling numbered anew to leave it room; a chapter's units keep their parent and are
 /// not told of.
 #[utoipa::path(
@@ -371,7 +371,7 @@ async fn handle_move_unit(
 ///
 /// Moves the unit to the trash of its course, or moves the chapter together with every
 /// unit below it as one deletion, for editors of the course. The course's listeners are
-/// told with `UPDATE_BLOCK` of the deleted block alone, whose `deleteAt` is not 0.
+/// told with `blockChanged` of the deleted block alone, whose `deleteAt` is not 0.
 #[utoipa::path(
     delete,
     path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}",
@@ -444,7 +444,7 @@ async fn handle_get_deleted_units(
 /// of the course. Held to the course's limits: 400 with the reason `too_many_units` or
 /// `too_many_chapters` (each with the `limit`) if restoring would exceed them. A block
 /// not in this course's trash, or a unit that went with its chapter (it comes back with
-/// that chapter), is 404. The course's listeners are told with `UPDATE_BLOCK` of each
+/// that chapter), is 404. The course's listeners are told with `blockChanged` of each
 /// block that came back (a chapter before its units, and each unit before its comments)
 /// and each sibling numbered anew.
 #[utoipa::path(

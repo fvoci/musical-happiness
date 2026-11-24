@@ -77,7 +77,7 @@ pub(crate) async fn trash(s: &mut Session) {
     s.post("subscribe to the card", &subscriptions)
         .json(json!({
             "blockType": "card", "blockId": card,
-            "subscriberType": "user", "subscriberId": alice_id,
+            "userId": alice_id,
         }))
         .user(&alice)
         .await;

@@ -1,14 +1,14 @@
-//! The reading side of a websocket connection: what the client sends, a `PING` of
-//! which is answered at once (`PONG`), and how long it may send nothing at all.
+//! The reading side of a websocket connection: what the client sends, a `ping` of
+//! which is answered at once (`pong`), and how long it may send nothing at all.
 //!
-//! A page cannot see the websocket's own Ping and Pong, so it asks with a `PING` of its
+//! A page cannot see the websocket's own Ping and Pong, so it asks with a `ping` of its
 //! own whether its connection still carries (`contracts/websocket.md` 3). A connection
-//! that sends nothing for [`QUIET_LIMIT`] (no message, no `PING`, no Pong to the
+//! that sends nothing for [`QUIET_LIMIT`] (no message, no `ping`, no Pong to the
 //! server's Ping) is taken for dead and closed, and so goes from its rooms.
 //!
 //! While the server does what the connection asked (a step of a room can wait for an
 //! immediate check of its member, up to two intervals of `collab_recheck_seconds`), it
-//! reads on: a `PING` is answered meanwhile, and what else comes is kept, in order, to
+//! reads on: a `ping` is answered meanwhile, and what else comes is kept, in order, to
 //! be done next, up to [`AHEAD_MESSAGES`] messages or [`AHEAD_BYTES`]. The quiet limit
 //! runs only while the server waits for the client.
 
@@ -30,7 +30,7 @@ use crate::metrics::Disconnect;
 /// How long a connection may send nothing before it is taken for dead and closed.
 ///
 /// A page that is in the background has its timers slowed: Chrome lets them run once a
-/// minute at most after five minutes hidden, so the `PING` of such a page comes a
+/// minute at most after five minutes hidden, so the `ping` of such a page comes a
 /// minute or so apart; thirty seconds more are for a slow network. The browser answers
 /// the server's Ping (`websocket_ping_seconds`, 1 to 59, 30 by default) whatever its timers do,
 /// which keeps a live connection well within this. The time a connection that died
@@ -88,21 +88,21 @@ const AHEAD_MESSAGES: usize = 4096;
 /// that passes it is kept too, and then no more is read until the work is done.
 const AHEAD_BYTES: usize = 1024 * 1024;
 
-/// The longest text that is looked at as a `PING`: `{"action":"PING"}` with room for
+/// The longest text that is looked at as a `ping`: `{"type":"ping"}` with room for
 /// spaces.
 const LONGEST_PING: usize = 64;
 
-/// The answer to a `PING`.
-const PONG: &str = r#"{"action":"PONG"}"#;
+/// The answer to a `ping`.
+const PONG: &str = r#"{"type":"pong"}"#;
 
-/// The action of a command, and nothing else of it.
+/// The `type` of a command, and nothing else of it.
 #[derive(Deserialize)]
-struct Action<'text> {
-    #[serde(borrow, default)]
-    action: Cow<'text, str>,
+struct CommandType<'text> {
+    #[serde(borrow, default, rename = "type")]
+    kind: Cow<'text, str>,
 }
 
-/// What came from the client that is no `PING`, Ping or Pong.
+/// What came from the client that is no `ping`, Ping or Pong.
 #[derive(Debug)]
 pub(super) enum Came {
     Text(Utf8Bytes),
@@ -115,7 +115,7 @@ type Read = Option<Result<Message, axum::Error>>;
 /// The reading side of one connection.
 pub(super) struct Inbound<S> {
     stream: S,
-    /// Where the answers to `PING` go: the connection's messages.
+    /// Where the answers to `ping` go: the connection's messages.
     outbox: mpsc::Sender<Utf8Bytes>,
     /// What was read while the server worked for the connection, in order.
     ahead: VecDeque<Read>,
@@ -129,7 +129,7 @@ impl<S> Inbound<S>
 where
     S: Stream<Item = Result<Message, axum::Error>> + Unpin,
 {
-    /// The reading side of `stream`, answering `PING` on `outbox`; a connection that
+    /// The reading side of `stream`, answering `ping` on `outbox`; a connection that
     /// sends nothing for `quiet_limit` ends.
     pub(super) fn new(stream: S, outbox: mpsc::Sender<Utf8Bytes>, quiet_limit: QuietLimit) -> Self {
         Self {
@@ -171,7 +171,7 @@ where
         }
     }
 
-    /// Does `work`, reading on meanwhile: a `PING` is answered, anything else is kept
+    /// Does `work`, reading on meanwhile: a `ping` is answered, anything else is kept
     /// for [`Self::next`] while there is room for it and the stream goes on. The quiet
     /// limit does not run meanwhile, and starts again once `work` is done.
     pub(super) async fn meanwhile<T>(&mut self, work: impl Future<Output = T>) -> T {
@@ -212,7 +212,7 @@ where
             .is_some_and(|read| !matches!(read, Some(Ok(Message::Text(_) | Message::Binary(_)))))
     }
 
-    /// Answers `read` if it is a `PING`; whether it was one. An answer that finds the
+    /// Answers `read` if it is a `ping`; whether it was one. An answer that finds the
     /// connection's messages full is not sent: the page lets go of the connection
     /// for that, and the hub closes it at the next message it cannot queue.
     fn answer_if_ping(&self, read: &Read) -> bool {
@@ -227,10 +227,10 @@ where
     }
 }
 
-/// Whether `text` is the command `PING`.
+/// Whether `text` is the command `ping`.
 fn is_ping(text: &str) -> bool {
     text.len() <= LONGEST_PING
-        && serde_json::from_str::<Action<'_>>(text).is_ok_and(|command| command.action == "PING")
+        && serde_json::from_str::<CommandType<'_>>(text).is_ok_and(|command| command.kind == "ping")
 }
 
 /// Whether `read` is the websocket's own Ping or Pong: heard, and nothing to do.
@@ -289,7 +289,7 @@ mod tests {
     }
 
     /// The limit the contract says (`contracts/websocket.md` 3, "죽은 연결"): past
-    /// what a page in the background sends, a `PING` a minute or so apart, with
+    /// what a page in the background sends, a `ping` a minute or so apart, with
     /// thirty seconds for a slow network.
     /// It restates the constant on purpose: the contract and the page's waits are
     /// written for this number.
@@ -298,15 +298,15 @@ mod tests {
         assert_eq!(QUIET_LIMIT, Duration::from_secs(90));
     }
 
-    /// A `PING` whose action is written with an escape is one; a longer text is not
-    /// looked at, and neither is another action.
+    /// A `ping` whose `type` is written with an escape is one; a longer text is not
+    /// looked at, and neither is another command `type`.
     #[test]
-    fn a_ping_is_its_action() {
-        assert!(is_ping(r#"{"action":"PING"}"#));
-        assert!(is_ping(r#"{ "action" : "PI\u004eG" }"#));
-        assert!(!is_ping(r#"{"action":"PONG"}"#));
+    fn a_ping_is_its_type() {
+        assert!(is_ping(r#"{"type":"ping"}"#));
+        assert!(is_ping(r#"{ "type" : "pi\u006eg" }"#));
+        assert!(!is_ping(r#"{"type":"pong"}"#));
         assert!(!is_ping(&format!(
-            r#"{{"action":"PING","pad":"{}"}}"#,
+            r#"{{"type":"ping","pad":"{}"}}"#,
             " ".repeat(64)
         )));
     }
@@ -318,13 +318,13 @@ mod tests {
         assert!(matches!(inbound.next().await, Err(Disconnect::Quiet)));
     }
 
-    /// Anything heard starts the limit again: a `PING`, which is answered and not
+    /// Anything heard starts the limit again: a `ping`, which is answered and not
     /// handed on, the websocket's own Pong, and a message.
     #[tokio::test(start_paused = true)]
     async fn what_is_heard_starts_the_limit_again() {
         let (mut inbound, feed, mut answers) = fed();
         for heard in [
-            text(r#"{"action":"PING"}"#),
+            text(r#"{"type":"ping"}"#),
             Ok(Message::Pong(Vec::new().into())),
             Ok(Message::Ping(Vec::new().into())),
         ] {
@@ -337,23 +337,23 @@ mod tests {
             );
         }
         assert_eq!(answers.try_recv().ok().as_deref(), Some(PONG));
-        assert!(answers.try_recv().is_err(), "one PING, one PONG");
-        feed.send(text(r#"{"action":"SUBSCRIBE_WORKSPACE"}"#))
+        assert!(answers.try_recv().is_err(), "one ping, one pong");
+        feed.send(text(r#"{"type":"subscribeWorkspace"}"#))
             .expect("fed");
         assert!(matches!(inbound.next().await, Ok(Came::Text(_))));
         assert!(waits(&mut inbound, ALMOST).await);
         assert!(matches!(inbound.next().await, Err(Disconnect::Quiet)));
     }
 
-    /// While the server works for the connection, longer than the limit, a `PING` is
+    /// While the server works for the connection, longer than the limit, a `ping` is
     /// answered at once, what else comes is kept in order, and the limit starts once
     /// the work is done.
     #[tokio::test(start_paused = true)]
     async fn a_ping_is_answered_while_the_server_works_for_the_connection() {
         let (mut inbound, feed, mut answers) = fed();
-        feed.send(text(r#"{"action":"JOIN_DOC"}"#)).expect("fed");
+        feed.send(text(r#"{"type":"joinDoc"}"#)).expect("fed");
         feed.send(Ok(Message::Binary(vec![1].into()))).expect("fed");
-        feed.send(text(r#"{"action":"PING"}"#)).expect("fed");
+        feed.send(text(r#"{"type":"ping"}"#)).expect("fed");
         feed.send(Ok(Message::Binary(vec![2].into()))).expect("fed");
         let work = async {
             tokio::time::sleep(QUIET_LIMIT * 3).await;

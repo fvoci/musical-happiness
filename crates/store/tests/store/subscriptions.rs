@@ -3,10 +3,9 @@
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, ContainerMember, SubscriberType, Subscription, SubscriptionError, User,
-    new_id,
+    Block, BlockType, ContainerMember, Subscription, SubscriptionError, User, new_id,
 };
-use fvoci_store::{BlockFilter, MemberChange, Store, StoreError};
+use fvoci_store::{BlockFilter, DbType, MemberChange, Store, StoreError};
 
 use crate::common;
 
@@ -72,8 +71,7 @@ fn subscription(block: &Block, user: &User) -> Subscription {
     Subscription {
         block_type: block.block_type.clone(),
         block_id: block.id.clone(),
-        subscriber_type: SubscriberType::User,
-        subscriber_id: user.id.clone(),
+        user_id: user.id.clone(),
         notified_at: 0,
         create_at: 0,
         delete_at: 0,
@@ -149,7 +147,7 @@ async fn create_subscription() {
             .expect("create duplicate subscription should not error");
 
         assert_eq!(sub_new.block_id, sub_dup.block_id);
-        assert_eq!(sub_new.subscriber_id, sub_dup.subscriber_id);
+        assert_eq!(sub_new.user_id, sub_dup.user_id);
     }
 
     // "invalid subscription"
@@ -158,12 +156,10 @@ async fn create_subscription() {
         let user = first_user(store).await;
         let block = first_block(store, &admin.id).await;
 
-        // Creating a subscription with `SubscriberType::User` is idempotent.
         let mut sub = Subscription {
             block_type: BlockType::default(),
             block_id: String::new(),
-            subscriber_type: SubscriberType::User,
-            subscriber_id: String::new(),
+            user_id: String::new(),
             notified_at: 0,
             create_at: 0,
             delete_at: 0,
@@ -183,10 +179,7 @@ async fn create_subscription() {
         sub.block_id.clone_from(&block.id);
         assert_invalid(store.create_subscription(sub.clone()).await);
 
-        sub.subscriber_type = SubscriberType::User;
-        assert_invalid(store.create_subscription(sub.clone()).await);
-
-        sub.subscriber_id.clone_from(&user.id);
+        sub.user_id.clone_from(&user.id);
         let sub_new = store
             .create_subscription(sub)
             .await
@@ -195,14 +188,14 @@ async fn create_subscription() {
         let valid: Result<(), SubscriptionError> = sub_new.validate();
         assert_eq!(valid, Ok(()), "created subscription should be valid");
 
-        // Non-UUID block or subscriber IDs are rejected.
-        for (block_id, subscriber_id, invalid) in [
+        // Non-UUID block or user IDs are rejected.
+        for (block_id, user_id, invalid) in [
             ("bogus-block", user.id.as_str(), "bogus-block"),
             (block.id.as_str(), "bogus-user", "bogus-user"),
         ] {
             let sub = Subscription {
                 block_id: block_id.to_owned(),
-                subscriber_id: subscriber_id.to_owned(),
+                user_id: user_id.to_owned(),
                 ..sub_new.clone()
             };
             let error = store
@@ -243,7 +236,7 @@ async fn delete_subscription() {
             .expect("get subscriptions should not error");
         assert_eq!(subs.len(), 1);
         assert_eq!(sub_new.block_id, subs[0].block_id);
-        assert_eq!(sub_new.subscriber_id, subs[0].subscriber_id);
+        assert_eq!(sub_new.user_id, subs[0].user_id);
 
         store
             .delete_subscription(&block.id, &user.id)
@@ -306,7 +299,7 @@ async fn undelete_subscription() {
         .expect("get subscriptions should not error");
     assert_eq!(subs.len(), 1);
     assert_eq!(sub_new.block_id, subs[0].block_id);
-    assert_eq!(sub_new.subscriber_id, subs[0].subscriber_id);
+    assert_eq!(sub_new.user_id, subs[0].user_id);
 
     store
         .delete_subscription(&block.id, &user.id)
@@ -333,7 +326,7 @@ async fn undelete_subscription() {
         .expect("get subscriptions should not error");
     assert_eq!(subs.len(), 1);
     assert_eq!(sub_undeleted.block_id, subs[0].block_id);
-    assert_eq!(sub_undeleted.subscriber_id, subs[0].subscriber_id);
+    assert_eq!(sub_undeleted.user_id, subs[0].user_id);
 
     test.teardown().await;
 }
@@ -530,7 +523,6 @@ async fn resubscribing_keeps_the_stored_creation_time() {
     let second = store
         .create_subscription(Subscription {
             block_type: BlockType::Attachment,
-            subscriber_type: SubscriberType::Channel,
             ..sub
         })
         .await
@@ -659,7 +651,7 @@ async fn unsubscribing_deletes_the_subscription() {
     assert_eq!(
         missing.to_string(),
         format!(
-            "{{subscription BlockID={} SubscriberID={}}} not found",
+            "{{subscription BlockID={} UserID={}}} not found",
             block.id, leaver.id
         ),
         "the error names the subscription"
@@ -683,12 +675,12 @@ async fn unsubscribing_deletes_the_subscription() {
         .get_subscribers_for_block(&block.id)
         .await
         .expect("the subscribers of the block are listed");
-    let subscriber_ids: Vec<&str> = subscribers
+    let user_ids: Vec<&str> = subscribers
         .iter()
-        .map(|subscriber| subscriber.subscriber_id.as_str())
+        .map(|subscriber| subscriber.user_id.as_str())
         .collect();
     assert_eq!(
-        subscriber_ids,
+        user_ids,
         [stayer.id.as_str()],
         "the block lists the subscriber who stays, and only them"
     );
@@ -702,8 +694,7 @@ async fn unsubscribing_deletes_the_subscription() {
 }
 
 /// Subscribing again after unsubscribing starts a new subscription: nothing of the old
-/// one is left to keep, so the creation time and the types are the new ones. The
-/// original revives the old row and keeps both.
+/// one is left to keep, so the creation time and the block type are the new ones.
 #[tokio::test]
 async fn subscribing_again_after_unsubscribing_starts_a_new_subscription() {
     let test = common::setup().await;
@@ -725,7 +716,7 @@ async fn subscribing_again_after_unsubscribing_starts_a_new_subscription() {
 
     let second = store
         .create_subscription(Subscription {
-            subscriber_type: SubscriberType::Channel,
+            block_type: BlockType::Attachment,
             ..sub
         })
         .await
@@ -746,9 +737,9 @@ async fn subscribing_again_after_unsubscribing_starts_a_new_subscription() {
         "a new subscription counts as notified when it was made"
     );
     assert_eq!(
-        stored.subscriber_type,
-        SubscriberType::Channel,
-        "the type is the new one"
+        stored.block_type,
+        BlockType::Attachment,
+        "the block type is the new one"
     );
     assert_eq!(
         subscribed_blocks(store, &user).await,
@@ -770,7 +761,7 @@ async fn a_subscription_to_no_block_or_by_no_user_is_refused() {
     let block = first_block(store, &user.id).await;
     let (no_block, nobody) = (new_id(), new_id());
 
-    for (block_id, subscriber_id, what) in [
+    for (block_id, user_id, what) in [
         (&no_block, &user.id, "no such block"),
         (&block.id, &nobody, "no such user"),
         (&no_block, &nobody, "neither"),
@@ -778,7 +769,7 @@ async fn a_subscription_to_no_block_or_by_no_user_is_refused() {
         let error = store
             .create_subscription(Subscription {
                 block_id: block_id.clone(),
-                subscriber_id: subscriber_id.clone(),
+                user_id: user_id.clone(),
                 ..subscription(&block, &user)
             })
             .await
@@ -789,7 +780,7 @@ async fn a_subscription_to_no_block_or_by_no_user_is_refused() {
         );
 
         let missing = store
-            .get_subscription(block_id, subscriber_id)
+            .get_subscription(block_id, user_id)
             .await
             .expect_err("the refused subscription is not stored");
         assert!(missing.is_not_found(), "{what}: got {missing:?}");
@@ -814,7 +805,7 @@ async fn block_subscribers(store: &Store, block_id: &str) -> Vec<String> {
         .await
         .expect("the subscribers are listed")
         .into_iter()
-        .map(|subscriber| subscriber.subscriber_id)
+        .map(|subscriber| subscriber.user_id)
         .collect();
     subscribers.sort();
     subscribers
@@ -1012,10 +1003,7 @@ async fn subscribers_are_ordered_by_notification_time() {
     let block = first_block(store, &users[0].id).await;
     for user in users.iter().rev() {
         store
-            .create_subscription(Subscription {
-                subscriber_type: SubscriberType::Channel,
-                ..subscription(&block, user)
-            })
+            .create_subscription(subscription(&block, user))
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(5)).await;
@@ -1024,15 +1012,14 @@ async fn subscribers_are_ordered_by_notification_time() {
     let subscribers = store.get_subscribers_for_block(&block.id).await.unwrap();
     let ids: Vec<&str> = subscribers
         .iter()
-        .map(|subscriber| subscriber.subscriber_id.as_str())
+        .map(|subscriber| subscriber.user_id.as_str())
         .collect();
     let expected: Vec<&str> = users.iter().rev().map(|user| user.id.as_str()).collect();
     assert_eq!(ids, expected, "earliest notified first");
     assert!(
-        subscribers.iter().all(
-            |subscriber| subscriber.subscriber_type == SubscriberType::Channel
-                && subscriber.notified_at != 0
-        ),
+        subscribers
+            .iter()
+            .all(|subscriber| subscriber.notified_at != 0),
         "got {subscribers:?}"
     );
 
@@ -1231,4 +1218,400 @@ async fn remove_member_ends_subscriptions_only_when_it_removes() {
     );
 
     test.teardown().await;
+}
+
+/// Inserts a trashed block row with a pre-`0069` JSON payload under `deleted_blocks`,
+/// including raw `\u0000` and a nested `fields.watchedBy` array to exercise PostgreSQL's
+/// `untranslatable_character` JSON fallback without touching inner fields.
+async fn insert_legacy_trashed_block(
+    store: &Store,
+    block: &Block,
+    deleted_by: &str,
+    watched_by: serde_json::Value,
+) {
+    let mut payload = serde_json::to_value(block).expect("block serializes");
+    payload["fields"] = serde_json::json!({
+        "note": "__RAW_NUL__",
+        "watchedBy": [{"kept": true}]
+    });
+    payload["watchedBy"] = watched_by;
+    let json = serde_json::to_string(&payload)
+        .expect("payload serializes")
+        .replace("__RAW_NUL__", "a\\u0000b")
+        .replace('\'', "''");
+    store
+        .execute_unchecked(&format!("DELETE FROM blocks WHERE id = '{}'", block.id))
+        .await
+        .expect("live block removed");
+    let insert = match store.db_type() {
+        DbType::Sqlite => format!(
+            "INSERT INTO deleted_blocks (id, container_id, parent_id, deleted_at, deleted_by, \
+             deletion_id, block) VALUES ('{}', '{}', NULL, 500, '{deleted_by}', '{}', '{json}')",
+            block.id,
+            block.container_id,
+            new_id()
+        ),
+        DbType::Postgres => format!(
+            "INSERT INTO deleted_blocks (id, container_id, parent_id, deleted_at, deleted_by, \
+             deletion_id, block) VALUES ('{}', '{}', NULL, 500, '{deleted_by}', '{}', \
+             '{json}'::json)",
+            block.id,
+            block.container_id,
+            new_id()
+        ),
+    };
+    store
+        .execute_unchecked(&insert)
+        .await
+        .expect("legacy trashed block inserted");
+}
+
+struct Pre0069SecondOrg {
+    org_b: String,
+    carol: String,
+    live_b: Block,
+    trashed_b: Block,
+}
+
+struct Pre0069Fixture {
+    org_a: String,
+    alice: String,
+    bob: String,
+    live_a: Block,
+    trashed_mixed: Block,
+    trashed_non_user: Block,
+    other_org: Option<Pre0069SecondOrg>,
+}
+
+async fn seed_pre_0069(pre: &Store) -> Pre0069Fixture {
+    let (org_a, ws_a) = common::organization(pre, "org-a").await;
+    let scoped_a = pre.for_org(&org_a).expect("org-a scope");
+    let alice = common::user(&scoped_a, "alice").await;
+    let bob = common::user(&scoped_a, "bob").await;
+    common::works_in(&scoped_a, &ws_a, &alice).await;
+    common::works_in(&scoped_a, &ws_a, &bob).await;
+    let board_a = common::create_test_boards(&scoped_a, &ws_a, &alice, 1)
+        .await
+        .pop()
+        .expect("board");
+    let mut cards_a = vec![
+        card_on(&board_a.id, &alice),
+        card_on(&board_a.id, &alice),
+        card_on(&board_a.id, &alice),
+    ];
+    common::insert_blocks(&scoped_a.telling_nobody(), &mut cards_a, &alice).await;
+    let (live_a, trashed_mixed, trashed_non_user) =
+        (cards_a[0].clone(), cards_a[1].clone(), cards_a[2].clone());
+
+    scoped_a
+        .execute_unchecked(&format!(
+            "INSERT INTO subscriptions (block_type, block_id, subscriber_type, subscriber_id, \
+             notified_at, create_at) VALUES \
+             ('card', '{}', 'user', '{alice}', 111, 222), \
+             ('card', '{}', 'channel', '{bob}', 333, 444)",
+            live_a.id, live_a.id
+        ))
+        .await
+        .expect("legacy subscriptions inserted in org-a");
+
+    insert_legacy_trashed_block(
+        &scoped_a,
+        &trashed_mixed,
+        &alice,
+        serde_json::json!([
+            {"blockType": "card", "subscriberType": "channel", "subscriberId": bob, "notifiedAt": 10, "createAt": 20},
+            {"blockType": "card", "subscriberType": "user", "subscriberId": alice, "notifiedAt": 30, "createAt": 40},
+            {"blockType": "c\"d", "subscriberType": "user", "subscriberId": bob, "notifiedAt": 50, "createAt": 60}
+        ]),
+    )
+    .await;
+    insert_legacy_trashed_block(
+        &scoped_a,
+        &trashed_non_user,
+        &alice,
+        serde_json::json!([
+            {"blockType": "card", "subscriberType": "channel", "subscriberId": alice, "notifiedAt": 70, "createAt": 80}
+        ]),
+    )
+    .await;
+
+    let other_org = if pre.db_type() == DbType::Postgres {
+        Some(seed_pre_0069_second_org(pre, &alice).await)
+    } else {
+        None
+    };
+
+    Pre0069Fixture {
+        org_a,
+        alice,
+        bob,
+        live_a,
+        trashed_mixed,
+        trashed_non_user,
+        other_org,
+    }
+}
+
+async fn seed_pre_0069_second_org(pre: &Store, alice: &str) -> Pre0069SecondOrg {
+    let (org_b, ws_b) = common::organization(pre, "org-b").await;
+    let scoped_b = pre.for_org(&org_b).expect("org-b scope");
+    let carol = common::user(&scoped_b, "carol").await;
+    common::works_in(&scoped_b, &ws_b, &carol).await;
+    let board_b = common::create_test_boards(&scoped_b, &ws_b, &carol, 1)
+        .await
+        .pop()
+        .expect("board-b");
+    let mut cards_b = vec![card_on(&board_b.id, &carol), card_on(&board_b.id, &carol)];
+    common::insert_blocks(&scoped_b.telling_nobody(), &mut cards_b, &carol).await;
+    let (live_b, trashed_b) = (cards_b[0].clone(), cards_b[1].clone());
+    scoped_b
+        .execute_unchecked(&format!(
+            "INSERT INTO subscriptions (block_type, block_id, subscriber_type, subscriber_id, \
+             notified_at, create_at) VALUES \
+             ('card', '{}', 'user', '{carol}', 555, 666), \
+             ('card', '{}', 'channel', '{alice}', 777, 888)",
+            live_b.id, live_b.id
+        ))
+        .await
+        .expect("legacy subscriptions inserted in org-b");
+    insert_legacy_trashed_block(
+        &scoped_b,
+        &trashed_b,
+        &carol,
+        serde_json::json!([
+            {"blockType": "card", "subscriberType": "user", "subscriberId": carol, "notifiedAt": 90, "createAt": 95}
+        ]),
+    )
+    .await;
+    Pre0069SecondOrg {
+        org_b,
+        carol,
+        live_b,
+        trashed_b,
+    }
+}
+
+async fn assert_post_0069_catalog(migrated: &Store) {
+    let sys = migrated.system();
+    match migrated.db_type() {
+        DbType::Sqlite => {
+            let idx = sys
+                .texts_unchecked(
+                    "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'subscriptions'",
+                )
+                .await
+                .expect("sqlite indexes");
+            assert!(
+                idx.iter().any(|n| n == "subscriptions_user_id_idx"),
+                "sqlite index renamed: {idx:?}"
+            );
+            assert!(
+                !idx.iter().any(|n| n == "subscriptions_subscriber_id_idx"),
+                "legacy sqlite index dropped: {idx:?}"
+            );
+        }
+        DbType::Postgres => {
+            let idx = sys
+                .texts_unchecked(
+                    "SELECT c.relname FROM pg_class AS c WHERE c.relnamespace = current_schema()::regnamespace \
+                     AND c.relkind = 'i' AND c.relname LIKE 'subscriptions_%'",
+                )
+                .await
+                .expect("pg indexes");
+            assert!(
+                idx.iter().any(|n| n == "subscriptions_user_id_idx"),
+                "pg index renamed: {idx:?}"
+            );
+            assert!(
+                !idx.iter().any(|n| n == "subscriptions_subscriber_id_idx"),
+                "legacy pg index dropped: {idx:?}"
+            );
+            let cons = sys
+                .texts_unchecked(
+                    "SELECT conname FROM pg_constraint WHERE connamespace = current_schema()::regnamespace \
+                     AND conrelid = 'subscriptions'::regclass",
+                )
+                .await
+                .expect("pg constraints");
+            assert!(
+                cons.iter().any(|n| n == "subscriptions_user_id_fkey"),
+                "pg foreign key renamed: {cons:?}"
+            );
+            assert!(
+                !cons.iter().any(|n| n.contains("subscriber_id")),
+                "legacy pg subscriber_id constraint gone: {cons:?}"
+            );
+        }
+    }
+}
+
+async fn assert_post_0069_org_a(post_a: &Store, fx: &Pre0069Fixture) {
+    assert_eq!(
+        post_a
+            .get_subscriptions(&fx.alice)
+            .await
+            .expect("alice subs"),
+        [Subscription {
+            block_type: BlockType::Card,
+            block_id: fx.live_a.id.clone(),
+            user_id: fx.alice.clone(),
+            notified_at: 111,
+            create_at: 222,
+            delete_at: 0,
+        }],
+        "user subscription preserved losslessly"
+    );
+    assert!(
+        post_a
+            .get_subscriptions(&fx.bob)
+            .await
+            .expect("bob subs")
+            .is_empty(),
+        "non-user subscription row dropped"
+    );
+
+    let restored = post_a
+        .undelete_block(&fx.trashed_mixed.id, &fx.alice)
+        .await
+        .expect("restores trashed block with mixed watchers");
+    assert_eq!(
+        restored.fields.get("watchedBy"),
+        Some(&serde_json::json!([{"kept": true}])),
+        "nested fields.watchedBy is untouched"
+    );
+    assert_eq!(
+        post_a
+            .get_subscription(&fx.trashed_mixed.id, &fx.alice)
+            .await
+            .expect("alice restored subscription"),
+        Subscription {
+            block_type: BlockType::Card,
+            block_id: fx.trashed_mixed.id.clone(),
+            user_id: fx.alice.clone(),
+            notified_at: 30,
+            create_at: 40,
+            delete_at: 0,
+        },
+        "restored alice watcher preserves create_at and block_type"
+    );
+    assert_eq!(
+        post_a
+            .get_subscription(&fx.trashed_mixed.id, &fx.bob)
+            .await
+            .expect("bob restored subscription"),
+        Subscription {
+            block_type: BlockType::from("c\"d"),
+            block_id: fx.trashed_mixed.id.clone(),
+            user_id: fx.bob.clone(),
+            notified_at: 50,
+            create_at: 60,
+            delete_at: 0,
+        },
+        "restored bob watcher preserves escaped block_type and timestamps"
+    );
+
+    let restored_empty = post_a
+        .undelete_block(&fx.trashed_non_user.id, &fx.alice)
+        .await
+        .expect("restores trashed block whose watchers were all non-user");
+    assert_eq!(
+        restored_empty.fields.get("watchedBy"),
+        Some(&serde_json::json!([{"kept": true}])),
+        "nested fields.watchedBy is untouched when top-level watchedBy is stripped"
+    );
+    assert!(
+        post_a
+            .get_subscribers_for_block(&fx.trashed_non_user.id)
+            .await
+            .expect("no watchers")
+            .is_empty(),
+        "empty watchedBy array stripped cleanly"
+    );
+}
+
+async fn assert_post_0069_second_org(
+    migrated: &Store,
+    post_a: &Store,
+    alice: &str,
+    other: &Pre0069SecondOrg,
+) {
+    let post_b = migrated.for_org(&other.org_b).expect("post org-b");
+    assert_eq!(
+        post_b
+            .get_subscriptions(&other.carol)
+            .await
+            .expect("carol subs"),
+        [Subscription {
+            block_type: BlockType::Card,
+            block_id: other.live_b.id.clone(),
+            user_id: other.carol.clone(),
+            notified_at: 555,
+            create_at: 666,
+            delete_at: 0,
+        }],
+        "second organization's user subscription migrated"
+    );
+    post_b
+        .undelete_block(&other.trashed_b.id, &other.carol)
+        .await
+        .expect("restores second org trashed block");
+    assert_eq!(
+        post_b
+            .get_subscription(&other.trashed_b.id, &other.carol)
+            .await
+            .expect("carol restored"),
+        Subscription {
+            block_type: BlockType::Card,
+            block_id: other.trashed_b.id.clone(),
+            user_id: other.carol.clone(),
+            notified_at: 90,
+            create_at: 95,
+            delete_at: 0,
+        },
+        "second organization's trashed watcher migrated across org wall"
+    );
+    assert!(
+        post_b
+            .get_subscriptions(alice)
+            .await
+            .expect("alice in org-b")
+            .is_empty(),
+        "second organization's channel row dropped"
+    );
+    assert!(
+        post_a
+            .get_subscriptions(&other.carol)
+            .await
+            .expect("cross-org")
+            .is_empty(),
+        "organization wall holds after migration"
+    );
+}
+
+/// Migrating a populated `0068` database to `0069` preserves every `user` subscription
+/// losslessly (and trashed `watchedBy` entries on restore), removes non-`user` rows and
+/// entries, and keeps PostgreSQL organization isolation intact.
+#[tokio::test]
+async fn migration_0069_preserves_user_subscriptions_and_trashed_watchers() {
+    let database = common::empty_database().await;
+    fvoci_store::testing::migrate_to_before_subscriptions_user_id(&database).await;
+
+    let pre = Store::open(database.db_type(), database.database_connection())
+        .await
+        .expect("opens at migration 68");
+    let fx = seed_pre_0069(&pre).await;
+    pre.close().await;
+
+    let migrated = Store::connect(database.db_type(), database.database_connection())
+        .await
+        .expect("migrates 0068 -> 0069 cleanly");
+    assert_post_0069_catalog(&migrated).await;
+    let post_a = migrated.for_org(&fx.org_a).expect("post org-a");
+    assert_post_0069_org_a(&post_a, &fx).await;
+    if let Some(other) = &fx.other_org {
+        assert_post_0069_second_org(&migrated, &post_a, &fx.alice, other).await;
+    }
+
+    migrated.close().await;
+    database.remove().await;
 }

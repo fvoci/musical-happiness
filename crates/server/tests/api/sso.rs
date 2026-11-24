@@ -592,7 +592,6 @@ impl Named {
             .replace("{fileId}", &self.file_id)
             .replace("{uploadId}", &self.upload_id)
             .replace("{userId}", &self.user_id)
-            .replace("{subscriberId}", &self.user_id)
             .replace("{categoryId}", &self.category_id)
             .replace("{partNumber}", "1")
     }

@@ -1,6 +1,6 @@
 /**
  * Whether the WebSocket still carries (`lib/api/live-heartbeat.ts`), against a
- * stand-in socket: a `PING` nothing answers in time lets the connection go
+ * stand-in socket: a `ping` nothing answers in time lets the connection go
  * and opens another, anything that comes is an answer, and a page whose
  * timers were held back (a tab in the background) is not cut for that.
  */
@@ -38,11 +38,11 @@ class FakeSocket extends EventTarget {
   }
 
   pings(): number {
-    return this.sent.filter((sent) => (sent as { action?: string }).action === 'PING').length;
+    return this.sent.filter((sent) => (sent as { type?: string }).type === 'ping').length;
   }
 }
 
-const PONG = { action: 'PONG' };
+const PONG = { type: 'pong' };
 
 let stops: (() => void)[] = [];
 
@@ -83,7 +83,7 @@ describe('a connection that may have died', () => {
     await vi.advanceTimersByTimeAsync(PING_EVERY - 1);
     expect(socket.pings()).toBe(0);
     await vi.advanceTimersByTimeAsync(1);
-    expect(socket.sent.at(-1)).toEqual({ action: 'PING' });
+    expect(socket.sent.at(-1)).toEqual({ type: 'ping' });
     await vi.advanceTimersByTimeAsync(PONG_WAIT - 1);
     expect(socket.closed).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
@@ -95,7 +95,7 @@ describe('a connection that may have died', () => {
     again?.open();
     expect(told).toEqual([{ kind: 'resync' }]);
     // What the old one says now is not heard, and it asks nothing more.
-    socket.message({ action: 'UPDATE_CLIENT_CONFIG' });
+    socket.message({ type: 'clientConfigChanged' });
     await vi.advanceTimersByTimeAsync(PING_EVERY * 3);
     expect(socket.pings()).toBe(1);
   });
@@ -116,7 +116,7 @@ describe('a connection that may have died', () => {
   it('takes anything that comes as an answer', async () => {
     const { socket } = await connected();
     await vi.advanceTimersByTimeAsync(PING_EVERY);
-    socket.message({ action: 'UPDATE_CLIENT_CONFIG', clientConfig: {} });
+    socket.message({ type: 'clientConfigChanged', clientConfig: {} });
     socket.dispatchEvent(new MessageEvent('message', { data: new ArrayBuffer(0) }));
     await vi.advanceTimersByTimeAsync(PONG_WAIT * 2);
     expect(socket.closed).toBe(false);

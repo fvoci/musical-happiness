@@ -1,7 +1,7 @@
 //! Pass-1 streaming scanner, write-plan builder, and optional post-rewrite field recheck
-//! for native fvoci v3 `board.jsonl` archive entries (T12).
+//! for native fvoci v1 `container.jsonl` archive entries (T12).
 //!
-//! Pass 1 ([`scan_native_board`]) streams each `board.jsonl` line by line via `BufRead`
+//! Pass 1 ([`scan_native_board`]) streams each `container.jsonl` line by line via `BufRead`
 //! with a strict per-line byte ceiling ([`MAX_LINE_BYTES`]), validates every container,
 //! block, and structural rule (`places::check_places`), drops unreachable orphans, and
 //! keeps only lightweight metadata in memory (no card/page/comment bodies are retained).
@@ -31,11 +31,11 @@ use crate::auth::secret::SECRET_LENGTH;
 use crate::error::{AppError, Reason};
 use fvoci_store::StoreError;
 
-/// Maximum raw byte length accepted for a single `board.jsonl` line (8 MiB body ceiling
+/// Maximum raw byte length accepted for a single `container.jsonl` line (8 MiB body ceiling
 /// plus 2 MiB headroom for fields, title, and JSON framing) to bound per-line memory use.
 pub(super) const MAX_LINE_BYTES: usize = BODY_MAX_BYTES + 2 * 1024 * 1024;
 
-/// `BufReader` buffer size for streaming `board.jsonl` entries.
+/// `BufReader` buffer size for streaming `container.jsonl` entries.
 pub(super) const STREAM_READER_BUF_BYTES: usize = 64 * 1024;
 
 /// Shrinks the reusable line buffer back to 64 KiB after reading an unusually large line.
@@ -58,12 +58,12 @@ struct BlockMeta {
     needs_fields_recheck: bool,
 }
 
-/// One `courseSchedule` line decoded from `board.jsonl` during Pass 1.
+/// One `courseSchedule` line decoded from `container.jsonl` during Pass 1.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ArchiveCourseSchedule {
-    #[serde(default, alias = "containerId")]
-    board_id: String,
+    #[serde(default)]
+    container_id: String,
     start_date: String,
     target_date: String,
     study_days: i32,
@@ -72,7 +72,7 @@ struct ArchiveCourseSchedule {
     update_at: Option<i64>,
 }
 
-/// Output of Pass 1 for a single `board.jsonl` entry, holding only structural metadata.
+/// Output of Pass 1 for a single `container.jsonl` entry, holding only structural metadata.
 pub(super) struct ScannedBoard {
     pub(super) zip_index: usize,
     pub(super) dir: String,
@@ -87,7 +87,7 @@ pub(super) struct ScannedBoard {
     pub(super) diaries: u32,
 }
 
-/// Compact identifier-renewal plan for Pass 2 of one `board.jsonl` entry.
+/// Compact identifier-renewal plan for Pass 2 of one `container.jsonl` entry.
 pub(super) struct BoardWritePlan {
     pub(super) zip_index: usize,
     pub(super) dir: String,
@@ -172,7 +172,7 @@ pub(super) fn read_bounded_line(
     }
 }
 
-/// Pass 1: streams a `board.jsonl` entry off the Tokio runtime, validates its containers,
+/// Pass 1: streams a `container.jsonl` entry off the Tokio runtime, validates its containers,
 /// block placements, and kept blocks, and returns lightweight metadata without keeping
 /// block bodies in RAM.
 pub(super) async fn scan_native_board(
@@ -242,7 +242,7 @@ fn scan_native_board_blocking(
     state.finish(zip_index, dir, limits)
 }
 
-/// Accumulator for one `board.jsonl` during Pass 1.
+/// Accumulator for one `container.jsonl` during Pass 1.
 struct ScanAccum {
     now: i64,
     containers: Vec<Container>,
@@ -289,13 +289,15 @@ impl ScanAccum {
             ))
         })?;
         match archive_line.line_type.as_str() {
-            "board" => self.take_board(archive_line.data, line_number, workspace_id, modified_by),
+            "container" => {
+                self.take_container(archive_line.data, line_number, workspace_id, modified_by)
+            }
             "block" => self.take_block(archive_line.data, line_number, modified_by),
-            "boardMember" => {
+            "containerMember" => {
                 let member: ContainerMember =
                     serde_json::from_value(archive_line.data).map_err(|error| {
                         AppError::bad_request(format_args!(
-                            "invalid board Member in archive line {line_number}: {error}"
+                            "invalid containerMember in archive line {line_number}: {error}"
                         ))
                     })?;
                 self.members.push(member);
@@ -326,11 +328,11 @@ impl ScanAccum {
             ))
         })?;
         self.raw_schedules
-            .push((parsed.board_id, validated, line_number));
+            .push((parsed.container_id, validated, line_number));
         Ok(())
     }
 
-    fn take_board(
+    fn take_container(
         &mut self,
         data: Value,
         line_number: usize,
@@ -341,7 +343,7 @@ impl ScanAccum {
         self.files.missing.extend(missing_files_of(&data));
         let mut container: Container = serde_json::from_value(data).map_err(|error| {
             AppError::bad_request(format_args!(
-                "invalid board in archive line {line_number}: {error}"
+                "invalid container in archive line {line_number}: {error}"
             ))
         })?;
         modified_by.clone_into(&mut container.modified_by);
@@ -502,11 +504,11 @@ fn resolve_course_schedules(
 ) -> Result<Vec<(usize, ValidatedCourseSchedule)>, AppError> {
     let mut seen: HashSet<usize> = HashSet::with_capacity(raw_schedules.len());
     let mut resolved = Vec::with_capacity(raw_schedules.len());
-    for (board_id, schedule, line_number) in raw_schedules {
-        let idx = if board_id.is_empty() && containers.len() == 1 {
+    for (container_id, schedule, line_number) in raw_schedules {
+        let idx = if container_id.is_empty() && containers.len() == 1 {
             0
         } else {
-            let Some(&idx) = container_idx_by_id.get(&board_id) else {
+            let Some(&idx) = container_idx_by_id.get(&container_id) else {
                 return Err(AppError::bad_request(format_args!(
                     "courseSchedule in archive line {line_number} names no course of the archive"
                 )));
@@ -842,7 +844,7 @@ fn simulated_staged_file_names(
         if dir != board_dir
             || filename.is_empty()
             || filename == "version.json"
-            || filename == "board.jsonl"
+            || filename == "container.jsonl"
             || files.missing.contains(&filename)
         {
             continue;

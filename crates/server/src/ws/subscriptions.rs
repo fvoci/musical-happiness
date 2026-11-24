@@ -26,17 +26,17 @@ pub(super) enum NotOpened {
 impl Hub {
     /// Handles one command. Returns `false` if the connection must be closed.
     pub(super) async fn handle(&self, app: &App, id: ListenerId, command: Command) -> bool {
-        match command.action.as_str() {
-            "SET_PRESENCE" => {
+        match command.kind.as_str() {
+            "setPresence" => {
                 self.set_presence(app, id, command).await;
                 return true;
             }
-            "SUBSCRIBE_BLOCKS" => {
+            "subscribeBlocks" => {
                 self.subscribe_blocks(id, &command, ReaderLimits::of(app))
                     .await;
                 return true;
             }
-            "UNSUBSCRIBE_BLOCKS" => {
+            "unsubscribeBlocks" => {
                 // Following less grants nothing: a token that cannot be checked
                 // still stops what the page asked to stop.
                 match self.container_of_read_token(&command).await {
@@ -60,15 +60,15 @@ impl Hub {
             .map(|listener| listener.user_id.clone())
             .unwrap_or_default();
         if user_id.is_empty() {
-            tracing::error!(action = %command.action, "websocket: rejected an unauthenticated message");
+            tracing::error!(command_type = %command.kind, "websocket: rejected an unauthenticated message");
             return true;
         }
-        match command.action.as_str() {
-            "SUBSCRIBE_WORKSPACE" => {
+        match command.kind.as_str() {
+            "subscribeWorkspace" => {
                 self.subscribe_workspace(id, &user_id, &command.workspace_id)
                     .await;
             }
-            "UNSUBSCRIBE_WORKSPACE" => {
+            "unsubscribeWorkspace" => {
                 let mut listeners = self.listeners();
                 if let Some(listener) = listeners.by_id.get_mut(&id) {
                     listener
@@ -78,14 +78,14 @@ impl Hub {
                 }
                 remove_from(&mut listeners.by_workspace, &command.workspace_id, id);
             }
-            other => tracing::error!(action = other, "websocket: invalid action"),
+            other => tracing::error!(command_type = other, "websocket: invalid command type"),
         }
         true
     }
 
     /// Follows the blocks of a shared board by its read token, if `limits` take one
     /// more reader of the board by its link (`readers.rs`); tells the connection
-    /// `UNSUBSCRIBED_BLOCKS` otherwise.
+    /// `blocksUnsubscribed` otherwise.
     async fn subscribe_blocks(&self, id: ListenerId, command: &Command, limits: ReaderLimits) {
         // The board its token opened when it was first checked.
         let mut validated: Option<String> = None;
@@ -132,7 +132,7 @@ impl Hub {
             if !listeners.admits_reader(id, &container_id, limits) {
                 let told = listeners.refuse_blocks(id, &command.workspace_id, &command.block_ids);
                 drop(listeners);
-                self.count_told("UNSUBSCRIBED_BLOCKS", usize::from(told));
+                self.count_told("blocksUnsubscribed", usize::from(told));
                 return;
             }
             subscribe_to_blocks(&mut listeners, id, &command.block_ids);

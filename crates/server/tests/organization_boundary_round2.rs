@@ -289,7 +289,7 @@ async fn id_routes_after_removal(destination: AfterRemoval) {
         (
             Method::POST,
             format!("{ROOT_WS}/subscriptions"),
-            json!({"blockId": card_id, "blockType": "card", "subscriberId": user_id, "subscriberType": "user"}),
+            json!({"blockId": card_id, "blockType": "card", "userId": user_id}),
         ),
     ] {
         let response = Client::send(ts.client2.request(method.clone(), &path).json(&body)).await;

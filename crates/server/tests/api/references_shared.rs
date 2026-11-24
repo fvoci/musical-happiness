@@ -177,7 +177,7 @@ async fn a_connection_by_a_link_is_told_of_changes_without_what_is_not_of_the_bo
         let mut socket = Socket::connect_as(&reader).await;
         socket
             .send(json!({
-                "action": "SUBSCRIBE_BLOCKS", "workspaceId": TEST_WORKSPACE_ID,
+                "type": "subscribeBlocks", "workspaceId": TEST_WORKSPACE_ID,
                 "readToken": shared.token, "blockIds": [shared.source],
             }))
             .await;
@@ -229,7 +229,7 @@ async fn told_of_the_card(socket: &mut Socket, owner: &Client, shared: &Shared) 
             .await
             .check_ok();
         if let Some(message) = socket.next_json(Duration::from_millis(100)).await {
-            assert_eq!(message["action"], json!("UPDATE_BLOCK"), "{message}");
+            assert_eq!(message["type"], json!("blockChanged"), "{message}");
             return message;
         }
     }

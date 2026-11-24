@@ -1,4 +1,4 @@
-//! Whether the server is alive (`hello`) and ready (`ready`): the database answers and
+//! Whether the server is alive (`ping`) and ready (`ready`): the database answers and
 //! the file storage can be used. A failing check says which, and never why.
 
 use futures_util::TryStreamExt as _;
@@ -39,9 +39,13 @@ async fn a_server_that_can_serve_is_ready_and_says_so_without_a_session() {
 async fn without_the_database_the_server_is_alive_and_not_ready_and_says_no_more() {
     let server = Setup::native().metrics_at("127.0.0.1:0").start().await;
     server.app.store().close().await;
-    let alive = server.anonymous().get("/hello").await;
+    let alive = server.anonymous().get("/ping").await;
     alive.check_ok();
-    assert_eq!(alive.text(), "Hello", "alive asks nothing of the database");
+    assert_eq!(
+        alive.value()["version"],
+        json!(env!("CARGO_PKG_VERSION")),
+        "ping answers even when the database is closed"
+    );
 
     let response = ready(&server).await;
     response.check_error(StatusCode::SERVICE_UNAVAILABLE, "not ready: database");

@@ -238,7 +238,7 @@ describe('the own space, once it takes the password alone', () => {
     const kept = world.ownSpaces.get(backend.userId);
     if (!kept) throw new Error('no own space');
     kept.passwordRequired = true;
-    // UNSUBSCRIBED_WORKSPACE is answered by asking again and reading again (`resync`).
+    // workspaceUnsubscribed is answered by asking again and reading again (`resync`).
     world.tellUsers([backend.userId], { kind: 'resync' });
     await settle();
     expect(workspace.status).toBe('ready');

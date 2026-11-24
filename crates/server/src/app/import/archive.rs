@@ -165,11 +165,11 @@ pub(super) fn count_central_headers(reader: &mut impl Read, limit: u64) -> io::R
     }
 }
 
-/// The most an entry may unpack to: a `board.jsonl`, the archive's `version.json` (the
-/// one at its root), or a file, which is held to the limit of an upload.
+/// The most an entry may unpack to: a `container.jsonl`, the archive's `version.json`
+/// (the one at its root), or a file, which is held to the limit of an upload.
 pub(super) fn entry_limit(dir: &str, filename: &str, largest_file: u64) -> u64 {
     match filename {
-        "board.jsonl" => MAX_JSONL_BYTES,
+        "container.jsonl" => MAX_JSONL_BYTES,
         "version.json" if dir == "." => MAX_VERSION_BYTES,
         _ => largest_file,
     }

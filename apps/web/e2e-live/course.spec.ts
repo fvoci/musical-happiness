@@ -5,7 +5,7 @@
  *   a unit across two browser contexts of the same account (text and caret sync).
  * - Shared workspace: open course read without joining, join and co-edit live with
  *   `PageViewers`, live outline sync (create/rename/move/delete), and immediate
- *   `DOC_LEFT` + read block when removed or made private.
+ *   `docLeft` + read block when removed or made private.
  * - Unit body table: insert, live-sync, persist to DB, and restore on reload.
  * - Boundaries & search: board ID at course URL shows NotFound, course ID at board
  *   URL shows NotFound, and workspace search finds a unit by body word and opens it.
@@ -228,11 +228,11 @@ async function signedInPage(
 function joinedDocOf(messages: readonly Record<string, unknown>[], cardId: string): number {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const msg = messages[i];
-    if (msg?.action === 'DOC_JOINED' && msg.cardId === cardId && typeof msg.doc === 'number') {
+    if (msg?.type === 'docJoined' && msg.cardId === cardId && typeof msg.doc === 'number') {
       return msg.doc;
     }
   }
-  throw new Error(`no DOC_JOINED observed for ${cardId}`);
+  throw new Error(`no docJoined observed for ${cardId}`);
 }
 
 async function captureCourseScreens(page: Page): Promise<void> {
@@ -430,7 +430,7 @@ test('own space: builds chapter and units, moves, restores, persists across relo
   }
 });
 
-test('shared workspace: open course read without joining, joined co-editing with viewers, and immediate DOC_LEFT on removal or privatization', async ({
+test('shared workspace: open course read without joining, joined co-editing with viewers, and immediate docLeft on removal or privatization', async ({
   browser,
   baseURL,
 }) => {
@@ -561,7 +561,7 @@ test('shared workspace: open course read without joining, joined co-editing with
     await expect(second.getByTestId('unit-body')).toHaveAttribute('data-editor', 'ready');
 
     // 1) Removing Bora from the open course demotes her to read-only, then making the course
-    //    private immediately kicks her out of the room (DOC_LEFT) and blocks reading.
+    //    private immediately kicks her out of the room (docLeft) and blocks reading.
     const removedOpen = await adaApi.delete(
       `${inWorkspace}/containers/${course.id}/members/${boraId}`,
     );
@@ -579,8 +579,7 @@ test('shared workspace: open course read without joining, joined co-editing with
       .poll(
         () =>
           boraWs.some(
-            (msg) =>
-              msg.action === 'DOC_LEFT' && msg.doc === openDocId && msg.reason === 'not_found',
+            (msg) => msg.type === 'docLeft' && msg.doc === openDocId && msg.reason === 'not_found',
           ),
         { timeout: 15_000 },
       )
@@ -592,7 +591,7 @@ test('shared workspace: open course read without joining, joined co-editing with
     ).toBe(404);
 
     // 2) Re-adding Bora to the private course and then removing her directly also triggers
-    //    immediate DOC_LEFT and blocks reading.
+    //    immediate docLeft and blocks reading.
     await postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {
       userId: boraId,
       schemeViewer: true,
@@ -614,7 +613,7 @@ test('shared workspace: open course read without joining, joined co-editing with
         () =>
           boraWs.some(
             (msg) =>
-              msg.action === 'DOC_LEFT' && msg.doc === privateDocId && msg.reason === 'not_found',
+              msg.type === 'docLeft' && msg.doc === privateDocId && msg.reason === 'not_found',
           ),
         { timeout: 15_000 },
       )

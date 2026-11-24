@@ -2,7 +2,7 @@
 //! and workspace today/overdue aggregations.
 //!
 //! Shared schedule updates that reassign `Block.fields.scheduledDate` announce modified
-//! unit blocks one at a time in the background (`UPDATE_BLOCK` websocket broadcast and
+//! unit blocks one at a time in the background (`blockChanged` websocket broadcast and
 //! configured webhooks); personal planned-date updates and personal redistributions
 //! intentionally emit no websocket broadcasts, no search index updates, no webhooks, and
 //! no audit log entries.

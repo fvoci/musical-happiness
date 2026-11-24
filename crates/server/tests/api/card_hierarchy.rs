@@ -33,17 +33,18 @@ async fn make_card(client: &Client, board_id: &str, body: Value) -> Card {
         .created_json()
 }
 
-fn build_zip(board_id: &str, board_jsonl: &str) -> Vec<u8> {
+fn build_zip(board_id: &str, container_jsonl: &str) -> Vec<u8> {
     let mut cursor = std::io::Cursor::new(Vec::new());
     {
         let mut zip = ZipWriter::new(&mut cursor);
         let options = SimpleFileOptions::default();
         zip.start_file("version.json", options).expect("version");
-        zip.write_all(br#"{"version":3,"date":1700000000000}"#)
+        zip.write_all(br#"{"version":1,"date":1700000000000}"#)
             .expect("write version");
-        zip.start_file(format!("{board_id}/board.jsonl"), options)
+        zip.start_file(format!("{board_id}/container.jsonl"), options)
             .expect("jsonl");
-        zip.write_all(board_jsonl.as_bytes()).expect("write jsonl");
+        zip.write_all(container_jsonl.as_bytes())
+            .expect("write jsonl");
         zip.finish().expect("finish zip");
     }
     cursor.into_inner()
@@ -247,7 +248,7 @@ async fn ws_broadcasts_subcard_deletion_and_restoration() {
         .await
         .check_no_content();
     for id in [&d1.id, &d2.id, &d3.id] {
-        let msg = socket.expect("UPDATE_BLOCK", "/block/id", id).await;
+        let msg = socket.expect("blockChanged", "/block/id", id).await;
         assert_ne!(
             msg["block"]["deleteAt"],
             json!(0),
@@ -266,7 +267,7 @@ async fn ws_broadcasts_subcard_deletion_and_restoration() {
         (&d2.id, d1.id.as_str()),
         (&d3.id, d2.id.as_str()),
     ] {
-        let msg = socket.expect("UPDATE_BLOCK", "/block/id", id).await;
+        let msg = socket.expect("blockChanged", "/block/id", id).await;
         assert_eq!(msg["block"]["deleteAt"], json!(0), "restored deleteAt");
         assert_eq!(
             msg["block"]["parentId"],
@@ -358,7 +359,7 @@ async fn hostile_archives_are_rejected_without_storing_boards() {
         .len();
 
     let board_line = json!({
-        "type": "board",
+        "type": "container",
         "data": { "id": "b1", "type": "P", "kind": "board", "title": "Bad", "createAt": 1, "updateAt": 1 }
     });
     let card_line = |id: &str, parent_id: &str, is_template: bool| {
@@ -366,7 +367,7 @@ async fn hostile_archives_are_rejected_without_storing_boards() {
             "type": "block",
             "data": {
                 "id": id,
-                "boardId": "b1",
+                "containerId": "b1",
                 "parentId": parent_id,
                 "type": BlockType::Card,
                 "title": id,

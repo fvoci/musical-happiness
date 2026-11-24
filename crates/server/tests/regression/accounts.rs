@@ -11,8 +11,8 @@ use crate::harness::ROOT_API;
 use crate::harness::{API, Session};
 
 pub(crate) async fn system(s: &mut Session) {
-    // Where the two were before all of the API went under the prefix: addresses like
-    // any other now, which the web app has, or nobody.
+    // Root `/hello` and `/ping` fall through to the web app, while retired `/api/v1/hello`
+    // answers a JSON 404 under the API prefix.
     s.get("hello", "/hello").without_csrf_header().await;
     s.get("ping: at the root", "/ping")
         .without_csrf_header()
@@ -33,7 +33,7 @@ pub(crate) async fn system(s: &mut Session) {
         .collect();
     members.sort();
     s.note("ping members", &json!(members));
-    let db_type = ping["db_type"].as_str().unwrap_or_default();
+    let db_type = ping["dbType"].as_str().unwrap_or_default();
     assert!(
         ["sqlite", "postgres"].contains(&db_type),
         "ping names the database kind, got {db_type:?}"
@@ -45,10 +45,7 @@ pub(crate) async fn system(s: &mut Session) {
         json!(env!("CARGO_PKG_VERSION")),
         "ping gives the server's version"
     );
-    s.note(
-        "ping version and sku",
-        &json!(["<version>", ping["sku"], "<db>"]),
-    );
+    s.note("ping version", &json!(["<version>", "<db>"]));
     s.get("client config", &format!("{API}/client-config"))
         .await;
     s.get(

@@ -398,7 +398,7 @@ async fn the_members_of_the_wiki_are_told_of_a_comment() {
         .iter()
         .find(|told| told["block"]["id"] == comment["id"])
         .unwrap_or_else(|| panic!("told of the comment: {heard:?}"));
-    assert_eq!(told["action"], "UPDATE_BLOCK");
+    assert_eq!(told["type"], "blockChanged");
     assert_eq!(
         (
             &told["block"]["type"],

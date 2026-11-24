@@ -1,7 +1,7 @@
 /**
  * A connection that dies without a word, on the real server: the line stands
  * but nothing comes back (the test passes nothing either way, as a network
- * gone quiet does). The page's `PING` is not answered, so it lets the
+ * gone quiet does). The page's `ping` is not answered, so it lets the
  * connection go: the body is read-only, it connects again by itself, and
  * what the other wrote meanwhile is there (`contracts/websocket.md` 3).
  */
@@ -72,7 +72,7 @@ test('a connection that goes quiet is let go after its PING is not answered, and
     const deaf = sockets === 1;
     const server = socket.connectToServer();
     socket.onMessage((message) => {
-      if (typeof message === 'string' && message.includes('"PING"')) pings.push(Date.now());
+      if (typeof message === 'string' && message.includes('"ping"')) pings.push(Date.now());
       if (!(deaf && quiet)) server.send(message);
     });
     server.onMessage((message) => {

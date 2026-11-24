@@ -81,10 +81,10 @@ async fn in_the_room(th: &TestServer, table: &Table) -> usize {
 }
 
 async fn left_at_once(member: &mut Peer) {
-    let left = member.text("DOC_LEFT").await;
+    let left = member.text("docLeft").await;
     assert_eq!(
         left,
-        json!({"action": "DOC_LEFT", "doc": member.doc, "reason": "not_found"}),
+        json!({"type": "docLeft", "doc": member.doc, "reason": "not_found"}),
         "the change put the reader out of the room they were in"
     );
 }
@@ -113,9 +113,9 @@ async fn a_team_role_lowered_then_taken_off_the_board_reaches_the_room_at_once()
     assign(&th, &table, &team_id, "viewer").await;
     // Written as soon as the change has answered: the room had it by then.
     member.write("refused").await;
-    assert_eq!(member.text("DOC_MODE").await["mode"], json!("read"));
+    assert_eq!(member.text("docModeChanged").await["mode"], json!("read"));
     assert_eq!(
-        member.text("DOC_NACK").await["reason"],
+        member.text("docNack").await["reason"],
         json!("document_read_only")
     );
 
@@ -170,7 +170,7 @@ async fn joining_a_team_that_edits_lets_a_reader_write_at_once() {
         .check_no_content();
     // Written as soon as the joining has answered: the room let them write by then.
     member.write_acked("written once in the team").await;
-    assert_eq!(member.text("DOC_MODE").await["mode"], json!("write"));
+    assert_eq!(member.text("docModeChanged").await["mode"], json!("write"));
     th.teardown().await;
 }
 
@@ -205,8 +205,8 @@ async fn deleting_a_team_reaches_every_board_it_was_on_and_leaves_the_admin_writ
             owner
                 .unread()
                 .iter()
-                .all(|message| !["DOC_LEFT", "DOC_MODE"]
-                    .contains(&message["action"].as_str().unwrap_or_default())),
+                .all(|message| !["docLeft", "docModeChanged"]
+                    .contains(&message["type"].as_str().unwrap_or_default())),
             "the board's own admin is not told anything: {:?}",
             owner.unread()
         );
@@ -226,21 +226,25 @@ async fn a_board_is_told_to_whoever_reads_it_through_a_team_until_they_leave_it(
 
     retitle(&th, &table, "Told").await;
     socket
-        .expect("UPDATE_BLOCK", "/block/id", &table.card_id)
+        .expect("blockChanged", "/block/id", &table.card_id)
         .await;
     th.client
         .delete(&team_path(&team_id, &format!("/members/{user}")))
         .await
         .check_no_content();
     socket
-        .expect("DELETE_MEMBER", "/member/containerId", &table.board_id)
+        .expect(
+            "containerMemberRemoved",
+            "/member/containerId",
+            &table.board_id,
+        )
         .await;
     retitle(&th, &table, "Not told").await;
     let heard = socket.drain().await;
     assert!(
         heard
             .iter()
-            .all(|message| message["action"] != json!("UPDATE_BLOCK")),
+            .all(|message| message["type"] != json!("blockChanged")),
         "who left the team hears no more of the board: {heard:?}"
     );
     th.teardown().await;
@@ -270,7 +274,7 @@ async fn a_board_is_told_to_whoever_joins_a_team_on_it_from_then_on() {
     assert!(
         heard
             .iter()
-            .all(|message| message["action"] != json!("UPDATE_BLOCK")),
+            .all(|message| message["type"] != json!("blockChanged")),
         "who is in no team of the board hears nothing of it: {heard:?}"
     );
     th.client
@@ -282,7 +286,7 @@ async fn a_board_is_told_to_whoever_joins_a_team_on_it_from_then_on() {
         .check_no_content();
     retitle(&th, &table, "Told").await;
     let told = socket
-        .expect("UPDATE_BLOCK", "/block/id", &table.card_id)
+        .expect("blockChanged", "/block/id", &table.card_id)
         .await;
     assert_eq!(told["block"]["title"], json!("Told"), "{told}");
     th.teardown().await;

@@ -427,7 +427,7 @@ const PERSONAL: [(&str, &str); 16] = [
     ("sessions", "user_id"),
     ("preferences", "user_id"),
     ("password_resets", "user_id"),
-    ("subscriptions", "subscriber_id"),
+    ("subscriptions", "user_id"),
     ("category_containers", "user_id"),
     ("categories", "user_id"),
     ("unit_progress", "user_id"),
@@ -751,7 +751,7 @@ pub(crate) async fn leave_organization(
         .push(")");
     scope.execute(sql).await?;
     // Also what they followed without a role: a page of a wiki open to its workspace.
-    let mut sql = scope.sql("DELETE FROM subscriptions WHERE subscriber_id = ");
+    let mut sql = scope.sql("DELETE FROM subscriptions WHERE user_id = ");
     sql.bind(Id(user_id))
         .push(
             " AND block_id IN (SELECT b.id FROM blocks AS b \

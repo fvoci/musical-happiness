@@ -1,4 +1,4 @@
-//! Atomic, bounded-memory staging and single-transaction commit for native fvoci v3
+//! Atomic, bounded-memory staging and single-transaction commit for native fvoci v1
 //! archives.
 //!
 //! After Pass 1 (`native_stream::scan_native_board`) and Pass 1.5 (`build_write_plan` +
@@ -255,7 +255,7 @@ impl App {
         let mut entries = Vec::new();
         for index in 0..zip.len() {
             let (dir, filename) = entry_name(zip, index)?;
-            if filename.is_empty() || filename == "version.json" || filename == "board.jsonl" {
+            if filename.is_empty() || filename == "version.json" || filename == "container.jsonl" {
                 continue;
             }
             let Some(container_id) = by_dir.get(&dir) else {

@@ -91,16 +91,17 @@ impl Socket {
     }
 
     /// The next message by which the server says it stopped what the connection
-    /// followed (`UNSUBSCRIBED_…`), skipping pings and other messages; `None` if the
-    /// connection closes, or nothing such comes within `wait`.
+    /// followed (`workspaceUnsubscribed`, `blocksUnsubscribed`), skipping pings and
+    /// other messages; `None` if the connection closes, or nothing such comes within
+    /// `wait`.
     pub(crate) async fn unsubscribed_message(&mut self, wait: Duration) -> Option<Value> {
         loop {
             match self.next(wait).await {
                 Event::Json(message) => {
-                    if message["action"]
-                        .as_str()
-                        .is_some_and(|action| action.starts_with("UNSUBSCRIBED_"))
-                    {
+                    if matches!(
+                        message["type"].as_str(),
+                        Some("workspaceUnsubscribed" | "blocksUnsubscribed")
+                    ) {
                         return Some(message);
                     }
                 }
@@ -110,10 +111,10 @@ impl Socket {
         }
     }
 
-    /// The action of [`Self::unsubscribed_message`].
+    /// The `type` of [`Self::unsubscribed_message`].
     pub(crate) async fn unsubscribed(&mut self, wait: Duration) -> Option<String> {
         let message = self.unsubscribed_message(wait).await?;
-        message["action"].as_str().map(str::to_owned)
+        message["type"].as_str().map(str::to_owned)
     }
 
     /// The next JSON message, skipping pings.
@@ -147,13 +148,13 @@ pub(crate) async fn subscribe_to_workspace(
     user_id: &str,
 ) {
     socket
-        .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace_id}))
+        .send(json!({"type": "subscribeWorkspace", "workspaceId": workspace_id}))
         .await;
     let probe = category(workspace_id, user_id, "subscription probe");
     for _ in 0..50 {
         th.app.ws().broadcast_category_change(&probe).await;
         if let Some(message) = socket.next_json(Duration::from_millis(100)).await {
-            assert_eq!(message["action"], json!("UPDATE_CATEGORY"), "{message}");
+            assert_eq!(message["type"], json!("categoryChanged"), "{message}");
             // Later probes may still be queued; let them drain.
             while socket.next_json(Duration::from_millis(150)).await.is_some() {}
             return;
@@ -186,7 +187,7 @@ async fn category_messages_reach_every_tab_of_the_user() {
         .check_created();
     for socket in [&mut first, &mut second] {
         let message = socket.next_json(PATIENCE).await.expect("told");
-        assert_eq!(message["action"], json!("UPDATE_CATEGORY"), "{message}");
+        assert_eq!(message["type"], json!("categoryChanged"), "{message}");
         assert_eq!(message["category"]["name"], json!("both tabs"));
     }
     assert_eq!(other.next(QUIET).await, Event::Nothing, "another user");
@@ -215,12 +216,12 @@ async fn a_workspace_is_followed_by_its_members_and_guests() {
     // work, the server has gone through the one before it.
     let mut outsider = Socket::connect_as(&th.client).await;
     outsider
-        .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": HIDDEN_WORKSPACE_ID}))
+        .send(json!({"type": "subscribeWorkspace", "workspaceId": HIDDEN_WORKSPACE_ID}))
         .await;
     subscribe_to_workspace(&th, &mut outsider, ROOT_WORKSPACE_ID, &user1.id).await;
     let mut guest = Socket::connect_as(&th.client2).await;
     guest
-        .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
+        .send(json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID}))
         .await;
     subscribe_to_workspace(&th, &mut guest, TEST_WORKSPACE_ID, &user2.id).await;
 
@@ -255,9 +256,9 @@ async fn workspace_subscription_needs_authentication() {
     // No session: the subscription is ignored, and so is an unknown action.
     let mut anonymous = Socket::connect(&th).await;
     anonymous
-        .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
+        .send(json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID}))
         .await;
-    anonymous.send(json!({"action": "NO_SUCH_ACTION"})).await;
+    anonymous.send(json!({"type": "NO_SUCH_ACTION"})).await;
     anonymous.send(json!("not a command")).await;
 
     let mut socket = Socket::connect_as(&th.client).await;
@@ -269,7 +270,7 @@ async fn workspace_subscription_needs_authentication() {
         .next_json(PATIENCE)
         .await
         .expect("the change arrives");
-    assert_eq!(message["action"], json!("UPDATE_CATEGORY"), "{message}");
+    assert_eq!(message["type"], json!("categoryChanged"), "{message}");
     assert_eq!(
         message["workspaceId"],
         json!(ROOT_WORKSPACE_ID),
@@ -288,7 +289,7 @@ async fn workspace_subscription_needs_authentication() {
     // After unsubscribing, nothing arrives any more. The second subscription to another
     // workspace shows that the server has processed the commands before it.
     socket
-        .send(json!({"action": "UNSUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
+        .send(json!({"type": "unsubscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID}))
         .await;
     subscribe_to_workspace(&th, &mut socket, TEST_WORKSPACE_ID, &user1.id).await;
     th.app.ws().broadcast_category_change(&change).await;
@@ -310,10 +311,10 @@ async fn a_message_does_not_sign_a_connection_in() {
     let mut socket = Socket::connect(&th).await;
 
     socket
-        .send(json!({"action": "AUTH", "token": th.client.token}))
+        .send(json!({"type": "AUTH", "token": th.client.token}))
         .await;
     socket
-        .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
+        .send(json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID}))
         .await;
     // The server reads the two messages in its own time, and a change that is sent
     // before it has read them would be missed by any connection. So the change is sent
@@ -326,8 +327,8 @@ async fn a_message_does_not_sign_a_connection_in() {
         th.app.ws().broadcast_category_change(&change).await;
         let heard = signed_in.next_json(Duration::from_secs(5)).await;
         assert_eq!(
-            heard.expect("the user's connection hears the change")["action"],
-            json!("UPDATE_CATEGORY"),
+            heard.expect("the user's connection hears the change")["type"],
+            json!("categoryChanged"),
             "round {round}"
         );
         assert_eq!(
@@ -374,7 +375,7 @@ async fn board_changes_go_to_subscribed_members() {
         .next_json(PATIENCE)
         .await
         .expect("the member is told");
-    assert_eq!(message["action"], json!("UPDATE_CONTAINER"), "{message}");
+    assert_eq!(message["type"], json!("containerChanged"), "{message}");
     assert_eq!(
         message["workspaceId"],
         json!(ROOT_WORKSPACE_ID),
@@ -403,7 +404,7 @@ async fn board_changes_go_to_subscribed_members() {
         .next_json(PATIENCE)
         .await
         .expect("the member is told");
-    assert_eq!(message["action"], json!("UPDATE_BLOCK"), "{message}");
+    assert_eq!(message["type"], json!("blockChanged"), "{message}");
     assert_eq!(message["block"]["id"], json!(block.id), "{message}");
     assert_eq!(message["block"]["title"], json!("A card"), "{message}");
 
@@ -415,7 +416,7 @@ async fn board_changes_go_to_subscribed_members() {
         .next_json(PATIENCE)
         .await
         .expect("the member is told");
-    assert_eq!(message["action"], json!("UPDATE_BLOCK"), "{message}");
+    assert_eq!(message["type"], json!("blockChanged"), "{message}");
     assert_eq!(message["block"]["id"], json!(block.id), "{message}");
     assert_ne!(
         message["block"]["deleteAt"],
@@ -428,17 +429,11 @@ async fn board_changes_go_to_subscribed_members() {
         .ws()
         .broadcast_member_delete(ROOT_WORKSPACE_ID, &board.id, &user2.id)
         .await;
-    let message = member
-        .next_json(PATIENCE)
-        .await
-        .expect("the member is told");
-    assert_eq!(message["action"], json!("DELETE_MEMBER"), "{message}");
+    let message = member.next_json(PATIENCE).await.expect("member told");
+    assert_eq!(message["type"], "containerMemberRemoved", "{message}");
     assert_eq!(message["member"]["userId"], json!(user2.id), "{message}");
-    let message = outsider
-        .next_json(PATIENCE)
-        .await
-        .expect("the removed user is told");
-    assert_eq!(message["action"], json!("DELETE_MEMBER"), "{message}");
+    let message = outsider.next_json(PATIENCE).await.expect("removed told");
+    assert_eq!(message["type"], "containerMemberRemoved", "{message}");
 
     // Everything before that passed the user who is no member by.
     assert_eq!(
@@ -482,7 +477,7 @@ async fn block_subscription_needs_the_read_token() {
 
     let subscribe = |read_token: &str| {
         json!({
-            "action": "SUBSCRIBE_BLOCKS",
+            "type": "subscribeBlocks",
             "workspaceId": ROOT_WORKSPACE_ID,
             "readToken": read_token,
             "blockIds": [block.id],
@@ -507,7 +502,7 @@ async fn block_subscription_needs_the_read_token() {
         }
     }
     let message = received.expect("the reader is told about the block");
-    assert_eq!(message["action"], json!("UPDATE_BLOCK"), "{message}");
+    assert_eq!(message["type"], json!("blockChanged"), "{message}");
     assert_eq!(message["block"]["id"], json!(block.id), "{message}");
 
     assert_eq!(
@@ -572,11 +567,11 @@ async fn commands_with_members_of_the_wrong_type_are_ignored() {
     let mut socket = Socket::connect_as(&th.client).await;
 
     let malformed = [
-        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": 5}),
-        json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID, "blockIds": "not-a-list"}),
-        json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID, "blockIds": [1, 2, 3]}),
-        json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID, "readToken": {"a": 1}, "blockIds": []}),
-        json!({"action": 7}),
+        json!({"type": "subscribeWorkspace", "workspaceId": 5}),
+        json!({"type": "subscribeBlocks", "workspaceId": ROOT_WORKSPACE_ID, "blockIds": "not-a-list"}),
+        json!({"type": "subscribeBlocks", "workspaceId": ROOT_WORKSPACE_ID, "blockIds": [1, 2, 3]}),
+        json!({"type": "subscribeBlocks", "workspaceId": ROOT_WORKSPACE_ID, "readToken": {"a": 1}, "blockIds": []}),
+        json!({"type": 7}),
         json!([1, 2, 3]),
         json!(null),
     ];
@@ -632,7 +627,7 @@ async fn resetting_a_password_closes_the_websocket_connections_of_that_user() {
         .next_json(PATIENCE)
         .await
         .expect("the other user's connection still gets messages");
-    assert_eq!(message["action"], json!("UPDATE_CATEGORY"), "{message}");
+    assert_eq!(message["type"], json!("categoryChanged"), "{message}");
     th.teardown().await;
 }
 
@@ -682,7 +677,7 @@ pub(crate) async fn follow_block_on(
 ) -> (Socket, Value) {
     reader
         .send(json!({
-            "action": "SUBSCRIBE_BLOCKS",
+            "type": "subscribeBlocks",
             "workspaceId": ROOT_WORKSPACE_ID,
             "readToken": read_token,
             "blockIds": [block.id],
@@ -721,7 +716,7 @@ async fn why_a_connection_ended_is_counted() {
     th.app.ws().end_readers_of_container(&board.id);
     assert_eq!(
         reader.unsubscribed(PATIENCE).await.as_deref(),
-        Some("UNSUBSCRIBED_BLOCKS"),
+        Some("blocksUnsubscribed"),
         "the share ended, and the reader is told"
     );
 
@@ -744,7 +739,7 @@ async fn why_a_connection_ended_is_counted() {
         sample(
             body,
             "fvoci_websocket_messages_queued_total",
-            &[("action", "UNSUBSCRIBED_BLOCKS")],
+            &[("type", "blocksUnsubscribed")],
         )
     };
     let body = scrape_until(&th, |body| {
@@ -922,7 +917,7 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
         .check_ok();
     assert_eq!(
         reader.unsubscribed(PATIENCE).await.as_deref(),
-        Some("UNSUBSCRIBED_BLOCKS"),
+        Some("blocksUnsubscribed"),
         "sharing off"
     );
 
@@ -942,7 +937,7 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
         .to_owned();
     assert_eq!(
         reader.unsubscribed(PATIENCE).await.as_deref(),
-        Some("UNSUBSCRIBED_BLOCKS"),
+        Some("blocksUnsubscribed"),
         "a new token"
     );
     let (mut with_new_link, _) = follow_block(&th, &block, &renewed).await;
@@ -954,7 +949,7 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
         .check_no_content();
     assert_eq!(
         with_new_link.unsubscribed(PATIENCE).await.as_deref(),
-        Some("UNSUBSCRIBED_BLOCKS"),
+        Some("blocksUnsubscribed"),
         "the board is gone"
     );
 
@@ -970,7 +965,7 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
         .check_no_content();
     assert_eq!(
         reader.unsubscribed(PATIENCE).await.as_deref(),
-        Some("UNSUBSCRIBED_BLOCKS"),
+        Some("blocksUnsubscribed"),
         "the board is gone with others"
     );
 
@@ -1130,11 +1125,11 @@ fn check_against(openapi: &Value, what: &Value, value: &Value, at: &str) {
 
 /// Checks one message the server sent against `contracts/websocket.json`.
 pub(crate) fn check_message(contract: &Value, openapi: &Value, message: &Value) {
-    let action = message["action"].as_str().expect("a message has an action");
-    let entry = &contract["messages"][action];
+    let kind = message["type"].as_str().expect("a message has a type");
+    let entry = &contract["messages"][kind];
     let mut members = entry["members"]
         .as_object()
-        .unwrap_or_else(|| panic!("contracts/websocket.json lists {action}"))
+        .unwrap_or_else(|| panic!("contracts/websocket.json lists {kind}"))
         .clone();
     // A member the entry names optional is checked where the message has it.
     let optional: Vec<&str> = entry["optional"]
@@ -1147,7 +1142,7 @@ pub(crate) fn check_message(contract: &Value, openapi: &Value, message: &Value) 
         })
         .collect();
     members.retain(|key, _| !optional.contains(&key.as_str()) || message.get(key).is_some());
-    check_against(openapi, &Value::Object(members), message, action);
+    check_against(openapi, &Value::Object(members), message, kind);
 }
 
 pub(crate) fn read_contract(name: &str) -> Value {
@@ -1168,12 +1163,12 @@ struct ContractCheck<'contract> {
 }
 
 impl ContractCheck<'_> {
-    /// Waits for the next message, which must be an `action`, and checks it.
-    async fn hear(&mut self, socket: &mut Socket, action: &str) {
+    /// Waits for the next message, which must be of `kind`, and checks it.
+    async fn hear(&mut self, socket: &mut Socket, kind: &str) {
         let message = socket.next_json(PATIENCE).await.expect("the message comes");
-        assert_eq!(message["action"], json!(action), "{message}");
+        assert_eq!(message["type"], json!(kind), "{message}");
         check_message(self.contract, self.openapi, &message);
-        self.heard.insert(action.to_owned());
+        self.heard.insert(kind.to_owned());
     }
 }
 
@@ -1246,23 +1241,27 @@ async fn messages_match_the_websocket_contract() {
 
     ws.broadcast_container_change(ROOT_WORKSPACE_ID, &board)
         .await;
-    contract_check.hear(&mut socket, "UPDATE_CONTAINER").await;
+    contract_check.hear(&mut socket, "containerChanged").await;
     ws.broadcast_block_change(ROOT_WORKSPACE_ID, &block).await;
-    contract_check.hear(&mut socket, "UPDATE_BLOCK").await;
+    contract_check.hear(&mut socket, "blockChanged").await;
     ws.broadcast_block_delete(ROOT_WORKSPACE_ID, &block.id, &board.id)
         .await;
-    contract_check.hear(&mut socket, "UPDATE_BLOCK").await;
+    contract_check.hear(&mut socket, "blockChanged").await;
     let admin = members
         .first()
         .expect("the board has its admin as a member");
     ws.broadcast_member_change(ROOT_WORKSPACE_ID, &board.id, admin)
         .await;
-    contract_check.hear(&mut socket, "UPDATE_MEMBER").await;
+    contract_check
+        .hear(&mut socket, "containerMemberChanged")
+        .await;
     ws.broadcast_member_delete(ROOT_WORKSPACE_ID, &board.id, &user1.id)
         .await;
-    contract_check.hear(&mut socket, "DELETE_MEMBER").await;
+    contract_check
+        .hear(&mut socket, "containerMemberRemoved")
+        .await;
     ws.broadcast_category_change(&category).await;
-    contract_check.hear(&mut socket, "UPDATE_CATEGORY").await;
+    contract_check.hear(&mut socket, "categoryChanged").await;
     ws.broadcast_category_container_change(
         ROOT_WORKSPACE_ID,
         &user1.id,
@@ -1274,7 +1273,7 @@ async fn messages_match_the_websocket_contract() {
     )
     .await;
     contract_check
-        .hear(&mut socket, "UPDATE_CONTAINER_CATEGORY")
+        .hear(&mut socket, "containerCategoriesChanged")
         .await;
     ws.broadcast_category_reorder(
         ROOT_WORKSPACE_ID,
@@ -1282,7 +1281,9 @@ async fn messages_match_the_websocket_contract() {
         std::slice::from_ref(&category.id),
     )
     .await;
-    contract_check.hear(&mut socket, "REORDER_CATEGORIES").await;
+    contract_check
+        .hear(&mut socket, "categoriesReordered")
+        .await;
     ws.broadcast_category_containers_reorder(
         ROOT_WORKSPACE_ID,
         &user1.id,
@@ -1291,13 +1292,13 @@ async fn messages_match_the_websocket_contract() {
     )
     .await;
     contract_check
-        .hear(&mut socket, "REORDER_CATEGORY_CONTAINERS")
+        .hear(&mut socket, "categoryContainersReordered")
         .await;
     hear_the_account_changes(&th, &mut socket, &mut contract_check, &user1.id).await;
     // The board deletion goes to the former members, with the board's identifiers only.
     ws.broadcast_container_delete(ROOT_WORKSPACE_ID, &board.id, of_the_invited(&members))
         .await;
-    contract_check.hear(&mut socket, "UPDATE_CONTAINER").await;
+    contract_check.hear(&mut socket, "containerChanged").await;
     hear_the_endings(&th, &mut socket, &mut contract_check, &block, &user1.id).await;
     hear_the_answers(&mut socket, &mut contract_check, &board.id).await;
 
@@ -1307,7 +1308,7 @@ async fn messages_match_the_websocket_contract() {
         .as_object()
         .expect("the messages are an object")
         .keys()
-        .filter(|action| !action.starts_with("DOC_"))
+        .filter(|kind| !kind.starts_with("doc"))
         .collect();
     let heard: BTreeSet<&String> = contract_check.heard.iter().collect();
     assert_eq!(
@@ -1327,7 +1328,7 @@ async fn hear_the_account_changes(
 ) {
     let ws = th.app.ws();
     ws.broadcast_config_change(&th.app.client_config()).await;
-    contract_check.hear(socket, "UPDATE_CLIENT_CONFIG").await;
+    contract_check.hear(socket, "clientConfigChanged").await;
     let org_id = th
         .app
         .store()
@@ -1335,9 +1336,9 @@ async fn hear_the_account_changes(
         .org_id()
         .expect("the test server's organization");
     ws.notifications_changed(user_id, &[&org_id]).await;
-    contract_check.hear(socket, "UPDATE_NOTIFICATIONS").await;
+    contract_check.hear(socket, "notificationsChanged").await;
     ws.broadcast_person_change(ROOT_WORKSPACE_ID, user_id).await;
-    contract_check.hear(socket, "UPDATE_USER").await;
+    contract_check.hear(socket, "userChanged").await;
 }
 
 /// Hears what the server answers the connection itself: its presence on the board
@@ -1349,13 +1350,13 @@ async fn hear_the_answers(
 ) {
     socket
         .send(
-            json!({"action": "SET_PRESENCE", "workspaceId": ROOT_WORKSPACE_ID,
+            json!({"type": "setPresence", "workspaceId": ROOT_WORKSPACE_ID,
             "containerId": board_id}),
         )
         .await;
-    contract_check.hear(socket, "UPDATE_PRESENCE").await;
-    socket.send(json!({"action": "PING"})).await;
-    contract_check.hear(socket, "PONG").await;
+    contract_check.hear(socket, "presenceChanged").await;
+    socket.send(json!({"type": "ping"})).await;
+    contract_check.hear(socket, "pong").await;
 }
 
 /// What ends of a shared board, and of a workspace, ends what followed it, and is told.
@@ -1369,17 +1370,17 @@ async fn hear_the_endings(
     let token = th.share(&block.container_id).await;
     socket
         .send(
-            json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID,
+            json!({"type": "subscribeBlocks", "workspaceId": ROOT_WORKSPACE_ID,
             "blockIds": [block.id], "readToken": token}),
         )
         .await;
     while socket.next_json(QUIET).await.is_some() {}
     th.app.ws().end_readers_of_container(&block.container_id);
-    contract_check.hear(socket, "UNSUBSCRIBED_BLOCKS").await;
+    contract_check.hear(socket, "blocksUnsubscribed").await;
     th.app
         .ws()
         .workspace_role_changed(ROOT_WORKSPACE_ID, user_id);
-    contract_check.hear(socket, "UNSUBSCRIBED_WORKSPACE").await;
+    contract_check.hear(socket, "workspaceUnsubscribed").await;
 }
 
 /// A private board of the root workspace with the text properties `a`, `b` and `c`, in that
@@ -1407,7 +1408,7 @@ async fn board_with_three_properties(th: &TestServer, admin: &str) -> Container 
 }
 
 /// The card properties of a board are put in a new order by naming all of them: the
-/// answer is the order, the board has it, and the listeners hear `UPDATE_CONTAINER`. An
+/// answer is the order, the board has it, and the listeners hear `containerChanged`. An
 /// order that leaves one out,
 /// names one twice or names one the board does not have is 400 and changes nothing; a
 /// commenter may not, nor a stranger.
@@ -1452,7 +1453,7 @@ async fn card_properties_are_put_in_order_and_the_board_is_told() {
         .next_json(PATIENCE)
         .await
         .expect("the board's listeners are told");
-    assert_eq!(message["action"], json!("UPDATE_CONTAINER"), "{message}");
+    assert_eq!(message["type"], json!("containerChanged"), "{message}");
     assert_eq!(
         ids(&message["container"]),
         [json!("c"), json!("a"), json!("b")]

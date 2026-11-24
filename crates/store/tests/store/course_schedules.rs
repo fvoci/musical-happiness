@@ -100,7 +100,16 @@ async fn migration_before_0066_to_0066_creates_course_schedules_behind_rls() {
         "Math",
     )
     .await;
-    let unit = create_unit(&scoped, &course.id, "", "Lesson 1", Some(30), None, &owner).await;
+    let unit = create_unit(
+        &scoped.telling_nobody(),
+        &course.id,
+        "",
+        "Lesson 1",
+        Some(30),
+        None,
+        &owner,
+    )
+    .await;
     pre.close().await;
 
     let migrated = Store::connect(database.db_type(), database.database_connection())

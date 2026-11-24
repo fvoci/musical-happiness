@@ -142,7 +142,7 @@ async fn a_second_orgs_read_token_can_subscribe_to_its_card_updates() {
     socket
         .send(Message::Text(
             serde_json::json!({
-                "action": "SUBSCRIBE_BLOCKS", "workspaceId": board.workspace_id,
+                "type": "subscribeBlocks", "workspaceId": board.workspace_id,
                 "blockIds": [card.id], "readToken": token
             })
             .to_string()

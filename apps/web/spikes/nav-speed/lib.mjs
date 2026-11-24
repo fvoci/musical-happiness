@@ -106,9 +106,9 @@ export const INIT = `(() => {
   } catch (e) {}
   const describe = (data) => {
     if (typeof data === 'string') {
-      let action;
-      try { const j = JSON.parse(data); action = j.action || j.type; } catch (e) {}
-      return { kind: 'text', size: data.length, action, head: data.slice(0, 160) };
+      let type;
+      try { const j = JSON.parse(data); type = j.type; } catch (e) {}
+      return { kind: 'text', size: data.length, type, head: data.slice(0, 160) };
     }
     let size = 0, b0;
     try {

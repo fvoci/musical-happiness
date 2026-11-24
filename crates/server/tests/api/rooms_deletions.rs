@@ -34,7 +34,7 @@ async fn deleting_cards_boards_and_batches_keeps_the_last_room_body_for_restore(
                 .check_no_content(),
         }
         for peer in [&mut writer, &mut other] {
-            assert_eq!(peer.text("DOC_LEFT").await["reason"], json!("not_found"));
+            assert_eq!(peer.text("docLeft").await["reason"], json!("not_found"));
         }
         assert_eq!(th.app.collab().rooms(), 0);
         let trashed = th
@@ -100,7 +100,7 @@ async fn deletion_waits_for_a_projection_already_in_progress() {
         .expect("projection task")
         .expect("written before deletion");
     deletion.await.expect("deletion task").check_no_content();
-    assert_eq!(writer.text("DOC_LEFT").await["reason"], json!("not_found"));
+    assert_eq!(writer.text("docLeft").await["reason"], json!("not_found"));
     let trashed = th
         .app
         .store()
@@ -157,11 +157,11 @@ async fn a_deleted_rooms_late_input_cannot_reach_the_restored_cards_new_room() {
         "the deleted room cannot read the restored document either"
     );
     old.write("must not reach the restored card").await;
-    assert_eq!(old.text("DOC_NACK").await["reason"], json!("not_found"));
+    assert_eq!(old.text("docNack").await["reason"], json!("not_found"));
     fresh.write_acked("in the new room").await;
     go.notify_one();
     deletion.await.expect("deletion task").check_no_content();
-    assert_eq!(old.text("DOC_LEFT").await["reason"], json!("not_found"));
+    assert_eq!(old.text("docLeft").await["reason"], json!("not_found"));
     fresh
         .write_acked("the old room did not close this one")
         .await;
@@ -228,9 +228,9 @@ async fn an_update_sent_during_a_deletion_is_refused_and_kept_out_of_the_trash()
     );
     go.notify_one();
     deletion.await.expect("deletion task").check_no_content();
-    assert_eq!(writer.text("DOC_NACK").await["reason"], json!("not_found"));
-    assert_eq!(writer.text("DOC_LEFT").await["reason"], json!("not_found"));
-    assert_eq!(other.text("DOC_LEFT").await["reason"], json!("not_found"));
+    assert_eq!(writer.text("docNack").await["reason"], json!("not_found"));
+    assert_eq!(writer.text("docLeft").await["reason"], json!("not_found"));
+    assert_eq!(other.text("docLeft").await["reason"], json!("not_found"));
     assert!(!other.lines().iter().any(|line| line.contains("during")));
     assert_eq!(trashed_body(&th, &table.card_id).await, wanted);
     th.teardown().await;
@@ -267,7 +267,7 @@ async fn a_card_below_the_deleted_block_keeps_its_rooms_last_body() {
         table.board_id, table.card_id
     );
     th.client.delete(&parent).await.check_no_content();
-    assert_eq!(writer.text("DOC_LEFT").await["reason"], json!("not_found"));
+    assert_eq!(writer.text("docLeft").await["reason"], json!("not_found"));
     assert_eq!(trashed_body(&th, &child_id).await, wanted);
     th.client
         .post_empty(&format!("{parent}/undelete"))

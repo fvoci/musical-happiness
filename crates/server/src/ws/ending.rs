@@ -1,7 +1,7 @@
 //! Ending what a connection follows without closing it: a workspace its user is no
 //! member of any more, holds another role in, cannot open with this session, or that
 //! went to the trash; a shared board whose read token stopped opening it. The
-//! connection is told (`UNSUBSCRIBED_WORKSPACE`, `UNSUBSCRIBED_BLOCKS`) and keeps
+//! connection is told (`workspaceUnsubscribed`, `blocksUnsubscribed`) and keeps
 //! what else it follows, and its rooms: the rooms of a workspace ask again about their
 //! members themselves (`Collab::recheck_access`). A connection is closed only when its
 //! session ends (`closing.rs`).
@@ -91,7 +91,7 @@ impl Listeners {
         self.tell(
             id,
             &UnsubscribedWorkspaceMessage {
-                action: "UNSUBSCRIBED_WORKSPACE",
+                kind: "workspaceUnsubscribed",
                 workspace_id,
                 reason: ended.reason(),
             },
@@ -105,7 +105,7 @@ impl Listeners {
         self.tell(
             id,
             &UnsubscribedBlocksMessage {
-                action: "UNSUBSCRIBED_BLOCKS",
+                kind: "blocksUnsubscribed",
                 workspace_id,
                 block_ids,
                 reason: Ended::Share.reason(),
@@ -124,7 +124,7 @@ impl Listeners {
         self.tell(
             id,
             &UnsubscribedBlocksMessage {
-                action: "UNSUBSCRIBED_BLOCKS",
+                kind: "blocksUnsubscribed",
                 workspace_id,
                 block_ids,
                 reason: Ended::Full.reason(),
@@ -215,7 +215,7 @@ impl Hub {
     /// Stops the connection following the workspace, as `of` says, and tells it why.
     pub(super) fn end_workspace(&self, id: ListenerId, workspace_id: &str, ended: Ended, of: Of) {
         let told = self.listeners().end_workspace(id, workspace_id, ended, of);
-        self.count_told("UNSUBSCRIBED_WORKSPACE", usize::from(told));
+        self.count_told("workspaceUnsubscribed", usize::from(told));
     }
 
     /// Stops the connection following the board by its read token, with every block it
@@ -230,13 +230,13 @@ impl Hub {
         let told = self
             .listeners()
             .end_container_with(id, container_id, workspace_id, block_ids);
-        self.count_told("UNSUBSCRIBED_BLOCKS", usize::from(told));
+        self.count_told("blocksUnsubscribed", usize::from(told));
     }
 
     /// Stops the connection following the board by its read token, and tells it so.
     pub(super) fn end_container(&self, id: ListenerId, container_id: &str) {
         let told = self.listeners().end_container(id, container_id);
-        self.count_told("UNSUBSCRIBED_BLOCKS", usize::from(told));
+        self.count_told("blocksUnsubscribed", usize::from(told));
     }
 
     /// Counts what was taken back (`revoke`), then stops what `ends` picks of what the
@@ -266,12 +266,12 @@ impl Hub {
             .filter(|(id, workspace)| listeners.end_workspace(*id, workspace, ended, Of::Any))
             .count();
         drop(listeners);
-        self.count_told("UNSUBSCRIBED_WORKSPACE", told);
+        self.count_told("workspaceUnsubscribed", told);
     }
 
-    pub(super) fn count_told(&self, action: &'static str, told: usize) {
+    pub(super) fn count_told(&self, kind: &'static str, told: usize) {
         if told > 0 {
-            self.inner.metrics.websocket_queued(action, told);
+            self.inner.metrics.websocket_queued(kind, told);
         }
     }
 
@@ -299,7 +299,7 @@ impl Hub {
             .filter(|id| listeners.end_container(*id, container_id))
             .count();
         drop(listeners);
-        self.count_told("UNSUBSCRIBED_BLOCKS", told);
+        self.count_told("blocksUnsubscribed", told);
     }
 
     /// Stops the user's connections following the workspaces they are no member of
@@ -364,7 +364,7 @@ impl Hub {
     /// connection that follows it among others keeps the others.
     pub fn stop_following_workspace(&self, workspace_id: &str) {
         let told = self.listeners().stop_following_workspace(workspace_id);
-        self.count_told("UNSUBSCRIBED_WORKSPACE", told);
+        self.count_told("workspaceUnsubscribed", told);
     }
 
     /// Stops what the connections that an organization shuts out follow of its

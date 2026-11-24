@@ -275,7 +275,7 @@ async fn a_guest_is_told_the_changes_of_its_boards_and_of_no_other() {
 
     let heard: Vec<&Value> = messages
         .iter()
-        .filter(|message| message["action"] == json!("UPDATE_CONTAINER"))
+        .filter(|message| message["type"] == json!("containerChanged"))
         .collect();
     assert!(
         heard

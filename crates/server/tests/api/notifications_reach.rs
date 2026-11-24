@@ -4,7 +4,7 @@
 //! written quietly (`disableNotify`) is watched by its writer alone; and who watched a
 //! card or a page watches it again once it is back from the trash.
 
-use fvoci_model::{BlockType, Card, ContainerType, SubscriberType, Subscription};
+use fvoci_model::{BlockType, Card, ContainerType, Subscription};
 use fvoci_server::app::tend_notifications;
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
@@ -51,7 +51,7 @@ async fn watchers(th: &TestServer, block_id: &str) -> Vec<String> {
         .await
         .expect("the watchers are read")
         .into_iter()
-        .map(|subscriber| subscriber.subscriber_id)
+        .map(|subscriber| subscriber.user_id)
         .collect();
     ids.sort();
     ids
@@ -185,8 +185,7 @@ async fn nobody_watches_or_is_listed_what_they_do_not_read() {
             .create_subscription(Subscription {
                 block_type: BlockType::Card,
                 block_id: card.id.clone(),
-                subscriber_type: SubscriberType::User,
-                subscriber_id: user_id.clone(),
+                user_id: user_id.clone(),
                 notified_at: 0,
                 create_at: 0,
                 delete_at: 0,
@@ -272,7 +271,7 @@ async fn open_course_unit_respects_worker_guest_and_private_isolation() {
         "a guest may not join an open course"
     );
 
-    let sub_body = |who: &str| json!({"blockType": "unit", "blockId": unit_id, "subscriberType": "user", "subscriberId": who});
+    let sub_body = |who: &str| json!({"blockType": "unit", "blockId": unit_id, "userId": who});
     worker
         .post(&format!("{TEST_WS}/subscriptions"), &sub_body(&worker_id))
         .await
@@ -293,8 +292,7 @@ async fn open_course_unit_respects_worker_guest_and_private_isolation() {
         .create_subscription(Subscription {
             block_type: BlockType::Unit,
             block_id: unit_id.clone(),
-            subscriber_type: SubscriberType::User,
-            subscriber_id: guest_id,
+            user_id: guest_id,
             notified_at: 0,
             create_at: 0,
             delete_at: 0,

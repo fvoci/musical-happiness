@@ -55,12 +55,12 @@ function strayRequestsOf(page: Page, boardId: string): string[] {
     socket.on('framesent', ({ payload }) => {
       const command = JSON.parse(String(payload)) as Record<string, unknown>;
       if (
-        command.action !== 'SET_PRESENCE' ||
+        command.type !== 'setPresence' ||
         !command.readToken ||
         (command.containerId !== '' && command.containerId !== boardId) ||
         command.workspaceId !== ''
       ) {
-        stray.push(`unexpected socket command ${String(command.action)}`);
+        stray.push(`unexpected socket command ${String(command.type)}`);
       }
     });
     socket.on('framereceived', () => stray.push('a public reader received a socket message'));

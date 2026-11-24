@@ -478,24 +478,21 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
 
 /// An archive with one board and one card on it.
 fn archive(card_properties: &Value, values: Value) -> Vec<u8> {
-    let board = json!({"type": "board", "data": {
+    let board = json!({"type": "container", "data": {
         "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Imported",
         "cardProperties": card_properties, "createAt": 1, "updateAt": 1,
     }});
-    // An archive names a block's board `boardId`.
-    let mut data = card_block("b1", values);
-    let board_id = data
-        .as_object_mut()
-        .and_then(|block| block.remove("containerId"));
-    data["boardId"] = board_id.expect("the card names its board");
+    let data = card_block("b1", values);
     let block = json!({"type": "block", "data": data});
     let options = zip::write::SimpleFileOptions::default();
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     writer.start_file("version.json", options).expect("start");
     writer
-        .write_all(br#"{"version":3,"date":1}"#)
+        .write_all(br#"{"version":1,"date":1}"#)
         .expect("write");
-    writer.start_file("b1/board.jsonl", options).expect("start");
+    writer
+        .start_file("b1/container.jsonl", options)
+        .expect("start");
     writer
         .write_all(format!("{board}\n{block}\n").as_bytes())
         .expect("write");

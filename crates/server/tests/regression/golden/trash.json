@@ -167,8 +167,7 @@
       "createAt": "<ts>",
       "deleteAt": 0,
       "notifiedAt": "<ts>",
-      "subscriberId": "<id:2>",
-      "subscriberType": "user"
+      "userId": "<id:2>"
     }
   },
   {
@@ -398,8 +397,7 @@
         "createAt": "<ts>",
         "deleteAt": 0,
         "notifiedAt": "<ts>",
-        "subscriberId": "<id:2>",
-        "subscriberType": "user"
+        "userId": "<id:2>"
       }
     ]
   },

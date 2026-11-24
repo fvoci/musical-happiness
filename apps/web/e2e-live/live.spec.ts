@@ -197,7 +197,7 @@ test('a body one person writes in the room changes the card on the other’s boa
 
   // When the room writes the body, the watcher's card counts the task done.
   await expect(face.locator('[data-slot="card-tasks"]')).toContainText('1/2');
-  const changes = told.filter((message) => message.action === 'UPDATE_BLOCK');
+  const changes = told.filter((message) => message.type === 'blockChanged');
   expect(changes.length).toBeGreaterThan(0);
   for (const message of changes) {
     expect((message.block as { body: unknown }).body).toBeNull();

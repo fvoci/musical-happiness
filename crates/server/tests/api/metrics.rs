@@ -75,7 +75,7 @@ async fn the_metrics_are_served_on_a_listener_of_their_own() {
         );
     }
     // Nothing but the metrics: no route of the API or the web app.
-    for path in ["/", "/api/v1/hello", "/ws", "/static/main.js", "/metrics/"] {
+    for path in ["/", "/api/v1/ping", "/ws", "/static/main.js", "/metrics/"] {
         let (status, content_type, body) = scrape_path(&server, path).await;
         assert_eq!(
             status,
@@ -196,14 +196,14 @@ fn requests(body: &str, method: &str, route: &str, status: &str) -> Option<f64> 
 async fn requests_are_counted_by_method_route_template_and_status() {
     let server = server_with_metrics().await;
     for _ in 0..3 {
-        let response = server.client.get("/hello").await;
+        let response = server.client.get("/ping").await;
         assert_eq!(response.status, StatusCode::OK);
     }
     let response = Client::send(server.client.raw_request(Method::GET, "/static/main.js")).await;
     assert_eq!(response.status, StatusCode::OK);
     let body = scrape(&server).await;
     assert_eq!(
-        requests(&body, "GET", "/api/v1/hello", "200"),
+        requests(&body, "GET", "/api/v1/ping", "200"),
         Some(3.0),
         "{body}"
     );
@@ -305,11 +305,11 @@ async fn the_base_path_is_not_part_of_the_route() {
         .metrics_at("127.0.0.1:0")
         .start()
         .await;
-    let response = server.client.get("/hello").await;
+    let response = server.client.get("/ping").await;
     assert_eq!(response.status, StatusCode::OK);
     let body = scrape(&server).await;
     assert_eq!(
-        requests(&body, "GET", "/api/v1/hello", "200"),
+        requests(&body, "GET", "/api/v1/ping", "200"),
         Some(1.0),
         "{body}"
     );
@@ -364,7 +364,7 @@ async fn websocket_connections_messages_and_disconnections_are_counted() {
     // Messages are counted as they are queued, one per connection they go to.
     socket
         .send(Message::Text(
-            serde_json::json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": crate::common::ROOT_WORKSPACE_ID})
+            serde_json::json!({"type": "subscribeWorkspace", "workspaceId": crate::common::ROOT_WORKSPACE_ID})
                 .to_string()
                 .into(),
         ))
@@ -399,7 +399,7 @@ async fn websocket_connections_messages_and_disconnections_are_counted() {
         sample(
             body,
             "fvoci_websocket_messages_queued_total",
-            &[("action", "UPDATE_CATEGORY")],
+            &[("type", "categoryChanged")],
         )
     };
     let body = scrape(&server).await;

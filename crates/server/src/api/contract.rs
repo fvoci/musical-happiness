@@ -296,7 +296,7 @@ marks as required is one the request cannot do without; \
 where the server takes a missing one as empty instead of refusing the request, the result \
 is that of the empty value (a login without a password is a failed login). A body with \
 members the schema does not list is mostly not refused for them. The exceptions: \
-`patchUserSettings` and `patchMe` refuse every member they do not know, `createBoard` and \
+`patchUserSettings`, `patchMe` and `createSubscription` refuse every member they do not know, `createBoard` and \
 `createCategory` refuse an `id`, and `setSharing` refuses a `token`.";
 
 /// What an operation's `default` response says.
@@ -617,7 +617,6 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("LinkedKind", Members::AsWritten),
     ("MinimumRole", Members::AsWritten),
     ("NameShown", Members::AsWritten),
-    ("SubscriberType", Members::AsWritten),
     ("Theme", Members::AsWritten),
     ("Title", Members::AsWritten),
     ("WeekStart", Members::AsWritten),
@@ -628,12 +627,12 @@ const SCHEMAS: &[(&str, Members)] = &[
 /// different things. The document names each as what it is.
 const RENAMED_PATHS: [(&str, &str); 2] = [
     (
-        "/api/v1/w/{workspaceId}/subscriptions/{blockOrSubscriberId}/{subscriberId}",
-        "/api/v1/w/{workspaceId}/subscriptions/{blockId}/{subscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{blockOrUserId}/{userId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{blockId}/{userId}",
     ),
     (
-        "/api/v1/w/{workspaceId}/subscriptions/{blockOrSubscriberId}",
-        "/api/v1/w/{workspaceId}/subscriptions/{subscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{blockOrUserId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{userId}",
     ),
 ];
 

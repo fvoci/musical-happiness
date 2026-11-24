@@ -28,7 +28,7 @@ function subscribed(page: Page): Promise<void> {
   return new Promise((resolve) => {
     page.on('websocket', (socket) => {
       socket.on('framesent', (frame) => {
-        if (typeof frame.payload === 'string' && frame.payload.includes('SUBSCRIBE_WORKSPACE')) {
+        if (typeof frame.payload === 'string' && frame.payload.includes('subscribeWorkspace')) {
           resolve();
         }
       });

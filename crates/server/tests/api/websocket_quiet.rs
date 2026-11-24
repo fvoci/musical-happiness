@@ -1,5 +1,5 @@
 //! A connection that has died without a word: the page asks whether its connection
-//! still carries (`PING`, answered at once with `PONG`), and the server closes one
+//! still carries (`ping`, answered at once with `pong`), and the server closes one
 //! that has sent nothing for the quiet limit, which takes it out of its rooms.
 //!
 //! The limit is ninety seconds (`ws/inbound.rs`, whose tests hold it to that); these
@@ -23,18 +23,18 @@ async fn server() -> TestServer {
     Setup::native().start().await.init_basic().await
 }
 
-/// Reads until a `PONG` comes; how long it took. What else comes meanwhile is kept
+/// Reads until a `pong` comes; how long it took. What else comes meanwhile is kept
 /// as the peer keeps it: the word that a caret went comes once, and may come between
-/// a `PING` and its `PONG`.
+/// a `ping` and its `pong`.
 async fn pong(peer: &mut Peer) -> Duration {
     let began = Instant::now();
-    peer.send_json(json!({"action": "PING"})).await;
-    let answer = peer.text("PONG").await;
-    assert_eq!(answer, json!({"action": "PONG"}), "a PONG carries nothing");
+    peer.send_json(json!({"type": "ping"})).await;
+    let answer = peer.text("pong").await;
+    assert_eq!(answer, json!({"type": "pong"}), "a PONG carries nothing");
     began.elapsed()
 }
 
-/// A `PING` is answered with a `PONG` alone, on a connection with a session and on
+/// A `ping` is answered with a `pong` alone, on a connection with a session and on
 /// one without; it is no command of anything else, and costs nothing of the rate of
 /// the rooms' frames.
 #[tokio::test]
@@ -46,10 +46,10 @@ async fn a_ping_is_answered_with_a_pong() {
         .init_basic()
         .await;
     let mut anonymous = Socket::connect(&th).await;
-    anonymous.send(json!({"action": "PING"})).await;
+    anonymous.send(json!({"type": "ping"})).await;
     assert_eq!(
         anonymous.next_json(PATIENCE).await,
-        Some(json!({"action": "PONG"}))
+        Some(json!({"type": "pong"}))
     );
     let (_table, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     // Far past the rooms' rate: none is counted.
@@ -119,7 +119,7 @@ async fn a_connection_that_sends_nothing_is_closed_and_goes_from_its_room() {
     th.teardown().await;
 }
 
-/// The websocket's own Pong is heard as the page's `PING` is: a connection that
+/// The websocket's own Pong is heard as the page's `ping` is: a connection that
 /// answers the server's Ping stays.
 #[tokio::test]
 async fn a_pong_to_the_servers_ping_keeps_a_connection() {
@@ -140,16 +140,16 @@ async fn a_pong_to_the_servers_ping_keeps_a_connection() {
         let event = socket.next(LIMIT).await;
         assert!(matches!(event, Event::Ping), "only pings come: {event:?}");
     }
-    socket.send(json!({"action": "PING"})).await;
+    socket.send(json!({"type": "ping"})).await;
     assert_eq!(
         socket.next_json(PATIENCE).await,
-        Some(json!({"action": "PONG"}))
+        Some(json!({"type": "pong"}))
     );
     th.teardown().await;
 }
 
 /// A member whose change waits for an immediate check of their access is answered a
-/// `PING` meanwhile, and is not closed for the quiet limit however long the check
+/// `ping` meanwhile, and is not closed for the quiet limit however long the check
 /// takes: the server reads on while it works for the connection.
 #[tokio::test]
 async fn a_member_held_by_a_check_is_answered_and_kept() {
@@ -185,7 +185,7 @@ async fn a_member_held_by_a_check_is_answered_and_kept() {
     };
     let ((), answered) = tokio::join!(demote, held);
     assert!(answered < PATIENCE, "answered while held: {answered:?}");
-    let refused = member.text("DOC_NACK").await;
+    let refused = member.text("docNack").await;
     assert_eq!(refused["reason"], json!("document_read_only"), "{refused}");
     assert!(pong(&mut member).await < PATIENCE, "still open");
     th.teardown().await;

@@ -10,7 +10,7 @@ use crate::websocket::{PATIENCE, QUIET, Socket, check_message, read_contract};
 pub(crate) async fn visit(socket: &mut Socket, board: &str, card: &str) {
     socket
         .send(
-            json!({"action":"SET_PRESENCE", "workspaceId":TEST_WORKSPACE_ID,
+            json!({"type":"setPresence", "workspaceId":TEST_WORKSPACE_ID,
         "containerId":board, "cardId":card}),
         )
         .await;
@@ -20,7 +20,7 @@ pub(crate) async fn people(socket: &mut Socket, count: usize) -> Value {
     for _ in 0..20 {
         let message = socket.next_json(PATIENCE).await.expect("presence arrives");
         assert_eq!(
-            message["action"], "UPDATE_PRESENCE",
+            message["type"], "presenceChanged",
             "only presence is subscribed"
         );
         if message["people"].as_array().expect("people").len() == count {
@@ -107,7 +107,7 @@ async fn token_visits_count_anonymously_and_receive_nothing() {
     // Even the owner's signed-in socket is anonymous when it explicitly uses a link.
     let mut reader = Socket::connect_as(&th.client).await;
     reader
-        .send(json!({"action":"SET_PRESENCE", "containerId":t.board_id,
+        .send(json!({"type":"setPresence", "containerId":t.board_id,
         "readToken":sharing.token}))
         .await;
     let roster = people(&mut member, 1).await;
@@ -210,12 +210,12 @@ async fn a_guest_sees_an_unshared_template_reader_only_as_a_count() {
     let mut owner = Socket::connect_as(&th.client).await;
     let mut guest = Socket::connect_as(&th.client2).await;
     for socket in [&mut owner, &mut guest] {
-        socket.send(json!({"action":"SET_PRESENCE", "workspaceId":ROOT_WORKSPACE_ID, "containerId":template.id})).await;
+        socket.send(json!({"type":"setPresence", "workspaceId":ROOT_WORKSPACE_ID, "containerId":template.id})).await;
     }
     let _ = people(&mut guest, 2).await;
     let _ = people(&mut owner, 2).await;
     let mut reader = Socket::connect_as(&third).await;
-    reader.send(json!({"action":"SET_PRESENCE", "workspaceId":ROOT_WORKSPACE_ID, "containerId":template.id})).await;
+    reader.send(json!({"type":"setPresence", "workspaceId":ROOT_WORKSPACE_ID, "containerId":template.id})).await;
     let roster = people(&mut guest, 2).await;
     assert_eq!(
         roster["hiddenCount"], 1,
@@ -236,7 +236,7 @@ async fn a_guest_sees_an_unshared_template_reader_only_as_a_count() {
     let mut uninvited = Socket::connect_as(&th.client2).await;
     uninvited
         .send(
-            json!({"action":"SET_PRESENCE", "workspaceId":ROOT_WORKSPACE_ID, "containerId":private.id}),
+            json!({"type":"setPresence", "workspaceId":ROOT_WORKSPACE_ID, "containerId":private.id}),
         )
         .await;
     assert!(
@@ -275,7 +275,7 @@ async fn visits_never_cross_a_workspace_or_organization_wall() {
         (TEST_WORKSPACE_ID, foreign.as_str()),
     ] {
         socket
-            .send(json!({"action":"SET_PRESENCE", "workspaceId":workspace, "containerId":board}))
+            .send(json!({"type":"setPresence", "workspaceId":workspace, "containerId":board}))
             .await;
         assert!(
             socket.next_json(QUIET).await.is_none(),

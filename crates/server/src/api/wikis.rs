@@ -183,14 +183,14 @@ async fn handle_get_page_tree(
 /// `/parentId` otherwise), or at the top of the wiki; among the pages of that parent it
 /// goes right after the page `after` (400 at `/after` if that is no page of the same
 /// parent), first if `after` is empty, and last if it is left out. Its body is written
-/// by `patchPage`, or together in its room (`JOIN_DOC`).
+/// by `patchPage`, or together in its room (`joinDoc`).
 ///
 /// The tree is held to the organization's limits: a page deeper than its depth is 400
 /// at `/parentId` with the reason `page_too_deep`, and one more page than a wiki may
 /// have (those in the trash not counted) is 400 with the reason `too_many_pages`, each
 /// with the `limit`.
 ///
-/// The wiki's members are told with `UPDATE_BLOCK`, whose block of the `type` `page`
+/// The wiki's members are told with `blockChanged`, whose block of the `type` `page`
 /// has the icon and the order among its `fields`. Where the pages of the parent had no
 /// room left between them (two of one order, or orders grown long), they are numbered
 /// anew, and each that changed is told of too.
@@ -310,7 +310,7 @@ async fn handle_patch_page(
 /// deeper than the organization's limit; 400 at `/after` if that is no other page of
 /// the parent. Nothing is changed then.
 ///
-/// The wiki's members are told with `UPDATE_BLOCK` of the page, and of every page of
+/// The wiki's members are told with `blockChanged` of the page, and of every page of
 /// the parent numbered anew to leave it room; the pages below it keep their parents
 /// and are not told of.
 #[utoipa::path(
@@ -355,7 +355,7 @@ async fn handle_move_page(
 /// would be deeper, or the wiki larger, than they let it be; 400 at `/title` for a
 /// title longer than 16383 characters. Nothing is changed then.
 ///
-/// The wiki's members are told with `UPDATE_BLOCK` of each copy, a page before those
+/// The wiki's members are told with `blockChanged` of each copy, a page before those
 /// below it, and of each page of the parent numbered anew to leave the copy room.
 #[utoipa::path(
     post,
@@ -393,7 +393,7 @@ async fn handle_duplicate_page(
 /// Delete a page
 ///
 /// The page goes to the trash with every page below it and the comments on them, for
-/// editors of the wiki. The wiki's members are told with `UPDATE_BLOCK` of the page
+/// editors of the wiki. The wiki's members are told with `blockChanged` of the page
 /// alone, whose `deleteAt` is not 0, as for any block that is deleted; what went with
 /// it is not told of one by one.
 #[utoipa::path(
@@ -468,7 +468,7 @@ async fn handle_get_deleted_pages(
 /// larger, than they let it be. A page that is not in this wiki's trash, or went there
 /// with the page it was below (it comes back with that page), is 404. The comments on
 /// the pages come back with them; the limits count pages. The wiki's members are told
-/// with `UPDATE_BLOCK` of each page and comment that came back, a page before what is
+/// with `blockChanged` of each page and comment that came back, a page before what is
 /// below it, and of each page numbered anew to leave it room.
 #[utoipa::path(
     post,

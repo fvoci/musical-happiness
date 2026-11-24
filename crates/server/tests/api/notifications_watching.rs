@@ -33,15 +33,15 @@ fn of_kind(told: &[Notification], kind: NotificationKind) -> Option<&Notificatio
         .find(|one| one.subject.as_ref().is_some_and(|s| s.kind == kind))
 }
 
-/// Whether `socket` hears `UPDATE_NOTIFICATIONS` within `wait`, other messages and
+/// Whether `socket` hears `notificationsChanged` within `wait`, other messages and
 /// pings passed over.
 async fn hears_notifications(socket: &mut Socket, wait: Duration) -> bool {
     loop {
         match socket.next(wait).await {
-            Event::Json(message) if message["action"] == "UPDATE_NOTIFICATIONS" => {
+            Event::Json(message) if message["type"] == "notificationsChanged" => {
                 assert_eq!(
                     message,
-                    json!({"action": "UPDATE_NOTIFICATIONS"}),
+                    json!({"type": "notificationsChanged"}),
                     "nothing else"
                 );
                 return true;
@@ -216,7 +216,7 @@ async fn the_writer_of_a_page_is_told_of_its_comments() {
     th.client
         .post(
             &format!("{TEST_WS}/subscriptions"),
-            &json!({"blockType": "page", "blockId": page.id, "subscriberType": "user", "subscriberId": a_id}),
+            &json!({"blockType": "page", "blockId": page.id, "userId": a_id}),
         )
         .await
         .check_created();

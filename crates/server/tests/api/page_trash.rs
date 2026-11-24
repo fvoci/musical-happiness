@@ -68,7 +68,7 @@ async fn a_deleted_page_is_listed_brought_back_with_those_below_and_told_of() {
     let tree: Vec<PageNode> = client.get(&format!("{wiki}/pages")).await.ok_json();
     assert_eq!(tree.len(), 2);
     for id in [&a, &b] {
-        let told = socket.expect("UPDATE_BLOCK", "/block/id", id).await;
+        let told = socket.expect("blockChanged", "/block/id", id).await;
         assert_eq!(told["block"]["deleteAt"], json!(0), "{told}");
     }
     // Once back, it is no more in the trash.

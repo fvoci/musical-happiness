@@ -65,7 +65,7 @@ async fn refusals_are_counted_by_the_name_of_their_problem() {
         .get(&format!("{TEST_WS}/containers/%FF"))
         .await;
     assert_eq!(response.status, StatusCode::BAD_REQUEST);
-    let response = server.client.get("/hello").await;
+    let response = server.client.get("/ping").await;
     assert_eq!(response.status, StatusCode::OK);
     let after = scrape(&server).await;
     let counted = |name: &str| {

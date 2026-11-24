@@ -89,7 +89,7 @@ async fn told_until(socket: &mut WorkspaceSocket, enough: impl Fn(&[Value]) -> b
         }
     }
     heard.retain(|told| {
-        ["UPDATE_BLOCK", "UPDATE_CONTAINER"].contains(&told["action"].as_str().unwrap_or(""))
+        ["blockChanged", "containerChanged"].contains(&told["type"].as_str().unwrap_or(""))
     });
     heard
 }
@@ -101,7 +101,7 @@ fn has_block(id: &str) -> impl Fn(&[Value]) -> bool + '_ {
 
 /// Whether the board or wiki `id` was told as deleted.
 fn is_gone(told: &Value, id: &str) -> bool {
-    told["action"] == json!("UPDATE_CONTAINER")
+    told["type"] == json!("containerChanged")
         && told["container"]["id"] == json!(id)
         && told["container"]["deleteAt"] != json!(0)
 }
@@ -111,7 +111,7 @@ fn about(heard: &[Value]) -> std::collections::BTreeSet<String> {
     heard
         .iter()
         .map(|told| {
-            let of = if told["action"] == json!("UPDATE_BLOCK") {
+            let of = if told["type"] == json!("blockChanged") {
                 &told["block"]["id"]
             } else {
                 &told["container"]["id"]
@@ -352,7 +352,7 @@ async fn who_did_not_join_an_open_wiki_reads_in_the_rooms_of_its_pages() {
     let entered = reader.join(TEST_WORKSPACE_ID, &page).await;
     assert_eq!(entered["mode"], json!("read"), "{entered}");
     reader.write("not to be kept").await;
-    let refused = reader.text("DOC_NACK").await;
+    let refused = reader.text("docNack").await;
     assert_eq!(refused["reason"], json!("document_read_only"), "{refused}");
     writer.write_acked("read by who did not join").await;
     reader.settle().await;
@@ -366,19 +366,19 @@ async fn who_did_not_join_an_open_wiki_reads_in_the_rooms_of_its_pages() {
         .post(&format!("{TEST_WS}/containers/{wiki}/join"), &json!({}))
         .await
         .check_ok();
-    assert_eq!(reader.text("DOC_MODE").await["mode"], json!("write"));
+    assert_eq!(reader.text("docModeChanged").await["mode"], json!("write"));
     th.client2
         .post(&format!("{TEST_WS}/containers/{wiki}/leave"), &json!({}))
         .await
         .check_no_content();
     assert_eq!(
-        reader.text("DOC_MODE").await["mode"],
+        reader.text("docModeChanged").await["mode"],
         json!("read"),
         "left, it reads"
     );
 
     make(&th.client, &wiki, "P").await;
-    let left = reader.text("DOC_LEFT").await;
+    let left = reader.text("docLeft").await;
     assert_eq!(left["reason"], json!("not_found"), "{left}");
     th.teardown().await;
 }

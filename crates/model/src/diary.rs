@@ -376,7 +376,7 @@ pub enum DiaryMaking {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DiaryEntry {
-    /// The entry's identifier: what its room is joined by (`JOIN_DOC`).
+    /// The entry's identifier: what its room is joined by (`joinDoc`).
     pub id: String,
     /// The identifier of the diary the entry is of.
     pub diary_id: String,

@@ -83,7 +83,7 @@ async fn archive_import_hides_an_upload_of_a_sibling_workspace() {
         .client
         .post(
             &format!("{TEST_WS}/archive/uploads"),
-            &json!({"name": "plan.boardarchive", "size": 0}),
+            &json!({"name": "plan.fvoci", "size": 0}),
         )
         .await
         .created_json();

@@ -209,7 +209,7 @@ impl Hub {
         if let Some(projected) = projected {
             self.inner
                 .metrics
-                .websocket_queued(projected.action(), queued);
+                .websocket_queued(projected.kind(), queued);
             reader.sent = Some(projected);
         }
         if due {

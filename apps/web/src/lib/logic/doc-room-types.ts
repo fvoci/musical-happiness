@@ -26,13 +26,13 @@ export interface RoomCarets {
 
 /** What the server says of a room; a join's two answers come without a room number that is known. */
 export type RoomMessage =
-  | { action: 'DOC_JOINED'; doc: number; epoch: number; mode: DocMode }
-  | { action: 'DOC_REFUSED'; reason: string }
-  | { action: 'DOC_ACK'; doc: number; epoch: number }
-  | { action: 'DOC_NACK'; doc: number; epoch: number; reason: string }
-  | { action: 'DOC_MODE'; doc: number; mode: DocMode }
-  | { action: 'DOC_RESET'; doc: number; epoch: number }
-  | { action: 'DOC_LEFT'; doc: number; reason: string };
+  | { type: 'docJoined'; doc: number; epoch: number; mode: DocMode }
+  | { type: 'docRefused'; reason: string }
+  | { type: 'docAck'; doc: number; epoch: number }
+  | { type: 'docNack'; doc: number; epoch: number; reason: string }
+  | { type: 'docModeChanged'; doc: number; mode: DocMode }
+  | { type: 'docReset'; doc: number; epoch: number }
+  | { type: 'docLeft'; doc: number; reason: string };
 
 /** What a room is told. */
 export interface RoomHears {
@@ -55,7 +55,7 @@ export interface RoomHeld {
 export interface RoomPort {
   /** The connection is there now: the room may be joined (`up` is told only of later ones). */
   readonly connected: boolean;
-  /** Sends `JOIN_DOC` for the card; with `held`, as one who holds its document already. */
+  /** Sends `joinDoc` for the card; with `held`, as one who holds its document already. */
   join(held?: RoomHeld): void;
   /** Sends a binary frame. */
   send(frame: Uint8Array<ArrayBuffer>): void;
@@ -93,7 +93,7 @@ export type RoomEvent =
   | { type: 'settle' };
 
 export type RoomEffect =
-  /** Send `JOIN_DOC`; with `held`, naming the document held: its epoch, and its state vector. */
+  /** Send `joinDoc`; with `held`, naming the document held: its epoch, and its state vector. */
   | { type: 'join'; held: number | undefined }
   | { type: 'send'; frame: RoomFrame }
   /** Send the reader's caret. */

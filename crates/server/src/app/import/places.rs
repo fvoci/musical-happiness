@@ -67,7 +67,7 @@ pub(super) fn check(
 }
 
 /// Same rules as [`check`], operating over lightweight [`BlockPlace`] metadata collected
-/// while streaming `board.jsonl` line by line.
+/// while streaming `container.jsonl` line by line.
 pub(super) fn check_places(
     containers: &[Container],
     blocks: &[BlockPlace<'_>],

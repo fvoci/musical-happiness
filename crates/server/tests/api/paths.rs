@@ -89,9 +89,9 @@ async fn ask_owned(origin: &str, method: Method, address: String) -> Answer {
 async fn check_path_rules(origin: &str, base: &str) {
     // A known API path with its method reaches the handler. No session is needed to ask
     // whether the server is there, or for the client configuration.
-    let hello = ask(origin, Method::GET, &format!("{base}/api/v1/hello")).await;
-    assert_eq!(hello.status, StatusCode::OK, "{base}/api/v1/hello");
-    assert_eq!(hello.body, "Hello", "the greeting");
+    let ping = ask(origin, Method::GET, &format!("{base}/api/v1/ping")).await;
+    assert_eq!(ping.status, StatusCode::OK, "{base}/api/v1/ping");
+    assert_eq!(ping.content_type, "application/json", "the metadata");
 
     // A known API path with another method: 405, with the methods the path has.
     for (method, path, allowed) in [
@@ -125,6 +125,7 @@ async fn check_path_rules(origin: &str, base: &str) {
     // Everything else under the API prefix: a JSON 404, never the web app's page.
     for path in [
         "/api/v1/no-such-route",
+        "/api/v1/hello",
         "/api/v1/client-config/",
         "/api/v1/boards/",
         "/api/v1",
@@ -266,7 +267,7 @@ async fn path_rules_under_a_base_path() {
     // Outside the base path there is nothing.
     for path in [
         "/",
-        "/api/v1/hello",
+        "/api/v1/ping",
         "/api/v1/client-config",
         "/board/abc",
         "/boardsx",

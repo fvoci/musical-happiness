@@ -421,8 +421,8 @@ pub(crate) async fn work_on(store: &Store, board: &str, card: &str, user_id: &st
              VALUES ('{card}', 1, '{user_id}')"
         ),
         format!(
-            "INSERT INTO subscriptions (block_type, block_id, subscriber_type, subscriber_id, \
-             create_at) VALUES ('card', '{card}', 'user', '{user_id}', {T0})"
+            "INSERT INTO subscriptions (block_type, block_id, user_id, \
+             create_at) VALUES ('card', '{card}', '{user_id}', {T0})"
         ),
     ] {
         store

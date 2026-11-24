@@ -14,7 +14,7 @@ use super::super::{Collab, Loaded};
 use super::{Connection, Room};
 use crate::permissions::DocMode;
 
-/// What a `JOIN_DOC` asks: the room of which card of a board of which workspace, and
+/// What a `joinDoc` asks: the room of which card of a board of which workspace, and
 /// what the connection says it holds of the card's document.
 #[derive(Debug)]
 pub(in crate::collab) struct Entering<'join> {
@@ -33,7 +33,7 @@ pub(in crate::collab) struct Holding {
 }
 
 impl Holding {
-    /// What a `JOIN_DOC` says the connection holds: `epoch`, and `stateVector` in
+    /// What a `joinDoc` says the connection holds: `epoch`, and `stateVector` in
     /// base64. `None` for a join that names no state vector, or one that is no base64:
     /// the connection is sent the whole document, as one that holds none.
     pub(in crate::collab) fn of(epoch: i64, state_vector: &str) -> Option<Self> {
@@ -50,7 +50,7 @@ impl Holding {
 
 impl Collab {
     /// Queues what a connection let into `room` as `doc`, to be in it as `mode` says,
-    /// is told first: `DOC_JOINED`, and the document as `loaded` ([`Self::first_of`]).
+    /// is told first: `docJoined`, and the document as `loaded` ([`Self::first_of`]).
     /// Who is let in to read has nothing to send, and is sent the whole whatever they
     /// say they hold: what they hold that the server lacks shows against it alone.
     ///
@@ -78,7 +78,7 @@ impl Collab {
     }
 
     /// The sync messages a connection that comes into `room` is sent after
-    /// `DOC_JOINED`, of the document as `loaded`: the whole of it (a step 2); or, for a
+    /// `docJoined`, of the document as `loaded`: the whole of it (a step 2); or, for a
     /// connection that holds the document of this making, the server's state vector
     /// (a step 1) and then what the connection lacks (a step 2). Whatever keeps the
     /// difference from being read (a state vector that is none, a document that cannot

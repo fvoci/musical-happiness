@@ -5,7 +5,7 @@
 //! A connection reads a board by its link when it follows the board's blocks by the
 //! link's read token, or visits the board with that token (`presence.rs`); it is one
 //! reader however it does. One that would be one too many is not taken: its
-//! subscription is answered `UNSUBSCRIBED_BLOCKS`, its visit is not kept and so not
+//! subscription is answered `blocksUnsubscribed`, its visit is not kept and so not
 //! counted among the board's anonymous readers. A reader already taken stays.
 
 use super::{Listener, ListenerId, Listeners};

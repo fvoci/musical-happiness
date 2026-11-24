@@ -95,7 +95,7 @@ async function open(page, t) {
   const wsm = c.ws.map((m) => ({
     t: rel(m.t),
     dir: m.dir,
-    action: m.action ?? m.kind,
+    type: m.type ?? m.kind,
     size: m.size,
   }));
   const detail = requests.find(
@@ -103,9 +103,9 @@ async function open(page, t) {
   );
   const chunks = requests.filter((r) => r.url.endsWith('.js'));
   const lastChunk = Math.max(0, ...chunks.map((r) => r.end));
-  const firstDoc = wsm.find((m) => m.dir === 'in' && m.action === 'binary');
-  const joined = wsm.find((m) => m.dir === 'in' && m.action === 'DOC_JOINED');
-  const join = wsm.find((m) => m.dir === 'out' && m.action === 'JOIN_DOC');
+  const firstDoc = wsm.find((m) => m.dir === 'in' && m.type === 'binary');
+  const joined = wsm.find((m) => m.dir === 'in' && m.type === 'docJoined');
+  const join = wsm.find((m) => m.dir === 'out' && m.type === 'joinDoc');
   const readyMs = ready.t - shown.t0;
   return {
     id: t.id,

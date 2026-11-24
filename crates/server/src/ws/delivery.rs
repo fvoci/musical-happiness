@@ -74,10 +74,10 @@ impl Hub {
         let Some(text) = text_of(message) else {
             return;
         };
-        let action = message.action();
+        let kind = message.kind();
         // What every connection is told depends on no one's access.
         if matches!(access, Access::All) {
-            self.queue_text(ids, &text, action);
+            self.queue_text(ids, &text, kind);
             return;
         }
         let mut authorized = Vec::new();
@@ -89,13 +89,13 @@ impl Hub {
             #[cfg(feature = "test-util")]
             self.pause_dispatch().await;
             if self.audience.if_current(revision, || {
-                self.queue_text(&authorized, &text, action);
+                self.queue_text(&authorized, &text, kind);
             }) {
                 return;
             }
         }
         // Who was to be told at the last check: not who could never see it.
-        self.give_up(&authorized, action);
+        self.give_up(&authorized, kind);
     }
 
     /// Tells who follows the block's board by its read token of the block: who sees
@@ -158,15 +158,15 @@ impl Hub {
             #[cfg(feature = "test-util")]
             self.pause_dispatch().await;
             if self.audience.if_current(revision, || {
-                self.queue_text(&members, &whole, "UPDATE_BLOCK");
+                self.queue_text(&members, &whole, "blockChanged");
                 if let Some(hidden) = &hidden {
-                    self.queue_text(&readers, hidden, "UPDATE_BLOCK");
+                    self.queue_text(&readers, hidden, "blockChanged");
                 }
             }) {
                 return;
             }
         }
-        self.give_up(&authorized, "UPDATE_BLOCK");
+        self.give_up(&authorized, "blockChanged");
     }
 
     /// Splits who follows the board by its read token into who sees it as its member
@@ -235,9 +235,9 @@ impl Hub {
 
     /// Closes the recipients of a change whose check was overtaken by permission
     /// writes every time, as retryable: they read anew rather than miss it.
-    fn give_up(&self, ids: &[ListenerId], action: &str) {
+    fn give_up(&self, ids: &[ListenerId], message_type: &str) {
         tracing::warn!(
-            action,
+            message_type,
             recipients = ids.len(),
             "websocket: a change was given up, checked again too often"
         );

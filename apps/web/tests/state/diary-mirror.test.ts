@@ -111,11 +111,11 @@ describe('a diary reached by another way than its own routes, in memory', () => 
     });
     const [board] = await made.backend.boards(made.sharedId);
     if (!board) throw new Error('no board');
-    const boardArchive = await made.backend.exportContainer(board.id);
-    const boardLines = (await boardArchive.bytes.text()).split('\n').filter((line) => line !== '');
+    const exportedBoard = await made.backend.exportContainer(board.id);
+    const boardLines = (await exportedBoard.bytes.text()).split('\n').filter((line) => line !== '');
     const entryInBoard = entryLine(made.lines, (data) => {
       data.id = 'stray-entry';
-      data.boardId = board.id;
+      data.containerId = board.id;
     });
     const asIs = made.lines.filter((line) => !line.includes('"entry"'));
     for (const [archive, pointer] of [
@@ -124,7 +124,7 @@ describe('a diary reached by another way than its own routes, in memory', () => 
       [archiveOf(asIs, made.name, [noDateField]), '/fields'],
       [archiveOf(asIs, made.name, [nested]), '/parentId'],
       [archiveOf(made.lines, made.name, [nonEntryInDiary]), '/type'],
-      [archiveOf(boardLines, boardArchive.name, [entryInBoard]), '/type'],
+      [archiveOf(boardLines, exportedBoard.name, [entryInBoard]), '/type'],
     ] as const) {
       const result = made.backend.importArchive(made.ownId, archive);
       if (pointer) {

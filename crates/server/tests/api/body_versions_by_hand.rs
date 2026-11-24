@@ -94,7 +94,7 @@ async fn what_two_typed_together_is_kept_as_one_asks() {
         one.unread()
             .iter()
             .chain(two.unread().iter())
-            .all(|told| told["action"] != "DOC_RESET"),
+            .all(|told| told["type"] != "docReset"),
         "nobody is sent the document again: {:?} {:?}",
         one.unread(),
         two.unread()

@@ -699,7 +699,7 @@ impl App {
             Ok(()) => fs::rename(&directory, working.path()).await,
             Err(error) => Err(error),
         };
-        let archive = working.path().join("archive.boardarchive");
+        let archive = working.path().join("archive.fvoci");
         let joined = match moved {
             Ok(()) => join_parts(&parts, working.path(), &archive).await,
             Err(error) => Err(part_error(&error)),

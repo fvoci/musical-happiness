@@ -5,8 +5,8 @@
 use fvoci_model::{
     AuditAction, AuditRecordActor, Block, BlockType, CompletionChange, Container, ContainerKind,
     ContainerMember, ContainerType, CourseLimits, LastPositionChange, NewCourseExam, NewUnit,
-    NewUnitNote, NewUnitReview, OrgRole, SubscriberType, Subscription, UnitNoteKind,
-    UnitProgressChange, UserOrganization, ValidatedMyExamScore, Workspace, WorkspaceRole, new_id,
+    NewUnitNote, NewUnitReview, OrgRole, Subscription, UnitNoteKind, UnitProgressChange,
+    UserOrganization, ValidatedMyExamScore, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AuditPlace, DbType, Departure, DepartureRefused, Joining, MemberRemoval, NewLink, Paging,
@@ -177,8 +177,7 @@ async fn follow(store: &Store, block_id: &str, user_id: &str) {
     let subscription = Subscription {
         block_type: BlockType::Card,
         block_id: block_id.to_owned(),
-        subscriber_type: SubscriberType::User,
-        subscriber_id: user_id.to_owned(),
+        user_id: user_id.to_owned(),
         notified_at: 0,
         create_at: 0,
         delete_at: 0,
@@ -262,7 +261,7 @@ async fn places_of(test: &TestStore, org_id: &str, user_id: &str) -> Vec<String>
         (
             "subscriptions",
             format!(
-                "subscriber_id = '{user_id}' AND block_id IN \
+                "user_id = '{user_id}' AND block_id IN \
                  (SELECT id FROM blocks WHERE container_id IN ({of_org_boards}))"
             ),
         ),

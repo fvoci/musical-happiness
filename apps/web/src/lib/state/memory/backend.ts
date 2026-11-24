@@ -477,7 +477,7 @@ export class MemoryBackend implements Backend {
 
   /**
    * An archive of the memory backend: lines of JSON, as the server's
-   * `board.jsonl` is, but not its ZIP. Only this backend reads it back.
+   * `container.jsonl` is, but not its ZIP. Only this backend reads it back.
    */
   async exportContainer(id: string, options?: DownloadOptions): Promise<DownloadedFile> {
     await this.#enter('exportContainer', options?.signal);

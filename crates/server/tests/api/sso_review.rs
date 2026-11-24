@@ -37,7 +37,7 @@ async fn a_slow_membership_recheck_cannot_leave_a_password_room_writable_after_e
         .expect("its administrator");
     let card = table(&ts, &paragraphs(&["before enforcement"])).await;
     let mut peer = Peer::connect(&ts.client, 191).await;
-    // JOIN_DOC alone: this connection has no SUBSCRIBE_WORKSPACE subscription.
+    // joinDoc alone: this connection has no subscribeWorkspace subscription.
     peer.joined(TEST_WORKSPACE_ID, &card.card_id).await;
     let before = ts
         .app

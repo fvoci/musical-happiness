@@ -39,9 +39,9 @@ async fn a_role_change_and_removal_reach_every_connection_immediately() {
         peer.write("refused").await;
     }
     for peer in [&mut member, &mut other_tab, &mut another_card] {
-        assert_eq!(peer.text("DOC_MODE").await["mode"], json!("read"));
+        assert_eq!(peer.text("docModeChanged").await["mode"], json!("read"));
         assert_eq!(
-            peer.text("DOC_NACK").await["reason"],
+            peer.text("docNack").await["reason"],
             json!("document_read_only")
         );
     }
@@ -59,7 +59,7 @@ async fn a_role_change_and_removal_reach_every_connection_immediately() {
         1
     );
     for peer in [&mut member, &mut other_tab, &mut another_card] {
-        assert_eq!(peer.text("DOC_LEFT").await["reason"], json!("not_found"));
+        assert_eq!(peer.text("docLeft").await["reason"], json!("not_found"));
     }
     th.teardown().await;
 }
@@ -74,7 +74,7 @@ async fn removal_from_the_workspace_reaches_the_room_immediately() {
         .delete(&format!("/w/{TEST_WORKSPACE_ID}/members/{user}"))
         .await
         .check_no_content();
-    assert_eq!(member.text("DOC_LEFT").await["reason"], json!("not_found"));
+    assert_eq!(member.text("docLeft").await["reason"], json!("not_found"));
     th.teardown().await;
 }
 
@@ -129,7 +129,7 @@ async fn becoming_a_guest_closes_an_uninvited_template_room_immediately() {
         )
         .await
         .check_ok();
-    assert_eq!(reader.text("DOC_LEFT").await["reason"], json!("not_found"));
+    assert_eq!(reader.text("docLeft").await["reason"], json!("not_found"));
     th.teardown().await;
 }
 
@@ -144,7 +144,7 @@ async fn a_template_closed_to_the_workspace_puts_out_its_uninvited_readers() {
         )
         .await
         .check_ok();
-    assert_eq!(reader.text("DOC_LEFT").await["reason"], json!("not_found"));
+    assert_eq!(reader.text("docLeft").await["reason"], json!("not_found"));
     th.teardown().await;
 }
 
@@ -155,7 +155,7 @@ async fn a_batch_closing_a_template_puts_out_its_uninvited_readers() {
     th.client.patch(&format!("/w/{TEST_WORKSPACE_ID}/boards-and-blocks"), &json!({
         "containerIds": [board], "containerPatches": [{"type": "P"}], "blockIds": [], "blockPatches": [],
     })).await.check_ok();
-    assert_eq!(reader.text("DOC_LEFT").await["reason"], json!("not_found"));
+    assert_eq!(reader.text("docLeft").await["reason"], json!("not_found"));
     th.teardown().await;
 }
 
@@ -182,7 +182,7 @@ async fn a_batch_closing_several_templates_puts_out_the_readers_of_each() {
         .await
         .check_ok();
     for reader in [&mut first_reader, &mut second_reader] {
-        assert_eq!(reader.text("DOC_LEFT").await["reason"], json!("not_found"));
+        assert_eq!(reader.text("docLeft").await["reason"], json!("not_found"));
     }
     th.teardown().await;
 }
@@ -200,7 +200,7 @@ async fn trashing_a_board_or_workspace_empties_its_rooms_immediately() {
         };
         th.client.delete(&path).await.check_no_content();
         for peer in [&mut owner, &mut member] {
-            assert_eq!(peer.text("DOC_LEFT").await["reason"], json!("not_found"));
+            assert_eq!(peer.text("docLeft").await["reason"], json!("not_found"));
         }
         crate::rooms::no_rooms(&th).await;
         th.teardown().await;
@@ -254,7 +254,7 @@ async fn ending_an_organization_administrators_participation_puts_them_out() {
                 .await
                 .check_ok();
         }
-        assert_eq!(peer.text("DOC_LEFT").await["reason"], json!("not_found"));
+        assert_eq!(peer.text("docLeft").await["reason"], json!("not_found"));
         th.teardown().await;
     }
 }
@@ -274,7 +274,7 @@ async fn an_old_periodic_answer_does_not_undo_an_immediate_demotion() {
         .await
         .expect("the periodic read pauses");
     give(&th, &table.board_id, &user, "viewer").await;
-    assert_eq!(member.text("DOC_MODE").await["mode"], json!("read"));
+    assert_eq!(member.text("docModeChanged").await["mode"], json!("read"));
     let (next, after) = collab.pause_next_recheck();
     go.notify_one();
     collab.ask_again_now();
@@ -287,7 +287,7 @@ async fn an_old_periodic_answer_does_not_undo_an_immediate_demotion() {
     );
     member.write("not allowed by the old answer").await;
     assert_eq!(
-        member.text("DOC_NACK").await["reason"],
+        member.text("docNack").await["reason"],
         json!("document_read_only")
     );
     after.notify_one();
@@ -310,7 +310,7 @@ async fn an_unanswered_immediate_check_has_a_deadline() {
         give(&th, &table.board_id, &user, "viewer").await;
         waiting.notified().await;
         assert_eq!(
-            member.text("DOC_LEFT").await["reason"],
+            member.text("docLeft").await["reason"],
             json!("document_unavailable")
         );
     })
@@ -362,6 +362,6 @@ async fn a_board_passed_to_the_workspace_admin_lets_them_write_at_once() {
         .delete(&format!("/w/{TEST_WORKSPACE_ID}/members/{other}"))
         .await
         .check_no_content();
-    assert_eq!(reader.text("DOC_MODE").await["mode"], json!("write"));
+    assert_eq!(reader.text("docModeChanged").await["mode"], json!("write"));
     th.teardown().await;
 }

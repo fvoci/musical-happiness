@@ -863,7 +863,7 @@
   "shell_export_workspace": "모든 보드와 위키 내보내기",
   "shell_import": "아카이브 가져오기",
   "shell_import_format": "가져오기 형식",
-  "shell_import_format_fvoci": "fvoci 아카이브 (.boardarchive, .zip)",
+  "shell_import_format_fvoci": "fvoci 아카이브 (.fvoci, .zip)",
   "shell_import_format_trello": "Trello 보드 (.json)",
   "shell_import_format_notion": "Notion 내보내기 (.zip)",
   "shell_import_hint": "이 앱이 내보낸 아카이브입니다. 그 보드나 위키가 {workspace}에 만들어지고, 내가 관리자가 됩니다.",

@@ -45,7 +45,7 @@ async fn subscribed_socket_of(
     user_id: &str,
 ) -> Stream {
     let mut stream = client.connect_websocket().await;
-    let command = json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace_id});
+    let command = json!({"type": "subscribeWorkspace", "workspaceId": workspace_id});
     stream
         .send(Message::Text(command.to_string().into()))
         .await
@@ -91,7 +91,7 @@ async fn category_changes_are_sent_to_the_users_connection() {
         create_category(&th.client, &category(ROOT_WORKSPACE_ID, &user.id, "Cat A")).await;
     assert_eq!(
         expect_message(&mut socket, "creating a category").await,
-        json!({"action": "UPDATE_CATEGORY", "workspaceId": ROOT_WORKSPACE_ID, "category": created}),
+        json!({"type": "categoryChanged", "workspaceId": ROOT_WORKSPACE_ID, "category": created}),
         "after creating a category"
     );
 
@@ -103,7 +103,7 @@ async fn category_changes_are_sent_to_the_users_connection() {
     let renamed: Category = th.client.put(&path, &change).await.ok_json();
     assert_eq!(
         expect_message(&mut socket, "updating a category").await,
-        json!({"action": "UPDATE_CATEGORY", "workspaceId": ROOT_WORKSPACE_ID, "category": renamed}),
+        json!({"type": "categoryChanged", "workspaceId": ROOT_WORKSPACE_ID, "category": renamed}),
         "after updating a category"
     );
 
@@ -115,7 +115,7 @@ async fn category_changes_are_sent_to_the_users_connection() {
     assert_eq!(
         expect_message(&mut socket, "reordering the categories").await,
         json!({
-            "action": "REORDER_CATEGORIES",
+            "type": "categoriesReordered",
             "categoryOrder": category_order,
             "workspaceId": ROOT_WORKSPACE_ID,
         }),
@@ -135,7 +135,7 @@ async fn category_changes_are_sent_to_the_users_connection() {
     let moved = json!({"containerId": board_id, "categoryId": default_id, "hidden": false});
     assert_eq!(
         expect_message(&mut socket, "deleting a category").await,
-        json!({"action": "UPDATE_CONTAINER_CATEGORY", "workspaceId": ROOT_WORKSPACE_ID, "containerCategories": [moved]}),
+        json!({"type": "containerCategoriesChanged", "workspaceId": ROOT_WORKSPACE_ID, "containerCategories": [moved]}),
         "after deleting a category: its board is in the default category"
     );
     // The answer has no body: the message is where the deleted category is told.
@@ -148,7 +148,7 @@ async fn category_changes_are_sent_to_the_users_connection() {
     };
     assert_eq!(
         message,
-        json!({"action": "UPDATE_CATEGORY", "workspaceId": ROOT_WORKSPACE_ID, "category": deleted}),
+        json!({"type": "categoryChanged", "workspaceId": ROOT_WORKSPACE_ID, "category": deleted}),
         "after deleting a category: the category as it was"
     );
 
@@ -166,7 +166,7 @@ async fn category_container_changes_are_sent_to_the_users_connection() {
         create_category(&th.client, &category(ROOT_WORKSPACE_ID, &user.id, "Cat A")).await;
     let path = format!("{ROOT_WS}/categories/{}", created.id);
     let mut socket = subscribed_socket(&th, ROOT_WORKSPACE_ID, &user.id).await;
-    let board_change = |boards: Value| json!({"action": "UPDATE_CONTAINER_CATEGORY", "workspaceId": ROOT_WORKSPACE_ID, "containerCategories": boards});
+    let board_change = |boards: Value| json!({"type": "containerCategoriesChanged", "workspaceId": ROOT_WORKSPACE_ID, "containerCategories": boards});
     let first = open_board(&th, ROOT_WORKSPACE_ID).await;
     let second = open_board(&th, ROOT_WORKSPACE_ID).await;
     let shown = json!({"containerId": first, "categoryId": created.id, "hidden": false});
@@ -213,7 +213,7 @@ async fn category_container_changes_are_sent_to_the_users_connection() {
     assert_eq!(
         expect_message(&mut socket, "reordering the boards").await,
         json!({
-            "action": "REORDER_CATEGORY_CONTAINERS",
+            "type": "categoryContainersReordered",
             "categoryId": created.id,
             "containerOrder": board_order,
             "workspaceId": ROOT_WORKSPACE_ID,
@@ -267,7 +267,7 @@ async fn the_default_category_is_created_once_by_concurrent_requests() {
 async fn message_of(stream: &mut Stream, action: &str) -> Value {
     loop {
         let message = expect_message(stream, action).await;
-        if message["action"] == json!(action) {
+        if message["type"] == json!(action) {
             return message;
         }
     }
@@ -334,27 +334,27 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
 
     let entry = |category_id: &str, hidden: bool| {
         json!({
-            "action": "UPDATE_CONTAINER_CATEGORY",
+            "type": "containerCategoriesChanged",
             "workspaceId": ROOT_WORKSPACE_ID,
             "containerCategories": [{"containerId": board.id, "categoryId": category_id, "hidden": hidden}],
         })
     };
     assert_eq!(
-        message_of(&mut socket, "UPDATE_CONTAINER_CATEGORY").await,
+        message_of(&mut socket, "containerCategoriesChanged").await,
         entry(&created.id, true)
     );
-    let order = message_of(&mut socket, "REORDER_CATEGORY_CONTAINERS").await;
+    let order = message_of(&mut socket, "categoryContainersReordered").await;
     assert_eq!(order["categoryId"], json!(created.id), "{order}");
     assert_eq!(order["containerOrder"], json!([board.id]), "{order}");
     assert_eq!(
-        message_of(&mut other_socket, "UPDATE_CONTAINER_CATEGORY").await,
+        message_of(&mut other_socket, "containerCategoriesChanged").await,
         entry(&other_default, false),
         "the other user's category went: the default one"
     );
     while let Some(message) = next_message(&mut third_socket, Duration::from_millis(500)).await {
         assert_ne!(
-            message["action"],
-            json!("UPDATE_CONTAINER_CATEGORY"),
+            message["type"],
+            json!("containerCategoriesChanged"),
             "{message}"
         );
     }

@@ -84,7 +84,14 @@ async fn migration_0066_to_0067_creates_tables_widens_notifications_and_enables_
     let owner = common::user(&scoped, "learner").await;
     common::works_in(&scoped, &workspace_id, &owner).await;
     let course = create_course(&scoped, &workspace_id, &owner, "Rust").await;
-    let unit = create_item(&scoped, &course.id, UnitKind::Unit, "Ownership", &owner).await;
+    let unit = create_item(
+        &scoped.telling_nobody(),
+        &course.id,
+        UnitKind::Unit,
+        "Ownership",
+        &owner,
+    )
+    .await;
     let existing_notif_id = new_id();
     pre.system()
         .execute_unchecked(&format!(

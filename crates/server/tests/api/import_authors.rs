@@ -16,10 +16,10 @@ fn archive(lines: &[Value]) -> Vec<u8> {
     let options = zip::write::SimpleFileOptions::default();
     writer.start_file("version.json", options).expect("start");
     writer
-        .write_all(br#"{"version":3,"date":1}"#)
+        .write_all(br#"{"version":1,"date":1}"#)
         .expect("write");
     writer
-        .start_file("authored/board.jsonl", options)
+        .start_file("authored/container.jsonl", options)
         .expect("start");
     for line in lines {
         writer
@@ -31,7 +31,7 @@ fn archive(lines: &[Value]) -> Vec<u8> {
 
 fn block(id: &str, kind: &str, created_by: &str, modified_by: &str) -> Value {
     json!({"type": "block", "data": {
-        "id": id, "boardId": "board", "type": kind, "title": id,
+        "id": id, "containerId": "board", "type": kind, "title": id,
         "createdBy": created_by, "modifiedBy": modified_by, "createAt": 1, "updateAt": 1,
     }})
 }
@@ -91,14 +91,14 @@ async fn everything_imported_is_the_importers_whoever_the_archive_names() {
         "the colleague works in the workspace"
     );
     let comment = json!({"type": "block", "data": {
-        "id": "comment", "boardId": "board", "parentId": "theirs", "type": "comment",
+        "id": "comment", "containerId": "board", "parentId": "theirs", "type": "comment",
         "title": "", "createdBy": outsider, "modifiedBy": outsider, "createAt": 1,
         "updateAt": 1,
         "body": {"type": "doc", "content": [
             {"type": "paragraph", "content": [{"type": "text", "text": "hello"}]}]},
     }});
     let bytes = archive(&[
-        json!({"type": "board", "data": {
+        json!({"type": "container", "data": {
             "id": "board", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Authored",
             "createdBy": outsider, "modifiedBy": colleague, "createAt": 1, "updateAt": 1,
         }}),

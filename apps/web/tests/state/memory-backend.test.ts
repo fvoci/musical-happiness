@@ -350,7 +350,7 @@ describe('file blocks', () => {
       type: 'block',
       data: {
         id: 'comment-with-a-file',
-        boardId,
+        containerId: boardId,
         parentId: byTitle('Alpha').id,
         type: 'comment',
         title: '',
@@ -366,7 +366,7 @@ describe('file blocks', () => {
     const workspaceId = workspace?.id ?? '';
     const before = (await backend.boards(workspaceId)).length;
     const refused = await rejection(
-      backend.importArchive(workspaceId, new File([archive], 'with-a-file.boardarchive')),
+      backend.importArchive(workspaceId, new File([archive], 'with-a-file.fvoci')),
     );
     expect(refused).toMatchObject({ status: 400, errors: [{ pointer: '/body' }] });
     expect(await backend.boards(workspaceId)).toHaveLength(before);

@@ -76,11 +76,11 @@ export class LivePresence implements Presence {
 
   #renew(): void {
     if (!this.#up) return;
-    this.#send({ action: 'SET_PRESENCE', containerId: '', ...this.#visit });
+    this.#send({ type: 'setPresence', containerId: '', ...this.#visit });
   }
 
   text(message: Record<string, unknown>): boolean {
-    if (message.action !== 'UPDATE_PRESENCE') return false;
+    if (message.type !== 'presenceChanged') return false;
     const { containerId, people, anonymousCount, hiddenCount } = message;
     if (
       typeof containerId !== 'string' ||
