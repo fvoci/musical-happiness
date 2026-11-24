@@ -256,7 +256,7 @@ impl Store {
         provider_email: &str,
         create_at: i64,
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             crate::oidc::insert_identity(scope, identity, user_id, provider_email, create_at).await
         })
         .await

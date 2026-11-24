@@ -70,10 +70,12 @@ pub struct CourseExam {
     pub update_at: i64,
     /// The caller's own score row, or `null` if none (never another member's score).
     pub my_score: Option<MyExamScore>,
-    /// Mean score across active enrolled course members who recorded a score; `null` when
-    /// `scoreCount` is 0.
+    /// Mean score across active enrolled course members who recorded a score when at least
+    /// two other active members have scored (`scoreCount >= 3` when the caller scored,
+    /// `scoreCount >= 2` when the caller has not); `null` otherwise or for unjoined readers.
     pub average_score: Option<f64>,
-    /// Number of active enrolled course members who recorded a score.
+    /// Number of active enrolled course members who recorded a score (`0` for unjoined
+    /// readers).
     pub score_count: u32,
 }
 

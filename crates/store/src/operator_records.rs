@@ -63,7 +63,7 @@ impl Store {
     ) -> Result<bool, StoreError> {
         // As create_password_reset: expired credentials go first, in their own
         // statement, before the user's row is taken.
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             password_reset::delete_expired_password_resets(scope, now).await
         })
         .await?;

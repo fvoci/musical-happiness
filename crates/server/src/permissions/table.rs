@@ -178,7 +178,7 @@ const ROWS: &[Row] = &[
         Some(ContainerRole::Editor),
         EDITOR,
     ),
-    // A template the server ships with is every user's to read and copy.
+    // A template the server ships with is read and copied by everyone who works there.
     row(
         "a member reads a built-in template",
         MEMBER,
@@ -187,18 +187,18 @@ const ROWS: &[Row] = &[
         VIEWER,
     ),
     row(
-        "a guest reads a built-in template",
+        "a guest: no built-in template",
         GUEST,
         BuiltIn,
         None,
-        VIEWER,
+        NOTHING,
     ),
     row(
-        "a stranger reads a built-in template",
+        "a stranger: no built-in template",
         STRANGER,
         BuiltIn,
         None,
-        VIEWER,
+        NOTHING,
     ),
     // A guest sees the boards they were invited to, one by one, as no more than an editor.
     row("a guest: no open board", GUEST, Open, None, NOTHING),

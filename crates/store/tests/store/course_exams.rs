@@ -56,10 +56,13 @@ async fn exams_crud_score_isolation_and_active_member_aggregates() {
     let test = common::setup().await;
     let alice = common::user(&test, "alice").await;
     let bob = common::user(&test, "bob").await;
+    let carol = common::user(&test, "carol").await;
     common::works_in(&test, &test.workspace_id, &alice).await;
     common::works_in(&test, &test.workspace_id, &bob).await;
+    common::works_in(&test, &test.workspace_id, &carol).await;
     let course_id = create_course(&test, &test.workspace_id, &alice).await;
     enroll(&test, &course_id, &bob).await;
+    enroll(&test, &course_id, &carol).await;
 
     let undated = test
         .create_course_exam(&course_id, &new_exam("Undated", None, 50.0))
@@ -89,34 +92,9 @@ async fn exams_crud_score_isolation_and_active_member_aggregates() {
         .expect("outcome");
     assert_eq!(over, ExamScoreOutcome::ExceedsMaxScore { max_score: 100.0 });
 
-    // Alice records 90, Bob records 70.
-    let saved_a = test
-        .upsert_my_exam_score(
-            &course_id,
-            &first.id,
-            &alice,
-            &ValidatedMyExamScore {
-                score: 90.0,
-                note: "alice private note".to_owned(),
-            },
-        )
-        .await
-        .expect("alice saved");
-    assert!(matches!(saved_a, ExamScoreOutcome::Saved(ref s) if (s.score - 90.0).abs() < 1e-9));
+    // 1st -> 2nd -> 3rd scorer k-anonymity progression and unjoined reader isolation.
+    verify_k_anonymity_progression(&test, &course_id, &first.id, [&alice, &bob, &carol]).await;
 
-    test.upsert_my_exam_score(
-        &course_id,
-        &first.id,
-        &bob,
-        &ValidatedMyExamScore {
-            score: 70.0,
-            note: "bob private note".to_owned(),
-        },
-    )
-    .await
-    .expect("bob saved");
-
-    // Alice sees her own score and the aggregate (80.0 / 2), never Bob's.
     let for_alice = test
         .list_course_exams(&course_id, Some(&alice))
         .await
@@ -126,23 +104,110 @@ async fn exams_crud_score_isolation_and_active_member_aggregates() {
         [first.id.as_str(), second.id.as_str(), undated.id.as_str()],
         "dated ascending, undated last"
     );
-    assert_eq!(for_alice[0].score_count, 2);
+    assert_eq!(for_alice[0].score_count, 3);
     assert!((for_alice[0].average_score.expect("avg") - 80.0).abs() < 1e-9);
     let alice_mine = for_alice[0].my_score.as_ref().expect("alice score");
     assert_eq!(alice_mine.note, "alice private note");
     assert!((alice_mine.score - 90.0).abs() < 1e-9);
 
-    // Unjoined viewer (`None`) gets no `my_score` but still sees aggregates.
-    let for_reader = test
-        .list_course_exams(&course_id, None)
-        .await
-        .expect("reader list");
-    assert_eq!(for_reader[0].my_score, None);
-    assert_eq!(for_reader[0].score_count, 2);
-
     // Patching exam preserves scores and clears exam_date via Clear, and deletions clean up.
     verify_exam_patch_and_deletions(&test, &course_id, &first.id, &alice, &bob).await;
     test.teardown().await;
+}
+
+async fn verify_k_anonymity_progression(
+    test: &Store,
+    course_id: &str,
+    exam_id: &str,
+    [alice, bob, carol]: [&String; 3],
+) {
+    // 1st scorer (Alice = 90): neither Alice nor unsubmitted Bob may see averageScore yet.
+    let saved_a = test
+        .upsert_my_exam_score(
+            course_id,
+            exam_id,
+            alice,
+            &ValidatedMyExamScore {
+                score: 90.0,
+                note: "alice private note".to_owned(),
+            },
+        )
+        .await
+        .expect("alice saved");
+    assert!(
+        matches!(saved_a, ExamScoreOutcome::Saved(ref s) if (s.score - 90.0).abs() < 1e-9),
+        "alice score saved as 90.0"
+    );
+    for viewer in [alice, bob] {
+        let one = test
+            .list_course_exams(course_id, Some(viewer))
+            .await
+            .expect("1 scorer list");
+        assert_eq!(one[0].score_count, 1, "single scorer counted");
+        assert_eq!(one[0].average_score, None, "1 scorer must not leak score");
+    }
+
+    // 2nd scorer (Bob = 70): Alice and Bob each have only 1 other scorer (`averageScore: None`),
+    // whereas unsubmitted Carol has 2 other scorers and sees `averageScore: Some(80.0)`.
+    test.upsert_my_exam_score(
+        course_id,
+        exam_id,
+        bob,
+        &ValidatedMyExamScore {
+            score: 70.0,
+            note: "bob private note".to_owned(),
+        },
+    )
+    .await
+    .expect("bob saved");
+    for scorer in [alice, bob] {
+        let two = test
+            .list_course_exams(course_id, Some(scorer))
+            .await
+            .expect("2 scorers list");
+        assert_eq!(two[0].score_count, 2, "two scorers counted");
+        assert_eq!(two[0].average_score, None, "2 scorers block subtraction");
+    }
+    let for_unsubmitted_carol = test
+        .list_course_exams(course_id, Some(carol))
+        .await
+        .expect("carol unsubmitted list");
+    assert_eq!(
+        for_unsubmitted_carol[0].score_count, 2,
+        "carol sees count 2"
+    );
+    assert!(
+        (for_unsubmitted_carol[0].average_score.expect("carol avg") - 80.0).abs() < 1e-9,
+        "unsubmitted carol has 2 other scorers so average 80.0 is shown"
+    );
+
+    // Unjoined viewer (`None`) receives neither `my_score` nor aggregate stats (`0` / `None`).
+    let for_reader = test
+        .list_course_exams(course_id, None)
+        .await
+        .expect("reader list");
+    assert_eq!(for_reader[0].my_score, None, "reader has no personal score");
+    assert_eq!(
+        for_reader[0].average_score, None,
+        "reader does not see exam average"
+    );
+    assert_eq!(
+        for_reader[0].score_count, 0,
+        "reader does not see exam score count"
+    );
+
+    // 3rd scorer (Carol = 80): all three scorers now have 2 other scorers and see average 80.0.
+    test.upsert_my_exam_score(
+        course_id,
+        exam_id,
+        carol,
+        &ValidatedMyExamScore {
+            score: 80.0,
+            note: "carol private note".to_owned(),
+        },
+    )
+    .await
+    .expect("carol saved");
 }
 
 async fn verify_exam_patch_and_deletions(
@@ -190,10 +255,22 @@ async fn verify_exam_patch_and_deletions(
         .find(|e| e.id == exam_id)
         .expect("first exam");
     assert_eq!(first_view.my_score, None, "alice score removed");
-    assert_eq!(first_view.score_count, 1, "only bob remains");
+    assert_eq!(first_view.score_count, 2, "bob and carol remain");
     assert!(
-        (first_view.average_score.expect("avg") - 70.0).abs() < 1e-9,
-        "average equals bob's score"
+        (first_view.average_score.expect("avg") - 75.0).abs() < 1e-9,
+        "unsubmitted alice sees average of bob (70) and carol (80)"
+    );
+    let bob_after_del = test
+        .list_course_exams(course_id, Some(bob))
+        .await
+        .expect("bob listed");
+    let bob_first = bob_after_del
+        .iter()
+        .find(|e| e.id == exam_id)
+        .expect("bob first exam");
+    assert_eq!(
+        bob_first.average_score, None,
+        "submitted bob now has only 1 other scorer so average is hidden again"
     );
 
     test.delete_course_exam(course_id, exam_id)
@@ -214,11 +291,14 @@ async fn exam_scores_removed_on_workspace_removal_erasure_and_course_purge() {
     let owner = founder(&test).await;
     let bob = common::user(&test, "bob").await;
     let carol = common::user(&test, "carol").await;
+    let dave = common::user(&test, "dave").await;
     common::works_in(&test, &test.workspace_id, &bob).await;
     common::works_in(&test, &test.workspace_id, &carol).await;
+    common::works_in(&test, &test.workspace_id, &dave).await;
     let course_id = create_course(&test, &test.workspace_id, &owner).await;
     enroll(&test, &course_id, &bob).await;
     enroll(&test, &course_id, &carol).await;
+    enroll(&test, &course_id, &dave).await;
 
     let exam = test
         .create_course_exam(&course_id, &new_exam("Quiz", Some("2026-12-05"), 100.0))
@@ -238,25 +318,40 @@ async fn exam_scores_removed_on_workspace_removal_erasure_and_course_purge() {
         .expect("saved");
     }
 
-    // Remove Bob from workspace -> Bob's score row deleted; average of owner(80)+carol(100)=90.
+    // With 3 scorers (owner=80, bob=60, carol=100), owner has 2 other scorers -> avg 80.
+    let before = test
+        .list_course_exams(&course_id, Some(&owner))
+        .await
+        .expect("before removal");
+    assert_eq!(before[0].score_count, 3);
+    assert!((before[0].average_score.expect("avg") - 80.0).abs() < 1e-9);
+
+    // Remove Bob from workspace -> Bob's score row deleted; unsubmitted Dave (2 other scorers:
+    // owner=80 + carol=100) sees avg 90, while submitted owner (1 other scorer) gets None.
     test.remove_workspace_member(&test.workspace_id, &bob, &owner)
         .await
         .expect("bob removed");
-    let exams = test
+    let exams_owner = test
         .list_course_exams(&course_id, Some(&owner))
         .await
-        .expect("listed");
-    assert_eq!(exams[0].score_count, 2);
-    assert!((exams[0].average_score.expect("avg") - 90.0).abs() < 1e-9);
+        .expect("listed for owner");
+    assert_eq!(exams_owner[0].score_count, 2);
+    assert_eq!(exams_owner[0].average_score, None);
+    let exams_dave = test
+        .list_course_exams(&course_id, Some(&dave))
+        .await
+        .expect("listed for dave");
+    assert_eq!(exams_dave[0].score_count, 2);
+    assert!((exams_dave[0].average_score.expect("dave avg") - 90.0).abs() < 1e-9);
 
-    // Erase Carol -> Carol's score row deleted; average of owner(80)=80.
+    // Erase Carol -> Carol's score row deleted; only 1 scorer remains so average is hidden for all.
     erase(&test, &carol, fvoci_store::Erasing::AtOnce, T0 + 1000).await;
     let exams = test
-        .list_course_exams(&course_id, Some(&owner))
+        .list_course_exams(&course_id, Some(&dave))
         .await
         .expect("listed");
     assert_eq!(exams[0].score_count, 1);
-    assert!((exams[0].average_score.expect("avg") - 80.0).abs() < 1e-9);
+    assert_eq!(exams[0].average_score, None);
 
     // Trash & permanently purge course -> exam and remaining score deleted.
     test.delete_container(&course_id, &owner)

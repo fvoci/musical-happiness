@@ -7,7 +7,7 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { openApp, showSidebar, sidebar } from './shell.support.ts';
+import { hideSidebar, openApp, showSidebar, sidebar } from './shell.support.ts';
 
 const ID = '[0-9a-f-]{36}';
 const ON_A_COURSE = new RegExp(`/w/${ID}/courses/(${ID})(/(${ID}))?$`);
@@ -21,10 +21,14 @@ const unitTree = (page: Page): Locator => page.getByTestId('unit-tree');
 
 async function showTree(page: Page): Promise<void> {
   const opener = page.getByTestId('open-unit-tree');
-  if ((await opener.isVisible()) && (await opener.getAttribute('aria-expanded')) !== 'true') {
-    await opener.click();
-  }
-  await expect(unitTree(page)).toBeVisible();
+  await expect
+    .poll(async () => {
+      if ((await opener.isVisible()) && (await opener.getAttribute('aria-expanded')) !== 'true') {
+        await opener.click();
+      }
+      return unitTree(page).isVisible();
+    })
+    .toBe(true);
 }
 
 async function hideTree(page: Page): Promise<void> {
@@ -34,6 +38,7 @@ async function hideTree(page: Page): Promise<void> {
   }
   await page.getByTestId('unit-tree-panel').press('Escape');
   await expect(opener).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('unit-tree-panel')).toBeHidden();
 }
 
 test('creates a course from built-in template, duplicates, and exports/imports without personal progress', async ({
@@ -81,6 +86,7 @@ test('creates a course from built-in template, duplicates, and exports/imports w
   await expect.poll(() => courseIdOf(page.url())).not.toBe(originalId);
   const dupId = courseIdOf(page.url());
   await expect(sidebar(page).getByRole('link', { name: 'L6 Study Plan copy' })).toBeVisible();
+  await hideSidebar(page);
   await showTree(page);
   await expect(page.getByTestId('course-progress-text')).toHaveText('0% (0/5 units)');
   await hideTree(page);

@@ -12,9 +12,10 @@ use axum::body::Body;
 use axum::extract::{OriginalUri, State};
 use axum::http::header::{
     ACCESS_CONTROL_ALLOW_ORIGIN, ALLOW, CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE,
-    X_CONTENT_TYPE_OPTIONS,
+    REFERRER_POLICY, STRICT_TRANSPORT_SECURITY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
 };
 use axum::http::{HeaderValue, Method, Request, StatusCode, Uri};
+use axum::middleware;
 use axum::response::{IntoResponse, Redirect, Response};
 use tower::ServiceExt as _;
 use tower_http::services::ServeDir;
@@ -38,6 +39,22 @@ const BASE_URL_PLACEHOLDER: &str = "{{.BaseURL}}";
 /// `sandbox="allow-scripts"`; this sandboxes it the same way when it is opened on its
 /// own, so that it never runs with the app's origin.
 const STATIC_DOCUMENT_POLICY: &str = "sandbox allow-scripts";
+
+/// Clickjacking and injection baseline policy for the `index.html` SPA shell.
+const INDEX_DOCUMENT_POLICY: &str = "frame-ancestors 'none'; object-src 'none'; base-uri 'self'";
+
+/// One-year `Strict-Transport-Security` policy sent when `server_url` uses HTTPS.
+const HSTS_POLICY: &str = "max-age=31536000; includeSubDomains";
+
+/// Whether responses carry `Strict-Transport-Security` (enabled when `server_url` starts
+/// with `https://`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TransportSecurity {
+    /// `server_url` uses `http://`: do not send `Strict-Transport-Security`.
+    PlainHttp,
+    /// `server_url` uses `https://`: send `Strict-Transport-Security`.
+    Https,
+}
 
 /// The web app directory (`web_app_path`) and how it is served.
 #[derive(Debug, Clone)]
@@ -75,6 +92,15 @@ impl WebRoot {
     /// The path the web app is served under: the path part of `server_url`.
     pub fn base_url(&self) -> &str {
         &self.base_url
+    }
+
+    /// Whether `server_url` uses `https://` and responses should carry HSTS.
+    pub(crate) fn transport_security(&self) -> TransportSecurity {
+        if self.https_origin.is_some() {
+            TransportSecurity::Https
+        } else {
+            TransportSecurity::PlainHttp
+        }
     }
 
     /// Serves the file `path` names under `static/`.
@@ -154,6 +180,12 @@ impl WebRoot {
                         HeaderValue::from_static("text/html; charset=utf-8"),
                     ),
                     (CACHE_CONTROL, HeaderValue::from_static("no-cache")),
+                    (X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff")),
+                    (X_FRAME_OPTIONS, HeaderValue::from_static("DENY")),
+                    (
+                        CONTENT_SECURITY_POLICY,
+                        HeaderValue::from_static(INDEX_DOCUMENT_POLICY),
+                    ),
                 ],
                 template.replace(BASE_URL_PLACEHOLDER, &self.base_url),
             )
@@ -164,6 +196,30 @@ impl WebRoot {
             }
         }
     }
+}
+
+/// Applies baseline security headers (`Referrer-Policy: no-referrer`,
+/// `X-Content-Type-Options: nosniff`, and `Strict-Transport-Security` when `server_url`
+/// uses HTTPS) to every response without duplicating headers set by inner handlers.
+pub(crate) async fn send_security_headers(
+    State(transport): State<TransportSecurity>,
+    request: Request<Body>,
+    next: middleware::Next,
+) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers
+        .entry(REFERRER_POLICY)
+        .or_insert(HeaderValue::from_static("no-referrer"));
+    headers
+        .entry(X_CONTENT_TYPE_OPTIONS)
+        .or_insert(HeaderValue::from_static("nosniff"));
+    if transport == TransportSecurity::Https {
+        headers
+            .entry(STRICT_TRANSPORT_SECURITY)
+            .or_insert(HeaderValue::from_static(HSTS_POLICY));
+    }
+    response
 }
 
 /// Serves a static file under `/static/`.

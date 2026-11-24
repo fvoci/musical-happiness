@@ -41,9 +41,12 @@ impl Store {
     /// Lists all exams of live course `course_id`, ordered by `exam_date ASC NULLS LAST,
     /// create_at ASC, id ASC`.
     ///
-    /// Includes `my_score` strictly for `caller_user_id` when `Some`, and aggregate
-    /// `average_score` / `score_count` computed exclusively across active enrolled course
-    /// members. Never fetches or returns any other member's individual score or note.
+    /// When `caller_user_id` is `Some(uid)` (an active enrolled course member), includes
+    /// `my_score` strictly for `uid`, `score_count` across active enrolled course
+    /// members, and `average_score` only when at least 2 other active members (`<> uid`)
+    /// have recorded a score. When `caller_user_id` is `None` (unjoined reader), omits
+    /// `my_score` and suppresses aggregates (`average_score: None`, `score_count: 0`).
+    /// Never fetches or returns any other member's individual score or note.
     ///
     /// # Errors
     ///
@@ -84,14 +87,14 @@ impl Store {
             if exams.is_empty() {
                 return Ok(exams);
             }
-            let mut stats = fetch_exam_stats(scope, course_id, &org, None).await?;
-            let mut my_scores = match caller_user_id {
-                Some(uid) => fetch_my_scores(scope, course_id, &org, uid, None).await?,
-                None => BTreeMap::new(),
+            let Some(uid) = caller_user_id else {
+                return Ok(exams);
             };
+            let mut stats = fetch_exam_stats(scope, course_id, &org, uid, None).await?;
+            let mut my_scores = fetch_my_scores(scope, course_id, &org, uid, None).await?;
             for exam in &mut exams {
                 if let Some((average, count)) = stats.remove(&exam.id) {
-                    exam.average_score = Some(average);
+                    exam.average_score = average;
                     exam.score_count = count;
                 }
                 exam.my_score = my_scores.remove(&exam.id);
@@ -153,7 +156,8 @@ impl Store {
     }
 
     /// Updates an exam of live course `course_id` and returns the updated view for
-    /// `caller_user_id`.
+    /// `caller_user_id` under the same `my_score`, `score_count`, and k-anonymity
+    /// (`>= 2` other active scorers) rules as [`Store::list_course_exams`].
     ///
     /// Changing `max_score` intentionally does not inspect other members' stored scores
     /// so it cannot be used as an oracle to probe private scores.
@@ -198,15 +202,17 @@ impl Store {
                 .push_bind(" AND container_id = ", Id(course_id));
             scope.execute(sql).await?;
 
-            let mut stats = fetch_exam_stats(scope, course_id, &org, Some(exam_id)).await?;
-            let (average_score, score_count) = stats
-                .remove(exam_id)
-                .map_or((None, 0), |(avg, cnt)| (Some(avg), cnt));
-            let my_score = match caller_user_id {
-                Some(uid) => fetch_my_scores(scope, course_id, &org, uid, Some(exam_id))
-                    .await?
-                    .remove(exam_id),
-                None => None,
+            let (average_score, score_count, my_score) = match caller_user_id {
+                Some(uid) => {
+                    let mut stats =
+                        fetch_exam_stats(scope, course_id, &org, uid, Some(exam_id)).await?;
+                    let (avg, cnt) = stats.remove(exam_id).unwrap_or((None, 0));
+                    let mine = fetch_my_scores(scope, course_id, &org, uid, Some(exam_id))
+                        .await?
+                        .remove(exam_id);
+                    (avg, cnt, mine)
+                }
+                None => (None, 0, None),
             };
             Ok(CourseExam {
                 id: existing.id,
@@ -434,14 +440,24 @@ async fn fetch_exam_for_update(
     exam_from_row(&row)
 }
 
+/// Minimum number of other active course members who must have submitted a score before
+/// `averageScore` is disclosed, preventing single-scorer exposure and two-scorer
+/// subtraction (`2 * avg - myScore`).
+const MIN_OTHER_SCORERS_FOR_AVERAGE: i64 = 2;
+
 async fn fetch_exam_stats(
     scope: &mut Scope<'_>,
     course_id: &str,
     org: &Param,
+    caller_user_id: &str,
     exam_id: Option<&str>,
-) -> Result<BTreeMap<String, (f64, u32)>, StoreError> {
+) -> Result<BTreeMap<String, (Option<f64>, u32)>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT es.exam_id, AVG(es.score), COUNT(*) \
+        "SELECT es.exam_id, AVG(es.score), COUNT(*), \
+         COUNT(CASE WHEN es.user_id <> ",
+    );
+    sql.bind(Id(caller_user_id)).push(
+        " THEN 1 END) \
          FROM exam_scores AS es \
          JOIN ",
     );
@@ -456,9 +472,13 @@ async fn fetch_exam_stats(
     let mut stats = BTreeMap::new();
     for row in scope.fetch_all(sql).await? {
         let count = u32::try_from(row.int(2)?.max(0)).unwrap_or(u32::MAX);
-        if count > 0
-            && let Some(avg) = row.opt_float(1)?.filter(|v| v.is_finite())
-        {
+        let others = row.int(3)?.max(0);
+        if count > 0 {
+            let avg = if others >= MIN_OTHER_SCORERS_FOR_AVERAGE {
+                row.opt_float(1)?.filter(|v| v.is_finite())
+            } else {
+                None
+            };
             stats.insert(row.id(0)?, (avg, count));
         }
     }

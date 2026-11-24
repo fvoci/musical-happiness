@@ -531,7 +531,7 @@ pub const fn people_reach(workspace_role: WorkspaceRole) -> Reach {
 ///
 /// - A user who is in no role in the board's workspace may do nothing: a role left on
 ///   a board after leaving the workspace opens nothing. A template the server ships
-///   with is the exception, there for every user to read and copy.
+///   with is read and copied by everyone who works in the workspace.
 /// - A member of the board may do what the role lets them, a guest of the workspace no
 ///   more than an editor.
 /// - Whoever works in the workspace sees its open boards and may join those that are
@@ -545,7 +545,11 @@ pub const fn people_reach(workspace_role: WorkspaceRole) -> Reach {
 pub fn grant(actor: Actor, facts: ContainerFacts) -> Grant {
     use ContainerPermission::{Delete, Join, ListMembers, ManageRoles, See, View};
     if facts.scope == ContainerScope::BuiltIn {
-        return Grant::of(&[See, View, ListMembers]);
+        return if actor.works_there() {
+            Grant::of(&[See, View, ListMembers])
+        } else {
+            Grant::NONE
+        };
     }
     let Some(workspace_role) = actor.workspace else {
         return Grant::NONE;

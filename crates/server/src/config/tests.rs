@@ -880,3 +880,51 @@ fn body_versions_max_bytes_is_read_from_file_and_environment_and_checked() {
         "error names the key: {error}"
     );
 }
+
+#[test]
+fn http_server_url_with_https_allowed_origin_warns_about_insecure_cookies() {
+    let mixed = Configuration::parse(
+        r#"{
+            "server_url": "http://localhost:8000",
+            "allowed_origins": ["https://app.example.com"]
+        }"#,
+        no_env,
+    )
+    .expect("parsed");
+    let warnings = mixed.check().expect("valid configuration");
+    assert!(
+        warnings
+            .iter()
+            .any(|warning| warning.contains("Secure") && warning.contains("allowed_origins")),
+        "expected cookie Secure warning, got {warnings:?}"
+    );
+
+    let all_http = Configuration::parse(
+        r#"{
+            "server_url": "http://localhost:8000",
+            "allowed_origins": ["http://localhost:5173"]
+        }"#,
+        no_env,
+    )
+    .expect("parsed");
+    assert_eq!(
+        all_http.check().expect("valid"),
+        Vec::<String>::new(),
+        "all-HTTP dev setup emits no warning"
+    );
+
+    let all_https = Configuration::parse(
+        r#"{
+            "server_url": "https://api.example.com",
+            "trusted_proxies": ["10.0.0.0/8"],
+            "allowed_origins": ["https://app.example.com"]
+        }"#,
+        no_env,
+    )
+    .expect("parsed");
+    assert_eq!(
+        all_https.check().expect("valid"),
+        Vec::<String>::new(),
+        "HTTPS server_url with trusted proxy emits no cookie warning"
+    );
+}

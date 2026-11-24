@@ -187,7 +187,15 @@ impl App {
             let Some(primary) = plan.containers.first() else {
                 return Err(AppError::bad_request("missing board in archive"));
             };
-            by_dir.insert(plan.dir.clone(), primary.id.clone());
+            if by_dir
+                .insert(plan.dir.clone(), primary.id.clone())
+                .is_some()
+            {
+                return Err(AppError::bad_request(format_args!(
+                    "duplicate board directory in archive: {}",
+                    plan.dir
+                )));
+            }
             files.insert(plan.dir, plan.files);
             let mut kept_members = Vec::with_capacity(plan.members.len());
             for member in plan.members {
@@ -243,6 +251,7 @@ impl App {
         by_dir: &HashMap<String, String>,
         files: &HashMap<String, ArchiveFiles>,
     ) -> Result<StagedNativeFiles, AppError> {
+        let mut seen_files: HashSet<(String, String)> = HashSet::new();
         let mut entries = Vec::new();
         for index in 0..zip.len() {
             let (dir, filename) = entry_name(zip, index)?;
@@ -263,6 +272,11 @@ impl App {
                     "skipping an entry of the archive that its board says is missing"
                 );
                 continue;
+            }
+            if !seen_files.insert((dir.clone(), filename.clone())) {
+                return Err(AppError::bad_request(format_args!(
+                    "duplicate archive entry: {dir}/{filename}"
+                )));
             }
             entries.push((index, dir, filename, container_id.clone()));
         }

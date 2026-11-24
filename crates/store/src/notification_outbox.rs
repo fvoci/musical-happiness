@@ -222,7 +222,7 @@ impl Store {
         &self,
         event: &NotificationEvent,
     ) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| take_off(scope, event).await)
+        self.with_write_conn(async |scope| take_off(scope, event).await)
             .await
     }
 
@@ -237,7 +237,7 @@ impl Store {
         event: &NotificationEvent,
         retry_at: i64,
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql =
                 scope.sql("UPDATE notification_outbox SET attempts = attempts + 1, due_at = ");
             sql.bind(retry_at);
@@ -255,7 +255,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn forget_read_notifications(&self, read_before: i64) -> Result<u64, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("DELETE FROM notifications WHERE read_at > 0 AND read_at < ");
             sql.bind(read_before);
             scope.execute(sql).await

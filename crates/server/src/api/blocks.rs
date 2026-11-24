@@ -75,7 +75,8 @@ async fn block_on_container(
 }
 
 /// Checks that a signed-in user may read the blocks of a board: the members of the
-/// board, and for an open template everyone who works in its workspace besides.
+/// board, and for an open or built-in template everyone who works in its workspace
+/// besides.
 async fn require_read_access(ws: &InWorkspace, container: &Container) -> Result<(), AppError> {
     let (app, user_id) = (&ws.app, ws.session.user_id.as_str());
     require_container_permission(
@@ -85,18 +86,7 @@ async fn require_read_access(ws: &InWorkspace, container: &Container) -> Result<
         ContainerPermission::View,
         "access denied to board",
     )
-    .await?;
-    // A guest of the path's workspace reads a template only as a member of it: not an
-    // open template of the workspace, nor one the server ships with.
-    if container.is_template
-        && ws.role == fvoci_model::WorkspaceRole::Guest
-        && !app.invited_to_container(user_id, &container.id).await?
-    {
-        return Err(AppError::forbidden(
-            "guests are not allowed to get board templates",
-        ));
-    }
-    Ok(())
+    .await
 }
 
 /// Checks that the user may read the board that inserted blocks copy their files from,
@@ -121,9 +111,8 @@ async fn require_source_board_access(
 
 /// The blocks of a board
 ///
-/// For the board's members, and for an open template everyone who works in its workspace.
-/// A guest of the path's workspace reads a template's blocks only as a member of that
-/// template (403 otherwise).
+/// For the board's members, and for an open or built-in template everyone who works in
+/// its workspace.
 ///
 /// `all` asks for every block and `blockId` for one, which is 404 if the board has no
 /// such block. Otherwise `parentId` and `type` narrow the list, and without either the

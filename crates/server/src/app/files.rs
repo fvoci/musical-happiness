@@ -360,36 +360,37 @@ impl App {
         };
 
         // The names of the copies, for the stored blocks: the bodies by the boards of
-        // the copies, the attachments as a patch.
+        // the copies, the attachments as a patch. Caller `blocks` are updated only
+        // after size validation and store writes succeed.
         let mut bodies: BTreeMap<String, Vec<(String, Option<Body>)>> = BTreeMap::new();
+        let mut renamed_bodies: HashMap<String, Option<Body>> = HashMap::new();
         let mut block_ids = Vec::new();
         let mut block_patches = Vec::new();
-        for block in blocks.iter_mut() {
+        for block in blocks.iter() {
             if block
                 .body
                 .as_ref()
                 .is_some_and(|body| !body.file_ids().is_empty())
             {
-                block.body = block
+                let renamed = block
                     .body
-                    .take()
+                    .clone()
                     .and_then(|body| rename_body_files(body, &new_file_names));
+                if let Some(body) = &renamed {
+                    body.check_size()
+                        .map_err(|error| AppError::from_body_error("body", error))?;
+                }
+                renamed_bodies.insert(block.id.clone(), renamed.clone());
                 bodies
                     .entry(block.container_id.clone())
                     .or_default()
-                    .push((block.id.clone(), block.body.clone()));
+                    .push((block.id.clone(), renamed));
                 continue;
             }
             let Some(file_id) = block.attachment_file() else {
                 continue;
             };
             let new_name = new_file_names.get(file_id).cloned().unwrap_or_default();
-            // The caller's copies say what is stored: they are what is answered and
-            // announced.
-            block
-                .fields
-                .insert("fileId".to_owned(), Value::String(new_name.clone()));
-            block.fields.remove("attachmentId");
             block_ids.push(block.id.clone());
             let mut updated_fields = JsonMap::new();
             updated_fields.insert("fileId".to_owned(), Value::String(new_name));
@@ -405,6 +406,11 @@ impl App {
                 .replace_bodies_as_written(&copies_container, renamed)
                 .await
                 .map_err(not_written)?;
+        }
+        for block in blocks.iter_mut() {
+            if let Some(renamed) = renamed_bodies.remove(&block.id) {
+                block.body = renamed;
+            }
         }
         if !block_ids.is_empty() {
             let batch = BlockPatchBatch {

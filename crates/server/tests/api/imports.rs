@@ -624,4 +624,169 @@ async fn imports_run_one_per_user_and_two_on_the_server() {
     import_upload(&ts.client, ROOT_WORKSPACE_ID, &opened)
         .await
         .check_ok();
+    ts.teardown().await;
+}
+
+/// Native archives with duplicate `(dir, "board.jsonl")` or duplicate `(dir, filename)`
+/// entries are rejected with 400 before staging any files or creating boards.
+#[tokio::test]
+async fn duplicate_entries_in_native_archive_are_refused_with_400() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let before = boards_of(&ts).await.len();
+    let board = json!({"type": "board", "data": {
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Dup", "createAt": 1, "updateAt": 1,
+    }});
+    let opts = zip::write::SimpleFileOptions::default();
+
+    // Case 1: duplicate `(dir, "board.jsonl")` via normalized path alias.
+    let mut w1 = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    w1.start_file("version.json", opts).expect("start");
+    w1.write_all(br#"{"version":3,"date":1}"#).expect("write");
+    for path in ["b1/board.jsonl", "./b1/board.jsonl"] {
+        w1.start_file(path, opts).expect("start");
+        w1.write_all(format!("{board}\n").as_bytes())
+            .expect("write");
+    }
+    let dup_jsonl = w1.finish().expect("finish").into_inner();
+    import(&ts.client, TEST_WORKSPACE_ID, &dup_jsonl)
+        .await
+        .check_bad_request();
+
+    // Case 2: duplicate `(dir, "photo.png")` via normalized path alias.
+    let dup_file = archive_of(
+        &board,
+        &[("b1/photo.png", b"one"), ("./b1/photo.png", b"two")],
+        zip::CompressionMethod::Deflated,
+    );
+    import(&ts.client, TEST_WORKSPACE_ID, &dup_file)
+        .await
+        .check_bad_request();
+
+    assert_eq!(boards_of(&ts).await.len(), before, "zero boards created");
+    assert_eq!(
+        ts.app.store().loose_objects().await.expect("loose"),
+        Vec::new(),
+        "zero orphan staged objects"
+    );
+    ts.teardown().await;
+}
+
+fn oversized_after_rename_native_zip() -> Vec<u8> {
+    // Build a valid body (~4,194,007 bytes <= 4 MiB) with 1 text node + 12 short-ID images
+    // (`"1.png"` -> 47-char `<secret>.png`, adding +504 bytes > 4 MiB after rename!).
+    let big_text = "a".repeat(fvoci_model::BODY_MAX_BYTES - 900);
+    let mut content = vec![json!({
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": big_text }]
+    })];
+    for _ in 0..12 {
+        content.push(json!({ "type": "image", "attrs": { "fileId": "1.png" } }));
+    }
+    let doc = json!({ "type": "doc", "content": content });
+    assert!(
+        fvoci_model::Body::parse(doc.clone()).is_ok(),
+        "pre-rename body fits within BODY_MAX_BYTES"
+    );
+
+    let b1 = json!({"type": "board", "data": {
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Valid First", "createAt": 1, "updateAt": 1,
+    }});
+    let b2 = json!({"type": "board", "data": {
+        "id": "b2", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Overflow Second", "createAt": 1, "updateAt": 1,
+    }});
+    let card = json!({"type": "block", "data": {
+        "id": "c1", "boardId": "b2", "parentId": "", "type": "card", "title": "Big",
+        "fields": {}, "body": doc, "createAt": 1, "updateAt": 1,
+    }});
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    writer.start_file("version.json", opts).expect("v");
+    writer.write_all(br#"{"version":3,"date":1}"#).expect("v");
+    writer.start_file("b1/board.jsonl", opts).expect("b1");
+    writer.write_all(format!("{b1}\n").as_bytes()).expect("b1");
+    writer.start_file("b2/board.jsonl", opts).expect("b2");
+    writer
+        .write_all(format!("{b2}\n{card}\n").as_bytes())
+        .expect("b2");
+    writer.start_file("b2/1.png", opts).expect("png");
+    writer.write_all(b"\x89PNG\r\n\x1a\n").expect("png");
+    writer.finish().expect("finish").into_inner()
+}
+
+/// When renaming short placeholder file IDs or cross-board references pushes a block's
+/// serialized body past `BODY_MAX_BYTES`, native import and staged Notion import reject
+/// with 400, roll back all boards in the transaction, and clean up staged files.
+#[tokio::test]
+async fn body_exceeding_max_bytes_after_file_rename_is_rejected_and_rolled_back() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let before = boards_of(&ts).await.len();
+    let native_zip = oversized_after_rename_native_zip();
+
+    let resp = import(&ts.client, TEST_WORKSPACE_ID, &native_zip).await;
+    resp.check_bad_request();
+    assert_eq!(
+        boards_of(&ts).await.len(),
+        before,
+        "multi-board transaction rolled back completely"
+    );
+    let doomed_only = ts
+        .app
+        .store()
+        .loose_objects()
+        .await
+        .expect("loose")
+        .into_iter()
+        .all(|obj| obj.attempts == 0);
+    assert!(doomed_only, "staged native files cleaned up on rollback");
+
+    // Staged Notion ZIP import: Markdown page near 4 MiB with local images (`asset00001.png` -> 47 chars).
+    let opts =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let md_images = "![](p.png)\n\n".repeat(20);
+    let md_text = "b".repeat(fvoci_model::BODY_MAX_BYTES - 1500);
+    let md = format!("# Big Page\n\n{md_text}\n\n{md_images}");
+    let mut nw = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    nw.start_file("Page 11111111111111111111111111111111.md", opts)
+        .expect("md");
+    nw.write_all(md.as_bytes()).expect("md");
+    nw.start_file("p.png", opts).expect("png");
+    nw.write_all(b"\x89PNG\r\n\x1a\n").expect("png");
+    let notion_zip = nw.finish().expect("finish").into_inner();
+    let importer_id = ts.client.me().await.id;
+    let upload = ts
+        .app
+        .create_import_upload(
+            &importer_id,
+            TEST_WORKSPACE_ID,
+            fvoci_server::app::FileToUpload {
+                name: "notion.zip".to_owned(),
+                size: i64::try_from(notion_zip.len()).expect("size"),
+                content_type: "application/zip".to_owned(),
+            },
+        )
+        .await
+        .expect("upload created");
+    put_part(&ts.client, TEST_WORKSPACE_ID, &upload.id, 1, &notion_zip)
+        .await
+        .check_status(StatusCode::NO_CONTENT);
+    let err = ts
+        .app
+        .import_upload_with_format(&upload, fvoci_server::app::ImportFormat::Notion)
+        .await
+        .expect_err("staged Notion import exceeding BODY_MAX_BYTES after rename rejected");
+    assert_eq!(err.kind(), fvoci_server::error::ErrorKind::BadRequest);
+    let wikis: Vec<serde_json::Value> = ts
+        .client
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/wikis"))
+        .await
+        .ok_json();
+    assert!(wikis.is_empty(), "staged wiki rolled back");
+    assert_eq!(
+        boards_of(&ts).await.len(),
+        before,
+        "staged import rolled back"
+    );
+
+    ts.teardown().await;
 }

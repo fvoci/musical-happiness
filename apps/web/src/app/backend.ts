@@ -143,7 +143,8 @@ async function startMemory(): Promise<StartedBackend> {
   // `?held=<ms>` holds what the rooms send that long after a stroke of a syllable (World.heldIdle).
   const held = Number(new URLSearchParams(location.search).get('held') ?? '');
   if (Number.isFinite(held) && held > 0) world.heldIdle = held;
-  const otherId = [...world.users.keys()].find((id) => id !== readerId);
+  const otherIds = [...world.users.keys()].filter((id) => id !== readerId);
+  const otherId = otherIds[0];
   // `?gone=1` says the other person's account was deleted: what they wrote is a deleted user's.
   const gone = new URLSearchParams(location.search).get('gone') === '1';
   if (gone && otherId !== undefined) eraseUser(world, otherId);
@@ -151,7 +152,8 @@ async function startMemory(): Promise<StartedBackend> {
   // Long enough to see that a change shows before it is answered.
   backend.latency = 40;
   await keepSettings(backend);
-  const asSomeoneElse = otherId === undefined ? undefined : () => backend.as(otherId);
+  const asSomeoneElse =
+    otherId === undefined ? undefined : (index = 0) => backend.as(otherIds[index] ?? otherId);
   // A handle for the browser tests and for trying things by hand in the
   // console: the same data as another person, and the next call failing.
   (window as unknown as { fvociDev?: unknown }).fvociDev = {

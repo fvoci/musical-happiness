@@ -65,7 +65,7 @@ impl Store {
         user_id: &str,
         role: OrgRole,
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| add_organization_member(scope, user_id, role).await)
+        self.with_write_conn(async |scope| add_organization_member(scope, user_id, role).await)
             .await
     }
 
@@ -108,7 +108,7 @@ impl Store {
         user_id: &str,
         role: WorkspaceRole,
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql(
                 "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) SELECT id, ",
             );

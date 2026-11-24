@@ -348,3 +348,89 @@ fn import_format_validate_upload_checks_extension_and_non_empty() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn pass15_rechecks_attachment_field_expansion_before_staging() {
+    use std::collections::HashSet;
+    use std::io::Write as _;
+
+    let pad_len = fvoci_model::CARD_FIELDS_MAX_CHARS - 35;
+    let pad = "x".repeat(pad_len);
+    let board_line = serde_json::json!({
+        "type": "board",
+        "data": {
+            "id": "b1",
+            "workspaceId": "ws1",
+            "type": "P",
+            "title": "Attachment Bounds",
+            "createAt": 1,
+            "updateAt": 1
+        }
+    });
+    let card_line = serde_json::json!({
+        "type": "block",
+        "data": {
+            "id": "c1",
+            "boardId": "b1",
+            "parentId": "",
+            "type": "card",
+            "title": "Card",
+            "fields": {},
+            "createAt": 1,
+            "updateAt": 1
+        }
+    });
+    let att_line = serde_json::json!({
+        "type": "block",
+        "data": {
+            "id": "att1",
+            "boardId": "b1",
+            "parentId": "c1",
+            "type": "attachment",
+            "title": "a.png",
+            "fields": { "fileId": "a.png", "pad": pad },
+            "createAt": 1,
+            "updateAt": 1
+        }
+    });
+    let jsonl = format!("{board_line}\n{card_line}\n{att_line}\n");
+
+    let dir = std::env::temp_dir().join(format!("fvoci-att-test-{}", fvoci_model::new_id()));
+    std::fs::create_dir_all(&dir).expect("tempdir");
+    let zip_path = dir.join("att.boardarchive");
+    let file = std::fs::File::create(&zip_path).expect("create zip");
+    let opts = zip::write::SimpleFileOptions::default();
+    let mut writer = zip::ZipWriter::new(file);
+    writer.start_file("version.json", opts).expect("version");
+    writer
+        .write_all(br#"{"version":3,"date":1}"#)
+        .expect("write");
+    writer.start_file("b1/board.jsonl", opts).expect("jsonl");
+    writer.write_all(jsonl.as_bytes()).expect("write jsonl");
+    writer.start_file("b1/a.png", opts).expect("file");
+    writer.write_all(b"PNG").expect("write png");
+    writer.finish().expect("finish zip");
+
+    let zip = super::archive::open_archive(&zip_path)
+        .await
+        .expect("open zip");
+    let import_opts = ImportOptions {
+        workspace_id: fvoci_model::new_id(),
+        modified_by: fvoci_model::new_id(),
+        page_limits: fvoci_model::PageLimits::default(),
+    };
+    let scanned = super::native_stream::scan_native_board(&zip, 1, "b1".to_owned(), &import_opts)
+        .await
+        .expect("Pass 1 accepts pre-rewrite fields within 64k");
+    let (plan, _) = super::native_stream::build_write_plan(scanned, &HashSet::new());
+    assert!(
+        !plan.recheck_lines.is_empty(),
+        "Attachment with fileId near 64k limit must be flagged for Pass 1.5 recheck"
+    );
+    let err = super::native_stream::recheck_planned_fields(&zip, &plan, &import_opts.modified_by)
+        .await
+        .expect_err("Pass 1.5 must reject expanded attachment fields past 64k");
+    drop(zip);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(err.kind(), ErrorKind::BadRequest);
+}

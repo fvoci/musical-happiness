@@ -387,7 +387,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn watch_given(&self, block_id: &str, user_id: &str) -> Result<(), StoreError> {
-        self.with_conn(async |scope| watch(scope, block_id, &[user_id]).await)
+        self.with_write_conn(async |scope| watch(scope, block_id, &[user_id]).await)
             .await
     }
 }

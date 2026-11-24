@@ -25,7 +25,7 @@ impl Store {
         browser_hash: &str,
     ) -> Result<Option<LoginFlow>, StoreError> {
         self.system()
-            .with_conn(async |scope| {
+            .with_write_conn(async |scope| {
                 let mut sql = scope.sql("DELETE FROM oidc_login_flows WHERE state_hash = ");
                 sql.bind(state_hash)
                     .push_bind(" AND browser_hash = ", browser_hash)
@@ -69,7 +69,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn delete_ended_oidc_login_flows(&self, now: i64) -> Result<u64, StoreError> {
         self.system()
-            .with_conn(async |scope| {
+            .transaction(async |scope| {
                 let mut sql = scope.sql("DELETE FROM oidc_held_sign_ins WHERE expires_at <= ");
                 sql.bind(now);
                 scope.execute(sql).await?;

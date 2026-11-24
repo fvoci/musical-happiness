@@ -123,7 +123,7 @@ impl Store {
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
     /// [`StoreError::Database`] if the statement fails.
     pub async fn hold_oidc_sign_in(&self, held: &HeldSignIn) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql(&format!(
                 "INSERT INTO oidc_held_sign_ins ({HELD_COLUMNS}) SELECT "
             ));
@@ -197,7 +197,7 @@ impl Store {
         held_hash: &str,
         now: i64,
     ) -> Result<Option<HeldSignIn>, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             Ok(take_held(scope, held_hash)
                 .await?
                 .filter(|held| held.expires_at > now))

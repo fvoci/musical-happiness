@@ -331,11 +331,12 @@ struct Inner {
     lock_file: Option<std::path::PathBuf>,
 }
 
-/// The connections. Nothing takes one but [`Store::with_conn`] and
-/// [`Store::transaction`], which begin by telling PostgreSQL whose rows the transaction
-/// reaches, and the migrator at the start. A transaction that was left open on a
-/// connection (a request that went away while its `BEGIN` was under way) is therefore
-/// harmless: the next operation on it sets both settings anew before anything else.
+/// The connections. Nothing takes one but [`Store::with_conn`],
+/// [`Store::with_write_conn`], [`Store::read_snapshot`], and [`Store::transaction`],
+/// which begin by telling PostgreSQL whose rows the transaction reaches, and the
+/// migrator at the start. A transaction that was left open on a connection (a request
+/// that went away while its `BEGIN` was under way) is therefore harmless: the next
+/// operation on it sets both settings anew before anything else.
 #[derive(Debug)]
 enum Pool {
     Sqlite(SqlitePool),
@@ -709,7 +710,8 @@ impl Store {
         }
     }
 
-    /// Runs `operation` on one connection. For reads and for single-statement writes.
+    /// Runs a read-only `operation` on one connection. Single-statement writes use
+    /// [`Store::with_write_conn`] so SQLite writers serialize through `sqlite_writers`.
     ///
     /// On SQLite it runs outside a transaction. On PostgreSQL it runs in one, as
     /// [`Store::transaction`] does: only a transaction carries whose rows it reaches
@@ -723,6 +725,27 @@ impl Store {
         let watch = self.watch(Access::Read);
         let visibility = self.inner.visibility.writing(self.tenant);
         let (result, access) = self.on_conn(watch.as_ref(), &visibility, operation).await;
+        drop(visibility);
+        if let Some(watch) = watch {
+            watch.finish(access, &result);
+        }
+        result
+    }
+
+    /// Runs a single-statement write on a connection from the pool, serializing SQLite
+    /// writers through `sqlite_writers` before acquiring a pool connection.
+    async fn with_write_conn<T>(
+        &self,
+        operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        let watch = self.watch(Access::Write);
+        let visibility = self.inner.visibility.writing(self.tenant);
+        let turn = match &self.inner.pool {
+            Pool::Sqlite(_) => Some(self.inner.sqlite_writers.lock().await),
+            Pool::Postgres(_) => None,
+        };
+        let (result, access) = self.on_conn(watch.as_ref(), &visibility, operation).await;
+        drop(turn);
         drop(visibility);
         if let Some(watch) = watch {
             watch.finish(access, &result);
@@ -858,8 +881,8 @@ impl Store {
                 // writer anyway, and a connection that waits for it only asks again now
                 // and then until the busy timeout: under a steady stream of writers one
                 // of them can lose every time and fail with "database is locked". The
-                // queue is fair, and the busy timeout is left for what is outside it:
-                // single statements and other processes.
+                // queue is fair across transactions and `with_write_conn` single-statement
+                // writes, leaving the busy timeout for other processes.
                 let _turn = self.inner.sqlite_writers.lock().await;
                 // Take the write lock up front. A transaction that starts by reading and
                 // then tries to write fails with SQLITE_BUSY as soon as another one does

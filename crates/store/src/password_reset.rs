@@ -37,9 +37,9 @@ impl Store {
     ) -> Result<bool, StoreError> {
         // Release expired-token locks before taking the foreign-key lock on a user.
         // A consumer holds that user before removing its token.
-        self.with_conn(async |scope| delete_expired_password_resets(scope, now).await)
+        self.with_write_conn(async |scope| delete_expired_password_resets(scope, now).await)
             .await?;
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             insert_password_reset(scope, user_id, Some(email), digest, now).await
         })
         .await

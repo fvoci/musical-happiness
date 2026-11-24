@@ -217,3 +217,72 @@ async fn the_migration_records_the_accounts_that_were_there_as_welcomed() {
         "as of when it was made"
     );
 }
+
+/// Concurrent `change_instance_role` (when the instance's organization follows) and
+/// `take_back_welcome_board` acquire `organizations` before `users`, preventing
+/// PostgreSQL deadlocks.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_instance_role_change_and_take_back_welcome_board_never_deadlock() {
+    let test = common::setup().await;
+    let owner = crate::account_erasure::founder(&test).await;
+    let alice = common::user(&test, "alice").await;
+    common::works_in(&test, &test.workspace_id, &alice).await;
+    let template = common::create_test_boards(&test, &test.workspace_id, &owner, 1)
+        .await
+        .remove(0);
+
+    for round in 1..=8_i64 {
+        let (copies, _) = test
+            .duplicate_welcome_board(
+                &template.id,
+                &alice,
+                &test.workspace_id,
+                &TITLES,
+                CopyChanges::default(),
+                round,
+            )
+            .await
+            .expect("duplicated")
+            .expect("welcome board created");
+        let delete_req = DeleteContainersAndBlocks::from(&copies);
+        let barrier = Arc::new(Barrier::new(2));
+        let (s1, b1, a1, o1) = (
+            test.store.clone(),
+            Arc::clone(&barrier),
+            alice.clone(),
+            owner.clone(),
+        );
+        let (s2, b2, a2) = (test.store.clone(), Arc::clone(&barrier), alice.clone());
+
+        let role_task = tokio::spawn(async move {
+            b1.wait().await;
+            let promoted = s1
+                .set_user_admin(&a1, fvoci_store::InstanceRole::Administrator, &o1)
+                .await
+                .expect("promote alice");
+            assert!(
+                matches!(promoted, fvoci_store::AdminChange::Done(_)),
+                "alice promoted to instance administrator"
+            );
+            let demoted = s1
+                .set_user_admin(&a1, fvoci_store::InstanceRole::User, &o1)
+                .await
+                .expect("demote alice");
+            assert!(
+                matches!(demoted, fvoci_store::AdminChange::Done(_)),
+                "alice demoted back to regular user"
+            );
+        });
+        let take_back_task = tokio::spawn(async move {
+            b2.wait().await;
+            s2.take_back_welcome_board(&delete_req, &a2, round)
+                .await
+                .expect("take back welcome board");
+        });
+        let (r1, r2) = tokio::join!(role_task, take_back_task);
+        r1.expect("role task joined");
+        r2.expect("take back task joined");
+        assert_eq!(recorded(&test, &alice).await, Vec::<String>::new());
+    }
+    test.teardown().await;
+}

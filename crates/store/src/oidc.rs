@@ -358,7 +358,7 @@ impl Store {
     /// [`StoreError::Database`] if the statement fails, as it does for a provider that
     /// is not the organization's.
     pub async fn create_oidc_login_flow(&self, flow: &LoginFlow) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql(
                 "INSERT INTO oidc_login_flows (state_hash, browser_hash, nonce, pkce_verifier, \
                  org_id, provider_id, create_at, expires_at, link_session_id, pending_at, \

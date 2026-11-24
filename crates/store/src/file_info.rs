@@ -76,7 +76,7 @@ impl Store {
     /// [`StoreError::Database`] if the board has a file of that stored name already.
     pub async fn save_file_info(&self, file_info: &FileInfo) -> Result<(), StoreError> {
         check_new_path(&file_info.path)?;
-        self.with_conn(async |scope| save_file_info(scope, file_info).await)
+        self.with_write_conn(async |scope| save_file_info(scope, file_info).await)
             .await
     }
 }

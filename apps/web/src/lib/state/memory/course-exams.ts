@@ -58,6 +58,8 @@ function checkMaxScore(value: number): number {
   return value;
 }
 
+const MIN_OTHER_SCORERS_FOR_AVERAGE = 2;
+
 function buildExamView(
   world: World,
   callerId: string,
@@ -66,20 +68,30 @@ function buildExamView(
 ): CourseExam {
   const active = activeMemberIds(world, courseId);
   const enrolled = active.has(callerId);
-  const myRaw = enrolled ? world.examScores.get(callerId)?.get(exam.id) : undefined;
+  if (!enrolled) {
+    return {
+      ...copy(exam),
+      myScore: null,
+      averageScore: null,
+      scoreCount: 0,
+    };
+  }
+  const myRaw = world.examScores.get(callerId)?.get(exam.id);
   let sum = 0;
   let count = 0;
+  let others = 0;
   for (const memberId of active) {
     const score = world.examScores.get(memberId)?.get(exam.id);
     if (score !== undefined) {
       sum += score.score;
       count += 1;
+      if (memberId !== callerId) others += 1;
     }
   }
   return {
     ...copy(exam),
     myScore: myRaw ? copy(myRaw) : null,
-    averageScore: count > 0 ? sum / count : null,
+    averageScore: count > 0 && others >= MIN_OTHER_SCORERS_FOR_AVERAGE ? sum / count : null,
     scoreCount: count,
   };
 }

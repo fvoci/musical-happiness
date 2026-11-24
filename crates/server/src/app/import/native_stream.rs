@@ -22,10 +22,12 @@ use fvoci_model::{
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::archive::Archive;
+use super::archive::{Archive, entry_name};
 use super::places::{self, BlockPlace};
 use super::{ArchiveFiles, ImportOptions, MAX_JSONL_BYTES, file_names_of, missing_files_of, trim};
+use crate::app::files::stored_extension;
 use crate::auth::now_millis;
+use crate::auth::secret::SECRET_LENGTH;
 use crate::error::{AppError, Reason};
 use fvoci_store::StoreError;
 
@@ -566,16 +568,21 @@ fn validate_pass1_block(
 fn may_expand_fields_on_rewrite(block: &Block, container: Pass1Container) -> bool {
     let has_card_relations =
         block.block_type == BlockType::Card && container == Pass1Container::WithRelations;
+    let has_attachment_file = block.block_type == BlockType::Attachment
+        && (block.fields.contains_key("fileId") || block.fields.contains_key("attachmentId"));
     let has_rewritten_field = block.fields.contains_key("cardOrder")
         || block.fields.contains_key("contentOrder")
         || block.fields.contains_key("defaultTemplateId")
+        || has_attachment_file
         || (has_card_relations && block.fields.contains_key("properties"));
     if !has_rewritten_field {
         return false;
     }
-    // A 1-char JSON string element (`"1",`, 4 chars) expands at most ~10x to a 36-char UUID.
+    // A 1-char JSON string element (`"1",`, 4 chars) expands at most ~10x to a 36-char UUID;
+    // a 1-char attachment `fileId` (`"1"`, 3 chars) expands at most ~21x to a 60-char stored name.
+    let multiplier = if has_attachment_file { 21 } else { 10 };
     serde_json::to_string(&block.fields).map_or(true, |json| {
-        json.chars().count().saturating_mul(10) > block.block_type.fields_max_chars()
+        json.chars().count().saturating_mul(multiplier) > block.block_type.fields_max_chars()
     })
 }
 
@@ -803,6 +810,7 @@ pub(super) async fn recheck_planned_fields(
     if plan.recheck_lines.is_empty() {
         return Ok(());
     }
+    let staged_names = simulated_staged_file_names(zip, &plan.dir, &plan.files)?;
     let mut zip = zip.clone();
     let zip_index = plan.zip_index;
     let recheck_lines = plan.recheck_lines.clone();
@@ -814,11 +822,39 @@ pub(super) async fn recheck_planned_fields(
             zip_index,
             &recheck_lines,
             &stream_plan,
+            &staged_names,
             &modified_by,
         )
     })
     .await
     .map_err(|error| AppError::internal(format_args!("archive recheck task failed: {error}")))?
+}
+
+fn simulated_staged_file_names(
+    zip: &Archive,
+    board_dir: &str,
+    files: &ArchiveFiles,
+) -> Result<HashMap<String, String>, AppError> {
+    let secret_placeholder = "x".repeat(SECRET_LENGTH);
+    let mut names = HashMap::new();
+    for index in 0..zip.len() {
+        let (dir, filename) = entry_name(zip, index)?;
+        if dir != board_dir
+            || filename.is_empty()
+            || filename == "version.json"
+            || filename == "board.jsonl"
+            || files.missing.contains(&filename)
+        {
+            continue;
+        }
+        let upload_name = files
+            .names
+            .get(&filename)
+            .map_or(filename.as_str(), String::as_str);
+        let ext = stored_extension(upload_name);
+        names.insert(filename, format!("{secret_placeholder}{ext}"));
+    }
+    Ok(names)
 }
 
 struct StreamPlanSnapshot {
@@ -850,6 +886,7 @@ fn recheck_planned_fields_blocking(
     zip_index: usize,
     recheck_lines: &HashMap<usize, usize>,
     plan: &StreamPlanSnapshot,
+    staged_names: &HashMap<String, String>,
     modified_by: &str,
 ) -> Result<(), AppError> {
     let entry = zip
@@ -910,6 +947,16 @@ fn recheck_planned_fields_blocking(
             &plan.relations,
             UnmatchedRelation::Dropped,
         );
+        if block.block_type == BlockType::Attachment {
+            for key in ["fileId", "attachmentId"] {
+                if let Some(old) = block.fields.get(key).and_then(Value::as_str) {
+                    let simulated = staged_names.get(old).cloned().unwrap_or_default();
+                    block
+                        .fields
+                        .insert(key.to_owned(), Value::String(simulated));
+                }
+            }
+        }
         block.validate().map_err(|source| {
             AppError::from(StoreError::InvalidBlock {
                 id: block.id.clone(),

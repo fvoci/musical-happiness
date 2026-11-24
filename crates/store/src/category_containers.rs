@@ -63,7 +63,7 @@ impl Store {
         category_id: &str,
         container_ids: &[String],
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             add_update_category_container(scope, user_id, category_id, container_ids).await
         })
         .await
@@ -85,7 +85,7 @@ impl Store {
         category_id: &str,
         new_order: Vec<String>,
     ) -> Result<Vec<String>, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             if new_order.is_empty() {
                 return Ok(());
             }
@@ -121,7 +121,7 @@ impl Store {
         container_id: &str,
         visibility: ContainerVisibility,
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE category_containers SET hidden = ");
             sql.bind(visibility == ContainerVisibility::Hidden)
                 .push_bind(" WHERE user_id = ", Id(user_id))

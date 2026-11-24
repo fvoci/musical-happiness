@@ -42,6 +42,10 @@ const INVISIBLE: [std::ops::RangeInclusive<char>; 13] = [
     '\u{FFF9}'..='\u{FFFB}',
 ];
 
+fn is_invisible_or_control(c: char) -> bool {
+    c.is_control() || INVISIBLE.iter().any(|range| range.contains(&c))
+}
+
 /// Reads a display name a user chooses: without the white space around it, empty for
 /// none; else at most [`DISPLAY_NAME_MAX_LENGTH`] UTF-16 code units without control
 /// characters (PostgreSQL stores no U+0000) and without characters that show nothing,
@@ -60,8 +64,7 @@ pub fn display_name(raw: &str) -> Result<String, AuthParamError> {
             format!("a display name has at most {DISPLAY_NAME_MAX_LENGTH} characters"),
         ));
     }
-    let refused = |c: char| c.is_control() || INVISIBLE.iter().any(|range| range.contains(&c));
-    if name.chars().any(refused) {
+    if name.chars().any(is_invisible_or_control) {
         return Err(AuthParamError::new(
             "displayName",
             RefusalReason::InvalidCharacters,
@@ -195,7 +198,8 @@ impl RegisterRequest {
     /// # Errors
     ///
     /// Returns every member that is refused, in the order of the members: the user name
-    /// if it is blank, the email address if it is blank or not well formed, the display
+    /// if it is blank, longer than [`USERNAME_MAX_LENGTH`], or holds `@` or control
+    /// characters, the email address if it is blank or not well formed, the display
     /// name if it is not one ([`display_name`]), the password if it is empty,
     /// shorter than [`MINIMUM_PASSWORD_LENGTH`] or longer than
     /// [`MAXIMUM_PASSWORD_BYTES`], and the organization name if there is one and it is
@@ -302,6 +306,9 @@ impl fmt::Debug for NewAccount {
     }
 }
 
+/// Maximum length in Unicode scalar values of [`NewAccount::username`].
+pub const USERNAME_MAX_LENGTH: usize = 64;
+
 impl NewAccount {
     /// The account with its name and address without the white space around them, and
     /// its display name as it is stored if it is one: what is refused stays as it was
@@ -309,7 +316,9 @@ impl NewAccount {
     #[must_use]
     pub fn tidied(mut self) -> Self {
         self.email = self.email.trim().to_owned();
-        self.username = self.username.trim().to_owned();
+        if !self.username.chars().any(is_invisible_or_control) {
+            self.username = self.username.trim().to_owned();
+        }
         if let Ok(name) = display_name(&self.display_name) {
             self.display_name = name;
         }
@@ -321,9 +330,10 @@ impl NewAccount {
     /// # Errors
     ///
     /// Returns every member that is refused, in the order of the members: the user name
-    /// if it is blank, the email address if it is blank or not well formed, the display
-    /// name if it is not one ([`display_name`]), and the password if it is empty,
-    /// shorter than [`MINIMUM_PASSWORD_LENGTH`] or longer than
+    /// if it is blank, longer than [`USERNAME_MAX_LENGTH`], or holds `@`, control, or
+    /// invisible/direction-override characters, the email address if it is blank or not
+    /// well formed, the display name if it is not one ([`display_name`]), and the
+    /// password if it is empty, shorter than [`MINIMUM_PASSWORD_LENGTH`] or longer than
     /// [`MAXIMUM_PASSWORD_BYTES`].
     pub fn validate(&self) -> Result<(), Refusals> {
         self.refusals().into_result()
@@ -332,8 +342,22 @@ impl NewAccount {
     /// What of the account is refused.
     fn refusals(&self) -> Refusals {
         let mut refused = Refusals::new();
-        if self.username.trim().is_empty() {
+        let trimmed_username = self.username.trim();
+        if trimmed_username.is_empty() {
             refused.refuse("username", RefusalReason::Required, "username is required");
+        } else if self.username.contains('@') || self.username.chars().any(is_invisible_or_control)
+        {
+            refused.refuse(
+                "username",
+                RefusalReason::InvalidCharacters,
+                "username must not contain '@' or control characters",
+            );
+        } else if trimmed_username.chars().count() > USERNAME_MAX_LENGTH {
+            refused.refuse(
+                "username",
+                RefusalReason::TooLong,
+                format!("username must be at most {USERNAME_MAX_LENGTH} characters"),
+            );
         }
         if self.email.trim().is_empty() {
             refused.refuse("email", RefusalReason::Required, "email is required");

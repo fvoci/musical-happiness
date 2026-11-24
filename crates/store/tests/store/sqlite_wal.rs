@@ -351,3 +351,71 @@ async fn a_copy_taken_through_sqlite_while_the_store_works_has_the_last_commit()
     }
     scene.database.remove().await;
 }
+
+/// Concurrent single-statement `with_write_conn` writes and multi-statement transactions
+/// serialize through `sqlite_writers` in-process, succeeding even with `busy_timeout_ms=0`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_single_statement_writes_and_transactions_serialize_without_busy() {
+    let Some(scene) = on_a_file().await else {
+        return;
+    };
+    let path = scene.path.clone();
+    let org_id = scene.org_id.clone();
+    let ws_id = scene.workspace_id.clone();
+    scene.store.close().await;
+
+    let zero_timeout = Store::connect(
+        DbType::Sqlite,
+        &format!("{}?busy_timeout_ms=0", path.display()),
+    )
+    .await
+    .expect("zero busy_timeout store opens")
+    .for_org(&org_id)
+    .expect("scoped");
+    let user_id = crate::common::user(&zero_timeout, "writer").await;
+    crate::common::works_in(&zero_timeout, &ws_id, &user_id).await;
+
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(20));
+    let mut tasks = tokio::task::JoinSet::new();
+    for i in 0..20_i64 {
+        let store = zero_timeout.clone();
+        let b = std::sync::Arc::clone(&barrier);
+        let uid = user_id.clone();
+        let wid = ws_id.clone();
+        tasks.spawn(async move {
+            b.wait().await;
+            if i % 3 == 0 {
+                store
+                    .record_welcome(&uid, 100 + i)
+                    .await
+                    .expect("record_welcome serialized");
+            } else if i % 3 == 1 {
+                store
+                    .create_workspace(&Workspace {
+                        id: new_id(),
+                        title: format!("WS {i}"),
+                        ..Workspace::default()
+                    })
+                    .await
+                    .expect("create_workspace serialized");
+            } else {
+                let mut board = fvoci_model::Container {
+                    id: new_id(),
+                    workspace_id: wid,
+                    title: format!("Board {i}"),
+                    ..fvoci_model::Container::default()
+                };
+                store
+                    .insert_container_with_admin(&mut board, &uid)
+                    .await
+                    .expect("transaction serialized");
+            }
+        });
+    }
+    for res in tasks.join_all().await {
+        let () = res;
+    }
+
+    zero_timeout.close().await;
+    scene.database.remove().await;
+}

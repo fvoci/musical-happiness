@@ -246,11 +246,13 @@ async fn exam_scores_never_leak_across_roles_admins_orgs_guests_or_public_links(
     assert!((saved.score - 95.0).abs() < 1e-9);
     assert_eq!(saved.note, SECRET_SCORE_NOTE);
 
-    // Course admin Bob, workspace admin, and invited guest see aggregate only (no note, myScore: null).
-    for (label, client) in [
-        ("course admin Bob", &a.bob),
-        ("workspace admin", &a.ws_admin),
-        ("invited guest", &a.guest),
+    // With only 1 scorer (Alice = 95), other enrolled viewers see `scoreCount = 1` and
+    // `averageScore = None` (single-scorer k-anonymity), while unjoined readers see 0 / None.
+    for (label, client, expected_count) in [
+        ("course admin Bob", &a.bob, 1_u32),
+        ("invited guest", &a.guest, 1_u32),
+        ("unjoined workspace admin", &a.ws_admin, 0_u32),
+        ("unjoined member", &a.unjoined, 0_u32),
     ] {
         let resp = client
             .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
@@ -259,9 +261,11 @@ async fn exam_scores_never_leak_across_roles_admins_orgs_guests_or_public_links(
         assert_no_score_leak(&resp.text(), label);
         let exams: Vec<CourseExam> = resp.ok_json();
         assert_eq!(exams[0].my_score, None, "{label}");
-        assert_eq!(exams[0].score_count, 1, "{label}");
-        assert!((exams[0].average_score.expect("avg") - 95.0).abs() < 1e-9);
+        assert_eq!(exams[0].score_count, expected_count, "{label}");
+        assert_eq!(exams[0].average_score, None, "{label}");
     }
+
+    assert_k_anonymity_api_progression(&a).await;
 
     // Org admin joins WS2 via `joinOrgWorkspace`: STILL sees no private score or note.
     ts.client
@@ -289,6 +293,78 @@ async fn exam_scores_never_leak_across_roles_admins_orgs_guests_or_public_links(
 
     assert_removed_public_cross_org_and_own_space(&ts, &a).await;
     ts.teardown().await;
+}
+
+async fn assert_k_anonymity_api_progression(a: &IsolationActors) {
+    // 2nd scorer (invited guest = 85): Alice and guest each have only 1 other scorer (`None`),
+    // unsubmitted Bob has 2 other scorers (`Some(90.0)`), and unjoined reader still sees 0 / None.
+    a.guest
+        .put(
+            &format!(
+                "{}/courses/{}/exams/{}/my-score",
+                a.ws2, a.course_id, a.exam.id
+            ),
+            &json!({"score": 85.0, "note": "guest private"}),
+        )
+        .await
+        .check_ok();
+    for (label, scorer) in [
+        ("Alice (2 scorers)", &a.alice),
+        ("Guest (2 scorers)", &a.guest),
+    ] {
+        let exams: Vec<CourseExam> = scorer
+            .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
+            .await
+            .ok_json();
+        assert_eq!(exams[0].score_count, 2, "{label}");
+        assert_eq!(exams[0].average_score, None, "{label}");
+    }
+    let bob_two: Vec<CourseExam> = a
+        .bob
+        .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
+        .await
+        .ok_json();
+    assert_eq!(bob_two[0].score_count, 2, "unsubmitted bob sees count 2");
+    assert!(
+        (bob_two[0].average_score.expect("bob 2 others") - 90.0).abs() < 1e-9,
+        "unsubmitted bob sees average 90.0"
+    );
+    let unjoined_two: Vec<CourseExam> = a
+        .unjoined
+        .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
+        .await
+        .ok_json();
+    assert_eq!(
+        unjoined_two[0].score_count, 0,
+        "unjoined reader sees count 0"
+    );
+    assert_eq!(
+        unjoined_two[0].average_score, None,
+        "unjoined reader sees no average"
+    );
+
+    // 3rd scorer (Bob = 90): all three enrolled scorers now have 2 other scorers and see 90.0.
+    a.bob
+        .put(
+            &format!(
+                "{}/courses/{}/exams/{}/my-score",
+                a.ws2, a.course_id, a.exam.id
+            ),
+            &json!({"score": 90.0, "note": "bob private"}),
+        )
+        .await
+        .check_ok();
+    for (label, scorer) in [("Alice", &a.alice), ("Bob", &a.bob), ("Guest", &a.guest)] {
+        let exams: Vec<CourseExam> = scorer
+            .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
+            .await
+            .ok_json();
+        assert_eq!(exams[0].score_count, 3, "{label}");
+        assert!(
+            (exams[0].average_score.expect("3 scorers avg") - 90.0).abs() < 1e-9,
+            "{label} sees average 90.0"
+        );
+    }
 }
 
 async fn assert_removed_public_cross_org_and_own_space(ts: &TestServer, a: &IsolationActors) {
@@ -681,8 +757,14 @@ async fn account_erasure_keeps_attendance_tombstone_and_removes_exam_score_from_
         .await;
     let a = ts.client2.clone();
     let a_id = a.me().await.id;
+    let peer = ts.add_user("exam-peer").await;
+    let peer_id = peer.me().await.id;
+    let observer = ts.add_user("exam-observer").await;
+    let observer_id = observer.me().await.id;
     let course_id = create_course(&ts.client, ROOT_WS, "P", "Erasure Course").await;
-    add_member(&ts.client, ROOT_WS, &course_id, &a_id, "viewer").await;
+    for uid in [&a_id, &peer_id, &observer_id] {
+        add_member(&ts.client, ROOT_WS, &course_id, uid, "viewer").await;
+    }
 
     let meeting = create_meeting(&ts.client, ROOT_WS, &course_id, "Study", 1_800_000_000_000).await;
     a.put(
@@ -696,26 +778,26 @@ async fn account_erasure_keeps_attendance_tombstone_and_removes_exam_score_from_
     .check_ok();
 
     let exam = create_exam(&ts.client, ROOT_WS, &course_id, "Final").await;
-    ts.client
-        .put(
-            &format!("{ROOT_WS}/courses/{course_id}/exams/{}/my-score", exam.id),
-            &json!({"score": 80.0, "note": "admin score"}),
-        )
-        .await
-        .check_ok();
-    a.put(
-        &format!("{ROOT_WS}/courses/{course_id}/exams/{}/my-score", exam.id),
-        &json!({"score": 100.0, "note": SECRET_SCORE_NOTE}),
-    )
-    .await
-    .check_ok();
+    for (client, score, note) in [
+        (&ts.client, 80.0, "admin score"),
+        (&a, 100.0, SECRET_SCORE_NOTE),
+        (&peer, 90.0, "peer score"),
+    ] {
+        client
+            .put(
+                &format!("{ROOT_WS}/courses/{course_id}/exams/{}/my-score", exam.id),
+                &json!({"score": score, "note": note}),
+            )
+            .await
+            .check_ok();
+    }
 
     let before: Vec<CourseExam> = ts
         .client
         .get(&format!("{ROOT_WS}/courses/{course_id}/exams"))
         .await
         .ok_json();
-    assert_eq!(before[0].score_count, 2);
+    assert_eq!(before[0].score_count, 3);
     assert!((before[0].average_score.expect("avg") - 90.0).abs() < 1e-9);
 
     socket_request(
@@ -741,8 +823,17 @@ async fn account_erasure_keeps_attendance_tombstone_and_removes_exam_score_from_
         .get(&format!("{ROOT_WS}/courses/{course_id}/exams"))
         .await
         .ok_json();
-    assert_eq!(after[0].score_count, 1);
-    assert!((after[0].average_score.expect("avg") - 80.0).abs() < 1e-9);
+    assert_eq!(after[0].score_count, 2);
+    assert_eq!(
+        after[0].average_score, None,
+        "scorer with 1 remaining peer has average withheld"
+    );
+    let after_obs: Vec<CourseExam> = observer
+        .get(&format!("{ROOT_WS}/courses/{course_id}/exams"))
+        .await
+        .ok_json();
+    assert_eq!(after_obs[0].score_count, 2);
+    assert!((after_obs[0].average_score.expect("obs avg") - 85.0).abs() < 1e-9);
     assert_eq!(
         ts.app
             .store()
@@ -750,8 +841,8 @@ async fn account_erasure_keeps_attendance_tombstone_and_removes_exam_score_from_
             .count_rows("exam_scores")
             .await
             .expect("count"),
-        1,
-        "only admin's score row remains"
+        2,
+        "erased user's score row removed while active peers remain"
     );
 
     ts.teardown().await;
