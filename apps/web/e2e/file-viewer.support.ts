@@ -38,11 +38,11 @@ export async function openCard(page: Page): Promise<void> {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
     const [workspace] = await backend.workspaces();
     const boards = await backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title.startsWith('Project Tasks'));
+    const board = boards.find((each) => each.title.startsWith('Project schedule'));
     if (!board) throw new Error('no board of tasks');
     const views = await backend.views(board.id);
     const card = (await backend.cards(board.id)).find(
-      (each) => each.title === 'Identify dependencies',
+      (each) => each.title === 'Design the screens',
     );
     if (!card) throw new Error('no card');
     const first = [...views].sort((a, b) => a.title.localeCompare(b.title))[0];

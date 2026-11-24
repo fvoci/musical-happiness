@@ -6,10 +6,12 @@
  */
 import { expect, test } from '@playwright/test';
 
+import { viewIdOf } from './address.ts';
 import {
   addGantt,
   bar,
   bars,
+  clearDates,
   dayScale,
   gantt,
   NOW,
@@ -33,18 +35,17 @@ test('a Gantt view is made from the list of kinds, placed by the first date, zoo
 }, info) => {
   await page.clock.setFixedTime(NOW);
   await openView(page, info, ...WELCOME);
+  await clearDates(page);
   await addGantt(page);
   await expect(gantt(page)).toHaveAttribute('data-zoom', 'week');
   const header = page.getByTestId('view-header');
   if ((await header.getAttribute('data-layout')) === 'row') {
     await expect(header.locator('[data-tool="display-by"]')).toHaveAccessibleName(
-      'Display by: Due Date',
+      'Display by: Day',
     );
   } else {
     await header.locator('[data-tool="more"]').click();
-    await expect(page.locator('[role="menuitem"][data-action="display-by"]')).toContainText(
-      'Due Date',
-    );
+    await expect(page.locator('[role="menuitem"][data-action="display-by"]')).toContainText('Day');
     await page.keyboard.press('Escape');
   }
   const fields = await storedFields(page);
@@ -53,7 +54,7 @@ test('a Gantt view is made from the list of kinds, placed by the first date, zoo
   const due = await page.evaluate(
     () =>
       (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board.board.cardProperties.find(
-        (property) => property.name === 'Due Date',
+        (property) => property.name === 'Day',
       )?.id,
   );
   expect(fields.dateDisplayPropertyId).toBe(due);
@@ -78,17 +79,17 @@ test('a dated card is a bar from its first day to its last, a card without a dat
     expect(Math.abs(box.width - days * now.width)).toBeLessThan(1);
   }
   expect(scale.width).toBeGreaterThan(4);
-  await lies('Drag cards', '2026-11-12', 1);
-  await lies('Share a board', '2026-11-12', 12);
+  await lies('Open a card', '2026-11-12', 1);
+  await lies('Filter, sort and group', '2026-11-12', 12);
   // A moment is on the reader's day: the 10th in Seoul, not the 9th of UTC.
-  await lies('Create a new card', '2026-11-10', 1);
+  await lies('Write in the body', '2026-11-10', 1);
   // Into the next month.
-  await lies('Filter and sort cards', '2026-12-03', 2);
-  await expect(bar(page, 'Share a board')).toHaveAccessibleName(
-    'number 4, Share a board, November 12 – November 23',
+  await lies('Keep your documents in a wiki', '2026-12-03', 2);
+  await expect(bar(page, 'Filter, sort and group')).toHaveAccessibleName(
+    'number 4, Filter, sort and group, November 12 – November 23',
   );
-  await expect(bar(page, 'Create a new card')).toHaveAccessibleName(
-    '8:00 AM number 5, Create a new card, November 10',
+  await expect(bar(page, 'Write in the body')).toHaveAccessibleName(
+    '8:00 AM number 5, Write in the body, November 10',
   );
   // Every row is a card with a bar.
   await expect(gantt(page).locator('[data-row]')).toHaveCount(4);
@@ -100,10 +101,10 @@ test('a dated card is a bar from its first day to its last, a card without a dat
       timeZone: 'America/Los_Angeles',
     }),
   );
-  await expect(bar(page, 'Create a new card')).toHaveAccessibleName(
-    '3:00 PM number 5, Create a new card, November 9',
+  await expect(bar(page, 'Write in the body')).toHaveAccessibleName(
+    '3:00 PM number 5, Write in the body, November 9',
   );
-  await lies('Create a new card', '2026-11-09', 1);
+  await lies('Write in the body', '2026-11-09', 1);
 });
 
 test('a bar in another year says its year: the marks of the days are not read out', async ({
@@ -111,12 +112,14 @@ test('a bar in another year says its year: the marks of the days are not read ou
 }, info) => {
   await openGantt(page, info);
   await setDates(page, {
-    'Drag cards': { from: '2025-03-01' },
-    'Share a board': { from: '2026-12-30', to: '2027-01-02' },
+    'Open a card': { from: '2025-03-01' },
+    'Filter, sort and group': { from: '2026-12-30', to: '2027-01-02' },
   });
-  await expect(bar(page, 'Drag cards')).toHaveAccessibleName('number 1, Drag cards, March 1, 2025');
-  await expect(bar(page, 'Share a board')).toHaveAccessibleName(
-    'number 4, Share a board, December 30, 2026 – January 2, 2027',
+  await expect(bar(page, 'Open a card')).toHaveAccessibleName(
+    'number 1, Open a card, March 1, 2025',
+  );
+  await expect(bar(page, 'Filter, sort and group')).toHaveAccessibleName(
+    'number 4, Filter, sort and group, December 30, 2026 – January 2, 2027',
   );
 });
 
@@ -125,9 +128,10 @@ test('today has a line through the chart, in sight when the view opens', async (
   // the chart has to be scrolled for today to be in sight.
   await page.clock.setFixedTime(NOW);
   await openView(page, info, ...WELCOME);
+  await clearDates(page);
   await setDates(page, {
-    'Drag cards': { from: '2025-05-01' },
-    'Share a board': { from: '2026-11-12', to: '2026-11-23' },
+    'Open a card': { from: '2025-05-01' },
+    'Filter, sort and group': { from: '2026-11-12', to: '2026-11-23' },
   });
   await addGantt(page);
   await expect(bars(page)).toHaveCount(2);
@@ -157,12 +161,12 @@ test('the days in sight stay in sight when a card moves the start of the axis', 
   await openGantt(page, info);
   // A card next summer: the days go on to the right of what is in sight, so
   // that the box can be scrolled to wherever today comes to lie.
-  await setDates(page, { 'Filter and sort cards': { from: '2027-06-01' } });
+  await setDates(page, { 'Keep your documents in a wiki': { from: '2027-06-01' } });
   const line = page.getByTestId('gantt-today-line');
   await expect(line).toBeInViewport();
   const before = await line.boundingBox();
   await expect(gantt(page)).toHaveAttribute('data-first', '2026-10-25');
-  await setDates(page, { 'Drag cards': { from: '2025-11-12' } });
+  await setDates(page, { 'Open a card': { from: '2025-11-12' } });
   await expect(gantt(page)).toHaveAttribute('data-first', '2025-10-26');
   await expect(line).toBeInViewport();
   await expect
@@ -247,20 +251,24 @@ test('the title of a row opens its card, and gives the focus back without scroll
 }, info) => {
   await openGantt(page, info);
   // A bar far from what is in sight: its title is at hand, the bar is not.
-  await setDates(page, { 'Filter and sort cards': { from: '2028-03-01' } });
+  await setDates(page, { 'Keep your documents in a wiki': { from: '2028-03-01' } });
   await page.getByTestId('gantt-today').click();
-  const title = gantt(page).locator('[data-row-title]', { hasText: 'Filter and sort cards' });
+  const title = gantt(page).locator('[data-row-title]', {
+    hasText: 'Keep your documents in a wiki',
+  });
   const before = await scroller(page).evaluate((element) => element.scrollLeft);
   await title.click();
   await expect(dialog(page)).toBeVisible();
-  await expect(dialog(page).locator('[data-card-title]')).toHaveValue('Filter and sort cards');
+  await expect(dialog(page).locator('[data-card-title]')).toHaveValue(
+    'Keep your documents in a wiki',
+  );
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toHaveCount(0);
   await expect(title).toBeFocused();
   expect(await scroller(page).evaluate((element) => element.scrollLeft)).toBe(before);
   // Tab goes on from the row: to its bar.
   await page.keyboard.press(await tabKey(page));
-  await expect(bar(page, 'Filter and sort cards')).toBeFocused();
+  await expect(bar(page, 'Keep your documents in a wiki')).toBeFocused();
 });
 
 test('the focus stays in the chart when the card that has it leaves', async ({ page }, info) => {
@@ -312,14 +320,14 @@ test('the chart in light and dark, and at 390 pixels', async ({ page }, info) =>
   };
   await openRelated(page, info);
   await setDates(page, {
-    'Manage tasks with cards': { from: '2026-11-05', to: '2026-11-11' },
-    'Create your own board': { from: '2026-11-16', to: '2026-11-20' },
-    'Share cards on Channels': { from: '2026-11-25', to: '2026-12-01' },
+    'See the same cards five ways': { from: '2026-11-05', to: '2026-11-11' },
+    'Start a board from a template': { from: '2026-11-16', to: '2026-11-20' },
+    'Work on it together': { from: '2026-11-25', to: '2026-12-01' },
   });
-  // One relation out of order: "Create your own board" starts before "Share a board" ends.
+  // One relation out of order: "Start a board from a template" starts before "Filter, sort and group" ends.
   await setAfter(page, {
-    'Create your own board': ['Share a board'],
-    'Share cards on Channels': ['Create your own board'],
+    'Start a board from a template': ['Filter, sort and group'],
+    'Work on it together': ['Start a board from a template'],
   });
   await expect(bars(page)).toHaveCount(7);
   await expect(page.getByTestId('gantt-late')).toBeVisible();
@@ -340,18 +348,17 @@ test('the chart in light and dark, and at 390 pixels', async ({ page }, info) =>
   await expect(gantt(page)).toHaveAttribute('data-zoom', 'month');
   await shoot(`${info.project.name}-months`);
   await page.getByTestId('gantt-zoom-in').click();
-  await setAfter(page, { 'Create a new card': ['Share cards on Channels'] });
+  await setAfter(page, { 'Write in the body': ['Work on it together'] });
   await expect(page.getByTestId('gantt-loops')).toBeVisible();
   await shoot(`${info.project.name}-loop`);
 
   // Grouped, and the cards without a date: a column beside the chart, or a sheet on the phone.
-  await page.evaluate(async () => {
+  await page.evaluate(async (id) => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
     const select = store.board.cardProperties.find((property) => property.type === 'select');
-    const view = store.views.find((each) => each.fields.viewType === 'gantt');
-    if (!select || !view) throw new Error('nothing to group by');
-    await store.setViewFields(view.id, { groupById: select.id });
-  });
+    if (!select) throw new Error('nothing to group by');
+    await store.setViewFields(id, { groupById: select.id });
+  }, viewIdOf(page.url()));
   await expect(gantt(page).locator('[data-group]').first()).toBeVisible();
   await shoot(`${info.project.name}-grouped`);
   await page.getByTestId('gantt-undated').click();
@@ -360,11 +367,10 @@ test('the chart in light and dark, and at 390 pixels', async ({ page }, info) =>
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('undated-list')).toHaveCount(0);
   // Not grouped again, for the picture of a phone below.
-  await page.evaluate(async () => {
+  await page.evaluate(async (id) => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const view = store.views.find((each) => each.fields.viewType === 'gantt');
-    if (view) await store.setViewFields(view.id, { groupById: '' });
-  });
+    await store.setViewFields(id, { groupById: '' });
+  }, viewIdOf(page.url()));
   await expect(gantt(page).locator('[data-group]')).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });

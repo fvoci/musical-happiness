@@ -67,12 +67,12 @@ test('a card: its title and the boxes of its tasks are a finger wide', async ({ 
     const { backend } = (window as unknown as { fvociDev: { backend: Backend } }).fvociDev;
     const [workspace] = await backend.workspaces();
     const board = (await backend.boards(workspace?.id ?? '')).find(
-      (each) => each.title === 'Project Tasks',
+      (each) => each.title === 'Project schedule',
     );
     if (!board) throw new Error('no board of tasks');
     const [view] = await backend.views(board.id);
     const card = (await backend.cards(board.id)).find(
-      (each) => each.title === 'Identify dependencies',
+      (each) => each.title === 'Design the screens',
     );
     if (!card) throw new Error('no card');
     return { boardId: board.id, viewId: view?.id ?? '', cardId: card.id };
@@ -217,7 +217,7 @@ test.describe('the menu of a phone’s bar', () => {
     await menu.click();
     await expect(line(page, 'redo')).toBeDisabled();
     await line(page, 'undo').click();
-    await expect(title).toHaveValue('Project Tasks');
+    await expect(title).toHaveValue('Project schedule');
     // The sheet gives the focus back to what opened it.
     await expect(menu).toBeFocused();
     await menu.click();

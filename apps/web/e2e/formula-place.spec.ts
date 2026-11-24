@@ -35,7 +35,7 @@ async function closedAndDrawn(body: Locator): Promise<void> {
 test('a press opens the source under the drawing, typing draws it again, Escape closes', async ({
   page,
 }) => {
-  const body = await openCardWithBody(page, 'Welcome', formulaBody('x^2'));
+  const body = await openCardWithBody(page, 'Getting started', formulaBody('x^2'));
   await closedAndDrawn(body);
   await drawingOf(body).click();
   await expect(fieldOf(body)).toBeFocused();
@@ -76,7 +76,7 @@ test('a press opens the source under the drawing, typing draws it again, Escape 
 test('with the keys alone: an arrow selects it, Enter opens, Ctrl+Enter closes', async ({
   page,
 }) => {
-  const body = await openCardWithBody(page, 'Welcome', formulaBody('a+b'));
+  const body = await openCardWithBody(page, 'Getting started', formulaBody('a+b'));
   await closedAndDrawn(body);
   await focusAtEnd(body);
   await page.keyboard.press('ArrowUp');
@@ -95,7 +95,7 @@ test('with the keys alone: an arrow selects it, Enter opens, Ctrl+Enter closes',
 test('a source that cannot be drawn shows, closed, as itself with what went wrong', async ({
   page,
 }) => {
-  const body = await openCardWithBody(page, 'Welcome', formulaBody('\\frac{'));
+  const body = await openCardWithBody(page, 'Getting started', formulaBody('\\frac{'));
   await expect(body).toHaveAttribute('data-editor', 'ready');
   await expect(drawingOf(body)).toHaveAttribute('data-state', 'error', { timeout: 30_000 });
   await expect(drawingOf(body)).toContainText('\\frac{');
@@ -105,7 +105,7 @@ test('a source that cannot be drawn shows, closed, as itself with what went wron
 });
 
 test('where the body may only be read, the formula does not open', async ({ page }) => {
-  const body = await openCardWithBody(page, 'Company Goals', formulaBody('x^2'));
+  const body = await openCardWithBody(page, 'Study notes', formulaBody('x^2'));
   await expect(body).toHaveAttribute('data-editor', 'reading');
   const formula = body.locator('div.doc-math[data-state="drawn"]');
   await expect(formula).toBeVisible({ timeout: 30_000 });
@@ -117,7 +117,7 @@ test.describe('on a narrow screen', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   test('the place opens in the flow, as wide as the body', async ({ page }) => {
-    const body = await openCardWithBody(page, 'Welcome', formulaBody('x^2'));
+    const body = await openCardWithBody(page, 'Getting started', formulaBody('x^2'));
     await closedAndDrawn(body);
     await drawingOf(body).click();
     const done = blockOf(body).getByRole('button', { name: 'Done' });

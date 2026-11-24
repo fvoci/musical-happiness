@@ -488,25 +488,94 @@ describe('a copy of a board', () => {
 });
 
 describe('the seed made of the boards of `seed/`', () => {
-  it('holds every one as a board the reader is on, with its documents', async () => {
+  it('holds every English board as a live board the reader is on, plus localized built-in templates', async () => {
     const templates = await loadTemplates();
-    expect(templates).toHaveLength(13);
+    expect(templates).toHaveLength(16);
     const { backend, world } = setup(templates);
     const [workspace] = await backend.workspaces();
-    const boards = await backend.boards(workspace?.id ?? '');
-    expect(boards).toHaveLength(13);
+    const workspaceId = workspace?.id ?? '';
+    const boards = await backend.boards(workspaceId);
+    expect(boards).toHaveLength(7);
     const cards = (await Promise.all(boards.map((board) => backend.cards(board.id)))).flat();
-    expect(cards).toHaveLength(77);
-    expect(cards.filter((card) => card.hasBody)).toHaveLength(58);
+    expect(cards).toHaveLength(41);
+    expect(cards.filter((card) => card.hasBody)).toHaveLength(41);
     expect(new Set([...world.blocks.keys(), ...world.containers.keys()]).size).toBe(
       world.blocks.size + world.containers.size,
     );
-    const courses = await backend.course.courses(workspace?.id ?? '');
+    const courses = await backend.course.courses(workspaceId);
     expect(courses).toHaveLength(1);
-    const categories = await backend.categories(workspace?.id ?? '');
+    const categories = await backend.categories(workspaceId);
     expect(categories.flatMap((category) => category.containerIds).sort()).toEqual(
       [...boards, ...courses].map((container) => container.id).sort(),
     );
+  });
+
+  it('filters built-in templates and onboarding by the reader’s language (en, ko, and fallbacks)', async () => {
+    const spy = vi.spyOn(navigator, 'languages', 'get');
+    try {
+      spy.mockReturnValue(['ja']);
+      const { backend } = setup(await loadTemplates());
+      const [workspace] = await backend.workspaces();
+      const workspaceId = workspace?.id ?? '';
+
+      // Unsupported browser language under 'auto' falls back to English.
+      const enTemplates = await backend.templates(workspaceId);
+      expect(enTemplates).toHaveLength(8);
+      expect(
+        enTemplates.every((t) => t.isBuiltin === true && t.properties.templateLanguage === 'en'),
+      ).toBe(true);
+      expect(enTemplates.map((t) => t.properties.templateKey)).toEqual([
+        'welcome',
+        'project-schedule',
+        'issue-tracker',
+        'meeting-notes',
+        'content-calendar',
+        'customer-contacts',
+        'study-notes',
+        'course-study-plan',
+      ]);
+      const enWelcomeId = await backend.onboard(workspaceId);
+      const enWelcome = await backend.container(enWelcomeId);
+      expect(enWelcome.title).toBe('Getting started with fvoci');
+      expect(enWelcome.isTemplate).toBe(false);
+      expect(enWelcome.isBuiltin).toBe(false);
+      expect(enWelcome.properties.onboarding).toBeUndefined();
+      expect(enWelcome.properties.templateLanguage).toBeUndefined();
+      expect(enWelcome.properties.templateKey).toBeUndefined();
+
+      // Regional browser tag ('ko-KR') under 'auto' selects Korean.
+      spy.mockReturnValue(['ja', 'ko-KR', 'en']);
+      const autoKoTemplates = await backend.templates(workspaceId);
+      expect(autoKoTemplates).toHaveLength(8);
+      expect(autoKoTemplates.every((t) => t.properties.templateLanguage === 'ko')).toBe(true);
+      expect(autoKoTemplates[0]?.title).toBe('fvoci 시작하기');
+
+      // Explicit unsupported language ('de') falls back to the browser list ('ko-KR' -> 'ko').
+      await backend.patchSettings({ language: 'de' });
+      const fallbackKo = await backend.templates(workspaceId);
+      expect(fallbackKo.every((t) => t.properties.templateLanguage === 'ko')).toBe(true);
+
+      // Regional explicit setting ('en-GB') selects English even when browser prefers Korean.
+      await backend.patchSettings({ language: 'en-GB' });
+      const regionalEn = await backend.templates(workspaceId);
+      expect(regionalEn.every((t) => t.properties.templateLanguage === 'en')).toBe(true);
+
+      await backend.patchSettings({ language: 'ko' });
+      const koTemplates = await backend.templates(workspaceId);
+      expect(koTemplates).toHaveLength(8);
+      expect(
+        koTemplates.every((t) => t.isBuiltin === true && t.properties.templateLanguage === 'ko'),
+      ).toBe(true);
+      expect(koTemplates[0]?.title).toBe('fvoci 시작하기');
+      expect(koTemplates.at(-1)?.title).toBe('2주 집중 학습 계획');
+      const koWelcomeId = await backend.onboard(workspaceId);
+      const koWelcome = await backend.container(koWelcomeId);
+      expect(koWelcome.title).toBe('fvoci 시작하기');
+      expect(koWelcome.isTemplate).toBe(false);
+      expect(koWelcome.isBuiltin).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('comes out the same every time', async () => {

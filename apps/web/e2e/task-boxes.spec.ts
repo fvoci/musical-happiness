@@ -31,14 +31,14 @@ interface DevBackend {
   views(boardId: string): Promise<{ id: string; title: string }[]>;
   cards(boardId: string): Promise<{ id: string; title: string }[]>;
   addMember(boardId: string, userId: string, role: 'admin'): Promise<unknown>;
-  setMemberRole(boardId: string, userId: string, role: 'viewer'): Promise<unknown>;
+  setMemberRole(boardId: string, userId: string, role: 'viewer' | 'admin'): Promise<unknown>;
 }
 interface Dev {
   backend: DevBackend;
   someoneElse(): DevBackend;
 }
 
-/** The card of the board of tasks whose body has a description and four tasks. */
+/** The card of the welcome board whose body has a description and three unchecked tasks. */
 async function findCard(page: Page): Promise<Place> {
   await page.goto('/');
   await expect(page.getByTestId('board-page')).toBeVisible();
@@ -46,13 +46,11 @@ async function findCard(page: Page): Promise<Place> {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
     const [workspace] = await backend.workspaces();
     const board = (await backend.boards(workspace?.id ?? '')).find((each) =>
-      each.title.startsWith('Project Tasks'),
+      each.title.startsWith('Getting started'),
     );
-    if (!board) throw new Error('no board of tasks');
+    if (!board) throw new Error('no welcome board');
     const views = await backend.views(board.id);
-    const card = (await backend.cards(board.id)).find(
-      (each) => each.title === 'Identify dependencies',
-    );
+    const card = (await backend.cards(board.id)).find((each) => each.title === 'Open a card');
     if (!card) throw new Error('no card');
     const first = [...views].sort((a, b) => a.title.localeCompare(b.title))[0];
     return { boardId: board.id, viewId: first?.id ?? '', cardId: card.id };
@@ -175,7 +173,7 @@ test.describe('with a finger', () => {
   }) => {
     const editor = await openCard(page, await findCard(page));
     // The caret in the description, away from the tasks.
-    await editor.getByText('[Brief description of this task]').tap();
+    await editor.getByText('What you are reading is a card.').tap();
     await expect(editor).toBeFocused();
     await tasksInSight(editor);
     const before = await where(editor);
@@ -230,7 +228,7 @@ test('a click on a task’s box ticks it without moving the caret of the body be
   page,
 }) => {
   const editor = await openCard(page, await findCard(page));
-  await editor.getByText('[Brief description of this task]').click();
+  await editor.getByText('What you are reading is a card.').click();
   await expect(editor).toBeFocused();
   await tasksInSight(editor);
   const before = await where(editor);
@@ -247,7 +245,9 @@ test('a reader who may only read cannot tick a task', async ({ page }) => {
   await page.evaluate(async ({ boardId }) => {
     const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
     // A board keeps an admin: somebody else is one before the reader is made a viewer.
-    await dev.backend.addMember(boardId, (await dev.someoneElse().me()).id, 'admin');
+    const otherId = (await dev.someoneElse().me()).id;
+    await dev.backend.addMember(boardId, otherId, 'admin');
+    await dev.backend.setMemberRole(boardId, otherId, 'admin');
     await dev.someoneElse().setMemberRole(boardId, (await dev.backend.me()).id, 'viewer');
   }, place);
   await expect(editor).toHaveAttribute('contenteditable', 'false');
@@ -274,7 +274,7 @@ test('ticked in one tab, the task is ticked in the other once, and one undo take
   expect(await ticks(theirs)).toEqual(untouched);
 
   // The other is writing in the description meanwhile: their caret is in the room.
-  await theirs.getByText('[Brief description of this task]').click();
+  await theirs.getByText('What you are reading is a card.').click();
   await expect(mine.locator('.doc-caret')).toHaveCount(1);
 
   const changes = await mine.evaluate((root) => {
@@ -293,8 +293,8 @@ test('ticked in one tab, the task is ticked in the other once, and one undo take
   expect(changes).toBe(0);
 
   await tasksInSight(mine);
-  await press(page, boxes(mine).nth(3));
-  const ticked = untouched.map((each, index) => (index === 3 ? !each : each));
+  await press(page, boxes(mine).nth(2));
+  const ticked = untouched.map((each, index) => (index === 2 ? !each : each));
   await expect.poll(() => ticks(mine)).toEqual(ticked);
   await expect.poll(() => ticks(theirs)).toEqual(ticked);
   expect(
@@ -303,7 +303,7 @@ test('ticked in one tab, the task is ticked in the other once, and one undo take
   expect((await where(mine)).focused).toBe(false);
 
   // Undo is the body's: it is pressed in it.
-  await mine.getByText('[Brief description of this task]').click();
+  await mine.getByText('What you are reading is a card.').click();
   await page.keyboard.press(await primaryKey(page, 'z'));
   await expect.poll(() => ticks(mine)).toEqual(untouched);
   await expect.poll(() => ticks(theirs)).toEqual(untouched);

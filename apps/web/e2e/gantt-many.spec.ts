@@ -34,11 +34,11 @@ async function openMany(page: Page, info: TestInfo): Promise<number> {
     backend.latency = 0;
     const workspaces = await backend.workspaces();
     const boards = await backend.boards(workspaces[0]?.id ?? '');
-    const boardId = boards.find((board) => board.title === 'Sprint Planner')?.id ?? '';
+    const boardId = boards.find((board) => board.title === 'Content calendar')?.id ?? '';
     const due = (await backend.container(boardId)).cardProperties.find(
-      (property) => property.name === 'Due Date',
+      (property) => property.name === 'Publishing day',
     );
-    if (!due) throw new Error('no board "Sprint Planner" with a Due Date');
+    if (!due) throw new Error('no board "Content calendar" with a Publishing day');
     await backend.patchContainer(boardId, {
       updatedCardProperties: [{ id: 'after', name: 'After', type: 'relation', options: [] }],
     });
@@ -226,7 +226,7 @@ test('a board of 2,000 cards draws every bar and arrow, and scrolls in frames th
   await kept.focus();
   await page.evaluate(async () => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
+    const due = store.board.cardProperties.find((property) => property.name === 'Publishing day');
     const first = document.querySelector('[data-bar]')?.getAttribute('data-bar');
     if (!due || !first) throw new Error('nothing to take the date from');
     await store.setCardProperty(first, due.id, undefined);
@@ -243,7 +243,7 @@ test('a board of 2,000 cards draws every bar and arrow, and scrolls in frames th
   const titleText = await title.textContent();
   await page.evaluate(async () => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
+    const due = store.board.cardProperties.find((property) => property.name === 'Publishing day');
     const first = document.querySelector('[data-bar]')?.getAttribute('data-bar');
     if (!due || !first) throw new Error('nothing to take the date from');
     await store.setCardProperty(first, due.id, undefined);

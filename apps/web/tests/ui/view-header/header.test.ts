@@ -323,7 +323,7 @@ describe('the whole row', () => {
 describe('a reader who may only look', () => {
   it('gets the views and the search, and no tool that changes the view', async () => {
     // The seed makes the reader a viewer of the board with this key.
-    await mount('List', { ...TWO_VIEWS, key: 'company-goals-okrs' });
+    await mount('List', { ...TWO_VIEWS, key: 'study-notes' });
     expect(toolButton('search')).toBeVisible();
     // The list of the views switches, and offers nothing else.
     await openMenu(toolButton('views'));

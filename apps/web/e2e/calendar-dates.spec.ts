@@ -10,6 +10,7 @@ import { primaryKey, menuTo, tabKey } from './keyboard.support.ts';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
 import {
+  addUpdatedTimeProperty,
   calendar,
   CALENDAR_PAGE,
   dayButton,
@@ -52,7 +53,7 @@ test('a card moves to another day with the keys alone, and one undo brings it ba
 }, info) => {
   await openCalendar(page, info);
   await expect(dayButton(page, '2026-11-12')).toHaveAccessibleName(/November 12, 2 cards/);
-  await changeDateByKeys(page, info, 'Drag cards');
+  await changeDateByKeys(page, info, 'Open a card');
 
   const picker = page.getByTestId('day-picker');
   await expect(picker).toBeVisible();
@@ -66,16 +67,16 @@ test('a card moves to another day with the keys alone, and one undo brings it ba
   await page.keyboard.press('Enter');
 
   await expect(picker).toBeHidden();
-  await expect.poll(() => dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-19' });
+  await expect.poll(() => dueOf(page, 'Open a card')).toEqual({ from: '2026-11-19' });
   await expect(page.getByTestId('calendar-status')).toHaveText(
-    'Drag cards is now on Thursday, November 19.',
+    'Open a card is now on Thursday, November 19.',
   );
   // The focus is on the day the card is on now, which says so.
   await expect(focused(page)).toHaveAccessibleName(/^Thursday, November 19, 2 cards/);
   await expect(dayButton(page, '2026-11-12')).toHaveAccessibleName(/November 12, 1 card$/);
 
   await page.keyboard.press(await primaryKey(page, 'z'));
-  await expect.poll(() => dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-12' });
+  await expect.poll(() => dueOf(page, 'Open a card')).toEqual({ from: '2026-11-12' });
   await expect(dayButton(page, '2026-11-12')).toHaveAccessibleName(/November 12, 2 cards/);
   await expect(dayButton(page, '2026-11-19')).toHaveAccessibleName(/November 19, 1 card$/);
 });
@@ -84,18 +85,18 @@ test('Escape leaves the date as it was and gives the focus back to the day', asy
   page,
 }, info) => {
   await openCalendar(page, info);
-  await changeDateByKeys(page, info, 'Drag cards');
+  await changeDateByKeys(page, info, 'Open a card');
   await expect(page.getByTestId('day-picker')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('day-picker')).toBeHidden();
-  expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-12' });
+  expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-12' });
   // Back to the day; under the small grid, where the card's line is still there, to its "…".
   await expect(focused(page)).toHaveAccessibleName(
-    wide(info) ? /^Thursday, November 12/ : 'Card menu: Drag cards',
+    wide(info) ? /^Thursday, November 12/ : 'Card menu: Open a card',
   );
 
   // Enter on the day the card is on already: the picker closes, and nothing changes.
-  await changeDateByKeys(page, info, 'Drag cards');
+  await changeDateByKeys(page, info, 'Open a card');
   const twelfth = page
     .getByTestId('day-picker')
     .locator('[data-bits-day][data-value="2026-11-12"]');
@@ -103,7 +104,7 @@ test('Escape leaves the date as it was and gives the focus back to the day', asy
   await expect(twelfth).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('day-picker')).toBeHidden();
-  expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-12' });
+  expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-12' });
   await expect(page.getByTestId('calendar-status')).toHaveText('');
 });
 
@@ -124,9 +125,9 @@ test('a range keeps its length and a moment its time, into the next month', asyn
     await expect(picker).toBeHidden();
   }
 
-  await moveOn('2026-11-12', 'Share a board', '2026-12-01');
+  await moveOn('2026-11-12', 'Filter, sort and group', '2026-12-01');
   await expect
-    .poll(() => dueOf(page, 'Share a board'))
+    .poll(() => dueOf(page, 'Filter, sort and group'))
     .toEqual({
       from: '2026-12-01',
       to: '2026-12-13',
@@ -137,9 +138,9 @@ test('a range keeps its length and a moment its time, into the next month', asyn
 
   await page.getByTestId('calendar-previous').click();
   // 08:00 on the 10th in Seoul, to 08:00 on the 2nd of December.
-  await moveOn('2026-11-10', 'Create a new card', '2026-12-02');
+  await moveOn('2026-11-10', 'Write in the body', '2026-12-02');
   await expect
-    .poll(() => dueOf(page, 'Create a new card'))
+    .poll(() => dueOf(page, 'Write in the body'))
     .toEqual({ from: Date.parse('2026-12-01T23:00:00Z') });
 });
 
@@ -147,6 +148,7 @@ test('a calendar placed by when cards were changed offers no change, and says wh
   page,
 }, info) => {
   await openCalendar(page, info);
+  await addUpdatedTimeProperty(page);
   const header = page.getByTestId('view-header');
   if ((await header.getAttribute('data-layout')) === 'row') {
     await header.locator('[data-tool="display-by"]').click();
@@ -176,10 +178,10 @@ test('the picker of days is wholly in the window, beside a day of the last week 
 }, info) => {
   test.skip(info.project.name !== 'desktop', 'a window 720 pixels high, with a mouse');
   await openCalendar(page, info);
-  await setDates(page, { 'Drag cards': { from: '2026-11-26' } });
+  await setDates(page, { 'Open a card': { from: '2026-11-26' } });
   await dayButton(page, '2026-11-26').click();
   const list = listOf(page, info);
-  await list.getByRole('button', { name: 'Card menu: Drag cards' }).click();
+  await list.getByRole('button', { name: 'Card menu: Open a card' }).click();
   await page.locator('[data-action="change-date"]').click();
   const picker = page.getByTestId('day-picker');
   await expect(picker).toBeVisible();

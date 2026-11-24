@@ -39,8 +39,8 @@ import {
 // Fewer than the spike's 1,600: enough for the column to be many times higher than the
 // view, and quick to make in every project.
 const MANY = 400;
-/** The three cards of the seed in the long column, and the cards made for it. */
-const ALL = MANY + 3;
+/** The four cards of the seed in the long column, and the cards made for it. */
+const ALL = MANY + 4;
 
 /** Opens the long column; `wordy`: every third title of two lines, higher than guessed. */
 async function openLong(page: Page, info: TestInfo, wordy = false): Promise<void> {
@@ -61,7 +61,10 @@ const scrollTop = (page: Page): Promise<number> =>
 
 /** Where a card drawn is in its column, as a screen reader is told, from 1. */
 async function positionOf(page: Page, title: string): Promise<number> {
-  return Number(await card(page, title).locator('xpath=..').getAttribute('aria-posinset'));
+  const matched = page.locator('[data-card]').filter({
+    has: page.locator('[data-slot="card-title-text"]', { hasText: new RegExp(`^${title}$`) }),
+  });
+  return Number(await matched.locator('xpath=..').getAttribute('aria-posinset'));
 }
 
 /** Scrolls the long column, and nothing around it, until the card is in its middle. */
@@ -151,7 +154,7 @@ test.describe('a column of 400 cards', () => {
     await page.keyboard.press('Space');
     await expect(kanban(page)).toHaveAttribute('data-dragging', 'keyboard');
     await expect(announcer(page)).toHaveText(
-      `Picked up ${longTitle(goal)}. ${LONG_COLUMN}, position ${String(goal + 3)} of ${String(ALL)}.`,
+      `Picked up ${longTitle(goal)}. ${LONG_COLUMN}, position ${String(goal + 4)} of ${String(ALL)}.`,
     );
     await page.keyboard.press('End');
     await expect(page.locator('[data-drag-carried]')).toBeFocused();
@@ -195,12 +198,17 @@ test.describe('a column of 400 cards', () => {
     // card in the middle of the column, away from the edges where the column scrolls by itself.
     const before = await titlesIn(page, LONG_COLUMN);
     const above = before[before.indexOf(longTitle(1)) - 1] ?? '';
-    await centre(page, card(page, above));
+    const aboveCard = page.locator('[data-card]').filter({
+      has: page.locator('[data-slot="card-title-text"]', {
+        hasText: new RegExp(`^${above}$`),
+      }),
+    });
+    await centre(page, aboveCard);
     await expect(first).toBeInViewport();
 
     await pickUp(page, first);
     await expect(overlay(page).locator('[data-slot="card-count"]')).toHaveText('2');
-    const top = await pointOn(card(page, above), 0.25);
+    const top = await pointOn(aboveCard, 0.25);
     await page.mouse.move(top.x, top.y, { steps: 6 });
     await expect(list(page).locator('[data-drag-gap]')).toBeVisible();
     await page.mouse.up();

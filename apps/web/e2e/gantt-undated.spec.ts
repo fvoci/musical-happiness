@@ -11,7 +11,7 @@ for (const width of [390, 1280]) {
     page,
   }, info) => {
     await openRelated(page, info);
-    await setAfter(page, { 'Create a new card': ['Filter and sort cards'] });
+    await setAfter(page, { 'Write in the body': ['Keep your documents in a wiki'] });
     await page.setViewportSize({ width, height: 844 });
     await expect(page.getByTestId('gantt-late')).toBeVisible();
     await expect(page.getByTestId('gantt-loops')).toBeVisible();
@@ -44,7 +44,7 @@ for (const width of [390, 1280]) {
     const list = page.getByTestId('undated-list');
     await expect(list).toBeVisible();
     await expect(list.locator('[data-card]')).toHaveCount(count);
-    await expect(list).toContainText('Create a new view');
+    await expect(list).toContainText('Attach files and open them right here');
     if (process.env.FVOCI_SCREENS) {
       await page.screenshot({
         path: `${screensDir('chores')}/gantt-${width}-${info.project.name}-open.png`,

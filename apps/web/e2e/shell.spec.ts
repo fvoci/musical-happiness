@@ -125,7 +125,7 @@ test.describe('the top bar', () => {
       /^People viewing this board: 0, members: \d+$/,
     );
     await expect(topBar(page).getByTestId('board-presence')).toBeHidden();
-    await expect(topBar(page).getByText('Use this template to stay on top')).toBeHidden();
+    await expect(topBar(page).getByText('The periods and the order of your tasks')).toBeHidden();
     const about = topBar(page).getByTestId('container-description');
     if (width >= 544) await expect(about).toBeVisible();
     else await expect(about).toBeHidden();
@@ -140,13 +140,13 @@ test.describe('the top bar', () => {
     await expect(about).toHaveAccessibleName('Description');
     await about.click();
     const field = page.getByTestId('container-description-field');
-    await expect(field).toHaveValue(/^Use this template to stay on top/);
+    await expect(field).toHaveValue(/^The periods and the order of your tasks/);
     await field.fill('Where the launch stands.');
     await page.keyboard.press('Escape');
     await expect(field).toHaveCount(0);
     // Escape kept nothing of what was typed.
     await about.click();
-    await expect(field).toHaveValue(/^Use this template to stay on top/);
+    await expect(field).toHaveValue(/^The periods and the order of your tasks/);
     await field.fill('Where the launch stands.');
     // Leaving it by a click elsewhere keeps it.
     await topBar(page).getByTestId('board-title').click();
@@ -170,7 +170,7 @@ test.describe('the top bar', () => {
     await expect(topBar(page).getByTestId('read-only')).toBeVisible();
     await about.click();
     await expect(page.getByTestId('container-description-text')).toHaveText(
-      /^Use this template to plan your company goals/,
+      /^One card for each thing you learn/,
     );
     await expect(page.getByTestId('container-description-field')).toHaveCount(0);
   });
@@ -235,8 +235,8 @@ test.describe('the top bar', () => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await openApp(page);
     await showSidebar(page);
-    await boardLink(page, 'Roadmap').click();
-    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Roadmap');
+    await boardLink(page, 'Issue tracker').click();
+    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Issue tracker');
     await boardLink(page, FIRST_BOARD).click();
     await expect(topBar(page).getByTestId('board-title')).toHaveValue(FIRST_BOARD);
     const first = new URL(page.url()).pathname;
@@ -247,7 +247,7 @@ test.describe('the top bar', () => {
     await field.fill('Written, then left.');
     // Back to the other board with no click outside: nothing closed the description first.
     await page.goBack();
-    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Roadmap');
+    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Issue tracker');
     await expect(field).toHaveCount(0);
     const descriptions = (): Promise<Record<string, string>> =>
       page.evaluate(async () => {
@@ -266,7 +266,7 @@ test.describe('the top bar', () => {
         return Object.fromEntries(boards.map((board) => [board.title, board.description]));
       });
     await expect.poll(async () => (await descriptions())[FIRST_BOARD]).toBe('Written, then left.');
-    expect((await descriptions()).Roadmap).not.toBe('Written, then left.');
+    expect((await descriptions())['Issue tracker']).not.toBe('Written, then left.');
     // The bar still follows the board it shows: emptied here, its "ⓘ" offers to add one.
     await expect(about).toHaveAccessibleName('Description');
     await about.click();
@@ -391,7 +391,7 @@ test.describe('the top bar', () => {
     // reader's own), and does not offer to delete it.
     await showSidebar(page);
     await boardMenu(page, READ_ONLY_BOARD).click();
-    await expect(page.getByRole('menuitem', { name: 'Move to Team' })).toBeEnabled();
+    await expect(page.getByRole('menuitem', { name: 'Move to Projects' })).toBeEnabled();
     await expect(page.locator('[data-action="delete"]')).toBeDisabled();
   });
 });
@@ -520,7 +520,7 @@ test.describe('pictures', () => {
     // The menu of a board: a sheet on a compact page, a dropdown elsewhere.
     menu: async (page) => {
       await showSidebar(page);
-      await boardMenu(page, 'Roadmap').click();
+      await boardMenu(page, 'Issue tracker').click();
       await expect(page.getByRole('menuitem', { name: 'Delete board' })).toBeVisible();
     },
     // The fixed sidebar folded to the strip (expanded), or the strip and the

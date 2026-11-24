@@ -99,7 +99,7 @@ test('a code block in the editor is coloured by a worker of the app, under the p
   const seen = refusals(page);
   const workers: string[] = [];
   page.on('worker', (worker) => workers.push(worker.url()));
-  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', SOURCE));
+  const body = await openCardWithBody(page, 'Getting started', codeBody('ts', SOURCE));
   await expect(body).toHaveAttribute('data-editor', 'ready');
   await coloured(body);
   const { keyword, plain } = await colours(body);
@@ -122,14 +122,14 @@ test('a worker slow to load still colours: a text’s time starts once the worke
     await new Promise((resolve) => setTimeout(resolve, 2_000));
     await route.continue();
   });
-  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', SOURCE));
+  const body = await openCardWithBody(page, 'Getting started', codeBody('ts', SOURCE));
   await coloured(body);
 });
 
 test('the language is found and taken from the keys, and the bar is reached with Tab', async ({
   page,
 }) => {
-  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', SOURCE));
+  const body = await openCardWithBody(page, 'Getting started', codeBody('ts', SOURCE));
   // First the written body, then its editor: the editor is ready on the seed body first,
   // and clicking before the replacement arrives lands on the seed paragraph instead.
   await expect(body.locator('p').first()).toHaveText('Before the code.');
@@ -193,7 +193,7 @@ test('the copy button copies the text exactly, without the numbers of the lines,
   await page.addInitScript(() => {
     localStorage.setItem('fvoci:code-lines', '1');
   });
-  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', SOURCE));
+  const body = await openCardWithBody(page, 'Getting started', codeBody('ts', SOURCE));
   await expect(block(body).locator('.doc-code-line')).toHaveCount(5);
   const copy = block(body).locator('button.doc-code-copy');
   await expect(copy).toHaveAccessibleName(/Copy code|코드 복사/);
@@ -213,7 +213,7 @@ test('the numbers of the lines stay beside the first row of a line that wraps, a
     localStorage.setItem('fvoci:code-lines', '1');
   });
   const long = `const words = "${'word '.repeat(80)}";\nconst after = 1;`;
-  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', long));
+  const body = await openCardWithBody(page, 'Getting started', codeBody('ts', long));
   const numbers = block(body).locator('.doc-code-line');
   await expect(numbers).toHaveCount(2);
   const places = await block(body)
@@ -270,7 +270,7 @@ test('a block too long for a number at each line has them in one column, level w
     { length: 400 },
     (_, line) => `let value${String(line)} = "${'x'.repeat(90)}";`,
   );
-  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', lines.join('\n')));
+  const body = await openCardWithBody(page, 'Getting started', codeBody('ts', lines.join('\n')));
   const column = block(body).locator(':scope > .doc-code-column');
   await expect(column).toBeVisible();
   const rows = await block(body).evaluate((frame) => {
@@ -300,7 +300,7 @@ test('a block too long for a number at each line has them in one column, level w
 test('a card the reader may only look at names the language and still copies', async ({ page }) => {
   const engine = engineOf(page) ?? 'chromium';
   await page.context().grantPermissions(clipboardPermissions(engine));
-  const body = await openCardWithBody(page, 'Company Goals', codeBody('rust', 'fn main() {}'));
+  const body = await openCardWithBody(page, 'Study notes', codeBody('rust', 'fn main() {}'));
   await expect(body).toHaveAttribute('data-editor', 'reading');
   await coloured(body);
   const language = block(body).locator('button.doc-code-language');
@@ -319,7 +319,7 @@ async function openVersionBefore(page: Page, body: Locator): Promise<Locator> {
     const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
     const [workspace] = await dev.backend.workspaces();
     const boards = await dev.backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title.startsWith('Welcome'));
+    const board = boards.find((each) => each.title.startsWith('Customer contacts'));
     const [card] = await dev.backend.cards(board?.id ?? '');
     const { updateAt } = await dev.backend.card(board?.id ?? '', card?.id ?? '');
     await dev.someoneElse().writeCardBody(board?.id ?? '', card?.id ?? '', {
@@ -339,7 +339,7 @@ async function openVersionBefore(page: Page, body: Locator): Promise<Locator> {
 }
 
 test('a version read in the dialog is coloured as the editor colours it', async ({ page }) => {
-  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', SOURCE));
+  const body = await openCardWithBody(page, 'Customer contacts', codeBody('ts', SOURCE));
   await coloured(body);
   const inEditor = await colours(body);
   const shown = await openVersionBefore(page, body);
@@ -380,7 +380,7 @@ test('a block of a thousand lines, numbered and only shown, keeps its text where
   });
   // Past the length that is coloured (CODE_HIGHLIGHT_LIMIT): only the frame and the numbers come.
   const source = Array.from({ length: 1_200 }, (_, index) => `line ${index + 1}`).join('\n');
-  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', source));
+  const body = await openCardWithBody(page, 'Customer contacts', codeBody('ts', source));
   const shown = await openVersionBefore(page, body);
   const code = shown.locator('pre > code').first();
   await expect(code).toContainText('line 1200');
@@ -396,7 +396,7 @@ test('a syllable composed in a code block is kept, and coloured once it is done'
   page,
 }) => {
   test.skip(engineOf(page) !== 'chromium', "an input method is driven through Chromium's protocol");
-  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', 'const a = 1;'));
+  const body = await openCardWithBody(page, 'Getting started', codeBody('ts', 'const a = 1;'));
   await expect(body).toHaveAttribute('data-editor', 'ready');
   await coloured(body);
   const code = block(body).locator('pre > code');
@@ -426,7 +426,7 @@ test('two readers write in one block, and each sees the other’s words coloured
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
     const [workspace] = await backend.workspaces();
     const boards = await backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title.startsWith('Project Tasks'));
+    const board = boards.find((each) => each.title.startsWith('Customer contacts'));
     const views = await backend.views(board?.id ?? '');
     const [card] = await backend.cards(board?.id ?? '');
     return { boardId: board?.id ?? '', viewId: views[0]?.id ?? '', cardId: card?.id ?? '' };
@@ -474,7 +474,7 @@ test('a block past the length that is coloured stays plain, and the page goes on
   // it is never asked for. One that takes the worker too long is given up (code-highlight.test.ts).
   const body = await openCardWithBody(
     page,
-    'Welcome',
+    'Getting started',
     codeBody('ts', 'const a = 1; '.repeat(1_000)),
   );
   // First the written body, then its editor: the editor is ready before that body comes,
@@ -508,7 +508,7 @@ test.describe('pictures of code blocks', () => {
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
       for (const theme of ['light', 'dark'] as const) {
-        const body = await openCardWithBody(page, 'Welcome', codeBody('ts', SOURCE));
+        const body = await openCardWithBody(page, 'Getting started', codeBody('ts', SOURCE));
         // The theme is the account's, and stays from one picture to the next: each sets its own.
         await page.evaluate(
           (chosen) =>

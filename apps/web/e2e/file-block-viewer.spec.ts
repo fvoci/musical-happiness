@@ -30,7 +30,7 @@ interface Dev {
     workspaces(): Promise<{ id: string }[]>;
     boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
     views(boardId: string): Promise<{ id: string }[]>;
-    cards(boardId: string): Promise<{ id: string }[]>;
+    cards(boardId: string): Promise<{ id: string; title: string }[]>;
   };
 }
 
@@ -54,10 +54,12 @@ async function cardBody(page: Page): Promise<Locator> {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
     const [workspace] = await backend.workspaces();
     const boards = await backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title.startsWith('Project Tasks'));
+    const board = boards.find((each) => each.title.startsWith('Project schedule'));
     if (!board) throw new Error('no board of tasks');
     const [view] = await backend.views(board.id);
-    const [card] = await backend.cards(board.id);
+    const card = (await backend.cards(board.id)).find(
+      (each) => each.title === 'Design the screens',
+    );
     return { boardId: board.id, viewId: view?.id ?? '', cardId: card?.id ?? '' };
   });
   await page.goto(boardPath(place.boardId, place.viewId, place.cardId));
@@ -233,7 +235,8 @@ test('a finger on the name in a body not being written opens the file, and the b
   test.skip(!hasTouch, 'a finger needs a touch screen');
   const body = await cardBody(page);
   const block = await putFile(page, body, NAME, koreanPdf(1), 'application/pdf');
-  // Out of the body, as when the card was only opened.
+  // Move selection off the newly inserted file block, then out of the body as when the card was only opened.
+  await body.getByText('Above:').click();
   await page.evaluate(() => {
     (document.activeElement as HTMLElement | null)?.blur();
     document.getSelection()?.removeAllRanges();

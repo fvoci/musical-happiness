@@ -9,10 +9,10 @@
  * folded one.
  *
  * The seed is the same on every load. The first board of the sidebar is
- * "Project Tasks": five cards, the views "Progress Tracker" (a board, the
- * first in the list), "Project Priorities" (a board), "Task Calendar" and "Task
- * Overview" (a table without grouping, where the cards are a plain list in
- * the order of the view; the tests that count and order cards use it).
+ * "Project schedule": six cards, the views "Gantt" (first in the list),
+ * "Milestones", "Month calendar", "Status board" (a board) and "Task table"
+ * (a table without grouping, where the cards are a plain list; the tests that
+ * count and order cards use it).
  */
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -43,10 +43,16 @@ interface Dev {
     workspaces: () => Promise<{ id: string }[]>;
     boards: (workspaceId: string) => Promise<{ id: string; title: string }[]>;
     container: (containerId: string) => Promise<{
-      cardProperties: { id: string; name: string; options: { id: string; value: string }[] }[];
+      cardProperties: {
+        id: string;
+        name: string;
+        type: string;
+        options: { id: string; value: string }[];
+      }[];
     }>;
     views: (boardId: string) => Promise<StoredView[]>;
     patchView: (boardId: string, viewId: string, patch: object) => Promise<unknown>;
+    deleteBlock: (boardId: string, blockId: string) => Promise<void>;
     /** How long it takes to answer, in milliseconds. */
     latency: number;
   };
@@ -128,7 +134,7 @@ function storedView(page: Page): Promise<StoredView> {
 /** The properties of the board the address names, by name. */
 function properties(
   page: Page,
-): Promise<Record<string, { id: string; options: Record<string, string> }>> {
+): Promise<Record<string, { id: string; type: string; options: Record<string, string> }>> {
   return page.evaluate(async (boardId) => {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
     const board = await backend.container(boardId);
@@ -137,6 +143,7 @@ function properties(
         property.name,
         {
           id: property.id,
+          type: property.type,
           options: Object.fromEntries(property.options.map((option) => [option.value, option.id])),
         },
       ]),
@@ -177,7 +184,7 @@ async function showView(page: Page, name: string): Promise<void> {
 }
 
 /** The views of the first board of the seed, by title: nobody has moved one. */
-const SEED_VIEWS = ['Progress Tracker', 'Project Priorities', 'Task Calendar', 'Task Overview'];
+const SEED_VIEWS = ['Gantt', 'Milestones', 'Month calendar', 'Status board', 'Task table'];
 
 /** The views in the open list: links to them. */
 const listed = (page: Page): Locator =>
@@ -199,7 +206,7 @@ function storedOrder(page: Page): Promise<(string | undefined)[]> {
 
 /** Presses Tab until the element has the focus, a few times at most. */
 async function tabTo(page: Page, target: Locator): Promise<void> {
-  for (let press = 0; press < 8; press += 1) {
+  for (let press = 0; press < 16; press += 1) {
     if (await target.evaluate((element) => element === document.activeElement)) return;
     await page.keyboard.press('Tab');
   }
@@ -267,11 +274,12 @@ async function titles(page: Page): Promise<string[]> {
 const containing = (text: string): unknown => expect.stringContaining(text);
 
 const ALL = [
-  'Identify dependencies',
-  'Define project scope',
-  'Requirements sign-off',
-  'Project budget approval',
-  'Conduct market analysis',
+  'Agree on the scope',
+  'Design the screens',
+  'Build',
+  'Write the help pages',
+  'Test',
+  'Launch',
 ];
 
 test.describe('the two rows', () => {
@@ -280,6 +288,7 @@ test.describe('the two rows', () => {
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'needs a window that can be this wide');
     await open(page);
+    await showView(page, 'Status board');
     // 1280 wide, the sidebar beside it: the pane is 1024.
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
 
@@ -289,7 +298,7 @@ test.describe('the two rows', () => {
         .locator('span')
         .evaluate((name) => name.scrollWidth > name.clientWidth);
     await setPaneWidth(page, 992);
-    await expect(tool(page, 'views')).toHaveText('Progress Tracker');
+    await expect(tool(page, 'views')).toHaveText('Status board');
     expect(await cut()).toBe(false);
 
     await setPaneWidth(page, 704);
@@ -300,7 +309,7 @@ test.describe('the two rows', () => {
     // No tabs, and no "…": every tool of a board has its own button in the row.
     await expect(header(page).getByRole('link')).toHaveCount(0);
     await expect(tool(page, 'more')).toHaveCount(0);
-    await expect(tool(page, 'views')).toHaveText('Progress Tracker');
+    await expect(tool(page, 'views')).toHaveText('Status board');
     expect(await cut()).toBe(false);
     // "New" is in the row, and the row is as wide as its content.
     await expect(header(page).getByRole('button', { name: 'New', exact: true })).toBeVisible();
@@ -327,7 +336,7 @@ test.describe('the two rows', () => {
     test.skip(testInfo.project.name !== 'desktop', 'needs a window that can be this wide');
     await open(page);
     await setPaneWidth(page, 992);
-    // Long names for all four views of the board.
+    // Long names for all five views of the board.
     const { boardId, viewId } = placeOf(page.url());
     const given = await page.evaluate(async (id) => {
       const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
@@ -338,7 +347,7 @@ test.describe('the two rows', () => {
       }
       return titles;
     }, boardId);
-    const names = [1, 2, 3, 4].map((at) => `A longer view name ${String(at)}`);
+    const names = [1, 2, 3, 4, 5].map((at) => `A longer view name ${String(at)}`);
     await expect(tool(page, 'views')).toHaveText(given[viewId] ?? '');
     await tool(page, 'views').click();
     await expect(listed(page)).toHaveText(names);
@@ -353,7 +362,7 @@ test.describe('the two rows', () => {
 
     // The last view, from the list: the button names it, and the list marks it.
     await listed(page).last().click();
-    await expect(tool(page, 'views')).toHaveText('A longer view name 4');
+    await expect(tool(page, 'views')).toHaveText('A longer view name 5');
     await tool(page, 'views').click();
     await expect(listed(page).last()).toHaveAttribute('aria-current', 'page');
     await expect(listed(page).first()).not.toHaveAttribute('aria-current');
@@ -363,13 +372,14 @@ test.describe('the two rows', () => {
     page,
   }, testInfo) => {
     await open(page);
+    await showView(page, 'Status board');
     // A pane of 644: a window of 900 with the sidebar beside the board, or a device as
     // wide as an upright tablet (WebKit's "middle" is 834) made that much narrower.
     if (testInfo.project.name === 'desktop') await resize(page, 900, 720);
     else if ((await layout(page)) === 'row') await setPaneWidth(page, 644);
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
 
-    await expect(tool(page, 'views')).toContainText('Progress Tracker');
+    await expect(tool(page, 'views')).toContainText('Status board');
     for (const name of ['search', 'filter', 'more']) await expect(tool(page, name)).toBeVisible();
     for (const name of ['properties', 'group', 'sort']) await expect(tool(page, name)).toBeHidden();
     await expect(header(page).getByRole('link')).toHaveCount(0);
@@ -422,11 +432,16 @@ test.describe('in Korean', () => {
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'needs a window that can be this wide');
     await open(page);
+    await showView(page, 'Status board');
     await setPaneWidth(page, 704);
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
     // Icons, each named for a screen reader and by its tooltip.
-    // With the number of properties the cards show (of the board's: none is a relation).
-    const known = new Set(Object.values(await properties(page)).map((property) => property.id));
+    // With the number of properties the cards show (excluding relation properties).
+    const known = new Set(
+      Object.values(await properties(page))
+        .filter((property) => property.type !== 'relation')
+        .map((property) => property.id),
+    );
     const shownCount = (await storedView(page)).fields.visiblePropertyIds.filter((id) =>
       known.has(id),
     ).length;
@@ -465,22 +480,22 @@ test.describe('views', () => {
     await expect(page.locator('body')).toBeFocused();
     await expect(tool(page, 'views')).not.toBeFocused();
     const first = page.url();
-    await showView(page, 'Task Overview');
+    await showView(page, 'Task table');
     await expect(page).not.toHaveURL(first);
     const overview = page.url();
-    expect((await storedView(page)).title).toBe('Task Overview');
+    expect((await storedView(page)).title).toBe('Task table');
 
     // The address is the view: loaded on its own it shows the same one.
     await open(page, overview);
-    expect((await storedView(page)).title).toBe('Task Overview');
-    await expect(tool(page, 'views')).toHaveText('Task Overview');
+    expect((await storedView(page)).title).toBe('Task table');
+    await expect(tool(page, 'views')).toHaveText('Task table');
     await tool(page, 'views').click();
-    await expect(listed(page).filter({ hasText: 'Task Overview' })).toHaveAttribute(
+    await expect(listed(page).filter({ hasText: 'Task table' })).toHaveAttribute(
       'aria-current',
       'page',
     );
     // A line of the list is a link to its view.
-    const href = await listed(page).filter({ hasText: 'Progress Tracker' }).getAttribute('href');
+    const href = await listed(page).filter({ hasText: 'Gantt' }).getAttribute('href');
     expect(new URL(href ?? '', page.url()).href).toBe(first);
     await closeTop(page);
 
@@ -557,7 +572,7 @@ test.describe('views', () => {
     await open(page);
     const first = page.url();
     await tool(page, 'views').click();
-    const line = listed(page).filter({ hasText: 'Task Overview' });
+    const line = listed(page).filter({ hasText: 'Task table' });
     const href = new URL((await line.getAttribute('href')) ?? '', page.url()).href;
 
     const [held] = await Promise.all([
@@ -566,11 +581,11 @@ test.describe('views', () => {
     ]);
     await expect(held).toHaveURL(href);
     await expect(held.getByTestId('view-header').locator('[data-tool="views"]')).toHaveText(
-      'Task Overview',
+      'Task table',
     );
     // This tab shows what it showed.
     expect(page.url()).toBe(first);
-    await expect(tool(page, 'views')).toHaveText('Progress Tracker');
+    await expect(tool(page, 'views')).toHaveText('Gantt');
     await held.close();
 
     await tool(page, 'views').click();
@@ -588,7 +603,7 @@ test.describe('views', () => {
     await tool(page, 'views').focus();
     await page.keyboard.press('Enter');
     await expect(listed(page).first()).toBeFocused();
-    for (const _ of [1, 2, 3]) await page.keyboard.press('ArrowDown');
+    for (const _ of [1, 2, 3, 4]) await page.keyboard.press('ArrowDown');
     await expect(line).toBeFocused();
     const [keyed] = await Promise.all([
       context.waitForEvent('page'),
@@ -596,7 +611,7 @@ test.describe('views', () => {
     ]);
     await expect(keyed).toHaveURL(href);
     expect(page.url()).toBe(first);
-    await expect(tool(page, 'views')).toHaveText('Progress Tracker');
+    await expect(tool(page, 'views')).toHaveText('Gantt');
   });
 
   test('a view is renamed, copied and deleted by the keys alone', async ({ page }, testInfo) => {
@@ -667,31 +682,32 @@ test.describe('views', () => {
     await page.keyboard.press('Enter');
     await expect(listed(page)).toHaveText(SEED_VIEWS);
     const line = (name: string): Locator => listed(page).filter({ hasText: name });
-    await expect(line('Progress Tracker')).toBeFocused();
+    await expect(line('Gantt')).toBeFocused();
     // Alt and an arrow on the line, which keeps the focus where it goes.
     await page.keyboard.press('Alt+ArrowDown');
-    const second = ['Project Priorities', 'Progress Tracker', 'Task Calendar', 'Task Overview'];
+    const second = ['Milestones', 'Gantt', 'Month calendar', 'Status board', 'Task table'];
     await expect(listed(page)).toHaveText(second);
-    await expect(line('Progress Tracker')).toBeFocused();
-    await expect(page.getByText('Progress Tracker is now 2 of 4')).toBeAttached();
+    await expect(line('Gantt')).toBeFocused();
+    await expect(page.getByText('Gantt is now 2 of 5')).toBeAttached();
     await page.keyboard.press('Alt+ArrowDown');
     await expect(listed(page)).toHaveText([
-      'Project Priorities',
-      'Task Calendar',
-      'Progress Tracker',
-      'Task Overview',
+      'Milestones',
+      'Month calendar',
+      'Gantt',
+      'Status board',
+      'Task table',
     ]);
-    await expect(page.getByText('Progress Tracker is now 3 of 4')).toBeAttached();
+    await expect(page.getByText('Gantt is now 3 of 5')).toBeAttached();
     await page.keyboard.press('Alt+ArrowUp');
     await expect(listed(page)).toHaveText(second);
-    await expect(line('Progress Tracker')).toBeFocused();
+    await expect(line('Gantt')).toBeFocused();
     await expect.poll(() => storedOrder(page)).toEqual(second);
     // The arrows alone go from line to line, past the buttons at their ends.
     await page.keyboard.press('ArrowDown');
-    await expect(line('Task Calendar')).toBeFocused();
+    await expect(line('Month calendar')).toBeFocused();
     await page.keyboard.press('ArrowUp');
     await page.keyboard.press('ArrowUp');
-    await expect(line('Project Priorities')).toBeFocused();
+    await expect(line('Milestones')).toBeFocused();
     // At the top, Alt and up goes nowhere.
     await page.keyboard.press('Alt+ArrowUp');
     await expect(listed(page)).toHaveText(second);
@@ -701,10 +717,10 @@ test.describe('views', () => {
     await expect(views).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(listed(page)).toHaveText(second);
-    await expect(page.getByText('Progress Tracker is now 2 of 4')).toHaveCount(0);
+    await expect(page.getByText('Gantt is now 2 of 5')).toHaveCount(0);
     // And the view shown is still the one it was.
     await closeTop(page);
-    await expect(views).toHaveText('Progress Tracker');
+    await expect(views).toHaveText('Gantt');
   });
 
   test('a view is moved by the buttons at the end of its line, the list staying open', async ({
@@ -715,15 +731,16 @@ test.describe('views', () => {
     await tool(page, 'views').click();
     const menu = page.getByRole('menu', { name: 'Views' });
     const down = menu.locator('[data-line-tool][data-action="move-down"]').first();
-    await expect(down).toHaveAttribute('title', 'Move Progress Tracker down (Alt+↓)');
+    await expect(down).toHaveAttribute('title', 'Move Gantt down (Alt+↓)');
     await down.click();
     await expect(listed(page)).toHaveText([
-      'Project Priorities',
-      'Progress Tracker',
-      'Task Calendar',
-      'Task Overview',
+      'Milestones',
+      'Gantt',
+      'Month calendar',
+      'Status board',
+      'Task table',
     ]);
-    await expect(listed(page).filter({ hasText: 'Progress Tracker' })).toBeFocused();
+    await expect(listed(page).filter({ hasText: 'Gantt' })).toBeFocused();
     // A name of the list is whole beside its buttons.
     expect(
       await menu.evaluate(
@@ -748,44 +765,55 @@ test.describe('views', () => {
     await page.keyboard.press('Enter');
     await expect(sheet(page)).toBeVisible();
     // It names the view the lines after the views change, and the board.
-    await expect(sheet(page).getByText(`Project Tasks · showing ${shown}`)).toBeVisible();
+    await expect(sheet(page).getByText(`Project schedule · showing ${shown}`)).toBeVisible();
     const lines = sheet(page).locator('a[role="menuitem"]');
     await expect(lines).toHaveText(SEED_VIEWS);
     // Tab reaches the buttons of the sheet, which keep the focus.
-    const down = sheet(page).getByRole('menuitem', { name: 'Move Project Priorities down' });
+    const down = sheet(page).getByRole('menuitem', { name: 'Move Month calendar down' });
     // Its tooltip, for a mouse in a narrow window, says the keys too: not its name again.
-    await expect(down).toHaveAttribute('title', 'Move Project Priorities down (Alt+↓)');
+    await expect(down).toHaveAttribute('title', 'Move Month calendar down (Alt+↓)');
     await tabTo(page, down);
     await page.keyboard.press('Enter');
     await expect(lines).toHaveText([
-      'Progress Tracker',
-      'Task Calendar',
-      'Project Priorities',
-      'Task Overview',
+      'Gantt',
+      'Milestones',
+      'Status board',
+      'Month calendar',
+      'Task table',
     ]);
     await expect(down).toBeFocused();
-    await expect(sheet(page).getByText('Project Priorities is now 3 of 4')).toBeAttached();
+    await expect(sheet(page).getByText('Month calendar is now 4 of 5')).toBeAttached();
     await page.keyboard.press('Enter');
-    await expect(lines.last()).toHaveText('Project Priorities');
+    await expect(lines.last()).toHaveText('Month calendar');
     // At the end, down is no way: the focus goes to up, which is.
     await expect(down).toBeDisabled();
     await expect(
-      sheet(page).getByRole('menuitem', { name: 'Move Project Priorities up' }),
+      sheet(page).getByRole('menuitem', { name: 'Move Month calendar up' }),
     ).toBeFocused();
     // And Alt and an arrow on a line, as in the dropdown.
-    const first = lines.filter({ hasText: 'Progress Tracker' });
+    const first = lines.filter({ hasText: 'Gantt' });
     await first.focus();
     await page.keyboard.press('Alt+ArrowDown');
-    await expect(lines.nth(1)).toHaveText('Progress Tracker');
+    await expect(lines.nth(1)).toHaveText('Gantt');
     await expect(first).toBeFocused();
     await expect
       .poll(() => storedOrder(page))
-      .toEqual(['Task Calendar', 'Progress Tracker', 'Task Overview', 'Project Priorities']);
+      .toEqual(['Milestones', 'Gantt', 'Status board', 'Task table', 'Month calendar']);
   });
 
   test('the last view of a board cannot be deleted', async ({ page }) => {
     await open(page);
-    await open(page, await boardAddress(page, 'Meeting Agenda'));
+    await open(page, await boardAddress(page, 'Meeting notes'));
+    const { boardId, viewId } = placeOf(page.url());
+    await page.evaluate(
+      async ({ board, keep }) => {
+        const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
+        for (const view of await backend.views(board)) {
+          if (view.id !== keep) await backend.deleteBlock(board, view.id);
+        }
+      },
+      { board: boardId, keep: viewId },
+    );
     await tool(page, 'views').click();
     await expect(page.locator('[role="menuitem"][data-action="delete"]')).toBeDisabled();
     await expect(page.locator('[role="menuitem"][data-action="duplicate"]')).toBeEnabled();
@@ -795,45 +823,48 @@ test.describe('views', () => {
 test.describe('what a view shows', () => {
   test('properties are switched on and off, each as it is pressed', async ({ page }) => {
     await open(page);
-    const assignee = (await properties(page)).Assignee?.id ?? '';
-    expect((await storedView(page)).fields.visiblePropertyIds).not.toContain(assignee);
+    await showView(page, 'Status board');
+    const phase = (await properties(page)).Phase?.id ?? '';
+    expect((await storedView(page)).fields.visiblePropertyIds).not.toContain(phase);
 
     await openTool(page, 'properties');
     const panel = page.getByTestId('properties-panel');
-    const toggle = panel.getByRole('switch', { name: 'Assignee' });
+    const toggle = panel.getByRole('switch', { name: 'Phase' });
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
-    const priority = panel.getByRole('switch', { name: 'Priority' });
-    await expect(priority).toHaveAttribute('aria-checked', 'true');
-    // The list has the properties of the board and nothing else: a card always shows its title
-    // and the marks of a description and of a checklist, so neither has a switch.
+    const owner = panel.getByRole('switch', { name: 'Owner' });
+    await expect(owner).toHaveAttribute('aria-checked', 'true');
+    // The list has the non-relation properties of the board and nothing else: a card always shows
+    // its title and the marks of a description and of a checklist, so neither has a switch.
     await expect(panel.getByRole('switch', { name: 'Comments and description' })).toHaveCount(0);
     await expect(panel.getByRole('switch', { name: 'Title' })).toHaveCount(0);
     expect(await panel.getByRole('switch').count()).toBe(
-      Object.keys(await properties(page)).length,
+      Object.values(await properties(page)).filter((property) => property.type !== 'relation')
+        .length,
     );
 
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
     await expect
       .poll(async () => (await storedView(page)).fields.visiblePropertyIds)
-      .toContain(assignee);
+      .toContain(phase);
     // The list stays open for the next one.
-    await priority.click();
-    await expect(priority).toHaveAttribute('aria-checked', 'false');
+    await owner.click();
+    await expect(owner).toHaveAttribute('aria-checked', 'false');
 
-    // Each switch was one change: one undo brings Priority back, the next takes Assignee out.
+    // Each switch was one change: one undo brings Owner back, the next takes Phase out.
     await undo(page);
-    await expect(priority).toHaveAttribute('aria-checked', 'true');
+    await expect(owner).toHaveAttribute('aria-checked', 'true');
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
     await undo(page);
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
-    expect((await storedView(page)).fields.visiblePropertyIds).not.toContain(assignee);
+    expect((await storedView(page)).fields.visiblePropertyIds).not.toContain(phase);
   });
 
   test('grouping by another property starts its columns over, and one undo takes it back', async ({
     page,
   }) => {
     await open(page);
+    await showView(page, 'Status board');
     const all = await properties(page);
     const before = await storedView(page);
     expect(before.fields.groupById).toBe(all.Status?.id);
@@ -849,20 +880,17 @@ test.describe('what a view shows', () => {
     const choices = page.getByRole('menuitem');
     // A board is always grouped: there is no "none" to pick.
     await expect(choices.filter({ hasText: 'Ungroup' })).toHaveCount(0);
-    await expect(choices.filter({ hasText: 'Estimated Hours' })).toHaveCount(0);
-    await choices.filter({ hasText: 'Priority' }).click();
+    await expect(choices.filter({ hasText: 'Estimated hours' })).toHaveCount(0);
+    await choices.filter({ hasText: 'Phase' }).click();
     // Picking one closes the list.
     await expect(choices).toHaveCount(0);
 
-    await expect.poll(async () => (await storedView(page)).fields.groupById).toBe(all.Priority?.id);
+    await expect.poll(async () => (await storedView(page)).fields.groupById).toBe(all.Phase?.id);
     const after = await storedView(page);
-    expect(after.fields.visibleOptionIds).toEqual([
-      '',
-      ...Object.values(all.Priority?.options ?? {}),
-    ]);
+    expect(after.fields.visibleOptionIds).toEqual(['', ...Object.values(all.Phase?.options ?? {})]);
     expect(after.fields.hiddenOptionIds).toEqual([]);
     if ((await layout(page)) === 'row') {
-      await expect(tool(page, 'group')).toHaveAccessibleName(/Group by: Priority/);
+      await expect(tool(page, 'group')).toHaveAccessibleName(/Group by: Phase/);
     }
 
     await undo(page);
@@ -874,9 +902,9 @@ test.describe('what a view shows', () => {
 
   test('a table can be grouped by nothing', async ({ page }) => {
     await open(page);
-    await showView(page, 'Task Overview');
+    await showView(page, 'Task table');
     const all = await properties(page);
-    expect((await storedView(page)).fields.groupById).toBe('');
+    expect((await storedView(page)).fields.groupById ?? '').toBe('');
 
     await openTool(page, 'group');
     await page.getByRole('menuitem', { name: 'Status', exact: true }).click();
@@ -892,8 +920,8 @@ test.describe('what a view shows', () => {
 test.describe('filter', () => {
   test.beforeEach(async ({ page }) => {
     await open(page);
-    await showView(page, 'Task Overview');
-    await expect(cards(page)).toHaveCount(5);
+    await showView(page, 'Task table');
+    await expect(cards(page)).toHaveCount(6);
   });
 
   test('options, text, a date and emptiness each change how many cards there are', async ({
@@ -903,99 +931,101 @@ test.describe('filter', () => {
     await expect(filterEditor(page)).toContainText('No conditions');
 
     // Options: ticked in a list that stays open.
-    const priority = await addCondition(page, 'Priority');
-    await expect(priority.locator('[data-slot="filter-condition"]')).toContainText('includes');
-    await expect(cards(page)).toHaveCount(5);
-    await priority.locator('[data-slot="property-select"]').click();
-    await page.getByRole('option', { name: '1. High' }).click();
+    const phase = await addCondition(page, 'Phase');
+    await expect(phase.locator('[data-slot="filter-condition"]')).toContainText('includes');
+    await expect(cards(page)).toHaveCount(6);
+    await phase.locator('[data-slot="property-select"]').click();
+    await page.getByRole('option', { name: 'Planning' }).click();
     await expect(cards(page)).toHaveCount(2);
-    await page.getByRole('option', { name: '3. Low' }).click();
+    await page.getByRole('option', { name: 'Launch' }).click();
     await expect(cards(page)).toHaveCount(3);
     await closeTop(page);
     await expect(filterEditor(page)).toBeVisible();
     await expect(tool(page, 'filter').locator('[data-count]')).toHaveText('1');
 
     // The same options, the other way round.
-    await priority.locator('[data-slot="filter-condition"]').click();
+    await phase.locator('[data-slot="filter-condition"]').click();
     await page.getByRole('menuitem', { name: "doesn't include", exact: true }).click();
-    await expect(cards(page)).toHaveCount(2);
+    await expect(cards(page)).toHaveCount(3);
 
     // Emptiness has nothing to compare with.
-    await priority.locator('[data-slot="filter-condition"]').click();
+    await phase.locator('[data-slot="filter-condition"]').click();
     await page.getByRole('menuitem', { name: 'is empty', exact: true }).click();
     await expect(cards(page)).toHaveCount(0);
-    await expect(priority.locator('[data-slot="property-select"]')).toHaveCount(0);
-    await priority.locator('[data-slot="filter-condition"]').click();
+    await expect(phase.locator('[data-slot="property-select"]')).toHaveCount(0);
+    await phase.locator('[data-slot="filter-condition"]').click();
     await page.getByRole('menuitem', { name: 'is not empty', exact: true }).click();
-    await expect(cards(page)).toHaveCount(5);
+    await expect(cards(page)).toHaveCount(6);
 
     // Another property: the condition becomes one its kind of value has.
-    await priority.locator('[data-slot="filter-property"]').click();
+    await phase.locator('[data-slot="filter-property"]').click();
     await page.getByRole('menuitem', { name: 'Title', exact: true }).click();
     const title = filterRows(page).first();
     await expect(title.locator('[data-slot="filter-condition"]')).toContainText('is');
     await title.locator('[data-slot="filter-condition"]').click();
     await page.getByRole('menuitem', { name: 'contains', exact: true }).click();
     const text = title.getByRole('textbox', { name: 'Value for Title' });
-    await text.fill('PROJECT');
+    await text.fill('THE SC');
     await text.press('Enter');
     await expect(cards(page)).toHaveCount(2);
     // In whatever order: a line starts with the icon of its card.
     expect(await titles(page)).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('Define project scope'),
-        expect.stringContaining('Project budget approval'),
+        expect.stringContaining('Agree on the scope'),
+        expect.stringContaining('Design the screens'),
       ]),
     );
 
-    // A date: a day picked from the calendar. The cards were all made before today.
-    await title.locator('[data-remove]').click();
-    await expect(filterRows(page)).toHaveCount(0);
+    // A date: a day picked from the calendar, on a board with both an updated-time and a date property.
+    await closeTop(page);
+    await open(page, await boardAddress(page, 'Customer contacts'));
+    await showView(page, 'All customers');
     await expect(cards(page)).toHaveCount(5);
-    const created = await addCondition(page, 'Date Created', 'is after');
-    await created.locator('[data-slot="filter-date"]').click();
+    await openTool(page, 'filter');
+    const changed = await addCondition(page, 'Last changed at', 'is after');
+    await changed.locator('[data-slot="filter-date"]').click();
     await page.getByRole('button', { name: 'Today', exact: true }).click();
-    await expect(created.locator('[data-slot="filter-date"]')).not.toContainText('Empty');
+    await expect(changed.locator('[data-slot="filter-date"]')).not.toContainText('Empty');
     await expect(cards(page)).toHaveCount(0);
-    await created.locator('[data-slot="filter-condition"]').click();
+    await changed.locator('[data-slot="filter-condition"]').click();
     await page.getByRole('menuitem', { name: 'is before', exact: true }).click();
     await expect(cards(page)).toHaveCount(5);
     const stored = (await storedView(page)).fields.filter.filters[0] as { values: string[] };
     expect(stored.values[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
-    // No card has a due date.
-    await created.locator('[data-slot="filter-property"]').click();
-    await page.getByRole('menuitem', { name: 'Due Date', exact: true }).click();
-    await created.locator('[data-slot="filter-condition"]').click();
+    // Three of the five cards have a next contact date.
+    await changed.locator('[data-slot="filter-property"]').click();
+    await page.getByRole('menuitem', { name: 'Next contact', exact: true }).click();
+    await changed.locator('[data-slot="filter-condition"]').click();
     await page.getByRole('menuitem', { name: 'is set', exact: true }).click();
-    await expect(cards(page)).toHaveCount(0);
-    await expect(created.locator('[data-slot="filter-date"]')).toHaveCount(0);
+    await expect(cards(page)).toHaveCount(3);
+    await expect(changed.locator('[data-slot="filter-date"]')).toHaveCount(0);
   });
 
   test('several conditions: all of them, or any one; and undo, a step at a time', async ({
     page,
   }) => {
     await openTool(page, 'filter');
-    const priority = await addCondition(page, 'Priority');
-    await priority.locator('[data-slot="property-select"]').click();
-    await page.getByRole('option', { name: '1. High' }).click();
+    const phase = await addCondition(page, 'Phase');
+    await phase.locator('[data-slot="property-select"]').click();
+    await page.getByRole('option', { name: 'Building' }).click();
     await closeTop(page);
-    await expect(cards(page)).toHaveCount(2);
+    await expect(cards(page)).toHaveCount(3);
     // With one condition there is nothing to choose between.
     await expect(filterEditor(page).getByRole('radiogroup')).toHaveCount(0);
 
     const title = await addCondition(page, 'Title', 'contains');
     const text = title.getByRole('textbox', { name: 'Value for Title' });
-    await text.fill('project');
+    await text.fill('the');
     await text.press('Enter');
     await expect(cards(page)).toHaveCount(1);
-    await expect(cards(page)).toContainText('Project budget approval');
+    await expect(cards(page)).toContainText('Write the help pages');
     await expect(tool(page, 'filter').locator('[data-count]')).toHaveText('2');
 
     const match = filterEditor(page).getByRole('radiogroup');
     await expect(match.getByRole('radio', { name: 'All conditions' })).toBeChecked();
     await match.getByRole('radio', { name: 'Any condition' }).click();
-    await expect(cards(page)).toHaveCount(3);
+    await expect(cards(page)).toHaveCount(5);
     expect((await storedView(page)).fields.filter.operation).toBe('or');
 
     // Undo: back to "all", then the text goes, then the condition on the title.
@@ -1003,20 +1033,20 @@ test.describe('filter', () => {
     await expect(cards(page)).toHaveCount(1);
     await expect(match.getByRole('radio', { name: 'All conditions' })).toBeChecked();
     await undo(page);
-    await expect(cards(page)).toHaveCount(2);
+    await expect(cards(page)).toHaveCount(3);
     await expect(text).toHaveValue('');
 
     // A person: the members of the board, ticked like options.
     await title.locator('[data-slot="filter-property"]').click();
-    await page.getByRole('menuitem', { name: 'Assignee', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Owner', exact: true }).click();
     await title.locator('[data-slot="property-person"]').click();
     const people = page.getByRole('option');
     await expect(people.first()).toBeVisible();
     expect(await people.count()).toBeGreaterThanOrEqual(3);
     await people.first().click();
     await closeTop(page);
-    const assignee = (await storedView(page)).fields.filter.filters[1] as { values: string[] };
-    expect(assignee.values).toHaveLength(1);
+    const owner = (await storedView(page)).fields.filter.filters[1] as { values: string[] };
+    expect(owner.values).toHaveLength(1);
   });
 
   test('a group of conditions inside the filter is said to be there, and survives every edit', async ({
@@ -1027,7 +1057,7 @@ test.describe('filter', () => {
       operation: 'or',
       filters: [
         { propertyId: 'title', condition: 'contains', values: ['scope'] },
-        { propertyId: 'title', condition: 'contains', values: ['budget'] },
+        { propertyId: 'title', condition: 'contains', values: ['help'] },
       ],
     };
     await patchView(page, { filter: { operation: 'and', filters: [nested] } });
@@ -1039,9 +1069,9 @@ test.describe('filter', () => {
     await expect(filterRows(page)).toHaveCount(0);
 
     // Add a condition, change it, change how they combine, remove it: the group is as it was.
-    const priority = await addCondition(page, 'Priority');
-    await priority.locator('[data-slot="property-select"]').click();
-    await page.getByRole('option', { name: '2. Medium' }).click();
+    const phase = await addCondition(page, 'Phase');
+    await phase.locator('[data-slot="property-select"]').click();
+    await page.getByRole('option', { name: 'Building' }).click();
     await closeTop(page);
     await expect(cards(page)).toHaveCount(1);
     expect((await storedView(page)).fields.filter).toEqual({
@@ -1049,15 +1079,15 @@ test.describe('filter', () => {
       filters: [
         nested,
         {
-          propertyId: all.Priority?.id,
+          propertyId: all.Phase?.id,
           condition: 'includes',
-          values: [all.Priority?.options['2. Medium']],
+          values: [all.Phase?.options.Building],
         },
       ],
     });
     await filterEditor(page).getByRole('radio', { name: 'Any condition' }).click();
-    await expect(cards(page)).toHaveCount(3);
-    await priority.locator('[data-remove]').click();
+    await expect(cards(page)).toHaveCount(4);
+    await phase.locator('[data-remove]').click();
     await expect(filterRows(page)).toHaveCount(0);
     expect((await storedView(page)).fields.filter).toEqual({ operation: 'or', filters: [nested] });
     await expect(cards(page)).toHaveCount(2);
@@ -1067,8 +1097,10 @@ test.describe('filter', () => {
 test.describe('sort', () => {
   test('several sorts apply in their order, each in its direction', async ({ page }) => {
     await open(page);
-    await showView(page, 'Task Overview');
-    await expect(cards(page)).toHaveCount(5);
+    await showView(page, 'Task table');
+    await patchView(page, { sortOptions: [] });
+    await expect.poll(async () => (await storedView(page)).fields.sortOptions).toEqual([]);
+    await expect(cards(page)).toHaveCount(6);
     const all = await properties(page);
 
     await openTool(page, 'sort');
@@ -1088,42 +1120,43 @@ test.describe('sort', () => {
     await expect.poll(() => titles(page)).toEqual([...ALL].sort().reverse().map(containing));
 
     // A second sort only orders what the first leaves equal: here nothing.
-    await addSort(page, 'Priority');
+    await addSort(page, 'Phase');
     await expect.poll(() => titles(page)).toEqual([...ALL].sort().reverse().map(containing));
     expect((await storedView(page)).fields.sortOptions).toEqual([
       { propertyId: '__title', reversed: true },
-      { propertyId: all.Priority?.id, reversed: false },
+      { propertyId: all.Phase?.id, reversed: false },
     ]);
 
-    // Moved up, the priority decides first and the title, still reversed, within it.
-    const byPriority = sortEditor(page).locator(`[data-sort="${all.Priority?.id ?? ''}"]`);
-    await expect(byPriority.getByRole('button', { name: 'Move Priority down' })).toBeDisabled();
-    await byPriority.getByRole('button', { name: 'Move Priority up' }).click();
-    await expect(sortEditor(page).getByRole('status')).toHaveText('Priority is now number 1 of 2.');
-    await expect(byPriority.getByRole('button', { name: 'Move Priority up' })).toBeDisabled();
+    // Moved up, the phase decides first and the title, still reversed, within it.
+    const byPhase = sortEditor(page).locator(`[data-sort="${all.Phase?.id ?? ''}"]`);
+    await expect(byPhase.getByRole('button', { name: 'Move Phase down' })).toBeDisabled();
+    await byPhase.getByRole('button', { name: 'Move Phase up' }).click();
+    await expect(sortEditor(page).getByRole('status')).toHaveText('Phase is now number 1 of 2.');
+    await expect(byPhase.getByRole('button', { name: 'Move Phase up' })).toBeDisabled();
     // The focus went with the line, to the button that still works.
-    await expect(byPriority.getByRole('button', { name: 'Move Priority down' })).toBeFocused();
+    await expect(byPhase.getByRole('button', { name: 'Move Phase down' })).toBeFocused();
     await expect
       .poll(() => titles(page))
       .toEqual(
         [
-          'Requirements sign-off',
-          'Project budget approval',
-          'Define project scope',
-          'Conduct market analysis',
-          'Identify dependencies',
+          'Write the help pages',
+          'Test',
+          'Build',
+          'Launch',
+          'Design the screens',
+          'Agree on the scope',
         ].map(containing),
       );
 
     // A property is sorted by once: it is no longer offered.
     await sortEditor(page).locator('[data-tool="add-sort"]').click();
     await expect(page.getByRole('menuitem', { name: 'Status', exact: true })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'Priority', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: 'Phase', exact: true })).toHaveCount(0);
     await closeTop(page);
 
     // Removed: the title alone again. The focus is not left on a button that is gone.
-    await byPriority.getByRole('button', { name: 'Remove the sort by Priority' }).click();
-    await expect(byPriority).toHaveCount(0);
+    await byPhase.getByRole('button', { name: 'Remove the sort by Phase' }).click();
+    await expect(byPhase).toHaveCount(0);
     await expect(sortEditor(page).locator('[data-tool="add-sort"]')).toBeFocused();
     await expect.poll(() => titles(page)).toEqual([...ALL].sort().reverse().map(containing));
 
@@ -1135,8 +1168,8 @@ test.describe('sort', () => {
 test.describe('search', () => {
   test('narrows the cards as it is typed; closing it brings them back', async ({ page }) => {
     await open(page);
-    await showView(page, 'Task Overview');
-    await expect(cards(page)).toHaveCount(5);
+    await showView(page, 'Task table');
+    await expect(cards(page)).toHaveCount(6);
     const folded = (await layout(page)) === 'folded';
     // By its element: while the folded row has it away, it has no role to be found by.
     const field = header(page).locator('input[type="search"]');
@@ -1165,13 +1198,13 @@ test.describe('search', () => {
       expect(covered).toEqual({ wide: true, views: true, filter: true });
     }
 
-    await field.pressSequentially('proj');
+    await field.pressSequentially('the sc');
     await expect(cards(page)).toHaveCount(2);
-    await field.pressSequentially('ect b');
+    await field.pressSequentially('o');
     await expect(cards(page)).toHaveCount(1);
-    await expect(cards(page)).toContainText('Project budget approval');
+    await expect(cards(page)).toContainText('Agree on the scope');
     // Search is the reader's own: nothing of it is stored in the view.
-    expect(JSON.stringify(await storedView(page))).not.toContain('project b');
+    expect(JSON.stringify(await storedView(page))).not.toContain('the sco');
 
     if (folded) {
       await header(page).getByRole('button', { name: 'Close search' }).click();
@@ -1182,13 +1215,13 @@ test.describe('search', () => {
       // In the whole row the field is where its button was, and the button of the views
       // stays as it was; Escape gives the search its button back.
       await expect(tool(page, 'search')).toHaveCount(0);
-      await expect(tool(page, 'views')).toHaveText('Task Overview');
+      await expect(tool(page, 'views')).toHaveText('Task table');
       await field.press('Escape');
       await expect(field).toBeHidden();
       await expect(tool(page, 'search')).toBeFocused();
     }
     await expect(field).toHaveValue('');
-    await expect(cards(page)).toHaveCount(5);
+    await expect(cards(page)).toHaveCount(6);
 
     // Another view starts without the search.
     await tool(page, 'search').click();
@@ -1202,7 +1235,7 @@ test.describe('search', () => {
       ).toBe(true);
       await page.goBack();
     } else {
-      await showView(page, 'Progress Tracker');
+      await showView(page, 'Status board');
     }
     await expect(field).toHaveValue('');
   });
@@ -1212,17 +1245,17 @@ test.describe('a compact page', () => {
   test('menus are sheets, and the back button closes them', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile', 'the compact stage');
     await open(page);
-    await showView(page, 'Task Overview');
+    await showView(page, 'Task table');
     const address = page.url();
 
     // The list of views.
     await tool(page, 'views').click();
     await expect(sheet(page)).toBeVisible();
     await expect(
-      sheet(page).getByRole('menuitem', { name: 'Task Overview', exact: true }),
+      sheet(page).getByRole('menuitem', { name: 'Task table', exact: true }),
     ).toBeVisible();
     // Its buttons that move a view are what a finger presses: 44 pixels at least.
-    const up = sheet(page).getByRole('menuitem', { name: 'Move Task Overview up' });
+    const up = sheet(page).getByRole('menuitem', { name: 'Move Task table up' });
     expect((await up.boundingBox())?.height).toBeGreaterThanOrEqual(44);
     await page.goBack();
     await expect(sheet(page)).toHaveCount(0);
@@ -1284,27 +1317,27 @@ test.describe('a compact page', () => {
 test.describe('a board the reader may only look at', () => {
   test('has the views and search, and nothing that changes the view', async ({ page }) => {
     await open(page);
-    await open(page, await boardAddress(page, 'Company Goals & OKRs'));
+    await open(page, await boardAddress(page, 'Study notes'));
     for (const name of ['properties', 'group', 'filter', 'sort', 'more', 'rename']) {
       await expect(tool(page, name)).toHaveCount(0);
     }
     await expect(page.getByTestId('new-card')).toHaveCount(0);
 
-    await showView(page, 'Departments');
-    expect((await storedView(page)).title).toBe('Departments');
-    // The list switches views and offers nothing else: its lines are the three views.
+    await showView(page, 'By subject');
+    expect((await storedView(page)).title).toBe('By subject');
+    // The list switches views and offers nothing else: its lines are the five views.
     await tool(page, 'views').click();
-    await expect(page.getByRole('menuitem')).toHaveCount(3);
-    await expect(page.locator('a[role="menuitem"]')).toHaveCount(3);
+    await expect(page.getByRole('menuitem')).toHaveCount(5);
+    await expect(page.locator('a[role="menuitem"]')).toHaveCount(5);
     // Nor are they moved.
     await expect(page.locator('[data-line-tool]')).toHaveCount(0);
     await closeTop(page);
     await tool(page, 'search').click();
     const before = await cards(page).count();
     expect(before).toBeGreaterThan(1);
-    await header(page).getByRole('searchbox', { name: 'Search cards' }).fill('backlog');
+    await header(page).getByRole('searchbox', { name: 'Search cards' }).fill('index');
     await expect.poll(() => cards(page).count()).toBeLessThan(before);
-    await expect(cards(page).first()).toContainText('Reduce bug backlog');
+    await expect(cards(page).first()).toContainText('Why an index is fast');
   });
 });
 
@@ -1312,12 +1345,12 @@ test.describe('while the window changes size', () => {
   test('what is open stays open, and what was typed stays typed', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'starts wide and goes through every stage');
     await open(page);
-    await showView(page, 'Task Overview');
+    await showView(page, 'Task table');
     await tool(page, 'search').click();
     const field = header(page).getByRole('searchbox', { name: 'Search cards' });
     await field.fill('e');
-    await expect(cards(page)).toHaveCount(5);
-    await field.fill('project');
+    await expect(cards(page)).toHaveCount(6);
+    await field.fill('the sc');
     await expect(cards(page)).toHaveCount(2);
 
     // The filter open in the whole row, with a text typed and not yet saved.
@@ -1343,7 +1376,7 @@ test.describe('while the window changes size', () => {
       await text.evaluate((element) => (window as unknown as { kept: Element }).kept === element),
     ).toBe(true);
     // The search text is there too, and the folded row shows it.
-    await expect(field).toHaveValue('project');
+    await expect(field).toHaveValue('the sc');
     await expect(field).toBeVisible();
 
     // Compact: the popover becomes a sheet. It is built anew; the text was saved on the way.
@@ -1359,7 +1392,7 @@ test.describe('while the window changes size', () => {
       await text.evaluate((element) => (window as unknown as { kept: Element }).kept === element),
     ).toBe(false);
     await expect(text).not.toBeFocused();
-    await expect(field).toHaveValue('project');
+    await expect(field).toHaveValue('the sc');
     await expect(cards(page)).toHaveCount(1);
     expect((await storedView(page)).fields.filter.filters).toEqual([
       { propertyId: 'title', condition: 'contains', values: ['scope'] },
@@ -1373,7 +1406,7 @@ test.describe('while the window changes size', () => {
     await resize(page, 1280, 720);
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
     await expect(filterEditor(page)).toBeVisible();
-    await expect(field).toHaveValue('project');
+    await expect(field).toHaveValue('the sc');
     // The popover is next to the button it belongs to.
     const gap = await page.evaluate(() => {
       const button = document.querySelector('[data-tool="filter"]')?.getBoundingClientRect();
@@ -1391,6 +1424,7 @@ test.describe('while the window changes size', () => {
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'starts wide and goes through every stage');
     await open(page);
+    await showView(page, 'Status board');
     await resize(page, 900, 720);
     await openTool(page, 'sort');
     await expect(sortEditor(page)).toBeVisible();
@@ -1430,7 +1464,7 @@ test.describe('while the window changes size', () => {
     await resize(page, 700, 720);
     await expect(sheet(page)).toHaveCount(0);
     await expect(name).toHaveValue('Half typed');
-    expect((await storedView(page)).title).toBe('Progress Tracker');
+    expect((await storedView(page)).title).toBe('Status board');
     await name.press('Enter');
     await expect.poll(async () => (await storedView(page)).title).toBe('Half typed');
   });
@@ -1480,13 +1514,13 @@ test.describe('pictures', () => {
           operation: 'and',
           filters: [
             {
-              propertyId: all.Priority?.id,
+              propertyId: all.Phase?.id,
               condition: 'includes',
-              values: [all.Priority?.options['1. High 🔥'], all.Priority?.options['2. Medium']],
+              values: [all.Phase?.options.Planning, all.Phase?.options.Building],
             },
-            { propertyId: 'title', condition: 'contains', values: ['project'] },
-            { propertyId: all['Date Created']?.id, condition: 'isBefore', values: ['2026-12-24'] },
-            { propertyId: all['Due Date']?.id, condition: 'isNotSet', values: [] },
+            { propertyId: 'title', condition: 'contains', values: ['the'] },
+            { propertyId: all.Period?.id, condition: 'isBefore', values: ['2026-12-24'] },
+            { propertyId: all.Period?.id, condition: 'isSet', values: [] },
           ],
         },
       });
@@ -1497,7 +1531,7 @@ test.describe('pictures', () => {
       const all = await properties(page);
       await patchView(page, {
         sortOptions: [
-          { propertyId: all.Priority?.id, reversed: false },
+          { propertyId: all.Phase?.id, reversed: false },
           { propertyId: '__title', reversed: true },
         ],
       });
@@ -1506,7 +1540,7 @@ test.describe('pictures', () => {
     },
     search: async (page) => {
       await tool(page, 'search').click();
-      await header(page).getByRole('searchbox').fill('project');
+      await header(page).getByRole('searchbox').fill('the sc');
       await expect(cards(page)).toHaveCount(2);
     },
   };
@@ -1518,8 +1552,8 @@ test.describe('pictures', () => {
         if (!stage) throw new Error(`no stage for ${testInfo.project.name}`);
         await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
         await open(page);
-        await showView(page, 'Task Overview');
-        await expect(cards(page)).toHaveCount(5);
+        await showView(page, 'Task table');
+        await expect(cards(page)).toHaveCount(6);
         await arrange(page);
         await page.waitForLoadState('networkidle');
         await page.evaluate(() => document.fonts.ready);

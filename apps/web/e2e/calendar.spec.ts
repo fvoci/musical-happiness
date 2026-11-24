@@ -16,6 +16,7 @@ import { expect, test, type Locator } from '@playwright/test';
 
 import { ON_A_CARD } from './address.ts';
 import {
+  addUpdatedTimeProperty,
   bars,
   calendar,
   CALENDAR_PAGE,
@@ -40,7 +41,7 @@ test('a calendar view is made from the list of kinds, placed by the first date',
   page,
 }, info) => {
   await page.clock.setFixedTime(NOW);
-  await openView(page, info, 'Welcome to fvoci!', 'Onboarding');
+  await openView(page, info, 'Getting started with fvoci', 'Board');
   const header = page.getByTestId('view-header');
   await header.locator('[data-tool="views"]').click();
   await page.getByRole('menuitem', { name: 'Add calendar view' }).click();
@@ -48,13 +49,11 @@ test('a calendar view is made from the list of kinds, placed by the first date',
   await expect(page.getByTestId('calendar-period')).toHaveText('November 2026');
   if ((await header.getAttribute('data-layout')) === 'row') {
     await expect(header.locator('[data-tool="display-by"]')).toHaveAccessibleName(
-      'Display by: Due Date',
+      'Display by: Day',
     );
   } else {
     await header.locator('[data-tool="more"]').click();
-    await expect(page.locator('[role="menuitem"][data-action="display-by"]')).toContainText(
-      'Due Date',
-    );
+    await expect(page.locator('[role="menuitem"][data-action="display-by"]')).toContainText('Day');
   }
 });
 
@@ -84,14 +83,14 @@ test('a dated card is on its day, a range is a bar in each week it crosses', asy
     expect(box.x).toBeGreaterThanOrEqual(cell.x - 1);
     expect(box.x).toBeLessThan(cell.x + cell.width / 2);
   }
-  // "Drag cards" is on Thursday the 12th: the fifth column of the second week.
+  // "Open a card" is on Thursday the 12th: the fifth column of the second week.
   await startsOn(
-    week('2026-11-08').locator('[data-bar]').filter({ hasText: 'Drag cards' }),
+    week('2026-11-08').locator('[data-bar]').filter({ hasText: 'Open a card' }),
     '2026-11-12',
   );
   // The range is three bars, cut square where it goes on.
-  await expect(bars(page, 'Share a board')).toHaveCount(3);
-  const [first, second, third] = await bars(page, 'Share a board').all();
+  await expect(bars(page, 'Filter, sort and group')).toHaveCount(3);
+  const [first, second, third] = await bars(page, 'Filter, sort and group').all();
   const grid8 = await week('2026-11-08').boundingBox();
   const box1 = await first?.boundingBox();
   const box2 = await second?.boundingBox();
@@ -104,12 +103,12 @@ test('a dated card is on its day, a range is a bar in each week it crosses', asy
   expect(Math.round(box3.width / column)).toBe(3);
   expect(box1.x + box1.width).toBeCloseTo(grid8.x + grid8.width, -1);
   // A moment is on the reader's day (the 10th in Seoul; the 9th in UTC), with its time.
-  const moment = week('2026-11-08').locator('[data-bar]').filter({ hasText: 'Create a new card' });
+  const moment = week('2026-11-08').locator('[data-bar]').filter({ hasText: 'Write in the body' });
   await expect(moment).toContainText('8:00');
   await startsOn(moment, '2026-11-10');
   // A bar says its day and time for a screen reader.
   if (!touch(info))
-    await expect(moment).toHaveAccessibleName('8:00 AM number 5, Create a new card, November 10');
+    await expect(moment).toHaveAccessibleName('8:00 AM number 5, Write in the body, November 10');
   // A day says how many cards it has.
   await expect(
     calendar(page).getByRole('button', { name: 'Thursday, November 12, 2 cards' }),
@@ -139,9 +138,9 @@ test('a day with more cards than rows says "+N", and the day lists them all', as
   await expect(list.locator('[data-card]')).toHaveCount(lanes + 2);
   await expect(list).toContainText('Thursday, November 12');
   // A card of several days says which of them this is.
-  await expect(list.locator('[data-card]').filter({ hasText: 'Share a board' })).toContainText(
-    'Day 1 of 13',
-  );
+  await expect(
+    list.locator('[data-card]').filter({ hasText: 'Filter, sort and group' }),
+  ).toContainText('Day 1 of 13');
   await page.keyboard.press('Escape');
   await expect(list).toBeHidden();
 });
@@ -151,13 +150,13 @@ test('a card opens from its bar with a mouse, from the list of its day with a fi
 }, info) => {
   await openCalendar(page, info);
   if (wide(info) && !touch(info)) {
-    await bars(page, 'Drag cards').click();
+    await bars(page, 'Open a card').click();
   } else {
     await day(page, '2026-11-12').click();
     const list = wide(info) ? page.getByTestId('day-popover') : dayList(page);
-    await list.locator('[data-card]').filter({ hasText: 'Drag cards' }).locator('a').click();
+    await list.locator('[data-card]').filter({ hasText: 'Open a card' }).locator('a').click();
   }
-  await expect(dialog(page)).toContainText('Drag cards');
+  await expect(dialog(page)).toContainText('Open a card');
   await expect(page).toHaveURL(ON_A_CARD);
 });
 
@@ -256,39 +255,39 @@ test('a card opened from the cards of a day gives the focus back when it closes'
     wide(info) ? 'data-testid' : 'data-date',
     /day-popover|2026-11-12/,
   );
-  const link = list.locator('[data-card]').filter({ hasText: 'Drag cards' }).locator('a');
+  const link = list.locator('[data-card]').filter({ hasText: 'Open a card' }).locator('a');
   await link.focus();
   await page.keyboard.press('Enter');
-  await expect(dialog(page)).toContainText('Drag cards');
+  await expect(dialog(page)).toContainText('Open a card');
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toBeHidden();
   // Back on the card's bar where a mouse has bars to press; on the day whose popover listed
   // it under a finger; on the line itself in the list under the small grid, which stays.
   const focused = page.locator(':focus');
-  if (!wide(info)) await expect(focused).toHaveAccessibleName('number 1 Drag cards');
+  if (!wide(info)) await expect(focused).toHaveAccessibleName('number 1 Open a card');
   else if (touch(info)) await expect(focused).toHaveAccessibleName(/^Thursday, November 12/);
-  else await expect(focused).toHaveAccessibleName('number 1, Drag cards, November 12');
+  else await expect(focused).toHaveAccessibleName('number 1, Open a card, November 12');
 });
 
 test('the cards without a date are counted in the row and listed on asking (C16)', async ({
   page,
 }, info) => {
   await openCalendar(page, info);
-  // Ten cards on the board, four with a "Due Date". The name starts with the words shown.
+  // Nine cards on the board, four with a "Day". The name starts with the words shown.
   const button = page.getByTestId('calendar-undated');
-  await expect(button).toHaveAccessibleName('No date: 6');
+  await expect(button).toHaveAccessibleName('No date: 5');
   await button.click();
   const list = page.getByTestId('undated-list');
   await expect(list).toHaveCount(1);
-  await expect(list.locator('[data-card]')).toHaveCount(6);
-  await expect(list).toContainText('These cards have no Due Date');
-  await expect(list.locator('[data-card]').filter({ hasText: 'Drag cards' })).toHaveCount(0);
+  await expect(list.locator('[data-card]')).toHaveCount(5);
+  await expect(list).toContainText('These cards have no Day');
+  await expect(list.locator('[data-card]').filter({ hasText: 'Open a card' })).toHaveCount(0);
   const panel = page.getByTestId('undated-panel');
   const sheet = page.getByTestId('bottom-sheet');
   if (info.project.name === 'mobile') {
     // A compact page has it on a sheet, and Escape closes the sheet.
     await expect(sheet).toBeVisible();
-    await expect(sheet).toContainText('No date: 6');
+    await expect(sheet).toContainText('No date: 5');
     await expect(panel).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(list).toHaveCount(0);
@@ -299,7 +298,7 @@ test('the cards without a date are counted in the row and listed on asking (C16)
     await expect(page.locator(':focus')).toHaveAccessibleName('Close the cards without a date');
     await page.keyboard.press('Escape');
     await expect(panel).toHaveCount(0);
-    await expect(page.locator(':focus')).toHaveAccessibleName('No date: 6');
+    await expect(page.locator(':focus')).toHaveAccessibleName('No date: 5');
     // Picking a day closes the column; opening the column closes the list of a day.
     await button.click();
     // Tuesday: left of the column, which covers Thursday on a medium pane.
@@ -318,19 +317,20 @@ test('the cards without a date are counted in the row and listed on asking (C16)
     await expect(panel).toHaveCount(0);
   }
   // A card given a date leaves the list; one opened from it gives the focus back to "No date".
-  await setDates(page, { 'Add new properties': { from: '2026-11-20' } });
-  await expect(button).toHaveAccessibleName('No date: 5');
+  await setDates(page, { 'Describe cards with properties': { from: '2026-11-20' } });
+  await expect(button).toHaveAccessibleName('No date: 4');
   await button.click();
-  await expect(list.locator('[data-card]')).toHaveCount(5);
-  await list.locator('[data-card]').filter({ hasText: '@mention teammates' }).locator('a').click();
-  await expect(dialog(page)).toContainText('@mention teammates');
+  await expect(list.locator('[data-card]')).toHaveCount(4);
+  await list.locator('[data-card]').filter({ hasText: 'Work on it together' }).locator('a').click();
+  await expect(dialog(page)).toContainText('Work on it together');
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toBeHidden();
-  await expect(page.locator(':focus')).toHaveAccessibleName('No date: 5');
+  await expect(page.locator(':focus')).toHaveAccessibleName('No date: 4');
 });
 
 test('"display by" places the cards by another date', async ({ page }, info) => {
   await openCalendar(page, info);
+  await addUpdatedTimeProperty(page);
   await expect(day(page, '2026-11-12').first()).toBeVisible();
   const header = page.getByTestId('view-header');
   if ((await header.getAttribute('data-layout')) === 'row') {
@@ -340,12 +340,12 @@ test('"display by" places the cards by another date', async ({ page }, info) => 
     await page.locator('[role="menuitem"][data-action="display-by"]').click();
   }
   await page.getByRole('menuitem', { name: 'Last updated time' }).click();
-  // Every card was last changed on the seed's day, a month ago, or today by this test.
+  // Every card was last changed today by this test's setup.
   await expect(
     calendar(page).getByRole('button', { name: /^Thursday, November 12, \d+ cards?$/ }),
   ).toHaveCount(0);
   await expect(
-    calendar(page).getByRole('button', { name: /^Tuesday, November 10, 4 cards$/ }),
+    calendar(page).getByRole('button', { name: /^Tuesday, November 10, 9 cards$/ }),
   ).toHaveCount(1);
   // Every card has a time it was changed: none is without a date.
   await expect(page.getByTestId('calendar-undated')).toHaveAccessibleName('No date: 0');
@@ -375,10 +375,10 @@ test('the calendar in light and dark, at 390 pixels, and the cards of a day', as
   };
   await openCalendar(page, info);
   await setDates(page, {
-    'Manage tasks with cards': { from: '2026-11-12' },
-    'Create your own board': { from: '2026-11-12' },
-    'Share cards on Channels': { from: '2026-11-03', to: '2026-11-05' },
-    'Create a new view': { from: '2026-11-30', to: '2026-12-02' },
+    'See the same cards five ways': { from: '2026-11-12' },
+    'Start a board from a template': { from: '2026-11-12' },
+    'Work on it together': { from: '2026-11-03', to: '2026-11-05' },
+    'Attach files and open them right here': { from: '2026-11-30', to: '2026-12-02' },
   });
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme });
@@ -390,7 +390,7 @@ test('the calendar in light and dark, at 390 pixels, and the cards of a day', as
 
   // The cards without a date: a sheet on the phone, a column elsewhere.
   await page.getByTestId('calendar-undated').click();
-  await expect(page.getByTestId('undated-list').locator('[data-card]')).toHaveCount(2);
+  await expect(page.getByTestId('undated-list').locator('[data-card]')).toHaveCount(1);
   await shoot(`undated-${stage}`);
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('undated-list')).toHaveCount(0);

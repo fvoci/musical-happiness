@@ -37,7 +37,7 @@ async function selectedWithFocus(page: Page, body: Locator): Promise<void> {
 test('a press opens the source under the picture, typing draws it again, Escape closes', async ({
   page,
 }) => {
-  const body = await openCardWithBody(page, 'Welcome', diagramBody(FLOW));
+  const body = await openCardWithBody(page, 'Getting started', diagramBody(FLOW));
   await closedAndDrawn(body);
 
   await pictureOf(body).click();
@@ -66,7 +66,7 @@ test('a press opens the source under the picture, typing draws it again, Escape 
 test('with the keys alone: arrows reach the diagram, Enter opens, Escape closes', async ({
   page,
 }) => {
-  const body = await openCardWithBody(page, 'Welcome', {
+  const body = await openCardWithBody(page, 'Getting started', {
     type: 'doc',
     content: [
       { type: 'paragraph', content: [{ type: 'text', text: 'Above' }] },
@@ -107,7 +107,7 @@ test('with the keys alone: arrows reach the diagram, Enter opens, Escape closes'
 test('a source that cannot be drawn shows, closed, with what went wrong; open, the last picture stays dimmed', async ({
   page,
 }) => {
-  const body = await openCardWithBody(page, 'Welcome', diagramBody(FLOW));
+  const body = await openCardWithBody(page, 'Getting started', diagramBody(FLOW));
   await closedAndDrawn(body);
   await pictureOf(body).click();
   await page.keyboard.press('Enter');
@@ -129,7 +129,7 @@ test('a source that cannot be drawn shows, closed, with what went wrong; open, t
 });
 
 test('where the body may only be read, the picture does not open', async ({ page }) => {
-  const body = await openCardWithBody(page, 'Company Goals', diagramBody(FLOW));
+  const body = await openCardWithBody(page, 'Study notes', diagramBody(FLOW));
   await expect(body).toHaveAttribute('data-editor', 'reading');
   await drawnDiagram(body);
   await expect(body.locator('pre:has(code.language-mermaid)')).toBeHidden();
@@ -144,7 +144,7 @@ test.describe('on a narrow screen', () => {
   test('the place opens in the flow, as wide as the body, and the page does not scroll sideways', async ({
     page,
   }) => {
-    const body = await openCardWithBody(page, 'Welcome', diagramBody(FLOW));
+    const body = await openCardWithBody(page, 'Getting started', diagramBody(FLOW));
     await closedAndDrawn(body);
     await pictureOf(body).click();
     await expect(sourceOf(body)).toBeVisible();

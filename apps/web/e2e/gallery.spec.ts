@@ -9,7 +9,7 @@ import { ON_A_CARD, placeOf, viewIdOf } from './address.ts';
 import { boardPage, card, choose, dialog, fitPane, openView, undo } from './kanban.support.ts';
 import { screensDir } from './screens.ts';
 
-const WELCOME = ['Welcome to fvoci!', 'Preview: Gallery View'] as const;
+const WELCOME = ['Getting started with fvoci', 'Gallery'] as const;
 
 const cards = (page: Page) => page.getByTestId('gallery-grid').locator('[data-card]');
 
@@ -31,7 +31,7 @@ async function columns(page: Page): Promise<number> {
 
 test('the cards of the view stand in a grid, in the order of the view', async ({ page }, info) => {
   await openView(page, info, ...WELCOME);
-  await expect(cards(page)).toHaveCount(10);
+  await expect(cards(page)).toHaveCount(9);
   const expected = await page.evaluate((id) => {
     const { workspace } = (
       window as unknown as {
@@ -75,14 +75,14 @@ test('the number of columns follows the width of the gallery', async ({ page }, 
 
 test('a press on a card opens it, and so does Enter', async ({ page }, info) => {
   await openView(page, info, ...WELCOME);
-  await card(page, 'Drag cards').click();
-  await expect(dialog(page)).toContainText('Drag cards');
+  await card(page, 'Open a card').click();
+  await expect(dialog(page)).toContainText('Open a card');
   await expect(page).toHaveURL(ON_A_CARD);
   await page.goBack();
   await expect(dialog(page)).toBeHidden();
-  await card(page, 'Share a board').focus();
+  await card(page, 'Filter, sort and group').focus();
   await page.keyboard.press('Enter');
-  await expect(dialog(page)).toContainText('Share a board');
+  await expect(dialog(page)).toContainText('Filter, sort and group');
 });
 
 test('"+ New" makes a card and opens it', async ({ page }, info) => {
@@ -91,36 +91,36 @@ test('"+ New" makes a card and opens it', async ({ page }, info) => {
   await expect(dialog(page)).toBeVisible();
   await page.goBack();
   await expect(dialog(page)).toBeHidden();
-  await expect(cards(page)).toHaveCount(11);
-  await undo(page);
   await expect(cards(page)).toHaveCount(10);
+  await undo(page);
+  await expect(cards(page)).toHaveCount(9);
 });
 
 test('the menu of a card duplicates and deletes it, and has nothing about columns', async ({
   page,
 }, info) => {
   await openView(page, info, ...WELCOME);
-  await page.getByRole('button', { name: 'Card menu: Drag cards' }).click();
+  await page.getByRole('button', { name: 'Card menu: Open a card' }).click();
   await expect(page.locator('[data-action]')).toHaveCount(3);
   await expect(page.locator('[data-action="move"]')).toHaveCount(0);
   await expect(page.locator('[data-action="select"]')).toHaveCount(0);
   await choose(page, 'duplicate');
-  await expect(card(page, 'Drag cards')).toHaveCount(2);
-  await expect(cards(page)).toHaveCount(11);
+  await expect(card(page, 'Open a card')).toHaveCount(2);
+  await expect(cards(page)).toHaveCount(10);
 
-  await page.getByRole('button', { name: 'Card menu: Share a board' }).click();
+  await page.getByRole('button', { name: 'Card menu: Filter, sort and group' }).click();
   await choose(page, 'delete');
-  await expect(card(page, 'Share a board')).toHaveCount(0);
+  await expect(card(page, 'Filter, sort and group')).toHaveCount(0);
   await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
   await undo(page);
-  await expect(card(page, 'Share a board')).toHaveCount(1);
+  await expect(card(page, 'Filter, sort and group')).toHaveCount(1);
 });
 
 test('a body another person writes is followed by the card: its preview and its tasks', async ({
   page,
 }, info) => {
   await openView(page, info, ...WELCOME);
-  const face = card(page, 'Drag cards');
+  const face = card(page, 'Open a card');
   const task = (checked: boolean, text: string) => ({
     type: 'taskItem',
     attrs: { checked },
@@ -144,7 +144,7 @@ test('a body another person writes is followed by the card: its preview and its 
             };
           }
         ).fvociDev;
-        const found = (await dev.backend.cards(boardId)).find((one) => one.title === 'Drag cards');
+        const found = (await dev.backend.cards(boardId)).find((one) => one.title === 'Open a card');
         if (!found) throw new Error('no card');
         await dev
           .someoneElse()
@@ -188,7 +188,7 @@ test.describe('screens', () => {
       await page.emulateMedia({ colorScheme: scheme });
       await openView(page, info, ...WELCOME);
       await expect(boardPage(page)).toBeVisible();
-      await expect(cards(page)).toHaveCount(10);
+      await expect(cards(page)).toHaveCount(9);
       await page.screenshot({ path: `${screensDir('gallery')}/gallery-${stage}-${scheme}.png` });
     });
   }

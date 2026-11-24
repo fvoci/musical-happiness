@@ -13,7 +13,7 @@ import { expect, type Locator, type Page, type TestInfo } from '@playwright/test
 import { viewIdOf } from './address.ts';
 import { openView } from './kanban.support.ts';
 
-export const WELCOME = ['Welcome to fvoci!', 'Onboarding'] as const;
+export const WELCOME = ['Getting started with fvoci', 'Board'] as const;
 export const NOW = new Date('2026-11-09T16:00:00Z'); // 01:00 on the 10th in Seoul
 export const gantt = (page: Page): Locator => page.getByTestId('gantt');
 export const scroller = (page: Page): Locator => page.getByTestId('gantt-scroller');
@@ -49,17 +49,42 @@ export interface Dev {
   };
 }
 
-/** Gives cards of the open board a value of "Due Date", through the board store. */
+/** Gives cards of the open board a value of "Day", through the board store. */
 export async function setDates(page: Page, values: Record<string, Stored>): Promise<void> {
   await page.evaluate(async (wanted) => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
+    const due = store.board.cardProperties.find((property) => property.name === 'Day');
     for (const [title, value] of Object.entries(wanted)) {
       const card = store.cards.find((each) => each.title === title);
-      if (!card || !due) throw new Error(`no card "${title}" or no Due Date`);
+      if (!card || !due) throw new Error(`no card "${title}" or no Day`);
       await store.setCardProperty(card.id, due.id, value);
     }
   }, values);
+}
+
+/** Clears "Day" on every card and removes pre-existing relation properties on the open board. */
+export async function clearDates(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    const due = store.board.cardProperties.find((property) => property.name === 'Day');
+    if (due) {
+      const cards = store.cards as unknown as {
+        id: string;
+        fields: { properties: Record<string, unknown> };
+      }[];
+      for (const card of cards) {
+        if (card.fields.properties[due.id] !== undefined) {
+          await store.setCardProperty(card.id, due.id, undefined);
+        }
+      }
+    }
+    if (store.board.cardProperties.some((property) => property.type === 'relation')) {
+      await store.changeBoard((board) => ({
+        ...board,
+        cardProperties: board.cardProperties.filter((property) => property.type !== 'relation'),
+      }));
+    }
+  });
 }
 
 /** The fields of the view that is open, as the backend keeps them. */
@@ -84,13 +109,14 @@ export async function addGantt(page: Page): Promise<void> {
 export async function openGantt(page: Page, info: TestInfo): Promise<void> {
   await page.clock.setFixedTime(NOW);
   await openView(page, info, ...WELCOME);
+  await clearDates(page);
   await setDates(page, {
-    'Drag cards': { from: '2026-11-12' },
+    'Open a card': { from: '2026-11-12' },
     // Twelve days: 12 to 23 November.
-    'Share a board': { from: '2026-11-12', to: '2026-11-23' },
+    'Filter, sort and group': { from: '2026-11-12', to: '2026-11-23' },
     // 08:00 on the 10th in Seoul.
-    'Create a new card': { from: Date.parse('2026-11-09T23:00:00Z') },
-    'Filter and sort cards': { from: '2026-12-03', to: '2026-12-04' },
+    'Write in the body': { from: Date.parse('2026-11-09T23:00:00Z') },
+    'Keep your documents in a wiki': { from: '2026-12-03', to: '2026-12-04' },
   });
   await addGantt(page);
   await expect(bars(page)).toHaveCount(4);
@@ -194,11 +220,12 @@ export async function expectDependencies(page: Page, name: string): Promise<void
 export async function openRelated(page: Page, info: TestInfo): Promise<void> {
   await page.clock.setFixedTime(NOW);
   await openView(page, info, ...WELCOME);
+  await clearDates(page);
   await setDates(page, {
-    'Drag cards': { from: '2026-11-12' },
-    'Share a board': { from: '2026-11-12', to: '2026-11-23' },
-    'Create a new card': { from: Date.parse('2026-11-09T23:00:00Z') },
-    'Filter and sort cards': { from: '2026-12-03', to: '2026-12-04' },
+    'Open a card': { from: '2026-11-12' },
+    'Filter, sort and group': { from: '2026-11-12', to: '2026-11-23' },
+    'Write in the body': { from: Date.parse('2026-11-09T23:00:00Z') },
+    'Keep your documents in a wiki': { from: '2026-12-03', to: '2026-12-04' },
   });
   await addRelation(page);
   await page.evaluate(async () => {
@@ -207,10 +234,10 @@ export async function openRelated(page: Page, info: TestInfo): Promise<void> {
   });
   await setAfter(page, {
     // After two cards, one of them deleted below: its identifier stays in the value.
-    'Share a board': ['Create a new card', 'A card that is gone'],
-    'Filter and sort cards': ['Share a board', 'Drag cards'],
+    'Filter, sort and group': ['Write in the body', 'A card that is gone'],
+    'Keep your documents in a wiki': ['Filter, sort and group', 'Open a card'],
     // A card without a date: it has no bar for an arrow to reach.
-    'Create a new view': ['Drag cards'],
+    'Attach files and open them right here': ['Open a card'],
   });
   await page.evaluate(async () => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;

@@ -55,9 +55,9 @@ async function theirLease(page: Page, name: string, letGo = ''): Promise<string>
       const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
       const [workspace] = await dev.backend.workspaces();
       const boards = await dev.backend.boards(workspace?.id ?? '');
-      const board = boards.find((each) => each.title.startsWith('Project Tasks'));
+      const board = boards.find((each) => each.title.startsWith('Project schedule'));
       const cards = await dev.backend.cards(board?.id ?? '');
-      const card = cards.find((each) => each.title === 'Identify dependencies');
+      const card = cards.find((each) => each.title === 'Design the screens');
       if (!board || !card) throw new Error('no card');
       const other = dev.someoneElse();
       await dev.backend.addMember(board.id, (await other.me()).id, 'editor');

@@ -46,7 +46,7 @@ async function find(page: Page, card: string): Promise<Place> {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
     const [workspace] = await backend.workspaces();
     const boards = await backend.boards(workspace?.id ?? '');
-    const found = boards.find((each) => each.title.startsWith('Project Tasks'));
+    const found = boards.find((each) => each.title.startsWith('Project schedule'));
     if (!found) throw new Error('no board of tasks');
     const views = await backend.views(found.id);
     const wanted = (await backend.cards(found.id)).find((each) => each.title === cardTitle);
@@ -73,7 +73,7 @@ async function twoTabs(
   body?: string[],
   query = '',
 ): Promise<{ mine: Locator; theirs: Locator; other: Page }> {
-  const place = await find(page, 'Identify dependencies');
+  const place = await find(page, 'Design the screens');
   await page.goto(`${boardPath(place.boardId, place.viewId, place.cardId)}${query}`);
   const mine = await bodyEditor(page);
   const other = await page.context().newPage();

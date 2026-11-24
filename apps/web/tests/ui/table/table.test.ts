@@ -375,7 +375,7 @@ describe('groups', () => {
 describe('a reader who may only look', () => {
   // The seed makes the reader a viewer of the board with this key.
   const viewOnly = (overrides: Record<string, unknown> = {}): SeedTemplate =>
-    template(overrides, 'company-goals-okrs');
+    template(overrides, 'study-notes');
 
   it('is offered nothing that changes the board', async () => {
     const { board } = await mount(viewOnly());

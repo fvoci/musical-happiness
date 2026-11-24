@@ -23,9 +23,9 @@ export const pane = (page: Page): Locator => page.locator('main');
 export const scrim = (page: Page): Locator => page.getByTestId('sidebar-scrim');
 
 /** The first board of the seed, which the root address shows. */
-export const FIRST_BOARD = 'Project Tasks';
+export const FIRST_BOARD = 'Project schedule';
 /** The board of the seed the reader can only read. */
-export const READ_ONLY_BOARD = 'Company Goals & OKRs';
+export const READ_ONLY_BOARD = 'Study notes';
 
 /** Opens the app and waits for the board; fails on anything the page throws while it loads. */
 export async function openApp(page: Page, address = '/'): Promise<void> {

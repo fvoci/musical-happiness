@@ -35,9 +35,9 @@ async function openPicker(page: Page, info: TestInfo, stage: string): Promise<vo
   const list = listOf(page, info);
   await expect(list.getByTestId('day-new-card')).toBeVisible();
   await shoot(page, `day-${stage}`);
-  const line = list.locator('[data-card]').filter({ hasText: 'Share a board' });
+  const line = list.locator('[data-card]').filter({ hasText: 'Filter, sort and group' });
   await line.hover();
-  await line.getByRole('button', { name: 'Card menu: Share a board' }).click();
+  await line.getByRole('button', { name: 'Card menu: Filter, sort and group' }).click();
   await expect(page.locator('[data-action="change-date"]')).toBeVisible();
   await shoot(page, `menu-${stage}`);
   await page.locator('[data-action="change-date"]').click();
@@ -59,9 +59,9 @@ test('pictures of writing on the calendar, wide and at 390 pixels', async ({ pag
   const stage = STAGE[info.project.name] ?? 'expanded';
   await openCalendar(page, info);
   await setDates(page, {
-    'Manage tasks with cards': { from: '2026-11-12' },
-    'Create your own board': { from: '2026-11-11', to: '2026-11-13' },
-    'Share cards on Channels': { from: '2026-11-03', to: '2026-11-05' },
+    'See the same cards five ways': { from: '2026-11-12' },
+    'Start a board from a template': { from: '2026-11-11', to: '2026-11-13' },
+    'Work on it together': { from: '2026-11-03', to: '2026-11-05' },
   });
   if (wide(info)) {
     // The "+" of a day where the mouse is.

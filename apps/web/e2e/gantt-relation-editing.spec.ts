@@ -29,15 +29,15 @@ test('all four relation kinds connect the right bar ends and show kind/lag badge
 }, info) => {
   await openRelated(page, info);
   await setDates(page, {
-    'Create a new card': { from: '2026-11-10', to: '2026-11-14' },
-    'Drag cards': { from: '2026-11-11', to: '2026-11-15' },
-    'Share a board': { from: '2026-11-12', to: '2026-11-16' },
-    'Filter and sort cards': { from: '2026-11-12', to: '2026-11-14' },
+    'Write in the body': { from: '2026-11-10', to: '2026-11-14' },
+    'Open a card': { from: '2026-11-11', to: '2026-11-15' },
+    'Filter, sort and group': { from: '2026-11-12', to: '2026-11-16' },
+    'Keep your documents in a wiki': { from: '2026-11-12', to: '2026-11-14' },
   });
   await setAfterLinks(page, {
-    'Drag cards': [{ card: 'Create a new card', kind: 'ss', lagDays: 2 }],
-    'Share a board': [{ card: 'Drag cards', kind: 'ff', lagDays: -1 }],
-    'Filter and sort cards': [{ card: 'Share a board', kind: 'sf', lagDays: 1 }],
+    'Open a card': [{ card: 'Write in the body', kind: 'ss', lagDays: 2 }],
+    'Filter, sort and group': [{ card: 'Open a card', kind: 'ff', lagDays: -1 }],
+    'Keep your documents in a wiki': [{ card: 'Filter, sort and group', kind: 'sf', lagDays: 1 }],
   });
 
   await expect(arrows(page)).toHaveCount(3);
@@ -56,19 +56,19 @@ test('all four relation kinds connect the right bar ends and show kind/lag badge
     expect(Math.abs(line.start.x - expectedStart), `${from} → ${to} start`).toBeLessThan(2);
     expect(Math.abs(line.end.x - expectedEnd), `${from} → ${to} end`).toBeLessThan(2);
   };
-  await checkEnds('Create a new card', 'Drag cards', false, true); // SS
-  await checkEnds('Drag cards', 'Share a board', true, false); // FF
-  await checkEnds('Share a board', 'Filter and sort cards', false, false); // SF
+  await checkEnds('Write in the body', 'Open a card', false, true); // SS
+  await checkEnds('Open a card', 'Filter, sort and group', true, false); // FF
+  await checkEnds('Filter, sort and group', 'Keep your documents in a wiki', false, false); // SF
 
   // SS +2d is out of order (starts Nov 11, fewer than 2 days after Nov 10).
-  await expect(bar(page, 'Drag cards')).toHaveAccessibleName(
-    'number 1, Drag cards, November 11 – November 15. After Create a new card. Out of order: starts fewer than 2 days after the start of Create a new card.',
+  await expect(bar(page, 'Open a card')).toHaveAccessibleName(
+    'number 1, Open a card, November 11 – November 15. After Write in the body. Out of order: starts fewer than 2 days after the start of Write in the body.',
   );
   // Arrow button has accessible name with kind, lag, and out-of-order status.
   const ssTrigger = gantt(page).locator('[data-arrow-trigger][data-kind="ss"]');
   await expect(ssTrigger).toHaveText('SS +2d');
   await expect(ssTrigger).toHaveAccessibleName(
-    'Create a new card to Drag cards, Start to start, +2 days lag. Out of order.',
+    'Write in the body to Open a card, Start to start, +2 days lag. Out of order.',
   );
   await expect(gantt(page).locator('[data-arrow-trigger][data-kind="ff"]')).toHaveText('FF -1d');
   await expect(gantt(page).locator('[data-arrow-trigger][data-kind="sf"]')).toHaveText('SF +1d');
@@ -82,8 +82,8 @@ test('clicking or keyboard-activating an arrow edits kind and lagDays, preserves
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
     return Object.fromEntries(store.cards.map((card) => [card.title, card.id]));
   });
-  const fromId = ids['Create a new card'] ?? '';
-  const toId = ids['Share a board'] ?? '';
+  const fromId = ids['Write in the body'] ?? '';
+  const toId = ids['Filter, sort and group'] ?? '';
 
   // Click the SVG hit path of a default FS 0 arrow to open the editor, change FS -> SS and lagDays -> +2.
   const trigger = gantt(page).locator(
@@ -104,7 +104,7 @@ test('clicking or keyboard-activating an arrow edits kind and lagDays, preserves
     gantt(page).locator(`[data-arrow][data-from="${fromId}"][data-to="${toId}"]`),
   ).toHaveAttribute('data-kind', 'ss');
 
-  // Verify the hidden deleted card link on "Share a board" was preserved untouched.
+  // Verify the hidden deleted card link on "Filter, sort and group" was preserved untouched.
   const storedAfterEdit = await page.evaluate((cardId) => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
     const card = store.cards.find((each) => each.id === cardId) as unknown as {
@@ -128,7 +128,7 @@ test('clicking or keyboard-activating an arrow edits kind and lagDays, preserves
     gantt(page).locator(`[data-arrow][data-from="${fromId}"][data-to="${toId}"]`),
   ).toHaveCount(0);
   // Focus returns to the target card's bar after deletion.
-  await expect(bar(page, 'Share a board')).toBeFocused();
+  await expect(bar(page, 'Filter, sort and group')).toBeFocused();
   // Hidden link still preserved even after deleting the visible link.
   const storedAfterDelete = await page.evaluate((cardId) => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
@@ -141,7 +141,7 @@ test('clicking or keyboard-activating an arrow edits kind and lagDays, preserves
 
   // Roving Tab stop: one Tab from a bar reaches the arrow triggers, ArrowDown walks them, Space opens editor.
   await expect(gantt(page).locator('[data-arrow-trigger][tabindex="0"]')).toHaveCount(1);
-  await bar(page, 'Share a board').focus();
+  await bar(page, 'Filter, sort and group').focus();
   await page.keyboard.press(await tabKey(page));
   await expect(gantt(page).locator('[data-arrow-trigger]').first()).toBeFocused();
   await page.keyboard.press('ArrowDown');
@@ -165,11 +165,11 @@ test('read-only Gantt shows non-default relation badges without edit or delete c
     ).fvociDev;
     const workspaces = await dev.backend.workspaces();
     const boards = await dev.backend.boards(workspaces[0]?.id ?? '');
-    const boardId = boards.find((board) => board.title === 'Company Goals & OKRs')?.id ?? '';
+    const boardId = boards.find((board) => board.title === 'Study notes')?.id ?? '';
     const author = dev.someoneElse?.() ?? dev.backend;
     const board = await author.container(boardId);
-    const due = board.cardProperties.find((property) => property.name === 'Due Date');
-    if (!due) throw new Error('the board has no Due Date');
+    const due = board.cardProperties.find((property) => property.name === 'Review on');
+    if (!due) throw new Error('the board has no Review on');
     await author.patchContainer(boardId, {
       updatedCardProperties: [{ id: 'after', name: 'After', type: 'relation', options: [] }],
     });
@@ -234,8 +234,8 @@ test('collapsing a parent row while the relation editor is open closes it cleanl
         },
       ): Promise<void>;
     };
-    const parent = store.cards.find((card) => card.title === 'Create a new card');
-    const child = store.cards.find((card) => card.title === 'Share a board');
+    const parent = store.cards.find((card) => card.title === 'Write in the body');
+    const child = store.cards.find((card) => card.title === 'Filter, sort and group');
     if (!parent || !child) throw new Error('missing cards');
     await store.changeCard(child.id, (card) => ({ ...card, parentId: parent.id }));
     return { parentId: parent.id, childId: child.id };

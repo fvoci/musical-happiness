@@ -9,6 +9,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import {
+  addUpdatedTimeProperty,
   calendar,
   CALENDAR_PAGE,
   dayButton,
@@ -82,12 +83,12 @@ test('a wide week draws every card of it, with no "+N", in bars of two lines', a
   await openCalendar(page, info);
   // More cards on the 12th than a month's cell has rows for.
   await setDates(page, {
-    'Manage tasks with cards': { from: '2026-11-12' },
-    'Create your own board': { from: '2026-11-12' },
-    'Share cards on Channels': { from: '2026-11-12' },
-    'Create a new view': { from: '2026-11-12' },
-    'Add new properties': { from: '2026-11-12' },
-    '@mention teammates': { from: '2026-11-12' },
+    'See the same cards five ways': { from: '2026-11-12' },
+    'Describe cards with properties': { from: '2026-11-12' },
+    'Attach files and open them right here': { from: '2026-11-12' },
+    'Keep your documents in a wiki': { from: '2026-11-12' },
+    'Start a board from a template': { from: '2026-11-12' },
+    'Work on it together': { from: '2026-11-12' },
   });
   await chooseByKeys(page, 'week');
   if (!wide(info)) {
@@ -98,19 +99,21 @@ test('a wide week draws every card of it, with no "+N", in bars of two lines', a
   }
   await expect(grid(page).locator('[data-more]')).toHaveCount(0);
   const bars = grid(page).locator('[data-bar]');
-  // Eight cards on the 12th, one at 08:00 on the 10th, one on the 13th... all drawn.
+  // Eight cards on the 12th, one at 08:00 on the 10th... all drawn.
   await expect(
-    grid(page).locator('[data-bar]').filter({ hasText: '@mention teammates' }),
+    grid(page).locator('[data-bar]').filter({ hasText: 'Work on it together' }),
   ).toHaveCount(1);
   expect(await bars.count()).toBeGreaterThanOrEqual(9);
   const tall = await bars.first().boundingBox();
   expect(tall?.height ?? 0).toBeGreaterThanOrEqual(44);
   // The second line of a timed card is its time; of a range, its days.
-  await expect(bars.filter({ hasText: 'Create a new card' })).toContainText('8:00 AM');
-  await expect(bars.filter({ hasText: 'Share a board' })).toContainText('November 12 – 24');
+  await expect(bars.filter({ hasText: 'Write in the body' })).toContainText('8:00 AM');
+  await expect(bars.filter({ hasText: 'Filter, sort and group' })).toContainText(
+    'November 12 – 24',
+  );
   // A bar of a week is pressed to open its card, under a finger too (it is 44 pixels high).
-  await bars.filter({ hasText: 'Drag cards' }).click();
-  await expect(dialog(page)).toContainText('Drag cards');
+  await bars.filter({ hasText: 'Open a card' }).click();
+  await expect(dialog(page)).toContainText('Open a card');
 });
 
 test('the week is remembered for the view on this device, after a reload', async ({
@@ -129,6 +132,7 @@ test('in a narrow week the picked day stays in view, and the list says why dates
   page,
 }, info) => {
   await openCalendar(page, info);
+  await addUpdatedTimeProperty(page);
   await chooseByKeys(page, 'week');
   if (wide(info)) {
     // A wide week has no list to scroll: every day is a column of the grid.

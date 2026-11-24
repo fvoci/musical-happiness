@@ -98,7 +98,9 @@ async function find(page: Page, board: string, card: string): Promise<Place> {
       const cards = await backend.cards(found.id);
       const wanted = cards.find((each) => each.title === cardTitle);
       if (!wanted) throw new Error(`no card ${cardTitle}`);
-      const first = [...views].sort((a, b) => a.title.localeCompare(b.title))[0];
+      const first =
+        views.find((each) => each.title === 'Status board') ??
+        [...views].sort((a, b) => a.title.localeCompare(b.title))[0];
       return { boardId: found.id, viewId: first?.id ?? '', cardId: wanted.id };
     },
     [board, card],
@@ -116,12 +118,12 @@ async function openCard(page: Page, board: string, card: string): Promise<Place>
   return place;
 }
 
-/** A card of the board everything can be tried on: it has a select, a person, a date and a checkbox. */
+/** A card of the board everything can be tried on: it has a select, a person, a date, a checkbox and a number. */
 const openWelcomeCard = (page: Page): Promise<Place> =>
-  openCard(page, 'Welcome', 'Create a new card');
+  openCard(page, 'Project schedule', 'Agree on the scope');
 /** A card with a body, comments and seven properties: enough to scroll. */
 const openTaskCard = (page: Page): Promise<Place> =>
-  openCard(page, 'Project Tasks', 'Identify dependencies');
+  openCard(page, 'Project schedule', 'Agree on the scope');
 
 const dialog = (page: Page): Locator => page.getByTestId('card-dialog');
 const scroller = (page: Page): Locator => page.getByTestId('card-scroll');
@@ -236,7 +238,7 @@ test('the card has the frame of its stage', async ({ page }, testInfo) => {
     await expect(page.getByTestId('card-close')).toBeVisible();
   }
   // The top row says where the card belongs.
-  await expect(page.getByTestId('card-location')).toContainText('Project Tasks');
+  await expect(page.getByTestId('card-location')).toContainText('Project schedule');
 });
 
 test('the parts come in the order title, properties, body, attachments, comments, and the comment field is the last row', async ({
@@ -321,6 +323,8 @@ test('opened from the board: the dialog has the focus, back closes it, and the f
 test('a card that was just made starts with the caret in its title', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('board-page')).toBeVisible();
+  await page.getByTestId('view-header').locator('[data-tool="views"]').click();
+  await page.getByRole('menuitem', { name: 'Task table', exact: true }).click();
   await page.getByRole('button', { name: 'New', exact: true }).click();
   await expect(dialog(page)).toBeVisible();
   await expect(page.getByTestId('card-title')).toBeFocused();
@@ -334,40 +338,38 @@ test('a card that was just made starts with the caret in its title', async ({ pa
 test('the title is edited in place, shows on the board, and can be undone', async ({ page }) => {
   const place = await openTaskCard(page);
   const title = page.getByTestId('card-title');
-  await expect(title).toHaveValue('Identify dependencies');
+  await expect(title).toHaveValue('Agree on the scope');
   // The title as the board draws it: a card there also shows properties and badges.
   const onBoard = page.locator(`[data-card="${place.cardId}"] [data-slot="card-title-text"]`);
 
-  await title.fill('Identify every dependency');
+  await title.fill('Agree on every scope');
   // Stored when the typing pauses, without leaving the field.
-  await expect(onBoard).toHaveText('Identify every dependency');
+  await expect(onBoard).toHaveText('Agree on every scope');
   await expect(title).toBeFocused();
-  await expect
-    .poll(async () => (await stored(page, place)).title)
-    .toBe('Identify every dependency');
+  await expect.poll(async () => (await stored(page, place)).title).toBe('Agree on every scope');
 
   // Enter ends the editing instead of starting a line; Escape puts the stored title back and keeps the card open.
   await title.pressSequentially(' now');
   await page.keyboard.press('Enter');
   await expect(title).not.toBeFocused();
-  await expect(onBoard).toHaveText('Identify every dependency now');
+  await expect(onBoard).toHaveText('Agree on every scope now');
   await title.click();
   await title.pressSequentially(' and then some');
   await page.keyboard.press('Escape');
-  await expect(title).toHaveValue('Identify every dependency now');
+  await expect(title).toHaveValue('Agree on every scope now');
   await expect(dialog(page)).toBeVisible();
 
   await cardMenu(page, 'undo');
-  await expect(title).toHaveValue('Identify every dependency');
+  await expect(title).toHaveValue('Agree on every scope');
   await cardMenu(page, 'undo');
-  await expect(title).toHaveValue('Identify dependencies');
-  await expect(onBoard).toHaveText('Identify dependencies');
+  await expect(title).toHaveValue('Agree on the scope');
+  await expect(onBoard).toHaveText('Agree on the scope');
   await cardMenu(page, 'redo');
-  await expect(title).toHaveValue('Identify every dependency');
+  await expect(title).toHaveValue('Agree on every scope');
 });
 
 test('the icon: one is added at random, drawn again, and removed', async ({ page }) => {
-  const place = await openCard(page, 'Personal Tasks', 'Gardening');
+  const place = await openCard(page, 'Meeting notes', 'Design review');
   const icon = async (): Promise<string> => (await stored(page, place)).fields.icon ?? '';
   const had = await icon();
   if (had !== '') {
@@ -398,55 +400,55 @@ test('values are edited with the shared editors: select, person, date, checkbox,
   // Select: the whole value is what is pressed; the list opens, and a choice closes it.
   const status = property(page, 'Status');
   await status.locator('[data-slot="property-select"]').click();
-  await page.getByRole('option', { name: 'Later' }).click();
-  await expect(status.locator('dd')).toContainText('Later');
+  await page.getByRole('option', { name: 'Blocked' }).click();
+  await expect(status.locator('dd')).toContainText('Blocked');
   // Closed, and gone: the person's options below are not taken from a list on its way out.
   await expect(page.getByRole('option')).toHaveCount(0);
   const statusId = await idOf('Status');
   await expect.poll(async () => typeof (await values())[statusId]).toBe('string');
 
   // Person: the people to choose from are the members of the board.
-  const assignee = property(page, 'Assignee');
-  const before = await assignee.locator('dd').innerText();
-  await assignee.locator('[data-slot="property-person"]').click();
+  const owner = property(page, 'Owner');
+  const before = await owner.locator('dd').innerText();
+  await owner.locator('[data-slot="property-person"]').click();
   const person = page.getByRole('option').filter({ hasNotText: before.trim() }).first();
   const name = (await person.innerText()).trim();
   await person.click();
-  await expect(assignee.locator('dd')).toContainText(name);
+  await expect(owner.locator('dd')).toContainText(name);
 
   // Date: a day of the month that is shown.
-  const due = property(page, 'Due Date');
-  await due.locator('[data-slot="property-date"]').click();
+  const period = property(page, 'Period');
+  await period.locator('[data-slot="property-date"]').click();
   await page.locator('[data-slot="date-picker"] [data-value$="-15"]').first().click();
   await closePicker(page);
-  const dueId = await idOf('Due Date');
+  const periodId = await idOf('Period');
   await expect
-    .poll(async () => JSON.stringify((await values())[dueId]))
+    .poll(async () => JSON.stringify((await values())[periodId]))
     .toMatch(/"from":"\d{4}-\d{2}-15"/);
-  await expect(due.locator('dd')).toContainText('15');
+  await expect(period.locator('dd')).toContainText('15');
 
   // Checkbox: pressing it changes it at once.
-  const reviewed = property(page, 'Reviewed');
-  const box = reviewed.getByRole('checkbox');
+  const milestone = property(page, 'Milestone');
+  const box = milestone.getByRole('checkbox');
   await expect(box).not.toBeChecked();
   await box.click();
   await expect(box).toBeChecked();
-  const reviewedId = await idOf('Reviewed');
-  await expect.poll(async () => (await values())[reviewedId]).toBe('true');
+  const milestoneId = await idOf('Milestone');
+  await expect.poll(async () => (await values())[milestoneId]).toBe('true');
 
-  // Text (a link here): typed in place, stored by Enter.
-  const reference = property(page, 'Reference');
-  await reference.locator('input').fill('example.test/reference');
+  // Number input: typed in place, stored by Enter.
+  const hours = property(page, 'Estimated hours');
+  await hours.locator('input').fill('42');
   await page.keyboard.press('Enter');
-  const referenceId = await idOf('Reference');
-  await expect.poll(async () => (await values())[referenceId]).toBe('example.test/reference');
+  const hoursId = await idOf('Estimated hours');
+  await expect.poll(async () => (await values())[hoursId]).toBe('42');
 
   // Undo takes the last change back, then the one before it.
   await cardMenu(page, 'undo');
-  await expect.poll(async () => (await values())[referenceId]).toBeUndefined();
+  await expect.poll(async () => (await values())[hoursId]).toBe('12');
   await cardMenu(page, 'undo');
   await expect(box).not.toBeChecked();
-  await expect.poll(async () => (await values())[reviewedId]).toBeUndefined();
+  await expect.poll(async () => (await values())[milestoneId]).toBeUndefined();
 });
 
 test('a property is added, named, changed to another kind after a warning, and deleted after a question', async ({
@@ -537,15 +539,16 @@ test('a name typed into the menu is kept when a kind is chosen right after it', 
   page,
 }) => {
   await openWelcomeCard(page);
-  // "Reference" has no value on this card or any other: the kind changes without a question.
-  await property(page, 'Reference').getByTestId('property-name').click();
+  // Add an unused link property so changing its kind needs no confirmation.
+  await page.getByTestId('add-property').click();
+  await page.locator('[data-action="url"]').click();
   const menu = page.getByTestId('property-menu');
   await menu.getByRole('textbox', { name: 'Property name' }).fill('Source');
   await menu.locator('[data-action="type"]').click();
   await page.getByTestId('property-types').locator('[data-type="text"]').click();
   await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
   await expect(property(page, 'Source')).toHaveAttribute('data-property-type', 'text');
-  await expect(property(page, 'Reference')).toHaveCount(0);
+  await expect(property(page, 'URL')).toHaveCount(0);
 });
 
 test('menus that open and close inside the card leave the history alone: one step back still closes it', async ({
@@ -804,7 +807,7 @@ test('the window changes size under an open card: the text, the caret, the focus
   const [start, ...rest] = SIZES;
 
   await page.setViewportSize(start);
-  await openTaskCard(page);
+  await openCard(page, 'Getting started with fvoci', 'Write in the body');
   await expect(dialog(page)).toHaveAttribute('data-frame', 'full');
   const editor = await bodyEditor(page);
 
@@ -895,9 +898,9 @@ test('another card is shown in the same dialog', async ({ page }) => {
   await expect(page).not.toHaveURL(new RegExp(`${place.cardId}$`));
   await expect(page).toHaveURL(ON_A_CARD);
   await expect(dialog(page)).toHaveAttribute('data-kept', 'yes');
-  await expect(page.getByTestId('card-title')).toHaveValue('Identify dependencies');
+  await expect(page.getByTestId('card-title')).toHaveValue('Agree on the scope');
   // The copy has the body and none of the comments.
-  await expect(await bodyEditor(page)).toContainText('Checklist');
+  await expect(await bodyEditor(page)).toContainText('The new sign-up screen');
   await expect(page.getByTestId('card-comments')).toContainText('No comments yet.');
 });
 
@@ -1158,7 +1161,7 @@ test('where the on-screen keyboard covers the page, the card ends above it and t
   };
 
   // A field near the bottom of what is in sight, then the keyboard.
-  const field = property(page, 'Estimated Hours').locator('input');
+  const field = property(page, 'Estimated hours').locator('input');
   await scroller(page).evaluate((element) => {
     element.scrollTop = 0;
   });
@@ -1223,16 +1226,18 @@ test('the card keeps clear of the edges the device keeps', async ({ page }, test
 // ------------------------------------------- reading only, and no card
 
 test('on a board the reader may only look at, nothing can be changed', async ({ page }) => {
-  await openCard(page, 'Company Goals', 'Improve customer NPS score');
+  await openCard(page, 'Study notes', 'Big O notation');
 
   // The title is a heading, the names of the properties are not buttons, the values are not fields.
-  await expect(page.getByTestId('card-title')).toHaveText('Improve customer NPS score');
+  await expect(page.getByTestId('card-title')).toHaveText('Big O notation');
   expect(await page.getByTestId('card-title').evaluate((element) => element.tagName)).toBe('H2');
   await expect(dialog(page).locator('[data-property]').first()).toBeVisible();
   await expect(page.getByTestId('property-name')).toHaveCount(0);
   await expect(page.getByTestId('add-property')).toHaveCount(0);
   await expect(page.getByTestId('card-add-icon')).toHaveCount(0);
-  await expect(page.getByTestId('card-properties').locator('input, button')).toHaveCount(0);
+  await expect(
+    page.getByTestId('card-properties').locator('input:not(:disabled), button:not(:disabled)'),
+  ).toHaveCount(0);
 
   // The body is read in its room (others' changes come in), never edited, and says why.
   await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'reading');
@@ -1252,7 +1257,7 @@ test('on a board the reader may only look at, nothing can be changed', async ({ 
 
 test('a card that is not there says so and can be closed', async ({ page }, testInfo) => {
   const stage = STAGE_OF_PROJECT[testInfo.project.name] ?? 'expanded';
-  const place = await find(page, 'Project Tasks', 'Identify dependencies');
+  const place = await find(page, 'Project schedule', 'Design the screens');
   await page.goto(boardPath(place.boardId, place.viewId, 'no-such-card'));
   const missing = page.getByTestId('card-missing');
   await expect(missing.getByRole('alert')).toHaveText(
@@ -1377,7 +1382,7 @@ test.describe('pictures of the card', () => {
       await closePicker(page);
 
       // The menu of a property's definition.
-      await property(page, 'Priority').getByTestId('property-name').click();
+      await property(page, 'Phase').getByTestId('property-name').click();
       await expect(page.getByTestId('property-menu')).toBeVisible();
       await shot('card-property-menu');
       await closePicker(page);

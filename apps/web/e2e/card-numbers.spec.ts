@@ -13,7 +13,7 @@ import { boardPage, dialog, openView } from './kanban.support.ts';
 import { screensDir } from './screens.ts';
 import { newWiki } from './wiki.support.ts';
 
-const WELCOME = 'Welcome to fvoci!';
+const WELCOME = 'Getting started with fvoci';
 
 interface DevCard {
   id: string;
@@ -84,7 +84,7 @@ async function openSearchOfView(page: Page): Promise<Locator> {
 test('every view shows a card’s number and says it, and an open card shows it at its head', async ({
   page,
 }, info) => {
-  await openView(page, info, WELCOME, 'Onboarding');
+  await openView(page, info, WELCOME, 'Board');
   // A phone shows one column of the kanban at a time.
   await everyCardNumbered(page, boardPage(page).locator('[data-card]'), false);
   const first = boardPage(page).locator('[data-card]').first();
@@ -104,7 +104,7 @@ test('every view shows a card’s number and says it, and an open card shows it 
   );
   await expect(page.getByTestId('card-location')).toContainText(`#${String(named.number)}`);
 
-  await openView(page, info, WELCOME, 'Preview: Table View');
+  await openView(page, info, WELCOME, 'Table');
   await everyCardNumbered(page, page.locator('[role="row"][data-card]'), true);
 });
 
@@ -113,8 +113,8 @@ test('a card of the calendar and of the chart shows its number, and its bar says
 }, info) => {
   test.skip(info.project.name !== 'desktop', 'the views are drawn the same at every width');
   await page.clock.setFixedTime(new Date('2026-11-09T16:00:00Z'));
-  await openView(page, info, WELCOME, 'Preview: Calendar View');
-  const { id, number } = await cardTitled(page, 'Drag cards');
+  await openView(page, info, WELCOME, 'Calendar');
+  const { id, number } = await cardTitled(page, 'Open a card');
   await page.evaluate(async (cardId) => {
     interface Store {
       board: { cardProperties: { id: string; name: string }[] };
@@ -122,29 +122,29 @@ test('a card of the calendar and of the chart shows its number, and its bar says
     }
     const store = (window as unknown as { fvociDev: { workspace: { board: Store } } }).fvociDev
       .workspace.board;
-    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
-    if (!due) throw new Error('no Due Date');
+    const due = store.board.cardProperties.find((property) => property.name === 'Day');
+    if (!due) throw new Error('no Day');
     await store.setCardProperty(cardId, due.id, { from: '2026-11-12' });
   }, id);
   const bar = page.getByTestId('month-grid').locator(`a[data-bar="${id}"]`);
   await expect(numberIn(bar)).toHaveText(new RegExp(`#${String(number)}`));
-  await expect(bar).toHaveAccessibleName(new RegExp(`^number ${String(number)}, Drag cards`));
+  await expect(bar).toHaveAccessibleName(new RegExp(`^number ${String(number)}, Open a card`));
 
   await page.getByTestId('view-header').locator('[data-tool="views"]').click();
   await page.getByRole('menuitem', { name: 'Add Gantt view' }).click();
   const row = page.getByTestId('gantt').locator(`[data-row="${id}"]`);
   await expect(numberIn(row)).toHaveText(new RegExp(`#${String(number)}`));
   await expect(row.locator(`[data-bar="${id}"]`)).toHaveAccessibleName(
-    new RegExp(`^number ${String(number)}, Drag cards`),
+    new RegExp(`^number ${String(number)}, Open a card`),
   );
 });
 
 test('`#` and a number in a body put that card of the board as a chip, and the body holds its identifier', async ({
   page,
 }, info) => {
-  await openView(page, info, WELCOME, 'Onboarding');
-  const target = await cardTitled(page, 'Share a board');
-  const source = await cardTitled(page, 'Create a new card');
+  await openView(page, info, WELCOME, 'Board');
+  const target = await cardTitled(page, 'Filter, sort and group');
+  const source = await cardTitled(page, 'Write in the body');
   const editor = await openCard(page, source.title);
   await editor.click();
   await documentBoundary(page, 'end');
@@ -175,10 +175,10 @@ test('`#` and a number in a body put that card of the board as a chip, and the b
   expect(await stored()).not.toContain(`#${String(target.number)}`);
 
   // The words of a title after `#` offer the cards of the board that have them.
-  await page.keyboard.type(' #drag');
-  const drag = await cardTitled(page, 'Drag cards');
+  await page.keyboard.type(' #wiki');
+  const wiki = await cardTitled(page, 'Keep your documents in a wiki');
   await expect(offered(page).getByRole('option')).toHaveText([
-    new RegExp(`^#${String(drag.number)} .*Drag cards$`),
+    new RegExp(`^#${String(wiki.number)} .*Keep your documents in a wiki$`),
   ]);
   await page.keyboard.press('Escape');
 });
@@ -186,8 +186,8 @@ test('`#` and a number in a body put that card of the board as a chip, and the b
 test('the search of the workspace and the search of a view find a card by its number', async ({
   page,
 }, info) => {
-  await openView(page, info, WELCOME, 'Onboarding');
-  const target = await cardTitled(page, 'Share a board');
+  await openView(page, info, WELCOME, 'Board');
+  const target = await cardTitled(page, 'Filter, sort and group');
   await expect(page.getByTestId('open-search')).toBeVisible();
   await page.keyboard.press(await primaryKey(page, 'k'));
   const search = page.getByTestId('search-dialog');
@@ -212,7 +212,7 @@ test('the search of the workspace and the search of a view find a card by its nu
 test('`#N` finds matching cards across boards with the current board first, and works from a wiki', async ({
   page,
 }, info) => {
-  await openView(page, info, WELCOME, 'Onboarding');
+  await openView(page, info, WELCOME, 'Board');
   const welcomeFirst = (await cardsOfBoard(page)).find((one) => one.number === 1);
   if (!welcomeFirst) throw new Error('no #1 card on welcome board');
 
@@ -292,16 +292,16 @@ test.describe('screens', () => {
           await openView(page, info, WELCOME, view);
           await page.setViewportSize({ width: size.width, height: size.height });
         };
-        await show('Onboarding');
+        await show('Board');
         await expect(numberIn(boardPage(page)).first()).toBeVisible();
         await picture(page, info, `board-${size.name}-${scheme}`);
 
-        await show('Preview: Table View');
+        await show('Table');
         await expect(numberIn(page.locator('[role="row"][data-card]')).first()).toBeVisible();
         await picture(page, info, `table-${size.name}-${scheme}`);
 
-        await show('Onboarding');
-        const editor = await openCard(page, 'Create a new card');
+        await show('Board');
+        const editor = await openCard(page, 'Write in the body');
         await editor.click();
         await documentBoundary(page, 'end');
         await page.keyboard.type(' #1');

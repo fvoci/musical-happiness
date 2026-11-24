@@ -39,7 +39,7 @@ async function cardsOfTheWorld(
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
     const [workspace] = await backend.workspaces();
     const boards = await backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title === 'Project Tasks');
+    const board = boards.find((each) => each.title === 'Customer contacts');
     if (!board) throw new Error('no board');
     const cards = (await backend.cards(board.id)).filter(
       (card, at, all) =>

@@ -5,6 +5,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import { viewIdOf } from './address.ts';
 import {
   addRelation,
   arrowEnds,
@@ -42,15 +43,15 @@ test('a new Gantt view reads the first card relation, and draws one arrow for ea
     return Object.fromEntries(store.cards.map((card) => [card.title, card.id]));
   });
   expect(ends).toEqual([
-    [ids['Create a new card'], ids['Share a board']],
-    [ids['Share a board'], ids['Filter and sort cards']],
-    [ids['Drag cards'], ids['Filter and sort cards']],
+    [ids['Write in the body'], ids['Filter, sort and group']],
+    [ids['Filter, sort and group'], ids['Keep your documents in a wiki']],
+    [ids['Open a card'], ids['Keep your documents in a wiki']],
   ]);
   // A bar says which cards it comes after.
-  await expect(bar(page, 'Filter and sort cards')).toHaveAccessibleName(
-    'number 7, Filter and sort cards, December 3 – December 4. After Share a board and Drag cards.',
+  await expect(bar(page, 'Keep your documents in a wiki')).toHaveAccessibleName(
+    'number 7, Keep your documents in a wiki, December 3 – December 4. After Filter, sort and group and Open a card.',
   );
-  await expect(bar(page, 'Drag cards')).toHaveAccessibleName('number 1, Drag cards, November 12');
+  await expect(bar(page, 'Open a card')).toHaveAccessibleName('number 1, Open a card, November 12');
 });
 
 test('an arrow goes from the end of the card that comes first to the start of the one after', async ({
@@ -72,21 +73,20 @@ test('an arrow goes from the end of the card that comes first to the start of th
   }
   // One that turns back (the second card starts two days after the first ends, less than
   // two gaps at this zoom), and one that goes straight in, two rows down.
-  await joins('Create a new card', 'Share a board');
-  await joins('Drag cards', 'Filter and sort cards');
+  await joins('Write in the body', 'Filter, sort and group');
+  await joins('Open a card', 'Keep your documents in a wiki');
   // Closer in, with a heading of a group between the rows, the arrows still meet the bars.
   await page.getByTestId('gantt-zoom-in').click();
   await expect(gantt(page)).toHaveAttribute('data-zoom', 'day');
-  await page.evaluate(async () => {
+  await page.evaluate(async (id) => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
     const select = store.board.cardProperties.find((property) => property.type === 'select');
-    const view = store.views.find((each) => each.fields.viewType === 'gantt');
-    if (!select || !view) throw new Error('nothing to group by');
-    await store.setViewFields(view.id, { groupById: select.id });
-  });
+    if (!select) throw new Error('nothing to group by');
+    await store.setViewFields(id, { groupById: select.id });
+  }, viewIdOf(page.url()));
   await expect(gantt(page).locator('[data-group]').first()).toBeVisible();
-  await joins('Create a new card', 'Share a board');
-  await joins('Share a board', 'Filter and sort cards');
+  await joins('Write in the body', 'Filter, sort and group');
+  await joins('Filter, sort and group', 'Keep your documents in a wiki');
 });
 
 test('"dependencies" in the header turns the arrows off and on, and the view keeps the choice', async ({
@@ -115,7 +115,7 @@ test('a Gantt view made on a board without a card relation has no arrows until o
   await expectDependencies(page, 'None');
   expect((await storedFields(page)).dependencyPropertyId).toBeUndefined();
   await addRelation(page);
-  await setAfter(page, { 'Share a board': ['Create a new card'] });
+  await setAfter(page, { 'Filter, sort and group': ['Write in the body'] });
   await expect(arrows(page)).toHaveCount(0);
   await chooseDependencies(page, 'after');
   await expect(arrows(page)).toHaveCount(1);
@@ -133,11 +133,11 @@ test('the arrows of a card go with it when it is deleted', async ({ page }, info
   await expect(arrows(page)).toHaveCount(3);
   await page.evaluate(async () => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const gone = store.cards.find((card) => card.title === 'Share a board');
+    const gone = store.cards.find((card) => card.title === 'Filter, sort and group');
     if (!gone) throw new Error('no card to delete');
     await store.deleteCards([gone.id]);
   });
-  // The value of "Filter and sort cards" still names the deleted card: no arrow for it.
+  // The value of "Keep your documents in a wiki" still names the deleted card: no arrow for it.
   await expect(bars(page)).toHaveCount(3);
   await expect(arrows(page)).toHaveCount(1);
   await expect(gantt(page)).toHaveAttribute('data-edges', '1');
@@ -160,22 +160,24 @@ test('a card that starts before a card it comes after has ended is marked, count
   page,
 }, info) => {
   await openRelated(page, info);
-  // "Share a board" starts on the day "Drag cards" ends: that is in order.
-  await setAfter(page, { 'Share a board': ['Create a new card', 'Drag cards'] });
+  // "Filter, sort and group" starts on the day "Open a card" ends: that is in order.
+  await setAfter(page, { 'Filter, sort and group': ['Write in the body', 'Open a card'] });
   await expect(arrows(page)).toHaveCount(4);
   await expect(gantt(page)).toHaveAttribute('data-late', '0');
   await expect(page.getByTestId('gantt-late')).toHaveCount(0);
   await expect(gantt(page).locator('[data-mark]')).toHaveCount(0);
 
-  // "Filter and sort cards" now starts three days before "Share a board" ends.
-  await setDates(page, { 'Filter and sort cards': { from: '2026-11-20', to: '2026-11-21' } });
+  // "Keep your documents in a wiki" now starts three days before "Filter, sort and group" ends.
+  await setDates(page, {
+    'Keep your documents in a wiki': { from: '2026-11-20', to: '2026-11-21' },
+  });
   await expect(gantt(page)).toHaveAttribute('data-late', '1');
   await expect(arrows(page)).toHaveCount(4);
   await expect(gantt(page).locator('[data-arrow][data-late]')).toHaveCount(1);
   // Not by colour alone: the line is dashed, the others are not. The dashes
   // are in pixels, as the thickness of the line is, whatever the drawing is stretched to.
-  expect(await dashes(page, 'Share a board', 'Filter and sort cards')).toBe('6 4');
-  expect(await dashes(page, 'Drag cards', 'Filter and sort cards')).toBeNull();
+  expect(await dashes(page, 'Filter, sort and group', 'Keep your documents in a wiki')).toBe('6 4');
+  expect(await dashes(page, 'Open a card', 'Keep your documents in a wiki')).toBeNull();
   await expect(gantt(page).locator('[data-arrow][data-late] path').first()).toHaveAttribute(
     'vector-effect',
     'non-scaling-stroke',
@@ -183,19 +185,21 @@ test('a card that starts before a card it comes after has ended is marked, count
   // A mark next to the title, which stays in sight while the days scroll.
   const row = gantt(page)
     .locator('[data-row]')
-    .filter({ has: page.locator('[data-row-title]', { hasText: 'Filter and sort cards' }) });
+    .filter({
+      has: page.locator('[data-row-title]', { hasText: 'Keep your documents in a wiki' }),
+    });
   await expect(row.locator('[data-row-title] [data-mark="late"]')).toBeVisible();
   await expect(gantt(page).locator('[data-mark]')).toHaveCount(1);
-  await expect(bar(page, 'Filter and sort cards')).toHaveAccessibleName(
-    'number 7, Filter and sort cards, November 20 – November 21. After Share a board and Drag cards. Out of order: starts before the end of Share a board.',
+  await expect(bar(page, 'Keep your documents in a wiki')).toHaveAccessibleName(
+    'number 7, Keep your documents in a wiki, November 20 – November 21. After Filter, sort and group and Open a card. Out of order: starts before the end of Filter, sort and group.',
   );
   // The row above the chart counts them, and goes to the card.
   const count = page.getByTestId('gantt-late');
   await expect(count).toHaveAccessibleName('Out of order: 1. Show the next.');
   await expect(count.locator('[data-count]')).toHaveText('1');
   await count.click();
-  await expect(bar(page, 'Filter and sort cards')).toBeFocused();
-  await expect(bar(page, 'Filter and sort cards')).toBeInViewport();
+  await expect(bar(page, 'Keep your documents in a wiki')).toBeFocused();
+  await expect(bar(page, 'Keep your documents in a wiki')).toBeInViewport();
 
   // What changes is said to a screen reader, which sees no button come or go.
   await expect(page.getByTestId('gantt-problems')).toHaveText('Out of order: 1. On a loop: 0.');
@@ -203,8 +207,8 @@ test('a card that starts before a card it comes after has ended is marked, count
   // Dates are not moved for the reader: the card is where its value says.
   const stored = await page.evaluate(() => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
-    const card = store.cards.find((each) => each.title === 'Filter and sort cards');
+    const due = store.board.cardProperties.find((property) => property.name === 'Day');
+    const card = store.cards.find((each) => each.title === 'Keep your documents in a wiki');
     return (card as unknown as { fields: { properties: Record<string, unknown> } }).fields
       .properties[due?.id ?? ''];
   });
@@ -212,20 +216,22 @@ test('a card that starts before a card it comes after has ended is marked, count
 
   // Earlier still, it starts before both cards it comes after have ended: two
   // relations out of order, on one card. The count is of relations.
-  await setDates(page, { 'Filter and sort cards': { from: '2026-11-11' } });
+  await setDates(page, { 'Keep your documents in a wiki': { from: '2026-11-11' } });
   await expect(gantt(page)).toHaveAttribute('data-late', '2');
   await expect(count).toHaveAccessibleName('Out of order: 2. Show the next.');
   await expect(gantt(page).locator('[data-arrow][data-late]')).toHaveCount(2);
   await expect(gantt(page).locator('[data-bar][data-late]')).toHaveCount(1);
   await expect(gantt(page).locator('[data-mark]')).toHaveCount(1);
-  await expect(bar(page, 'Filter and sort cards')).toHaveAccessibleName(
-    'number 7, Filter and sort cards, November 11. After Share a board and Drag cards. Out of order: starts before the end of Share a board and Drag cards.',
+  await expect(bar(page, 'Keep your documents in a wiki')).toHaveAccessibleName(
+    'number 7, Keep your documents in a wiki, November 11. After Filter, sort and group and Open a card. Out of order: starts before the end of Filter, sort and group and Open a card.',
   );
 
   // Put back in order while the count has the focus: the count stays, at
   // nothing, for as long as it has it, and then goes. Nothing is marked.
   await count.focus();
-  await setDates(page, { 'Filter and sort cards': { from: '2026-11-23', to: '2026-11-24' } });
+  await setDates(page, {
+    'Keep your documents in a wiki': { from: '2026-11-23', to: '2026-11-24' },
+  });
   await expect(gantt(page)).toHaveAttribute('data-late', '0');
   await expect(page.getByTestId('gantt-problems')).toHaveText('Out of order: 0. On a loop: 0.');
   await expect(count).toBeFocused();
@@ -239,10 +245,12 @@ test('"show the next" goes on from the bar the reader is on, and shows which bar
   page,
 }, info) => {
   await openRelated(page, info);
-  // Out of order: the first row ("Drag cards", after "Share a board", which ends later)
-  // and the last ("Filter and sort cards", moved to before "Share a board" ends).
-  await setAfter(page, { 'Drag cards': ['Share a board'] });
-  await setDates(page, { 'Filter and sort cards': { from: '2026-11-20', to: '2026-11-21' } });
+  // Out of order: the first row ("Open a card", after "Filter, sort and group", which ends later)
+  // and the last ("Keep your documents in a wiki", moved to before "Filter, sort and group" ends).
+  await setAfter(page, { 'Open a card': ['Filter, sort and group'] });
+  await setDates(page, {
+    'Keep your documents in a wiki': { from: '2026-11-20', to: '2026-11-21' },
+  });
   const count = page.getByTestId('gantt-late');
   await expect(count).toHaveAccessibleName('Out of order: 2. Show the next.');
   const late = gantt(page).locator('[data-bar][data-late]');
@@ -272,26 +280,28 @@ test('cards on a loop are marked, counted and said, the arrows between them dott
 }, info) => {
   await openRelated(page, info);
   await expect(page.getByTestId('gantt-loops')).toHaveCount(0);
-  // "Create a new card" → "Share a board" → "Filter and sort cards" → "Create a new card".
-  await setAfter(page, { 'Create a new card': ['Filter and sort cards'] });
+  // "Write in the body" → "Filter, sort and group" → "Keep your documents in a wiki" → "Write in the body".
+  await setAfter(page, { 'Write in the body': ['Keep your documents in a wiki'] });
   await expect(arrows(page)).toHaveCount(4);
   await expect(gantt(page).locator('[data-arrow][data-loop]')).toHaveCount(3);
   // In order and on the loop: dotted. The one that closes it runs backwards in time: a dot after each dash.
-  expect(await dashes(page, 'Create a new card', 'Share a board')).toBe('0.1 4.5');
-  expect(await dashes(page, 'Filter and sort cards', 'Create a new card')).toBe('6 4.5 0.1 4.5');
+  expect(await dashes(page, 'Write in the body', 'Filter, sort and group')).toBe('0.1 4.5');
+  expect(await dashes(page, 'Keep your documents in a wiki', 'Write in the body')).toBe(
+    '6 4.5 0.1 4.5',
+  );
   // A dot is a dash of no length with a round end.
   await expect(gantt(page).locator('[data-arrow][data-loop] path').first()).toHaveAttribute(
     'stroke-linecap',
     'round',
   );
-  expect(await dashes(page, 'Drag cards', 'Filter and sort cards')).toBeNull();
+  expect(await dashes(page, 'Open a card', 'Keep your documents in a wiki')).toBeNull();
   await expect(gantt(page).locator('[data-bar][data-loop]')).toHaveCount(3);
   // The mark of going round is by the title of each card of the loop.
   await expect(gantt(page).locator('[data-row-title] [data-mark="loop"]')).toHaveCount(3);
   await expect(page.getByTestId('gantt-problems')).toHaveText('Out of order: 1. On a loop: 3.');
-  await expect(bar(page, 'Drag cards')).not.toHaveAttribute('data-loop');
-  await expect(bar(page, 'Share a board')).toHaveAccessibleName(
-    'number 4, Share a board, November 12 – November 23. After Create a new card. On a loop: following what it comes after leads back to it.',
+  await expect(bar(page, 'Open a card')).not.toHaveAttribute('data-loop');
+  await expect(bar(page, 'Filter, sort and group')).toHaveAccessibleName(
+    'number 4, Filter, sort and group, November 12 – November 23. After Write in the body. On a loop: following what it comes after leads back to it.',
   );
   const count = page.getByTestId('gantt-loops');
   await expect(count).toHaveAccessibleName('On a loop: 3. Show the next.');
@@ -310,14 +320,14 @@ test('a loop through a card without a date still marks the cards that have a bar
   page,
 }, info) => {
   await openRelated(page, info);
-  // "Drag cards" ↔ "Create a new view", which has no date and so no bar and no arrow.
-  await setAfter(page, { 'Drag cards': ['Create a new view'] });
+  // "Open a card" ↔ "Attach files and open them right here", which has no date and so no bar and no arrow.
+  await setAfter(page, { 'Open a card': ['Attach files and open them right here'] });
   await expect(arrows(page)).toHaveCount(3);
   await expect(gantt(page).locator('[data-arrow][data-loop]')).toHaveCount(0);
-  await expect(bar(page, 'Drag cards')).toHaveAttribute('data-loop', '');
+  await expect(bar(page, 'Open a card')).toHaveAttribute('data-loop', '');
   // The title and the days are a sentence of their own before what follows.
-  await expect(bar(page, 'Drag cards')).toHaveAccessibleName(
-    'number 1, Drag cards, November 12. On a loop: following what it comes after leads back to it.',
+  await expect(bar(page, 'Open a card')).toHaveAccessibleName(
+    'number 1, Open a card, November 12. On a loop: following what it comes after leads back to it.',
   );
   await expect(page.getByTestId('gantt-loops')).toHaveAccessibleName(
     'On a loop: 1. Show the next.',
