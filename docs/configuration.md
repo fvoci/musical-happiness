@@ -255,7 +255,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | `search_username` | `FVOCI_SEARCH_USERNAME` | 문자열 | `""` | 검색 서버에 HTTP Basic으로 로그인할 사용자(`:`와 제어 문자는 쓰지 못한다). `search_password`와 함께 준다. 두 검색 서버가 모두 받는다 |
 | `search_password` | `FVOCI_SEARCH_PASSWORD` | 문자열 | `""` | 그 사용자의 비밀번호(제어 문자는 쓰지 못한다) |
 | `search_api_key` | `FVOCI_SEARCH_API_KEY` | 문자열 | `""` | Elasticsearch의 API 키(인코딩된 꼴). `Authorization: ApiKey …`로 보낸다(공백 없는 ASCII). OpenSearch는 이 방식을 받지 않는다. 사용자·비밀번호와 함께 주면 시작하지 않는다 |
-| `search_index` | `FVOCI_SEARCH_INDEX` | 문자열 | `"fvoci"` | 이 서버의 색인 이름. 소문자·숫자·`-`·`_`로 100자까지, 글자나 숫자로 시작한다. 서버 하나(DB 하나)에 색인 하나다: 같은 검색 서버를 여러 fvoci 서버가 쓰면 저마다 다른 이름을 준다. 같은 이름을 주면 서로의 색인을 지우고 다시 만들고, DB를 복제한 서버(스테이징)가 원본과 같은 이름을 쓰면 원본의 색인에 쓴다 |
+| `search_index` | `FVOCI_SEARCH_INDEX` | 문자열 | `"fvoci"` | 이 서버의 색인 이름. 소문자·숫자·`-`·`_`로 100자까지, 글자나 숫자로 시작한다. 서버 하나(DB 하나)에 색인 하나다: 같은 검색 서버를 여러 fvoci 서버가 쓰면 저마다 다른 이름을 준다. 같은 이름을 주면 서로의 색인을 지우고 다시 만들고, DB를 복제한 서버(스테이징)가 운영 서버와 같은 이름을 쓰면 운영 서버의 색인에 쓴다 |
 | `search_requests_per_second` | `FVOCI_SEARCH_REQUESTS_PER_SECOND` | 정수 | `5` | 한 사람이 1초에 할 수 있는 검색 수(쉬었다가는 한 번에 그 두 배까지). 검색 서버에서 찾든 DB에서 찾든 같다. 넘으면 429와 `Retry-After`. `0`이면 한도가 없다 |
 
 ## 키: 조직의 로그인 공급자

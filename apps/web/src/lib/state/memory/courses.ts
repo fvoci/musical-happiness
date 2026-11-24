@@ -133,7 +133,7 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
   override async createComment(courseId: string, unitId: string, body: DocNode) {
     const comment = await super.createComment(courseId, unitId, body);
     const course = this.#world.containers.get(courseId);
-    if (course?.workspaceId === this.#world.workspace.id) {
+    if (course && !course.isTemplate && course.workspaceId === this.#world.workspace.id) {
       setUnitWatch(this.#world, this.#host.userId, unitId, true);
     }
     return comment;

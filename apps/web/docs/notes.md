@@ -115,7 +115,7 @@ apps/web/
 
 Tiptap은 편집기 스파이크에서 넣었다(`docs/spike-editor.md`).
 
-글꼴 원본과 유니코드 자료(2026-11-10 17:07 KST 확인, `tools/fonts/sources.json`에 주소와 SHA-256):
+글꼴 원천 파일과 유니코드 자료(2026-11-10 17:07 KST 확인, `tools/fonts/sources.json`에 주소와 SHA-256):
 
 | 자료                                          | 판                                                         | 출처                                           |
 | --------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------- |
@@ -415,7 +415,7 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 | 카드 상세: 세 가지 틀, 속성과 그 정의, 본문, 첨부, 댓글                       | `src/lib/features/card/`                                                                                           | `docs/screens/card/`                                                  |
 | 편집기의 제품 부품, 수식(KaTeX), 다이어그램(Mermaid), 이모지 목록(CLDR)       | `src/lib/editor/`                                                                                                  | `docs/spike-editor.md` 10절                                           |
 | 조립: 주소, 보드 페이지, 카드 대화상자                                        | `src/app/`                                                                                                         | `docs/decisions.md`의 "주소와 언어"                                   |
-| 빌드의 `.zst`, 템플릿의 주소                                                  | `tools/build/`, 저장소 루트의 `crates/server/assets/templates/`                                                    | `docs/build-notes.md`                                                 |
+| 빌드의 `.zst`                                                                 | `tools/build/`                                                                                                     | `docs/build-notes.md`                                                 |
 | 캘린더 뷰의 화면 안(구현은 하지 않았다)                                       | `spikes/calendar/`, `docs/calendar/`(그림 61장)                                                                    | `docs/calendar-proposal.md`(질문 24개)                                |
 
 - **모바일 안의 결정 36건**은 `docs/mobile-proposal.md`의 "결정" 절에 답마다 "바꾸려면 어디를"과 함께 있다. 권고와 다르게 만든 곳은 그 표에 굵게 적었다: 모바일 안의 Q16의 "보이는 열에 만들기"(만들지 않았다), Q22의 표의 "열기", Q24의 터치 드래그 범위, Q34의 단계가 바뀔 때. 무엇을 설정으로 둘지(카드를 여는 방식, 밀도, 진동)도 그때 정해졌고, 설정은 `src/lib/logic/display.ts`와 설정 대화상자에 있다.
@@ -484,7 +484,6 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 | -------------------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | 날짜 값의 와이어, 지역 설정의 값, 파일 주소의 전제 | `src/lib/logic/wire.ts`, `regional.ts`, `src/lib/editor/files.ts`                 | 위 "날짜 속성 값의 와이어 모양", "보는 사람의 시간대" |
 | 글꼴: 한국어 세 파일, 한국어·일본어는 CJK 먼저     | `tools/fonts/`, `src/styles/app.css`, `e2e/fonts.spec.ts`                         | 위 "글꼴"                                             |
-| 번역 결정, 한국어 검수 표                          | `messages/`, `docs/ko-review.md`                                                  | `docs/i18n-conversion.md`                             |
 | 내장 템플릿                                        | 저장소 루트의 `crates/server/assets/templates/`                                   | 그 폴더의 `README.md`                                 |
 | 모바일 화면 안(합의용)                             | `spikes/mobile/`, `docs/mobile/`(그림 64장), `docs/mobile-proposal.md`(질문 36개) | 그 문서                                               |
 | 본문 읽기 전용 표시기                              | `src/lib/editor/render.ts`, `BodyView.svelte`, `drawing.ts`                       | `docs/spike-editor.md` 9절                            |

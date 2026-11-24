@@ -1,9 +1,13 @@
-//! `cargo xtask check`, in the step "names": the words no file may hold.
+//! `cargo xtask check`, in the step "names": the words and porting phrases no file may hold.
 //!
 //! A banned word is refused in any case, alone or inside a longer word, in the text
 //! and in the path of every file git tracks or would track. Nothing is excepted.
 //!
-//! The list does not say the words. A word is known by how many letters it has and
+//! Narrow porting phrases ([`BANNED_PHRASES`]) are also refused in tracked project files
+//! (except immutable applied SQL migrations under `crates/store/schema/` and third-party
+//! vendored sources under `vendor/`).
+//!
+//! The word list does not say the words. A word is known by how many letters it has and
 //! by the SHA-256 of those letters in lowercase, so every run of letters in a file is
 //! read through a window of that many letters, and the window's digest is compared.
 
@@ -21,7 +25,7 @@ type Digest = [u8; 32];
 /// The banned words: the number of letters of each and its digest in hexadecimal.
 ///
 /// A word is added by its digest alone: `printf %s <the word in lowercase> | sha256sum`.
-const BANNED: [(usize, &str); 6] = [
+const BANNED: [(usize, &str); 8] = [
     (
         10,
         "7267391c427b5cef8b2f0a37903f2d460ba94e8cf09bb02eacf6310c8c4a958d",
@@ -29,6 +33,14 @@ const BANNED: [(usize, &str); 6] = [
     (
         10,
         "f1b7401bf3d4b49f15bedafd1620d177676ee171f1f478c0465b1cd7cc1dbdd5",
+    ),
+    (
+        10,
+        "51276467ed49274be5648cc47cbae3755b37f45a65b87d5ebe36b57742ee2e9c",
+    ),
+    (
+        7,
+        "d729259911fb601d8e4cb68d88b6ef7a1486a7199d769a435d58a0eb4bb75ad1",
     ),
     (
         5,
@@ -47,6 +59,27 @@ const BANNED: [(usize, &str); 6] = [
         "1156331605d0331725171a37bef8adda2fa384b1310ebd7cb5554d1bd25a7abf",
     ),
 ];
+
+/// Narrow porting phrases refused in tracked project files (matched case-insensitively).
+///
+/// Kept narrow so ordinary phrases such as `"original file"`, `"original card"`,
+/// `"원본 이미지"`, or `"원본 파일"` are not flagged. Every entry must be lowercase; built
+/// with `concat!` so this file stays free of literal matches.
+const BANNED_PHRASES: [&str; 8] = [
+    concat!("ports ", "server/"),
+    concat!("the ", "original's"),
+    concat!("the ", "original server"),
+    concat!("formats of ", "the original"),
+    concat!("원본", "의 "),
+    concat!("원본", "과 "),
+    concat!("원본", "과의"),
+    concat!("원본", "에서 옮"),
+];
+
+/// Path prefixes exempt from [`BANNED_PHRASES`] (never from [`BANNED`]):
+/// - `crates/store/schema/`: immutable applied SQL migrations checked by checksum.
+/// - `vendor/`: third-party vendored sources.
+const PHRASE_EXEMPT_PREFIXES: [&str; 2] = ["crates/store/schema/", "vendor/"];
 
 /// The banned words, by their number of letters.
 #[derive(Debug)]
@@ -139,25 +172,28 @@ impl<'words> Reading<'words> {
     }
 }
 
-/// Fails if a file has a banned word in its text or in its path.
+/// Fails if a file has a banned word in its text or in its path, or a banned porting phrase
+/// in its text.
 ///
 /// # Errors
 ///
 /// Fails on what it finds, and if git cannot list the files or one cannot be read.
 pub(crate) fn run(root: &Path) -> Result<()> {
     let words = Words::parse(&BANNED)?;
-    let Found { files, hits } = find(root, &words)?;
+    let Found { files, hits } = find(root, &words, &BANNED_PHRASES)?;
     if hits.is_empty() {
         steps::say(&format!(
-            "    no banned word in the {files} files, nor in their paths"
+            "    no banned word or phrase in the {files} files, nor in their paths"
         ));
         return Ok(());
     }
     for hit in &hits {
         steps::say(&format!("    {hit}"));
     }
-    steps::say("    these hold a banned word (xtask/src/banned.rs): say it in our own words");
-    bail!("{} places have a banned word", hits.len())
+    steps::say(
+        "    these hold a banned word or phrase (xtask/src/banned.rs): say it in our own words",
+    );
+    bail!("{} places have a banned word or phrase", hits.len())
 }
 
 /// What a reading of the files under a root found.
@@ -165,19 +201,20 @@ pub(crate) fn run(root: &Path) -> Result<()> {
 struct Found {
     /// How many files were read.
     files: usize,
-    /// The places that hold a word, as [`check_file`] writes them.
+    /// The places that hold a word or phrase, as [`check_file`] writes them.
     hits: Vec<String>,
 }
 
-/// Reads every file git tracks or would track under `root`, and its path, for `words`.
-fn find(root: &Path, words: &Words) -> Result<Found> {
+/// Reads every file git tracks or would track under `root`, and its path, for `words`
+/// and `phrases`.
+fn find(root: &Path, words: &Words, phrases: &[&str]) -> Result<Found> {
     let files = names::tracked_files(root)?;
     let mut reading = Reading::new(words);
     let mut hits = Vec::new();
     for file in &files {
         let text =
             names::tracked_text(&root.join(file)).with_context(|| format!("reading {file}"))?;
-        hits.extend(check_file(file, &text, &mut reading));
+        hits.extend(check_file(file, &text, &mut reading, phrases));
     }
     Ok(Found {
         files: files.len(),
@@ -185,14 +222,37 @@ fn find(root: &Path, words: &Words) -> Result<Found> {
     })
 }
 
+/// Whether `file` is exempt from [`BANNED_PHRASES`] (immutable migrations or vendored code).
+fn is_phrase_exempt(file: &str) -> bool {
+    PHRASE_EXEMPT_PREFIXES
+        .iter()
+        .any(|prefix| file.starts_with(prefix))
+}
+
+/// Whether `line` contains any phrase from `phrases`, matched case-insensitively.
+///
+/// Precondition: every entry in `phrases` is already lowercase.
+fn finds_phrase(line: &str, phrases: &[&str]) -> bool {
+    if phrases.is_empty() {
+        return false;
+    }
+    let lower = line.to_lowercase();
+    phrases.iter().any(|phrase| lower.contains(phrase))
+}
+
 /// The hits of one file: `path: in its name`, then `path:line` for each line.
-fn check_file(file: &str, text: &str, reading: &mut Reading<'_>) -> Vec<String> {
+fn check_file(file: &str, text: &str, reading: &mut Reading<'_>, phrases: &[&str]) -> Vec<String> {
     let mut hits = Vec::new();
     if reading.finds_in(file) {
         hits.push(format!("{file}: in its name"));
     }
+    let active_phrases = if is_phrase_exempt(file) {
+        &[][..]
+    } else {
+        phrases
+    };
     for (index, line) in text.lines().enumerate() {
-        if reading.finds_in(line) {
+        if reading.finds_in(line) || finds_phrase(line, active_phrases) {
             hits.push(format!("{file}:{}", index + 1));
         }
     }
@@ -293,7 +353,8 @@ mod tests {
             check_file(
                 "docs/GADGET-notes.md",
                 "our notes\nonce a Gadget\n\nand gadgets\nand gadgets again\n",
-                &mut reading
+                &mut reading,
+                &[]
             ),
             [
                 "docs/GADGET-notes.md: in its name",
@@ -303,7 +364,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            check_file("docs/notes.md", "our notes\n", &mut reading),
+            check_file("docs/notes.md", "our notes\n", &mut reading, &[]),
             Vec::<String>::new()
         );
     }
@@ -322,7 +383,7 @@ mod tests {
         git(&root, &["add", "gone-gadget.md"]);
         std::fs::remove_file(root.join("gone-gadget.md")).expect("the file is removed");
 
-        let found = find(&root, &words).expect("the files are read");
+        let found = find(&root, &words, &[]).expect("the files are read");
 
         assert_eq!(found.files, 6);
         assert_eq!(
@@ -350,6 +411,103 @@ mod tests {
         assert!(
             Words::parse(&[(6, not_hexadecimal.as_str())]).is_err(),
             "digits that are not hexadecimal"
+        );
+    }
+
+    #[test]
+    fn workspace_banned_words_catch_retired_sibling_repo_names() {
+        let words = Words::parse(&BANNED).expect("the list is read");
+        let mut reading = Reading::new(&words);
+        for text in [
+            concat!("fvoci/ground", "zero"),
+            concat!("Ground", "Zero"),
+            concat!("haf", "gufa-staging"),
+            concat!("HAF", "GUFA"),
+        ] {
+            assert!(reading.finds_in(text), "{text:?} must be caught");
+        }
+    }
+
+    #[test]
+    fn banned_phrases_match_case_insensitively_without_false_positives() {
+        for phrase in BANNED_PHRASES {
+            assert_eq!(
+                phrase,
+                phrase.to_lowercase(),
+                "banned phrase {phrase:?} must be lowercase"
+            );
+        }
+
+        for text in [
+            concat!("Ports ", "server/api/files.go"),
+            concat!("PORTS ", "SERVER/app/boards.go"),
+            concat!("matches the ", "original's response"),
+            concat!("verified against The ", "Original Server"),
+            concat!("The formats of ", "the original archive"),
+            concat!("기존 원본", "의 동작"),
+            concat!("원본", "과 같다"),
+            concat!("원본", "과의 비교"),
+            concat!("원본", "에서 옮김"),
+        ] {
+            assert!(
+                finds_phrase(text, &BANNED_PHRASES),
+                "{text:?} must match a banned phrase"
+            );
+        }
+
+        for text in [
+            "original file",
+            "the original file name",
+            "original card",
+            "the original board exists",
+            "원본 이미지",
+            "원본 파일",
+            "원본 데이터",
+        ] {
+            assert!(
+                !finds_phrase(text, &BANNED_PHRASES),
+                "{text:?} must not match any banned phrase"
+            );
+        }
+    }
+
+    #[test]
+    fn phrase_exempt_prefixes_skip_phrases_but_still_enforce_banned_words() {
+        let words = banning(&["gadget"]);
+        let mut reading = Reading::new(&words);
+        let phrase_line = concat!("-- the ", "original's board block\n");
+        let word_line = "-- uses gadget here\n";
+
+        assert_eq!(
+            check_file(
+                "crates/store/schema/sqlite/0042_board_blocks.sql",
+                phrase_line,
+                &mut reading,
+                &BANNED_PHRASES
+            ),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            check_file(
+                "vendor/rhwp-studio/src/example.ts",
+                concat!("// 원본", "과 비교\n"),
+                &mut reading,
+                &BANNED_PHRASES
+            ),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            check_file(
+                "crates/store/schema/sqlite/0042_board_blocks.sql",
+                word_line,
+                &mut reading,
+                &BANNED_PHRASES
+            ),
+            ["crates/store/schema/sqlite/0042_board_blocks.sql:1"]
+        );
+        assert_eq!(
+            check_file("docs/notes.md", phrase_line, &mut reading, &BANNED_PHRASES),
+            ["docs/notes.md:1"]
         );
     }
 }

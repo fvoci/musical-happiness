@@ -327,7 +327,7 @@ async fn a_comment_is_a_text_written_over_what_was_read() {
         (json!({}), Some("/body")),
         (json!({"body": null}), Some("/body")),
         (json!({"body": empty}), Some("/body")),
-        // What the request does not take is refused as the original's are: by its name.
+        // Unknown fields in the request body are rejected by field name.
         (json!({"body": text("x"), "parentId": UNKNOWN_ID}), None),
         (json!({"body": text("x"), "type": "card"}), None),
     ] {

@@ -23,7 +23,7 @@ import {
   type Schemas,
 } from './support.ts';
 
-test.use({ locale: 'en-US' });
+test.use({ locale: 'en-US', timezoneId: 'UTC' });
 
 function sharedPath(containerId: string, token: string, subId?: string, cardId?: string): string {
   const parts = [containerId, subId, cardId].filter((part) => part !== undefined);
@@ -130,20 +130,16 @@ test('card timer -> course unit auto-switch -> My time CRUD & persistence -> sha
   await page.getByTestId('time-period-day').click();
 
   // Add manual entry (with inline validation check first)
-  const now = new Date();
-  const y = now.getFullYear();
-  const mo = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-
   await page.getByTestId('time-add-button').click();
   await expect(page.getByTestId('time-entry-dialog')).toBeVisible();
+  const day = (await page.getByTestId('time-form-ended-at').inputValue()).slice(0, 10);
   await page.getByTestId('time-form-kind-study').click();
-  await page.getByTestId('time-form-started-at').fill(`${y}-${mo}-${d}T14:00`);
-  await page.getByTestId('time-form-ended-at').fill(`${y}-${mo}-${d}T13:00`);
+  await page.getByTestId('time-form-started-at').fill(`${day}T14:00`);
+  await page.getByTestId('time-form-ended-at').fill(`${day}T13:00`);
   await page.getByTestId('time-form-submit').click();
   await expect(page.getByTestId('time-form-error')).toBeVisible();
 
-  await page.getByTestId('time-form-ended-at').fill(`${y}-${mo}-${d}T15:00`);
+  await page.getByTestId('time-form-ended-at').fill(`${day}T15:00`);
   await page.getByTestId('time-form-note').fill('Deep study block');
   await page.getByTestId('time-form-submit').click();
   await expect(page.getByTestId('time-entry-dialog')).toBeHidden();

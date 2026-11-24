@@ -155,7 +155,7 @@ async fn handle_add_member(
     if request.user_id.is_empty() {
         return Err(AppError::bad_request("empty userId").with_field("userId"));
     }
-    // The original stores a membership of nobody; the user must exist.
+    // The target user must exist before a membership is created.
     match ws.app.user(&request.user_id).await {
         Ok(_) => {}
         Err(error) if error.is_not_found() => {
@@ -176,17 +176,15 @@ async fn handle_add_member(
         return Err(AppError::bad_request("no such user").with_field("userId"));
     };
 
-    // Not in the original, which lets an editor of an open board add members with any
-    // role (`server/api/members.go:164-168`). Anyone can join an open board as an editor
-    // and could then make a second account its admin, and with that take the board over.
+    // Granting the admin role requires role-management permission; otherwise an editor of
+    // an open board could promote a second account to admin and take the board over.
     // The web app offers a user who does not manage roles the board's minimum role only.
     if request.scheme_admin && !manages_roles {
         return Err(AppError::forbidden(MODIFY_MEMBERS_DENIED));
     }
 
-    // Not in the original either, which stores the roles the request names whoever
-    // sends it: an editor of an open board could hand out any role below admin, or none.
-    // Choosing roles belongs to those who manage them.
+    // Choosing explicit roles belongs to those who manage them; callers without role
+    // management always grant the board's minimum role.
     let member = if manages_roles {
         requested_member(container_id, request.user_id.clone(), &request)
     } else {
@@ -239,8 +237,7 @@ async fn handle_join_container(
         .ok_or_else(|| AppError::not_found("board"))?;
     let (container, grant) = (access.container, access.grant);
 
-    // The original lets a workspace administrator join any board as its admin with the
-    // `allow_admin` parameter; here a workspace's administrator joins as anybody does.
+    // Joining is restricted to open boards; workspace administrators follow the same rule.
     if container.container_type != ContainerType::Open {
         // A private board exists only for its members, who have nothing to join.
         return Err(refusal(grant, "cannot join a non Open board"));

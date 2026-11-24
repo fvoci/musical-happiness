@@ -256,7 +256,7 @@ async fn a_page_names_no_file_of_another_container() {
 }
 
 /// A template made of a board, and a board made of that template, each name files of
-/// their own in their file blocks, with the bytes of the original's.
+/// their own in their file blocks, with the bytes of the source files.
 #[tokio::test]
 async fn a_template_and_a_board_made_of_it_have_files_of_their_own() {
     let ts = Setup::native().start().await.init_basic().await;

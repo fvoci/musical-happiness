@@ -174,9 +174,8 @@ async fn serve() -> anyhow::Result<()> {
     server.serve(listener, shutdown_signal()).await
 }
 
-/// Completes when the process is asked to stop: on an interrupt, as the original, and on
-/// a termination request, which is what service managers and containers send. The
-/// original dies of the latter without closing anything.
+/// Completes when the process is asked to stop: on Ctrl-C (SIGINT) or on SIGTERM
+/// (sent by service managers and container runtimes).
 async fn shutdown_signal() {
     let interrupt = async {
         let _ = tokio::signal::ctrl_c().await;

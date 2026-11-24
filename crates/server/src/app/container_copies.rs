@@ -45,7 +45,7 @@ impl App {
     /// template is filed under the category the user has filed the source under, or
     /// else under the default category.
     ///
-    /// The titles the copy is given (the original's with `copy` after it, `New board
+    /// The titles the copy is given (the source's with `copy` after it, `New board
     /// template`) are in the language the server writes in for the user
     /// (`App::language_for`, by `accept_language`, the request's `Accept-Language`).
     ///

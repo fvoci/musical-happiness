@@ -122,16 +122,13 @@ impl App {
     }
 
     /// Tells the boards' members and the webhooks about boards and blocks that were
-    /// stored together, and about the memberships made with them. Not in the
-    /// background: the original does this before it answers, because the operation is
-    /// rare.
+    /// stored together, and about the memberships made with them, before answering.
     pub(crate) async fn announce_created(
         &self,
         created: &ContainersAndBlocks,
         members: &[ContainerMember],
     ) {
-        // All new boards belong to one workspace. The original crashes here without boards;
-        // then there is nobody to tell.
+        // All new boards belong to one workspace; if none were created there is nobody to tell.
         let workspace_id = created
             .containers
             .first()
@@ -164,9 +161,7 @@ impl App {
         patches: &PatchContainersAndBlocks,
         user_id: &str,
     ) -> Result<ContainersAndBlocks, AppError> {
-        // The original reads the blocks first to hand their old state to its
-        // notifications. What remains of that is the failure when a block is missing or
-        // listed twice.
+        // Load referenced blocks up front so a missing or duplicate block ID fails before writing.
         let blocks = if patches.block_ids.is_empty() {
             Vec::new()
         } else {
@@ -238,7 +233,6 @@ impl App {
         request: &DeleteContainersAndBlocks,
         user_id: &str,
     ) -> Result<(), AppError> {
-        // The original crashes without boards.
         let Some(first_container_id) = request.containers.first() else {
             return Err(AppError::bad_request(
                 fvoci_model::ContainersAndBlocksError::NoContainers,

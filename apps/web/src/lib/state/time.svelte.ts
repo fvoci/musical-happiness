@@ -5,7 +5,7 @@
  * `visibilitychange`, mutations, and same-browser tabs (`BroadcastChannel`
  * with safe fallback). Ticks once per second only while a timer is running.
  */
-import { isBackendError, isPasswordSignInRequired, ssoOrgOf } from './problems.ts';
+import { isBackendError, isPasswordSignInRequired, isSignedOut, ssoOrgOf } from './problems.ts';
 import type {
   CreateTimeEntryRequest,
   ListTimeEntriesQuery,
@@ -182,8 +182,13 @@ export class TimeTracker {
   }
 
   /** Lists personal time entries for a filter range and page. */
-  listEntries(query: ListTimeEntriesQuery = {}): Promise<TimeEntryList> {
-    return this.#api.listTimeEntries(query);
+  async listEntries(query: ListTimeEntriesQuery = {}): Promise<TimeEntryList> {
+    try {
+      return await this.#api.listTimeEntries(query);
+    } catch (error) {
+      if (isSignedOut(error)) this.#workspace.report('load', error);
+      throw error;
+    }
   }
 
   /** Manually logs a completed time entry. Re-throws validation errors for forms. */
@@ -194,7 +199,7 @@ export class TimeTracker {
       this.#broadcast();
       return created;
     } catch (error) {
-      this.#captureWall(error);
+      if (!this.#captureWall(error) && isSignedOut(error)) this.#workspace.report('save', error);
       throw error;
     }
   }
@@ -211,7 +216,7 @@ export class TimeTracker {
       this.#broadcast();
       return updated;
     } catch (error) {
-      this.#captureWall(error);
+      if (!this.#captureWall(error) && isSignedOut(error)) this.#workspace.report('save', error);
       throw error;
     }
   }

@@ -86,14 +86,7 @@ struct Command {
     container_id: String,
     card_id: String,
     read_token: String,
-    #[serde(deserialize_with = "null_as_empty")]
     block_ids: Vec<String>,
-}
-
-fn null_as_empty<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Vec<String>, D::Error> {
-    Ok(Option::<Vec<String>>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[derive(Serialize)]
@@ -817,8 +810,8 @@ impl Hub {
             .unwrap_or_default()
     }
 
-    /// Sends a message to every connection of the user that is subscribed to the workspace:
-    /// every tab of the user is told. (The original tells the first one only.)
+    /// Sends a message to every connection of the user that is subscribed to the workspace,
+    /// so every open tab of the user receives it.
     async fn send_to_user(&self, workspace_id: &str, user_id: &str, message: &impl Outgoing) {
         let recipients = self.listeners().of_user(workspace_id, user_id);
         self.send(&recipients, message, Access::Workspace(workspace_id))
@@ -918,6 +911,6 @@ mod ending;
 mod revocations;
 mod subscribe;
 
-/// Ports of `server/ws/server_test.go`, on the listener table.
+/// Unit tests for the listener table and command decoding.
 #[cfg(test)]
 mod tests;

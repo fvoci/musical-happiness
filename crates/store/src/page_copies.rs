@@ -5,7 +5,7 @@
 //! keeps its title (the copy of the page asked for takes the title it is given), its
 //! icon, its place among the pages copied with it and its body; the versions of the
 //! bodies and the comments are not copied. The images of the bodies still show the
-//! original's files: the caller gives the copies files of their own afterwards, as a
+//! source page's files: the caller gives the copies files of their own afterwards, as a
 //! card's duplicate does.
 
 use std::collections::HashMap;

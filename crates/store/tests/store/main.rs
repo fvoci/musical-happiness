@@ -1,6 +1,5 @@
-//! Integration tests of the store. Many began as ports of the original's shared store
-//! test suite (`server/services/store/storetests`) and keep its test names; they test
-//! this server's schema, not the original's.
+//! Integration tests for `fvoci-store`, exercising the store operations and schema on
+//! both SQLite and PostgreSQL.
 //!
 //! They run against SQLite by default. Set `FVOCI_STORE_TEST_DB_TYPE=postgres` and
 //! `FVOCI_STORE_TEST_CONN_STRING` to a PostgreSQL URL to run them against PostgreSQL; each

@@ -24,10 +24,7 @@ use serde_json::Value;
 
 use super::archive::Archive;
 use super::places::{self, BlockPlace};
-use super::{
-    ArchiveFiles, ImportOptions, MAX_JSONL_BYTES, file_names_of, missing_files_of, trim,
-    with_workspace_named,
-};
+use super::{ArchiveFiles, ImportOptions, MAX_JSONL_BYTES, file_names_of, missing_files_of, trim};
 use crate::auth::now_millis;
 use crate::error::{AppError, Reason};
 use fvoci_store::StoreError;
@@ -340,12 +337,11 @@ impl ScanAccum {
     ) -> Result<(), AppError> {
         self.files.names.extend(file_names_of(&data));
         self.files.missing.extend(missing_files_of(&data));
-        let mut container: Container =
-            serde_json::from_value(with_workspace_named(data)).map_err(|error| {
-                AppError::bad_request(format_args!(
-                    "invalid board in archive line {line_number}: {error}"
-                ))
-            })?;
+        let mut container: Container = serde_json::from_value(data).map_err(|error| {
+            AppError::bad_request(format_args!(
+                "invalid board in archive line {line_number}: {error}"
+            ))
+        })?;
         modified_by.clone_into(&mut container.modified_by);
         container.update_at = self.now;
         workspace_id.clone_into(&mut container.workspace_id);

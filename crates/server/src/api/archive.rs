@@ -1,7 +1,4 @@
 //! Exporting and importing archives of boards and wikis.
-//!
-//! Ports `server/api/archive.go`. The workspace-export route is registered twice in the
-//! original (the standalone server answers it); the import field is `file`.
 
 use axum::Extension;
 use axum::body::{Body, Bytes};
@@ -108,8 +105,6 @@ async fn handle_export_container(
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
-    // The original also lets a system admin with a compliance license through; a
-    // standalone server has neither, so a non-member is refused.
     require_container_permission(
         &ws.app,
         user_id,
@@ -191,8 +186,8 @@ async fn handle_export_workspace(
 /// the upload was opened: a user who may not import any more is refused, and the upload
 /// is thrown away.
 ///
-/// The archive is of version 3, as the export routes write it. The formats of the
-/// original (the line-based version 1 and the ZIP of version 2) and a ZIP without
+/// The archive is of version 3, as the export routes write it. Older archive versions
+/// (the line-based version 1 and the ZIP of version 2) and a ZIP without
 /// `version.json` are 400, and nothing of them is stored. An archive of more than
 /// 10,000 entries, whose entries unpack to more than 1 GiB together, or with a
 /// `board.jsonl` of more than 64 MiB (or a single JSONL line over 10 MiB) or a file larger
@@ -263,9 +258,9 @@ async fn handle_import(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
     Ok(json_response(&summary))
 }
 
-/// Sends an archive, written whole before, as the download the original sends, with its
-/// length. The export's `slot` and its file are held until the last piece of the
-/// archive is read, the client goes away, or the download stalls (`app::download`).
+/// Streams a prepared archive download with its `Content-Length` and attachment headers.
+/// The export's `slot` and its file are held until the last piece of the archive is read,
+/// the client goes away, or the download stalls (`app::download`).
 fn archive_response(
     app: &App,
     archive: ExportedArchive,

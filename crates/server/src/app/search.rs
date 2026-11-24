@@ -37,10 +37,6 @@ impl App {
     /// Returns the boards of a workspace whose title matches `term`, among the workspace's open
     /// boards and the private ones the user is a member of. Templates are left out.
     ///
-    /// No route of a standalone server gets as far as calling this: its one caller in
-    /// the original, the search for boards that can be linked to a channel, needs the
-    /// host application.
-    ///
     /// # Errors
     ///
     /// Returns the store's error if the query fails.

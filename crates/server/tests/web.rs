@@ -1,5 +1,4 @@
-//! Serving the web app directory. The original's only test of this code checks the base
-//! URL and listen address (ported next to the code); these pin the responses.
+//! Integration tests for serving the static web app directory and client-side routes.
 
 use std::path::PathBuf;
 

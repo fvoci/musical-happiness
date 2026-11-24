@@ -24,6 +24,7 @@
   <MyTimeScreen
     {tracker}
     locale={workspace.locale}
+    regional={workspace.regional}
     targetHref={(entry: TimeEntry) => timeEntryTargetHref(router, entry)}
     onOpenTarget={(entry: TimeEntry) => {
       openTimeEntryTarget(router, entry);

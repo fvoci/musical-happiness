@@ -1,8 +1,4 @@
 //! Archive export and import.
-//!
-//! Ports `server/integrationtests/export_test.go` (`TestExportBoard`) and the behaviour
-//! of `server/app/import_test.go`, checked against the oracle.
-
 use std::io::{Cursor, Read as _, Write as _};
 
 use crate::common::ROOT_WS;
@@ -108,8 +104,7 @@ async fn board_with_card(ts: &TestServer, workspace_id: &str) -> Container {
     board
 }
 
-/// `TestExportBoard/"export single board"`: a board exports, re-imports and keeps its
-/// card.
+/// Exporting a single board and re-importing it preserves its card.
 #[tokio::test]
 async fn export_single_board_round_trips() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -149,8 +144,7 @@ async fn export_single_board_round_trips() {
     ts.teardown().await;
 }
 
-/// A board without blocks exports and imports as a board without blocks. (The original
-/// exports it and then refuses its own archive.)
+/// A board without blocks exports and imports cleanly as a board without blocks.
 #[tokio::test]
 async fn export_of_a_board_without_blocks_round_trips() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -184,7 +178,7 @@ async fn export_of_a_board_without_blocks_round_trips() {
     ts.teardown().await;
 }
 
-/// The export headers are the original's.
+/// An archive export carries the expected binary download and attachment headers.
 #[tokio::test]
 async fn export_has_the_download_headers() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -235,8 +229,8 @@ async fn export_has_the_download_headers() {
     ts.teardown().await;
 }
 
-/// The lines of `board.jsonl` keep the archive's names: a block and a member name their
-/// board `boardId`, as the original's archives and ours always have, never `containerId`.
+/// The lines of `board.jsonl` keep the archive's field name: a block and a member name
+/// their board `boardId`, never `containerId`.
 #[tokio::test]
 async fn an_exported_block_and_member_name_their_board_by_the_archives_name() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -288,8 +282,7 @@ async fn export_container_access_control() {
     ts.teardown().await;
 }
 
-/// `GET /w/0/archive/export` is a 200 ZIP (verified on the oracle), and anonymous is
-/// refused.
+/// Workspace archive export returns a 200 ZIP for members and refuses anonymous callers.
 #[tokio::test]
 async fn export_workspace_is_a_zip() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -323,8 +316,7 @@ async fn import_is_allowed_for_any_signed_in_user() {
     ts.teardown().await;
 }
 
-/// `TestApp_ImportArchive`: something that is not an archive is the sender's mistake, a
-/// bad request. (The original answers 500.)
+/// Importing non-archive bytes is rejected as a 400 bad request.
 #[tokio::test]
 async fn import_of_a_non_archive_is_a_bad_request() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -476,9 +468,8 @@ pub(crate) async fn boards_of(ts: &TestServer) -> Vec<Container> {
     ts.client.get(&format!("{TEST_WS}/boards")).await.ok_json()
 }
 
-/// The archives of the original, the line-based version 1 and the ZIP of version 2, and
-/// a ZIP without `version.json` are refused, and nothing of them is stored
-/// (`docs/s6-design.md` 3.10).
+/// Older archive formats (line-based version 1 and ZIP version 2) and a ZIP without
+/// `version.json` are refused, and nothing of them is stored (`docs/s6-design.md` 3.10).
 #[tokio::test]
 async fn archives_of_the_former_formats_are_refused() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -595,7 +586,7 @@ async fn an_archive_carries_the_files_of_bodies(kind: &str) {
         "the body's image is in the archive: {:?}",
         archive.file_names().collect::<Vec<_>>()
     );
-    // The board's line names the file as it was uploaded; the original reads past it.
+    // The board's line records the original upload file name under `fileNames`.
     assert_eq!(
         board_line(archive, &board.id)["data"]["fileNames"],
         serde_json::json!({ file_id.as_str(): "picture.png" }),
@@ -654,9 +645,9 @@ async fn an_archive_carries_the_files_of_bodies(kind: &str) {
     ts.teardown().await;
 }
 
-/// Not in the original (user decision 2026-11-11 14:46 KST). An imported comment whose
-/// body shows an image is pointed at the new board's file without being edited: it says
-/// no `editedAt` and has no versions, as the archive carries none.
+/// An imported comment whose body shows an image is pointed at the new board's file
+/// without being edited: it says no `editedAt` and has no versions, as the archive
+/// carries none.
 #[tokio::test]
 async fn an_imported_comment_with_an_image_is_not_edited() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -732,9 +723,8 @@ async fn an_imported_comment_with_an_image_is_not_edited() {
     ts.teardown().await;
 }
 
-/// Not in the original (decided 2026-11-11 by the coordinating session, as contract B1
-/// has it). A comment is on a card: an archive with a comment on the board itself, or
-/// on another comment, is refused and stores nothing.
+/// A comment is on a card: an archive with a comment on the board itself, or on another
+/// comment, is refused and stores nothing.
 #[tokio::test]
 async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -1025,9 +1015,9 @@ async fn a_large_file_is_whole_in_the_archive() {
     assert!(content == data, "the file is whole in the archive");
 }
 
-/// Not in the original (user decision 2026-11-11 14:25 KST). A user runs one export at a
-/// time and the server `max_concurrent_exports` (2): over either, an export of a board or
-/// of a workspace is 429 with a reason. An export holds its place until it is sent
+/// A user runs one export at a time and the server `max_concurrent_exports` (2): over
+/// either, an export of a board or of a workspace is 429 with a reason. An export holds
+/// its place until it is sent
 /// (`app::download`'s tests).
 #[tokio::test]
 async fn exports_run_one_per_user_and_two_on_the_server() {
@@ -1148,9 +1138,9 @@ async fn until(what: &str, mut done: impl FnMut() -> bool) {
     }
 }
 
-/// Not in the original (coordinator's decision 2026-11-11 16:20 KST). A client that takes
-/// nothing for `export_stall_seconds` has the file removed, then the place given back,
-/// and its connection broken short of the archive's end. Only what must happen is waited
+/// A client that takes nothing for `export_stall_seconds` has the file removed, then the
+/// place given back, and its connection broken short of the archive's end. Only what must
+/// happen is waited
 /// for, so the outcome does not depend on how busy the machine is; that the place is held
 /// while a download goes on is `app::download`'s test, on the paused clock.
 #[tokio::test]

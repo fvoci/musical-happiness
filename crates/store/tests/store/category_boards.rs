@@ -1,13 +1,6 @@
-//! Port of `server/services/store/storetests/categoryBoards.go`.
-//!
-//! One test per test function of the original; its subtests are the commented sections.
-//! The tests after [`set_container_visibility`] are not in the original: they pin behavior
-//! the original's tests leave open.
-//!
-//! The original names its categories, users, workspaces and boards with fixed strings, and
-//! puts boards into categories that were never created. Here every identifier is
-//! generated, and what a row refers to is stored first: the user and the workspace of a
-//! category, and the category, the user and the board of a board's place in one.
+//! Integration tests for filing, moving, reordering, and hiding boards within sidebar
+//! categories. Every identifier is generated, and referenced users, workspaces, categories,
+//! and boards are stored first.
 
 use fvoci_model::{Category, CategoryContainerMetadata, CategoryContainers, new_id};
 use fvoci_store::{ContainerVisibility, Store, StoreError};
@@ -78,7 +71,7 @@ fn board_ids(metadata: &[CategoryContainerMetadata]) -> Vec<&str> {
         .collect()
 }
 
-/// `testGetUserCategoryBoards`.
+/// Listing a user's categories together with the boards filed in each.
 #[tokio::test]
 async fn get_user_category_containers() {
     let test = common::setup().await;
@@ -135,9 +128,7 @@ async fn get_user_category_containers() {
         .await
         .expect("category 3 is created");
 
-    // Adding Board 1 and Board 2 to Category 1
-    // The original leaves the boards out of the database for this test; a board in a
-    // category exists here.
+    // Adding Board 1 and Board 2 to Category 1.
     let [board1, board2, board3] = create_boards(store, &workspace_id, &user_id).await;
     store
         .add_update_category_container(&user_id, &category1.id, std::slice::from_ref(&board1))
@@ -169,8 +160,7 @@ async fn get_user_category_containers() {
         "got {user_category_boards:?}"
     );
 
-    // The original asserts three times that the first category was found, and never that
-    // the second and third were. Here each is.
+    // Verify that all three categories appear with their expected board counts.
     let board_count = |category: &Category| {
         user_category_boards
             .iter()
@@ -204,10 +194,7 @@ async fn add_update_category_container() {
     let sidebar = Sidebar::create(store).await;
     let user_id = &sidebar.user_id;
 
-    // creating few boards and categories to later associoate with the category
-    //
-    // The original creates the boards "board_id_1" and "board_id_2" in team "team_id" and
-    // later adds three more that it never created. A board in a category exists here.
+    // Create five boards to file and move across categories.
     let [board1, board2, board3, board4, board5] =
         create_boards(store, &sidebar.workspace_id, user_id).await;
 
@@ -307,7 +294,7 @@ async fn set_container_visibility() {
     let sidebar = Sidebar::create(store).await;
     let user_id = &sidebar.user_id;
 
-    // As the original does, create the board the category is to hold.
+    // Create the board the category will hold.
     let [board1] = create_boards(store, &sidebar.workspace_id, user_id).await;
 
     let category_id = sidebar.create_category(store, "Category").await;
@@ -344,8 +331,7 @@ async fn set_container_visibility() {
     test.teardown().await;
 }
 
-/// Not in the original. Where boards land when they are added, reordered and moved, and
-/// what a move keeps.
+/// Where boards land when they are added, reordered and moved, and what a move keeps.
 #[tokio::test]
 #[expect(
     clippy::too_many_lines,
@@ -381,9 +367,7 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
         "the order asked for"
     );
 
-    // Text that is not an identifier is refused before the statement runs. The original
-    // splices it into the SQL text, where this one would end the string literal
-    // (`server/services/store/sqlstore/category_boards.go:144`).
+    // SQL-like non-UUID text is refused before the reorder statement runs.
     let spliced = "x' THEN 5 ELSE 5 END --";
     let error = store
         .reorder_category_containers(&a, ids(&[&two, spliced, &one, &three]))
@@ -489,10 +473,8 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
     test.teardown().await;
 }
 
-/// Not in the original. A board of the category that a new order leaves out keeps its
-/// sort order. In the original it loses it, because the statement has no `ELSE`
-/// (`server/services/store/sqlstore/category_boards.go:146`), and is then listed first
-/// on SQLite and last on PostgreSQL.
+/// A board of the category that a new order leaves out keeps its sort order on both
+/// SQLite and PostgreSQL.
 #[tokio::test]
 async fn reorder_category_containers_keeps_the_sort_order_of_unlisted_boards() {
     let test = common::setup().await;
@@ -545,9 +527,8 @@ async fn reorder_category_containers_keeps_the_sort_order_of_unlisted_boards() {
     test.teardown().await;
 }
 
-/// Not in the original, where a deleted category stays as a row and keeps its boards.
-/// Deleting a category removes it, and the boards filed under it are filed under
-/// nothing: no category lists them until they are filed again, which files them as new.
+/// Deleting a category removes it, and the boards filed under it are filed under nothing:
+/// no category lists them until they are filed again, which files them as new.
 #[tokio::test]
 async fn deleting_a_category_files_its_boards_under_nothing() {
     let test = common::setup().await;
@@ -615,9 +596,9 @@ async fn deleting_a_category_files_its_boards_under_nothing() {
     test.teardown().await;
 }
 
-/// Not in the original. Deleting a category that is another user's, or in another workspace,
-/// or that does not exist succeeds and changes nothing: the category stays, with its
-/// boards filed as they were.
+/// Deleting a category that is another user's, or in another workspace, or that does not
+/// exist succeeds and changes nothing: the category stays, with its boards filed as they
+/// were.
 #[tokio::test]
 async fn deleting_a_category_of_another_user_or_workspace_changes_nothing() {
     let test = common::setup().await;
@@ -689,9 +670,8 @@ async fn deleting_a_category_of_another_user_or_workspace_changes_nothing() {
     test.teardown().await;
 }
 
-/// Not in the original, which files boards that were never created under categories
-/// that were never created. A filing is a user's, of a board, under a category: without
-/// any of the three it is not stored, and neither is anything else of the same call.
+/// A filing requires an existing user, board, and category: if any of the three is
+/// missing, nothing in the call is stored.
 #[tokio::test]
 async fn a_filing_needs_its_user_its_category_and_its_board() {
     let test = common::setup().await;

@@ -2308,8 +2308,8 @@ export interface paths {
          *     the upload was opened: a user who may not import any more is refused, and the upload
          *     is thrown away.
          *
-         *     The archive is of version 3, as the export routes write it. The formats of the
-         *     original (the line-based version 1 and the ZIP of version 2) and a ZIP without
+         *     The archive is of version 3, as the export routes write it. Older archive versions
+         *     (the line-based version 1 and the ZIP of version 2) and a ZIP without
          *     `version.json` are 400, and nothing of them is stored. An archive of more than
          *     10,000 entries, whose entries unpack to more than 1 GiB together, or with a
          *     `board.jsonl` of more than 64 MiB (or a single JSONL line over 10 MiB) or a file larger
@@ -14700,7 +14700,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The copy: one board and its blocks. The blocks are in the order of the original's, oldest first. */
+            /** @description The copy: one board and its blocks. The blocks are in the order of the source board's, oldest first. */
             201: {
                 headers: {
                     [name: string]: unknown;

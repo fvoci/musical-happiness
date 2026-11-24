@@ -1,14 +1,8 @@
-//! Cards: the card view of blocks of type `card`.
-//! Ports of `server/integrationtests/cards_test.go` and `server/app/cards_test.go`,
-//! plus tests of what `server/api/cards.go` decides and the original leaves untested:
-//! who may do what, the refusals with their order and messages, paging, and who is
-//! told about a change. The expectations of those were observed on the original.
+//! Integration and application-layer tests for cards (the card view of blocks of type
+//! `card`), covering permissions, validation order and error messages, paging, malformed
+//! fields, and websocket/webhook notifications.
 //!
-//! The subtests of `TestGetCards` share one server; here every subtest is a test of its
-//! own that first builds the same cards.
-//!
-//! The cases of `server/app/cards_test.go` that inject a store failure through a mock
-//! are ported with the failures the real store has; each says which.
+//! Each test runs against its own isolated server and real store.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -142,7 +136,7 @@ async fn create_board_and_cards(th: &TestServer, count: usize) -> (Container, Ve
     (board, cards)
 }
 
-/// A block as the original's tests send it, with both times set to 1.
+/// Builds a test block with a freshly generated identifier and both timestamps set to 1.
 pub(crate) fn new_block(board_id: &str, parent_id: &str, block_type: BlockType) -> Block {
     Block {
         id: new_id(),
@@ -181,7 +175,7 @@ fn title_patch(title: &str) -> CardPatch {
     }
 }
 
-/// The 25 cards of `TestGetCards`, titled `0` to `24`, each with three texts.
+/// Number of fixture cards created for card listing tests, titled `0` to `24`, each with three texts.
 const CARD_COUNT: usize = 25;
 
 async fn get_cards_fixture(th: &TestServer) -> Container {
@@ -220,7 +214,7 @@ async fn get_cards_fixture(th: &TestServer) -> Container {
     board
 }
 
-/// The numbers the cards of `TestGetCards` have as their titles.
+/// Extracts the numeric titles from the fixture cards.
 fn card_numbers(cards: &[Card]) -> BTreeSet<usize> {
     cards
         .iter()
@@ -228,9 +222,9 @@ fn card_numbers(cards: &[Card]) -> BTreeSet<usize> {
         .collect()
 }
 
-// -- server/integrationtests/cards_test.go ----------------------------------------------
+// -- Card HTTP route tests --------------------------------------------------------------
 
-/// `TestCreateCard/"a non authenticated user should be rejected"`
+/// Unauthenticated `POST /boards/{board_id}/cards` is rejected.
 #[tokio::test]
 async fn create_card_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
@@ -248,7 +242,7 @@ async fn create_card_a_non_authenticated_user_should_be_rejected() {
     th.teardown().await;
 }
 
-/// `TestCreateCard/"good"`
+/// Creating a valid card succeeds and returns the stored card.
 #[tokio::test]
 async fn create_card_good() {
     let th = Setup::native().start().await.init_basic().await;
@@ -269,7 +263,7 @@ async fn create_card_good() {
     th.teardown().await;
 }
 
-/// `TestCreateCard/"invalid card"`
+/// Creating an invalid card returns a bad request error.
 #[tokio::test]
 async fn create_card_invalid_card() {
     let th = Setup::native().start().await.init_basic().await;
@@ -297,7 +291,7 @@ async fn create_card_invalid_card() {
     th.teardown().await;
 }
 
-/// `TestGetCards/"fetch all cards"`
+/// Fetching all cards on a board returns all created cards.
 #[tokio::test]
 async fn get_cards_fetch_all_cards() {
     let th = Setup::native().start().await.init_basic().await;
@@ -309,7 +303,7 @@ async fn get_cards_fetch_all_cards() {
     th.teardown().await;
 }
 
-/// `TestGetCards/"fetch with pagination"`
+/// Fetching cards with `page` and `per_page` returns the requested pages without overlap.
 #[tokio::test]
 async fn get_cards_fetch_with_pagination() {
     let th = Setup::native().start().await.init_basic().await;
@@ -331,7 +325,7 @@ async fn get_cards_fetch_with_pagination() {
     th.teardown().await;
 }
 
-/// `TestGetCards/"a non authenticated user should be rejected"`
+/// Unauthenticated `GET /boards/{board_id}/cards` is rejected.
 #[tokio::test]
 async fn get_cards_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
@@ -346,7 +340,7 @@ async fn get_cards_a_non_authenticated_user_should_be_rejected() {
     th.teardown().await;
 }
 
-/// `TestPatchCard/"a non authenticated user should be rejected"`
+/// Unauthenticated `PATCH /cards/{card_id}` is rejected.
 #[tokio::test]
 async fn patch_card_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
@@ -362,7 +356,7 @@ async fn patch_card_a_non_authenticated_user_should_be_rejected() {
     th.teardown().await;
 }
 
-/// `TestPatchCard/"good"`
+/// Patching a valid card updates its fields and properties.
 #[tokio::test]
 async fn patch_card_good() {
     let th = Setup::native().start().await.init_basic().await;
@@ -394,9 +388,7 @@ async fn patch_card_good() {
     th.teardown().await;
 }
 
-/// `TestPatchCard/"invalid card patch"`
-///
-/// A bad request, as for a new card with such an icon. (The original answers 500.)
+/// An invalid card patch (such as a multi-grapheme icon) returns a bad request.
 #[tokio::test]
 async fn patch_card_invalid_card_patch() {
     let th = Setup::native().start().await.init_basic().await;
@@ -419,7 +411,7 @@ async fn patch_card_invalid_card_patch() {
     th.teardown().await;
 }
 
-/// `TestGetCard/"a non authenticated user should be rejected"`
+/// Unauthenticated `GET /cards/{card_id}` is rejected.
 #[tokio::test]
 async fn get_card_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
@@ -431,7 +423,7 @@ async fn get_card_a_non_authenticated_user_should_be_rejected() {
     th.teardown().await;
 }
 
-/// `TestGetCard/"good"`
+/// Fetching an existing card by ID succeeds.
 #[tokio::test]
 async fn get_card_good() {
     let th = Setup::native().start().await.init_basic().await;
@@ -447,9 +439,9 @@ async fn get_card_good() {
     th.teardown().await;
 }
 
-// -- server/app/cards_test.go, through the real store -------------------------------------
+// -- Application-layer card tests, through the real store ---------------------------------
 
-/// `TestCreateCard/"success scenario"` (app)
+/// Application-layer `create_card` stores and returns the new card.
 #[tokio::test]
 async fn app_create_card_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
@@ -478,9 +470,7 @@ async fn app_create_card_success_scenario() {
     th.teardown().await;
 }
 
-/// `TestCreateCard/"error scenario"` (app). The original injects a store failure
-/// through a mock; the failures the real store has are a block it refuses and a board
-/// that does not exist.
+/// Application-layer `create_card` fails when the block is rejected or the board does not exist.
 #[tokio::test]
 async fn app_create_card_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
@@ -536,7 +526,7 @@ async fn app_create_card_error_scenario() {
     th.teardown().await;
 }
 
-/// `TestGetCards/"success scenario"` (app)
+/// Application-layer `get_cards` returns all cards on a board.
 #[tokio::test]
 async fn app_get_cards_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
@@ -576,11 +566,9 @@ async fn app_get_cards_success_scenario() {
     th.teardown().await;
 }
 
-/// `TestGetCards/"error scenario"` (app). The original injects a store failure through
-/// a mock. The failure the real store allowed, a card block that cannot be read as a
-/// card, is refused when it is written now, and one stored before is read without its
-/// malformed field (see `card_from_stored_block` in `app/cards.rs`): the board's list
-/// of cards has no failure left to show.
+/// Malformed card blocks are rejected on write, and any previously stored block with a
+/// malformed field is read safely without that field (see `card_from_stored_block` in
+/// `app/cards.rs`) so listing cards does not fail.
 #[tokio::test]
 async fn app_get_cards_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
@@ -614,7 +602,7 @@ async fn app_get_cards_error_scenario() {
     th.teardown().await;
 }
 
-/// `TestPatchCard/"success scenario"` (app)
+/// Application-layer `patch_card` updates a card and returns the patched state.
 #[tokio::test]
 async fn app_patch_card_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
@@ -659,9 +647,7 @@ async fn app_patch_card_success_scenario() {
     th.teardown().await;
 }
 
-/// `TestPatchCard/"error scenario"` (app). The original injects a store failure
-/// through a mock; the failures there really are: no such card, a patched title that
-/// is too long, and a patch that is not valid.
+/// Application-layer `patch_card` fails for a missing card, an oversized title, or an invalid patch.
 #[tokio::test]
 async fn app_patch_card_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
@@ -705,7 +691,7 @@ async fn app_patch_card_error_scenario() {
     th.teardown().await;
 }
 
-/// `TestGetCard/"success scenario"` (app)
+/// Application-layer `get_card` returns an existing card.
 #[tokio::test]
 async fn app_get_card_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
@@ -737,7 +723,7 @@ async fn app_get_card_success_scenario() {
     th.teardown().await;
 }
 
-/// `TestGetCard/"not found"` (app)
+/// Application-layer `get_card` returns not found for an unknown card ID.
 #[tokio::test]
 async fn app_get_card_not_found() {
     let th = Setup::native().start().await.init_basic().await;
@@ -754,8 +740,7 @@ async fn app_get_card_not_found() {
     th.teardown().await;
 }
 
-/// `TestGetCard/"error scenario"` (app). The original injects a store failure through
-/// a mock; the failure there really is: a block that is no card.
+/// Application-layer `get_card` fails when the target block is not a card.
 #[tokio::test]
 async fn app_get_card_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1029,8 +1014,7 @@ async fn get_cards_permissions_and_malformed_paging() {
         check_error(&response, StatusCode::NOT_FOUND, "board not found");
     }
 
-    // The original writes these refusals and then the cards after them; here the
-    // refusal is the whole answer, and it names the parameter.
+    // Invalid paging parameters return a single error response naming the parameter.
     let invalid = |name: &str, reason: &str| format!("invalid `{name}` parameter: {reason}");
     let cases = [
         ("?page=x", "page", "not a whole number"),
@@ -1143,11 +1127,10 @@ async fn get_cards_paging() {
     th.teardown().await;
 }
 
-/// A card block whose `icon` is no string or whose `isTemplate` is no boolean is
-/// refused (400 naming `fields`), through the blocks routes too: the original stores
-/// it, and then fails the board's whole list of cards (server/app/cards.go:54-60).
-/// `null` stands for an absent field. A stored `contentOrder` is not read, whatever
-/// its shape.
+/// A card block whose `icon` is not a string or whose `isTemplate` is not a boolean is
+/// refused (400 naming `fields`) even through the block routes, so invalid card metadata
+/// cannot poison the board's card list. `null` stands for an absent field, and stored
+/// `contentOrder` is ignored regardless of shape.
 #[tokio::test]
 async fn a_malformed_card_block_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1155,7 +1138,7 @@ async fn a_malformed_card_block_is_refused() {
         .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
         .await;
     create_card(&th.client, &board.id, &json!({"title": "fine"})).await;
-    // Side-by-side content, as the original's web app stores it, has nested lists.
+    // Side-by-side content layout stores nested arrays in `contentOrder`.
     insert_card_block(
         &th.client,
         &board.id,
@@ -1355,11 +1338,9 @@ async fn a_title_with_u0000_is_refused() {
 
 // -- GET /cards/{card_id} -----------------------------------------------------------------
 
-/// Reading one card takes the permission to view the board, like the board's list of
-/// cards. The original asks for the permission to manage cards here
-/// (server/api/cards.go:363), so its viewers and commenters get the card in the list but
-/// a 403 for the card alone; that is not reproduced. The path names a card and no board:
-/// what is no card, and a card on a board the user cannot read, answer alike.
+/// Reading a single card requires view permission on the board, matching the board's card
+/// list (so viewers and commenters can read it). Because the path names a card without a
+/// board, nonexistent cards and cards on unreadable boards return the same 404.
 #[tokio::test]
 async fn get_card_permissions_and_refusals() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1473,8 +1454,7 @@ async fn patch_card_refusals() {
         }
     }
 
-    // A body that is no patch is a bad request.
-    // So are `null` and an icon of more than one grapheme. (The original answers 500.)
+    // Malformed bodies, `null`, and icons longer than one grapheme are bad requests.
     for body in [
         malformed,
         "",
@@ -1679,8 +1659,7 @@ async fn patch_card_changes() {
         "the block's fields"
     );
 
-    // A card block without fields can be patched (the original crashes on its
-    // properties, as on any block stored without fields).
+    // A card block stored with empty fields can still be patched cleanly.
     let bare = insert_card_block(&th.client, board_id, json!({})).await;
     let patched = send(
         &th.client,
@@ -1893,9 +1872,8 @@ async fn comment_on(client: &Client, card: &Card) -> Block {
     stored.into_iter().next().expect("the comment")
 }
 
-/// Not in the original (user decision 2026-11-11 14:25 KST). The card list and getCard
-/// say when a card's last comment was posted, zero for none; a deleted comment does not
-/// count, and commenting leaves the card's updateAt as it was.
+/// Both the card list and `getCard` report when a card's last comment was posted (zero if
+/// none); deleted comments do not count, and commenting leaves the card's `updateAt` unchanged.
 #[tokio::test]
 async fn a_card_says_when_it_was_last_commented_on() {
     let th = Setup::native().start().await.init_basic().await;

@@ -11,9 +11,16 @@
 <script lang="ts">
   import type { EditedFile } from '$lib/file-viewer/editing.svelte.ts';
   import type { EditLease } from '$lib/file-viewer/lease.svelte.ts';
+  import type { Regional } from '$lib/logic/regional.ts';
 
   import { editorChunk, viewerChunk } from './chunk.svelte.ts';
   import { viewing } from './viewing.svelte.ts';
+
+  interface Props {
+    regional?: Regional | undefined;
+  }
+
+  let { regional }: Props = $props();
 
   const Viewer = $derived(viewerChunk.component);
   const Editor = $derived(editorChunk.component);
@@ -40,6 +47,7 @@
     <Viewer
       file={viewing.file}
       versions={viewing.versions}
+      {regional}
       released={viewing.released}
       onClose={() => {
         viewing.close();

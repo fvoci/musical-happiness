@@ -505,7 +505,7 @@ const ORDERS: &[(&str, &str)] = &[
     ("duplicateBlock", "the copy of the block first"),
     (
         "duplicateContainer",
-        "in the order of the original's, oldest first",
+        "in the order of the source board's, oldest first",
     ),
     (
         "getBlocks",

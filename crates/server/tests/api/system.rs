@@ -1,6 +1,5 @@
-//! Ports of `server/api/system_test.go`, `server/app/server_metadata_test.go` and
-//! `server/app/clientConfig_test.go`, plus tests of the routing around the API: the
-//! request-forgery header, cache headers, the web app fallback and the base path.
+//! Integration tests for system endpoints (`hello`, `ping`, `clientConfig`) and HTTP
+//! routing middleware: request-forgery checks, cache headers, SPA fallback, and base path.
 
 use fvoci_model::ContainerType;
 use reqwest::header::CONTENT_TYPE;
@@ -13,7 +12,7 @@ use crate::common::{
     Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, USER1_USERNAME,
 };
 
-/// `TestHello/"Returns 'Hello' on success"`
+/// `GET /hello` returns `"Hello"`.
 #[tokio::test]
 async fn hello_returns_hello_on_success() {
     let th = Setup::native().start().await;
@@ -25,7 +24,7 @@ async fn hello_returns_hello_on_success() {
     th.teardown().await;
 }
 
-/// `TestPing/"Returns metadata on success"` and `TestGetServerMetadata`
+/// `GET /ping` returns server metadata fields.
 #[tokio::test]
 async fn ping_returns_metadata_on_success() {
     let th = Setup::native().start().await;
@@ -80,13 +79,12 @@ async fn ping_returns_metadata_on_success() {
             "sku",
             "version"
         ],
-        "the members of the original"
+        "expected ping metadata keys"
     );
     th.teardown().await;
 }
 
-/// `TestGetClientConfig/"Test Get Client Config"`. Telemetry is not ported, and the
-/// configuration has no members for it.
+/// `GET /clientConfig` returns the public client configuration without telemetry fields.
 #[tokio::test]
 async fn get_client_config() {
     let th = Setup::local_mode()
@@ -423,7 +421,7 @@ async fn startup_refuses_a_malformed_base_path() {
 
 /// A handler finishes what it started when its client goes away. The framework would
 /// otherwise drop it at its next pause: a board would exist without being filed under
-/// its creator's default category. The original's handlers always run to their end.
+/// its creator's default category. Handlers are spawned so they run to completion.
 #[tokio::test]
 async fn a_request_is_finished_when_its_client_disconnects() {
     use tokio::io::AsyncWriteExt as _;

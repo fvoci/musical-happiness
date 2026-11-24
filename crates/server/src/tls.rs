@@ -37,8 +37,7 @@ pub struct TlsFiles {
 }
 
 impl Default for TlsFiles {
-    /// The fixed places of the original (`server/web/webserver.go:113-118`), relative
-    /// to the directory the server is started in.
+    /// Default certificate and key paths relative to the server's working directory.
     fn default() -> Self {
         Self {
             certificate: PathBuf::from("./cert/cert.pem"),

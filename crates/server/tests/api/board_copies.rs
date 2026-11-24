@@ -18,7 +18,7 @@ use crate::boards::{
 
 // -- TestDuplicateBoard ---------------------------------------------------------------
 
-/// `TestDuplicateBoard/"create and duplicate public board"`
+/// Creating and duplicating an open board files the copy under the default category.
 #[tokio::test]
 async fn duplicate_container_create_and_duplicate_public_board() {
     let th = Setup::native().start().await.init_basic().await;
@@ -80,7 +80,7 @@ async fn duplicate_container_create_and_duplicate_public_board() {
     th.teardown().await;
 }
 
-/// `TestDuplicateBoard/"create and duplicate public board from a custom category"`
+/// Duplicating a board from a custom category files the copy into the same category.
 #[tokio::test]
 async fn duplicate_container_create_and_duplicate_public_board_from_a_custom_category() {
     let th = Setup::native().start().await.init_basic().await;
@@ -160,8 +160,7 @@ async fn duplicate_container_create_and_duplicate_public_board_from_a_custom_cat
     th.teardown().await;
 }
 
-/// `TestDuplicateBoard/"base case"` and `"duplicating board as template should not set
-/// it's category"` in `server/app/boards_test.go`, through the real store.
+/// Duplicating a board as a board files it in a category; duplicating as a template does not.
 #[tokio::test]
 async fn duplicate_container_base_case_and_as_template() {
     let th = Setup::native().start().await;
@@ -380,7 +379,7 @@ async fn board_with_a_commented_card(th: &TestServer, user_id: &str) -> Containe
     board
 }
 
-/// Verified on the original: who may duplicate what, and what the query parameters do.
+/// Permissions and query parameters (`asTemplate`, `toWorkspace`) when duplicating boards.
 #[tokio::test]
 #[expect(
     clippy::too_many_lines,
@@ -468,7 +467,7 @@ async fn duplicate_container_permissions_and_parameters() {
         "in the default category of that workspace"
     );
 
-    // The workspace must exist. (The original copies a board into a workspace of any name.)
+    // The target workspace must exist.
     for no_workspace in [UNKNOWN_ID, "other-workspace"] {
         duplicate_board(
             &th.client,
@@ -510,9 +509,8 @@ async fn duplicate_container_permissions_and_parameters() {
     th.teardown().await;
 }
 
-/// The part of `TestGetTemplates` that belongs to this area: any user of the workspace
-/// duplicates an open template into a board of their own. Verified on the original, also
-/// for a template of the global workspace and for a private template.
+/// Any workspace member can duplicate an open workspace template or built-in template,
+/// whereas private templates require membership.
 #[tokio::test]
 async fn duplicate_container_from_a_template() {
     let th = Setup::native().start().await.init_basic().await;
@@ -586,7 +584,7 @@ async fn duplicate_container_from_a_template() {
     assert!(copy.containers[0].is_template, "a template");
     assert_eq!(copy.containers[0].title, "Open template copy", "a copy");
 
-    // A template of the root workspace (the original's global workspace), into the user's workspace.
+    // A built-in template copied into the user's workspace.
     let copy: ContainersAndBlocks = duplicate_board_in(
         &th.client2,
         ROOT_WORKSPACE_ID,
@@ -612,8 +610,7 @@ async fn duplicate_container_from_a_template() {
     th.teardown().await;
 }
 
-/// A board without blocks is duplicated as a board without blocks. (The original
-/// cannot duplicate it and answers 500.)
+/// A board without blocks is duplicated as a board without blocks.
 #[tokio::test]
 async fn duplicate_container_without_blocks() {
     let th = Setup::native().start().await.init_basic().await;

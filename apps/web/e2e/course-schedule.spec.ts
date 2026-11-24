@@ -20,6 +20,7 @@ import { openApp, showSidebar, sidebar, stageOf, strip } from './shell.support.t
 import { goInside } from './wiki.support.ts';
 
 test.describe.configure({ mode: 'parallel', timeout: 90_000 });
+test.use({ timezoneId: 'UTC' });
 
 const ID = '[0-9a-f-]{36}';
 const ON_A_COURSE = new RegExp(`/w/${ID}/courses/(${ID})(/(${ID}))?$`);

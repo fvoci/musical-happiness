@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { pageTree } from '$lib/logic/page-tree.ts';
+import { parseIsoDateDays } from '$lib/state/memory/archive.ts';
 import { MemoryBackend } from '$lib/state/memory/backend.ts';
 import { seedWorld } from '$lib/state/memory/seed.ts';
 import { BackendError, isOwnSpace, type CourseUnit } from '$lib/state/index.ts';
@@ -559,9 +560,24 @@ describe('a course in memory', () => {
     const ownSpace = spaces.find(isOwnSpace);
     if (!ownSpace) throw new Error('expected own space');
     const ownCourse = await courses.createCourse(ownSpace.id, { title: 'My Course', type: 'P' });
+    const ownUnit = await courses.createUnit(ownCourse.id, { kind: 'unit', title: 'Own Unit' });
+    await courses.createComment(ownCourse.id, ownUnit.id, text('Self note'));
+    // Server parity (`notification_noting.rs`): personal own-space comments never auto-watch.
+    expect(await courses.watching(ownSpace.id, me.id)).not.toContain(ownUnit.id);
     const ownShared = await made.backend.setSharing(ownCourse.id, { enabled: true });
     expect(ownShared.enabled).toBe(true);
     const diary = await made.backend.diary.createDiary(ownSpace.id, { title: 'Diary' });
     expect((await rejection(made.backend.sharing(diary.id))).status).toBe(404);
+  });
+
+  it('parses years 0001-0099 accurately in archive parseIsoDateDays', () => {
+    const day1 = parseIsoDateDays('0001-01-01');
+    const day2 = parseIsoDateDays('0001-01-02');
+    expect(day1).toBeDefined();
+    expect(day2).toBe((day1 ?? 0) + 1);
+    expect(parseIsoDateDays('0050-03-15')).toBeDefined();
+    expect(parseIsoDateDays('0004-02-29')).toBeDefined();
+    expect(parseIsoDateDays('0050-02-29')).toBeUndefined();
+    expect(parseIsoDateDays('0000-01-01')).toBeUndefined();
   });
 });

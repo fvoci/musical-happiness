@@ -370,7 +370,7 @@ async fn handle_delete_container(
     params(MemberWorkspaceId, CopiedContainerId, AsTemplate, ToWorkspace, AcceptLanguage),
     responses((
         status = 201,
-        description = "The copy: one board and its blocks. The blocks are in the order of the original's, oldest first.",
+        description = "The copy: one board and its blocks. The blocks are in the order of the source board's, oldest first.",
         body = ContainersAndBlocks,
     )),
 )]

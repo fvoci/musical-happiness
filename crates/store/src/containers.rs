@@ -520,8 +520,6 @@ pub(crate) async fn get_container(
     scope: &mut Scope<'_>,
     container_id: &str,
 ) -> Result<Container, StoreError> {
-    // Preserved quirk: the error names the table rather than the board that is missing
-    // (`server/services/store/sqlstore/board.go:227`).
     find_container(scope, container_id)
         .await?
         .ok_or_else(|| StoreError::not_found("boards"))

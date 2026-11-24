@@ -1,4 +1,4 @@
-//! Port of `server/services/webhook/webhook_test.go`.
+//! Integration tests for outbound block-change webhooks.
 
 use std::sync::{Arc, Mutex};
 

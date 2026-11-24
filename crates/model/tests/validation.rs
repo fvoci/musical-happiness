@@ -1,6 +1,4 @@
-//! Validation rules of blocks, boards and authentication requests. The original has no
-//! unit tests for these; the cases follow `server/model/block.go`, `board.go`, `auth.go`
-//! and `server/services/auth/email.go`.
+//! Validation rules for blocks, boards, card properties, and authentication requests.
 
 use fvoci_model::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType, Body,
@@ -366,7 +364,7 @@ fn change_password_request_validate() {
 }
 
 #[test]
-fn email_validation_follows_the_original_pattern() {
+fn email_validation_matches_expected_pattern() {
     let label63 = "a".repeat(63);
     let valid = [
         "a@b".to_owned(),
@@ -410,9 +408,9 @@ fn email_validation_follows_the_original_pattern() {
     assert!(is_email_valid(&longest), "a 254-byte address is valid");
 }
 
-/// Not in the original. A new order of the card properties names each of them once: one
-/// left out, named twice or unknown is refused and changes nothing; a board without
-/// properties takes the empty order.
+/// A new order of the card properties names each of them once: one left out, named twice
+/// or unknown is refused and changes nothing; a board without properties takes the empty
+/// order.
 #[test]
 fn card_properties_are_reordered_only_by_a_whole_order() {
     let property = |id: &str| {
