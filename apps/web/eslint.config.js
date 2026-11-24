@@ -5,6 +5,7 @@ import globals from 'globals';
 import ts from 'typescript-eslint';
 
 import svelteConfig from './svelte.config.js';
+import { noBrowserDialogs } from './tools/lint/dialogs.ts';
 import layers from './tools/lint/layers.ts';
 
 /** Code written by the shadcn-svelte CLI. See src/lib/ui/README.md. */
@@ -78,6 +79,7 @@ export default ts.config(
     plugins: { fvoci: layers },
     rules: { 'fvoci/no-direct-server': 'error' },
   },
+  noBrowserDialogs,
   {
     // The logic takes the reader's time zone as an argument. See src/lib/logic/dates.ts.
     files: ['src/lib/logic/**'],
