@@ -149,7 +149,7 @@ async fn a_wiki_is_no_template_and_has_no_card_properties() {
         read.card_properties
     );
 
-    // Same rules hold for courses.
+    // Courses may be templates, but card properties are still refused.
     let course_prop: JsonMap = object(json!({"id": "level", "name": "Level", "type": "text"}));
     let course = || Container {
         kind: ContainerKind::Course,
@@ -159,10 +159,15 @@ async fn a_wiki_is_no_template_and_has_no_card_properties() {
         is_template: true,
         ..course()
     };
-    assert_eq!(
-        refusal(test.insert_container(&mut course_template, &user_id).await),
-        ContainerError::CourseIsTemplate
-    );
+    test.insert_container(&mut course_template, &user_id)
+        .await
+        .expect("a course template is stored");
+    let saved_course_template = test
+        .get_container(&course_template.id)
+        .await
+        .expect("the course template is read");
+    assert!(saved_course_template.is_template);
+    assert_eq!(saved_course_template.kind, ContainerKind::Course);
     let mut course_with_props = Container {
         card_properties: vec![course_prop.clone()],
         ..course()

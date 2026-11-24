@@ -321,8 +321,8 @@ impl FromRequestParts<App> for InLinked {
     }
 }
 
-/// A workspace as an operation enters it that duplicates a container whole: boards and
-/// wikis. Diaries and courses are not there to it.
+/// A workspace as an operation enters it that duplicates a container whole: boards,
+/// wikis and courses. Diaries are not there to it.
 #[derive(Debug)]
 pub(crate) struct InCopied(pub(crate) InWorkspace);
 

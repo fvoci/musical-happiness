@@ -15,7 +15,7 @@ use std::io::{BufWriter, Write as _};
 use std::path::Path;
 
 use futures_util::StreamExt as _;
-use fvoci_model::{ArchiveHeader, ArchiveLine, Container};
+use fvoci_model::{ArchiveHeader, ArchiveLine, Container, ContainerKind};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::fs;
@@ -43,6 +43,17 @@ struct ArchivedContainer<'a> {
     /// The stored names of the files the blocks show that the export did not find.
     #[serde(rename = "missingFiles", skip_serializing_if = "Vec::is_empty")]
     missing_files: Vec<String>,
+}
+
+/// A course's shared schedule line in `board.jsonl`. Personal `unit_progress` rows
+/// (`completed_at`, personal `planned_date`, `last_position`) are never exported.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArchivedCourseSchedule<'a> {
+    board_id: &'a str,
+    start_date: &'a str,
+    target_date: &'a str,
+    study_days: u8,
 }
 
 /// The directory of the temporary directory exports are written in.
@@ -217,6 +228,17 @@ impl App {
         writer.write_line("board", &board).await?;
         for block in &blocks {
             writer.write_line("block", block).await?;
+        }
+        if container.kind == ContainerKind::Course
+            && let Some(schedule) = self.store().get_course_schedule(&container.id).await?
+        {
+            let line = ArchivedCourseSchedule {
+                board_id: &container.id,
+                start_date: &schedule.start_date,
+                target_date: &schedule.target_date,
+                study_days: schedule.study_days,
+            };
+            writer.write_line("courseSchedule", &line).await?;
         }
 
         for member in self.present_members_for_container(&container.id).await? {

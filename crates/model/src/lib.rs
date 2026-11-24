@@ -130,10 +130,11 @@ pub use course_schedule::{
     FieldChange, LearningTodayItem, MAX_SCHEDULE_SPAN_DAYS, ParseAmountUnitError, RedistributePlan,
     RedistributeScheduleRequest, STUDY_DAYS_ALL, STUDY_DAYS_FRIDAY, STUDY_DAYS_MONDAY,
     STUDY_DAYS_SATURDAY, STUDY_DAYS_SUNDAY, STUDY_DAYS_THURSDAY, STUDY_DAYS_TUESDAY,
-    STUDY_DAYS_WEDNESDAY, STUDY_DAYS_WEEKDAYS, ScheduledUnit, StudyDays, UNIT_AMOUNT_FIELD,
-    UNIT_AMOUNT_MAX, UNIT_AMOUNT_MIN, UNIT_AMOUNT_UNIT_FIELD, UNIT_SCHEDULED_DATE_FIELD,
-    UnitScheduleUpdate, UnitWeight, ValidatedCourseSchedule, WorkspaceLearningToday,
-    build_course_schedule_view, build_workspace_learning_today, distribute_units, outline_units,
+    STUDY_DAYS_WEDNESDAY, STUDY_DAYS_WEEKDAYS, ScheduledUnit, StudyDays,
+    TEMPLATE_SCHEDULE_PROPERTY, UNIT_AMOUNT_FIELD, UNIT_AMOUNT_MAX, UNIT_AMOUNT_MIN,
+    UNIT_AMOUNT_UNIT_FIELD, UNIT_SCHEDULED_DATE_FIELD, UnitScheduleUpdate, UnitWeight,
+    ValidatedCourseSchedule, WorkspaceLearningToday, build_course_schedule_view,
+    build_workspace_learning_today, distribute_units, outline_units, shift_unit_scheduled_date,
     study_dates_in_range, today_in_time_zone,
 };
 pub use date_value::{

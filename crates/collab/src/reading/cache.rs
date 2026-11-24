@@ -11,6 +11,7 @@
 
 mod apply;
 mod build;
+mod direct;
 mod incoming;
 mod picker;
 
@@ -19,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 use yrs::IdSet;
 
 pub(crate) use build::count_strict_with_cache;
+pub(crate) use direct::{DirectItem, ReadingCacheBuilder};
 
 use super::{Holds, clock, index, small};
 use crate::scan::Id;

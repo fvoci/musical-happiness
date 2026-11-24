@@ -253,14 +253,16 @@ async fn course_link_boundaries_switches_presence_and_invariants() {
         .await
         .check_not_found();
 
-    // 2) `duplicateContainer` stays 404 for courses (L6).
-    owner
+    // 2) `duplicateContainer` works for courses (L6), and copies without sharing.
+    let copied = owner
         .post(
             &format!("{TEST_WS}/containers/{}/duplicate", shared.course),
             &json!({}),
         )
         .await
-        .check_not_found();
+        .created_json::<Value>();
+    assert_eq!(copied["containers"][0]["kind"], "course");
+    assert_ne!(copied["containers"][0]["id"], shared.course);
 
     // 3) WS `SUBSCRIBE_BLOCKS` does not follow a course token.
     let mut reader = Socket::connect(&th).await;

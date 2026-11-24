@@ -122,9 +122,7 @@ impl AppError {
                 .with_limit(u64::from(limit));
         }
         let member = match refused {
-            ContainerError::WikiIsTemplate
-            | ContainerError::DiaryIsTemplate
-            | ContainerError::CourseIsTemplate => "isTemplate",
+            ContainerError::WikiIsTemplate | ContainerError::DiaryIsTemplate => "isTemplate",
             ContainerError::WikiHasCardProperties
             | ContainerError::DiaryHasCardProperties
             | ContainerError::CourseHasCardProperties => "cardProperties",

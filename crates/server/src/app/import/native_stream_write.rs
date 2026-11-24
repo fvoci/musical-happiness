@@ -99,6 +99,7 @@ pub(super) fn spawn_archive_streamer(
                 Ok(()) => {
                     combined.counts.cards += streamer.stats.counts.cards;
                     combined.counts.pages += streamer.stats.counts.pages;
+                    combined.counts.units += streamer.stats.counts.units;
                     combined.counts.comments += streamer.stats.counts.comments;
                     combined
                         .inserted_block_ids
@@ -241,7 +242,7 @@ impl<'a> BoardStreamer<'a> {
                 ))
             })?;
             match archive_line.line_type.as_str() {
-                "board" | "boardMember" => {}
+                "board" | "boardMember" | "courseSchedule" => {}
                 "block" => {
                     let idx = match pass {
                         StreamPass::Initial => {
@@ -376,6 +377,7 @@ impl<'a> BoardStreamer<'a> {
         match block.block_type {
             BlockType::Card => self.stats.counts.cards += 1,
             BlockType::Page => self.stats.counts.pages += 1,
+            BlockType::Unit => self.stats.counts.units += 1,
             BlockType::Comment => self.stats.counts.comments += 1,
             _ => {}
         }

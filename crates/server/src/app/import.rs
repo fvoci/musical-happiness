@@ -371,7 +371,8 @@ fn tally_container_counts(
         match kind {
             ContainerKind::Board => counts.boards += 1,
             ContainerKind::Wiki => counts.wikis += 1,
-            ContainerKind::Diary | ContainerKind::Course => {}
+            ContainerKind::Course => counts.courses += 1,
+            ContainerKind::Diary => {}
         }
         container_ids.push(id.clone());
     }

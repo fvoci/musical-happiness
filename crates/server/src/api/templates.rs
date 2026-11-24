@@ -1,7 +1,7 @@
 //! Listing the template boards of a workspace.
 
 use axum::http::HeaderMap;
-use fvoci_model::Container;
+use fvoci_model::{Container, ContainerKinds};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -38,7 +38,11 @@ async fn handle_get_templates(
     headers: HeaderMap,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
+    let app = &ws
+        .app
+        .clone()
+        .reaching(ContainerKinds::BOARDS.union(ContainerKinds::COURSES));
+    let (user_id, workspace_id) = (ws.session.user_id.as_str(), &ws.workspace_id);
     let containers = app
         .template_boards(workspace_id, user_id, ws.role, accept_language(&headers))
         .await?;

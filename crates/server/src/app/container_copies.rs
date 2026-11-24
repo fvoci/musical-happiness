@@ -11,13 +11,15 @@ use super::language::Language;
 use super::pages::refused_without_member;
 use super::templates::changes_of_copy;
 use crate::error::AppError;
-use crate::metrics::{ContainerWork, Module};
+use crate::metrics::{ContainerWork, CourseSource, Module};
 
 /// Copies that are stored, and are still to be finished ([`App::finish_copy`]).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Stored<'a> {
     /// What they are copies of.
     pub(super) source_id: &'a str,
+    /// Whether the source container was a template.
+    pub(super) source_is_template: bool,
     /// Whose they are.
     pub(super) user_id: &'a str,
     /// The workspace they are in.
@@ -115,13 +117,12 @@ impl App {
         reader: &Reader,
         work: ContainerWork,
     ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), AppError> {
-        let titles = titles_in(reader.language);
         let source = self.container(container_id).await?;
         let changes = changes_of_copy(&source, reader.today.as_deref());
         let kind = source.kind;
-        if matches!(kind, ContainerKind::Diary | ContainerKind::Course) {
-            // Diaries and courses are not duplicated whole: to what copies a board they
-            // are none.
+        let titles = titles_in(reader.language, kind);
+        if kind == ContainerKind::Diary {
+            // Diaries are not duplicated whole: to what copies a board they are none.
             return Err(AppError::not_found("board"));
         }
         if kind == ContainerKind::Wiki && duplicate_as == DuplicateAs::Template {
@@ -155,13 +156,26 @@ impl App {
                 )
                 .await
                 .map_err(refused_without_member)?,
-            ContainerKind::Diary | ContainerKind::Course => {
+            ContainerKind::Course => {
+                self.store()
+                    .duplicate_course(
+                        container_id,
+                        user_id,
+                        to_workspace_named,
+                        duplicate_as,
+                        &titles,
+                        changes,
+                    )
+                    .await?
+            }
+            ContainerKind::Diary => {
                 return Err(AppError::not_found("board"));
             }
         };
 
         let stored = Stored {
             source_id: container_id,
+            source_is_template: source.is_template,
             user_id,
             to_workspace,
             duplicate_as,
@@ -189,6 +203,7 @@ impl App {
     ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), AppError> {
         let Stored {
             source_id: container_id,
+            source_is_template,
             user_id,
             to_workspace,
             duplicate_as,
@@ -220,6 +235,13 @@ impl App {
         }
 
         self.metrics().container_copied(work, counted_as(kind));
+        if kind == ContainerKind::Course && duplicate_as == DuplicateAs::Copy {
+            self.metrics().course_created(if source_is_template {
+                CourseSource::Template
+            } else {
+                CourseSource::Duplicate
+            });
+        }
 
         let app = self.clone();
         let broadcast = copies.clone();
@@ -319,13 +341,21 @@ pub(super) fn counted_as(kind: ContainerKind) -> Module {
 }
 
 /// The titles of a copy in a language the server writes in.
-pub(super) fn titles_in(language: Language) -> CopyTitles {
-    match language {
-        Language::English => CopyTitles {
+pub(super) fn titles_in(language: Language, kind: ContainerKind) -> CopyTitles {
+    match (language, kind) {
+        (Language::English, ContainerKind::Course) => CopyTitles {
+            copy_of: |title| format!("{title} copy"),
+            new_template: "New course template",
+        },
+        (Language::Korean, ContainerKind::Course) => CopyTitles {
+            copy_of: |title| format!("{title} 사본"),
+            new_template: "새 학습 템플릿",
+        },
+        (Language::English, _) => CopyTitles {
             copy_of: |title| format!("{title} copy"),
             new_template: "New board template",
         },
-        Language::Korean => CopyTitles {
+        (Language::Korean, _) => CopyTitles {
             copy_of: |title| format!("{title} 사본"),
             new_template: "새 보드 템플릿",
         },

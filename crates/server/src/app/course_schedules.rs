@@ -15,6 +15,7 @@ use fvoci_model::{
 
 use super::App;
 use crate::error::AppError;
+use crate::metrics::ScheduleRedistributionScope;
 
 /// Whether the caller holds an enrolled membership on the course whose schedule is read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +105,10 @@ impl App {
                 .await?;
             ids
         };
+        if schedule.auto_assign {
+            self.metrics()
+                .course_schedule_redistributed(ScheduleRedistributionScope::SharedAuto);
+        }
         if !updated_ids.is_empty() {
             self.announce_course_block_ids(&course.workspace_id, updated_ids);
         }
@@ -143,6 +148,8 @@ impl App {
                 .redistribute_course_schedule(course_id, request, today, user_id)
                 .await?
         };
+        self.metrics()
+            .course_schedule_redistributed(ScheduleRedistributionScope::SharedManual);
         if !updated_ids.is_empty() {
             self.announce_course_block_ids(&course.workspace_id, updated_ids);
         }
@@ -168,6 +175,8 @@ impl App {
         self.store()
             .redistribute_personal_schedule(course_id, user_id, request, today)
             .await?;
+        self.metrics()
+            .course_schedule_redistributed(ScheduleRedistributionScope::Personal);
         self.course_schedule_view_at(course_id, user_id, CourseEnrollment::Enrolled, today)
             .await
     }

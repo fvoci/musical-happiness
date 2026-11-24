@@ -684,12 +684,18 @@ impl AppError {
     /// Maps a [`fvoci_model::BodyError`] at the named request field (`body` or
     /// `appendBody`) into a 400 Bad Request with the exact JSON Pointer.
     pub(crate) fn from_body_error(field: &str, error: fvoci_model::BodyError) -> Self {
-        let pointer = match &error {
-            fvoci_model::BodyError::InvalidNode { path, .. }
-            | fvoci_model::BodyError::TableTooLarge { path } => format!("/{field}{path}"),
-            _ => format!("/{field}"),
+        let (pointer, reason) = match &error {
+            fvoci_model::BodyError::InvalidNode { path, .. } => (format!("/{field}{path}"), None),
+            fvoci_model::BodyError::TableTooLarge { path } => {
+                (format!("/{field}{path}"), Some(Reason::TableTooLarge))
+            }
+            _ => (format!("/{field}"), None),
         };
-        Self::bad_request(error).with_pointer(pointer)
+        let refused = Self::bad_request(error).with_pointer(pointer);
+        match reason {
+            Some(reason) => refused.with_reason(reason),
+            None => refused,
+        }
     }
 
     /// Maps a [`ContainerError`] refused by the store into an HTTP error.
@@ -715,7 +721,6 @@ impl AppError {
             | ContainerError::DiaryNotPrivate
             | ContainerError::DiaryOffOwnSpace
             | ContainerError::TooManyDiaries { .. }
-            | ContainerError::CourseIsTemplate
             | ContainerError::CourseHasCardProperties => Self::not_of_its_kind(refused),
             ContainerError::EmptyWorkspaceId => {
                 Self::from(anyhow::Error::from(StoreError::InvalidContainer(refused)))

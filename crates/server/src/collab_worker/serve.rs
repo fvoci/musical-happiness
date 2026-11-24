@@ -806,25 +806,25 @@ impl Worker {
                     .map(|json| serde_json::from_slice(&json).map(Body::from_stored))
                     .transpose()
                     .map_err(|error| refused(Refusal::NoBody, &error.to_string()))?;
-                let made = BodyDoc::from_body(body.as_ref());
-                let state = made.state();
-                let state_bytes = size_of(&state);
+                let made = BodyDoc::from_body_counted(body.as_ref())
+                    .map_err(|error| take_refused(&TakeError::Update(error)))?;
+                let state_bytes = size_of(&made.state);
                 if state_bytes > self.limits.state_bytes {
                     return Err(refused(
                         Refusal::DocumentTooLarge,
                         "the document of the body is larger than the limit",
                     ));
                 }
-                // A body's own document is read in no steps, and in few once another
-                // client has written into it: counted in one pass, not taken for it.
-                let counted = fvoci_collab::state_counts(&state)
-                    .map_err(|error| take_refused(&TakeError::Update(error)))?;
-                let base = state.clone();
+                let base = made.state.clone();
                 (
-                    made,
+                    made.doc,
                     base,
-                    Some(state),
-                    (counted.changes, counted.client_changes, counted.steps_ahead),
+                    Some(made.state),
+                    (
+                        made.counts.changes,
+                        made.counts.client_changes,
+                        made.counts.steps_ahead,
+                    ),
                 )
             }
         };

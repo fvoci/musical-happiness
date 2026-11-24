@@ -34,6 +34,7 @@ mod container_team_trash;
 mod container_teams;
 mod containers;
 mod containers_and_blocks;
+mod course_copies;
 mod course_exams;
 mod course_meetings;
 mod course_schedules;

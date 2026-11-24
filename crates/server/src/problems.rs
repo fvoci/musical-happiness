@@ -622,6 +622,10 @@ fn describe_editing_together(reason: Reason) -> &'static str {
              or the document would take more steps to read than it may; `limit` is the \
              limit in bytes."
         }
+        Reason::TableTooLarge => {
+            "Status 400. A table in the body has, or with the update would have, more than \
+             200 rows or more than 20 columns. Nothing was changed."
+        }
         Reason::TooManyDocuments => {
             "Status 503. The server holds as many documents of bodies being edited as it \
              may (settings `collab_workers`, `collab_documents_per_worker`, \

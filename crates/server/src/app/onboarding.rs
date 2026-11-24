@@ -187,7 +187,7 @@ impl App {
         let template = self.container(&template_id).await?;
         let changes = changes_of_copy(&template, reader.today.as_deref());
         self.write_container_bodies(&template_id).await?;
-        let titles = titles_in(reader.language);
+        let titles = titles_in(reader.language, template.kind);
         let stored = self
             .store()
             .duplicate_welcome_board(&template_id, user_id, workspace_id, &titles, changes, now)
@@ -201,6 +201,7 @@ impl App {
         let board_id = board.id.clone();
         let stored = Stored {
             source_id: &template_id,
+            source_is_template: template.is_template,
             user_id,
             to_workspace: workspace_id,
             duplicate_as: DuplicateAs::Copy,

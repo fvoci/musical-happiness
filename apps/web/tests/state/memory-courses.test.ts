@@ -10,9 +10,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { pageTree } from '$lib/logic/page-tree.ts';
+import { MemoryBackend } from '$lib/state/memory/backend.ts';
+import { seedWorld } from '$lib/state/memory/seed.ts';
 import { BackendError, isOwnSpace, type CourseUnit } from '$lib/state/index.ts';
 
-import { setup, text } from './support.ts';
+import { SMALL, setup, text } from './support.ts';
 
 const rejection = async (promise: Promise<unknown>): Promise<BackendError> => {
   try {
@@ -62,17 +64,176 @@ describe('a course in memory', () => {
     expect(
       (await made.backend.templates(made.workspaceId)).some((b) => b.id === made.course.id),
     ).toBe(false);
-    // Courses cannot be duplicated or turned into templates.
+    // Courses can be duplicated into a copy or a course template (excluding personal progress).
+    const copied = await made.backend.duplicateContainer(made.course.id, false, made.workspaceId);
+    expect(copied.kind).toBe('course');
+    expect(copied.isTemplate).toBe(false);
+    expect(copied.id).not.toBe(made.course.id);
+    const asTemplate = await made.backend.duplicateContainer(
+      made.course.id,
+      true,
+      made.workspaceId,
+    );
+    expect(asTemplate.kind).toBe('course');
+    expect(asTemplate.isTemplate).toBe(true);
     expect(
-      (await rejection(made.backend.duplicateContainer(made.course.id, false, made.workspaceId)))
-        .status,
-    ).toBe(404);
-    expect(
-      (await rejection(made.backend.duplicateContainer(made.course.id, true, made.workspaceId)))
-        .status,
-    ).toBe(404);
+      (await made.backend.templates(made.workspaceId)).some((b) => b.id === asTemplate.id),
+    ).toBe(true);
     // Board/card endpoints do not reach a course.
     expect((await rejection(made.backend.cards(made.course.id))).status).toBe(404);
+  });
+
+  it('duplicates and archives courses with schedule and amounts while excluding personal progress', async () => {
+    const made = await aCourse();
+    const courses = made.backend.course;
+    const ch1 = await courses.createUnit(made.course.id, { kind: 'chapter', title: 'Chapter 1' });
+    const u1 = await courses.createUnit(made.course.id, {
+      kind: 'unit',
+      title: 'Lesson 1',
+      parentId: ch1.id,
+    });
+    made.world.courseSchedules.set(made.course.id, {
+      startDate: '2026-12-01',
+      targetDate: '2026-12-14',
+      studyDays: 31,
+      updateAt: 1,
+    });
+    await courses.putUnitProgress(made.course.id, u1.id, {
+      completed: true,
+      lastPosition: 'secret-pos',
+    });
+
+    // Duplication preserves chapters, units, and shared schedule, never personal progress.
+    const dup = await made.backend.duplicateContainer(made.course.id, false, made.workspaceId);
+    expect(made.world.courseSchedules.get(dup.id)).toMatchObject({
+      startDate: '2026-12-01',
+      targetDate: '2026-12-14',
+      studyDays: 31,
+    });
+    expect(await courses.myProgress(dup.id)).toEqual([]);
+    const dupUnits = await courses.units(dup.id);
+    expect(dupUnits.map((n) => n.title)).toEqual(['Chapter 1', 'Lesson 1']);
+
+    // Export -> import preserves chapters, units, and shared schedule, never personal progress.
+    const exported = await made.backend.exportContainer(made.course.id);
+    const textArchive = await exported.bytes.text();
+    expect(textArchive).toContain('"type":"courseSchedule"');
+    expect(textArchive).not.toContain('secret-pos');
+    expect(textArchive).not.toContain('unitProgress');
+
+    const file = new File([exported.bytes], exported.name);
+    const summary = await made.backend.importArchive(made.workspaceId, file);
+    expect(summary.imported.courses).toBe(1);
+    expect(summary.imported.units).toBe(1);
+    const importedId = summary.containerIds[0] ?? '';
+    expect(made.world.courseSchedules.get(importedId)).toMatchObject({
+      startDate: '2026-12-01',
+      targetDate: '2026-12-14',
+      studyDays: 31,
+    });
+    expect(await courses.myProgress(importedId)).toEqual([]);
+  });
+
+  it('rejects malformed courseSchedule archives without mutating the workspace', async () => {
+    const made = await aCourse();
+    const beforeCount = made.world.containers.size;
+    const courseLine = JSON.stringify({
+      type: 'board',
+      data: { id: 'c1', workspaceId: made.workspaceId, type: 'P', kind: 'course', title: 'Bad' },
+    });
+    const boardLine = JSON.stringify({
+      type: 'board',
+      data: { id: 'b1', workspaceId: made.workspaceId, type: 'P', kind: 'board', title: 'Board' },
+    });
+    const cases = [
+      [
+        courseLine,
+        JSON.stringify({
+          type: 'courseSchedule',
+          data: {
+            boardId: 'c1',
+            startDate: '2026-12-01',
+            targetDate: '2026-12-10',
+            studyDays: 1.5,
+          },
+        }),
+      ],
+      [
+        courseLine,
+        JSON.stringify({
+          type: 'courseSchedule',
+          data: {
+            boardId: 'c1',
+            startDate: '2026-12-01',
+            targetDate: '2026-12-10',
+            studyDays: 31,
+            plannedDate: '2026-12-05',
+          },
+        }),
+      ],
+      [
+        boardLine,
+        JSON.stringify({
+          type: 'courseSchedule',
+          data: { boardId: 'b1', startDate: '2026-12-01', targetDate: '2026-12-10', studyDays: 31 },
+        }),
+      ],
+      [
+        courseLine,
+        JSON.stringify({
+          type: 'courseSchedule',
+          data: { boardId: 'c1', startDate: '2026-02-30', targetDate: '2026-03-05', studyDays: 31 },
+        }),
+      ],
+      [
+        courseLine,
+        JSON.stringify({
+          type: 'courseSchedule',
+          data: {
+            boardId: 'missing',
+            startDate: '2026-12-01',
+            targetDate: '2026-12-10',
+            studyDays: 31,
+          },
+        }),
+      ],
+      [
+        courseLine,
+        JSON.stringify({
+          type: 'courseSchedule',
+          data: { boardId: 'c1', startDate: '2020-01-01', targetDate: '2035-01-01', studyDays: 31 },
+        }),
+      ],
+    ];
+    for (const lines of cases) {
+      const payload = [JSON.stringify({ version: 'fvoci-memory-1' }), ...lines].join('\n');
+      const file = new File([payload], 'bad.boardarchive');
+      expect((await rejection(made.backend.importArchive(made.workspaceId, file))).status).toBe(
+        400,
+      );
+    }
+    expect(made.world.containers.size).toBe(beforeCount);
+  });
+
+  it('shifts built-in course template schedule and unit dates and remaps internal references', async () => {
+    const { world, readerId } = seedWorld([SMALL, { ...SMALL, key: 'second' }]);
+    const backend = new MemoryBackend(world, readerId);
+    const workspaceId = world.workspace.id;
+    const templates = await backend.templates(workspaceId);
+    const builtin = templates.find((item) => item.isBuiltin === true && item.kind === 'course');
+    if (!builtin) throw new Error('expected built-in course template');
+    const copy = await backend.duplicateContainer(builtin.id, false, workspaceId);
+    expect(copy.isBuiltin).toBe(false);
+    expect(copy.properties.templateKey).toBeUndefined();
+    expect(copy.properties.templateSchedule).toBeUndefined();
+    const today = new Date(world.now()).toISOString().slice(0, 10);
+    expect(world.courseSchedules.get(copy.id)?.startDate).toBe(today);
+    const units = await backend.course.units(copy.id);
+    const concepts = units.find((u) => u.title === 'Summarize Core Concepts');
+    const practice = units.find((u) => u.title === 'Solve Practice Problems');
+    if (!concepts || !practice) throw new Error('expected template units');
+    const detail = await backend.course.unit(copy.id, practice.id);
+    expect(JSON.stringify(detail.body)).toContain(concepts.id);
   });
 
   it('enforces depth-2, chapter-only parenting, top-only chapters, and bodyless chapters', async () => {

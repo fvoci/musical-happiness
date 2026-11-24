@@ -38,7 +38,7 @@ impl Reaches {
     const SHARED: Self = Self(ContainerKinds::SHARED);
     /// Boards, wikis and courses alike; a diary named there is not there.
     const LINKED: Self = Self(ContainerKinds::LINKED);
-    /// Boards and wikis alike; a diary or a course named there is not there.
+    /// Boards, wikis and courses alike; a diary named there is not there.
     const COPIED: Self = Self(ContainerKinds::COPIED);
     /// Boards, wikis, diaries and courses alike.
     const EVERY: Self = Self(ContainerKinds::EVERY);

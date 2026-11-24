@@ -1,14 +1,15 @@
 //! Boards and their members.
 
 use fvoci_model::{
-    AuditAction, Container, ContainerCategoryWebsocketData, ContainerMember, ContainerPatch,
-    ContainerType, new_id,
+    AuditAction, Container, ContainerCategoryWebsocketData, ContainerKind, ContainerMember,
+    ContainerPatch, ContainerType, new_id,
 };
 use fvoci_store::{AuditEntry, DeletedContainer, Joined, MemberChange, PublicContainers, Standing};
 
 use super::{App, ContainerAccess, DEFAULT_CATEGORY_CONTAINERS, Former};
 use crate::collab::{AccessScope, Deletion};
 use crate::error::{AppError, Reason};
+use crate::metrics::CourseSource;
 use crate::permissions::ContainerScope;
 
 /// Whether a patch of a board changes who may do what on it: its type (open to the
@@ -150,6 +151,9 @@ impl App {
                 std::slice::from_ref(&container.id),
             )
             .await?;
+            if container.kind == ContainerKind::Course {
+                self.metrics().course_created(CourseSource::Blank);
+            }
         }
         Ok(container)
     }

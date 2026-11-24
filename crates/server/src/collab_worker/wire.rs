@@ -203,6 +203,8 @@ pub enum Refusal {
     NoBody,
     /// The body would be larger than the limit.
     BodyTooLarge,
+    /// A table in the body would have more rows or columns than it may.
+    TableTooLarge,
     /// The worker holds as many documents, or as many bytes of them, as it may.
     TooManyDocuments,
     /// No document is open under the number, or one already is.
@@ -356,7 +358,7 @@ const REFUSED: u8 = 0x7f;
 impl Refusal {
     /// Every refusal, for the tests of its byte.
     #[cfg(test)]
-    const ALL: [Self; 11] = [
+    const ALL: [Self; 12] = [
         Self::UpdateTooLarge,
         Self::Unreadable,
         Self::MissingChanges,
@@ -368,6 +370,7 @@ impl Refusal {
         Self::UnknownDocument,
         Self::OutOfOrder,
         Self::TooManySteps,
+        Self::TableTooLarge,
     ];
 
     /// The byte of the refusal in an answer.
@@ -384,6 +387,7 @@ impl Refusal {
             Self::UnknownDocument => 8,
             Self::OutOfOrder => 9,
             Self::TooManySteps => 10,
+            Self::TableTooLarge => 11,
         }
     }
 
@@ -401,6 +405,7 @@ impl Refusal {
             8 => Self::UnknownDocument,
             9 => Self::OutOfOrder,
             10 => Self::TooManySteps,
+            11 => Self::TableTooLarge,
             _ => return None,
         })
     }
