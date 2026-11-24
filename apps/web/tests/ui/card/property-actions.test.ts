@@ -67,11 +67,11 @@ describe('adding a property', () => {
     await board.setViewFields(view.id, { viewType: 'table' });
     const table = board.view(view.id);
     const id = await addProperty(board, table, 'text', 'Text');
-    expect(board.view(view.id)?.fields.visiblePropertyIds).toEqual([id]);
+    expect(board.view(view.id)?.fields.shownProperties).toEqual([id]);
 
     await board.setViewFields(view.id, { viewType: 'board' });
     const other = await addProperty(board, board.view(view.id), 'text', 'Text');
-    expect(board.view(view.id)?.fields.visiblePropertyIds).toEqual([id]);
+    expect(board.view(view.id)?.fields.shownProperties).toEqual([id]);
     expect(other).toBeDefined();
   });
 
@@ -81,7 +81,7 @@ describe('adding a property', () => {
     await addProperty(board, board.view(view.id), 'text', 'Text');
     await workspace.undoLast();
     expect(board.board?.cardProperties).toHaveLength(2);
-    expect(board.view(view.id)?.fields.visiblePropertyIds).toEqual([]);
+    expect(board.view(view.id)?.fields.shownProperties).toEqual([]);
     expect(await stored()).toHaveLength(2);
   });
 
@@ -232,13 +232,13 @@ describe('changing the kind of a property', () => {
 
   it('takes the views off what they wrote for the old kind', async () => {
     const { board, view, definition } = await open();
-    expect(view.fields.groupById).toBe(STATUS);
+    expect(view.fields.groupBy).toBe(STATUS);
     const template = definition(STATUS);
     if (!template) throw new Error('no status');
     await changePropertyType(board, planTypeChange(template, 'text', board.cards));
     const after = board.view(view.id);
-    expect(after?.fields.groupById).toBeUndefined();
-    expect(after?.fields.visibleOptionIds).toEqual([]);
+    expect(after?.fields.groupBy).toBeUndefined();
+    expect(after?.fields.visibleGroups).toEqual([]);
   });
 
   it('leaves views and values alone when the board refuses the change', async () => {
@@ -248,7 +248,7 @@ describe('changing the kind of a property', () => {
     backend.failNext('patchContainer', new BackendError(403));
     await changePropertyType(board, planTypeChange(template, 'text', board.cards));
     expect(definition(STATUS)?.type).toBe('select');
-    expect(board.view(view.id)?.fields.groupById).toBe(STATUS);
+    expect(board.view(view.id)?.fields.groupBy).toBe(STATUS);
     expect(cardNamed('Alpha').fields.properties[STATUS]).toBe('todo');
 
     backend.failNext('patchContainer', new BackendError(403));
@@ -263,8 +263,8 @@ describe('deleting a property', () => {
   it('removes the definition and what the views said about it', async () => {
     const { board, view, stored, backend } = await open();
     await board.setViewFields(view.id, {
-      visiblePropertyIds: [STATUS, OWNER],
-      sortOptions: [{ propertyId: STATUS, reversed: false }],
+      shownProperties: [STATUS, OWNER],
+      sort: [{ propertyId: STATUS, reversed: false }],
       filter: {
         operation: 'and',
         filters: [{ propertyId: STATUS, condition: 'includes', values: ['todo'] }],
@@ -273,13 +273,13 @@ describe('deleting a property', () => {
     await deleteProperty(board, STATUS);
     expect((await stored()).map((template) => template.id)).toEqual([OWNER]);
     const fields = board.view(view.id)?.fields;
-    expect(fields?.visiblePropertyIds).toEqual([OWNER]);
-    expect(fields?.sortOptions).toEqual([]);
+    expect(fields?.shownProperties).toEqual([OWNER]);
+    expect(fields?.sort).toEqual([]);
     expect(fields?.filter.filters).toEqual([]);
-    expect(fields?.groupById).toBeUndefined();
+    expect(fields?.groupBy).toBeUndefined();
     const storedView = (await backend.views(board.boardId))[0];
-    expect(storedView?.fields.groupById).toBeUndefined();
-    expect(storedView?.fields.visiblePropertyIds).toEqual([OWNER]);
+    expect(storedView?.fields.groupBy).toBeUndefined();
+    expect(storedView?.fields.shownProperties).toEqual([OWNER]);
   });
 
   it('comes back with its values and its place in the views on one undo', async () => {
@@ -289,8 +289,8 @@ describe('deleting a property', () => {
     await workspace.undoLast();
     await settle();
     expect(definition(STATUS)?.options).toHaveLength(3);
-    expect(board.view(view.id)?.fields.groupById).toBe(STATUS);
-    expect(board.view(view.id)?.fields.visibleOptionIds).toEqual(['todo', 'doing', 'done', '']);
+    expect(board.view(view.id)?.fields.groupBy).toBe(STATUS);
+    expect(board.view(view.id)?.fields.visibleGroups).toEqual(['todo', 'doing', 'done', '']);
     expect(cardNamed('Alpha').fields.properties[STATUS]).toBe('todo');
   });
 
@@ -299,7 +299,7 @@ describe('deleting a property', () => {
     backend.failNext('patchContainer', new BackendError(403));
     await deleteProperty(board, STATUS);
     expect(definition(STATUS)).toBeDefined();
-    expect(board.view(view.id)?.fields.groupById).toBe(STATUS);
+    expect(board.view(view.id)?.fields.groupBy).toBe(STATUS);
   });
 });
 

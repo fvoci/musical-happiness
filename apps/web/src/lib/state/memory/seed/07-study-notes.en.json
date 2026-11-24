@@ -109,7 +109,7 @@
           "8c3e09d6-6df0-5754-a8eb-aa6d16f5feaa",
           "64ef5921-7f17-5a7e-9be9-4008c25ac993"
         ],
-        "collapsedOptionIds": [],
+        "collapsedGroups": [],
         "columnCalculations": {},
         "columnWidths": {},
         "defaultTemplateId": "",
@@ -117,20 +117,20 @@
           "operation": "and",
           "filters": []
         },
-        "hiddenOptionIds": [""],
-        "kanbanCalculations": {},
-        "sortOptions": [],
+        "hiddenGroups": [""],
+        "groupCalculations": {},
+        "sort": [],
         "viewType": "board",
-        "visibleOptionIds": [
+        "visibleGroups": [
           "ebedfa40-68d0-568e-9e1a-104287dbdea9",
           "460518d8-9623-5542-9c4d-fc7b09aea48d",
           "e7efe65c-9889-52d3-84d7-659723d95602"
         ],
-        "visiblePropertyIds": [
+        "shownProperties": [
           "2091a798-e74c-5ebf-a4a6-89d7e83f99a2",
           "2b9e4c31-8d7d-532d-9ea2-c917d8f0a4f9"
         ],
-        "groupById": "bc2818c7-6d46-5486-b092-a8ea1f2de1e9"
+        "groupBy": "bc2818c7-6d46-5486-b092-a8ea1f2de1e9"
       }
     },
     {
@@ -145,7 +145,7 @@
           "8c3e09d6-6df0-5754-a8eb-aa6d16f5feaa",
           "64ef5921-7f17-5a7e-9be9-4008c25ac993"
         ],
-        "collapsedOptionIds": [],
+        "collapsedGroups": [],
         "columnCalculations": {},
         "columnWidths": {},
         "defaultTemplateId": "",
@@ -153,12 +153,12 @@
           "operation": "and",
           "filters": []
         },
-        "hiddenOptionIds": [],
-        "kanbanCalculations": {},
-        "sortOptions": [],
+        "hiddenGroups": [],
+        "groupCalculations": {},
+        "sort": [],
         "viewType": "gallery",
-        "visibleOptionIds": [],
-        "visiblePropertyIds": [
+        "visibleGroups": [],
+        "shownProperties": [
           "__title",
           "bc2818c7-6d46-5486-b092-a8ea1f2de1e9",
           "2091a798-e74c-5ebf-a4a6-89d7e83f99a2"
@@ -177,7 +177,7 @@
           "8c3e09d6-6df0-5754-a8eb-aa6d16f5feaa",
           "64ef5921-7f17-5a7e-9be9-4008c25ac993"
         ],
-        "collapsedOptionIds": [],
+        "collapsedGroups": [],
         "columnCalculations": {},
         "columnWidths": {},
         "defaultTemplateId": "",
@@ -185,13 +185,13 @@
           "operation": "and",
           "filters": []
         },
-        "hiddenOptionIds": [],
-        "kanbanCalculations": {},
-        "sortOptions": [],
+        "hiddenGroups": [],
+        "groupCalculations": {},
+        "sort": [],
         "viewType": "calendar",
-        "visibleOptionIds": [],
-        "visiblePropertyIds": ["__title"],
-        "dateDisplayPropertyId": "d8764a1f-e16d-59ad-b5b2-439794c042c7"
+        "visibleGroups": [],
+        "shownProperties": ["__title"],
+        "dateProperty": "d8764a1f-e16d-59ad-b5b2-439794c042c7"
       }
     },
     {
@@ -206,7 +206,7 @@
           "8c3e09d6-6df0-5754-a8eb-aa6d16f5feaa",
           "64ef5921-7f17-5a7e-9be9-4008c25ac993"
         ],
-        "collapsedOptionIds": [],
+        "collapsedGroups": [],
         "columnCalculations": {
           "__title": "count",
           "2091a798-e74c-5ebf-a4a6-89d7e83f99a2": "countValue",
@@ -224,17 +224,17 @@
             }
           ]
         },
-        "hiddenOptionIds": [],
-        "kanbanCalculations": {},
-        "sortOptions": [
+        "hiddenGroups": [],
+        "groupCalculations": {},
+        "sort": [
           {
             "propertyId": "d8764a1f-e16d-59ad-b5b2-439794c042c7",
             "reversed": false
           }
         ],
         "viewType": "table",
-        "visibleOptionIds": [],
-        "visiblePropertyIds": [
+        "visibleGroups": [],
+        "shownProperties": [
           "bc2818c7-6d46-5486-b092-a8ea1f2de1e9",
           "2b9e4c31-8d7d-532d-9ea2-c917d8f0a4f9",
           "2091a798-e74c-5ebf-a4a6-89d7e83f99a2",
@@ -255,7 +255,7 @@
           "8c3e09d6-6df0-5754-a8eb-aa6d16f5feaa",
           "64ef5921-7f17-5a7e-9be9-4008c25ac993"
         ],
-        "collapsedOptionIds": [],
+        "collapsedGroups": [],
         "columnCalculations": {},
         "columnWidths": {},
         "defaultTemplateId": "",
@@ -263,18 +263,18 @@
           "operation": "and",
           "filters": []
         },
-        "hiddenOptionIds": [""],
-        "kanbanCalculations": {},
-        "sortOptions": [],
+        "hiddenGroups": [""],
+        "groupCalculations": {},
+        "sort": [],
         "viewType": "gantt",
-        "visibleOptionIds": [
+        "visibleGroups": [
           "ebedfa40-68d0-568e-9e1a-104287dbdea9",
           "460518d8-9623-5542-9c4d-fc7b09aea48d",
           "e7efe65c-9889-52d3-84d7-659723d95602"
         ],
-        "visiblePropertyIds": ["2091a798-e74c-5ebf-a4a6-89d7e83f99a2"],
-        "groupById": "bc2818c7-6d46-5486-b092-a8ea1f2de1e9",
-        "dateDisplayPropertyId": "d8764a1f-e16d-59ad-b5b2-439794c042c7",
+        "shownProperties": ["2091a798-e74c-5ebf-a4a6-89d7e83f99a2"],
+        "groupBy": "bc2818c7-6d46-5486-b092-a8ea1f2de1e9",
+        "dateProperty": "d8764a1f-e16d-59ad-b5b2-439794c042c7",
         "dependencyPropertyId": "50f6befe-52bc-5ce3-b2e2-eb8782121e6e",
         "ganttZoom": "day"
       }

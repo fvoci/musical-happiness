@@ -225,7 +225,7 @@ FVOCI_CALENDAR_SHOTS=1 pnpm --filter web run spikes:e2e calendar/shots --project
 
 ### 표시 기준
 
-캘린더는 **날짜 속성 하나**의 값으로 카드를 놓는다(뷰에 저장되는 `dateDisplayPropertyId`). 그룹과 정렬이 없는 대신 뷰 머리글에 "표시 기준"이 있다.
+캘린더는 **날짜 속성 하나**의 값으로 카드를 놓는다(뷰에 저장되는 `dateProperty`). 그룹과 정렬이 없는 대신 뷰 머리글에 "표시 기준"이 있다.
 
 | 넓은 머리글: 단추와 팝오버                                                        | 접힌 머리글: "…" 메뉴의 둘째 쪽                                                  |
 | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
@@ -493,7 +493,7 @@ Playwright에서 `setViewportSize`로 창을 바꿔 본 것이다(`calendar.spec
 | 속성 종류마다 "캘린더에서 차지하는 날"(날짜, 만든 날짜, 수정한 날짜) | `properties.ts`의 `days`                                    |
 | 값의 한쪽 끝을 다른 날로 옮기되 시각은 지키기, 기간의 앞뒤 바로잡기  | `date-entry.ts`의 `withDay`, `orderRange`                   |
 | 주의 시작 요일과 그 설정, 언어에 따른 기본값                         | `regional.ts`의 `Weekday`, `weekStartOf`, `resolveRegional` |
-| 뷰의 표시 기준 속성 id, 뷰 종류 `calendar`                           | `wire.ts`의 `dateDisplayPropertyId`                         |
+| 뷰의 표시 기준 속성 id, 뷰 종류 `calendar`                           | `wire.ts`의 `dateProperty`                                  |
 | CSV로 내보낼 때 캘린더의 표시 기준 속성을 더하는 것                  | `csv.ts`                                                    |
 | 날짜와 시각을 보는 사람의 설정대로 적기                              | `format.ts`의 `displayCalendarDate`, `displayDateTime`      |
 

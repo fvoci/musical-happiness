@@ -152,7 +152,7 @@ describe('what the kind can do', () => {
     const sorted = (reversed: boolean): string[] =>
       sortCards(cards, {
         templates: [RELATION],
-        sortOptions: [{ propertyId: 'after', reversed }],
+        sort: [{ propertyId: 'after', reversed }],
         cardOrder: [],
         locale: 'en',
         timeZone: 'UTC',

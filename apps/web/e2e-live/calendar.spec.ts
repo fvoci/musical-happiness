@@ -4,7 +4,7 @@
  * the page; after a reload the view is still a calendar placed by that date,
  * as the server keeps it. The server does not check the kind of a view, so a
  * calendar is a view like any other to it; "display by" is the view's
- * `dateDisplayPropertyId`. A date changed on the calendar is one change of a
+ * `dateProperty`. A date changed on the calendar is one change of a
  * card property, kept like any other.
  */
 import { expect, test } from '@playwright/test';
@@ -69,7 +69,7 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
   await expect.poll(async () => (await stored())?.title).toBe('Calendar view');
   const viewId = (await stored())?.id ?? '';
   await expect(page).toHaveURL(new RegExp(`${boardPath(board, viewId)}$`));
-  expect((await stored())?.fields.dateDisplayPropertyId).toBe('due');
+  expect((await stored())?.fields.dateProperty).toBe('due');
 
   const calendar = page.getByTestId('calendar');
   await expect(calendar).toHaveAttribute('data-layout', 'bars');
@@ -83,7 +83,7 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
   await expect(tool).toHaveAccessibleName('Display by: Due');
   await tool.click();
   await page.locator('[role="menuitem"][data-action="start"]').click();
-  await expect.poll(async () => (await stored())?.fields.dateDisplayPropertyId).toBe('start');
+  await expect.poll(async () => (await stored())?.fields.dateProperty).toBe('start');
   const week = (date: string) => grid.locator(`[data-week="${date}"] [data-bar]`);
   await expect(week('2026-11-01').filter({ hasText: 'Pick apples' })).toHaveCount(1);
 

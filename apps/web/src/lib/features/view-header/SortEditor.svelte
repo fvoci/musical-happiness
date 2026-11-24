@@ -30,7 +30,7 @@
   let { board, view }: { board: BoardStore; view: BoardView } = $props();
 
   const templates = $derived(board.board?.cardProperties ?? []);
-  const options = $derived(view.fields.sortOptions);
+  const options = $derived(view.fields.sort);
   /** The views whose cards are dragged into an order: a sort takes that away. */
   const dragged = $derived(view.fields.viewType === 'board' || view.fields.viewType === 'table');
 
@@ -40,7 +40,7 @@
 
   function save(next: readonly SortOption[]): void {
     if (next === options) return;
-    void board.setViewFields(view.id, { sortOptions: [...next] }, 'sort');
+    void board.setViewFields(view.id, { sort: [...next] }, 'sort');
   }
 
   const addActions = $derived<MenuAction[]>(

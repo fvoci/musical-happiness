@@ -204,7 +204,7 @@ test('a bar of a grouped chart says its group', async ({ page }, info) => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
     const found = store.board.cardProperties.find((each) => each.type === 'select');
     if (!found) throw new Error('no select property');
-    await store.setViewFields(viewId, { groupById: found.id });
+    await store.setViewFields(viewId, { groupBy: found.id });
   }, viewIdOf(page.url()));
   const heading = gantt(page).locator('[data-group]').first();
   await expect(heading).toBeVisible();

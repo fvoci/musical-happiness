@@ -68,7 +68,7 @@ export async function addProperty(
           ...current,
           fields: {
             ...current.fields,
-            visiblePropertyIds: [...current.fields.visiblePropertyIds, template.id],
+            shownProperties: [...current.fields.shownProperties, template.id],
           },
         }),
         'addProperty',

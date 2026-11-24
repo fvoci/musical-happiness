@@ -76,7 +76,7 @@
   const locale = $derived(board.workspace.locale);
   const regional = $derived(board.workspace.regional);
   const templates = $derived(board.board?.cardProperties ?? []);
-  const template = $derived(displayProperty(view.fields.dateDisplayPropertyId, templates));
+  const template = $derived(displayProperty(view.fields.dateProperty, templates));
   const clock = new MinuteClock();
   /** Today, on the reader's calendar. */
   const today = $derived(dateOfInstant(clock.now, regional.timeZone));
@@ -186,7 +186,7 @@
   const rows = $derived({
     placed,
     templates,
-    visiblePropertyIds: view.fields.visiblePropertyIds,
+    shownProperties: view.fields.shownProperties,
     users: board.workspace.users,
     cardHref,
     board,
@@ -349,7 +349,7 @@
         <MonthGrid
           {weeks}
           week={scale === 'week'}
-          shownOf={(card: Card) => faceProperties(card, templates, view.fields.visiblePropertyIds)}
+          shownOf={(card: Card) => faceProperties(card, templates, view.fields.shownProperties)}
           {placed}
           {month}
           {today}

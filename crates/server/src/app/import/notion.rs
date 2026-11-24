@@ -688,7 +688,7 @@ fn build_csv_view(
 ) -> Block {
     let (title, fields) = match first_select {
         Some((group_id, option_ids)) => {
-            let visible_props: Vec<&String> = all_property_ids
+            let shown_props: Vec<&String> = all_property_ids
                 .iter()
                 .filter(|id| *id != group_id)
                 .collect();
@@ -696,17 +696,17 @@ fn build_csv_view(
                 "Board",
                 json!({
                     "viewType": "board",
-                    "groupById": group_id,
-                    "visibleOptionIds": option_ids,
-                    "hiddenOptionIds": [],
-                    "collapsedOptionIds": [],
-                    "visiblePropertyIds": visible_props,
+                    "groupBy": group_id,
+                    "visibleGroups": option_ids,
+                    "hiddenGroups": [],
+                    "collapsedGroups": [],
+                    "shownProperties": shown_props,
                     "cardOrder": card_ids,
-                    "sortOptions": [],
+                    "sort": [],
                     "filter": {"operation": "and", "filters": []},
                     "columnWidths": {},
                     "columnCalculations": {},
-                    "kanbanCalculations": {},
+                    "groupCalculations": {},
                     "defaultTemplateId": "",
                 }),
             )
@@ -715,16 +715,16 @@ fn build_csv_view(
             "Table",
             json!({
                 "viewType": "table",
-                "visibleOptionIds": [],
-                "hiddenOptionIds": [],
-                "collapsedOptionIds": [],
-                "visiblePropertyIds": all_property_ids,
+                "visibleGroups": [],
+                "hiddenGroups": [],
+                "collapsedGroups": [],
+                "shownProperties": all_property_ids,
                 "cardOrder": card_ids,
-                "sortOptions": [],
+                "sort": [],
                 "filter": {"operation": "and", "filters": []},
                 "columnWidths": {},
                 "columnCalculations": {},
-                "kanbanCalculations": {},
+                "groupCalculations": {},
                 "defaultTemplateId": "",
             }),
         ),

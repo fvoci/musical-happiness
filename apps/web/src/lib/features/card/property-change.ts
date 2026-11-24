@@ -248,25 +248,25 @@ export function viewWithoutProperty(
     ...view.fields,
     filter: withoutClauses(view.fields.filter, propertyId),
     columnCalculations: without(view.fields.columnCalculations, (key) => key === propertyId),
-    kanbanCalculations: without(
-      view.fields.kanbanCalculations,
+    groupCalculations: without(
+      view.fields.groupCalculations,
       (_key, calculation) => calculation.propertyId === propertyId,
     ),
   };
   if (deleting) {
-    fields.visiblePropertyIds = fields.visiblePropertyIds.filter((id) => id !== propertyId);
-    fields.sortOptions = fields.sortOptions.filter((option) => option.propertyId !== propertyId);
+    fields.shownProperties = fields.shownProperties.filter((id) => id !== propertyId);
+    fields.sort = fields.sort.filter((option) => option.propertyId !== propertyId);
     fields.columnWidths = without(fields.columnWidths, (key) => key === propertyId);
   }
   // A member that goes is taken out, not set to nothing: a patch names the members it deletes.
-  if (fields.groupById === propertyId) {
-    fields.visibleOptionIds = [];
-    fields.hiddenOptionIds = [];
-    fields.collapsedOptionIds = [];
-    if (!behavior?.canGroup) delete fields.groupById;
+  if (fields.groupBy === propertyId) {
+    fields.visibleGroups = [];
+    fields.hiddenGroups = [];
+    fields.collapsedGroups = [];
+    if (!behavior?.canGroup) delete fields.groupBy;
   }
-  if (fields.dateDisplayPropertyId === propertyId && behavior?.days === undefined) {
-    delete fields.dateDisplayPropertyId;
+  if (fields.dateProperty === propertyId && behavior?.days === undefined) {
+    delete fields.dateProperty;
   }
   if (fields.dependencyPropertyId === propertyId && becomes !== 'relation') {
     delete fields.dependencyPropertyId;

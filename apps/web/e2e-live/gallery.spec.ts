@@ -76,8 +76,8 @@ test('a gallery shows each card’s first picture and the start of its text, rea
           updateAt: 1,
           fields: {
             viewType: 'gallery',
-            sortOptions: [],
-            visiblePropertyIds: [],
+            sort: [],
+            shownProperties: [],
             cardOrder: [],
             filter: { operation: 'and', filters: [] },
           },

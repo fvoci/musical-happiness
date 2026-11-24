@@ -82,7 +82,7 @@ test('an arrow goes from the end of the card that comes first to the start of th
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
     const select = store.board.cardProperties.find((property) => property.type === 'select');
     if (!select) throw new Error('nothing to group by');
-    await store.setViewFields(id, { groupById: select.id });
+    await store.setViewFields(id, { groupBy: select.id });
   }, viewIdOf(page.url()));
   await expect(gantt(page).locator('[data-group]').first()).toBeVisible();
   await joins('Write in the body', 'Filter, sort and group');

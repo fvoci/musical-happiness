@@ -337,11 +337,11 @@ describe('the built-in templates', () => {
       for (const view of template.views) {
         const fields = view.fields as Record<string, unknown> & {
           cardOrder: string[];
-          visiblePropertyIds: string[];
-          hiddenOptionIds: string[];
-          visibleOptionIds: string[];
-          collapsedOptionIds: string[];
-          sortOptions: { propertyId: string }[];
+          shownProperties: string[];
+          hiddenGroups: string[];
+          visibleGroups: string[];
+          collapsedGroups: string[];
+          sort: { propertyId: string }[];
           filter: { filters: { propertyId: string }[] };
           columnCalculations: Record<string, string>;
           columnWidths: Record<string, number>;
@@ -351,21 +351,21 @@ describe('the built-in templates', () => {
           [...cardIds].filter((id) => !cardTemplates.has(id)).sort(),
         );
         const named = [
-          ...fields.visiblePropertyIds,
-          ...fields.sortOptions.map((sort) => sort.propertyId),
+          ...fields.shownProperties,
+          ...fields.sort.map((sort) => sort.propertyId),
           ...fields.filter.filters.map((filter) => filter.propertyId),
           ...Object.keys(fields.columnCalculations),
           ...Object.keys(fields.columnWidths),
-          ...['groupById', 'dateDisplayPropertyId', 'dependencyPropertyId'].flatMap((member) =>
+          ...['groupBy', 'dateProperty', 'dependencyPropertyId'].flatMap((member) =>
             member in fields ? [String(fields[member])] : [],
           ),
         ].filter((id) => id !== '__title');
         for (const id of named) expect(properties.has(id), `${where}, ${view.title}`).toBe(true);
-        const options = optionsOf(fields.groupById);
+        const options = optionsOf(fields.groupBy);
         for (const id of [
-          ...fields.visibleOptionIds,
-          ...fields.hiddenOptionIds,
-          ...fields.collapsedOptionIds,
+          ...fields.visibleGroups,
+          ...fields.hiddenGroups,
+          ...fields.collapsedGroups,
         ]) {
           expect(id === '' || options.includes(id), `${where}, ${view.title}`).toBe(true);
         }
@@ -512,13 +512,13 @@ describe.each(LANGUAGES)('what the built-in templates show between them, in %s',
     const some = (holds: (fields: Record<string, unknown>) => boolean): boolean =>
       views.some(holds);
     const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
-    expect(some((fields) => typeof fields.groupById === 'string')).toBe(true);
+    expect(some((fields) => typeof fields.groupBy === 'string')).toBe(true);
     expect(some((f) => list((f.filter as { filters: unknown[] }).filters).length > 0)).toBe(true);
-    expect(some((fields) => list(fields.sortOptions).length > 0)).toBe(true);
-    expect(some((fields) => list(fields.hiddenOptionIds).some((id) => id !== ''))).toBe(true);
-    expect(some((fields) => list(fields.collapsedOptionIds).length > 0)).toBe(true);
+    expect(some((fields) => list(fields.sort).length > 0)).toBe(true);
+    expect(some((fields) => list(fields.hiddenGroups).some((id) => id !== ''))).toBe(true);
+    expect(some((fields) => list(fields.collapsedGroups).length > 0)).toBe(true);
     expect(some((fields) => Object.keys(fields.columnWidths as object).length > 0)).toBe(true);
-    expect(some((fields) => typeof fields.dateDisplayPropertyId === 'string')).toBe(true);
+    expect(some((fields) => typeof fields.dateProperty === 'string')).toBe(true);
     // A gantt view draws what a card comes after from a card relation.
     expect(some((f) => f.viewType === 'gantt' && typeof f.dependencyPropertyId === 'string')).toBe(
       true,

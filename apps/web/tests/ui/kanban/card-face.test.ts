@@ -41,11 +41,11 @@ function cardWith(properties: Card['fields']['properties'], title = 'Write the r
   return card;
 }
 
-function show(card: Card, visiblePropertyIds: string[], more: Record<string, unknown> = {}) {
+function show(card: Card, shownProperties: string[], more: Record<string, unknown> = {}) {
   return render(CardFace, {
     card,
     templates: TEMPLATES,
-    visiblePropertyIds,
+    shownProperties,
     locale: 'en-US',
     regional: SEOUL,
     ...more,

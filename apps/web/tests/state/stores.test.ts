@@ -266,8 +266,8 @@ describe('making and deleting boards', () => {
     expect(views).toHaveLength(1);
     expect(views[0]).toMatchObject({ title: 'Board view', fields: { viewType: 'board' } });
     const status = made?.cardProperties.find((template) => template.type === 'select');
-    expect(views[0]?.fields.groupById).toBe(status?.id);
-    expect(views[0]?.fields.visibleOptionIds.at(-1)).toBe('');
+    expect(views[0]?.fields.groupBy).toBe(status?.id);
+    expect(views[0]?.fields.visibleGroups.at(-1)).toBe('');
     const board = await workspace.openBoard(made?.id ?? '');
     expect(board.role).toBe('admin');
   });
@@ -578,15 +578,15 @@ describe('changing views and the board', () => {
     const view = board.orderedViews[0];
     if (!view) throw new Error('no view');
     await board.setViewFields(view.id, {
-      hiddenOptionIds: ['done'],
-      visibleOptionIds: ['todo', 'doing', ''],
+      hiddenGroups: ['done'],
+      visibleGroups: ['todo', 'doing', ''],
     });
-    expect(board.view(view.id)?.fields.hiddenOptionIds).toEqual(['done']);
+    expect(board.view(view.id)?.fields.hiddenGroups).toEqual(['done']);
     backend.failNext('patchView', refused());
     await board.changeView(view.id, (current) => ({ ...current, title: 'Renamed' }));
     expect(board.view(view.id)?.title).toBe('Board');
     await workspace.undoLast();
-    expect(board.view(view.id)?.fields.hiddenOptionIds).toEqual([]);
+    expect(board.view(view.id)?.fields.hiddenGroups).toEqual([]);
   });
 
   it('creates, copies and deletes views', async () => {

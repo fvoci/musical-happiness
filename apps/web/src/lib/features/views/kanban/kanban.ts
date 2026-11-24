@@ -108,8 +108,8 @@ export function withRange(
 
 /** What a view says about its columns. */
 export type ColumnLists = {
-  visibleOptionIds: string[];
-  hiddenOptionIds: string[];
+  visibleGroups: string[];
+  hiddenGroups: string[];
 };
 
 /**
@@ -123,8 +123,8 @@ export function withColumnHidden(
   optionId: string,
 ): ColumnLists {
   return {
-    visibleOptionIds: shown.filter((id) => id !== optionId),
-    hiddenOptionIds: [...hidden.filter((id) => id !== optionId), optionId],
+    visibleGroups: shown.filter((id) => id !== optionId),
+    hiddenGroups: [...hidden.filter((id) => id !== optionId), optionId],
   };
 }
 
@@ -135,8 +135,8 @@ export function withColumnShown(
   optionId: string,
 ): ColumnLists {
   return {
-    visibleOptionIds: [...shown.filter((id) => id !== optionId), optionId],
-    hiddenOptionIds: hidden.filter((id) => id !== optionId),
+    visibleGroups: [...shown.filter((id) => id !== optionId), optionId],
+    hiddenGroups: hidden.filter((id) => id !== optionId),
   };
 }
 

@@ -13,13 +13,13 @@ if (!view) throw new Error('the small seed has no view');
 /** The small board with its view naming no property to group by. */
 const UNNAMED = {
   ...SMALL,
-  views: [{ ...view, fields: { ...view.fields, groupById: undefined } }],
+  views: [{ ...view, fields: { ...view.fields, groupBy: undefined } }],
 };
 
 /** The same view as a table. */
 const TABLE = {
   ...SMALL,
-  views: [{ ...view, fields: { ...view.fields, viewType: 'table', groupById: undefined } }],
+  views: [{ ...view, fields: { ...view.fields, viewType: 'table', groupBy: undefined } }],
 };
 
 describe('the property a view groups by', () => {
@@ -34,7 +34,7 @@ describe('the property a view groups by', () => {
     const { board } = await openFirstBoard(setup([UNNAMED]));
     const shown = board.orderedViews[0];
     if (!shown) throw new Error('no view');
-    expect(shown.fields.groupById).toBeUndefined();
+    expect(shown.fields.groupBy).toBeUndefined();
     expect(board.groupingOf(shown)?.id).toBe(STATUS);
     const groups = board.groupsOf(shown, board.cardsOf(shown), (name) => `No ${name}`);
     expect(groups.visible.map((group) => [group.option.value, group.cards.length])).toEqual([

@@ -64,7 +64,7 @@ const sortBy = (
   extra: Partial<SortContext> = {},
 ): SortContext => ({
   templates,
-  sortOptions: options.map(([propertyId, reversed = false]) => ({ propertyId, reversed })),
+  sort: options.map(([propertyId, reversed = false]) => ({ propertyId, reversed })),
   cardOrder: [],
   locale: 'en',
   timeZone: 'UTC',
@@ -279,10 +279,10 @@ describe('the cards of a view', () => {
       operation: 'and',
       filters: [{ propertyId: 't', condition: 'isNotEmpty', values: [] }],
     }),
-    sortOptions: [{ propertyId: 'n', reversed: false }],
+    sort: [{ propertyId: 'n', reversed: false }],
     cardOrder: [],
-    visiblePropertyIds: [],
-    dateDisplayPropertyId: undefined,
+    shownProperties: [],
+    dateProperty: undefined,
   };
 
   it('filters, searches and sorts, and leaves out withheld cards', () => {

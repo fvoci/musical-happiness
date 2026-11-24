@@ -383,7 +383,7 @@ export function firstKanban(
   const groupBy = cardProperties.find((template) => template.type === 'select');
   const fields = createBoardView().fields;
   fields.viewType = 'board';
-  fields.groupById = groupBy?.id;
-  fields.visibleOptionIds = [...(groupBy?.options.map((option) => option.id) ?? []), ''];
+  fields.groupBy = groupBy?.id;
+  fields.visibleGroups = [...(groupBy?.options.map((option) => option.id) ?? []), ''];
   return { title, fields };
 }

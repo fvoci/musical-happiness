@@ -31,9 +31,9 @@ export const NEAR = 3;
 /** How high a card is taken to be before it has been drawn: its frame and title, its lines, its badges. */
 export function guessHeight(
   card: Card,
-  face: Pick<FaceContext, 'templates' | 'visiblePropertyIds'>,
+  face: Pick<FaceContext, 'templates' | 'shownProperties'>,
 ): number {
-  const rows = faceProperties(card, face.templates, face.visiblePropertyIds).length;
+  const rows = faceProperties(card, face.templates, face.shownProperties).length;
   const badges = badgesOf(card);
   const hasBadges = badges.hasBody || badges.tasksTotal > 0;
   // As a card measures in either density: 50px of frame and title, 34px a line, 24px of badges.

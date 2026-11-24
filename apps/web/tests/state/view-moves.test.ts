@@ -474,7 +474,7 @@ describe('a move', () => {
     const { board, backend } = await openFirstBoard(setup([FIVE]));
     const alpha = idOf(board, 'Alpha');
     const patch = vi.spyOn(backend, 'patchView');
-    await board.setViewFields(alpha, { sortOptions: [{ propertyId: '__title', reversed: true }] });
+    await board.setViewFields(alpha, { sort: [{ propertyId: '__title', reversed: true }] });
     await board.setViewFields(alpha, { columnWidths: { __title: 240 } });
     await board.changeView(alpha, (view) => ({ ...view, title: 'Alpha 2' }));
     expect(patch).toHaveBeenCalledTimes(3);

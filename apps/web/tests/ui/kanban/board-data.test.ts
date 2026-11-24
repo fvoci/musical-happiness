@@ -28,13 +28,13 @@ describe('the options a board is grouped by', () => {
 
     const options = board.board?.cardProperties.find((template) => template.id === STATUS)?.options;
     expect(options?.at(-1)).toEqual({ id, value: 'Review', color: 'propColorDefault' });
-    expect(board.view(view.id)?.fields.visibleOptionIds).toEqual(['todo', 'doing', 'done', '', id]);
+    expect(board.view(view.id)?.fields.visibleGroups).toEqual(['todo', 'doing', 'done', '', id]);
 
     await workspace.undoLast();
     expect(
       board.board?.cardProperties.find((template) => template.id === STATUS)?.options,
     ).toHaveLength(3);
-    expect(board.view(view.id)?.fields.visibleOptionIds).toEqual(['todo', 'doing', 'done', '']);
+    expect(board.view(view.id)?.fields.visibleGroups).toEqual(['todo', 'doing', 'done', '']);
   });
 
   it('are renamed and given another colour', async () => {

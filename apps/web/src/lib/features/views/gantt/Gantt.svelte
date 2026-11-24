@@ -296,7 +296,7 @@
   const undatedRows = $derived({
     placed: chart.placed,
     templates: board.board?.cardProperties ?? [],
-    visiblePropertyIds: view.fields.visiblePropertyIds,
+    shownProperties: view.fields.shownProperties,
     users: board.workspace.users,
     board,
     cardHref,

@@ -765,6 +765,25 @@ pub async fn migrate_to_before_container_visibility(database: &TestDatabase) {
     store.close().await;
 }
 
+/// Brings a test database to the schema as a server left it before native view
+/// `fields` keys (migration 71): every migration up to 70.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_native_view_field_keys(database: &TestDatabase) {
+    let store = Store::open(database.db_type(), database.database_connection())
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(
+        &store,
+        Some(crate::schema::BEFORE_NATIVE_VIEW_FIELD_KEYS_VERSION),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
+}
+
 /// Brings a test database to the schema as a server left it before the organization's
 /// management (migration 23): every migration before that one, and none of the changes
 /// of the data that follow the migrations.

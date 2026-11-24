@@ -45,11 +45,11 @@ function template(overrides: Record<string, unknown> = {}, key = 'table'): SeedT
         title: 'All',
         fields: {
           viewType: 'table',
-          visiblePropertyIds: ['status', 'note', 'hours', 'ready', 'made'],
-          visibleOptionIds: [],
-          hiddenOptionIds: [],
-          collapsedOptionIds: [],
-          sortOptions: [],
+          shownProperties: ['status', 'note', 'hours', 'ready', 'made'],
+          visibleGroups: [],
+          hiddenGroups: [],
+          collapsedGroups: [],
+          sort: [],
           cardOrder: ['c2', 'c1', 'c3'],
           columnWidths: {},
           columnCalculations: { hours: 'sum' },
@@ -180,7 +180,7 @@ describe('what the table draws', () => {
   });
 
   it('sorted rows when the view has a sort, and then no row can be dragged', async () => {
-    await mount(template({ sortOptions: [{ propertyId: '__title', reversed: true }] }));
+    await mount(template({ sort: [{ propertyId: '__title', reversed: true }] }));
     expect(titles()).toEqual(['Gamma', 'Beta', 'Alpha']);
     expect(grid().querySelectorAll('[data-nav-row][data-drag-item]')).toHaveLength(0);
     expect(within(grid()).getByRole('columnheader', { name: 'Name' })).toHaveAttribute(
@@ -314,9 +314,9 @@ describe('rows', () => {
 
 describe('groups', () => {
   const grouped = {
-    groupById: 'status',
-    visibleOptionIds: ['todo', 'done'],
-    hiddenOptionIds: [''],
+    groupBy: 'status',
+    visibleGroups: ['todo', 'done'],
+    hiddenGroups: [''],
   };
 
   it('are drawn in the order of the view, each with its cards and their number', async () => {
@@ -334,9 +334,7 @@ describe('groups', () => {
   });
 
   it('a hidden group is not drawn, and the calculation still counts its cards', async () => {
-    await mount(
-      template({ ...grouped, visibleOptionIds: ['todo'], hiddenOptionIds: ['done', ''] }),
-    );
+    await mount(template({ ...grouped, visibleGroups: ['todo'], hiddenGroups: ['done', ''] }));
     expect(titles()).toEqual(['Alpha', 'Gamma']);
     expect(
       grid().querySelector('[data-row="calculations"] [data-col="__title"]'),
@@ -349,7 +347,7 @@ describe('groups', () => {
     await waitFor(() => {
       expect(titles()).toEqual(['Beta']);
     });
-    expect(board.view(viewId)?.fields.collapsedOptionIds).toEqual(['todo']);
+    expect(board.view(viewId)?.fields.collapsedGroups).toEqual(['todo']);
     await fireEvent.click(within(grid()).getByRole('button', { name: 'Expand To do' }));
     await waitFor(() => {
       expect(titles()).toEqual(['Alpha', 'Gamma', 'Beta']);
@@ -357,7 +355,7 @@ describe('groups', () => {
   });
 
   it('"+" on one makes a card with its value, and unfolds it so that the card shows', async () => {
-    const { board } = await mount(template({ ...grouped, collapsedOptionIds: ['done'] }));
+    const { board } = await mount(template({ ...grouped, collapsedGroups: ['done'] }));
     expect(titles()).toEqual(['Alpha', 'Gamma']);
     await fireEvent.click(within(grid()).getByRole('button', { name: 'New card in Done' }));
     await waitFor(() => {
@@ -396,13 +394,13 @@ describe('a reader who may only look', () => {
 
   it('can fold a group for themselves: nothing is stored', async () => {
     const { board, viewId } = await mount(
-      viewOnly({ groupById: 'status', visibleOptionIds: ['todo', 'done'], hiddenOptionIds: [''] }),
+      viewOnly({ groupBy: 'status', visibleGroups: ['todo', 'done'], hiddenGroups: [''] }),
     );
     await fireEvent.click(within(grid()).getByRole('button', { name: 'Collapse To do' }));
     await waitFor(() => {
       expect(titles()).toEqual(['Beta']);
     });
-    expect(board.view(viewId)?.fields.collapsedOptionIds).toEqual([]);
+    expect(board.view(viewId)?.fields.collapsedGroups).toEqual([]);
   });
 });
 
@@ -440,7 +438,7 @@ describe('the keyboard', () => {
 
   it('keeps the column across a row that has one cell only', async () => {
     await mount(
-      template({ groupById: 'status', visibleOptionIds: ['todo', 'done'], hiddenOptionIds: [''] }),
+      template({ groupBy: 'status', visibleGroups: ['todo', 'done'], hiddenGroups: [''] }),
     );
     cellOf('Gamma', 'hours').focus();
     // Down: "+ New" of the first group, the heading of the second, then its first card.

@@ -679,7 +679,7 @@ describe('changing a view on the server', () => {
     const sent = serve([{ ...VIEW, fields: { viewType: 'calendar' } }], 201);
     const view = await serverBackend('').createView('b', {
       title: 'Calendar view',
-      fields: { viewType: 'calendar', dateDisplayPropertyId: 'due' } as never,
+      fields: { viewType: 'calendar', dateProperty: 'due' } as never,
     });
     expect(sent.map((one) => [one.method, one.url])).toEqual([
       ['POST', '/api/v1/w/w1/boards/b/blocks'],
@@ -689,7 +689,7 @@ describe('changing a view on the server', () => {
         containerId: 'b',
         type: 'view',
         title: 'Calendar view',
-        fields: { viewType: 'calendar', dateDisplayPropertyId: 'due' },
+        fields: { viewType: 'calendar', dateProperty: 'due' },
         createAt: 1,
         updateAt: 1,
       },

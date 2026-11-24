@@ -72,7 +72,7 @@ export function manualOrder(cardOrder: readonly string[], first: Card, second: C
 /** What sorting needs to know besides the cards. */
 export interface SortContext {
   templates: readonly PropertyTemplate[];
-  sortOptions: readonly SortOption[];
+  sort: readonly SortOption[];
   /** The manual order, used when there are no sort options. */
   cardOrder: readonly string[];
   /** The username of a user, for sorting by person. */
@@ -195,11 +195,11 @@ export function sortCards(cards: readonly Card[], context: SortContext): Card[] 
 
 /** The comparator `sortCards` sorts with. */
 export function cardComparator(context: SortContext): Comparator {
-  if (context.sortOptions.length < 1) return manualComparator(context.cardOrder);
+  if (context.sort.length < 1) return manualComparator(context.cardOrder);
 
   const collator = new Intl.Collator(context.locale);
   const byTitle = titleComparator(collator);
-  const comparators = context.sortOptions
+  const comparators = context.sort
     .map((option) => optionComparator(option, context, collator))
     .filter((comparator) => comparator !== undefined);
   return (first, second) => {

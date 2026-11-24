@@ -790,3 +790,112 @@ fn security_review_trello_amplification_and_data_uri_degradation() {
         "disallowed image scheme emits MarkdownDegraded, not ExternalImageLinked"
     );
 }
+
+#[test]
+fn trello_importer_emits_native_view_field_keys() {
+    let trello_json = serde_json::json!({
+        "name": "Sprint Board",
+        "lists": [{"id": "l1", "name": "Todo"}, {"id": "l2", "name": "Done"}],
+        "cards": [
+            {"id": "c1", "name": "Task 1", "idList": "l1", "due": "2026-06-01T00:00:00Z"}
+        ]
+    });
+    let trello_staged = super::trello::convert_trello_bytes(
+        trello_json.to_string().as_bytes(),
+        &BundleLimits::default(),
+    )
+    .expect("trello export converts");
+    let trello_views: Vec<&Block> = trello_staged.containers[0]
+        .blocks
+        .iter()
+        .filter(|block| block.block_type == BlockType::View)
+        .collect();
+    assert_eq!(trello_views.len(), 1, "one board view emitted for Trello");
+    assert_eq!(
+        trello_views[0].fields.len(),
+        13,
+        "exact native Trello view key set"
+    );
+    for key in [
+        "groupBy",
+        "visibleGroups",
+        "hiddenGroups",
+        "collapsedGroups",
+        "shownProperties",
+        "sort",
+        "groupCalculations",
+    ] {
+        assert!(
+            trello_views[0].fields.contains_key(key),
+            "Trello view fields must contain native key {key}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn notion_importer_emits_native_view_field_keys() {
+    let dir = TestDir::new();
+    let stored = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let notion_zip = dir.path().join("notion.zip");
+    write_zip_entries(
+        &notion_zip,
+        &[
+            (
+                "Sprint.csv",
+                b"Name,Status\nA,Todo\nB,Todo\nC,Done\n",
+                stored,
+            ),
+            (
+                "Notes.csv",
+                b"Name,Summary\nR1,First long sentence.\nR2,Second long sentence.\n",
+                stored,
+            ),
+        ],
+    );
+    let bundle = SafeBundle::open(&notion_zip, dir.path(), BundleLimits::default())
+        .await
+        .expect("open notion zip");
+    let notion_staged = super::notion::convert_notion_bundle(&bundle, &BundleLimits::default())
+        .await
+        .expect("notion bundle converts");
+    let notion_views: Vec<&Block> = notion_staged
+        .containers
+        .iter()
+        .flat_map(|c| c.blocks.iter())
+        .filter(|block| block.block_type == BlockType::View)
+        .collect();
+    assert_eq!(
+        notion_views.len(),
+        2,
+        "board + table views emitted across Notion CSVs"
+    );
+    assert!(
+        notion_views
+            .iter()
+            .any(|v| v.fields.contains_key("groupBy")),
+        "select CSV emits board view with groupBy"
+    );
+    for view in notion_views {
+        let expected_len = if view.title == "Board" { 13 } else { 12 };
+        assert_eq!(
+            view.fields.len(),
+            expected_len,
+            "exact native Notion {} view key set",
+            view.title
+        );
+        for key in [
+            "visibleGroups",
+            "hiddenGroups",
+            "collapsedGroups",
+            "shownProperties",
+            "sort",
+            "groupCalculations",
+        ] {
+            assert!(
+                view.fields.contains_key(key),
+                "Notion view {} must contain native key {key}",
+                view.title
+            );
+        }
+    }
+}

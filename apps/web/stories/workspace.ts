@@ -93,13 +93,13 @@ export function exampleWorkspace({
     title: 'Example view',
     fields: {
       viewType: kind,
-      dateDisplayPropertyId: 'due',
+      dateProperty: 'due',
       dependencyPropertyId: 'before',
       ganttZoom: 'day',
-      groupById: 'status',
-      visiblePropertyIds: ['status', 'due'],
-      visibleOptionIds: ['todo', 'done', ''],
-      hiddenOptionIds: [],
+      groupBy: 'status',
+      shownProperties: ['status', 'due'],
+      visibleGroups: ['todo', 'done', ''],
+      hiddenGroups: [],
       cardOrder: Array.from({ length: count }, (_, index) => `example-card-${index + 1}`),
     },
   });

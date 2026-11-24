@@ -74,11 +74,7 @@
     void board.setViewFields(
       view.id,
       {
-        visiblePropertyIds: withPropertyVisible(
-          view.fields.visiblePropertyIds,
-          propertyId,
-          visible,
-        ),
+        shownProperties: withPropertyVisible(view.fields.shownProperties, propertyId, visible),
       },
       'showProperty',
     );
@@ -98,7 +94,7 @@
           aria-label={name}
           data-property={toggle.id}
           bind:checked={
-            () => view.fields.visiblePropertyIds.includes(toggle.id),
+            () => view.fields.shownProperties.includes(toggle.id),
             (visible: boolean) => {
               show(toggle.id, visible);
             }

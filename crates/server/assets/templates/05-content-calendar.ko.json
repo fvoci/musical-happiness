@@ -124,7 +124,7 @@
           "cdfbd43f-f6bd-584f-9de6-ec50431728d1",
           "a4910976-1279-56ea-9dac-fcfaf45eeb72"
         ],
-        "collapsedOptionIds": [],
+        "collapsedGroups": [],
         "columnCalculations": {},
         "columnWidths": {},
         "defaultTemplateId": "",
@@ -132,16 +132,16 @@
           "operation": "and",
           "filters": []
         },
-        "hiddenOptionIds": [],
-        "kanbanCalculations": {},
-        "sortOptions": [],
+        "hiddenGroups": [],
+        "groupCalculations": {},
+        "sort": [],
         "viewType": "calendar",
-        "visibleOptionIds": [],
-        "visiblePropertyIds": [
+        "visibleGroups": [],
+        "shownProperties": [
           "__title",
           "95a734c3-abb2-5fdc-9b23-6dadf28dad22"
         ],
-        "dateDisplayPropertyId": "d4ab6f2d-8f17-5bef-a690-13b90b012af4"
+        "dateProperty": "d4ab6f2d-8f17-5bef-a690-13b90b012af4"
       }
     },
     {
@@ -156,7 +156,7 @@
           "cdfbd43f-f6bd-584f-9de6-ec50431728d1",
           "a4910976-1279-56ea-9dac-fcfaf45eeb72"
         ],
-        "collapsedOptionIds": [],
+        "collapsedGroups": [],
         "columnCalculations": {},
         "columnWidths": {},
         "defaultTemplateId": "",
@@ -164,12 +164,12 @@
           "operation": "and",
           "filters": []
         },
-        "hiddenOptionIds": [],
-        "kanbanCalculations": {},
-        "sortOptions": [],
+        "hiddenGroups": [],
+        "groupCalculations": {},
+        "sort": [],
         "viewType": "gallery",
-        "visibleOptionIds": [],
-        "visiblePropertyIds": [
+        "visibleGroups": [],
+        "shownProperties": [
           "__title",
           "70a23d2c-c625-5914-bf38-2b743dbe75d0",
           "8eceaf5c-f086-587b-9717-511c1a18e518"
@@ -188,7 +188,7 @@
           "cdfbd43f-f6bd-584f-9de6-ec50431728d1",
           "a4910976-1279-56ea-9dac-fcfaf45eeb72"
         ],
-        "collapsedOptionIds": [
+        "collapsedGroups": [
           "9fbe9f25-85b1-5b41-8ce0-0d26f659836d"
         ],
         "columnCalculations": {},
@@ -198,25 +198,25 @@
           "operation": "and",
           "filters": []
         },
-        "hiddenOptionIds": [
+        "hiddenGroups": [
           ""
         ],
-        "kanbanCalculations": {},
-        "sortOptions": [],
+        "groupCalculations": {},
+        "sort": [],
         "viewType": "board",
-        "visibleOptionIds": [
+        "visibleGroups": [
           "611cf64d-c9cd-516f-b30d-b7dde77c1e76",
           "522aec7a-93a0-5890-a880-05a834d0f399",
           "51117d36-696b-5660-b735-d12d330a65c2",
           "e10523e9-db55-5cbb-960b-d88cedfaf2d1",
           "9fbe9f25-85b1-5b41-8ce0-0d26f659836d"
         ],
-        "visiblePropertyIds": [
+        "shownProperties": [
           "95a734c3-abb2-5fdc-9b23-6dadf28dad22",
           "d4ab6f2d-8f17-5bef-a690-13b90b012af4",
           "3a05385e-e34e-5fe1-9e50-aa29005b432c"
         ],
-        "groupById": "70a23d2c-c625-5914-bf38-2b743dbe75d0"
+        "groupBy": "70a23d2c-c625-5914-bf38-2b743dbe75d0"
       }
     },
     {
@@ -231,7 +231,7 @@
           "cdfbd43f-f6bd-584f-9de6-ec50431728d1",
           "a4910976-1279-56ea-9dac-fcfaf45eeb72"
         ],
-        "collapsedOptionIds": [],
+        "collapsedGroups": [],
         "columnCalculations": {
           "__title": "count",
           "d4ab6f2d-8f17-5bef-a690-13b90b012af4": "dateRange",
@@ -243,17 +243,17 @@
           "operation": "and",
           "filters": []
         },
-        "hiddenOptionIds": [],
-        "kanbanCalculations": {},
-        "sortOptions": [
+        "hiddenGroups": [],
+        "groupCalculations": {},
+        "sort": [
           {
             "propertyId": "d4ab6f2d-8f17-5bef-a690-13b90b012af4",
             "reversed": false
           }
         ],
         "viewType": "table",
-        "visibleOptionIds": [],
-        "visiblePropertyIds": [
+        "visibleGroups": [],
+        "shownProperties": [
           "70a23d2c-c625-5914-bf38-2b743dbe75d0",
           "95a734c3-abb2-5fdc-9b23-6dadf28dad22",
           "8eceaf5c-f086-587b-9717-511c1a18e518",

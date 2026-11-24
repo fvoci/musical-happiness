@@ -126,10 +126,10 @@ describe('the columns of a view', () => {
 
   it('lose a hidden column, which is listed as hidden once', () => {
     expect(withColumnHidden(shown, [], 'doing')).toEqual({
-      visibleOptionIds: ['todo', 'done', ''],
-      hiddenOptionIds: ['doing'],
+      visibleGroups: ['todo', 'done', ''],
+      hiddenGroups: ['doing'],
     });
-    expect(withColumnHidden(shown, ['doing', 'old'], 'doing').hiddenOptionIds).toEqual([
+    expect(withColumnHidden(shown, ['doing', 'old'], 'doing').hiddenGroups).toEqual([
       'old',
       'doing',
     ]);
@@ -137,15 +137,15 @@ describe('the columns of a view', () => {
 
   it('can hide the column of cards without a value', () => {
     expect(withColumnHidden(shown, [], '')).toEqual({
-      visibleOptionIds: ['todo', 'doing', 'done'],
-      hiddenOptionIds: [''],
+      visibleGroups: ['todo', 'doing', 'done'],
+      hiddenGroups: [''],
     });
   });
 
   it('get a shown column back as the last one', () => {
     expect(withColumnShown(['todo', ''], ['doing', 'done'], 'doing')).toEqual({
-      visibleOptionIds: ['todo', '', 'doing'],
-      hiddenOptionIds: ['done'],
+      visibleGroups: ['todo', '', 'doing'],
+      hiddenGroups: ['done'],
     });
   });
 

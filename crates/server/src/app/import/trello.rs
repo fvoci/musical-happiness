@@ -109,13 +109,13 @@ pub(crate) fn convert_trello_bytes(
         .then(new_id);
 
     let mut card_properties = vec![status_prop.definition];
-    let mut visible_property_ids = Vec::new();
+    let mut shown_properties = Vec::new();
     if let Some((prop_id, definition)) = labels_prop {
-        visible_property_ids.push(prop_id);
+        shown_properties.push(prop_id);
         card_properties.push(definition);
     }
     if let Some(ref due_id) = due_prop_id {
-        visible_property_ids.push(due_id.clone());
+        shown_properties.push(due_id.clone());
         card_properties.push(date_property_definition(due_id, "Due"));
     }
 
@@ -146,7 +146,7 @@ pub(crate) fn convert_trello_bytes(
         &board_id,
         &status_prop.id,
         &status_prop.option_ids,
-        &visible_property_ids,
+        &shown_properties,
         &built_cards.order,
     );
 
@@ -810,23 +810,23 @@ fn build_comments(
 fn build_board_view(
     board_id: &str,
     status_prop_id: &str,
-    visible_option_ids: &[String],
-    visible_property_ids: &[String],
+    visible_groups: &[String],
+    shown_properties: &[String],
     card_order: &[String],
 ) -> Block {
     let fields = json_object(json!({
         "viewType": "board",
-        "groupById": status_prop_id,
-        "visibleOptionIds": visible_option_ids,
-        "hiddenOptionIds": [],
-        "collapsedOptionIds": [],
-        "visiblePropertyIds": visible_property_ids,
+        "groupBy": status_prop_id,
+        "visibleGroups": visible_groups,
+        "hiddenGroups": [],
+        "collapsedGroups": [],
+        "shownProperties": shown_properties,
         "cardOrder": card_order,
-        "sortOptions": [],
+        "sort": [],
         "filter": {"operation": "and", "filters": []},
         "columnWidths": {},
         "columnCalculations": {},
-        "kanbanCalculations": {},
+        "groupCalculations": {},
         "defaultTemplateId": "",
     }));
     Block {

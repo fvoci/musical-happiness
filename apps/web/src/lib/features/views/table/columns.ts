@@ -1,7 +1,7 @@
 /**
  * The columns of a table view: which properties, in what order, how wide.
  *
- * A view names its columns in `visiblePropertyIds` and their widths in
+ * A view names its columns in `shownProperties` and their widths in
  * `columnWidths`; the title column is always first and has the identifier
  * `TITLE_COLUMN_ID` there. Everything here is arithmetic on those two
  * members. The numbers a person might want different are in
@@ -73,7 +73,7 @@ export function tableColumns(
 ): TableColumn[] {
   const seen = new Set<string>();
   const columns: TableColumn[] = [];
-  for (const id of view.fields.visiblePropertyIds) {
+  for (const id of view.fields.shownProperties) {
     if (seen.has(id)) continue;
     seen.add(id);
     const template = templates.find((candidate) => candidate.id === id);
@@ -97,7 +97,7 @@ export function gridTemplate(widths: readonly number[]): string {
   return ['min(var(--table-title), 50cqw)', ...tracks, 'minmax(0, 1fr)'].join(' ');
 }
 
-/** `visiblePropertyIds` with the shown columns in a new order. Identifiers without a column keep the end. */
+/** `shownProperties` with the shown columns in a new order. Identifiers without a column keep the end. */
 export function reorderedIds(
   visibleIds: readonly string[],
   shownOrder: readonly string[],
@@ -107,7 +107,7 @@ export function reorderedIds(
 }
 
 /**
- * `visiblePropertyIds` with one column moved a step to the left (-1) or to
+ * `shownProperties` with one column moved a step to the left (-1) or to
  * the right (1) among the shown ones. Undefined when it is at that end.
  */
 export function steppedIds(
@@ -127,10 +127,10 @@ export function steppedIds(
 
 /** How the view is sorted by a column, when that column is its first sort. */
 export function sortDirection(
-  sortOptions: readonly SortOption[],
+  sort: readonly SortOption[],
   id: string,
 ): 'ascending' | 'descending' | undefined {
-  const first = sortOptions[0];
+  const first = sort[0];
   if (first?.propertyId !== id) return undefined;
   return first.reversed ? 'descending' : 'ascending';
 }

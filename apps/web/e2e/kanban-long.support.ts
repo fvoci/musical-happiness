@@ -115,21 +115,21 @@ export async function makeLongColumn(
         title: viewTitle,
         fields: {
           viewType: 'board',
-          groupById: status.id,
-          sortOptions: [],
-          visiblePropertyIds: [phase.id, status.id, owner.id, period.id],
-          visibleOptionIds: [
+          groupBy: status.id,
+          sort: [],
+          shownProperties: [phase.id, status.id, owner.id, period.id],
+          visibleGroups: [
             columnId,
             ...status.options.map((option) => option.id).filter((id) => id !== columnId),
           ],
           // The column of cards without a status is hidden: the long one is the first.
-          hiddenOptionIds: [''],
-          collapsedOptionIds: [],
+          hiddenGroups: [''],
+          collapsedGroups: [],
           filter: { operation: 'and', filters: [] },
           cardOrder: [],
           columnWidths: {},
           columnCalculations: {},
-          kanbanCalculations: {},
+          groupCalculations: {},
           defaultTemplateId: '',
         },
       });

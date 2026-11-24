@@ -103,11 +103,11 @@
   const dependencies = $derived(dependenciesOffered(view.fields.viewType));
   const dependsOnName = $derived(dependenciesName(view, templates, m.viewheader_group_none()));
   const filterCount = $derived(conditionCount(view.fields.filter));
-  const sortCount = $derived(view.fields.sortOptions.length);
+  const sortCount = $derived(view.fields.sort.length);
   /** The properties the cards show, of those the panel can switch. */
   const shownCount = $derived(
     propertyToggles(templates, view.fields.viewType).filter((toggle) =>
-      view.fields.visiblePropertyIds.includes(toggle.id),
+      view.fields.shownProperties.includes(toggle.id),
     ).length,
   );
 
@@ -150,7 +150,7 @@
   // ---------------------------------------------------------- grouping
 
   function groupBy(template: PropertyTemplate | undefined): void {
-    if ((template?.id ?? '') === (view.fields.groupById ?? '')) return;
+    if ((template?.id ?? '') === (view.fields.groupBy ?? '')) return;
     // One change, so that one undo brings back the grouping and its columns.
     void board.setViewFields(view.id, groupingFields(template), 'groupBy');
   }
@@ -184,7 +184,7 @@
   /** The lines of a list of choices: choosing one that changes the view writes it. */
   function choiceActions(
     choices: readonly DisplayByChoice[],
-    member: 'dateDisplayPropertyId' | 'dependencyPropertyId',
+    member: 'dateProperty' | 'dependencyPropertyId',
   ): MenuAction[] {
     return choices.map(({ write, ...line }) => ({
       ...line,
@@ -196,7 +196,7 @@
     }));
   }
   const displayActions = $derived(
-    choiceActions(displayByChoices(view, templates, placedByName), 'dateDisplayPropertyId'),
+    choiceActions(displayByChoices(view, templates, placedByName), 'dateProperty'),
   );
   const dependenciesActions = $derived(
     choiceActions(

@@ -284,21 +284,21 @@ export const TITLE_COLUMN_ID = '__title';
 
 export type SortOption = { propertyId: string; reversed: boolean };
 
-export type KanbanCalculation = { calculation: string; propertyId: string };
+export type GroupCalculation = { calculation: string; propertyId: string };
 
 /** A view's members; those it has only where given a value are declared in view-members.ts. */
 export type BoardViewFields = {
   viewType: ViewType;
-  sortOptions: SortOption[];
-  visiblePropertyIds: string[];
-  visibleOptionIds: string[];
-  hiddenOptionIds: string[];
-  collapsedOptionIds: string[];
+  sort: SortOption[];
+  shownProperties: string[];
+  visibleGroups: string[];
+  hiddenGroups: string[];
+  collapsedGroups: string[];
   filter: FilterGroup;
   cardOrder: string[];
   columnWidths: Record<string, number>;
   columnCalculations: Record<string, string>;
-  kanbanCalculations: Record<string, KanbanCalculation>;
+  groupCalculations: Record<string, GroupCalculation>;
   defaultTemplateId: string;
 } & OptionalViewFields;
 
@@ -315,16 +315,16 @@ export function createBoardView(source?: Block): BoardView {
     fields: {
       viewType: fields.viewType || 'board',
       ...optionalViewFields(fields),
-      sortOptions: (fields.sortOptions ?? []).map((option) => ({ ...option })),
-      visiblePropertyIds: copyList(fields.visiblePropertyIds),
-      visibleOptionIds: copyList(fields.visibleOptionIds),
-      hiddenOptionIds: copyList(fields.hiddenOptionIds),
-      collapsedOptionIds: copyList(fields.collapsedOptionIds),
+      sort: (fields.sort ?? []).map((option) => ({ ...option })),
+      shownProperties: copyList(fields.shownProperties),
+      visibleGroups: copyList(fields.visibleGroups),
+      hiddenGroups: copyList(fields.hiddenGroups),
+      collapsedGroups: copyList(fields.collapsedGroups),
       filter: createFilterGroup(fields.filter),
       cardOrder: copyList(fields.cardOrder),
       columnWidths: { ...fields.columnWidths },
       columnCalculations: { ...fields.columnCalculations },
-      kanbanCalculations: { ...fields.kanbanCalculations },
+      groupCalculations: { ...fields.groupCalculations },
       defaultTemplateId: fields.defaultTemplateId || '',
     },
   };
@@ -334,11 +334,11 @@ export function createBoardView(source?: Block): BoardView {
 export interface ViewQuery {
   viewType: ViewType;
   filter: FilterGroup;
-  sortOptions: readonly SortOption[];
+  sort: readonly SortOption[];
   /** The order the cards were dragged into; used when there is no sort option. */
   cardOrder: readonly string[];
-  visiblePropertyIds: readonly string[];
-  dateDisplayPropertyId: string | undefined;
+  shownProperties: readonly string[];
+  dateProperty: string | undefined;
 }
 
 export function viewQuery(view: BoardView): ViewQuery {
@@ -346,28 +346,28 @@ export function viewQuery(view: BoardView): ViewQuery {
   return {
     viewType: fields.viewType,
     filter: fields.filter,
-    sortOptions: fields.sortOptions,
+    sort: fields.sort,
     cardOrder: fields.cardOrder,
-    visiblePropertyIds: fields.visiblePropertyIds,
-    dateDisplayPropertyId: fields.dateDisplayPropertyId,
+    shownProperties: fields.shownProperties,
+    dateProperty: fields.dateProperty,
   };
 }
 
 /** What a view says about its columns: which property groups them and which groups show. */
 export interface ViewGrouping {
-  groupById: string | undefined;
-  visibleOptionIds: readonly string[];
-  hiddenOptionIds: readonly string[];
-  collapsedOptionIds: readonly string[];
+  groupBy: string | undefined;
+  visibleGroups: readonly string[];
+  hiddenGroups: readonly string[];
+  collapsedGroups: readonly string[];
 }
 
 export function viewGrouping(view: BoardView): ViewGrouping {
   const { fields } = view;
   return {
-    groupById: fields.groupById,
-    visibleOptionIds: fields.visibleOptionIds,
-    hiddenOptionIds: fields.hiddenOptionIds,
-    collapsedOptionIds: fields.collapsedOptionIds,
+    groupBy: fields.groupBy,
+    visibleGroups: fields.visibleGroups,
+    hiddenGroups: fields.hiddenGroups,
+    collapsedGroups: fields.collapsedGroups,
   };
 }
 

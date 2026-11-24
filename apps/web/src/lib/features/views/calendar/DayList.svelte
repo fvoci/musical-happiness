@@ -30,7 +30,7 @@
     placed: Placed;
     today: CalendarDate;
     templates: readonly PropertyTemplate[];
-    visiblePropertyIds: readonly string[];
+    shownProperties: readonly string[];
     users: readonly PropertyUser[];
     cardHref: (cardId: string) => string;
     onOpenCard: (cardId: string) => void;
@@ -53,7 +53,7 @@
     placed,
     today,
     templates,
-    visiblePropertyIds,
+    shownProperties,
     users,
     cardHref,
     onOpenCard,
@@ -69,7 +69,7 @@
   const rows = $derived({
     placed,
     templates,
-    visiblePropertyIds,
+    shownProperties,
     users,
     cardHref,
     onOpenCard,

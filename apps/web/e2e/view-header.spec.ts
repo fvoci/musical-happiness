@@ -26,11 +26,11 @@ interface StoredView {
   title: string;
   fields: {
     viewType: string;
-    groupById?: string;
-    visiblePropertyIds: string[];
-    visibleOptionIds: string[];
-    hiddenOptionIds: string[];
-    sortOptions: { propertyId: string; reversed: boolean }[];
+    groupBy?: string;
+    shownProperties: string[];
+    visibleGroups: string[];
+    hiddenGroups: string[];
+    sort: { propertyId: string; reversed: boolean }[];
     filter: { operation: string; filters: unknown[] };
     columnWidths: Record<string, number>;
     /** Its place among the board's views, once one of them was moved. */
@@ -442,7 +442,7 @@ test.describe('in Korean', () => {
         .filter((property) => property.type !== 'relation')
         .map((property) => property.id),
     );
-    const shownCount = (await storedView(page)).fields.visiblePropertyIds.filter((id) =>
+    const shownCount = (await storedView(page)).fields.shownProperties.filter((id) =>
       known.has(id),
     ).length;
     expect(shownCount).toBeGreaterThan(0);
@@ -515,7 +515,7 @@ test.describe('views', () => {
     await expect.poll(async () => (await storedView(page)).title).toBe('Table view');
     const added = await storedView(page);
     expect(added.fields.viewType).toBe('table');
-    expect(added.fields.visiblePropertyIds).toEqual(everyProperty);
+    expect(added.fields.shownProperties).toEqual(everyProperty);
     // No width is stored for the title column: the table gives it one by its room.
     expect(added.fields.columnWidths).toEqual({});
 
@@ -541,7 +541,7 @@ test.describe('views', () => {
     await viewCommand(page, 'duplicate');
     await expect(page).not.toHaveURL(original);
     await expect.poll(async () => (await storedView(page)).title).toBe('Mine copy');
-    expect((await storedView(page)).fields.visiblePropertyIds).toEqual(everyProperty);
+    expect((await storedView(page)).fields.shownProperties).toEqual(everyProperty);
 
     // Deleted, after asking: another view of the board is shown.
     const copy = page.url();
@@ -825,7 +825,7 @@ test.describe('what a view shows', () => {
     await open(page);
     await showView(page, 'Status board');
     const phase = (await properties(page)).Phase?.id ?? '';
-    expect((await storedView(page)).fields.visiblePropertyIds).not.toContain(phase);
+    expect((await storedView(page)).fields.shownProperties).not.toContain(phase);
 
     await openTool(page, 'properties');
     const panel = page.getByTestId('properties-panel');
@@ -844,9 +844,7 @@ test.describe('what a view shows', () => {
 
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
-    await expect
-      .poll(async () => (await storedView(page)).fields.visiblePropertyIds)
-      .toContain(phase);
+    await expect.poll(async () => (await storedView(page)).fields.shownProperties).toContain(phase);
     // The list stays open for the next one.
     await owner.click();
     await expect(owner).toHaveAttribute('aria-checked', 'false');
@@ -857,7 +855,7 @@ test.describe('what a view shows', () => {
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
     await undo(page);
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
-    expect((await storedView(page)).fields.visiblePropertyIds).not.toContain(phase);
+    expect((await storedView(page)).fields.shownProperties).not.toContain(phase);
   });
 
   test('grouping by another property starts its columns over, and one undo takes it back', async ({
@@ -867,12 +865,12 @@ test.describe('what a view shows', () => {
     await showView(page, 'Status board');
     const all = await properties(page);
     const before = await storedView(page);
-    expect(before.fields.groupById).toBe(all.Status?.id);
+    expect(before.fields.groupBy).toBe(all.Status?.id);
     // Hide a column, so that there is something for the change to clear.
     const firstStatus = Object.values(all.Status?.options ?? {})[0] ?? '';
     await patchView(page, {
-      visibleOptionIds: before.fields.visibleOptionIds.filter((id) => id !== firstStatus),
-      hiddenOptionIds: [firstStatus],
+      visibleGroups: before.fields.visibleGroups.filter((id) => id !== firstStatus),
+      hiddenGroups: [firstStatus],
     });
     const hidden = await storedView(page);
 
@@ -885,35 +883,35 @@ test.describe('what a view shows', () => {
     // Picking one closes the list.
     await expect(choices).toHaveCount(0);
 
-    await expect.poll(async () => (await storedView(page)).fields.groupById).toBe(all.Phase?.id);
+    await expect.poll(async () => (await storedView(page)).fields.groupBy).toBe(all.Phase?.id);
     const after = await storedView(page);
-    expect(after.fields.visibleOptionIds).toEqual(['', ...Object.values(all.Phase?.options ?? {})]);
-    expect(after.fields.hiddenOptionIds).toEqual([]);
+    expect(after.fields.visibleGroups).toEqual(['', ...Object.values(all.Phase?.options ?? {})]);
+    expect(after.fields.hiddenGroups).toEqual([]);
     if ((await layout(page)) === 'row') {
       await expect(tool(page, 'group')).toHaveAccessibleName(/Group by: Phase/);
     }
 
     await undo(page);
-    await expect.poll(async () => (await storedView(page)).fields.groupById).toBe(all.Status?.id);
+    await expect.poll(async () => (await storedView(page)).fields.groupBy).toBe(all.Status?.id);
     const undone = await storedView(page);
-    expect(undone.fields.visibleOptionIds).toEqual(hidden.fields.visibleOptionIds);
-    expect(undone.fields.hiddenOptionIds).toEqual([firstStatus]);
+    expect(undone.fields.visibleGroups).toEqual(hidden.fields.visibleGroups);
+    expect(undone.fields.hiddenGroups).toEqual([firstStatus]);
   });
 
   test('a table can be grouped by nothing', async ({ page }) => {
     await open(page);
     await showView(page, 'Task table');
     const all = await properties(page);
-    expect((await storedView(page)).fields.groupById ?? '').toBe('');
+    expect((await storedView(page)).fields.groupBy ?? '').toBe('');
 
     await openTool(page, 'group');
     await page.getByRole('menuitem', { name: 'Status', exact: true }).click();
-    await expect.poll(async () => (await storedView(page)).fields.groupById).toBe(all.Status?.id);
+    await expect.poll(async () => (await storedView(page)).fields.groupBy).toBe(all.Status?.id);
 
     await openTool(page, 'group');
     await page.getByRole('menuitem', { name: 'Ungroup', exact: true }).click();
-    await expect.poll(async () => (await storedView(page)).fields.groupById).toBe('');
-    expect((await storedView(page)).fields.visibleOptionIds).toEqual([]);
+    await expect.poll(async () => (await storedView(page)).fields.groupBy).toBe('');
+    expect((await storedView(page)).fields.visibleGroups).toEqual([]);
   });
 });
 
@@ -1098,8 +1096,8 @@ test.describe('sort', () => {
   test('several sorts apply in their order, each in its direction', async ({ page }) => {
     await open(page);
     await showView(page, 'Task table');
-    await patchView(page, { sortOptions: [] });
-    await expect.poll(async () => (await storedView(page)).fields.sortOptions).toEqual([]);
+    await patchView(page, { sort: [] });
+    await expect.poll(async () => (await storedView(page)).fields.sort).toEqual([]);
     await expect(cards(page)).toHaveCount(6);
     const all = await properties(page);
 
@@ -1122,7 +1120,7 @@ test.describe('sort', () => {
     // A second sort only orders what the first leaves equal: here nothing.
     await addSort(page, 'Phase');
     await expect.poll(() => titles(page)).toEqual([...ALL].sort().reverse().map(containing));
-    expect((await storedView(page)).fields.sortOptions).toEqual([
+    expect((await storedView(page)).fields.sort).toEqual([
       { propertyId: '__title', reversed: true },
       { propertyId: all.Phase?.id, reversed: false },
     ]);
@@ -1531,7 +1529,7 @@ test.describe('pictures', () => {
     sort: async (page) => {
       const all = await properties(page);
       await patchView(page, {
-        sortOptions: [
+        sort: [
           { propertyId: all.Phase?.id, reversed: false },
           { propertyId: '__title', reversed: true },
         ],

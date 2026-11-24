@@ -389,7 +389,7 @@ test('nothing is dragged by a reader, nor where the bars are placed by when card
         }
         const id =
           wanted ?? board.board.cardProperties.find((each) => each.name === 'Day')?.id ?? '';
-        await board.setViewFields(viewId, { dateDisplayPropertyId: id });
+        await board.setViewFields(viewId, { dateProperty: id });
       },
       [propertyId, viewIdOf(page.url())] as const,
     );

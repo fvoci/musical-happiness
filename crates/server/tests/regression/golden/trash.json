@@ -681,7 +681,7 @@
         "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": true,
-        "templateVersion": 10,
+        "templateVersion": 11,
         "title": "Getting started with fvoci",
         "updateAt": "<ts>",
         "visibility": "private",

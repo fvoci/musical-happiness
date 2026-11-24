@@ -98,12 +98,12 @@ export function weeksOfMonth(month: Month, weekStart: Weekday): CalendarDate[][]
  * placed by when they were made (question C15 of docs/calendar-proposal.md).
  */
 export function displayProperty(
-  dateDisplayPropertyId: string | undefined,
+  dateProperty: string | undefined,
   templates: readonly PropertyTemplate[],
 ): PropertyTemplate | undefined {
   const dated = (template: PropertyTemplate): boolean =>
     propertyBehavior(template.type).days !== undefined;
-  const named = templates.find((template) => template.id === dateDisplayPropertyId);
+  const named = templates.find((template) => template.id === dateProperty);
   if (named && dated(named)) return named;
   return templates.find((template) => template.type === 'date') ?? templates.find(dated);
 }

@@ -32,7 +32,7 @@
     /** The day the line is listed under; none among the cards without a date. */
     date?: CalendarDate;
     templates: readonly PropertyTemplate[];
-    visiblePropertyIds: readonly string[];
+    shownProperties: readonly string[];
     users: readonly PropertyUser[];
     cardHref: (cardId: string) => string;
     onOpenCard: (cardId: string) => void;
@@ -50,7 +50,7 @@
     placed,
     date,
     templates,
-    visiblePropertyIds,
+    shownProperties,
     users,
     cardHref,
     onOpenCard,
@@ -72,7 +72,7 @@
         })
       : undefined,
   );
-  const shown = $derived(faceProperties(card, templates, visiblePropertyIds));
+  const shown = $derived(faceProperties(card, templates, shownProperties));
 
   /** The line itself, for the picker to hang by. Not reactive. */
   let line: HTMLElement | undefined;

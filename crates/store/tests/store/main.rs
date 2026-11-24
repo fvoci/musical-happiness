@@ -90,6 +90,7 @@ mod unit_reviews;
 mod user_row_deletion;
 mod users;
 mod users_at_once;
+mod view_field_keys_migration;
 mod welcome;
 mod workspace_membership;
 mod workspace_names;

@@ -24,7 +24,7 @@ use super::loose_objects::Written;
 use crate::error::AppError;
 
 /// The current version of the built-in templates. Raising it stores them again.
-const DEFAULT_TEMPLATE_VERSION: i64 = 10;
+const DEFAULT_TEMPLATE_VERSION: i64 = 11;
 
 /// The longest the storing of one file of the templates may take. The files are a few
 /// kilobytes each, and a server does not serve, nor a request for a first board that
