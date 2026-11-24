@@ -54,6 +54,7 @@
   import CategoryNameDialog from './CategoryNameDialog.svelte';
   import PeopleDialog from './PeopleDialog.svelte';
   import SidebarList from './SidebarList.svelte';
+  import SidebarNavButton from './SidebarNavButton.svelte';
   import TrashDialog from './TrashDialog.svelte';
   import WorkspaceSwitcher from './WorkspaceSwitcher.svelte';
 
@@ -64,6 +65,7 @@
     meTime?: boolean;
     timeHref?: string | undefined;
     onOpenTime?: (() => void) | undefined;
+    reviewsToday?: { active: boolean; onOpen: () => void } | undefined;
     learningToday?: { active: boolean; onOpen: () => void } | undefined;
     containerHref: (container: ContainerPlace) => string;
     /** The sidebar is a column beside the board: its button folds it. Otherwise it closes the drawer. */
@@ -86,6 +88,7 @@
     meTime = false,
     timeHref,
     onOpenTime,
+    reviewsToday,
     learningToday,
     containerHref,
     beside,
@@ -379,31 +382,32 @@
       <span class="min-w-0 flex-1 truncate">{m.people_title()}</span>
     </button>
   {/if}
+  {#if reviewsToday && workspace.backend.course && workspace.info && workspace.me?.id}
+    <SidebarNavButton
+      testId="open-today-reviews"
+      active={reviewsToday.active}
+      label={m.today_reviews_title()}
+      onclick={reviewsToday.onOpen}
+      icon={CalendarCheckIcon}
+    />
+  {/if}
   {#if learningToday && workspace.info}
-    <button
-      type="button"
-      data-testid="open-learning-today"
-      aria-current={learningToday.active ? 'page' : undefined}
-      class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium roomy:min-h-touch"
+    <SidebarNavButton
+      testId="open-learning-today"
+      active={learningToday.active}
+      label={m.learning_today_title()}
       onclick={learningToday.onOpen}
-    >
-      <CalendarCheckIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
-      <span class="min-w-0 flex-1 truncate">{m.learning_today_title()}</span>
-    </button>
+      icon={CalendarCheckIcon}
+    />
   {/if}
   {#if timeHref && workspace.me?.id}
-    <button
-      type="button"
-      data-testid="open-my-time"
-      aria-current={meTime ? 'page' : undefined}
-      class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium roomy:min-h-touch"
-      onclick={() => {
-        onOpenTime?.();
-      }}
-    >
-      <ClockIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
-      <span class="min-w-0 flex-1 truncate">{m.time_title()}</span>
-    </button>
+    <SidebarNavButton
+      testId="open-my-time"
+      active={meTime}
+      label={m.time_title()}
+      onclick={() => onOpenTime?.()}
+      icon={ClockIcon}
+    />
   {/if}
   {#if orgHref && !ownSpace}
     <a

@@ -66,6 +66,8 @@
     containerId: string | undefined;
     /** Whether the personal "My time" screen is shown. */
     meTime?: boolean;
+    /** Whether the workspace "Today's reviews" screen is shown. */
+    reviewsToday?: boolean;
     /** Whether the workspace "Today's learning" screen is shown. */
     learningToday?: boolean;
     /** The address of a board's or a wiki's public link with its read token. */
@@ -83,6 +85,7 @@
     workspace,
     containerId,
     meTime = false,
+    reviewsToday = false,
     learningToday = false,
     sharedHref,
     menuButton,
@@ -223,6 +226,16 @@
         data-testid="top-bar-time-title"
       >
         {m.time_title()}
+      </h1>
+    </div>
+  {:else if reviewsToday}
+    <div class="flex min-w-0 shrink items-center gap-2 pl-1">
+      <CalendarCheckIcon class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <h1
+        class="min-w-0 truncate text-base font-semibold @columns/pane:text-lg"
+        data-testid="top-bar-reviews-title"
+      >
+        {m.today_reviews_title()}
       </h1>
     </div>
   {:else if learningToday}

@@ -256,6 +256,10 @@
   const openTime = (): void => {
     router.go({ meTime: true });
   };
+  const openReviewsToday = (): void => {
+    const workspaceId = workspace?.info?.id ?? router.route.workspaceId;
+    if (workspaceId) router.go({ workspaceId, reviewsToday: true });
+  };
   const openLearningToday = (): void => {
     const workspaceId = workspace?.info?.id ?? router.route.workspaceId;
     if (workspaceId) router.go({ workspaceId, learningToday: true });
@@ -420,6 +424,9 @@
     meTime={router.route.meTime === true}
     timeHref={workspace.backend.time ? router.href({ meTime: true }) : undefined}
     onOpenTime={openTime}
+    reviewsToday={workspace.backend.course
+      ? { active: router.route.reviewsToday === true, onOpen: openReviewsToday }
+      : undefined}
     learningToday={workspace.backend.course
       ? { active: router.route.learningToday === true, onOpen: openLearningToday }
       : undefined}

@@ -23,7 +23,7 @@ import { reads } from './container-access.ts';
 import type { KeptOfCard } from './body-versions.ts';
 import type { StoredNotification } from './notifications.ts';
 import type { ContainerPlace } from './trash.ts';
-import type { CourseSchedule, UnitProgress } from '../course-types.ts';
+import type { CourseSchedule, UnitNote, UnitProgress, UnitReview } from '../course-types.ts';
 import type { TimeEntry } from '../time-types.ts';
 
 /** A view, card, comment or attachment as the world stores it. */
@@ -149,6 +149,10 @@ export class World {
   readonly unitWatchers = new Map<string, Map<string, boolean>>();
   /** Personal unit progress rows per user (`userId -> Map<unitId, UnitProgress>`). */
   readonly unitProgress = new Map<string, Map<string, UnitProgress>>();
+  /** Personal spaced-repetition unit reviews per user (`unit-reviews.ts`). */
+  readonly unitReviews = new Map<string, UnitReview[]>();
+  /** Personal study notes per user (`unit-reviews.ts`). */
+  readonly unitNotes = new Map<string, UnitNote[]>();
   /** Saved shared course schedules keyed by `courseId` (survive course soft-delete/restore). */
   readonly courseSchedules = new Map<string, CourseSchedule>();
   /** Personal time entries, by user (`time.ts`). */

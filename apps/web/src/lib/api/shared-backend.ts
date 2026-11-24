@@ -46,6 +46,7 @@ import {
 } from './convert.ts';
 import { unitDetailOf, unitOf } from './courses.ts';
 import { Http, type ApiPath } from './http.ts';
+import { SHARED_UNIT_REVIEWS } from './unit-reviews.ts';
 import { pageDetailOf, pageOf } from './wikis.ts';
 
 /** The place the shared board is shown in: no workspace of anybody's. */
@@ -180,6 +181,7 @@ export class SharedBackend implements Backend {
     myProgress: nothing,
     putUnitProgress: refused,
     progressSummary: () => Promise.resolve({ totalUnits: 0, members: [] }),
+    reviews: SHARED_UNIT_REVIEWS,
     schedule: () =>
       Promise.resolve({
         schedule: null,

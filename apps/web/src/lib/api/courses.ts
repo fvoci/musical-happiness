@@ -56,6 +56,7 @@ import {
   getMyCourseProgress,
   putUnitProgress as sendUnitProgress,
 } from './unit-progress.ts';
+import { ServerUnitReviews } from './unit-reviews.ts';
 import type { WikiRequest } from './wikis.ts';
 
 /** A unit or chapter as the outline lists it; `courseId` is the course it was read from. */
@@ -154,11 +155,13 @@ export class ServerCourses implements Courses {
   readonly #learn: (courses: readonly Schemas['Container'][]) => void;
 
   readonly bodyVersions: ServerUnitVersions;
+  readonly reviews: ServerUnitReviews;
 
   constructor(request: WikiRequest, learn: (courses: readonly Schemas['Container'][]) => void) {
     this.#request = request;
     this.#learn = learn;
     this.bodyVersions = new ServerUnitVersions(request);
+    this.reviews = new ServerUnitReviews(request);
   }
 
   async courses(workspaceId: string): Promise<Container[]> {
