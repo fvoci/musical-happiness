@@ -24,7 +24,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const INDEX_TIMEOUT: Duration = Duration::from_secs(30);
 /// About the most one request that writes documents carries: both search servers
 /// take 100 MB by default.
-const MOST_WRITTEN: usize = 8 * 1024 * 1024;
+const MOST_WRITTEN: usize = 16 * 1024 * 1024;
 /// The most of an answer that is read. An answer to a search holds as many pieces of
 /// text as it was asked for, each about a line long.
 const MOST_BODY: usize = 8 * 1024 * 1024;

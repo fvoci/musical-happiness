@@ -34,7 +34,7 @@ pub struct CollabSettings {
     /// more of their states, together, than its memory has room for
     /// ([`CollabSettings::held_bytes`]).
     pub collab_documents_per_worker: u32,
-    /// The largest document, in bytes of its stored state. 8 MiB to 1 GiB.
+    /// The largest document, in bytes of its stored state. 16 MiB to 1 GiB.
     pub collab_state_bytes: u64,
     /// The largest update a client sends, in bytes. At least 1, at most
     /// `collab_state_bytes`.
@@ -43,7 +43,7 @@ pub struct CollabSettings {
     /// kills the worker and starts another. At least 1.
     pub collab_worker_timeout_ms: u64,
     /// The address space a worker may take, in bytes, where the system limits it
-    /// (Unix). At least 512 MiB, and room for a document of `collab_state_bytes`
+    /// (Unix). At least 1 GiB, and room for a document of `collab_state_bytes`
     /// ([`CollabSettings::held_bytes`]).
     pub collab_worker_memory_bytes: u64,
     /// How often, in seconds, the server asks again whether each connection in the
@@ -78,13 +78,12 @@ pub struct CollabSettings {
     pub worker_command: Option<crate::collab::worker::WorkerCommand>,
 }
 
-/// The default of `collab_state_bytes`: 8 MiB. The largest document of a body is 7.4 MB
-/// (letters of five marks in turn with letters of none): 88% of this, which it starts
-/// at and is not made again for until it grew by a quarter. Of 4 MiB of text it is 4.2
-/// MB, of 50,000 nodes 1.3 MB. Others are made again from their body at three quarters
-/// of this. It is no larger because a worker pays for a state of
-/// many small changes in memory far more than for its bytes ([`MEMORY_PER_STATE_BYTE`]).
-pub(super) const DEFAULT_STATE_BYTES: u64 = 8 * 1024 * 1024;
+/// The default of `collab_state_bytes`: 16 MiB. Fits the largest document of an
+/// 8 MiB / 100,000-node body (including marked documents up to 786,432 total changes)
+/// with room for edits and deletions before remaking at three quarters of this limit.
+/// It is no larger because a worker pays for a state of many small changes in memory
+/// far more than for its bytes ([`MEMORY_PER_STATE_BYTE`]).
+pub(super) const DEFAULT_STATE_BYTES: u64 = 16 * 1024 * 1024;
 
 /// The default of `collab_update_bytes`: 64 KiB. What an update of this size may be
 /// made to cost a worker is held by the steps its changes take to place: changes
@@ -94,17 +93,18 @@ pub(super) const DEFAULT_UPDATE_BYTES: u64 = 64 * 1024;
 /// The most workers.
 pub(super) const MOST_WORKERS: u32 = 64;
 
-/// The least `collab_state_bytes`: a body may be 4 MiB of JSON, its document is
-/// larger than that, and it grows by what is deleted from it until it is made again.
-pub(super) const LEAST_STATE_BYTES: u64 = 8 * 1024 * 1024;
+/// The least `collab_state_bytes`: a body may be 8 MiB of JSON (100,000 nodes), its
+/// document is larger than that, and it grows by what is deleted from it until it is
+/// made again.
+pub(super) const LEAST_STATE_BYTES: u64 = 16 * 1024 * 1024;
 
 /// The most `collab_state_bytes`: a frame between the server and a worker counts its
 /// length in four bytes.
 pub(super) const MOST_STATE_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// The least `collab_worker_memory_bytes`: [`UPDATE_MEMORY_BYTES`] and a document of
-/// the least `collab_state_bytes`.
-pub(super) const LEAST_WORKER_MEMORY_BYTES: u64 = 768 * 1024 * 1024;
+/// The least `collab_worker_memory_bytes`: [`UPDATE_MEMORY_BYTES`] (512 MiB) and a
+/// document of the least `collab_state_bytes` (32 × 16 MiB = 512 MiB) = 1 GiB.
+pub(super) const LEAST_WORKER_MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// The least `collab_frames_per_second`: a connection comes into a room (which
 /// counts as five) and writes at once.
@@ -131,9 +131,9 @@ pub(super) const MOST_BODY_VERSIONS: u32 = 1000;
 pub(super) const MOST_VERSION_MINUTES: u32 = 24 * 60;
 
 /// How many bytes of a worker's memory every byte of the states of the documents it
-/// holds takes: a document of nodes in memory is 20 to 25 times its state (27 MB for
-/// the 1.3 MB of 50,000 nodes; a document of text is little more than its state), as
-/// the program asks for it, and what the allocator keeps around that comes on top.
+/// holds takes: a document of nodes in memory is 20 to 26 times its state (53–60 MB for
+/// the 2.2–2.5 MB of 100,000 nodes; a document of 8 MiB text is 11.7 MB, 1.4x its state),
+/// as the program asks for it, and what the allocator keeps around that comes on top.
 ///
 /// A state of many changes of a few bytes each takes more than this (a change is some
 /// hundred bytes in memory however short), which is not counted: it is what a client
@@ -142,15 +142,13 @@ pub(super) const MEMORY_PER_STATE_BYTE: u64 = 32;
 
 /// The memory of a worker that is kept free of the documents it holds, for the one
 /// update it takes at a time: an update is applied and repaired in place on the held
-/// document, and the held document is dropped before reading the settled state back so
-/// at most one `yrs::Doc` is live at once. Peak memory above the held document goes with
-/// projection and validation of the body: for a body of 50,000 nodes that is 73 MB for a
-/// letter typed and 110 MB to repair an update (19 MB / 25 MB for 4 MiB of text), and
-/// for the body that takes the most (of the bodies measured: letters of five marks in
-/// turn with formulas, a state of 5.9 MB held in 103 MB) 286 MB for a letter typed and
-/// 428 MB to repair an update. Every body is so taken, by a worker that holds as many
-/// documents as it counts room for (including un-folded rollback updates in `since`);
-/// the executable and what the allocator keeps come on top.
+/// document with incremental block and reading caches (`+0.0 MB` heap spike on live edits
+/// and deletion-only repairs across all 100,000-node / 8 MiB shapes; worst-case held
+/// document is 210 MB for 100k `marks and formulas`, 11.7 MB state), and the held
+/// document is dropped before reading the settled state back so at most one `yrs::Doc`
+/// is live at once. Every body is so taken, by a worker that holds as many documents as
+/// it counts room for (including un-folded rollback updates in `since`); the executable
+/// and what the allocator keeps come on top.
 ///
 /// A state grown by what was deleted from it can still take more if its allocator
 /// fragments under adversarial input, which is not counted, as [`MEMORY_PER_STATE_BYTE`]

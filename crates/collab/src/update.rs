@@ -54,6 +54,10 @@ pub struct UpdateLimits {
     /// ones too ([`MAX_CLIENT_CHANGES`] for what a client sends); `None` for no count,
     /// for what was taken before.
     pub client_changes: Option<u64>,
+    /// How many changes the document an update leaves (or a stored state opened) may
+    /// hold across all clients together, deleted ones too ([`MAX_TOTAL_CHANGES`]);
+    /// `None` for no count.
+    pub total_changes: Option<u64>,
     /// How many steps the Y library may take to read the document an update leaves
     /// from its state, as it does for every update after it and every time the
     /// document is opened ([`READING_STEPS`]); `None` for no count. The steps are
@@ -77,11 +81,16 @@ pub const MAX_CLIENTS: usize = 16 * 1024;
 /// two: 17,500 cuts of one letter each, as many as an update of 64 KiB holds, took 3 s
 /// where the client cut has 250,000 changes, 6.9 s at 520,000 and 26 s at 1,170,000
 /// (release build, an idle machine), and 1.1 s where as many were spread over a hundred
-/// clients. A body within its limits makes at most about 323,000, all of one client (of
-/// the bodies measured: letters of five marks in turn with line breaks), 0.82 of the
-/// three quarters at which what holds a document makes it again from its body, well
-/// before an editor brings a client to this.
+/// clients. [`crate::from_body`] splits large marked bodies across contiguous descending
+/// clients of at most `MAX_CLIENT_CHANGES / 4` (131,072) changes each so no client starts
+/// near the three-quarters remake mark.
 pub const MAX_CLIENT_CHANGES: u64 = 512 * 1024;
+
+/// How many changes a document may hold across all clients together, deleted ones too
+/// ([`UpdateLimits::total_changes`]). Bounds total CRDT block count against multi-client
+/// fragmentation while staying above the worst-case allowlist-valid 100,000-node / 8 MiB
+/// body (~660,372 changes) with over 120,000 changes of editing headroom.
+pub const MAX_TOTAL_CHANGES: u64 = 768 * 1024;
 
 /// How many steps the Y library may take to place the changes of one update a client
 /// sends ([`UpdateLimits::placing_steps`]). A step past a change takes 50 to 110 ns
@@ -222,6 +231,17 @@ pub enum UpdateError {
     )]
     TooManyChanges {
         /// The most changes a client would have, deleted ones too.
+        changes: u64,
+        /// The limit.
+        limit: u64,
+    },
+    /// With the update the document would hold more changes across all clients than
+    /// [`UpdateLimits::total_changes`].
+    #[error(
+        "with the update the document would have {changes} changes, more than the {limit} allowed"
+    )]
+    TooManyTotalChanges {
+        /// The total changes across all clients, deleted ones too.
         changes: u64,
         /// The limit.
         limit: u64,
@@ -437,6 +457,7 @@ pub(crate) fn counted_sized(doc: Doc, limits: &UpdateLimits) -> Result<Settled, 
     let (read, reading_cache) =
         reading::count_strict_with_cache(&state, limit).map_err(unreadable)?;
     check_client_changes(read.walked.most, limits)?;
+    check_total_changes(read.walked.changes, limits)?;
     check_ends(&doc, &read.ends).map_err(unreadable)?;
     if read.steps > limit {
         return Ok(Settled {
@@ -665,6 +686,17 @@ pub(crate) fn check_client_changes(changes: u64, limits: &UpdateLimits) -> Resul
     Ok(())
 }
 
+/// Refuses a state whose total changes across all clients are past
+/// [`UpdateLimits::total_changes`].
+pub(crate) fn check_total_changes(changes: u64, limits: &UpdateLimits) -> Result<(), UpdateError> {
+    if let Some(limit) = limits.total_changes
+        && changes > limit
+    {
+        return Err(UpdateError::TooManyTotalChanges { changes, limit });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use yrs::{Any, Number, Xml, XmlElementPrelim, XmlFragment};
@@ -680,6 +712,7 @@ mod tests {
         placing_steps: Some(PLACING_STEPS),
         clients: Some(MAX_CLIENTS),
         client_changes: Some(MAX_CLIENT_CHANGES),
+        total_changes: Some(MAX_TOTAL_CHANGES),
         reading_steps: Some(READING_STEPS),
     };
 

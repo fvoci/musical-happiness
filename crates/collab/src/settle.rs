@@ -8,7 +8,8 @@ use crate::build::doc_of_client;
 use crate::reading::{self, ReadingCache};
 use crate::scan::{self, Refusal};
 use crate::update::{
-    Outcome, Settled, UpdateError, UpdateLimits, check_applied, check_client_changes, state_of,
+    Outcome, Settled, UpdateError, UpdateLimits, check_applied, check_client_changes,
+    check_total_changes, state_of,
 };
 
 /// The Y document whose state is `state`, read as any update is read: past the walk
@@ -83,9 +84,9 @@ enum ReadOutcome {
 }
 
 /// Counts `state` against [`UpdateLimits::reading_steps`], [`UpdateLimits::client_changes`],
-/// and strict origin placement; when within the reading-step limit, drops `doc` before
-/// reading `state` back into a fresh `Doc` so only one `Doc` is live in memory at a time.
-/// A state past the limit does not reach the library and keeps `doc` in
+/// [`UpdateLimits::total_changes`], and strict origin placement; when within the reading-step
+/// limit, drops `doc` before reading `state` back into a fresh `Doc` so only one `Doc` is live
+/// in memory at a time. A state past the limit does not reach the library and keeps `doc` in
 /// [`ReadOutcome::PastLimit`].
 fn count_and_read(
     doc: Doc,
@@ -96,6 +97,7 @@ fn count_and_read(
     let Some(limit) = limits.reading_steps else {
         let read = reading::check_origins(state).map_err(unreadable)?;
         check_client_changes(read.walked.most, limits)?;
+        check_total_changes(read.walked.changes, limits)?;
         drop(doc);
         let again =
             read_walked(state, &read.walked, None).map_err(UpdateError::LeavesUnreadable)?;
@@ -113,6 +115,7 @@ fn count_and_read(
     let (read, reading_cache) =
         reading::count_strict_with_cache(state, limit).map_err(unreadable)?;
     check_client_changes(read.walked.most, limits)?;
+    check_total_changes(read.walked.changes, limits)?;
     if read.steps > limit {
         return Ok(ReadOutcome::PastLimit {
             doc,
@@ -139,8 +142,8 @@ fn count_and_read(
 
 /// Validates and reads `state` back into a fresh `Doc` without dropping any caller-owned
 /// `Doc` beforehand, returning an error if `state` exceeds `state_bytes`,
-/// `client_changes`, `reading_steps`, fails strict origin checks, or fails post-apply
-/// invariants.
+/// `client_changes`, `total_changes`, `reading_steps`, fails strict origin checks, or fails
+/// post-apply invariants.
 fn count_and_read_fresh(state: &[u8], limits: &UpdateLimits) -> Result<Counted, UpdateError> {
     if state.len() > limits.state_bytes {
         return Err(UpdateError::DocumentTooLarge {
@@ -154,6 +157,7 @@ fn count_and_read_fresh(state: &[u8], limits: &UpdateLimits) -> Result<Counted, 
             let (read, reading_cache) =
                 reading::count_strict_with_cache(state, limit).map_err(unreadable)?;
             check_client_changes(read.walked.most, limits)?;
+            check_total_changes(read.walked.changes, limits)?;
             if read.steps > limit {
                 return Err(UpdateError::TooManyReadingSteps {
                     steps: read.steps,
@@ -166,6 +170,7 @@ fn count_and_read_fresh(state: &[u8], limits: &UpdateLimits) -> Result<Counted, 
         } else {
             let read = reading::check_origins(state).map_err(unreadable)?;
             check_client_changes(read.walked.most, limits)?;
+            check_total_changes(read.walked.changes, limits)?;
             (read, 0, 0, None)
         };
     let doc = read_walked(state, &read.walked, None).map_err(UpdateError::LeavesUnreadable)?;
@@ -217,28 +222,27 @@ pub(crate) fn from_state_settled(
     let (read, steps, ahead, reading_cache) = if let Some(limit) = limits.reading_steps {
         let (read, reading_cache) =
             reading::count_strict_with_cache(state, limit).map_err(map_refusal)?;
-        if read.steps > limit {
-            return Err(UpdateError::TooManyReadingSteps {
-                steps: read.steps,
-                limit,
-            });
-        }
-        let steps = read.steps;
-        let ahead = read.ahead;
+        let (steps, ahead) = (read.steps, read.ahead);
         (read, steps, ahead, reading_cache)
     } else {
         let read = reading::check_origins(state).map_err(map_refusal)?;
         (read, 0, 0, None)
     };
-    if let Some(limit) = limits.clients
-        && read.walked.begins.len() > limit
+    if let Some(clients_limit) = limits.clients
+        && read.walked.begins.len() > clients_limit
     {
         return Err(UpdateError::TooManyClients {
             clients: read.walked.begins.len(),
-            limit,
+            limit: clients_limit,
         });
     }
     check_client_changes(read.walked.most, limits)?;
+    check_total_changes(read.walked.changes, limits)?;
+    if let Some(limit) = limits.reading_steps
+        && steps > limit
+    {
+        return Err(UpdateError::TooManyReadingSteps { steps, limit });
+    }
     let update =
         Update::decode_v1(state).map_err(|error| UpdateError::Unreadable(error.to_string()))?;
     let doc = doc_of_client(None);

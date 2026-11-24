@@ -460,6 +460,8 @@ pub(crate) enum FastApply {
     TooLarge { size: usize, limit: usize },
     /// Resulting max changes of one client exceeds `limits.client_changes`.
     TooManyChanges { changes: u64, limit: u64 },
+    /// Resulting total changes across all clients exceeds `limits.total_changes`.
+    TooManyTotalChanges { changes: u64, limit: u64 },
     /// Could not take the fast path; cache consumed and caller must fall back to full scan.
     Fallback,
 }
@@ -759,5 +761,69 @@ mod tests {
             Some((UNKNOWN_UTF8_UNDER_128, UNKNOWN_UTF8_UNDER_128, 1))
         );
         assert_eq!(split_utf8_bytes(200, 100, 50), None);
+    }
+
+    #[test]
+    fn try_apply_deletions_enforces_total_changes_on_piece_split() {
+        use yrs::{Doc, OffsetKind, Options, Transact as _, XmlElementPrelim};
+        use yrs::{XmlFragment as _, XmlTextPrelim};
+
+        let doc = Doc::with_options(Options {
+            offset_kind: OffsetKind::Utf16,
+            skip_gc: true,
+            ..Options::with_client_id(ClientID::new(10))
+        });
+        let root = doc.get_or_insert_xml_fragment(crate::FIELD);
+        {
+            let mut txn = doc.transact_mut();
+            let p = root.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
+            p.push_back(&mut txn, XmlTextPrelim::new("abcdef"));
+        }
+        let state = crate::state_of(&doc);
+        let limits = crate::UpdateLimits {
+            update_bytes: 64 * 1024,
+            state_bytes: 16 * 1024 * 1024,
+            body_bytes: fvoci_model::BODY_MAX_BYTES,
+            placing_steps: Some(crate::PLACING_STEPS),
+            clients: Some(crate::MAX_CLIENTS),
+            client_changes: Some(crate::MAX_CLIENT_CHANGES),
+            total_changes: Some(4),
+            reading_steps: Some(crate::READING_STEPS),
+        };
+        let mut ds = IdSet::new();
+        // Delete `"cd"` (clocks 4..6) inside `"abcdef"` (clocks 2..8): splits 3 -> 5 changes.
+        ds.insert(ID::new(ClientID::new(10), 4), 2);
+
+        let (_, cache) =
+            count_strict_with_cache(&state, crate::READING_STEPS).expect("cache builds");
+        let refused = cache
+            .expect("cache present")
+            .try_apply_deletions(&ds, &limits)
+            .expect("deletion check succeeds");
+        assert!(
+            matches!(
+                refused,
+                FastApply::TooManyTotalChanges {
+                    changes: 5,
+                    limit: 4
+                }
+            ),
+            "expected TooManyTotalChanges(5 > 4), got {refused:?}"
+        );
+
+        let (_, cache) =
+            count_strict_with_cache(&state, crate::READING_STEPS).expect("cache builds");
+        let exact = crate::UpdateLimits {
+            total_changes: Some(5),
+            ..limits
+        };
+        let accepted = cache
+            .expect("cache present")
+            .try_apply_deletions(&ds, &exact)
+            .expect("deletion check succeeds");
+        match accepted {
+            FastApply::Accepted { summary, .. } => assert_eq!(summary.changes, 5),
+            other => panic!("expected Accepted at exact cap 5, got {other:?}"),
+        }
     }
 }

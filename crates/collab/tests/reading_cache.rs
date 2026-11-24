@@ -483,11 +483,12 @@ fn cached_check_incoming_origins_blocks_panic_bombs_untouched_and_preserves_cach
     .bytes();
     let served = UpdateLimits {
         update_bytes: 64 * 1024,
-        state_bytes: 8 * 1024 * 1024,
+        state_bytes: 16 * 1024 * 1024,
         body_bytes: BODY_MAX_BYTES,
         placing_steps: Some(PLACING_STEPS),
         clients: Some(MAX_CLIENTS),
         client_changes: Some(MAX_CLIENT_CHANGES),
+        total_changes: Some(fvoci_collab::MAX_TOTAL_CHANGES),
         reading_steps: Some(READING_STEPS),
     };
     let held = match held.take_in_place(None, changes, &bomb, &served) {
@@ -812,5 +813,205 @@ fn multi_client_chain_orders_linearly_on_fast_path() {
         &ROOMY,
         PathExpect::Fast,
         "1500-client chain in one update",
+    );
+}
+
+fn assert_total_changes_verdict_matches(
+    state: &[u8],
+    changes: u64,
+    update: &[u8],
+    expected_total: u64,
+    label: &str,
+) {
+    let tight = UpdateLimits {
+        total_changes: Some(expected_total - 1),
+        ..ROOMY
+    };
+    let cold_doc = from_state(state, &ROOMY).expect("cold open").doc;
+    let cold_err = take_update(&cold_doc, update, &tight).expect_err("cold refuses");
+    assert_eq!(
+        cold_err,
+        TakeError::Update(UpdateError::TooManyTotalChanges {
+            changes: expected_total,
+            limit: expected_total - 1,
+        }),
+        "{label}: cold error"
+    );
+    let fast_doc = BodyDoc::from_state(state, &ROOMY).expect("cached open").doc;
+    let fast_err = match fast_doc
+        .take_in_place(None, changes, update, &tight)
+        .expect_err("fast path refuses over total_changes")
+    {
+        BodyTakeError::Untouched { error, .. } | BodyTakeError::Dirty(error) => error,
+    };
+    assert_eq!(
+        fast_err, cold_err,
+        "{label}: fast refusal matches cold scan"
+    );
+}
+
+/// Verifies that `ReadingCache::try_apply` and `ReadingCache::try_apply_deletions` return
+/// the exact same `Ok` / `Err(TooManyTotalChanges)` verdicts as cold `take_update`, across
+/// multi-client appends, exact boundaries, mid-text deletion splits, and deletion-only
+/// repairs.
+#[test]
+fn total_changes_limit_matches_between_fast_cache_and_cold_scan() {
+    let body = body_of(&json!({
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "abcdef"}]}
+        ]
+    }));
+    let made = BodyDoc::from_body_counted(Some(&body)).expect("counted body");
+    let mut state = made.state;
+    let mut changes = made.counts.changes;
+    let mut held = made.doc;
+
+    let add_second = peer_edit(&state, 20, |txn, root| {
+        let p = root.push_back(txn, XmlElementPrelim::empty("paragraph"));
+        p.push_back(txn, XmlTextPrelim::new("ghijkl"));
+    });
+    held = step_and_assert(
+        held,
+        &mut state,
+        &mut changes,
+        &add_second,
+        &ROOMY,
+        PathExpect::Fast,
+        "second client paragraph",
+    );
+
+    // 1. Mid-text deletion splits `"ghijkl"`, increasing `total_changes`.
+    let split_del = peer_edit(&state, 30, |txn, root| {
+        let Some(XmlOut::Element(p)) = root.get(txn, 1) else {
+            panic!("second paragraph");
+        };
+        let Some(XmlOut::Text(t)) = p.first_child() else {
+            panic!("text");
+        };
+        t.remove_range(txn, 2, 2);
+    });
+    let cold_split = take_update(
+        &from_state(&state, &ROOMY).expect("cold").doc,
+        &split_del,
+        &ROOMY,
+    )
+    .expect("cold split");
+    assert!(
+        cold_split.changes > changes,
+        "split increases total_changes"
+    );
+    assert_total_changes_verdict_matches(&state, changes, &split_del, cold_split.changes, "split");
+
+    let exact_split = UpdateLimits {
+        total_changes: Some(cold_split.changes),
+        ..ROOMY
+    };
+    held = step_and_assert(
+        held,
+        &mut state,
+        &mut changes,
+        &split_del,
+        &exact_split,
+        PathExpect::Fast,
+        "mid-text deletion accepted at exact total_changes cap",
+    );
+
+    // 2. Unknown block repaired by deletion-only `try_apply_deletions`.
+    let bad_block = peer_edit(&state, 40, |txn, root| {
+        root.push_back(txn, XmlElementPrelim::empty("unknownWidget"));
+    });
+    let cold_repaired = take_update(
+        &from_state(&state, &ROOMY).expect("cold 2").doc,
+        &bad_block,
+        &ROOMY,
+    )
+    .expect("cold repair");
+    assert!(cold_repaired.repair.deleted > 0);
+    assert_total_changes_verdict_matches(
+        &state,
+        changes,
+        &bad_block,
+        cold_repaired.changes,
+        "repair",
+    );
+
+    let exact_repair = UpdateLimits {
+        total_changes: Some(cold_repaired.changes),
+        ..ROOMY
+    };
+    let _ = step_and_assert(
+        held,
+        &mut state,
+        &mut changes,
+        &bad_block,
+        &exact_repair,
+        PathExpect::Fast,
+        "deletion-only repair accepted at exact total_changes cap",
+    );
+}
+
+/// Table-mend repair (`repair.mended > 0`): the raw deletion update adds 0 changes
+/// (fitting `total_changes`), then mending the missing cell adds new changes and hits
+/// `TooManyTotalChanges` inside `recount_after_repair` identically to cold `take_update`.
+#[test]
+fn total_changes_limit_matches_on_table_mend_repair() {
+    let cell = json!({"type": "tableCell", "content": [{"type": "paragraph"}]});
+    let body = body_of(&json!({
+        "type": "doc",
+        "content": [{
+            "type": "table",
+            "content": [
+                {"type": "tableRow", "content": [cell, cell]},
+                {"type": "tableRow", "content": [cell, cell]}
+            ]
+        }]
+    }));
+    let made = BodyDoc::from_body_counted(Some(&body)).expect("counted body");
+    let mut state = made.state;
+    let mut changes = made.counts.changes;
+    let held = made.doc;
+
+    let break_row = peer_edit(&state, 50, |txn, root| {
+        let Some(XmlOut::Element(table)) = root.get(txn, 0) else {
+            panic!("table");
+        };
+        let Some(XmlOut::Element(row)) = table.get(txn, 1) else {
+            panic!("second row");
+        };
+        row.remove_range(txn, 1, 1);
+    });
+    let cold_mended = take_update(
+        &from_state(&state, &ROOMY).expect("cold").doc,
+        &break_row,
+        &ROOMY,
+    )
+    .expect("cold mend repair");
+    assert!(cold_mended.repair.mended > 0, "expected table cell mend");
+    assert!(
+        cold_mended.changes > changes,
+        "table mend adds changes past the pre-repair total ({changes} -> {})",
+        cold_mended.changes
+    );
+    assert_total_changes_verdict_matches(
+        &state,
+        changes,
+        &break_row,
+        cold_mended.changes,
+        "table-mend",
+    );
+
+    let exact_mended = UpdateLimits {
+        total_changes: Some(cold_mended.changes),
+        ..ROOMY
+    };
+    let _ = step_and_assert(
+        held,
+        &mut state,
+        &mut changes,
+        &break_row,
+        &exact_mended,
+        PathExpect::Fallback,
+        "table-mend repair accepted at exact total_changes cap",
     );
 }

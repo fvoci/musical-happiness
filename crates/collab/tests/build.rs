@@ -4,9 +4,9 @@
 mod support;
 
 use fvoci_collab::{
-    BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, UpdateError,
-    UpdateLimits, from_body, from_body_by, from_state, new_doc, reading_steps, state_counts,
-    state_of, take_update,
+    BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, MAX_TOTAL_CHANGES, PLACING_STEPS, READING_STEPS,
+    UpdateError, UpdateLimits, from_body, from_body_by, from_state, new_doc, reading_steps,
+    state_counts, state_of, take_update,
 };
 use fvoci_model::{BODY_MAX_BYTES, Body};
 use serde_json::{Value, json};
@@ -17,11 +17,12 @@ use yrs::{ReadTxn as _, Transact as _, Update, XmlFragment as _, XmlTextPrelim};
 
 const SERVER_LIMITS: UpdateLimits = UpdateLimits {
     update_bytes: 64 * 1024,
-    state_bytes: 8 * 1024 * 1024,
+    state_bytes: 16 * 1024 * 1024,
     body_bytes: BODY_MAX_BYTES,
     placing_steps: Some(PLACING_STEPS),
     clients: Some(MAX_CLIENTS),
     client_changes: Some(MAX_CLIENT_CHANGES),
+    total_changes: Some(MAX_TOTAL_CHANGES),
     reading_steps: Some(READING_STEPS),
 };
 
@@ -204,8 +205,8 @@ fn multi_client_split_obeys_descending_order_and_zero_reading_steps() {
             "{name}: state matches doc.state()"
         );
         assert!(
-            made.doc.clients() >= 2 && made.doc.clients() <= 4,
-            "{name}: expected 2..=4 split clients, got {}",
+            made.doc.clients() >= 2 && made.doc.clients() <= 6,
+            "{name}: expected 2..=6 split clients, got {}",
             made.doc.clients()
         );
         assert!(
@@ -236,7 +237,7 @@ fn multi_client_split_obeys_descending_order_and_zero_reading_steps() {
             .collect();
         clients.sort_unstable();
         assert!(
-            clients.len() >= 2 && clients.len() <= 4,
+            clients.len() >= 2 && clients.len() <= 6,
             "{name}: from_body client count"
         );
         for pair in clients.windows(2) {

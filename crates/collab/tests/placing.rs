@@ -476,6 +476,7 @@ fn what_was_taken_before_is_read_again() {
         placing_steps: None,
         clients: None,
         client_changes: None,
+        total_changes: None,
         reading_steps: None,
         ..ROOMY
     };
@@ -789,7 +790,10 @@ fn an_update_of_a_client_below_the_document_is_refused_or_taken_in_time() {
     let placed = most_within(&|changes| {
         placing_steps(&doc, &walking(changes)).expect("counted") <= PLACING_STEPS
     });
-    assert!(placed > 100, "{placed} changes");
+    assert!(
+        placed >= PLACING_STEPS / count(CHILDREN),
+        "{placed} changes"
+    );
     let start = Instant::now();
     let over = take_update(&doc, &walking(placed), &ROOMY).expect("repaired and marked for remake");
     let took = start.elapsed();

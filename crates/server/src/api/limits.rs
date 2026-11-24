@@ -30,10 +30,10 @@ pub(crate) const WEBSOCKET_MESSAGE_LIMIT: usize = 64 * 1024;
 ///
 /// A client that is still sending its body when the answer comes, and finds the
 /// connection closed under it, may never read the answer: in the tests one request in
-/// nine of 4 MiB + 1 byte ended in a broken pipe instead of a 413. So the rest of the
+/// nine over the JSON limit ended in a broken pipe instead of a 413. So the rest of the
 /// body is taken off the wire first, without keeping it, up to this much and for at
 /// most [`DISCARD_TIMEOUT`]. What is longer or slower is cut off.
-const DISCARD_LIMIT: u64 = 8 * 1024 * 1024;
+const DISCARD_LIMIT: u64 = 16 * 1024 * 1024;
 
 /// How long a refused body is read for before the refusal is sent regardless.
 const DISCARD_TIMEOUT: Duration = Duration::from_secs(5);

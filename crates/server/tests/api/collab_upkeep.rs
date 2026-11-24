@@ -124,10 +124,10 @@ async fn a_document_near_its_limit_is_made_again_from_its_body() {
     let editor = Editor::join(101, &loaded.state);
     let idle = Editor::join(105, &loaded.state);
     let round = rounds_until_remade(&e, &editor, loaded.epoch).await;
-    // Each round leaves 480 KiB deleted in the state: three quarters of the 8 MiB a
-    // state may be is reached in the thirteenth.
+    // Each round leaves 480 KiB deleted in the state: three quarters of the 16 MiB a
+    // state may be is reached around the 25th round.
     assert!(
-        round >= 12,
+        round >= 24,
         "only once it was near the limit: round {round}"
     );
     let event = events.try_recv().expect("an event");
@@ -308,7 +308,7 @@ async fn rounds_until_remade(e: &crate::collab::Editing, editor: &Editor, epoch:
     let collab = e.app.collab();
     let line = "z".repeat(480 * 1024);
     let mut remade = None;
-    for round in 0..30 {
+    for round in 0..50 {
         let added = collab
             .take(
                 &e.app,

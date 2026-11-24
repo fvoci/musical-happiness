@@ -29,7 +29,7 @@ use crate::auth::now_millis;
 use crate::error::{AppError, Reason};
 use fvoci_store::StoreError;
 
-/// Maximum raw byte length accepted for a single `board.jsonl` line (4 MiB body ceiling
+/// Maximum raw byte length accepted for a single `board.jsonl` line (8 MiB body ceiling
 /// plus 2 MiB headroom for fields, title, and JSON framing) to bound per-line memory use.
 pub(super) const MAX_LINE_BYTES: usize = BODY_MAX_BYTES + 2 * 1024 * 1024;
 

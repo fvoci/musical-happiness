@@ -176,12 +176,13 @@ pub(super) fn take_refused(error: &TakeError) -> Refused {
             Refusal::Unreadable
         }
         TakeError::Update(UpdateError::MissingChanges) => Refusal::MissingChanges,
-        // A document of too many clients, or of a client of too many changes, is one
-        // too large to work on in time.
+        // A document of too many clients, or of too many changes, is one too large to
+        // work on in time.
         TakeError::Update(
             UpdateError::DocumentTooLarge { .. }
             | UpdateError::TooManyClients { .. }
-            | UpdateError::TooManyChanges { .. },
+            | UpdateError::TooManyChanges { .. }
+            | UpdateError::TooManyTotalChanges { .. },
         ) => Refusal::DocumentTooLarge,
         TakeError::Update(UpdateError::TooManyReadingSteps { .. }) => Refusal::TooManySteps,
         TakeError::Body(BodyError::TableTooLarge { .. }) => Refusal::TableTooLarge,
@@ -199,9 +200,9 @@ pub(super) fn take_refused(error: &TakeError) -> Refused {
 /// take again.
 pub(super) fn logged_refused(error: &TakeError) -> Refused {
     match error {
-        TakeError::Update(UpdateError::TooManyReadingSteps { .. }) => {
-            refused(Refusal::Unappliable, &error.to_string())
-        }
+        TakeError::Update(
+            UpdateError::TooManyReadingSteps { .. } | UpdateError::TooManyTotalChanges { .. },
+        ) => refused(Refusal::Unappliable, &error.to_string()),
         other => take_refused(other),
     }
 }

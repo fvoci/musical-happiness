@@ -2312,7 +2312,7 @@ export interface paths {
          *     (the line-based version 1 and the ZIP of version 2) and a ZIP without
          *     `version.json` are 400, and nothing of them is stored. An archive of more than
          *     10,000 entries, whose entries unpack to more than 1 GiB together, or with a
-         *     `board.jsonl` of more than 64 MiB (or a single JSONL line over 6 MiB) or a file larger
+         *     `board.jsonl` of more than 64 MiB (or a single JSONL line over 10 MiB) or a file larger
          *     than `maxFileBytes` is 413 with the `limit` passed, and nothing of it is stored; for the
          *     entry or line that is too large the reason is `archive_entry_too_large`. The blocks that show files are
          *     pointed at the board's new copies of them, the images and file blocks of bodies
@@ -5638,7 +5638,7 @@ export interface paths {
          * @description Sends part `partNumber` of the upload as the body, `application/octet-stream`.
          *     `Content-Length` is required and must be the part's size: `partSize`, or the rest
          *     for the last part; another length is refused with 400 before the body is looked at.
-         *     What is sent of a refused part is read and thrown away, up to 8 MiB and for up to 5
+         *     What is sent of a refused part is read and thrown away, up to 16 MiB and for up to 5
          *     seconds, so that the client reads the answer; a larger or slower body is cut off.
          *     (A browser sets `Content-Length` itself.)
          *     `Content-Digest` carries the part's SHA-256. A part whose length or digest differs
@@ -6432,7 +6432,7 @@ export interface components {
             /** @description The patches, one per identifier. */
             blockPatches: components["schemas"]["BlockPatch"][];
         };
-        /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 4 MiB as JSON, 60 levels deep and 50,000 nodes. */
+        /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes. */
         Body: {
             [key: string]: unknown;
         };

@@ -15,8 +15,8 @@ use serde_json::{Value, json};
 /// highlighter reads a whole body; 4: no card that is a template of its board; 5:
 /// documents are written with versions of their own, kept in `sent`, and removals are
 /// remembered longer; 6: the highlighter reads a body of 4 MiB; 7: a card's number on
-/// its board, `number`).
-pub(crate) const VERSION: i64 = 7;
+/// its board, `number`; 8: the highlighter reads a body of 8 MiB).
+pub(crate) const VERSION: i64 = 8;
 
 /// How long the search server remembers the version of a document it removed: a put
 /// of a lower version that lands within that time is refused, and one that lands later
@@ -26,9 +26,9 @@ pub(crate) const VERSION: i64 = 7;
 const REMOVALS_KEPT: &str = "10m";
 
 /// How many characters of a text the highlighter reads to find the piece it shows:
-/// more than the longest body there is (4 MiB as it is stored). Both search servers
+/// more than the longest body there is (8 MiB as it is stored). Both search servers
 /// read a million by default, and fail the whole search over a longer text.
-const HIGHLIGHTED_CHARS: u32 = 5_000_000;
+const HIGHLIGHTED_CHARS: u32 = 10_000_000;
 
 /// The name of the analyser of Korean text.
 const KOREAN: &str = "fvoci_korean";

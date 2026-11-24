@@ -112,6 +112,14 @@ impl ReadingCache {
                 limit,
             });
         }
+        if let Some(limit) = limits.total_changes
+            && self.total_changes > limit
+        {
+            return Ok(FastApply::TooManyTotalChanges {
+                changes: self.total_changes,
+                limit,
+            });
+        }
         let reading_steps = looked.div_ceil(LOOKED_PER_STEP);
         let steps_ahead = self
             .total_changes

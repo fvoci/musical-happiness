@@ -80,6 +80,10 @@ pub(super) struct OpenDoc {
     pub(super) made_bytes: u64,
     /// How many clients it names.
     pub(super) clients: u64,
+    /// How many changes it holds across all clients, deleted ones too.
+    pub(super) changes: u64,
+    /// How many changes it held when it was made from its body; 0 if it was not here.
+    pub(super) made_changes: u64,
     /// The most changes one of its clients has, deleted ones too.
     pub(super) client_changes: u64,
     /// The most steps the Y library may take to read it from its state once one more
@@ -145,12 +149,38 @@ impl OpenDoc {
     /// empties now and then keeps its document far from where it is made again under
     /// its editors ([`Self::crowded`]).
     ///
-    /// For the bodies of the most changes (320,000) that is every 52 sessions at the
-    /// latest, for a body of 10,000 changes every 1,677, and for smaller ones every
-    /// 2,048. A body's own document, of one client, is far under it, so none is made
+    /// For the bodies of the most changes (~647k–660k across 5–6 split clients) that is
+    /// every 25 sessions at the latest, for a body of 10,000 changes every 1,677, and for
+    /// smaller ones every 2,048. A body's own document is far under it, so none is made
     /// again each time it is closed.
     pub(super) fn worn(&self) -> bool {
         self.must_remake || worn(self.clients, self.steps_ahead)
+    }
+
+    /// Whether its state size or total change count has reached three quarters of its
+    /// limit and grown by at least a quarter since it was made from its body. A freshly
+    /// made body near either limit (such as a 100k-node marked document at ~595k–660k
+    /// changes) is not remade on every edit.
+    pub(super) fn grown_near_limit(&self, state_limit: u64) -> bool {
+        grown_near_limit(self.state_bytes, self.made_bytes, state_limit)
+            || grown_near_limit(
+                self.changes,
+                self.made_changes,
+                fvoci_collab::MAX_TOTAL_CHANGES,
+            )
+    }
+
+    /// Whether a `DocumentTooLarge` refusal should remake the document to reclaim deleted
+    /// tombstones: true when the document is at three quarters of its state-size or
+    /// total-change limit and has grown since it was made from its body (or is crowded).
+    pub(super) fn remake_on_too_large(&self, state_limit: u64) -> bool {
+        refused_near_limit(self.state_bytes, self.made_bytes, state_limit)
+            || refused_near_limit(
+                self.changes,
+                self.made_changes,
+                fvoci_collab::MAX_TOTAL_CHANGES,
+            )
+            || self.crowded()
     }
 
     /// The share of its worker's documents it is counted in.
@@ -170,6 +200,19 @@ fn worn(clients: u64, steps_ahead: u64) -> bool {
     let an_eighth = |count: u64, limit: u64| count >= limit / 8;
     let max_clients = u64::try_from(fvoci_collab::MAX_CLIENTS).unwrap_or(u64::MAX);
     an_eighth(clients, max_clients) || an_eighth(steps_ahead, fvoci_collab::READING_STEPS)
+}
+
+/// Whether `current` reached three quarters of `limit` and grew by at least a quarter
+/// of `limit` above `made` (what the document started at when made from its body).
+fn grown_near_limit(current: u64, made: u64, limit: u64) -> bool {
+    current.saturating_mul(4) >= limit.saturating_mul(3)
+        && current >= made.saturating_add(limit / 4)
+}
+
+/// Whether `current` is strictly above `made` and at three quarters of `limit`, so a
+/// `DocumentTooLarge` refusal can reclaim tombstones by remaking from the body.
+fn refused_near_limit(current: u64, made: u64, limit: u64) -> bool {
+    current > made && current.saturating_mul(4) >= limit.saturating_mul(3)
 }
 
 /// Whether a document of `clients` clients, of which one has `client_changes` changes,
@@ -455,7 +498,9 @@ impl Collab {
         }
         let error = match self.open_stored(app, card_id, None).await {
             Ok(open) => {
-                let past_limit = open.state_bytes > self.inner.limits.state_bytes || open.crowded();
+                let past_limit = open.state_bytes > self.inner.limits.state_bytes
+                    || open.changes > fvoci_collab::MAX_TOTAL_CHANGES
+                    || open.crowded();
                 slot.open = Some(open);
                 if past_limit {
                     // Stored or logged under a larger limit: its body is written to the
@@ -683,9 +728,34 @@ pub(super) fn still_at_epoch(slot: &Slot, epoch: i64) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use fvoci_collab::{MAX_CLIENT_CHANGES, MAX_CLIENTS, READING_STEPS};
+    use fvoci_collab::{MAX_CLIENT_CHANGES, MAX_CLIENTS, MAX_TOTAL_CHANGES, READING_STEPS};
 
-    use super::{crowded, worn};
+    use super::{crowded, grown_near_limit, refused_near_limit, worn};
+
+    #[test]
+    fn total_changes_remake_marks_allow_fresh_marked_bodies_and_recover_grown_ones() {
+        // Worst-case valid 100k marked body starts around 660k (< 786,432): normal typing
+        // does not remake on every keystroke, and a single hostile jump refused while
+        // fresh does not trigger a pointless remake loop.
+        let fresh = 660_372;
+        assert!(!grown_near_limit(fresh, fresh, MAX_TOTAL_CHANGES));
+        assert!(!grown_near_limit(fresh + 1_000, fresh, MAX_TOTAL_CHANGES));
+        assert!(!refused_near_limit(fresh, fresh, MAX_TOTAL_CHANGES));
+        // Once real edits accumulate tombstones above `fresh`, a `DocumentTooLarge`
+        // refusal remakes to reclaim them.
+        assert!(refused_near_limit(fresh + 10_000, fresh, MAX_TOTAL_CHANGES));
+        // A small body that grew to 3/4 of MAX_TOTAL_CHANGES across many clients is
+        // proactively remade before hitting the cap.
+        let three_quarters = MAX_TOTAL_CHANGES * 3 / 4;
+        assert!(!grown_near_limit(
+            three_quarters - 1,
+            5_000,
+            MAX_TOTAL_CHANGES
+        ));
+        assert!(grown_near_limit(three_quarters, 5_000, MAX_TOTAL_CHANGES));
+        // Stored doc opened from DB (`made == 0`) near the cap remakes once on refusal.
+        assert!(refused_near_limit(700_000, 0, MAX_TOTAL_CHANGES));
+    }
 
     #[test]
     fn a_document_is_made_again_at_three_quarters_of_its_clients_or_of_a_client_s_changes() {

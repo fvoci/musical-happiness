@@ -175,6 +175,9 @@ pub(super) fn apply_and_check(
             Ok(FastApply::TooManyChanges { changes, limit }) => {
                 return Err(UpdateError::TooManyChanges { changes, limit });
             }
+            Ok(FastApply::TooManyTotalChanges { changes, limit }) => {
+                return Err(UpdateError::TooManyTotalChanges { changes, limit });
+            }
             Ok(FastApply::Fallback) | Err(_) => {}
         }
     }

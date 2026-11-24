@@ -297,7 +297,7 @@ async fn handle_get_upload(
 /// Sends part `partNumber` of the upload as the body, `application/octet-stream`.
 /// `Content-Length` is required and must be the part's size: `partSize`, or the rest
 /// for the last part; another length is refused with 400 before the body is looked at.
-/// What is sent of a refused part is read and thrown away, up to 8 MiB and for up to 5
+/// What is sent of a refused part is read and thrown away, up to 16 MiB and for up to 5
 /// seconds, so that the client reads the answer; a larger or slower body is cut off.
 /// (A browser sets `Content-Length` itself.)
 /// `Content-Digest` carries the part's SHA-256. A part whose length or digest differs

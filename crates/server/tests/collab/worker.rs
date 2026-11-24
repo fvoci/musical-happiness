@@ -10,7 +10,7 @@ use fvoci_server::collab::worker::{
 use fvoci_server::collab_worker::wire::{Answer, Limits, Refusal, Request, Share, Source};
 use serde_json::{Value, json};
 
-const STATE_BYTES: u64 = 8 * 1024 * 1024;
+const STATE_BYTES: u64 = 16 * 1024 * 1024;
 
 /// The worker these tests start: the server's worker with the requests of the tests
 /// (`Request::Stall`), which the server's executable has only when it was last built

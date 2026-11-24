@@ -64,6 +64,8 @@ impl Collab {
             generation,
             state,
             state_bytes,
+            clients,
+            changes,
             client_changes,
             steps_ahead,
         } = self
@@ -89,8 +91,9 @@ impl Collab {
             body_digest: digest,
             state_bytes,
             made_bytes: state_bytes,
-            // The writer of the body.
-            clients: 1,
+            clients,
+            changes,
+            made_changes: changes,
             client_changes,
             steps_ahead,
             must_remake: false,
@@ -113,8 +116,9 @@ impl Collab {
     /// to read, is written to its card and made again from it once it is open). A
     /// document that cannot be opened so is made again from its card's body when its
     /// card holds all of it, or when what is stored cannot be read (bytes that are no
-    /// update, that build on what is not there, or that the Y library would take longer
-    /// to read than a document may, [`fvoci_collab::READING_STEPS`]):
+    /// update, that build on what is not there, that exceed
+    /// [`fvoci_collab::MAX_TOTAL_CHANGES`], or that the Y library would take longer to
+    /// read than a document may, [`fvoci_collab::READING_STEPS`]):
     /// the updates the card does not hold are then dropped, and that is logged.
     /// Otherwise (a worker that is full or ended, the store) the open fails, and the
     /// next one tries again.
@@ -149,6 +153,8 @@ impl Collab {
             state_bytes: 0,
             made_bytes: 0,
             clients: 0,
+            changes: 0,
+            made_changes: 0,
             client_changes: 0,
             steps_ahead: 0,
             must_remake: false,
@@ -245,6 +251,7 @@ impl Collab {
                 state,
                 state_bytes,
                 clients,
+                changes,
                 client_changes,
                 steps_ahead,
             },
@@ -255,6 +262,7 @@ impl Collab {
         open.generation = generation;
         open.state_bytes = state_bytes;
         open.clients = clients;
+        open.changes = changes;
         open.client_changes = client_changes;
         open.steps_ahead = steps_ahead;
         let state_seq = open.state_seq;
@@ -316,6 +324,7 @@ impl Collab {
                         repair,
                         state_bytes,
                         clients,
+                        changes,
                         client_changes,
                         steps_ahead,
                         remake,
@@ -325,6 +334,7 @@ impl Collab {
                 ) => {
                     open.state_bytes = state_bytes;
                     open.clients = clients;
+                    open.changes = changes;
                     open.client_changes = client_changes;
                     open.steps_ahead = steps_ahead;
                     open.must_remake |= remake;
@@ -365,14 +375,17 @@ impl Collab {
                 Answer::Opened {
                     state: Some(state),
                     state_bytes,
+                    clients,
+                    changes,
                     client_changes,
                     steps_ahead,
-                    ..
                 },
             ) => Ok(Made {
                 generation,
                 state,
                 state_bytes,
+                clients,
+                changes,
                 client_changes,
                 steps_ahead,
             }),
@@ -462,6 +475,10 @@ pub(super) struct Made {
     pub(super) state: Vec<u8>,
     /// The size of its state.
     pub(super) state_bytes: u64,
+    /// How many clients it names ([`OpenDoc::clients`]).
+    pub(super) clients: u64,
+    /// How many changes it holds across all clients ([`OpenDoc::changes`]).
+    pub(super) changes: u64,
     /// The most changes of one of its clients ([`OpenDoc::client_changes`]).
     pub(super) client_changes: u64,
     /// The most steps the Y library may take to read it once one more client has

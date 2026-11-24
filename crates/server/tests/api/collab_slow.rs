@@ -324,11 +324,12 @@ pub(crate) async fn stored_before(
 ) -> (Editing, Vec<u8>) {
     let uncounted = UpdateLimits {
         update_bytes: 1024 * 1024,
-        state_bytes: 8 * 1024 * 1024,
+        state_bytes: 16 * 1024 * 1024,
         body_bytes: fvoci_model::BODY_MAX_BYTES,
         placing_steps: None,
         clients: None,
         client_changes: None,
+        total_changes: None,
         reading_steps: None,
     };
     let e = editing(th, &paragraphs(&["first"])).await;
@@ -987,11 +988,12 @@ async fn recovering_after_projection_and_before_remake_dedups_mentions() {
     let after_log = stored(&edit_b).await;
     let uncounted = UpdateLimits {
         update_bytes: 1024 * 1024,
-        state_bytes: 8 * 1024 * 1024,
+        state_bytes: 16 * 1024 * 1024,
         body_bytes: fvoci_model::BODY_MAX_BYTES,
         placing_steps: None,
         clients: None,
         client_changes: None,
+        total_changes: None,
         reading_steps: None,
     };
     let projected_body = BodyDoc::from_state(&before.state, &uncounted)

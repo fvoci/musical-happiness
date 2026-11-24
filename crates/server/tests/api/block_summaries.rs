@@ -128,17 +128,17 @@ async fn card_with(th: &TestServer, user_id: &str, body: Value) -> Block {
     card
 }
 
-/// What one listener is sent when a card of a body just under the limit (4 MiB) changes,
+/// What one listener is sent when a card of a body just under the limit (8 MiB) changes,
 /// as when the room of its body writes it: the summary, a few hundred bytes, where the
 /// body went before. The sizes are printed for the report.
 #[tokio::test]
 async fn a_long_body_is_not_sent_to_whoever_follows_the_board() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let me = th.client.me().await;
-    let body = long_body(3_900);
+    let body = long_body(7_900);
     let body_bytes = body.to_string().len();
     assert!(
-        (4_000_000..fvoci_model::BODY_MAX_BYTES).contains(&body_bytes),
+        (8_000_000..fvoci_model::BODY_MAX_BYTES).contains(&body_bytes),
         "a body just under the limit: {body_bytes} bytes"
     );
     let card = card_with(&th, &me.id, body).await;

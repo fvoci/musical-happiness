@@ -4,7 +4,8 @@
 use std::time::Duration;
 
 use fvoci_collab::{
-    MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, UpdateLimits, take_update,
+    MAX_CLIENT_CHANGES, MAX_CLIENTS, MAX_TOTAL_CHANGES, PLACING_STEPS, READING_STEPS, UpdateLimits,
+    take_update,
 };
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_NODES};
 use serde_json::{Value, json};
@@ -15,11 +16,12 @@ use super::{body_of, edited};
 /// The limits the server holds an update to with its settings as they come.
 pub(crate) const SERVED: UpdateLimits = UpdateLimits {
     update_bytes: 64 * 1024,
-    state_bytes: 8 * 1024 * 1024,
+    state_bytes: 16 * 1024 * 1024,
     body_bytes: BODY_MAX_BYTES,
     placing_steps: Some(PLACING_STEPS),
     clients: Some(MAX_CLIENTS),
     client_changes: Some(MAX_CLIENT_CHANGES),
+    total_changes: Some(MAX_TOTAL_CHANGES),
     reading_steps: Some(READING_STEPS),
 };
 
@@ -29,9 +31,8 @@ pub(crate) const LONGEST: Duration = Duration::from_millis(500);
 
 /// The documents of [`bodies`] held to [`LONGEST`]: those of the shapes people write.
 /// The bodies of the most changes ([`marked`]) are no such documents; how long their
-/// edits take is measured and told, not held (each update reads their state of 6 to
-/// 7.4 MB again, twice).
-pub(crate) const WRITTEN: [&str; 2] = ["50,000 nodes", "4 MiB"];
+/// edits take is measured and told, not held.
+pub(crate) const WRITTEN: [&str; 2] = ["100,000 nodes", "8 MiB"];
 
 /// The paragraphs of the largest paste: what fills an update of 64 KiB.
 const PASTED: u32 = 350;
@@ -73,11 +74,11 @@ pub(crate) fn bodies_within(max_nodes: usize, max_bytes: usize) -> Vec<(&'static
     let long_count = (max_bytes - room_bytes) / long_bytes;
     vec![
         (
-            "50,000 nodes",
+            "100,000 nodes",
             json!({"type": "doc", "content": vec![paragraph("a paragraph of the document"); nodes]}),
         ),
         (
-            "4 MiB",
+            "8 MiB",
             json!({"type": "doc", "content": vec![paragraph(&long); long_count]}),
         ),
     ]
