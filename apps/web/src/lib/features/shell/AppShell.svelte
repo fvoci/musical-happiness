@@ -239,10 +239,7 @@
   const drawerEntry = (entry?: { active: boolean; onOpen: () => void }) =>
     entry && {
       active: entry.active,
-      onOpen: () => {
-        entry.onOpen();
-        sidebar.drawerOpen = false;
-      },
+      onOpen: () => void (entry.onOpen(), (sidebar.drawerOpen = false)),
     };
   const reviewsEntry = $derived(drawerEntry(reviewsToday));
   const todayEntry = $derived(drawerEntry(learningToday));
@@ -445,9 +442,7 @@
     : undefined}
   onEmptyBoard={() => void addEmptyBoard()}
   onFromTemplate={(template: Container) => void addBoardFromTemplate(template)}
-  onEditTemplate={(template: Container) => {
-    openContainer(template);
-  }}
+  onEditTemplate={openContainer}
 />
 
 <NewWikiDialog

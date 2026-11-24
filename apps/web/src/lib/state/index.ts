@@ -93,6 +93,7 @@ export { createWiki } from './wiki-parts.ts';
 export { shownWiki } from './shown-wiki.svelte.ts';
 export type { PageDraft, PageMove, WikiDraft, WikiPage, WikiPageDetail } from './wiki-types.ts';
 export { CourseStore, type CourseLooks } from './course.svelte.ts';
+export { CourseMeetingsState, type CourseEventWriteResult } from './course-meetings.svelte.ts';
 export { CourseScheduleState, type ScheduleWriteResult } from './course-schedule.svelte.ts';
 export { LearningTodayStore } from './learning-today.svelte.ts';
 export { syncDeviceTimeZone } from './time-zone-sync.ts';
@@ -102,10 +103,23 @@ export { createCourse, createCourseFromTemplate } from './course-parts.ts';
 export { shownCourse } from './shown-course.svelte.ts';
 export {
   AMOUNT_UNITS,
+  ATTENDANCE_STATUSES,
+  compareCourseExams,
+  compareCourseMeetings,
+  COURSE_EXAM_DESCRIPTION_MAX_CHARS,
+  COURSE_EXAM_MAX_SCORE_LIMIT,
+  COURSE_EXAM_TITLE_MAX_CHARS,
+  COURSE_MEETING_LAST_MS,
+  COURSE_MEETING_LOCATION_MAX_CHARS,
+  COURSE_MEETING_MAX_UNITS,
+  COURSE_MEETING_NOTES_MAX_CHARS,
+  COURSE_MEETING_TITLE_MAX_CHARS,
   courseReviewIntervals,
   DEFAULT_REVIEW_INTERVALS,
+  EXAM_SCORE_NOTE_MAX_CHARS,
   hasControlChars,
   hasDisallowedNoteControlChars,
+  isAttendanceStatus,
   MAX_REVIEW_INTERVAL_DAYS,
   MAX_SCHEDULE_SPAN_DAYS,
   MIN_REVIEW_INTERVAL_DAYS,
@@ -135,9 +149,16 @@ export {
 } from './unit-reviews.svelte.ts';
 export type {
   AmountUnit,
+  AttendanceStatus,
   CompletedUnitReview,
   CompleteUnitReview,
   CourseDraft,
+  CourseExam,
+  CourseExamPatch,
+  CourseExamsApi,
+  CourseMeeting,
+  CourseMeetingPatch,
+  CourseMeetingsApi,
   CourseProgressSummary,
   CourseReviews,
   CourseSchedule,
@@ -149,7 +170,13 @@ export type {
   CreateUnitNote,
   LearningTodayItem,
   ListCourseReviewsQuery,
+  MeetingAttendance,
+  MeetingAttendanceUpdate,
   MemberCourseProgress,
+  MyExamScore,
+  MyExamScoreUpdate,
+  NewCourseExam,
+  NewCourseMeeting,
   PatchUnitNote,
   RedistributeScheduleRequest,
   ReviewStatusFilter,

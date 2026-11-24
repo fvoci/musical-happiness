@@ -16,6 +16,8 @@ import {
 } from '../state/backend.ts';
 import type {
   CourseDraft,
+  CourseExamsApi,
+  CourseMeetingsApi,
   CourseProgressSummary,
   Courses,
   CourseScheduleUpdate,
@@ -42,6 +44,7 @@ import {
   wireBody,
   type Schemas,
 } from './convert.ts';
+import { serverCourseExams, serverCourseMeetings } from './course-meetings.ts';
 import {
   deleteCourseSchedule,
   getCourseSchedule,
@@ -155,12 +158,16 @@ export class ServerCourses implements Courses {
   readonly #learn: (courses: readonly Schemas['Container'][]) => void;
 
   readonly bodyVersions: ServerUnitVersions;
+  readonly meetings: CourseMeetingsApi;
+  readonly exams: CourseExamsApi;
   readonly reviews: ServerUnitReviews;
 
   constructor(request: WikiRequest, learn: (courses: readonly Schemas['Container'][]) => void) {
     this.#request = request;
     this.#learn = learn;
     this.bodyVersions = new ServerUnitVersions(request);
+    this.meetings = serverCourseMeetings(request);
+    this.exams = serverCourseExams(request);
     this.reviews = new ServerUnitReviews(request);
   }
 

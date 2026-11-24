@@ -21,10 +21,17 @@ import {
   type Paging,
   type UnitDraft,
 } from './backend.ts';
-import type { CourseProgressSummary, ScheduledUnit, UnitProgress } from './course-types.ts';
+import type {
+  CourseLooks,
+  CourseProgressSummary,
+  ScheduledUnit,
+  UnitProgress,
+} from './course-types.ts';
+export type { CourseLooks };
 import { containerOfWorkspace, roleOf } from './board-parts.ts';
 import { ContainerPresence } from './board-presence.svelte.ts';
 import { isCommentBlock } from './changes.ts';
+import { CourseMeetingsState } from './course-meetings.svelte.ts';
 import { CourseProgress } from './course-progress.svelte.ts';
 import { CourseScheduleState } from './course-schedule.svelte.ts';
 import { CourseWrites } from './course-writes.ts';
@@ -35,15 +42,6 @@ import { UnitStore } from './unit.svelte.ts';
 import { memberId } from './user-names.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
-
-/** What the reader can change of the course itself. */
-export interface CourseLooks {
-  title?: string;
-  description?: string;
-  icon?: string;
-  type?: Container['type'];
-  minimumRole?: Container['minimumRole'];
-}
 
 export class CourseStore implements TreeSource<CourseUnit> {
   readonly workspace: Workspace;
@@ -85,44 +83,43 @@ export class CourseStore implements TreeSource<CourseUnit> {
   readonly presence: ContainerPresence;
   readonly progress: CourseProgress;
   readonly schedule: CourseScheduleState;
+  readonly events: CourseMeetingsState;
   readonly #writes: CourseWrites;
   readonly #people = new MemberWrites(this);
 
   constructor(workspace: Workspace, courseId: string) {
     this.workspace = workspace;
     this.courseId = courseId;
-    this.presence = new ContainerPresence({ workspace, containerId: courseId });
-    this.progress = new CourseProgress({
+    const base = {
       courseId,
       workspace,
       courses: () => this.#courses,
-      units: () => this.units,
       canTrack: () => this.canTrackProgress,
       isClosed: () => this.#closed,
+    };
+    this.presence = new ContainerPresence({ workspace, containerId: courseId });
+    this.progress = new CourseProgress({
+      ...base,
+      units: () => this.units,
       onCompletionChanged: (unitId, completed) => {
         this.schedule.reconcileCompletion(unitId, completed);
       },
     });
     this.schedule = new CourseScheduleState({
-      courseId,
-      workspace,
-      courses: () => this.#courses,
+      ...base,
       canEdit: () => this.canEdit,
-      canTrack: () => this.canTrackProgress,
-      isClosed: () => this.#closed,
       takeUnit: (unit) => {
         this.#receive(unit);
       },
       applyProgress: (row) => {
         this.progress.applyRow(row);
       },
-      refreshMine: () => {
-        void this.progress.refreshMine();
-      },
+      refreshMine: () => void this.progress.refreshMine(),
       syncUnitDates: (units) => {
         this.#syncUnitDates(units);
       },
     });
+    this.events = new CourseMeetingsState({ ...base, canEdit: () => this.canEdit });
     this.#writes = new CourseWrites({
       courseId,
       workspace,
@@ -135,9 +132,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
       takeUnit: (unit) => {
         this.#takeUnit(unit);
       },
-      reread: () => {
-        void this.#refresh();
-      },
+      reread: () => void this.#refresh(),
     });
   }
 
@@ -193,6 +188,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
       this.progress.take(progress, summary, progressMark);
       this.schedule.take(schedule, scheduleMark);
       this.status = 'ready';
+      void this.events.refreshAll();
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
       this.openUnit?.close();
@@ -285,17 +281,22 @@ export class CourseStore implements TreeSource<CourseUnit> {
         this.openUnit?.comments.forget(change.blockIds);
         void this.schedule.refresh();
         break;
-      case 'members':
+      case 'members': {
         if (change.containerId !== this.courseId) break;
+        const next = change.members;
+        const removed = this.members.some((p) => !next.some((n) => memberId(n) === memberId(p)));
         this.#people.told += 1;
-        this.members = change.members;
-        if (this.workspace.me && !change.members.some((m) => m.userId === this.workspace.me?.id)) {
+        this.members = next;
+        const meId = this.workspace.me?.id;
+        if (meId && !next.some((m) => memberId(m) === meId)) {
           this.progress.clearMine();
           this.schedule.clearMine();
+          this.events.clearMine();
           if (this.course?.type !== 'O') this.workspace.evictContainer(this.courseId);
-        }
-        void this.workspace.learnUsers(change.members.map(memberId), { members: true });
+        } else if (removed) void this.events.refreshExams();
+        void this.workspace.learnUsers(next.map(memberId), { members: true });
         break;
+      }
       case 'resync':
         void this.#refresh();
         break;
@@ -343,6 +344,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
       if (membersTold === this.#people.told) this.members = members;
       this.progress.take(progress, summary, progressMark);
       this.schedule.take(schedule, scheduleMark);
+      void this.events.refreshAll();
       const shown = this.openUnit;
       const title = (shown && this.unit(shown.unitId)?.title) ?? '';
       const read = this.#writes.admitted(units, mark);

@@ -14,6 +14,8 @@ import { createBoard, type Container } from '../../logic/wire.ts';
 import { BackendError, type DeletedItem, type Paging } from '../backend.ts';
 import type {
   CourseDraft,
+  CourseExamsApi,
+  CourseMeetingsApi,
   CourseProgressSummary,
   Courses,
   CourseScheduleUpdate,
@@ -35,6 +37,8 @@ import { checkedWhole } from './bodies.ts';
 import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { fileAsNew } from './categories.ts';
 import { memberRole } from './container-access.ts';
+import { memoryCourseExams } from './course-exams.ts';
+import { memoryCourseMeetings } from './course-meetings.ts';
 import {
   memoryDeleteCourseSchedule,
   memoryGetCourseSchedule,
@@ -83,11 +87,15 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
   /** The limits a memory course is held to; a test may lower them to reach them. */
   limits: CourseLimits = DEFAULT_COURSE_LIMITS;
   #bodyVersions: MemoryBodyVersions | undefined;
+  readonly meetings: CourseMeetingsApi;
+  readonly exams: CourseExamsApi;
   #reviews: MemoryUnitReviews | undefined;
 
   constructor(host: WikiHost) {
     super();
     this.#host = host;
+    this.meetings = memoryCourseMeetings(host, () => this.#enter('meetings'));
+    this.exams = memoryCourseExams(host, () => this.#enter('exams'));
   }
 
   get #world(): World {
@@ -95,18 +103,16 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
   }
 
   get reviews(): MemoryUnitReviews {
-    this.#reviews ??= new MemoryUnitReviews(this.#host, () => this.#enter('reviews'));
-    return this.#reviews;
+    return (this.#reviews ??= new MemoryUnitReviews(this.#host, () => this.#enter('reviews')));
   }
 
   get bodyVersions(): MemoryBodyVersions {
-    this.#bodyVersions ??= new MemoryBodyVersions(
+    return (this.#bodyVersions ??= new MemoryBodyVersions(
       this.#world,
       this.#host.userId,
       () => this.#enter('bodyVersions'),
       'unit',
-    );
-    return this.#bodyVersions;
+    ));
   }
 
   protected enter(method: keyof Courses): Promise<void> {
@@ -139,13 +145,9 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
   }
 
   async #enter(method: keyof Courses): Promise<void> {
-    if (this.#host.latency > 0) {
-      await new Promise((resolve) => {
-        setTimeout(resolve, this.#host.latency);
-      });
-    } else {
-      await Promise.resolve();
-    }
+    if (this.#host.latency > 0)
+      await new Promise((resolve) => setTimeout(resolve, this.#host.latency));
+    else await Promise.resolve();
     const failure = this.#failures.get(method);
     if (failure) {
       this.#failures.delete(method);

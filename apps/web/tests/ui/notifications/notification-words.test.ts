@@ -27,6 +27,9 @@ describe('what a notification says', () => {
       'Ada mentioned you 2 times in Plan',
     );
     expect(notificationText(subject({ kind: 'assignment' }), 'Ada')).toBe('Ada gave you Plan');
+    expect(
+      notificationText(subject({ kind: 'meeting_upcoming', title: 'Weekly Sync' }), undefined),
+    ).toBe('Upcoming study meeting: Weekly Sync');
   });
 
   it('counts the others who did it, and says so of whom it cannot name', () => {

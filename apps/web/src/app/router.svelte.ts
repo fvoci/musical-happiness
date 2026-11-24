@@ -1,310 +1,65 @@
 /**
  * The address bar: which workspace, board, view and card are shown.
  *
- * The addresses are `/w/<workspace>/boards/<board>/<view>/<card>`,
- * `/w/<workspace>/wikis/<wiki>/<page>` and `/w/<workspace>/diaries/<diary>/<MM-DD>`
- * (a day of the year, the page of a diary), each part optional from the right
- * (`/w/<workspace>` alone is the workspace), and
- * `/org/<organization>`, the screen of its administrators, under
- * the base path the server serves the app at. The link of an invitation is an
- * address of its own, `/invite/<token>`, which the app reads and never writes. A board's public link is
- * `/shared/<board>/<view>/<card>?r=<read token>`, the view and the card
- * optional: whoever has it reads the board, signed in or not. The root `/` names no
- * workspace: the app chooses one and puts its address in place. The base
- * path is not built in: the server writes it into index.html (the
- * `fvoci:base` meta element), and it is read from there when the app starts.
- *
- * Every address the app writes is made here (`routePath`, `Router.href`).
- *
- * A card is an address of its own, so opening one adds an entry to the
- * history and "back" closes it. Sheets and the drawer also close on "back",
- * with entries of their own that carry no address (lib/layout/back.svelte.ts);
- * those are passed over here.
+ * Pure route parsing and formatting live in `route-path.ts`; this module holds
+ * the reactive `Router` synced with `history` and `popstate`.
  */
 import { afterOwnSteps, releaseOverlayEntries } from '$lib/layout/back.svelte.ts';
-import { buildUrl, normalizeBasePath, type ContainerPlace } from '$lib/logic/urls.ts';
+import { buildUrl, type ContainerPlace } from '$lib/logic/urls.ts';
 
-export interface Route {
-  /** The standalone password reset page; its token is in the URL fragment. */
-  passwordReset?: true;
-  passwordForgot?: true;
-  /** The page the link that confirms a registration's address opens; its token is in the fragment. */
-  emailVerify?: true;
-  /** The page the link that changes an account's address opens; its token is in the fragment. */
-  emailConfirm?: true;
-  /** The page the link that gives an account its address back opens; its token is in the fragment. */
-  emailRevert?: true;
-  /** The organization whose screen is shown; then nothing else is. */
-  orgId?: string | undefined;
-  /** The reader's personal time log (`/me/time`). */
-  meTime?: true;
-  workspaceId: string | undefined;
-  boardId: string | undefined;
-  viewId: string | undefined;
-  cardId: string | undefined;
-  /** A wiki of the workspace, in place of a board, and the page of it shown. */
-  wikiId?: string | undefined;
-  pageId?: string | undefined;
-  /** A diary of the workspace, in place of a board, and the day of the year it is open on (`MM-DD`). */
-  diaryId?: string | undefined;
-  monthDay?: string | undefined;
-  /** An optional year of that day to expand on arrival (`?year=YYYY`). */
-  year?: string | undefined;
-  /** A course of the workspace, in place of a board, and the unit shown. */
-  courseId?: string | undefined;
-  unitId?: string | undefined;
-  /** The workspace's personal "Today's reviews" screen (`/w/<workspace>/learning/reviews/today`). */
-  reviewsToday?: true;
-  /** The workspace "Today's learning" screen (`/w/<workspace>/learning/today`). */
-  learningToday?: true;
-  /**
-   * The token of an invitation: the address is the link of one
-   * (`/invite/<token>`), and names nothing else.
-   */
-  invitation?: string | undefined;
-  /** The read token of a public link: the board is read by it alone, with no workspace. */
-  readToken?: string;
-  /**
-   * The address is under `/shared`, a public link's, whether it is a whole one
-   * or not: the reader's screen shows it, never the app.
-   */
-  shared?: true;
-  /** The address is not one of the app's. */
-  unknown: boolean;
-}
+import {
+  ANY_VIEW,
+  NOWHERE,
+  parseRoute,
+  placeRoute,
+  readBasePath,
+  routePath,
+  settled,
+  shownContainerId,
+  type CourseTab,
+  type Route,
+} from './route-path.ts';
 
-const NOWHERE: Route = {
-  workspaceId: undefined,
-  boardId: undefined,
-  viewId: undefined,
-  cardId: undefined,
-  unknown: false,
+export {
+  ANY_VIEW,
+  parseRoute,
+  placeRoute,
+  readBasePath,
+  routePath,
+  shownContainerId,
+  type CourseTab,
+  type Route,
 };
 
-/** A four-digit year (`0001`–`9999`) for a diary page's `?year=YYYY` query; undefined for anything else. */
-function diaryYear(raw: string | null | undefined): string | undefined {
-  return raw && /^\d{4}$/.test(raw) && raw !== '0000' ? raw : undefined;
-}
-
-/** The base path the server filled into index.html; empty at the root of the site. */
-export function readBasePath(document: Document): string {
-  const raw = document.querySelector('meta[name="fvoci:base"]')?.getAttribute('content') ?? '';
-  // Served as a plain file (the development server), the placeholder is still there.
-  return raw.startsWith('{{') ? '' : normalizeBasePath(raw);
-}
-
-/**
- * The route an address stands for. `pathname` is the whole path, base path
- * included; `search` the query, where a public link has its read token.
- */
-export function parseRoute(pathname: string, basePath: string, search = ''): Route {
-  const prefix = basePath === '' ? '' : `/${basePath}`;
-  if (prefix !== '' && pathname !== prefix && !pathname.startsWith(`${prefix}/`)) {
-    return { ...NOWHERE, unknown: true };
-  }
-  const segments = pathname
-    .slice(prefix.length)
-    .split('/')
-    .filter((segment) => segment !== '')
-    .map((segment) => {
-      try {
-        return decodeURIComponent(segment);
-      } catch {
-        return segment;
-      }
-    });
-  if (segments.length === 0) return NOWHERE;
-  if (segments[0] === 'forgot-password' && segments.length === 1) {
-    return { ...NOWHERE, passwordForgot: true };
-  }
-  if (segments[0] === 'reset-password' && segments.length === 1) {
-    return { ...NOWHERE, passwordReset: true };
-  }
-  if (segments[0] === 'verify-email' && segments.length === 1) {
-    return { ...NOWHERE, emailVerify: true };
-  }
-  if (segments[0] === 'confirm-email' && segments.length === 1) {
-    return { ...NOWHERE, emailConfirm: true };
-  }
-  if (segments[0] === 'revert-email' && segments.length === 1) {
-    return { ...NOWHERE, emailRevert: true };
-  }
-  if (segments[0] === 'invite' && segments.length === 2) {
-    return { ...NOWHERE, invitation: segments[1] };
-  }
-  if (segments[0] === 'shared') return sharedRoute(segments.slice(1), search);
-  if (segments[0] === 'org') {
-    return segments.length === 2
-      ? { ...NOWHERE, orgId: segments[1] }
-      : { ...NOWHERE, unknown: true };
-  }
-  if (segments[0] === 'me' && segments[1] === 'time' && segments.length === 2) {
-    return { ...NOWHERE, meTime: true };
-  }
-  const [w, workspaceId, section, boardId, viewId, cardId, ...rest] = segments;
-  if (section === 'wikis' && boardId !== undefined && cardId === undefined && w === 'w') {
-    return { ...NOWHERE, workspaceId, wikiId: boardId, pageId: viewId };
-  }
-  if (section === 'diaries' && boardId !== undefined && cardId === undefined && w === 'w') {
-    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- read once from a URL query string
-    const rawYear = viewId !== undefined ? new URLSearchParams(search).get('year') : null;
-    const year = diaryYear(rawYear);
-    return {
-      ...NOWHERE,
-      workspaceId,
-      diaryId: boardId,
-      monthDay: viewId,
-      ...(year ? { year } : {}),
-    };
-  }
-  if (section === 'courses' && boardId !== undefined && cardId === undefined && w === 'w') {
-    return { ...NOWHERE, workspaceId, courseId: boardId, unitId: viewId };
-  }
-  if (section === 'learning' && boardId === 'today' && viewId === undefined && w === 'w') {
-    return { ...NOWHERE, workspaceId, learningToday: true };
-  }
-  if (
-    w === 'w' &&
-    workspaceId !== undefined &&
-    section === 'learning' &&
-    boardId === 'reviews' &&
-    viewId === 'today' &&
-    cardId === undefined
-  ) {
-    return { ...NOWHERE, workspaceId, reviewsToday: true };
-  }
-  if (
-    w !== 'w' ||
-    workspaceId === undefined ||
-    (section !== undefined && section !== 'boards') ||
-    rest.length > 0
-  ) {
-    return { ...NOWHERE, unknown: true };
-  }
-  return { workspaceId, boardId, viewId, cardId, unknown: false };
-}
-
-/** The route of a public link: a board, then a view and a card, and the read token. */
-function sharedRoute(segments: string[], search: string): Route {
-  const [boardId, viewId, cardId, ...rest] = segments;
-  const readToken = new URLSearchParams(search).get('r');
-  if (boardId === undefined || readToken === null || readToken === '' || rest.length > 0) {
-    return { ...NOWHERE, unknown: true, shared: true };
-  }
-  return {
-    workspaceId: undefined,
-    boardId,
-    viewId,
-    cardId,
-    readToken,
-    unknown: false,
-    shared: true,
-  };
-}
-
-/**
- * In the place of a view in an address, where the view is not known (a card
- * of a board that is not open): the page shows the board's first view, as
- * for any view that is not there, and keeps the card.
- */
-export const ANY_VIEW = '-';
-
-/**
- * The route as far as it goes: each part only under the one before it
- * (a card only on a view, a view only on a board, a board only in a workspace),
- * and an organization's screen alone.
- */
-function settled(route: Partial<Route>): Route {
-  if (route.orgId) return { ...NOWHERE, orgId: route.orgId };
-  if (route.meTime) return { ...NOWHERE, meTime: true };
-  const readToken = route.readToken || undefined;
-  const workspaceId = (!readToken && route.workspaceId) || undefined;
-  // A wiki is the workspace's alone (no public link reads one yet: W4), and no board is with it.
-  const wikiId = (workspaceId && route.wikiId) || undefined;
-  if (wikiId) return { ...NOWHERE, workspaceId, wikiId, pageId: route.pageId || undefined };
-  const diaryId = (workspaceId && route.diaryId) || undefined;
-  if (diaryId) {
-    const monthDay = route.monthDay || undefined;
-    const year = monthDay ? diaryYear(route.year) : undefined;
-    return { ...NOWHERE, workspaceId, diaryId, monthDay, ...(year ? { year } : {}) };
-  }
-  const courseId = (workspaceId && route.courseId) || undefined;
-  if (courseId) return { ...NOWHERE, workspaceId, courseId, unitId: route.unitId || undefined };
-  if (workspaceId && route.reviewsToday) return { ...NOWHERE, workspaceId, reviewsToday: true };
-  if (workspaceId && route.learningToday) return { ...NOWHERE, workspaceId, learningToday: true };
-  const boardId = ((workspaceId || readToken) && route.boardId) || undefined;
-  const viewId = (boardId && route.viewId) || undefined;
-  const cardId = (viewId && route.cardId) || undefined;
-  if (readToken && boardId)
-    return { workspaceId, boardId, viewId, cardId, readToken, unknown: false, shared: true };
-  return { workspaceId, boardId, viewId, cardId, unknown: false };
-}
-
-/**
- * The route of a board, or of a wiki or a diary where it is one (`kind`). A
- * diary's names no day: its page opens on today's.
- */
-export function placeRoute(container: ContainerPlace): Partial<Route> {
-  const { workspaceId, id } = container;
-  if (container.kind === 'wiki') return { workspaceId, wikiId: id };
-  if (container.kind === 'diary') return { workspaceId, diaryId: id };
-  if (container.kind === 'course') return { workspaceId, courseId: id };
-  return { workspaceId, boardId: id };
-}
-
-/** The board, wiki, diary or course a route shows. */
-export function shownContainerId(route: Route): string | undefined {
-  return route.boardId ?? route.wikiId ?? route.diaryId ?? route.courseId;
-}
-
-/** The address of a route, from the root of the site. */
-export function routePath(route: Partial<Route>, basePath: string): string {
-  if (route.orgId) return buildUrl(`/org/${encodeURIComponent(route.orgId)}`, basePath);
-  if (route.meTime) return buildUrl('/me/time', basePath);
-  const {
-    workspaceId,
-    boardId,
-    viewId,
-    cardId,
-    readToken,
-    wikiId,
-    pageId,
-    diaryId,
-    monthDay,
-    year,
-    courseId,
-    unitId,
-    reviewsToday,
-    learningToday,
-  } = settled(route);
-  if (readToken && boardId) {
-    const parts = [boardId, viewId, cardId].filter((part) => part !== undefined);
-    const path = ['shared', ...parts.map((part) => encodeURIComponent(part))].join('/');
-    return `${buildUrl(`/${path}`, basePath)}?r=${encodeURIComponent(readToken)}`;
-  }
-  if (!workspaceId) return buildUrl('/', basePath);
-  if (reviewsToday)
-    return buildUrl(`/w/${encodeURIComponent(workspaceId)}/learning/reviews/today`, basePath);
-  if (learningToday)
-    return buildUrl(`/w/${encodeURIComponent(workspaceId)}/learning/today`, basePath);
-  const named = (
-    wikiId
-      ? [wikiId, pageId]
-      : diaryId
-        ? [diaryId, monthDay]
-        : courseId
-          ? [courseId, unitId]
-          : [boardId, viewId, cardId]
-  ).filter((part) => part !== undefined);
-  const section = wikiId ? 'wikis' : diaryId ? 'diaries' : courseId ? 'courses' : 'boards';
-  const path = [
-    'w',
-    encodeURIComponent(workspaceId),
-    ...(named.length > 0 ? [section] : []),
-    ...named.map((part) => encodeURIComponent(part)),
-  ];
-  const url = buildUrl(`/${path.join('/')}`, basePath);
-  return diaryId && monthDay && year ? `${url}?year=${encodeURIComponent(year)}` : url;
+function sameRoute(a: Route, b: Route): boolean {
+  return (
+    a.passwordReset === b.passwordReset &&
+    a.passwordForgot === b.passwordForgot &&
+    a.emailVerify === b.emailVerify &&
+    a.emailConfirm === b.emailConfirm &&
+    a.emailRevert === b.emailRevert &&
+    a.orgId === b.orgId &&
+    a.meTime === b.meTime &&
+    a.workspaceId === b.workspaceId &&
+    a.boardId === b.boardId &&
+    a.viewId === b.viewId &&
+    a.cardId === b.cardId &&
+    a.wikiId === b.wikiId &&
+    a.pageId === b.pageId &&
+    a.diaryId === b.diaryId &&
+    a.monthDay === b.monthDay &&
+    a.year === b.year &&
+    a.courseId === b.courseId &&
+    a.unitId === b.unitId &&
+    a.courseTab === b.courseTab &&
+    a.meetingId === b.meetingId &&
+    a.reviewsToday === b.reviewsToday &&
+    a.learningToday === b.learningToday &&
+    a.invitation === b.invitation &&
+    a.readToken === b.readToken &&
+    a.shared === b.shared &&
+    a.unknown === b.unknown
+  );
 }
 
 export class Router {
@@ -324,40 +79,10 @@ export class Router {
   /** Starts following the back and forward buttons. Returns the function that stops. */
   listen(): () => void {
     const onPopState = (): void => {
-      // The address of where the reader went is not written yet (it waits for a
-      // sheet's step back, which is what arrives here): the bar still shows the old one.
       if (this.#writes > 0) return;
-      // An entry of a sheet or the drawer has the address it was opened on: no change.
       const next = parseRoute(location.pathname, this.basePath, location.search);
       const now = this.route;
-      if (
-        next.passwordReset === now.passwordReset &&
-        next.passwordForgot === now.passwordForgot &&
-        next.emailVerify === now.emailVerify &&
-        next.emailConfirm === now.emailConfirm &&
-        next.emailRevert === now.emailRevert &&
-        next.orgId === now.orgId &&
-        next.meTime === now.meTime &&
-        next.workspaceId === now.workspaceId &&
-        next.boardId === now.boardId &&
-        next.viewId === now.viewId &&
-        next.cardId === now.cardId &&
-        next.wikiId === now.wikiId &&
-        next.pageId === now.pageId &&
-        next.diaryId === now.diaryId &&
-        next.monthDay === now.monthDay &&
-        next.year === now.year &&
-        next.courseId === now.courseId &&
-        next.unitId === now.unitId &&
-        next.reviewsToday === now.reviewsToday &&
-        next.learningToday === now.learningToday &&
-        next.invitation === now.invitation &&
-        next.readToken === now.readToken &&
-        next.shared === now.shared &&
-        next.unknown === now.unknown
-      ) {
-        return;
-      }
+      if (sameRoute(next, now)) return;
       if (next.cardId !== now.cardId) this.#cardEntered = false;
       this.route = next;
     };
@@ -376,17 +101,9 @@ export class Router {
     return buildUrl(`/invite/${encodeURIComponent(token)}`, this.basePath);
   }
 
-  /**
-   * Loads the page anew at a route (signing out, another account signing
-   * in). What is open over the page lets go of its entries first: closing as
-   * the page goes (the shell gives way to the sign-in page) would otherwise
-   * step back in the history, over the new address, to the one left. The new
-   * address takes the place of such an entry, as `go` does it, and of the
-   * current one where `replace` asks for it.
-   */
+  /** Loads the page anew at a route (signing out, another account signing in). */
   restart(route: Partial<Route>, options: { replace?: boolean; query?: string } = {}): void {
     const overOverlay = releaseOverlayEntries() > 0;
-    // What the page that starts is told once (`query`), as a provider tells it what became of a sign-in.
     const address = this.href(route) + (options.query ? `?${options.query}` : '');
     if (overOverlay || options.replace) window.location.replace(address);
     else window.location.assign(address);
@@ -396,27 +113,20 @@ export class Router {
   go(route: Partial<Route>, options: { replace?: boolean } = {}): void {
     const next = settled(route);
     const path = routePath(next, this.basePath);
-    // Between a public link and the app the page starts anew: each is a page of its own.
     if (Boolean(next.shared) !== Boolean(this.route.shared)) {
       window.location.assign(path);
       return;
     }
-    // While an address waits to be written, that one is where the bar is heading.
     const here =
-      next.readToken || next.year || this.route.year
+      next.readToken || next.year || this.route.year || next.courseTab || this.route.courseTab
         ? `${location.pathname}${location.search}`
         : location.pathname;
     const shown = this.#writes > 0 ? this.#heading : here;
     if (path !== shown) {
-      // The address is written once no sheet that just closed is still giving
-      // its entry back (back.svelte.ts): at once, unless one is.
       this.#writes += 1;
       this.#heading = path;
       afterOwnSteps(() => {
         this.#writes -= 1;
-        // Going somewhere from inside a drawer or a sheet: the new address takes
-        // the place of the overlay's entry, so that "back" returns to where the
-        // reader was before opening it.
         const overOverlay = releaseOverlayEntries() > 0;
         if (options.replace || overOverlay) history.replaceState(null, '', path);
         else history.pushState(null, '', path);
@@ -425,32 +135,40 @@ export class Router {
     this.route = next;
   }
 
-  /**
-   * Shows a board, at the address of its own workspace; its first view is
-   * chosen by the page. A wiki (`kind`) is shown at a wiki's address, its
-   * first page chosen by its page.
-   */
   openContainer(container: ContainerPlace): void {
     this.#cardEntered = false;
     this.go(placeRoute(container));
   }
 
-  /** Shows a page of the wiki shown. `replace`: in place of the address there. */
   openPage(pageId: string | undefined, options: { replace?: boolean } = {}): void {
     const { workspaceId, wikiId } = this.route;
     if (wikiId) this.go({ workspaceId, wikiId, pageId }, options);
   }
 
-  /** Shows a day of the year of the diary shown. `replace`: in place of the address there. */
   openDay(monthDay: string, options: { replace?: boolean } = {}): void {
     const { workspaceId, diaryId } = this.route;
     if (diaryId) this.go({ workspaceId, diaryId, monthDay }, options);
   }
 
-  /** Shows a unit of the course shown. `replace`: in place of the address there. */
   openUnit(unitId: string | undefined, options: { replace?: boolean } = {}): void {
     const { workspaceId, courseId } = this.route;
     if (courseId) this.go({ workspaceId, courseId, unitId }, options);
+  }
+
+  /** Switches the active tab of the course shown (`units` clears `?tab=`). */
+  openCourseTab(tab: CourseTab, options: { meetingId?: string; replace?: boolean } = {}): void {
+    const { workspaceId, courseId, unitId } = this.route;
+    if (!courseId) return;
+    this.go(
+      {
+        workspaceId,
+        courseId,
+        unitId,
+        ...(tab === 'units' ? {} : { courseTab: tab }),
+        ...(tab === 'meetings' && options.meetingId ? { meetingId: options.meetingId } : {}),
+      },
+      options,
+    );
   }
 
   openView(viewId: string): void {
@@ -459,24 +177,16 @@ export class Router {
     this.go({ workspaceId, boardId, viewId, readToken });
   }
 
-  /** Opens a card over the view that is shown. */
   openCard(cardId: string): void {
     const replacing = this.route.cardId !== undefined;
     this.go({ ...this.route, cardId }, { replace: replacing });
     if (!replacing) this.#cardEntered = true;
   }
 
-  /**
-   * Closes the card. When it was opened from the board, that is one step
-   * back in the history, so that "forward" opens it again; when the visit
-   * started on the card's address, there is nothing to go back to and the
-   * address is replaced.
-   */
   closeCard(): void {
     if (this.route.cardId === undefined) return;
     if (this.#cardEntered) {
       this.#cardEntered = false;
-      // After whatever still waits to be written: the step is counted from there.
       afterOwnSteps(() => {
         history.back();
       });

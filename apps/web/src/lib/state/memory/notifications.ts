@@ -28,7 +28,7 @@ export interface StoredNotification {
   recipientId: string;
   /** Defaults to `'comment'` when omitted. */
   kind?: NotificationKind;
-  /** The card or the page, and where it is. */
+  /** The card, page, unit, or meeting, and where it is. */
   blockId: string;
   containerId: string;
   /** The comment of the latest of it. */
@@ -40,6 +40,40 @@ export interface StoredNotification {
   createAt: number;
   updateAt: number;
   readAt: number;
+}
+
+/**
+ * Delivers an upcoming-meeting notification in the shared workspace to each
+ * active enrolled member of `courseId`, matching `App::notify_upcoming_meetings`.
+ */
+export function noteUpcomingMeeting(world: World, courseId: string, meetingId: string): void {
+  const container = world.containers.get(courseId);
+  const meeting = (world.courseMeetings.get(courseId) ?? []).find((one) => one.id === meetingId);
+  if (!container || !meeting || container.workspaceId !== world.workspace.id) return;
+  const now = world.now();
+  const told: string[] = [];
+  for (const member of world.members.get(courseId) ?? []) {
+    if (!reads(world, member.userId, courseId)) continue;
+    const theirs = world.notifications.get(member.userId) ?? [];
+    theirs.push({
+      id: world.newId(),
+      recipientId: member.userId,
+      kind: 'meeting_upcoming',
+      blockId: meeting.id,
+      containerId: courseId,
+      commentId: '',
+      actorId: '',
+      doers: [],
+      times: 1,
+      createAt: now,
+      updateAt: now,
+      readAt: 0,
+    });
+    world.notifications.set(member.userId, theirs);
+    told.push(member.userId);
+  }
+  meeting.notifiedAt = now;
+  world.tellUsers(told, { kind: 'notifications' });
 }
 
 /**
@@ -213,6 +247,34 @@ export class MemoryNotifications implements Notifications {
   #shown(one: StoredNotification): Notification {
     const world = this.#world;
     const { id, createAt, updateAt, readAt } = one;
+    if (one.kind === 'meeting_upcoming') {
+      const container = world.containers.get(one.containerId);
+      const meeting = (world.courseMeetings.get(one.containerId) ?? []).find(
+        (each) => each.id === one.blockId,
+      );
+      if (!container || !meeting || !reads(world, this.#userId, container.id)) {
+        return { id, createAt, updateAt, readAt, subject: null };
+      }
+      return {
+        id,
+        createAt,
+        updateAt,
+        readAt,
+        subject: {
+          kind: 'meeting_upcoming',
+          actorId: '',
+          times: 1,
+          people: 0,
+          workspaceId: container.workspaceId,
+          containerId: container.id,
+          containerKind: 'course',
+          blockId: meeting.id,
+          blockKind: 'unit',
+          title: meeting.title,
+          commentId: '',
+        },
+      };
+    }
     const block = world.blocks.get(one.blockId);
     const container = world.containers.get(block?.containerId ?? '');
     if (!block || !container || !reads(world, this.#userId, container.id)) {

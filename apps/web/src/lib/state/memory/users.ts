@@ -56,12 +56,15 @@ export function eraseUser(world: World, userId: string): void {
   });
   world.workspaceMembers.delete(userId);
   world.settings.delete(userId);
+  world.examScores.delete(userId);
   for (const [boardId, members] of world.members) {
-    world.members.set(
-      boardId,
-      members.filter((member) => member.userId !== userId),
-    );
+    const next = members.filter((member) => member.userId !== userId);
+    world.members.set(boardId, next);
+    if (next.length !== members.length) {
+      world.tellContainer(boardId, { kind: 'members', containerId: boardId, members: copy(next) });
+    }
   }
+  world.tellUsers([...world.workspaceMembers], { kind: 'user', userId });
 }
 
 /** The people who work in a workspace (`workersOf`), but who are gone. */
@@ -100,6 +103,11 @@ export function usersNamed(
         for (const version of world.commentVersions.get(block.id) ?? [])
           visible.add(version.writtenBy);
       }
+    }
+    for (const meeting of world.courseMeetings.get(board.id) ?? []) {
+      if (meeting.presenterId) visible.add(meeting.presenterId);
+      if (meeting.hostId) visible.add(meeting.hostId);
+      for (const row of meeting.attendance) visible.add(row.userId);
     }
   }
   return (

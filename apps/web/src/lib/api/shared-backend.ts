@@ -196,6 +196,21 @@ export class SharedBackend implements Backend {
     redistributeMySchedule: refused,
     putUnitSchedule: refused,
     learningToday: () => Promise.resolve({ today: '1970-01-01', todayUnits: [], overdueUnits: [] }),
+    meetings: {
+      list: nothing,
+      create: refused,
+      patch: refused,
+      delete: refused,
+      putAttendance: refused,
+    },
+    exams: {
+      list: nothing,
+      create: refused,
+      patch: refused,
+      delete: refused,
+      putMyScore: refused,
+      deleteMyScore: refused,
+    },
   };
   readonly #http: Http;
   readonly #containerId: string;
