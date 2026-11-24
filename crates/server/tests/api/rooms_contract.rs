@@ -11,7 +11,7 @@ use crate::rooms::{Peer, UPDATE, frame, give, paragraphs, table};
 use crate::websocket::{check_message, read_contract};
 
 /// A connection of `user_id` that reads nothing of what it is sent, in the room of
-/// the card with `one` and `two`: the `DOC_LEFT` it finds when it reads at last.
+/// the card with `one` and `two`: the `docLeft` it finds when it reads at last.
 async fn left_for_not_reading(
     th: &TestServer,
     card_id: &str,
@@ -24,7 +24,7 @@ async fn left_for_not_reading(
     // as many messages waiting as may, it is put out, and the others go on.
     let collab = th.app.collab();
     let join = json!({
-        "action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID, "cardId": card_id,
+        "type": "joinDoc", "workspaceId": TEST_WORKSPACE_ID, "cardId": card_id,
     })
     .to_string();
     let (mut slow, waiting) = collab.seat(
@@ -43,7 +43,7 @@ async fn left_for_not_reading(
         .expect("the membership is read")
         .expect("a member")
         .app;
-    // Sixty-four may wait here. `DOC_JOINED` and the document wait already: 62 more,
+    // Sixty-four may wait here. `docJoined` and the document wait already: 62 more,
     // and the next is one too many.
     for n in 0..62 {
         one.write_acked(&format!("{n}")).await;
@@ -54,16 +54,16 @@ async fn left_for_not_reading(
     // The answer it was given as it came in waits on; the document and the updates
     // that waited are dropped for the notice.
     let Some(Outgoing::Text(joined)) = waiting.next().await else {
-        panic!("the answer to JOIN_DOC waits on");
+        panic!("the answer to joinDoc waits on");
     };
-    assert!(joined.contains("DOC_JOINED"), "{joined}");
+    assert!(joined.contains("docJoined"), "{joined}");
     let Some(Outgoing::Text(left)) = waiting.next().await else {
         panic!("what waited of the document is dropped for the notice");
     };
     let left: Value = serde_json::from_str(&left).expect("JSON");
     assert_eq!(
         left,
-        json!({"action": "DOC_LEFT", "doc": 1, "reason": "connection_too_slow"}),
+        json!({"type": "docLeft", "doc": 1, "reason": "connection_too_slow"}),
         "put out for what waited"
     );
     assert!(!slow.overrun().is_cancelled(), "the connection stays");
@@ -73,12 +73,12 @@ async fn left_for_not_reading(
     // It comes in again, and is sent the whole document.
     assert!(slow.command(&join).await, "a command of the rooms");
     let Some(Outgoing::Text(joined)) = waiting.next().await else {
-        panic!("the answer to JOIN_DOC");
+        panic!("the answer to joinDoc");
     };
     let joined: Value = serde_json::from_str(&joined).expect("JSON");
     assert_eq!(
-        (&joined["action"], &joined["doc"]),
-        (&json!("DOC_JOINED"), &json!(2)),
+        (&joined["type"], &joined["doc"]),
+        (&json!("docJoined"), &json!(2)),
         "{joined}"
     );
     assert!(
@@ -112,7 +112,7 @@ async fn the_messages_of_the_rooms_match_the_websocket_contract() {
     let mut heard = BTreeSet::new();
     let mut check = |message: &Value| {
         check_message(&contract, &openapi, message);
-        heard.insert(message["action"].as_str().expect("an action").to_owned());
+        heard.insert(message["type"].as_str().expect("a message type").to_owned());
     };
 
     let mut one = Peer::connect(&th.client, 101).await;
@@ -120,17 +120,17 @@ async fn the_messages_of_the_rooms_match_the_websocket_contract() {
     check(&one.joined(TEST_WORKSPACE_ID, &t.card_id).await);
     check(&one.join(TEST_WORKSPACE_ID, "no card").await);
     one.write("typed").await;
-    check(&one.text("DOC_ACK").await);
+    check(&one.text("docAck").await);
     one.send_binary(frame(one.doc, one.epoch, UPDATE, b"no update"))
         .await;
-    check(&one.text("DOC_NACK").await);
+    check(&one.text("docNack").await);
     one.settle().await;
 
     // The card's body is written whole over HTTP, which makes its document again;
     // who comes in next is sent the new one, and so is who was there.
     crate::rooms::write_whole(&th.client, &t.card_id, &paragraphs(&["written whole"])).await;
     two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
-    let reset = one.text("DOC_RESET").await;
+    let reset = one.text("docReset").await;
     check(&reset);
     assert_eq!(reset["epoch"], json!(two.epoch), "{reset}");
     assert_ne!(two.epoch, 1, "another document");
@@ -140,9 +140,9 @@ async fn the_messages_of_the_rooms_match_the_websocket_contract() {
 
     // A role lowered while its holder is in the room: told at the next asking.
     give(&th, &t.board_id, &user2, "viewer").await;
-    check(&two.text("DOC_MODE").await);
+    check(&two.text("docModeChanged").await);
     give(&th, &t.board_id, &user2, "editor").await;
-    assert_eq!(two.text("DOC_MODE").await["mode"], json!("write"));
+    assert_eq!(two.text("docModeChanged").await["mode"], json!("write"));
 
     check(&left_for_not_reading(&th, &t.card_id, &user2, &mut one, &mut two).await);
 
@@ -150,7 +150,7 @@ async fn the_messages_of_the_rooms_match_the_websocket_contract() {
         .as_object()
         .expect("the messages are an object")
         .keys()
-        .filter(|action| action.starts_with("DOC_"))
+        .filter(|kind| kind.starts_with("doc"))
         .cloned()
         .collect();
     assert_eq!(

@@ -85,7 +85,15 @@ async fn migration_0062_to_0063_creates_unit_progress_behind_rls() {
     let owner = common::user(&scoped, "teacher").await;
     common::works_in(&scoped, &workspace_id, &owner).await;
     let course = create_course(&scoped, &workspace_id, &owner).await;
-    let unit = create_item(&scoped, &course.id, UnitKind::Unit, "", "Intro", &owner).await;
+    let unit = create_item(
+        &scoped.telling_nobody(),
+        &course.id,
+        UnitKind::Unit,
+        "",
+        "Intro",
+        &owner,
+    )
+    .await;
     pre.close().await;
 
     let migrated = Store::connect(database.db_type(), database.database_connection())

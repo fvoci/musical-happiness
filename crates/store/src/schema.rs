@@ -83,6 +83,10 @@ pub(crate) const BEFORE_UNIT_REVIEWS_VERSION: i64 = 66;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_COURSE_EVENTS_VERSION: i64 = 67;
 
+/// The migration before subscriptions `user_id` cleanup (0069).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_SUBSCRIPTIONS_USER_ID_VERSION: i64 = 68;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -453,5 +457,16 @@ mod tests {
             .expect("migration 68 is in the list");
         assert_eq!(step.version, 68);
         assert_eq!(step.description, "course meetings and exams");
+    }
+
+    /// Migration 69 is subscriptions `user_id`, immediately following `BEFORE_SUBSCRIPTIONS_USER_ID_VERSION` (68).
+    #[test]
+    fn migration_69_is_subscriptions_user_id() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_SUBSCRIPTIONS_USER_ID_VERSION + 1)
+            .expect("migration 69 is in the list");
+        assert_eq!(step.version, 69);
+        assert_eq!(step.description, "subscriptions user id");
     }
 }

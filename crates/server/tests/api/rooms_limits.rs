@@ -46,14 +46,14 @@ async fn a_connection_is_in_eight_rooms_and_no_more() {
     assert_eq!(
         refused,
         json!({
-            "action": "DOC_REFUSED", "workspaceId": TEST_WORKSPACE_ID, "cardId": cards[8],
+            "type": "docRefused", "workspaceId": TEST_WORKSPACE_ID, "cardId": cards[8],
             "reason": "too_many_documents_joined",
         })
     );
     // Anew into one it is in: no ninth.
     peer.joined(TEST_WORKSPACE_ID, &cards[7]).await;
     assert_eq!(th.app.collab().rooms(), 8);
-    peer.send_json(json!({"action": "LEAVE_DOC", "doc": docs[0]}))
+    peer.send_json(json!({"type": "leaveDoc", "doc": docs[0]}))
         .await;
     peer.joined(TEST_WORKSPACE_ID, &cards[8]).await;
     drop(peer);
@@ -127,7 +127,7 @@ async fn five_connections_of_a_user_are_in_a_room_and_no_sixth() {
     assert_eq!(
         refused,
         json!({
-            "action": "DOC_REFUSED", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
+            "type": "docRefused", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
             "reason": "too_many_connections_joined",
         })
     );
@@ -160,7 +160,7 @@ async fn room_app(th: &TestServer) -> fvoci_server::app::App {
 
 /// A connection that sends more frames than it may is put out of the room the frame
 /// past the limit was for, after the answers to the frames before it, and a
-/// `JOIN_DOC` past the limit is refused; the other in the room is sent what was
+/// `joinDoc` past the limit is refused; the other in the room is sent what was
 /// taken, and goes on.
 #[tokio::test]
 async fn frames_past_the_rate_put_a_connection_out_of_the_room() {
@@ -188,24 +188,24 @@ async fn frames_past_the_rate_put_a_connection_out_of_the_room() {
     }
     one.write("past the limit").await;
     one.send_json(json!({
-        "action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
+        "type": "joinDoc", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
     }))
     .await;
     for _ in 0..3 {
         let answer = one.incoming(PATIENCE).await;
         assert!(
-            matches!(&answer, Incoming::Text(ack) if ack["action"] == json!("DOC_ACK")),
+            matches!(&answer, Incoming::Text(ack) if ack["type"] == json!("docAck")),
             "the answers to what was taken come first: {answer:?}"
         );
     }
     assert_eq!(
         one.incoming(PATIENCE).await,
         Incoming::Text(json!({
-            "action": "DOC_LEFT", "doc": one.doc, "reason": "too_many_frames",
+            "type": "docLeft", "doc": one.doc, "reason": "too_many_frames",
         })),
         "put out by the update past the limit"
     );
-    let refused = one.text("DOC_REFUSED").await;
+    let refused = one.text("docRefused").await;
     assert_eq!(refused["reason"], json!("too_many_frames"), "{refused}");
     two.settle().await;
     assert_eq!(
@@ -283,10 +283,10 @@ async fn an_update_made_to_walk_a_long_list_is_refused_and_the_room_goes_on() {
     // `fvoci_collab::PLACING_STEPS`; 59 kB of them past 50,000 took 12 seconds.
     let began = std::time::Instant::now();
     one.send_update(&crowding(1 << 40, 900)).await;
-    let nack = one.text("DOC_NACK").await;
+    let nack = one.text("docNack").await;
     assert_eq!(
         nack,
-        json!({"action": "DOC_NACK", "doc": one.doc, "epoch": 1, "reason": "update_refused"})
+        json!({"type": "docNack", "doc": one.doc, "epoch": 1, "reason": "update_refused"})
     );
     assert!(
         began.elapsed() < Duration::from_secs(5),
@@ -299,7 +299,7 @@ async fn an_update_made_to_walk_a_long_list_is_refused_and_the_room_goes_on() {
         "sent to nobody"
     );
     one.send_update(&crowding(1 << 40, 20)).await;
-    let ack = one.text("DOC_ACK").await;
+    let ack = one.text("docAck").await;
     assert_eq!(ack["doc"], json!(one.doc), "{ack}");
     two.write_acked("goes on").await;
     th.teardown().await;
@@ -318,7 +318,7 @@ async fn a_large_update_is_refused_and_a_larger_frame_ends_the_connection() {
         .await;
     let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     one.write(&"x".repeat(3000)).await;
-    let nack = one.text("DOC_NACK").await;
+    let nack = one.text("docNack").await;
     assert_eq!(nack["reason"], json!("update_too_large"), "{nack}");
     assert_eq!(
         two.incoming(QUIET).await,
@@ -428,10 +428,10 @@ async fn a_connection_that_does_not_read_is_put_out_and_the_others_go_on() {
     );
 
     // It reads at last: answers that were on their way, and then the notice.
-    let left = slow.text("DOC_LEFT").await;
+    let left = slow.text("docLeft").await;
     assert_eq!(
         left,
-        json!({"action": "DOC_LEFT", "doc": slow.doc, "reason": "connection_too_slow"})
+        json!({"type": "docLeft", "doc": slow.doc, "reason": "connection_too_slow"})
     );
     slow.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     assert_eq!(slow.body(), one.body());

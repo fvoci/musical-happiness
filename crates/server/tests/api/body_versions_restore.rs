@@ -47,10 +47,10 @@ async fn a_version_restored_is_sent_to_the_room_and_keeps_what_was_typed() {
 
     assert_eq!(restore(&th.client2, &t.card_id, 1).await, ["first"]);
     for peer in [&mut one, &mut two] {
-        let reset = peer.text("DOC_RESET").await;
+        let reset = peer.text("docReset").await;
         assert_eq!(
             reset,
-            json!({"action": "DOC_RESET", "doc": peer.doc, "epoch": 2})
+            json!({"type": "docReset", "doc": peer.doc, "epoch": 2})
         );
         peer.settle().await;
         assert_eq!(
@@ -91,7 +91,7 @@ async fn a_version_restored_is_sent_to_the_room_and_keeps_what_was_typed() {
     assert_eq!(one.lines(), ["first", "after"]);
     assert_eq!(restore(&th.client, &t.card_id, 2).await, ["first", "typed"]);
     for peer in [&mut one, &mut two] {
-        peer.text("DOC_RESET").await;
+        peer.text("docReset").await;
         peer.settle().await;
         assert_eq!(peer.lines(), ["first", "typed"]);
     }
@@ -140,7 +140,7 @@ async fn a_version_restored_is_the_cards_body_and_the_same_body_again_is_nothing
     let mut listener = WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &user1).await;
     assert_eq!(restore(&th.client, &t.card_id, 1).await, ["first"]);
     let told = listener
-        .expect("UPDATE_BLOCK", "/block/id", &t.card_id)
+        .expect("blockChanged", "/block/id", &t.card_id)
         .await;
     assert_eq!(told["block"]["modifiedBy"], json!(user1), "{told}");
     assert_eq!(
@@ -166,7 +166,7 @@ async fn a_version_restored_is_the_cards_body_and_the_same_body_again_is_nothing
     );
     assert_eq!(body_of(&card(&th.client, &t.card_id).await), None);
     listener
-        .expect("UPDATE_BLOCK", "/block/id", &t.card_id)
+        .expect("blockChanged", "/block/id", &t.card_id)
         .await;
 
     // The body the card has, by its newest version and by an older one.
@@ -192,7 +192,7 @@ async fn a_version_restored_is_the_cards_body_and_the_same_body_again_is_nothing
     assert!(
         heard
             .iter()
-            .all(|message| message["action"] != json!("UPDATE_BLOCK")),
+            .all(|message| message["type"] != json!("blockChanged")),
         "a restore that writes nothing tells nobody: {heard:?}"
     );
     th.teardown().await;

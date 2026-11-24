@@ -137,8 +137,8 @@ async fn handle_put_org_role(
 /// subscriptions, unused invitation links, and membership of the organization, and ends
 /// instance administration if this is the server's own first organization. Recorded in
 /// the organization's audit log (`org_member_removed`). Their open connections stop
-/// following the organization's workspaces (`UNSUBSCRIBED_WORKSPACE`) and leave open
-/// body rooms (`DOC_LEFT`). Unlike `leaveOrganization`, this does not require the
+/// following the organization's workspaces (`workspaceUnsubscribed`) and leave open
+/// body rooms (`docLeft`). Unlike `leaveOrganization`, this does not require the
 /// removed account to have a password.
 ///
 /// 404 for a user who is no member of the organization, or for a caller who does not

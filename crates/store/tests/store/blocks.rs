@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use fvoci_model::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, BODY_VERSION, Block, BlockError, BlockPatch,
     BlockPatchBatch, BlockType, Body, BodyChange, ContainersAndBlocksError, FileInfo, JsonMap,
-    SubscriberType, Subscription, new_id,
+    Subscription, new_id,
 };
 use fvoci_store::{BlockFilter, DbType, DeletedBlock, DuplicateAs, Paging, Store, StoreError};
 use serde_json::{Value, json};
@@ -2763,12 +2763,11 @@ async fn undelete_block_of_what_is_not_in_the_trash_is_not_found_and_writes_noth
 }
 
 /// A subscription of a user to a block.
-fn subscription(block: &Block, subscriber_id: &str) -> Subscription {
+fn subscription(block: &Block, user_id: &str) -> Subscription {
     Subscription {
         block_type: block.block_type.clone(),
         block_id: block.id.clone(),
-        subscriber_type: SubscriberType::User,
-        subscriber_id: subscriber_id.to_owned(),
+        user_id: user_id.to_owned(),
         notified_at: 0,
         create_at: 0,
         delete_at: 0,
@@ -2776,9 +2775,9 @@ fn subscription(block: &Block, subscriber_id: &str) -> Subscription {
 }
 
 /// The identifiers of the blocks a user is subscribed to, sorted.
-async fn subscribed_block_ids(store: &Store, subscriber_id: &str) -> Vec<String> {
+async fn subscribed_block_ids(store: &Store, user_id: &str) -> Vec<String> {
     let mut block_ids: Vec<String> = store
-        .get_subscriptions(subscriber_id)
+        .get_subscriptions(user_id)
         .await
         .expect("the subscriptions of a user are read")
         .into_iter()
@@ -2796,14 +2795,14 @@ async fn subscriptions_to_a_deleted_block_pause_in_trash_and_return_on_restore()
     let Fixture {
         user_id, board_id, ..
     } = fixture(store).await;
-    let subscriber_id = common::user(store, "subscriber").await;
+    let watcher_id = common::user(store, "watcher").await;
     let tree = insert_card_tree(&store.telling_nobody(), &board_id, &user_id).await;
     let card_id = id_of(&tree, "card");
     let deepest_id = id_of(&tree, "deepest");
     let other_card_id = id_of(&tree, "other card");
 
     for name in ["card", "deepest", "other card"] {
-        let sub = subscription(block_named(&tree, name), &subscriber_id);
+        let sub = subscription(block_named(&tree, name), &watcher_id);
         store.create_subscription(sub).await.expect("subscribe");
     }
     let second = subscription(block_named(&tree, "card"), &user_id);
@@ -2812,7 +2811,7 @@ async fn subscriptions_to_a_deleted_block_pause_in_trash_and_return_on_restore()
     store.delete_block(card_id, &user_id).await.expect("delete");
     for block_id in [card_id, deepest_id] {
         let err = store
-            .get_subscription(block_id, &subscriber_id)
+            .get_subscription(block_id, &watcher_id)
             .await
             .expect_err("paused in trash");
         assert!(err.is_not_found(), "{block_id}: {err:?}");
@@ -2823,7 +2822,7 @@ async fn subscriptions_to_a_deleted_block_pause_in_trash_and_return_on_restore()
         assert!(subs.is_empty(), "{block_id}: {subs:?}");
     }
     assert_eq!(
-        subscribed_block_ids(store, &subscriber_id).await,
+        subscribed_block_ids(store, &watcher_id).await,
         [other_card_id]
     );
     assert_eq!(
@@ -2837,8 +2836,8 @@ async fn subscriptions_to_a_deleted_block_pause_in_trash_and_return_on_restore()
         .expect("restore");
     existing_block(store, deepest_id).await;
     for (block_id, who) in [
-        (card_id, &subscriber_id),
-        (deepest_id, &subscriber_id),
+        (card_id, &watcher_id),
+        (deepest_id, &watcher_id),
         (card_id, &user_id),
     ] {
         store
@@ -2848,7 +2847,7 @@ async fn subscriptions_to_a_deleted_block_pause_in_trash_and_return_on_restore()
     }
     let mut expected = strings([card_id, deepest_id, other_card_id]);
     expected.sort();
-    assert_eq!(subscribed_block_ids(store, &subscriber_id).await, expected);
+    assert_eq!(subscribed_block_ids(store, &watcher_id).await, expected);
     assert_eq!(subscribed_block_ids(store, &user_id).await, [card_id]);
 
     store
@@ -2859,7 +2858,7 @@ async fn subscriptions_to_a_deleted_block_pause_in_trash_and_return_on_restore()
     let err = store.get_deleted_block(card_id).await.expect_err("purged");
     assert!(err.is_not_found(), "got {err:?}");
     assert_eq!(
-        subscribed_block_ids(store, &subscriber_id).await,
+        subscribed_block_ids(store, &watcher_id).await,
         [other_card_id]
     );
     assert_eq!(

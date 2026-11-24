@@ -214,7 +214,7 @@ test('a connection cut for five seconds: the body is read-only meanwhile, and bo
     }
     const server = socket.connectToServer();
     socket.onMessage((message) => {
-      if (typeof message === 'string' && message.includes('JOIN_DOC')) {
+      if (typeof message === 'string' && message.includes('joinDoc')) {
         joins.push({ said: message, frames: [] });
       }
       if (!held) server.send(message);

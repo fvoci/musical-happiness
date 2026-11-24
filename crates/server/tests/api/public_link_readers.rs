@@ -1,5 +1,5 @@
 //! How many connections may read one shared board by its public link, in all and from
-//! one address: one more is told `UNSUBSCRIBED_BLOCKS` and is not counted among the
+//! one address: one more is told `blocksUnsubscribed` and is not counted among the
 //! board's anonymous readers; the members' own connections are not held to it.
 
 use serde_json::{Value, json};
@@ -39,13 +39,13 @@ async fn reader(
     let mut socket = Socket::connect_from(th, address).await;
     socket
         .send(json!({
-            "action": "SUBSCRIBE_BLOCKS", "workspaceId": TEST_WORKSPACE_ID,
+            "type": "subscribeBlocks", "workspaceId": TEST_WORKSPACE_ID,
             "blockIds": [card_id], "readToken": token,
         }))
         .await;
     socket
         .send(json!({
-            "action": "SET_PRESENCE", "workspaceId": TEST_WORKSPACE_ID,
+            "type": "setPresence", "workspaceId": TEST_WORKSPACE_ID,
             "containerId": board_id, "readToken": token,
         }))
         .await;
@@ -58,7 +58,7 @@ async fn member_on(th: &TestServer, board_id: &str) -> Socket {
     let mut member = Socket::connect_as(&th.client).await;
     member
         .send(json!({
-            "action": "SET_PRESENCE", "workspaceId": TEST_WORKSPACE_ID, "containerId": board_id,
+            "type": "setPresence", "workspaceId": TEST_WORKSPACE_ID, "containerId": board_id,
         }))
         .await;
     member
@@ -71,7 +71,7 @@ async fn anonymous_reaches(member: &mut Socket, count: u64) {
         let Some(message) = member.next_json(PATIENCE).await else {
             break;
         };
-        if message["action"] == "UPDATE_PRESENCE" {
+        if message["type"] == "presenceChanged" {
             if message["anonymousCount"] == count {
                 return;
             }
@@ -90,7 +90,7 @@ async fn anonymous_now(th: &TestServer, board_id: &str) -> Value {
             .next_json(PATIENCE)
             .await
             .expect("a roster comes to who comes onto the board");
-        if message["action"] == "UPDATE_PRESENCE" {
+        if message["type"] == "presenceChanged" {
             return message["anonymousCount"].clone();
         }
     }
@@ -108,7 +108,7 @@ async fn visitor(th: &TestServer, address: &str, board_id: &str, token: &str) ->
 async fn visit(socket: &mut Socket, board_id: &str, token: &str) {
     socket
         .send(json!({
-            "action": "SET_PRESENCE", "workspaceId": TEST_WORKSPACE_ID,
+            "type": "setPresence", "workspaceId": TEST_WORKSPACE_ID,
             "containerId": board_id, "readToken": token,
         }))
         .await;
@@ -119,7 +119,7 @@ async fn visit(socket: &mut Socket, board_id: &str, token: &str) {
 async fn follow(socket: &mut Socket, card_id: &str, token: &str) -> Option<Value> {
     socket
         .send(json!({
-            "action": "SUBSCRIBE_BLOCKS", "workspaceId": TEST_WORKSPACE_ID,
+            "type": "subscribeBlocks", "workspaceId": TEST_WORKSPACE_ID,
             "blockIds": [card_id], "readToken": token,
         }))
         .await;
@@ -128,7 +128,7 @@ async fn follow(socket: &mut Socket, card_id: &str, token: &str) -> Option<Value
 
 fn is_refusal(told: Option<&Value>) -> bool {
     told.is_some_and(|told| {
-        told["action"] == "UNSUBSCRIBED_BLOCKS" && told["reason"] == "public link connections full"
+        told["type"] == "blocksUnsubscribed" && told["reason"] == "public link connections full"
     })
 }
 
@@ -213,7 +213,7 @@ async fn visitors_alone_fill_a_board_and_a_renewal_takes_a_place_freed() {
     );
     // The first leaves the board, its connection open.
     first
-        .send(json!({"action": "SET_PRESENCE", "containerId": ""}))
+        .send(json!({"type": "setPresence", "containerId": ""}))
         .await;
     anonymous_reaches(&mut member, 1).await;
     visit(&mut third, &board_id, &token).await;
@@ -238,7 +238,7 @@ async fn unsubscribing_frees_a_place() {
     assert!(is_refusal(told.as_ref()), "the board's second: {told:?}");
     first
         .send(json!({
-            "action": "UNSUBSCRIBE_BLOCKS", "workspaceId": TEST_WORKSPACE_ID,
+            "type": "unsubscribeBlocks", "workspaceId": TEST_WORKSPACE_ID,
             "blockIds": [card_id], "readToken": token,
         }))
         .await;

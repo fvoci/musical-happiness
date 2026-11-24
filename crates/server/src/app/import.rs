@@ -1,7 +1,7 @@
-//! Importing boards and wikis from the archive format of version 3 (`super::export`)
-//! and external exports (Trello JSON, Notion Markdown & CSV ZIP).
+//! Importing boards and wikis from the native `.fvoci` archive format of version 1
+//! (`super::export`) and external exports (Trello JSON, Notion Markdown & CSV ZIP).
 //!
-//! Native `fvoci` imports stream each `board.jsonl` in two passes (`native_stream`):
+//! Native `fvoci` imports stream each `container.jsonl` in two passes (`native_stream`):
 //! Pass 1 scans and validates line by line without holding block bodies in RAM, files
 //! are staged under `loose_objects` marks, and Pass 2 streams rewritten blocks in bounded
 //! batches across all boards into one single database transaction (`native_atomic`).
@@ -36,7 +36,7 @@ const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 /// The most entries an archive has (`docs/s6-design.md` 4.2).
 const MAX_ENTRIES: u64 = 10_000;
 
-/// The largest `board.jsonl` that is read (`docs/s6-design.md` 4.2). Streamed line by
+/// The largest `container.jsonl` that is read (`docs/s6-design.md` 4.2). Streamed line by
 /// line across two passes (`native_stream`) so peak RAM stays bounded by a single batch
 /// instead of scaling with the full file's JSON AST.
 const MAX_JSONL_BYTES: u64 = 64 * 1024 * 1024;
@@ -126,7 +126,7 @@ impl App {
         }
     }
 
-    /// Runs the native fvoci v3 archive import and wraps its outcome in [`ImportSummary`].
+    /// Runs the native fvoci v1 archive import and wraps its outcome in [`ImportSummary`].
     async fn import_native_summary(
         &self,
         path: &Path,
@@ -143,7 +143,7 @@ impl App {
         })
     }
 
-    /// Imports the native fvoci v3 archive in the file at `path`, of zero or more boards
+    /// Imports the native fvoci v1 archive in the file at `path`, of zero or more boards
     /// with their blocks and files, using two-pass streaming reads with pre-commit file
     /// staging and a single atomic transaction across all boards.
     async fn import_archive_detailed(
@@ -166,7 +166,7 @@ impl App {
         let mut container_entries = Vec::new();
         for index in 0..zip.len() {
             let (dir, filename) = entry_name(&zip, index)?;
-            if filename == "board.jsonl" {
+            if filename == "container.jsonl" {
                 container_entries.push((index, dir.clone()));
             }
             if !filename.is_empty() && !seen_entries.insert((dir, filename)) {
@@ -179,7 +179,7 @@ impl App {
 
         check_native_unpacked_budget(&zip, largest_file).await?;
 
-        // Pass 1: stream every `board.jsonl` line by line for validation & cross-board refs.
+        // Pass 1: stream every `container.jsonl` line by line for validation & cross-board refs.
         let mut scanned_boards = Vec::with_capacity(container_entries.len());
         let mut elsewhere: HashSet<String> = HashSet::new();
         let mut diaries: u32 = 0;

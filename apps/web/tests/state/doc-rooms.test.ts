@@ -144,7 +144,7 @@ describe('the rooms of the backend in memory', () => {
       up: () => undefined,
       down: () => undefined,
       message: (message) => {
-        if (message.action === 'DOC_JOINED') joins.push(message.epoch);
+        if (message.type === 'docJoined') joins.push(message.epoch);
       },
       frame: (frame) => frames.push(frame),
       carets: () => undefined,
@@ -337,9 +337,9 @@ describe('a room on the page connection', () => {
     const told = listener();
     const body = openRoom(live.rooms.line('w1', 'c1'), told);
     socket().open();
-    expect(socket().texts).toContainEqual({ action: 'JOIN_DOC', workspaceId: 'w1', cardId: 'c1' });
+    expect(socket().texts).toContainEqual({ type: 'joinDoc', workspaceId: 'w1', cardId: 'c1' });
     socket().message({
-      action: 'DOC_JOINED',
+      type: 'docJoined',
       workspaceId: 'w1',
       cardId: 'c1',
       doc: 5,
@@ -347,7 +347,7 @@ describe('a room on the page connection', () => {
       mode: 'write',
     });
     // A message of the subscription comes between the join and the whole: no harm.
-    socket().message({ action: 'UPDATE_CONTAINER', workspaceId: 'w1', container: { id: 'b' } });
+    socket().message({ type: 'containerChanged', workspaceId: 'w1', container: { id: 'b' } });
     socket().binary(encodeDocFrame({ doc: 5, epoch: 2, sync: SYNC_STEP_2, payload: whole() }));
     expect(body.state.status).toBe('joined');
     const doc = body.state.doc;
@@ -361,7 +361,7 @@ describe('a room on the page connection', () => {
     const sent = decodeDocFrame(socket().frames[0] ?? new Uint8Array());
     expect(sent).toMatchObject({ doc: 5, epoch: 2, sync: SYNC_UPDATE });
     expect(body.state.pending).toBe(true);
-    socket().message({ action: 'DOC_ACK', doc: 5, epoch: 2, seq: 1 });
+    socket().message({ type: 'docAck', doc: 5, epoch: 2, seq: 1 });
     expect(body.state.pending).toBe(false);
 
     // Another's change; and one of a room not this one, dropped.
@@ -376,7 +376,7 @@ describe('a room on the page connection', () => {
     expect(texts(doc)).toHaveLength(3);
 
     body.close();
-    expect(socket().texts.at(-1)).toEqual({ action: 'LEAVE_DOC', doc: 5 });
+    expect(socket().texts.at(-1)).toEqual({ type: 'leaveDoc', doc: 5 });
   });
 
   it('is read only while the connection is away, and joins again when it is back', () => {
@@ -385,7 +385,7 @@ describe('a room on the page connection', () => {
     const body = openRoom(live.rooms.line('w1', 'c1'), listener());
     socket().open();
     socket().message({
-      action: 'DOC_JOINED',
+      type: 'docJoined',
       workspaceId: 'w1',
       cardId: 'c1',
       doc: 1,
@@ -404,7 +404,7 @@ describe('a room on the page connection', () => {
     if (!held) throw new Error('no document');
     const stateVector = Buffer.from(Y.encodeStateVector(held)).toString('base64');
     expect(socket().texts).toContainEqual({
-      action: 'JOIN_DOC',
+      type: 'joinDoc',
       workspaceId: 'w1',
       cardId: 'c1',
       epoch: 2,
@@ -412,7 +412,7 @@ describe('a room on the page connection', () => {
     });
     expect(body.state.status).toBe('receiving');
     socket().message({
-      action: 'DOC_JOINED',
+      type: 'docJoined',
       workspaceId: 'w1',
       cardId: 'c1',
       doc: 1,
@@ -432,7 +432,7 @@ describe('a room on the page connection', () => {
     const body = openRoom(live.rooms.line('w1', 'c1'), told);
     const joined = (doc: number): void => {
       socket().message({
-        action: 'DOC_JOINED',
+        type: 'docJoined',
         workspaceId: 'w1',
         cardId: 'c1',
         doc,
@@ -490,7 +490,7 @@ describe('a room on the page connection', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ doc: 2, epoch: 2, sync: SYNC_UPDATE });
     Y.applyUpdate(theirs, sent[0]?.payload ?? new Uint8Array());
-    socket().message({ action: 'DOC_ACK', doc: 2, epoch: 2, seq: 9 });
+    socket().message({ type: 'docAck', doc: 2, epoch: 2, seq: 9 });
     expect(body.state.pending).toBe(false);
     expect(texts(theirs)).toEqual(texts(doc));
     // What both held was deleted by the reader; what each wrote meanwhile is there.
@@ -514,7 +514,7 @@ describe('a room on the page connection', () => {
     const body = openRoom(live.rooms.line('w1', 'c1'), listener());
     const joined = (doc: number): void => {
       socket().message({
-        action: 'DOC_JOINED',
+        type: 'docJoined',
         workspaceId: 'w1',
         cardId: 'c1',
         doc,
@@ -557,13 +557,13 @@ describe('a room on the page connection', () => {
     const two = openRoom(live.rooms.line('w1', 'c2'), listener());
     socket().open();
     socket().message({
-      action: 'DOC_REFUSED',
+      type: 'docRefused',
       workspaceId: 'w1',
       cardId: 'c2',
       reason: 'not_found',
     });
     socket().message({
-      action: 'DOC_JOINED',
+      type: 'docJoined',
       workspaceId: 'w1',
       cardId: 'c1',
       doc: 3,
@@ -583,10 +583,10 @@ describe('a room on the page connection', () => {
     const second = openRoom(live.rooms.line('w1', 'c1'), listener());
     await Promise.resolve();
     expect(second.state).toMatchObject({ status: 'out', reason: 'already_open', retrying: true });
-    expect(socket().texts.filter((text) => text.action === 'JOIN_DOC')).toHaveLength(1);
+    expect(socket().texts.filter((text) => text.type === 'joinDoc')).toHaveLength(1);
     first.close();
     vi.advanceTimersByTime(1000);
-    expect(socket().texts.filter((text) => text.action === 'JOIN_DOC')).toHaveLength(2);
+    expect(socket().texts.filter((text) => text.type === 'joinDoc')).toHaveLength(2);
     second.close();
   });
 
@@ -599,21 +599,21 @@ describe('a room on the page connection', () => {
     first.close();
     const second = openRoom(live.rooms.line('w1', 'c1'), listener());
     socket().message({
-      action: 'DOC_JOINED',
+      type: 'docJoined',
       workspaceId: 'w1',
       cardId: 'c1',
       doc: 4,
       epoch: 1,
       mode: 'write',
     });
-    expect(socket().texts.some((text) => text.action === 'LEAVE_DOC')).toBe(false);
+    expect(socket().texts.some((text) => text.type === 'leaveDoc')).toBe(false);
     socket().message({
-      action: 'DOC_REFUSED',
+      type: 'docRefused',
       workspaceId: 'w1',
       cardId: 'c1',
       reason: 'too_many_frames',
     });
-    expect(socket().texts.at(-1)).toEqual({ action: 'LEAVE_DOC', doc: 4 });
+    expect(socket().texts.at(-1)).toEqual({ type: 'leaveDoc', doc: 4 });
     second.close();
   });
 

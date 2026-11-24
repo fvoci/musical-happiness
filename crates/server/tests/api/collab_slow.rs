@@ -572,7 +572,7 @@ fn walking_with_mention(children: u64, mentioned_user: &str) -> Vec<u8> {
 }
 
 /// An update past `READING_STEPS` sent over a room WebSocket: the sender gets
-/// `DOC_ACK`, both peers in the room get `DOC_RESET` of the next epoch with the update
+/// `docAck`, both peers in the room get `docReset` of the next epoch with the update
 /// in the remade document, the card body and a saved version hold the update, and a
 /// mention in that update (as well as one typed earlier by another editor) still
 /// notifies its recipient with the right actor.
@@ -596,27 +596,27 @@ async fn an_update_past_reading_steps_in_a_room_acks_resets_keeps_body_version_a
     // Typed list plus an unprojected mention of C by B, then A sends an update past
     // `READING_STEPS` that also mentions B.
     one.send_update(&typed_in_order(LIST)).await;
-    let first_ack = one.text("DOC_ACK").await;
+    let first_ack = one.text("docAck").await;
     assert_eq!(first_ack["epoch"], json!(1), "{first_ack}");
     two.settle().await;
     let b_mentions_c = two.editor().append_mention(&c_id);
     two.send_update(&b_mentions_c).await;
-    two.text("DOC_ACK").await;
+    two.text("docAck").await;
     one.settle().await;
 
     let heavy = walking_with_mention(LIST, &b.id);
     one.send_update(&heavy).await;
-    let ack = one.text("DOC_ACK").await;
+    let ack = one.text("docAck").await;
     assert_eq!(ack["doc"], json!(one.doc), "{ack}");
     assert_eq!(ack["epoch"], json!(1), "{ack}");
     assert!(ack["seq"].as_i64().is_some_and(|seq| seq >= 3), "{ack}");
 
     for peer in [&mut one, &mut two] {
-        let reset = peer.text("DOC_RESET").await;
+        let reset = peer.text("docReset").await;
         assert_eq!(
             reset,
-            json!({"action": "DOC_RESET", "doc": peer.doc, "epoch": 2}),
-            "room peer receives DOC_RESET for the remade epoch"
+            json!({"type": "docReset", "doc": peer.doc, "epoch": 2}),
+            "room peer receives docReset for the remade epoch"
         );
         peer.settle().await;
         assert_eq!(peer.epoch, 2, "peer synced to epoch 2");

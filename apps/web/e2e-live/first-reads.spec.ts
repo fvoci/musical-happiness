@@ -53,8 +53,8 @@ test('the workspaces are read once, and a wiki is told as visited once, with its
   page.on('websocket', (socket) => {
     socket.on('framesent', ({ payload }) => {
       if (typeof payload !== 'string') return;
-      const sent = JSON.parse(payload) as { action?: string } & Visit;
-      if (sent.action === 'SET_PRESENCE') visits.push(sent);
+      const sent = JSON.parse(payload) as { type?: string } & Visit;
+      if (sent.type === 'setPresence') visits.push(sent);
     });
     toldOn = (pageId) =>
       socket
@@ -62,11 +62,11 @@ test('the workspaces are read once, and a wiki is told as visited once, with its
           predicate: ({ payload }) => {
             if (typeof payload !== 'string') return false;
             const told = JSON.parse(payload) as {
-              action?: string;
+              type?: string;
               people?: { cardIds: string[] }[];
             };
             return (
-              told.action === 'UPDATE_PRESENCE' &&
+              told.type === 'presenceChanged' &&
               (told.people ?? []).some((one) => one.cardIds.includes(pageId))
             );
           },

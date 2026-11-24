@@ -207,17 +207,17 @@ async fn the_workspace_archive_has_its_wikis_and_a_card_names_the_imported_page(
     ts.teardown().await;
 }
 
-/// An archive of version 3 of the given `board.jsonl`s, each its lines, in that order.
+/// An archive of version 1 of the given `container.jsonl`s, each its lines, in that order.
 fn archive_of(boards: &[&[Value]]) -> Vec<u8> {
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default();
     writer.start_file("version.json", options).expect("start");
     writer
-        .write_all(br#"{"version":3,"date":1}"#)
+        .write_all(br#"{"version":1,"date":1}"#)
         .expect("write");
     for (at, lines) in boards.iter().enumerate() {
         writer
-            .start_file(format!("b{at}/board.jsonl"), options)
+            .start_file(format!("b{at}/container.jsonl"), options)
             .expect("start");
         for line in *lines {
             writer
@@ -229,7 +229,7 @@ fn archive_of(boards: &[&[Value]]) -> Vec<u8> {
 }
 
 fn board_line(id: &str, kind: &str, title: &str) -> Value {
-    json!({"type": "board", "data": {
+    json!({"type": "container", "data": {
         "id": id, "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": kind,
         "title": title, "createAt": 1, "updateAt": 1,
     }})
@@ -237,7 +237,7 @@ fn board_line(id: &str, kind: &str, title: &str) -> Value {
 
 fn block_line(id: &str, board: &str, parent: &str, block_type: &str) -> Value {
     json!({"type": "block", "data": {
-        "id": id, "boardId": board, "parentId": parent, "type": block_type,
+        "id": id, "containerId": board, "parentId": parent, "type": block_type,
         "title": id, "createAt": 1, "updateAt": 1,
     }})
 }

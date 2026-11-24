@@ -518,7 +518,7 @@ async fn only_a_card_has_a_document() {
 }
 
 /// Collaborative table edits past 200 rows or 20 columns are refused over WebSocket with
-/// `DOC_NACK` reason `table_too_large`, leaving the room document unpolluted for peers.
+/// `docNack` reason `table_too_large`, leaving the room document unpolluted for peers.
 #[tokio::test]
 async fn collab_table_limit_refuses_201_rows_and_21_columns_with_table_too_large() {
     use crate::rooms::{Peer, table as room_table};
@@ -552,11 +552,11 @@ async fn collab_table_limit_refuses_201_rows_and_21_columns_with_table_too_large
             one.editor().add_table_column()
         };
         one.send_update(&bad_update).await;
-        let nack = one.text("DOC_NACK").await;
+        let nack = one.text("docNack").await;
         assert_eq!(
             nack,
             json!({
-                "action": "DOC_NACK",
+                "type": "docNack",
                 "doc": one.doc,
                 "epoch": one.epoch,
                 "reason": "table_too_large",

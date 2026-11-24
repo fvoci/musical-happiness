@@ -22,8 +22,8 @@ const LEASE: Duration = Duration::from_secs(90);
 /// A failed permission lookup must not leave a connection present indefinitely.
 const LOOKUP_WAIT: Duration = Duration::from_secs(5);
 const LONGEST_ID: usize = 64;
-/// The action of the roster a reader is sent.
-const UPDATE_PRESENCE: &str = "UPDATE_PRESENCE";
+/// The `type` of the roster a reader is sent.
+const PRESENCE_CHANGED: &str = "presenceChanged";
 
 /// A board as the visits of one roster share it: its organization, workspace and ID.
 type ContainerKey = (Wall, String, String);
@@ -239,7 +239,8 @@ struct Person {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Snapshot {
-    action: &'static str,
+    #[serde(rename = "type")]
+    kind: &'static str,
     workspace_id: String,
     container_id: String,
     people: Vec<Person>,
@@ -248,14 +249,14 @@ struct Snapshot {
 }
 
 impl Outgoing for Snapshot {
-    fn action(&self) -> &'static str {
-        self.action
+    fn kind(&self) -> &'static str {
+        self.kind
     }
 }
 
 impl Hub {
     pub(super) async fn set_presence(&self, app: &App, id: ListenerId, command: Command) {
-        // Leaving is always allowed, as LEAVE_DOC is, even after a burst.
+        // Leaving is always allowed, as `leaveDoc` is, even after a burst.
         if command.container_id.is_empty() {
             self.clear_presence(id, None);
             return;
@@ -497,7 +498,7 @@ fn snapshot(visit: &Visit, listeners: &Listeners) -> Snapshot {
         }
     }
     Snapshot {
-        action: UPDATE_PRESENCE,
+        kind: PRESENCE_CHANGED,
         workspace_id: visit.workspace_id.clone(),
         container_id: visit.container_id.clone(),
         anonymous_count,

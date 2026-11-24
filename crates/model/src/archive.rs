@@ -1,4 +1,4 @@
-//! The board archive format used for import and export.
+//! The native `.fvoci` archive format used for import and export.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,11 +13,11 @@ pub struct ArchiveHeader {
     pub date: i64,
 }
 
-/// One line of a board's `board.jsonl`.
+/// One line of a container's `container.jsonl`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ArchiveLine {
-    /// What `data` holds: `board`, `block`, `boardMember`, or `courseSchedule`.
+    /// What `data` holds: `container`, `block`, `containerMember`, or `courseSchedule`.
     #[serde(rename = "type")]
     pub line_type: String,
     /// The entity itself, decoded according to `line_type`.

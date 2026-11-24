@@ -125,14 +125,14 @@ async fn unit_body_versions_roles_keep_by_hand_and_restore() {
     recent.check_ok();
     assert_eq!(recent.value()["outcome"], "recent");
 
-    // Restoring while the collab room is open flushes and sends DOC_RESET to the peer.
+    // Restoring while the collab room is open flushes and sends docReset to the peer.
     let reset_restore = th
         .client2
         .post_empty(&format!("{versions}/{manual_num}/restore"))
         .await;
     reset_restore.check_ok();
-    let reset = peer.text("DOC_RESET").await;
-    assert_eq!(reset["action"], "DOC_RESET", "{reset}");
+    let reset = peer.text("docReset").await;
+    assert_eq!(reset["type"], "docReset", "{reset}");
     peer.settle().await;
     assert_eq!(peer.lines(), ["first", "typed in room"]);
     peer.leave().await;

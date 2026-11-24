@@ -863,7 +863,7 @@
   "shell_export_workspace": "Export all boards and wikis",
   "shell_import": "Import an archive",
   "shell_import_format": "Import format",
-  "shell_import_format_fvoci": "fvoci archive (.boardarchive, .zip)",
+  "shell_import_format_fvoci": "fvoci archive (.fvoci, .zip)",
   "shell_import_format_trello": "Trello board (.json)",
   "shell_import_format_notion": "Notion export (.zip)",
   "shell_import_hint": "An archive this app exported. Its boards and wikis are made in {workspace}, with you as their admin.",

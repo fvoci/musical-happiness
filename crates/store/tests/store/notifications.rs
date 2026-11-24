@@ -357,7 +357,7 @@ async fn a_comment_notes_the_watchers_of_its_card_and_writing_makes_a_watcher() 
             .await
             .expect("read")
             .into_iter()
-            .map(|subscriber| subscriber.subscriber_id)
+            .map(|subscriber| subscriber.user_id)
             .collect();
         ids.sort();
         ids
@@ -664,7 +664,7 @@ async fn watchers(store: &Store, block_id: &str) -> Vec<String> {
         .await
         .expect("the subscribers are read")
         .into_iter()
-        .map(|subscriber| subscriber.subscriber_id)
+        .map(|subscriber| subscriber.user_id)
         .collect();
     ids.sort();
     ids

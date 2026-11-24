@@ -1,7 +1,7 @@
 // The first screen of a board from a fresh, signed-in page (Chromium): to its cards drawn, under
 // added RTT; how its cards are read (requests to the card list, and in how many waves: a request
 // that starts before every request of the wave so far has ended is in that wave), how often the
-// reader's workspaces are read, and how many SET_PRESENCE go out until the network is quiet.
+// reader's workspaces are read, and how many setPresence go out until the network is quiet.
 // node board.mjs <big|small> <rtt,rtt,...> [runs]
 /* eslint-disable -- a measurement script run by node (not by CI): its in-page code reads what the harness puts on window. */
 // @ts-nocheck: the same.
@@ -68,7 +68,7 @@ try {
         ),
         workspaceLists: c.res.filter((r) => r.url.startsWith('/api/v1/users/me/workspaces')).length,
         presenceSent: c.ws
-          .filter((m) => m.dir === 'out' && m.action === 'SET_PRESENCE')
+          .filter((m) => m.dir === 'out' && m.type === 'setPresence')
           .map((m) => m.size),
       };
       list.push(run);

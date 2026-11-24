@@ -16,34 +16,35 @@
   {
     "name": "hello: under the prefix",
     "request": "GET /api/v1/hello as anonymous",
-    "status": 200,
-    "content_type": "text/plain",
-    "body": "Hello"
+    "status": 404,
+    "content_type": "application/problem+json",
+    "body": {
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
+    }
   },
   {
     "name": "ping members",
     "request": "(observation)",
     "status": 0,
     "body": [
-      "build_date",
-      "build_number",
+      "buildDate",
       "commit",
-      "db_type",
-      "db_version",
-      "edition",
-      "os_arch",
-      "os_type",
-      "sku",
+      "dbType",
+      "dbVersion",
       "version"
     ]
   },
   {
-    "name": "ping version and sku",
+    "name": "ping version",
     "request": "(observation)",
     "status": 0,
     "body": [
       "<version>",
-      "personal_server",
       "<db>"
     ]
   },

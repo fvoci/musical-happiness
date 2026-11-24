@@ -176,7 +176,7 @@ async fn handle_get_page_comments(
 /// For the wiki's members from the commenter's role up. The server chooses the
 /// identifier, the author and the times. Every image of the text shows a file of the
 /// wiki (400 otherwise), and the text has no file block (400). Who reads the wiki is
-/// told with `UPDATE_BLOCK`, as of a comment on a card.
+/// told with `blockChanged`, as of a comment on a card.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments",
@@ -291,7 +291,7 @@ async fn handle_patch_page_comment(
 /// The comment goes to the trash, as a comment on a card does: by its author from the
 /// commenter's role up, and the comment of somebody else by the wiki's admins only
 /// (403, `access denied to delete other users' comments`). Who reads the wiki is told
-/// with `UPDATE_BLOCK` whose `deleteAt` is not 0.
+/// with `blockChanged` whose `deleteAt` is not 0.
 #[utoipa::path(
     delete,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}",
@@ -329,7 +329,7 @@ async fn handle_delete_page_comment(
 /// comment that went to the trash with its page comes back with the page
 /// (`undeletePage`), not on its own; that one, one not in the trash, and one of another
 /// page are not there (404), nor is any while the page is in the trash. Who reads the
-/// wiki is told with `UPDATE_BLOCK`.
+/// wiki is told with `blockChanged`.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/undelete",

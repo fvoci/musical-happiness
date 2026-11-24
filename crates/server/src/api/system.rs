@@ -1,6 +1,5 @@
-//! `hello`, `ready` and `ping`, which say that the server is there, that it can serve,
-//! and what it is. They are under `/api/v1` like the rest of the API and need no
-//! session.
+//! `ready` and `ping`, which say that the server can serve and what it is. They are
+//! under `/api/v1` like the rest of the API and need no session.
 
 use axum::extract::State;
 use fvoci_model::Problem;
@@ -15,25 +14,8 @@ use crate::error::AppError;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
-        .routes(routes!(handle_hello))
         .routes(routes!(handle_ready))
         .routes(routes!(handle_ping))
-}
-
-/// Whether the server is there
-///
-/// Answers the text `Hello`, and asks nothing of what the server depends on: the check
-/// that the process is alive. Whether it can serve is `ready`'s.
-#[utoipa::path(
-    get,
-    path = "/hello",
-    operation_id = "hello",
-    tag = tag::SYSTEM,
-    security(()),
-    responses((status = 200, description = "The server is there.", body = String, content_type = "text/plain")),
-)]
-async fn handle_hello() -> &'static str {
-    "Hello"
 }
 
 /// Whether the server can serve

@@ -892,7 +892,7 @@ describe('archives', () => {
     const source = workspace.sidebar[0]?.containers[0];
     if (!source) throw new Error('unexpected seed');
     const archive = await workspace.exportContainer(source.id);
-    expect(archive?.name).toMatch(/^archive-\d{4}-\d{2}-\d{2}\.boardarchive$/);
+    expect(archive?.name).toMatch(/^archive-\d{4}-\d{2}-\d{2}\.fvoci$/);
     expect(workspace.transfers.list).toMatchObject([{ kind: 'export', finished: true }]);
     const before = workspace.containers.length;
     const imported = await workspace.importArchive(
@@ -914,7 +914,7 @@ describe('archives', () => {
     );
   });
 
-  it('names the board of a block in its lines `boardId`, as archives always have', async () => {
+  it('names the container of a block in its lines `containerId`, matching the contract', async () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
     const source = workspace.sidebar[0]?.containers[0];
@@ -927,8 +927,8 @@ describe('archives', () => {
     const blocks = lines.filter((line) => line.type === 'block');
     expect(blocks.length).toBeGreaterThan(0);
     for (const { data } of blocks) {
-      expect(data).toMatchObject({ boardId: source.id });
-      expect(data).not.toHaveProperty('containerId');
+      expect(data).toMatchObject({ containerId: source.id });
+      expect(data).not.toHaveProperty('boardId');
     }
   });
 

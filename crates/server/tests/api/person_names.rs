@@ -187,11 +187,11 @@ async fn the_lists_of_members_carry_the_title_and_credentials() {
     th.teardown().await;
 }
 
-/// The `UPDATE_USER` messages among `messages`.
+/// The `userChanged` messages among `messages`.
 fn renames(messages: &[Value]) -> Vec<&Value> {
     messages
         .iter()
-        .filter(|message| message["action"] == "UPDATE_USER")
+        .filter(|message| message["type"] == "userChanged")
         .collect()
 }
 
@@ -209,16 +209,16 @@ async fn a_change_of_a_name_is_told_to_the_members_who_follow_the_workspace() {
         .patch("/users/me", &json!({"title": "dr"}))
         .await
         .check_ok();
-    let told = watching.expect("UPDATE_USER", "/userId", &user2.id).await;
+    let told = watching.expect("userChanged", "/userId", &user2.id).await;
     assert_eq!(
         told,
-        json!({"action": "UPDATE_USER", "workspaceId": TEST_WORKSPACE_ID, "userId": user2.id}),
+        json!({"type": "userChanged", "workspaceId": TEST_WORKSPACE_ID, "userId": user2.id}),
         "who, and nothing of the name"
     );
     let contract = crate::websocket::read_contract("websocket.json");
     let openapi = crate::websocket::read_contract("openapi.json");
     crate::websocket::check_message(&contract, &openapi, &told);
-    own.expect("UPDATE_USER", "/userId", &user2.id).await;
+    own.expect("userChanged", "/userId", &user2.id).await;
     // A request that changes nothing tells nothing: none, or the title it has.
     watching.drain().await;
     let before = th.client2.me().await;
@@ -273,6 +273,6 @@ async fn a_guest_is_told_only_of_whom_they_see() {
         .patch("/users/me", &json!({"credentials": ["phd", "md"]}))
         .await
         .check_ok();
-    guest.expect("UPDATE_USER", "/userId", &user1.id).await;
+    guest.expect("userChanged", "/userId", &user1.id).await;
     th.teardown().await;
 }

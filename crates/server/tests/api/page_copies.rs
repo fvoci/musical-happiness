@@ -98,10 +98,10 @@ async fn copied_with_those_below_it_and_given_files(kind: &str) {
         .find(|page| page.parent_id == copy.id)
         .expect("a copy below the copy");
     assert_eq!(copied_b.title, "Getting started", "{kind}");
-    let told = socket.expect("UPDATE_BLOCK", "/block/id", &copy.id).await;
+    let told = socket.expect("blockChanged", "/block/id", &copy.id).await;
     assert_eq!(told["block"]["title"], json!("Welcome (copy)"), "{kind}");
     socket
-        .expect("UPDATE_BLOCK", "/block/id", &copied_b.id)
+        .expect("blockChanged", "/block/id", &copied_b.id)
         .await;
 
     // The copy's image is a file of its own, which is there.

@@ -12,9 +12,7 @@
 
 use std::collections::BTreeSet;
 
-use fvoci_model::{
-    Block, BlockType, JsonMap, NotificationKind, OrgKind, SubscriberType, assigned_users,
-};
+use fvoci_model::{Block, BlockType, JsonMap, NotificationKind, OrgKind, assigned_users};
 use serde_json::Value;
 
 use crate::Store;
@@ -311,8 +309,7 @@ impl Noted<'_> {
         sql.push(" JOIN subscriptions AS s ON s.block_id = ")
             .bind(Id(self.about))
             .push(&scope.same_organization(&[("s", "bo")]))
-            .push_bind(" AND s.subscriber_type = ", SubscriberType::User.as_str())
-            .push(" JOIN users AS u ON u.id = s.subscriber_id");
+            .push(" JOIN users AS u ON u.id = s.user_id");
         self.push_noted(&mut sql);
         sql.push_bind(" AND u.id <> ", Id(self.writer));
         let named: Vec<&str> = mentioned
@@ -351,14 +348,13 @@ async fn watch(scope: &mut Scope<'_>, block_id: &str, users: &[&str]) -> Result<
     let postgres = scope.dialect() == Dialect::Postgres;
     for batch in users.chunks(BATCH) {
         let mut sql = scope.sql(if postgres {
-            "INSERT INTO subscriptions (org_id, block_type, block_id, subscriber_type, \
-             subscriber_id, notified_at, create_at) SELECT b.org_id, b.type, b.id, "
+            "INSERT INTO subscriptions (org_id, block_type, block_id, \
+             user_id, notified_at, create_at) SELECT b.org_id, b.type, b.id, u.id, "
         } else {
-            "INSERT INTO subscriptions (block_type, block_id, subscriber_type, \
-             subscriber_id, notified_at, create_at) SELECT b.type, b.id, "
+            "INSERT INTO subscriptions (block_type, block_id, \
+             user_id, notified_at, create_at) SELECT b.type, b.id, u.id, "
         });
-        sql.bind(SubscriberType::User.as_str())
-            .push_bind(", u.id, ", now)
+        sql.bind(now)
             .push_bind(", ", now)
             .push(" FROM blocks AS b JOIN containers AS bo ON bo.id = b.container_id")
             .push(&scope.same_organization(&[("bo", "b")]))
@@ -371,7 +367,7 @@ async fn watch(scope: &mut Scope<'_>, block_id: &str, users: &[&str]) -> Result<
             .push_bind(" WHERE u.erased_at = 0 AND b.id = ", Id(block_id))
             .push_bind(" AND bo.is_template = ", false)
             .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
-            .push(" ORDER BY u.id ON CONFLICT (block_id, subscriber_id) DO NOTHING");
+            .push(" ORDER BY u.id ON CONFLICT (block_id, user_id) DO NOTHING");
         scope.execute(sql).await?;
     }
     Ok(())

@@ -21,7 +21,7 @@ async fn board_revocation_between_document_check_and_registration_discloses_no_b
     let (reached, resume) = ts.app.collab().pause_next_admission();
     socket
         .send(Message::Text(
-            json!({"action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID,
+            json!({"type": "joinDoc", "workspaceId": TEST_WORKSPACE_ID,
         "cardId": room.card_id})
             .to_string()
             .into(),
@@ -49,7 +49,7 @@ async fn board_revocation_between_document_check_and_registration_discloses_no_b
     };
     let refused: Value = serde_json::from_str(&text).expect("JSON");
     assert_eq!(
-        refused["action"], "DOC_REFUSED",
+        refused["type"], "docRefused",
         "no stale grant may expose the document"
     );
     assert_eq!(
@@ -80,7 +80,7 @@ async fn a_removed_board_member_cannot_write_or_receive_a_document_update() {
         panic!("expected eviction, got {message:?}");
     };
     assert_eq!(
-        left["action"], "DOC_LEFT",
+        left["type"], "docLeft",
         "revoked writer is evicted before another update"
     );
     assert_eq!(left["reason"], "not_found", "removed member sees no card");
@@ -103,12 +103,12 @@ async fn a_downgraded_writer_is_told_and_cannot_write() {
     let user = ts.client2.me().await.id;
     give(&ts, &room.board_id, &user, "viewer").await;
     two.write("not authorized").await;
-    let mode = two.text("DOC_MODE").await;
+    let mode = two.text("docModeChanged").await;
     assert_eq!(
         mode["mode"], "read",
         "downgrade is observed before taking the update"
     );
-    let nack = two.text("DOC_NACK").await;
+    let nack = two.text("docNack").await;
     assert_eq!(
         nack["reason"], "document_read_only",
         "downgraded writer cannot write"
@@ -131,7 +131,7 @@ async fn a_writer_downgraded_during_document_admission_enters_as_a_reader() {
     let (reached, resume) = ts.app.collab().pause_next_admission();
     socket
         .send(Message::Text(
-            json!({"action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID,
+            json!({"type": "joinDoc", "workspaceId": TEST_WORKSPACE_ID,
         "cardId": room.card_id})
             .to_string()
             .into(),
@@ -152,7 +152,7 @@ async fn a_writer_downgraded_during_document_admission_enters_as_a_reader() {
         panic!("expected admission, got {message:?}");
     };
     let joined: Value = serde_json::from_str(&text).expect("JSON");
-    assert_eq!(joined["action"], "DOC_JOINED", "still readable");
+    assert_eq!(joined["type"], "docJoined", "still readable");
     assert_eq!(joined["mode"], "read", "old write grant is not reused");
     ts.teardown().await;
 }
@@ -183,7 +183,7 @@ async fn warm_document_grants_end_when_the_card_is_deleted() {
             panic!("deleted card must evict, got {message:?}");
         };
         assert_eq!(
-            left["action"], "DOC_LEFT",
+            left["type"], "docLeft",
             "a deleted card has no usable cached grant"
         );
         assert_eq!(left["reason"], "not_found", "deleted card is not visible");
@@ -219,7 +219,7 @@ async fn missing_state_and_replaced_bodies_do_not_reach_a_removed_member() {
             panic!("removed reader must be evicted, got {message:?}");
         };
         assert_eq!(
-            left["action"], "DOC_LEFT",
+            left["type"], "docLeft",
             "all payload origins check the grant"
         );
         ts.teardown().await;

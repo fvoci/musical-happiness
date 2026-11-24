@@ -283,7 +283,7 @@ async fn handle_get_diary_entries_on(
 /// nothing of the request is stored, so of two requests that make the entry of one day
 /// at once, one makes it and the other is answered with it. The server chooses the
 /// identifier, the creator and the times. The body of the entry is written by
-/// `patchDiaryEntry`, or together in its room (`JOIN_DOC`).
+/// `patchDiaryEntry`, or together in its room (`joinDoc`).
 ///
 /// `date` is the day as the writer's own calendar has it, which the server does not
 /// know: it must be a day of the calendar (`2026-02-30` is 400 at `/date`), and no more
@@ -295,7 +295,7 @@ async fn handle_get_diary_entries_on(
 /// with the reason `too_many_entries` and the `limit`. An entry in the trash holds no
 /// day: its day takes a new entry.
 ///
-/// The user's other sessions are told with `UPDATE_BLOCK`, whose block of the `type`
+/// The user's other sessions are told with `blockChanged`, whose block of the `type`
 /// `entry` has the day as its `title` and the day, mood, weather and place among its
 /// `fields`.
 #[utoipa::path(

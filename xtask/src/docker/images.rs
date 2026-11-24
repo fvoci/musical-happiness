@@ -31,7 +31,7 @@ pub(crate) struct Names {
     /// The commit, in full, with `-dirty` for a tree with uncommitted changes: what the
     /// server reports as its `commit`.
     revision: String,
-    /// The commit's time (`%cI`), what the server reports as its `build_date`: a build of
+    /// The commit's time (`%cI`), what the server reports as its `buildDate`: a build of
     /// one commit says the same whenever it is made.
     created: String,
     /// `sha-<short commit>`, with `-dirty` for a tree with uncommitted changes.
@@ -101,7 +101,7 @@ impl Names {
         &self.revision
     }
 
-    /// What the server built for these names reports as its `build_date` in ping.
+    /// What the server built for these names reports as its `buildDate` in ping.
     pub(crate) fn created(&self) -> &str {
         &self.created
     }

@@ -120,7 +120,7 @@ async fn two_users_edit_a_page_together_and_converge() {
     assert_eq!(
         joined,
         json!({
-            "action": "DOC_JOINED", "workspaceId": TEST_WORKSPACE_ID, "cardId": d.page_id,
+            "type": "docJoined", "workspaceId": TEST_WORKSPACE_ID, "cardId": d.page_id,
             "doc": 1, "epoch": 1, "mode": "write",
         })
     );
@@ -138,7 +138,7 @@ async fn two_users_edit_a_page_together_and_converge() {
     one.write("one at once").await;
     two.write("two at once").await;
     for peer in [&mut one, &mut two] {
-        peer.text("DOC_ACK").await;
+        peer.text("docAck").await;
         peer.settle().await;
     }
     let merged = one.body().expect("a body");
@@ -167,11 +167,11 @@ async fn two_users_edit_a_page_together_and_converge() {
     };
     let all = lines_of(Some(&merged)).join("\n");
     let mut told = listener
-        .expect("UPDATE_BLOCK", "/block/id", &d.page_id)
+        .expect("blockChanged", "/block/id", &d.page_id)
         .await;
     while words(&told).as_deref() != Some(all.trim_end()) {
         told = listener
-            .expect("UPDATE_BLOCK", "/block/id", &d.page_id)
+            .expect("blockChanged", "/block/id", &d.page_id)
             .await;
     }
     assert_eq!(
@@ -227,10 +227,10 @@ async fn a_page_body_written_whole_goes_around_its_room() {
     assert_eq!(body_of(&written), Some(whole.clone()));
 
     for peer in [&mut one, &mut two] {
-        let reset = peer.text("DOC_RESET").await;
+        let reset = peer.text("docReset").await;
         assert_eq!(
             reset,
-            json!({"action": "DOC_RESET", "doc": peer.doc, "epoch": 2})
+            json!({"type": "docReset", "doc": peer.doc, "epoch": 2})
         );
         peer.settle().await;
         assert_eq!(
@@ -274,8 +274,8 @@ async fn a_version_of_a_page_restored_goes_around_its_room_and_its_wiki() {
     assert_eq!(lines_of(body_of(&restored).as_ref()), ["first"]);
     assert_eq!(restored.modified_by, user2, "written by who restored it");
     for peer in [&mut one, &mut two] {
-        let reset = peer.text("DOC_RESET").await;
-        assert_eq!(reset["action"], json!("DOC_RESET"));
+        let reset = peer.text("docReset").await;
+        assert_eq!(reset["type"], json!("docReset"));
         peer.settle().await;
         assert_eq!(
             peer.lines(),
@@ -308,7 +308,7 @@ async fn a_version_of_a_page_restored_goes_around_its_room_and_its_wiki() {
     assert!(
         heard
             .iter()
-            .any(|told| told["action"] == json!("UPDATE_BLOCK")
+            .any(|told| told["type"] == json!("blockChanged")
                 && told["block"]["id"] == json!(d.page_id)),
         "the wiki's members are told of the page: {heard:?}"
     );
@@ -331,14 +331,14 @@ async fn the_room_of_a_page_is_for_whom_its_wiki_lets_in() {
 
     // Not on the wiki: as for no page. Nor is the wiki itself a page.
     let refused = json!({
-        "action": "DOC_REFUSED", "workspaceId": TEST_WORKSPACE_ID, "cardId": d.page_id,
+        "type": "docRefused", "workspaceId": TEST_WORKSPACE_ID, "cardId": d.page_id,
         "reason": "not_found",
     });
     assert_eq!(two.join(TEST_WORKSPACE_ID, &d.page_id).await, refused);
     let no_page = one.join(TEST_WORKSPACE_ID, &d.wiki_id).await;
     assert_eq!(
-        (&no_page["action"], &no_page["reason"]),
-        (&json!("DOC_REFUSED"), &json!("not_found")),
+        (&no_page["type"], &no_page["reason"]),
+        (&json!("docRefused"), &json!("not_found")),
         "{no_page}"
     );
 
@@ -347,17 +347,17 @@ async fn the_room_of_a_page_is_for_whom_its_wiki_lets_in() {
     let joined = two.joined(TEST_WORKSPACE_ID, &d.page_id).await;
     assert_eq!(joined["mode"], json!("read"), "{joined}");
     two.write("a reader writes").await;
-    let nack = two.text("DOC_NACK").await;
+    let nack = two.text("docNack").await;
     assert_eq!(nack["reason"], json!("document_read_only"), "{nack}");
     // The reader holds a paragraph the room refused: it comes in anew.
     two.joined(TEST_WORKSPACE_ID, &d.page_id).await;
 
     // Made an editor, they are told so while they are there, and write.
     give(&th, &d.wiki_id, &user2, "editor").await;
-    let mode = two.text("DOC_MODE").await;
+    let mode = two.text("docModeChanged").await;
     assert_eq!(
         mode,
-        json!({"action": "DOC_MODE", "doc": two.doc, "mode": "write"})
+        json!({"type": "docModeChanged", "doc": two.doc, "mode": "write"})
     );
     two.write_acked("an editor writes").await;
     one.settle().await;
@@ -371,10 +371,10 @@ async fn the_room_of_a_page_is_for_whom_its_wiki_lets_in() {
         ))
         .await
         .check_no_content();
-    let left = two.text("DOC_LEFT").await;
+    let left = two.text("docLeft").await;
     assert_eq!(
         left,
-        json!({"action": "DOC_LEFT", "doc": two.doc, "reason": "not_found"})
+        json!({"type": "docLeft", "doc": two.doc, "reason": "not_found"})
     );
     assert_eq!(two.join(TEST_WORKSPACE_ID, &d.page_id).await, refused);
     one.write_acked("the other stays").await;
@@ -408,11 +408,11 @@ async fn deleting_a_page_or_its_wiki_closes_the_rooms_of_what_goes_with_it() {
             other => unreachable!("no such target: {other}"),
         };
         th.client.delete(&gone).await.check_no_content();
-        let left = writer.text("DOC_LEFT").await;
+        let left = writer.text("docLeft").await;
         assert_eq!(left["reason"], json!("not_found"), "{target}: {left}");
         assert_eq!(th.app.collab().rooms(), 0, "{target}");
         let again = writer.join(TEST_WORKSPACE_ID, &below.id).await;
-        assert_eq!(again["action"], json!("DOC_REFUSED"), "{target}: {again}");
+        assert_eq!(again["type"], json!("docRefused"), "{target}: {again}");
         // Written by the deletion, not by a room that opens later.
         let trashed = th.app.store().get_deleted_block(&below.id).await;
         let kept = trashed.expect("in the trash").block.body;

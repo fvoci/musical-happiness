@@ -236,7 +236,7 @@ async fn open_course_and_workspace_roles_control_access_search_and_rooms() {
     let joined = unjoined.joined(TEST_WORKSPACE_ID, &open_unit.id).await;
     assert_eq!(joined["mode"], json!("read"), "{joined}");
     unjoined.write("unjoined cannot write").await;
-    let nack = unjoined.text("DOC_NACK").await;
+    let nack = unjoined.text("docNack").await;
     assert_eq!(nack["reason"], json!("document_read_only"), "{nack}");
     unjoined.leave().await;
 
@@ -296,7 +296,7 @@ async fn course_roles_and_guest_isolation_control_rooms_and_lists() {
     let joined = peer2.joined(TEST_WORKSPACE_ID, &p_unit.id).await;
     assert_eq!(joined["mode"], json!("read"), "{joined}");
     peer2.write("viewer blocked").await;
-    let nack = peer2.text("DOC_NACK").await;
+    let nack = peer2.text("docNack").await;
     assert_eq!(nack["reason"], json!("document_read_only"), "{nack}");
     peer2.joined(TEST_WORKSPACE_ID, &p_unit.id).await;
 
@@ -305,7 +305,7 @@ async fn course_roles_and_guest_isolation_control_rooms_and_lists() {
         .delete(&format!("{TEST_WS}/containers/{private}/members/{user2}"))
         .await
         .check_no_content();
-    let left = peer2.text("DOC_LEFT").await;
+    let left = peer2.text("docLeft").await;
     assert_eq!(left["reason"], json!("not_found"), "{left}");
     let refused = peer2.join(TEST_WORKSPACE_ID, &p_unit.id).await;
     assert_eq!(refused["reason"], json!("not_found"), "{refused}");
@@ -347,16 +347,16 @@ async fn course_roles_and_guest_isolation_control_rooms_and_lists() {
     th.teardown().await;
 }
 
-/// Two connections co-edit one unit via `JOIN_DOC`:
+/// Two connections co-edit one unit via `joinDoc`:
 /// (a) two users in a shared workspace, and
 /// (b) two sessions of one account in their personal space.
-/// Chapters refuse `JOIN_DOC` with `not_found`.
+/// Chapters refuse `joinDoc` with `not_found`.
 #[tokio::test]
 async fn two_connections_coedit_a_unit_in_workspace_and_in_own_space() {
     let th = Setup::native().start().await.init_basic().await;
     let user2 = th.client2.me().await.id;
 
-    // (a) Shared workspace: two users co-edit a unit; chapter refuses JOIN_DOC.
+    // (a) Shared workspace: two users co-edit a unit; chapter refuses joinDoc.
     let course = create_course(&th.client, TEST_WS, "P", "Collab Course").await;
     let chapter = create_item(&th.client, TEST_WS, &course, "chapter", "", "Chapter 1").await;
     let unit = create_item(&th.client, TEST_WS, &course, "unit", &chapter.id, "Unit 1").await;
@@ -374,8 +374,8 @@ async fn two_connections_coedit_a_unit_in_workspace_and_in_own_space() {
     let mut two = Peer::connect(&th.client2, 502).await;
     let ch_refused = one.join(TEST_WORKSPACE_ID, &chapter.id).await;
     assert_eq!(
-        (&ch_refused["action"], &ch_refused["reason"]),
-        (&json!("DOC_REFUSED"), &json!("not_found")),
+        (&ch_refused["type"], &ch_refused["reason"]),
+        (&json!("docRefused"), &json!("not_found")),
         "chapters have no collab room: {ch_refused}"
     );
     one.joined(TEST_WORKSPACE_ID, &unit.id).await;
@@ -383,7 +383,7 @@ async fn two_connections_coedit_a_unit_in_workspace_and_in_own_space() {
     one.write("from user one").await;
     two.write("from user two").await;
     for peer in [&mut one, &mut two] {
-        peer.text("DOC_ACK").await;
+        peer.text("docAck").await;
         peer.settle().await;
     }
     let merged = one.body().expect("merged body");
@@ -426,7 +426,7 @@ async fn two_connections_coedit_a_unit_in_workspace_and_in_own_space() {
     tab_a.write("from tab a").await;
     tab_b.write("from tab b").await;
     for peer in [&mut tab_a, &mut tab_b] {
-        peer.text("DOC_ACK").await;
+        peer.text("docAck").await;
         peer.settle().await;
     }
     let own_merged = tab_a.body().expect("own merged body");
@@ -444,9 +444,11 @@ fn archive_of(lines: &[Value]) -> Vec<u8> {
     let options = zip::write::SimpleFileOptions::default();
     writer.start_file("version.json", options).expect("start");
     writer
-        .write_all(br#"{"version":3,"date":1}"#)
+        .write_all(br#"{"version":1,"date":1}"#)
         .expect("write");
-    writer.start_file("c0/board.jsonl", options).expect("start");
+    writer
+        .start_file("c0/container.jsonl", options)
+        .expect("start");
     for line in lines {
         writer
             .write_all(format!("{line}\n").as_bytes())
@@ -456,7 +458,7 @@ fn archive_of(lines: &[Value]) -> Vec<u8> {
 }
 
 fn course_line(id: &str, title: &str) -> Value {
-    json!({"type": "board", "data": {
+    json!({"type": "container", "data": {
         "id": id, "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": "course",
         "title": title, "createAt": 1, "updateAt": 1,
     }})
@@ -470,7 +472,7 @@ fn block_line(
     body: Option<Value>,
 ) -> Value {
     let mut data = json!({
-        "id": id, "boardId": course, "parentId": parent, "type": block_type,
+        "id": id, "containerId": course, "parentId": parent, "type": block_type,
         "title": id, "createAt": 1, "updateAt": 1,
     });
     if let Some(body) = body {
@@ -671,7 +673,7 @@ async fn deleting_chapter_and_privatizing_open_course_evict_unit_rooms() {
     let th = Setup::native().start().await.init_basic().await;
     let user2 = th.client2.me().await.id;
 
-    // 1) Deleting a chapter while a writer edits a child unit flushes edits and sends DOC_LEFT.
+    // 1) Deleting a chapter while a writer edits a child unit flushes edits and sends docLeft.
     let course = create_course(&th.client, TEST_WS, "P", "Flush Course").await;
     let ch = create_item(&th.client, TEST_WS, &course, "chapter", "", "Ch 1").await;
     let u = create_item(&th.client, TEST_WS, &course, "unit", &ch.id, "U 1").await;
@@ -685,7 +687,7 @@ async fn deleting_chapter_and_privatizing_open_course_evict_unit_rooms() {
         .delete(&format!("{TEST_WS}/courses/{course}/units/{}", ch.id))
         .await
         .check_no_content();
-    let left = writer.text("DOC_LEFT").await;
+    let left = writer.text("docLeft").await;
     assert_eq!(left["reason"], json!("not_found"), "{left}");
     let trashed = th
         .app
@@ -699,7 +701,7 @@ async fn deleting_chapter_and_privatizing_open_course_evict_unit_rooms() {
         "unwritten room edits flushed before chapter deletion"
     );
 
-    // 2) Open course broadcasts UPDATE_BLOCK to unjoined worker, and privatizing evicts room.
+    // 2) Open course broadcasts blockChanged to unjoined worker, and privatizing evicts room.
     let open = create_course(&th.client, TEST_WS, "O", "Open Room Course").await;
     let open_u = create_item(&th.client, TEST_WS, &open, "unit", "", "OpenUnitToken").await;
     let mut listener =
@@ -715,7 +717,7 @@ async fn deleting_chapter_and_privatizing_open_course_evict_unit_rooms() {
         .await
         .check_ok();
     let told = listener
-        .expect("UPDATE_BLOCK", "/block/id", &open_u.id)
+        .expect("blockChanged", "/block/id", &open_u.id)
         .await;
     assert_eq!(told["block"]["type"], json!("unit"), "{told}");
     th.client
@@ -725,7 +727,7 @@ async fn deleting_chapter_and_privatizing_open_course_evict_unit_rooms() {
         )
         .await
         .check_ok();
-    let evicted = reader.text("DOC_LEFT").await;
+    let evicted = reader.text("docLeft").await;
     assert_eq!(evicted["reason"], json!("not_found"), "{evicted}");
     let hidden: Value = th
         .client2

@@ -37,13 +37,13 @@ async fn admitted_again_for(
             true
         }
         answer = &mut joining => {
-            assert_eq!(answer["action"], json!("DOC_JOINED"), "{answer}");
+            assert_eq!(answer["type"], json!("docJoined"), "{answer}");
             false
         }
     };
     if readmitted {
         let answer = joining.await;
-        assert_eq!(answer["action"], json!("DOC_JOINED"), "{answer}");
+        assert_eq!(answer["type"], json!("docJoined"), "{answer}");
     }
     collab.unpause();
     readmitted
@@ -124,6 +124,6 @@ async fn a_periodic_answer_is_applied_though_another_board_changed_meanwhile() {
     // Not this room's change: nothing told of it but the periodic answer.
     assert_eq!(member.incoming(QUIET).await, Incoming::Nothing);
     go.notify_one();
-    assert_eq!(member.text("DOC_MODE").await["mode"], json!("read"));
+    assert_eq!(member.text("docModeChanged").await["mode"], json!("read"));
     th.teardown().await;
 }

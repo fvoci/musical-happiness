@@ -629,13 +629,15 @@ async fn serve_https_serves_over_tls() {
         .build()
         .expect("an HTTPS client can be built");
 
-    let hello = https
-        .get(format!("https://localhost:{port}/api/v1/hello"))
+    let ping = https
+        .get(format!("https://localhost:{port}/api/v1/ping"))
         .send()
         .await
         .expect("the server answers over TLS");
-    assert_eq!(hello.status(), StatusCode::OK);
-    assert_eq!(hello.text().await.expect("the body is read"), "Hello");
+    assert_eq!(ping.status(), StatusCode::OK);
+    let ping_body: Value =
+        serde_json::from_str(&ping.text().await.expect("the body is read")).expect("ping JSON");
+    assert_eq!(ping_body["version"], json!(env!("CARGO_PKG_VERSION")));
 
     // The API works as over plain HTTP, here with a body in each direction.
     let register = https
@@ -655,7 +657,7 @@ async fn serve_https_serves_over_tls() {
 
     assert!(
         reqwest::Client::new()
-            .get(format!("http://localhost:{port}/api/v1/hello"))
+            .get(format!("http://localhost:{port}/api/v1/ping"))
             .timeout(Duration::from_secs(30))
             .send()
             .await
@@ -680,7 +682,7 @@ async fn serve_https_failed_handshakes_do_not_disturb_the_server() {
         .start()
         .await;
     let port = port_of(&th);
-    let url = format!("https://localhost:{port}/api/v1/hello");
+    let url = format!("https://localhost:{port}/api/v1/ping");
 
     let stranger = reqwest::Client::builder()
         .tls_certs_only([])
@@ -699,8 +701,11 @@ async fn serve_https_failed_handshakes_do_not_disturb_the_server() {
         .tls_certs_only([root])
         .build()
         .expect("an HTTPS client can be built");
-    let hello = https.get(&url).send().await.expect("the server answers");
-    assert_eq!(hello.text().await.expect("the body is read"), "Hello");
+    let ping = https.get(&url).send().await.expect("the server answers");
+    assert_eq!(ping.status(), StatusCode::OK);
+    let ping_body: Value =
+        serde_json::from_str(&ping.text().await.expect("the body is read")).expect("ping JSON");
+    assert_eq!(ping_body["version"], json!(env!("CARGO_PKG_VERSION")));
 
     th.teardown().await;
     let _ = std::fs::remove_dir_all(&directory);
@@ -738,7 +743,7 @@ async fn serve_https_without_certificate_files_refuses_to_serve() {
     }
     assert!(
         reqwest::Client::new()
-            .get(format!("http://localhost:{port}/api/v1/hello"))
+            .get(format!("http://localhost:{port}/api/v1/ping"))
             .timeout(Duration::from_secs(5))
             .send()
             .await
@@ -780,10 +785,14 @@ async fn without_serve_https_missing_certificate_files_do_not_matter() {
     };
     let th = Setup::native().tls_files(tls_files).start().await;
 
-    let response = Client::send(th.client.raw_request(Method::GET, "/api/v1/hello")).await;
+    let response = Client::send(th.client.raw_request(Method::GET, "/api/v1/ping")).await;
 
     response.check_ok();
-    assert_eq!(response.text(), "Hello", "over plain HTTP");
+    assert_eq!(
+        response.value()["version"],
+        json!(env!("CARGO_PKG_VERSION")),
+        "over plain HTTP"
+    );
     th.teardown().await;
 }
 

@@ -24,11 +24,11 @@ fn archive_of(boards: &[&[Value]]) -> Vec<u8> {
     let options = zip::write::SimpleFileOptions::default();
     writer.start_file("version.json", options).expect("start");
     writer
-        .write_all(br#"{"version":3,"date":1}"#)
+        .write_all(br#"{"version":1,"date":1}"#)
         .expect("write");
     for (at, lines) in boards.iter().enumerate() {
         writer
-            .start_file(format!("c{at}/board.jsonl"), options)
+            .start_file(format!("c{at}/container.jsonl"), options)
             .expect("start");
         for line in *lines {
             writer
@@ -54,7 +54,7 @@ fn read_all_jsonl(zip_bytes: &[u8]) -> String {
 }
 
 fn board_line(id: &str, kind: &str, title: &str) -> Value {
-    json!({"type": "board", "data": {
+    json!({"type": "container", "data": {
         "id": id, "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": kind,
         "title": title, "createAt": 1, "updateAt": 1,
     }})
@@ -62,14 +62,14 @@ fn board_line(id: &str, kind: &str, title: &str) -> Value {
 
 fn unit_line(id: &str, course: &str, parent: &str, fields: &Value) -> Value {
     json!({"type": "block", "data": {
-        "id": id, "boardId": course, "parentId": parent, "type": "unit",
+        "id": id, "containerId": course, "parentId": parent, "type": "unit",
         "title": id, "fields": fields, "createAt": 1, "updateAt": 1,
     }})
 }
 
 fn schedule_line(course: &str, start: &str, target: &str, study_days: i32) -> Value {
     json!({"type": "courseSchedule", "data": {
-        "boardId": course,
+        "containerId": course,
         "startDate": start,
         "targetDate": target,
         "studyDays": study_days,
@@ -394,19 +394,19 @@ fn bad_schedule_cases() -> Vec<(&'static str, Vec<Value>)> {
             ],
         ),
         (
-            "courseSchedule naming unknown boardId",
+            "courseSchedule naming unknown containerId",
             vec![
                 board_line("c1", "course", "Unknown Target"),
                 schedule_line("non-existent-id", "2026-12-01", "2026-12-10", 31),
             ],
         ),
         (
-            "courseSchedule with empty boardId and multiple containers",
+            "courseSchedule with empty containerId and multiple containers",
             vec![
                 board_line("c1", "course", "Course One"),
                 board_line("c2", "course", "Course Two"),
                 json!({"type": "courseSchedule", "data": {
-                    "boardId": "", "startDate": "2026-12-01",
+                    "containerId": "", "startDate": "2026-12-01",
                     "targetDate": "2026-12-10", "studyDays": 31
                 }}),
             ],
@@ -417,11 +417,21 @@ fn bad_schedule_cases() -> Vec<(&'static str, Vec<Value>)> {
 fn bad_unit_and_field_cases() -> Vec<(&'static str, Vec<Value>)> {
     vec![
         (
+            "legacy boardId field in courseSchedule",
+            vec![
+                board_line("c1", "course", "Legacy Field"),
+                json!({"type": "courseSchedule", "data": {
+                    "boardId": "c1", "startDate": "2026-12-01",
+                    "targetDate": "2026-12-10", "studyDays": 31
+                }}),
+            ],
+        ),
+        (
             "unknown field in courseSchedule",
             vec![
                 board_line("c1", "course", "Extra Field"),
                 json!({"type": "courseSchedule", "data": {
-                    "boardId": "c1", "startDate": "2026-12-01",
+                    "containerId": "c1", "startDate": "2026-12-01",
                     "targetDate": "2026-12-10", "studyDays": 31, "plannedDate": "2026-12-05"
                 }}),
             ],

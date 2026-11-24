@@ -264,11 +264,11 @@ async fn course_link_boundaries_switches_presence_and_invariants() {
     assert_eq!(copied["containers"][0]["kind"], "course");
     assert_ne!(copied["containers"][0]["id"], shared.course);
 
-    // 3) WS `SUBSCRIBE_BLOCKS` does not follow a course token.
+    // 3) WS `subscribeBlocks` does not follow a course token.
     let mut reader = Socket::connect(&th).await;
     reader
         .send(json!({
-            "action": "SUBSCRIBE_BLOCKS", "workspaceId": TEST_WORKSPACE_ID,
+            "type": "subscribeBlocks", "workspaceId": TEST_WORKSPACE_ID,
             "readToken": shared.token, "blockIds": [shared.unit],
         }))
         .await;
@@ -289,7 +289,7 @@ async fn course_link_boundaries_switches_presence_and_invariants() {
     let _ = people(&mut member, 1).await;
     reader
         .send(json!({
-            "action": "SET_PRESENCE", "containerId": shared.course,
+            "type": "setPresence", "containerId": shared.course,
             "cardId": shared.unit, "readToken": shared.token,
         }))
         .await;

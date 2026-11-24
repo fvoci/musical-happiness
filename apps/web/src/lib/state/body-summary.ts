@@ -1,6 +1,6 @@
 /**
  * What a change message says of a card's or a page's body in its place (the
- * `summary` of `UPDATE_BLOCK`, `contracts/websocket.md` 3): whether there is
+ * `summary` of `blockChanged`, `contracts/websocket.md` 3): whether there is
  * one, its task items and its preview, as a list of cards gives them. The
  * memory backend makes it of the body it holds, as the server does.
  */

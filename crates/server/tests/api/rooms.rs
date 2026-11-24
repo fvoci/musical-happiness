@@ -270,7 +270,7 @@ impl Peer {
         }
     }
 
-    /// Reads one message and does with it what an editor does: a `DOC_RESET` of
+    /// Reads one message and does with it what an editor does: a `docReset` of
     /// another epoch drops the document, a sync message of the epoch it holds is
     /// taken into the document (the first step 2 makes it), any other JSON is kept
     /// for the test. Whether there was a message.
@@ -278,11 +278,11 @@ impl Peer {
         match self.incoming(wait).await {
             Incoming::Nothing => return false,
             Incoming::Closed => {
-                self.texts.push_back(json!({"action": "CLOSED"}));
+                self.texts.push_back(json!({"type": "closed"}));
                 return false;
             }
             Incoming::Text(message) => {
-                if message["action"] == json!("DOC_RESET") && message["doc"] == json!(self.doc) {
+                if message["type"] == json!("docReset") && message["doc"] == json!(self.doc) {
                     let epoch = message["epoch"].as_i64().expect("an epoch");
                     if epoch != self.epoch {
                         self.epoch = epoch;
@@ -329,19 +329,19 @@ impl Peer {
         while self.step(QUIET).await {}
     }
 
-    /// The next JSON message of `action`, reading until it comes.
-    pub(crate) async fn text(&mut self, action: &str) -> Value {
-        self.one_of(&[action]).await
+    /// The next JSON message of `kind`, reading until it comes.
+    pub(crate) async fn text(&mut self, kind: &str) -> Value {
+        self.one_of(&[kind]).await
     }
 
-    /// The next JSON message of one of `actions`, reading until it comes.
-    pub(crate) async fn one_of(&mut self, actions: &[&str]) -> Value {
+    /// The next JSON message of one of `kinds`, reading until it comes.
+    pub(crate) async fn one_of(&mut self, kinds: &[&str]) -> Value {
         let deadline = tokio::time::Instant::now() + PATIENCE;
         loop {
             let found = self.texts.iter().position(|message| {
-                message["action"]
+                message["type"]
                     .as_str()
-                    .is_some_and(|action| actions.contains(&action))
+                    .is_some_and(|kind| kinds.contains(&kind))
             });
             if let Some(index) = found {
                 return self.texts.remove(index).expect("it is there");
@@ -349,7 +349,7 @@ impl Peer {
             let left = deadline.saturating_duration_since(tokio::time::Instant::now());
             assert!(
                 !left.is_zero() && self.step(left).await,
-                "none of {actions:?} came; read: {:?}",
+                "none of {kinds:?} came; read: {:?}",
                 self.texts
             );
         }
@@ -360,22 +360,22 @@ impl Peer {
         self.texts.iter().cloned().collect()
     }
 
-    /// Asks to come into the room of a card, and waits for the answer: `DOC_JOINED`,
-    /// after which it holds the document, or `DOC_REFUSED`.
+    /// Asks to come into the room of a card, and waits for the answer: `docJoined`,
+    /// after which it holds the document, or `docRefused`.
     pub(crate) async fn join(&mut self, workspace_id: &str, card_id: &str) -> Value {
         self.send_json(json!({
-            "action": "JOIN_DOC", "workspaceId": workspace_id, "cardId": card_id,
+            "type": "joinDoc", "workspaceId": workspace_id, "cardId": card_id,
         }))
         .await;
         self.named = false;
         let deadline = tokio::time::Instant::now() + PATIENCE;
         loop {
             let answer = self.texts.iter().position(|message| {
-                [json!("DOC_JOINED"), json!("DOC_REFUSED")].contains(&message["action"])
+                [json!("docJoined"), json!("docRefused")].contains(&message["type"])
             });
             if let Some(index) = answer {
                 let answer = self.texts.remove(index).expect("it is there");
-                if answer["action"] == json!("DOC_JOINED") {
+                if answer["type"] == json!("docJoined") {
                     self.doc =
                         u32::try_from(answer["doc"].as_u64().expect("a room")).expect("32 bits");
                     self.epoch = answer["epoch"].as_i64().expect("an epoch");
@@ -389,7 +389,7 @@ impl Peer {
             let left = deadline.saturating_duration_since(tokio::time::Instant::now());
             assert!(
                 !left.is_zero() && self.step(left).await,
-                "no answer to JOIN_DOC; read: {:?}",
+                "no answer to joinDoc; read: {:?}",
                 self.texts
             );
         }
@@ -397,7 +397,7 @@ impl Peer {
 
     /// Asks to come into the room of a card as a connection that holds the document
     /// already (it was away): the join names the epoch and the state vector of what
-    /// its editor holds. Waits for `DOC_JOINED` and the document that follows it,
+    /// its editor holds. Waits for `docJoined` and the document that follows it,
     /// which is taken into the editor it holds unless it is of another epoch; the
     /// answer.
     pub(crate) async fn join_holding(&mut self, workspace_id: &str, card_id: &str) -> Value {
@@ -416,13 +416,13 @@ impl Peer {
         state_vector: &str,
     ) -> Value {
         self.send_json(json!({
-            "action": "JOIN_DOC", "workspaceId": workspace_id, "cardId": card_id,
+            "type": "joinDoc", "workspaceId": workspace_id, "cardId": card_id,
             "epoch": epoch, "stateVector": state_vector,
         }))
         .await;
         self.asked = None;
         self.named = true;
-        let joined = self.text("DOC_JOINED").await;
+        let joined = self.text("docJoined").await;
         self.doc = u32::try_from(joined["doc"].as_u64().expect("a room")).expect("32 bits");
         let epoch = joined["epoch"].as_i64().expect("an epoch");
         if epoch != self.epoch {
@@ -440,12 +440,12 @@ impl Peer {
     /// Comes into the room of a card, which it is let into.
     pub(crate) async fn joined(&mut self, workspace_id: &str, card_id: &str) -> Value {
         let answer = self.join(workspace_id, card_id).await;
-        assert_eq!(answer["action"], json!("DOC_JOINED"), "{answer}");
+        assert_eq!(answer["type"], json!("docJoined"), "{answer}");
         answer
     }
 
     pub(crate) async fn leave(&mut self) {
-        self.send_json(json!({"action": "LEAVE_DOC", "doc": self.doc}))
+        self.send_json(json!({"type": "leaveDoc", "doc": self.doc}))
             .await;
         self.doc = 0;
         self.editor = None;
@@ -472,7 +472,7 @@ impl Peer {
     /// the number it has in the log.
     pub(crate) async fn write_acked(&mut self, text: &str) -> i64 {
         self.write(text).await;
-        let ack = self.text("DOC_ACK").await;
+        let ack = self.text("docAck").await;
         assert_eq!(
             (&ack["doc"], &ack["epoch"]),
             (&json!(self.doc), &json!(self.epoch)),
@@ -640,7 +640,7 @@ async fn two_connections_edit_a_card_together_and_converge() {
     assert_eq!(
         joined,
         json!({
-            "action": "DOC_JOINED", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
+            "type": "docJoined", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
             "doc": 1, "epoch": 1, "mode": "write",
         })
     );
@@ -658,7 +658,7 @@ async fn two_connections_edit_a_card_together_and_converge() {
     one.write("one at once").await;
     two.write("two at once").await;
     for peer in [&mut one, &mut two] {
-        let ack = peer.text("DOC_ACK").await;
+        let ack = peer.text("docAck").await;
         seqs.push(ack["seq"].as_i64().expect("a number"));
         peer.settle().await;
     }
@@ -756,10 +756,10 @@ async fn a_refused_update_goes_to_nobody_and_what_goes_out_is_logged_first() {
     let image = crate::collab_images::showing("7nothing.png");
     for refused in [&b"no update"[..], &image] {
         one.send_update(refused).await;
-        let nack = one.text("DOC_NACK").await;
+        let nack = one.text("docNack").await;
         assert_eq!(
             nack,
-            json!({"action": "DOC_NACK", "doc": one.doc, "epoch": 1, "reason": "update_refused"})
+            json!({"type": "docNack", "doc": one.doc, "epoch": 1, "reason": "update_refused"})
         );
     }
     assert_eq!(
@@ -790,7 +790,7 @@ async fn a_refused_update_goes_to_nobody_and_what_goes_out_is_logged_first() {
     let log = logged().await;
     assert_eq!(log.len(), 1, "{log:?}");
     assert_eq!(log[0].bytes, update);
-    let ack = one.text("DOC_ACK").await;
+    let ack = one.text("docAck").await;
     assert_eq!(ack["seq"], json!(log[0].seq), "{ack}");
     assert_eq!(
         one.incoming(QUIET).await,
@@ -801,7 +801,7 @@ async fn a_refused_update_goes_to_nobody_and_what_goes_out_is_logged_first() {
     // An update made against another making of the document than the one there is.
     let stale = one.editor().append_paragraph("of another epoch");
     one.send_binary(frame(one.doc, 7, UPDATE, &stale)).await;
-    let nack = one.text("DOC_NACK").await;
+    let nack = one.text("docNack").await;
     assert_eq!(
         (&nack["epoch"], &nack["reason"]),
         (&json!(7), &json!("update_out_of_step")),
@@ -843,7 +843,7 @@ async fn readers_read_and_what_they_send_is_refused() {
         reader.settle().await;
         assert_eq!(reader.lines(), ["first", "from the writer"]);
         reader.write("from a reader").await;
-        let nack = reader.text("DOC_NACK").await;
+        let nack = reader.text("docNack").await;
         assert_eq!(nack["reason"], json!("document_read_only"), "{nack}");
     }
     assert_eq!(writer.incoming(QUIET).await, Incoming::Nothing);
@@ -901,7 +901,7 @@ async fn who_may_not_read_is_refused_as_for_no_card() {
     let token = th.share(&t.board_id).await;
     anonymous
         .send_json(json!({
-            "action": "SUBSCRIBE_BLOCKS", "workspaceId": TEST_WORKSPACE_ID,
+            "type": "subscribeBlocks", "workspaceId": TEST_WORKSPACE_ID,
             "readToken": token, "blockIds": [t.card_id],
         }))
         .await;
@@ -912,15 +912,15 @@ async fn who_may_not_read_is_refused_as_for_no_card() {
             ("no workspace", t.card_id.as_str()),
         ] {
             peer.send_json(json!({
-                "action": "JOIN_DOC", "workspaceId": workspace_id, "cardId": card_id,
+                "type": "joinDoc", "workspaceId": workspace_id, "cardId": card_id,
                 "readToken": token,
             }))
             .await;
-            let refused = peer.text("DOC_REFUSED").await;
+            let refused = peer.text("docRefused").await;
             assert_eq!(
                 refused,
                 json!({
-                    "action": "DOC_REFUSED", "workspaceId": workspace_id, "cardId": card_id,
+                    "type": "docRefused", "workspaceId": workspace_id, "cardId": card_id,
                     "reason": "not_found",
                 })
             );
@@ -981,7 +981,7 @@ async fn a_connection_that_ends_leaves_its_rooms() {
     for _ in 0..20 {
         let mut peer = Peer::connect(&th.client, 102).await;
         peer.send_json(json!({
-            "action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
+            "type": "joinDoc", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
         }))
         .await;
         drop(peer);
@@ -1020,8 +1020,8 @@ async fn a_card_of_another_organization_is_reached_through_its_workspace_only() 
     for named in [workspace_id.as_str(), TEST_WORKSPACE_ID] {
         let refused = peer.join(named, &theirs_card.id).await;
         assert_eq!(
-            (&refused["action"], &refused["reason"]),
-            (&json!("DOC_REFUSED"), &json!("not_found")),
+            (&refused["type"], &refused["reason"]),
+            (&json!("docRefused"), &json!("not_found")),
             "{refused}"
         );
     }
@@ -1085,7 +1085,7 @@ async fn nothing_is_sent_on_before_the_log_has_it() {
     }
     let log = logged().await;
     assert_eq!(log.len(), 1, "{log:?}");
-    let ack = one.text("DOC_ACK").await;
+    let ack = one.text("docAck").await;
     assert_eq!(ack["seq"], json!(log[0].seq), "{ack}");
     th.teardown().await;
 }

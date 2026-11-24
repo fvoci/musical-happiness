@@ -302,14 +302,20 @@ async fn losing_the_last_team_role_ends_subscriptions_and_live_board_messages() 
         .insert_block(&mut block, &owner)
         .await
         .unwrap();
-    th.client2.post(&format!("/w/{ROOT_WORKSPACE_ID}/subscriptions"), &json!({"blockType":"card", "blockId":block.id, "subscriberType":"user", "subscriberId":user})).await.check_created();
+    th.client2
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/subscriptions"),
+            &json!({"blockType":"card", "blockId":block.id, "userId":user}),
+        )
+        .await
+        .check_created();
     let mut socket = WorkspaceSocket::subscribe(&th, &th.client2, ROOT_WORKSPACE_ID, &user).await;
     th.client
         .patch(&path, &json!({"title":"Heard"}))
         .await
         .check_ok();
     socket
-        .expect("UPDATE_CONTAINER", "/container/title", "Heard")
+        .expect("containerChanged", "/container/title", "Heard")
         .await;
     th.client
         .delete(&format!(
@@ -319,7 +325,7 @@ async fn losing_the_last_team_role_ends_subscriptions_and_live_board_messages() 
         .await
         .check_no_content();
     socket
-        .expect("DELETE_MEMBER", "/member/userId", &user)
+        .expect("containerMemberRemoved", "/member/userId", &user)
         .await;
     socket.drain().await;
     th.client
@@ -475,11 +481,14 @@ async fn a_template_turned_private_or_open_says_nothing_of_its_team_readers() {
         messages
             .iter()
             .filter(|message| {
-                message["action"] == json!(action) && message["member"]["userId"] == json!(who)
+                message["type"] == json!(action) && message["member"]["userId"] == json!(who)
             })
             .count()
     };
-    for (kind, action) in [("P", "DELETE_MEMBER"), ("O", "UPDATE_MEMBER")] {
+    for (kind, action) in [
+        ("P", "containerMemberRemoved"),
+        ("O", "containerMemberChanged"),
+    ] {
         th.client
             .patch(
                 &format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", template.id),
@@ -488,7 +497,7 @@ async fn a_template_turned_private_or_open_says_nothing_of_its_team_readers() {
             .await
             .check_ok();
         socket
-            .expect("UPDATE_CONTAINER", "/container/id", &template.id)
+            .expect("containerChanged", "/container/id", &template.id)
             .await;
         let messages = socket.drain().await;
         assert_eq!(

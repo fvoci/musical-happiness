@@ -324,19 +324,19 @@ async fn the_room_of_a_card_of_a_space_takes_the_password_alone_once_there_is_on
     let told = before.unread();
     assert!(
         told.iter()
-            .any(|message| message["action"] == json!("DOC_LEFT")),
+            .any(|message| message["type"] == json!("docLeft")),
         "the connection that was in the room is put out of it: {told:?}"
     );
     assert!(
-        !told.contains(&json!({"action": "CLOSED"})),
+        !told.contains(&json!({"type": "closed"})),
         "and stays open, as the session that set the password goes on: {told:?}"
     );
     let refused = before.join(&own.id, &card).await;
-    assert_eq!(refused["action"], json!("DOC_REFUSED"), "{refused}");
+    assert_eq!(refused["type"], json!("docRefused"), "{refused}");
 
     let mut by_provider = Peer::connect(&client, 302).await;
     let refused = by_provider.join(&own.id, &card).await;
-    assert_eq!(refused["action"], json!("DOC_REFUSED"), "{refused}");
+    assert_eq!(refused["type"], json!("docRefused"), "{refused}");
     assert_eq!(refused["reason"], json!("not_found"), "{refused}");
 
     let (status, by_password) = login(&ts, "ada", FIRST_PASSWORD).await;
@@ -369,7 +369,7 @@ pub(crate) async fn told_on(
     use futures_util::{SinkExt as _, StreamExt as _};
 
     let (own, board) = at;
-    let follow = json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": own.id});
+    let follow = json!({"type": "subscribeWorkspace", "workspaceId": own.id});
     let follow = Message::Text(follow.to_string().into());
     socket.send(follow).await.expect("the command is sent");
     carried_out(ts.app.ws(), socket).await;
@@ -390,7 +390,7 @@ pub(crate) async fn told_on(
     told
 }
 
-/// How what a connection followed ended: the reason of the `UNSUBSCRIBED_WORKSPACE`
+/// How what a connection followed ended: the reason of the `workspaceUnsubscribed`
 /// it is told, `closed` if the server closed it, or `nothing`.
 async fn unsubscribed_or_closed(socket: &mut crate::common::WebSocket) -> String {
     use futures_util::StreamExt as _;
@@ -399,7 +399,7 @@ async fn unsubscribed_or_closed(socket: &mut crate::common::WebSocket) -> String
         match tokio::time::timeout(Duration::from_secs(2), socket.next()).await {
             Ok(Some(Ok(Message::Text(text)))) => {
                 let message: Value = serde_json::from_str(&text).expect("a message");
-                if message["action"] == json!("UNSUBSCRIBED_WORKSPACE") {
+                if message["type"] == json!("workspaceUnsubscribed") {
                     return message["reason"].as_str().unwrap_or_default().to_owned();
                 }
             }

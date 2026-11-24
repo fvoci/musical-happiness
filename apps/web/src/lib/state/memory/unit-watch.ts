@@ -20,28 +20,28 @@ export function setUnitWatch(
 
 export function memoryWatchingUnits(
   world: World,
-  userId: string,
+  sessionUserId: string,
   workspaceId: string,
-  subscriberId: string,
+  userId: string,
 ): string[] {
-  checkWorkspace(world, userId, workspaceId);
-  if (subscriberId !== userId) fail(404, 'no such subscriber');
-  const explicit = world.unitWatchers.get(subscriberId);
+  checkWorkspace(world, sessionUserId, workspaceId);
+  if (userId !== sessionUserId) fail(404, 'no such user');
+  const explicit = world.unitWatchers.get(userId);
   const ids: string[] = [];
   for (const block of world.blocks.values()) {
     if (block.type !== 'unit') continue;
     const container = world.containers.get(block.containerId);
-    if (container?.workspaceId !== workspaceId || !reads(world, subscriberId, container.id)) {
+    if (container?.workspaceId !== workspaceId || !reads(world, userId, container.id)) {
       continue;
     }
     const override = explicit?.get(block.id);
     if (override === false) continue;
     const auto =
       workspaceId === world.workspace.id &&
-      (block.createdBy === subscriberId ||
+      (block.createdBy === userId ||
         world
           .childrenOf(block.id)
-          .some((child) => child.type === 'comment' && child.createdBy === subscriberId));
+          .some((child) => child.type === 'comment' && child.createdBy === userId));
     if (override === true || auto) ids.push(block.id);
   }
   return ids;
@@ -49,35 +49,35 @@ export function memoryWatchingUnits(
 
 export function memoryWatchUnit(
   world: World,
-  userId: string,
+  sessionUserId: string,
   workspaceId: string,
   unitId: string,
-  subscriberId: string,
+  userId: string,
 ): void {
-  checkWorkspace(world, userId, workspaceId);
-  if (subscriberId !== userId) {
-    fail(403, 'a user subscribes for themselves only', { field: 'subscriberId' });
+  checkWorkspace(world, sessionUserId, workspaceId);
+  if (userId !== sessionUserId) {
+    fail(403, 'a user subscribes for themselves only', { field: 'userId' });
   }
   const block = world.blocks.get(unitId);
   if (
     !block ||
     world.containers.get(block.containerId)?.workspaceId !== workspaceId ||
-    !reads(world, userId, block.containerId) ||
+    !reads(world, sessionUserId, block.containerId) ||
     block.type !== 'unit'
   ) {
     fail(404, 'no such block');
   }
-  setUnitWatch(world, subscriberId, unitId, true);
+  setUnitWatch(world, userId, unitId, true);
 }
 
 export function memoryUnwatchUnit(
   world: World,
-  userId: string,
+  sessionUserId: string,
   workspaceId: string,
   unitId: string,
-  subscriberId: string,
+  userId: string,
 ): void {
-  checkWorkspace(world, userId, workspaceId);
-  if (subscriberId !== userId) fail(404, 'no such subscription');
-  setUnitWatch(world, subscriberId, unitId, false);
+  checkWorkspace(world, sessionUserId, workspaceId);
+  if (userId !== sessionUserId) fail(404, 'no such subscription');
+  setUnitWatch(world, userId, unitId, false);
 }

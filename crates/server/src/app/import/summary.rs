@@ -24,7 +24,7 @@ const MAX_WARNING_REASON_CHARS: usize = 500;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ImportFormat {
-    /// Native fvoci version 3 `.boardarchive` ZIP archive.
+    /// Native fvoci version 1 `.fvoci` ZIP archive.
     #[default]
     Fvoci,
     /// Trello board JSON export.
@@ -46,7 +46,7 @@ impl ImportFormat {
 
     /// Validates that an uploaded file name and byte size match this import format.
     ///
-    /// - `fvoci`: requires `.boardarchive` or `.zip` and non-empty bytes.
+    /// - `fvoci`: requires `.fvoci` or `.zip` and non-empty bytes.
     /// - `trello`: requires `.json` and non-empty bytes.
     /// - `notion`: requires `.zip` and non-empty bytes.
     ///
@@ -63,13 +63,13 @@ impl ImportFormat {
             .and_then(|e| e.to_str())
             .map(str::to_ascii_lowercase);
         let ok = match self {
-            Self::Fvoci => matches!(ext.as_deref(), Some("boardarchive" | "zip")),
+            Self::Fvoci => matches!(ext.as_deref(), Some("fvoci" | "zip")),
             Self::Trello => matches!(ext.as_deref(), Some("json")),
             Self::Notion => matches!(ext.as_deref(), Some("zip")),
         };
         if !ok {
             let expected = match self {
-                Self::Fvoci => ".boardarchive or .zip",
+                Self::Fvoci => ".fvoci or .zip",
                 Self::Trello => ".json",
                 Self::Notion => ".zip",
             };

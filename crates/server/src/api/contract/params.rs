@@ -89,7 +89,7 @@ parameter!(InvitationId: Path "invitationId", String, True, "The identifier of t
 parameter!(FileId: Path "fileId", String, True, "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.");
 parameter!(NotificationId: Path "notificationId", String, True, "The identifier of the notification: one of the user of the session.");
 parameter!(TimeEntryId: Path "entryId", String, True, "The identifier of the time entry: one of the user of the session.");
-parameter!(SubscriberId: Path "subscriberId", String, True, "The identifier of the subscriber: the user of the session.");
+parameter!(SubscribedUserId: Path "userId", String, True, "The identifier of the user: the user of the session.");
 parameter!(UploadId: Path "uploadId", String, True, "The identifier of the upload, as opening it answered. Only the user who opened it may use it.");
 parameter!(PartNumber: Path "partNumber", i64, True, "The number of the part, from 1 to the `partCount` of the upload.");
 parameter!(OrgId: Path "orgId", String, True, "The identifier of the organization. 404 unless the user of the session administers it; and 404 for the user's own space, which nobody administers.");

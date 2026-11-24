@@ -106,8 +106,8 @@ test('a board is exported and imported again, and a file that is no archive is r
   const saving = page.waitForEvent('download');
   await chooseFromMenu(page, boardMenu(page, title), 'export');
   const download = await saving;
-  expect(download.suggestedFilename()).toMatch(/^archive-\d{4}-\d{2}-\d{2}\.boardarchive$/);
-  const archive = testInfo.outputPath('board.boardarchive');
+  expect(download.suggestedFilename()).toMatch(/^archive-\d{4}-\d{2}-\d{2}\.fvoci$/);
+  const archive = testInfo.outputPath('board.fvoci');
   await download.saveAs(archive);
   expect((await readFile(archive)).subarray(0, 2).toString()).toBe('PK');
   await expect(
@@ -120,7 +120,7 @@ test('a board is exported and imported again, and a file that is no archive is r
   const savingAll = page.waitForEvent('download');
   await settings.getByTestId('export-workspace').click();
   const all = await savingAll;
-  const allPath = testInfo.outputPath('workspace.boardarchive');
+  const allPath = testInfo.outputPath('workspace.fvoci');
   await all.saveAs(allPath);
   expect((await readFile(allPath)).subarray(0, 2).toString()).toBe('PK');
 
@@ -128,7 +128,7 @@ test('a board is exported and imported again, and a file that is no archive is r
   await settings.getByTestId('import-archive').setInputFiles(archive);
   await expect(
     page.getByTestId('transfers').locator('[data-transfer="import"][data-finished]'),
-  ).toContainText('board.boardarchive is imported.');
+  ).toContainText('board.fvoci is imported.');
   await expect.poll(async () => (await boardsTitled(api, made.workspaceId, title)).length).toBe(2);
   const copy = (await boardsTitled(api, made.workspaceId, title)).find(
     (board) => board.id !== made.boardId,
@@ -143,7 +143,7 @@ test('a board is exported and imported again, and a file that is no archive is r
   // No archive: refused, told, nothing made.
   await sidebar(page).getByTestId('open-settings').click();
   await settings.getByTestId('import-archive').setInputFiles({
-    name: 'notes.boardarchive',
+    name: 'notes.fvoci',
     mimeType: 'application/zip',
     buffer: Buffer.from('these are not boards'),
   });

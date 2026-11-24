@@ -1,4 +1,4 @@
-//! Pass-2 blocking streamer for native fvoci v3 `board.jsonl` archive entries (T12).
+//! Pass-2 blocking streamer for native fvoci v1 `container.jsonl` archive entries (T12).
 //!
 //! Streams rewritten blocks line by line into bounded batches sent over a backpressured
 //! channel to `Store::create_containers_and_blocks_streamed`. Handles out-of-order parent
@@ -33,7 +33,7 @@ const BATCH_MAX_BLOCKS: usize = 64;
 const BATCH_MAX_RAW_BYTES: usize = 512 * 1024;
 
 /// Maximum raw bytes buffered in memory for out-of-order child blocks whose parent
-/// appears later in `board.jsonl`; overflow blocks are dropped and re-read on a revisit.
+/// appears later in `container.jsonl`; overflow blocks are dropped and re-read on a revisit.
 const MAX_PENDING_RAW_BYTES: usize = 2 * 1024 * 1024;
 
 /// Hard cap on Pass-2 revisit sweeps for pathologically reverse-ordered archives so a
@@ -43,7 +43,7 @@ pub(super) const MAX_REVISIT_PASSES: usize = 32;
 /// Channel depth between the blocking Pass-2 streamer and the async DB batch inserter.
 const STREAM_CHANNEL_CAPACITY: usize = 1;
 
-/// Summary metadata collected while streaming all `board.jsonl` entries in Pass 2.
+/// Summary metadata collected while streaming all `container.jsonl` entries in Pass 2.
 #[derive(Debug, Default)]
 pub(super) struct StreamedBoardStats {
     pub(super) counts: ImportCounts,
@@ -58,7 +58,7 @@ pub(super) enum BlockIdCollection {
     All,
 }
 
-/// Which sweep of `board.jsonl` Pass 2 is currently performing.
+/// Which sweep of `container.jsonl` Pass 2 is currently performing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StreamPass {
     Initial,
@@ -79,7 +79,7 @@ pub(super) struct ArchiveStreamShared {
     pub(super) collect_ids: BlockIdCollection,
 }
 
-/// Spawns one Pass-2 blocking streamer across every planned `board.jsonl` entry of a
+/// Spawns one Pass-2 blocking streamer across every planned `container.jsonl` entry of a
 /// native archive, returning a bounded receiver of ready-to-insert block batches (with
 /// body file names, attachment fields, and cross-board references already pointed) and a
 /// join handle carrying combined summary stats.
@@ -242,7 +242,7 @@ impl<'a> BoardStreamer<'a> {
                 ))
             })?;
             match archive_line.line_type.as_str() {
-                "board" | "boardMember" | "courseSchedule" => {}
+                "container" | "containerMember" | "courseSchedule" => {}
                 "block" => {
                     let idx = match pass {
                         StreamPass::Initial => {

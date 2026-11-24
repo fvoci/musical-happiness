@@ -80,7 +80,7 @@ async fn who_comes_back_is_sent_what_it_lacks_and_sends_what_the_server_lacks() 
     let missing = two.editor().missing_from(&asked);
     two.send_binary(frame(two.doc, two.epoch, STEP_2, &missing))
         .await;
-    let ack = two.text("DOC_ACK").await;
+    let ack = two.text("docAck").await;
     assert_eq!(ack["epoch"], json!(epoch), "{ack}");
     one.settle().await;
     assert_eq!(one.lines(), two.lines());
@@ -101,7 +101,7 @@ async fn who_comes_back_is_sent_what_it_lacks_and_sends_what_the_server_lacks() 
     // Sent again (its answer was lost with a connection), it changes nothing.
     two.send_binary(frame(two.doc, two.epoch, UPDATE, &missing))
         .await;
-    two.text("DOC_ACK").await;
+    two.text("docAck").await;
     one.settle().await;
     assert_eq!(one.lines(), lines);
     let body = one.body().expect("a body");
@@ -121,7 +121,7 @@ async fn a_document_of_another_making_is_sent_whole() {
     let mut two = away(&th, two).await;
     let _unsent = two.editor().append_paragraph("written while away");
     write_whole(&th.client, &t.card_id, &paragraphs(&["written whole"])).await;
-    one.text("DOC_RESET").await;
+    one.text("docReset").await;
     one.settle().await;
 
     let (epoch, before) = (two.epoch, two.taken.len());
@@ -151,7 +151,7 @@ async fn a_join_that_says_nothing_readable_is_sent_the_whole() {
         let joined = two
             .join_saying(TEST_WORKSPACE_ID, &t.card_id, two.epoch, said)
             .await;
-        assert_eq!(joined["action"], json!("DOC_JOINED"), "{said}: {joined}");
+        assert_eq!(joined["type"], json!("docJoined"), "{said}: {joined}");
         assert_eq!(kinds(&two, before), [STEP_2], "{said}");
         assert_eq!(
             two.taken[before].payload, whole,
@@ -196,7 +196,7 @@ async fn what_was_deleted_meanwhile_is_gone_for_who_comes_back() {
     let mut two = away(&th, two).await;
     let deleted = one.editor().delete_last();
     one.send_update(&deleted).await;
-    one.text("DOC_ACK").await;
+    one.text("docAck").await;
     assert_eq!(one.lines(), ["kept"]);
 
     let before = two.taken.len();
@@ -245,11 +245,11 @@ async fn a_join_that_names_its_document_counts_as_any_join() {
     // Its first join was five of the ten; this is the other five.
     two.join_holding(TEST_WORKSPACE_ID, &t.card_id).await;
     two.send_json(json!({
-        "action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
+        "type": "joinDoc", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
         "epoch": two.epoch, "stateVector": "AA==",
     }))
     .await;
-    let refused = two.text("DOC_REFUSED").await;
+    let refused = two.text("docRefused").await;
     assert_eq!(refused["reason"], json!("too_many_frames"), "{refused}");
     th.teardown().await;
 }

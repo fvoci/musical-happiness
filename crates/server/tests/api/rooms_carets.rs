@@ -120,7 +120,7 @@ async fn a_reader_is_told_the_carets_and_shows_none() {
 
     // Let write, the same connection shows one; made a reader again, it is gone.
     give(&th, &t.board_id, &user2, "editor").await;
-    assert_eq!(reader.text("DOC_MODE").await["mode"], json!("write"));
+    assert_eq!(reader.text("docModeChanged").await["mode"], json!("write"));
     show(&mut reader, 4).await;
     let shown = writer.caret().await;
     assert_eq!(shown.state, state_of(&user2, 4));
@@ -190,7 +190,7 @@ async fn a_caret_is_gone_with_its_member() {
         ))
         .await
         .check_no_content();
-    two.text("DOC_LEFT").await;
+    two.text("docLeft").await;
     gone(&again, &one.caret().await);
 
     // Its connection ended.
@@ -421,7 +421,7 @@ async fn carets_past_the_rate_are_dropped_and_put_nobody_out() {
     assert!(
         one.unread()
             .iter()
-            .all(|message| message["action"] != json!("DOC_LEFT")),
+            .all(|message| message["type"] != json!("docLeft")),
         "nobody is put out for carets: {:?}",
         one.unread()
     );
@@ -440,8 +440,8 @@ async fn the_document_made_again_leaves_no_caret() {
     show(&mut one, 1).await;
     let before = two.caret().await;
     crate::rooms::write_whole(&th.client, &t.card_id, &paragraphs(&["written whole"])).await;
-    one.text("DOC_RESET").await;
-    two.text("DOC_RESET").await;
+    one.text("docReset").await;
+    two.text("docReset").await;
     one.settle().await;
     no_caret(
         &mut two,
@@ -496,7 +496,7 @@ async fn a_held_member_is_told_no_caret_until_the_check_keeps_them() {
         go.notify_one();
     };
     tokio::join!(give(&th, &t.board_id, &user2, "viewer"), meanwhile);
-    assert_eq!(two.text("DOC_MODE").await["mode"], json!("read"));
+    assert_eq!(two.text("docModeChanged").await["mode"], json!("read"));
     let shown = two.caret().await;
     assert_eq!(shown.state, state_of(&user1, 1), "where the caret is now");
     let gone = two.caret().await;
@@ -524,7 +524,7 @@ async fn a_held_member_is_told_no_caret_until_the_check_keeps_them() {
             .check_no_content();
     };
     tokio::join!(removed, meanwhile);
-    two.text("DOC_LEFT").await;
+    two.text("docLeft").await;
     no_caret(&mut two, "put out, they were told no caret shown after").await;
     th.teardown().await;
 }

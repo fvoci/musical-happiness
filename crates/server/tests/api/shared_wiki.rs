@@ -275,7 +275,7 @@ async fn a_visit_by_a_wiki_link_is_counted_anonymously_and_told_nothing() {
     let _ = people(&mut member, 1).await;
     let mut reader = Socket::connect(&th).await;
     reader
-        .send(json!({"action": "SET_PRESENCE", "containerId": shared.wiki,
+        .send(json!({"type": "setPresence", "containerId": shared.wiki,
             "cardId": shared.page, "readToken": shared.token}))
         .await;
     let roster = people(&mut member, 1).await;
@@ -296,7 +296,7 @@ async fn a_wiki_link_follows_no_blocks_over_the_websocket() {
     let mut reader = Socket::connect(&th).await;
     reader
         .send(json!({
-            "action": "SUBSCRIBE_BLOCKS", "workspaceId": TEST_WORKSPACE_ID,
+            "type": "subscribeBlocks", "workspaceId": TEST_WORKSPACE_ID,
             "readToken": shared.token, "blockIds": [shared.page],
         }))
         .await;
@@ -323,7 +323,7 @@ async fn a_visit_by_a_wiki_link_ends_with_its_token() {
     let _ = people(&mut member, 1).await;
     let mut reader = Socket::connect(&th).await;
     reader
-        .send(json!({"action": "SET_PRESENCE", "containerId": shared.wiki,
+        .send(json!({"type": "setPresence", "containerId": shared.wiki,
             "cardId": shared.page, "readToken": shared.token}))
         .await;
     assert_eq!(people(&mut member, 1).await["anonymousCount"], 1);

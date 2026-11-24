@@ -11,7 +11,7 @@
  * then told to read again (`resync`): what happened in between is not
  * known. The browser saying it is online again, or the reader signing in
  * (`restart`), opens it at once; the browser saying it is offline drops it
- * at once, and so does a `PING` nothing answers in time (`live-heartbeat.ts`:
+ * at once, and so does a `ping` nothing answers in time (`live-heartbeat.ts`:
  * a connection that died says nothing for a long while otherwise). Nothing
  * is opened before a workspace is entered; entering another one moves the
  * subscription over to it.
@@ -22,10 +22,10 @@
  * the reader's own listeners read the sidebar again (`resync`, gathered).
  *
  * Access taken back ends the subscription, not the connection
- * (`UNSUBSCRIBED_WORKSPACE`): it is asked again, which takes the new role or
+ * (`workspaceUnsubscribed`): it is asked again, which takes the new role or
  * is refused, and the listeners read again.
  *
- * What the reader was told changed (`UPDATE_NOTIFICATIONS`, whatever
+ * What the reader was told changed (`notificationsChanged`, whatever
  * workspace is followed) is told to the reader's own listeners, who read it
  * again.
  *
@@ -79,12 +79,22 @@ const STEADY = 10_000;
 /** How long member and category messages are gathered before the sidebar is read again. */
 const GATHER = 200;
 
+const CATEGORY_MESSAGE_TYPES = new Set([
+  'categoryChanged',
+  'containerCategoriesChanged',
+  'categoriesReordered',
+  'categoryContainersReordered',
+]);
+
 type Message = { workspaceId?: string } & (
-  | { action: 'UPDATE_CONTAINER'; container: Schemas['Container'] }
-  | { action: 'UPDATE_BLOCK'; block: Schemas['Block']; summary?: BodySummary }
-  | { action: 'UPDATE_MEMBER' | 'DELETE_MEMBER'; member: Schemas['ContainerMember'] }
-  | { action: 'UPDATE_USER'; userId: string }
-  | { action: string }
+  | { type: 'containerChanged'; container: Schemas['Container'] }
+  | { type: 'blockChanged'; block: Schemas['Block']; summary?: BodySummary }
+  | {
+      type: 'containerMemberChanged' | 'containerMemberRemoved';
+      member: Schemas['ContainerMember'];
+    }
+  | { type: 'userChanged'; userId: string }
+  | { type: string }
 );
 
 export class LiveChanges {
@@ -94,7 +104,7 @@ export class LiveChanges {
   #socket: WebSocket | undefined;
   /** Whether `#socket` still carries, once it opened. */
   #heartbeat: Heartbeat | undefined;
-  /** How long the connections' `PING`s wait. */
+  /** How long the connections' `ping`s wait. */
   readonly #patience = new Patience();
   /** Whether `#socket` has opened and subscribed. */
   #subscribed = false;
@@ -189,7 +199,7 @@ export class LiveChanges {
   enter(workspaceId: string): void {
     const before = this.#workspaceId;
     if (before === workspaceId) {
-      this.#send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId }));
+      this.#send(JSON.stringify({ type: 'subscribeWorkspace', workspaceId }));
       this.#tellAll({ kind: 'resync' });
       return;
     }
@@ -197,9 +207,9 @@ export class LiveChanges {
     const socket = this.#socket;
     if (socket && this.#subscribed) {
       if (before !== undefined) {
-        socket.send(JSON.stringify({ action: 'UNSUBSCRIBE_WORKSPACE', workspaceId: before }));
+        socket.send(JSON.stringify({ type: 'unsubscribeWorkspace', workspaceId: before }));
       }
-      socket.send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId }));
+      socket.send(JSON.stringify({ type: 'subscribeWorkspace', workspaceId }));
     } else if (!socket && this.#wanted() && this.#timer === undefined) {
       this.#open();
     }
@@ -255,9 +265,7 @@ export class LiveChanges {
     this.#subscribed = false;
     socket.addEventListener('open', () => {
       if (this.#socket !== socket) return;
-      socket.send(
-        JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId: this.#workspaceId }),
-      );
+      socket.send(JSON.stringify({ type: 'subscribeWorkspace', workspaceId: this.#workspaceId }));
       this.#subscribed = true;
       this.#heartbeat = new Heartbeat(
         () => {
@@ -361,18 +369,19 @@ export class LiveChanges {
     if (this.rooms.text(parsed as Record<string, unknown>)) return;
     if (this.presence.text(parsed as Record<string, unknown>)) return;
     const message = parsed as Message;
+    if (typeof message.type !== 'string') return;
     // Still on its way from a workspace that was left.
     if (message.workspaceId !== undefined && message.workspaceId !== this.#workspaceId) return;
-    if (message.action === 'UNSUBSCRIBED_WORKSPACE') {
-      this.#send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId: this.#workspaceId }));
+    if (message.type === 'workspaceUnsubscribed') {
+      this.#send(JSON.stringify({ type: 'subscribeWorkspace', workspaceId: this.#workspaceId }));
       this.#tellAll({ kind: 'resync' });
       return;
     }
-    if (message.action === 'UPDATE_NOTIFICATIONS') {
+    if (message.type === 'notificationsChanged') {
       this.#tellSelf({ kind: 'notifications' });
-    } else if (message.action === 'UPDATE_USER' && 'userId' in message) {
+    } else if (message.type === 'userChanged' && 'userId' in message) {
       this.#tellSelf({ kind: 'user', userId: message.userId });
-    } else if ('container' in message) {
+    } else if (message.type === 'containerChanged' && 'container' in message) {
       const { container } = message;
       // A deleted board or wiki carries only its identifier and times.
       const change: Change =
@@ -380,7 +389,7 @@ export class LiveChanges {
           ? { kind: 'container', container: containerOf(container) }
           : { kind: 'containerDeleted', containerId: container.id };
       this.#tellContainer(container.id, change, true);
-    } else if ('block' in message) {
+    } else if (message.type === 'blockChanged' && 'block' in message) {
       const { block, summary } = message;
       if (block.deleteAt !== 0) {
         // Only the block deleted is told, not what went with it.
@@ -392,28 +401,25 @@ export class LiveChanges {
         return;
       }
       if (block.type === 'page') {
-        const pages = [pageOfBlock(block)];
         this.#tellContainer(
           block.containerId,
-          { kind: 'pages', containerId: block.containerId, pages },
+          { kind: 'pages', containerId: block.containerId, pages: [pageOfBlock(block)] },
           false,
         );
         return;
       }
       if (block.type === 'entry') {
-        const entries = [entryOfBlock(block)];
         this.#tellContainer(
           block.containerId,
-          { kind: 'entries', containerId: block.containerId, entries },
+          { kind: 'entries', containerId: block.containerId, entries: [entryOfBlock(block)] },
           false,
         );
         return;
       }
       if (block.type === 'unit' || block.type === 'chapter') {
-        const units = [unitOfBlock(block)];
         this.#tellContainer(
           block.containerId,
-          { kind: 'units', containerId: block.containerId, units },
+          { kind: 'units', containerId: block.containerId, units: [unitOfBlock(block)] },
           false,
         );
         return;
@@ -426,10 +432,13 @@ export class LiveChanges {
           false,
         );
       }
-    } else if ('member' in message) {
+    } else if (
+      (message.type === 'containerMemberChanged' || message.type === 'containerMemberRemoved') &&
+      'member' in message
+    ) {
       this.#sidebarSoon();
       await this.#readMembers(message.member.containerId);
-    } else if (message.action.includes('CATEGOR')) {
+    } else if (CATEGORY_MESSAGE_TYPES.has(message.type)) {
       this.#sidebarSoon();
     }
   }

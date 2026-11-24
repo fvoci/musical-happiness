@@ -60,10 +60,10 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
     // Out of the room as soon as the trashing has answered.
     assert_eq!(collab.room_members(&th.app, &card_id).await, 0);
     for peer in [&mut one, &mut two] {
-        let left = peer.text("DOC_LEFT").await;
+        let left = peer.text("docLeft").await;
         assert_eq!(
             left,
-            json!({"action": "DOC_LEFT", "doc": peer.doc, "reason": "not_found"}),
+            json!({"type": "docLeft", "doc": peer.doc, "reason": "not_found"}),
             "workspace trash puts out of the room"
         );
     }
@@ -87,10 +87,10 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
     th.client.delete(&place).await.check_no_content();
     assert_eq!(collab.room_members(&th.app, &card_id).await, 0);
     for peer in [&mut one, &mut two] {
-        let left = peer.text("DOC_LEFT").await;
+        let left = peer.text("docLeft").await;
         assert_eq!(
             left,
-            json!({"action": "DOC_LEFT", "doc": peer.doc, "reason": "not_found"}),
+            json!({"type": "docLeft", "doc": peer.doc, "reason": "not_found"}),
             "the trash again puts out of the room"
         );
     }
@@ -178,10 +178,10 @@ async fn an_org_admin_who_leaves_a_workspace_they_joined_is_put_out_of_its_rooms
     // Out of the room as soon as the leaving has answered; the member stays.
     let collab = th.app.collab();
     assert_eq!(collab.room_members(&th.app, &card.id).await, 1);
-    let left = joined.text("DOC_LEFT").await;
+    let left = joined.text("docLeft").await;
     assert_eq!(
         left,
-        json!({"action": "DOC_LEFT", "doc": joined.doc, "reason": "not_found"}),
+        json!({"type": "docLeft", "doc": joined.doc, "reason": "not_found"}),
         "leaving puts out of the room"
     );
     let refused = joined.join(&workspace, &card.id).await;

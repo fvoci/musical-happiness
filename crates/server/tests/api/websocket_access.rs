@@ -70,7 +70,7 @@ async fn still_open(socket: &mut Socket) {
 }
 
 /// Reads until the server says it stopped what the connection followed
-/// (`UNSUBSCRIBED_WORKSPACE`, `UNSUBSCRIBED_BLOCKS`), and shows the connection is still
+/// (`workspaceUnsubscribed`, `blocksUnsubscribed`), and shows the connection is still
 /// open: access that ends takes the subscription, not the connection.
 async fn ended(socket: &mut Socket) -> Value {
     let told = tokio::time::timeout(WAIT, async {
@@ -78,10 +78,10 @@ async fn ended(socket: &mut Socket) -> Value {
             match message.expect("a protocol frame") {
                 Message::Text(text) => {
                     let message: Value = serde_json::from_str(&text).expect("JSON");
-                    if message["action"]
-                        .as_str()
-                        .is_some_and(|action| action.starts_with("UNSUBSCRIBED_"))
-                    {
+                    if matches!(
+                        message["type"].as_str(),
+                        Some("workspaceUnsubscribed" | "blocksUnsubscribed")
+                    ) {
                         return message;
                     }
                 }
@@ -179,7 +179,7 @@ async fn public_subscription_ends(ending: EndShare, moment: Moment) {
         &ts,
         &mut socket,
         json!({
-            "action": "SUBSCRIBE_BLOCKS", "workspaceId": TEST_WORKSPACE_ID,
+            "type": "subscribeBlocks", "workspaceId": TEST_WORKSPACE_ID,
             "blockIds": [card.id], "readToken": token,
         }),
         moment,
@@ -190,7 +190,7 @@ async fn public_subscription_ends(ending: EndShare, moment: Moment) {
         pause.resume();
     }
     let told = ended(&mut socket).await;
-    assert_eq!(told["action"], "UNSUBSCRIBED_BLOCKS", "{ending:?}");
+    assert_eq!(told["type"], "blocksUnsubscribed", "{ending:?}");
     assert_eq!(told["workspaceId"], TEST_WORKSPACE_ID, "{ending:?}");
     assert_eq!(told["blockIds"], json!([card.id]), "the blocks it followed");
     ts.teardown().await;
@@ -224,7 +224,7 @@ async fn workspace_subscription_ends(ending: EndMembership, moment: Moment) {
         &ts,
         &mut socket,
         json!({
-            "action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID,
+            "type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID,
         }),
         moment,
     )
@@ -242,7 +242,7 @@ async fn workspace_subscription_ends(ending: EndMembership, moment: Moment) {
         pause.resume();
     }
     let told = ended(&mut socket).await;
-    assert_eq!(told["action"], "UNSUBSCRIBED_WORKSPACE", "{told}");
+    assert_eq!(told["type"], "workspaceUnsubscribed", "{told}");
     assert_eq!(told["workspaceId"], ROOT_WORKSPACE_ID, "{told}");
     ts.teardown().await;
 }
@@ -281,7 +281,7 @@ async fn withdrawing_an_administrators_joining_ends_the_subscription() {
             &ts,
             &mut socket,
             json!({
-                "action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace,
+                "type": "subscribeWorkspace", "workspaceId": workspace,
             }),
             Moment::Registered,
         )
@@ -331,7 +331,7 @@ async fn demoting_an_organization_administrator_ends_the_joined_subscription() {
             &ts,
             &mut socket,
             json!({
-                "action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace,
+                "type": "subscribeWorkspace", "workspaceId": workspace,
             }),
             Moment::Registered,
         )
@@ -376,7 +376,7 @@ async fn an_unrelated_revocation_does_not_end_a_validating_subscription() {
         &ts,
         &mut socket,
         json!({
-            "action": "SUBSCRIBE_BLOCKS", "workspaceId": TEST_WORKSPACE_ID,
+            "type": "subscribeBlocks", "workspaceId": TEST_WORKSPACE_ID,
             "blockIds": [card.id], "readToken": token,
         }),
         Moment::Validated,
@@ -422,7 +422,7 @@ async fn the_barrier_waits_for_a_subscription_that_a_pong_does_not() {
     let pause = subscribe(
         &ts,
         &mut socket,
-        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": TEST_WORKSPACE_ID}),
+        json!({"type": "subscribeWorkspace", "workspaceId": TEST_WORKSPACE_ID}),
         Moment::Validated,
     )
     .await
@@ -446,7 +446,7 @@ async fn trashing_a_workspace_tells_its_subscribed_members() {
     subscribe(
         &ts,
         &mut socket,
-        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": TEST_WORKSPACE_ID}),
+        json!({"type": "subscribeWorkspace", "workspaceId": TEST_WORKSPACE_ID}),
         Moment::Registered,
     )
     .await;
@@ -475,7 +475,7 @@ async fn joining_as_an_administrator_ends_a_subscription_made_under_the_prior_ro
         subscribe(
             &ts,
             &mut socket,
-            json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace}),
+            json!({"type": "subscribeWorkspace", "workspaceId": workspace}),
             Moment::Registered,
         )
         .await;
@@ -507,10 +507,10 @@ async fn updated(socket: &mut Socket, phase: &str) {
             if let Message::Text(text) = frame.expect("update frame") {
                 let message: Value = serde_json::from_str(&text).expect("JSON update");
                 // A user who renamed themselves is told too; that is not this test's.
-                if message["action"] == "UPDATE_USER" {
+                if message["type"] == "userChanged" {
                     continue;
                 }
-                assert_eq!(message["action"], "UPDATE_BLOCK", "{phase}: a block update");
+                assert_eq!(message["type"], "blockChanged", "{phase}: a block update");
                 return;
             }
         }
@@ -650,11 +650,11 @@ async fn dispatch_reuses_authorization_reads_until_visibility_changes() {
     subscribe(
         &ts,
         &mut member,
-        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}),
+        json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID}),
         Moment::Registered,
     )
     .await;
-    subscribe(&ts, &mut reader, json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID, "blockIds": [block.id], "readToken": token}), Moment::Registered).await;
+    subscribe(&ts, &mut reader, json!({"type": "subscribeBlocks", "workspaceId": ROOT_WORKSPACE_ID, "blockIds": [block.id], "readToken": token}), Moment::Registered).await;
     let reads = Reads::default();
     assert!(
         ts.app.store().observe(Box::new(reads.clone())),
@@ -736,9 +736,9 @@ async fn revocation_between_dispatch_check_and_queue_is_rechecked() {
         };
         let command = if public {
             let token = ts.share(&board.id).await;
-            json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID, "blockIds": [block.id], "readToken": token})
+            json!({"type": "subscribeBlocks", "workspaceId": ROOT_WORKSPACE_ID, "blockIds": [block.id], "readToken": token})
         } else {
-            json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID})
+            json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID})
         };
         subscribe(&ts, &mut socket, command, Moment::Registered).await;
         let pause = ts.app.ws().pause_next_dispatch();
@@ -781,7 +781,7 @@ async fn revocation_between_dispatch_check_and_queue_is_rechecked() {
                     if let Message::Text(text) = frame.expect("frame") {
                         let message: Value = serde_json::from_str(&text).expect("JSON");
                         assert_eq!(
-                            message["action"], "REORDER_CATEGORIES",
+                            message["type"], "categoriesReordered",
                             "the stale private block was not queued"
                         );
                         return;
@@ -821,7 +821,7 @@ async fn a_role_change_asks_another_organizations_workspace_anew() {
     subscribe(
         &ts,
         &mut socket,
-        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": their_workspace}),
+        json!({"type": "subscribeWorkspace", "workspaceId": their_workspace}),
         Moment::Registered,
     )
     .await;
@@ -851,7 +851,7 @@ async fn a_subscription_checked_too_often_is_given_up_as_retryable() {
     let mut pause = subscribe(
         &ts,
         &mut socket,
-        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}),
+        json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID}),
         Moment::Validated,
     )
     .await
@@ -917,7 +917,7 @@ async fn a_store_that_cannot_be_read_closes_as_retryable() {
     let board = ts
         .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
         .await;
-    let subscription = json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID});
+    let subscription = json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID});
     let mut following = ts.client.connect_websocket().await;
     subscribe(
         &ts,
@@ -973,7 +973,7 @@ async fn a_change_checked_too_often_is_given_up_as_retryable() {
     subscribe(
         &ts,
         &mut socket,
-        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}),
+        json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID}),
         Moment::Registered,
     )
     .await;

@@ -37,7 +37,7 @@ async fn follows(
     tries: usize,
 ) -> bool {
     socket
-        .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace_id}))
+        .send(json!({"type": "subscribeWorkspace", "workspaceId": workspace_id}))
         .await;
     let probe = category(workspace_id, user_id, &format!("probe {}", new_id()));
     for _ in 0..tries {
@@ -53,11 +53,11 @@ async fn follows(
 }
 
 /// The reason the server gives as it stops what the connection followed of a workspace
-/// (`UNSUBSCRIBED_WORKSPACE`), after what was on its way to it; `None` if it does not.
+/// (`workspaceUnsubscribed`), after what was on its way to it; `None` if it does not.
 async fn unsubscribed(socket: &mut Socket) -> Option<String> {
     let message = socket.unsubscribed_message(PATIENCE).await?;
     assert_eq!(
-        message["action"], "UNSUBSCRIBED_WORKSPACE",
+        message["type"], "workspaceUnsubscribed",
         "a workspace's subscription ends: {message}"
     );
     message["reason"].as_str().map(str::to_owned)
@@ -120,7 +120,7 @@ async fn a_connection_follows_a_workspace_only_with_a_session_that_opens_it() {
         sample(
             body,
             "fvoci_websocket_messages_queued_total",
-            &[("action", "UNSUBSCRIBED_WORKSPACE")],
+            &[("type", "workspaceUnsubscribed")],
         )
     };
     let body = scrape_until(&ts, |body| told(body) == Some(2.0)).await;
@@ -186,7 +186,7 @@ async fn a_public_link_is_followed_as_a_reader_by_a_session_that_opens_nothing()
     let user1 = ts.client.me().await.id;
     let (_board, block, token) = shared_board_with_a_card(&ts, &user1).await;
     let subscription = json!({
-        "action": "SUBSCRIBE_BLOCKS",
+        "type": "subscribeBlocks",
         "workspaceId": ROOT_WORKSPACE_ID,
         "readToken": token,
         "blockIds": [block.id],
@@ -244,7 +244,7 @@ async fn a_subscription_checked_before_the_wall_is_not_made_after_it() {
     let mut with_password = Socket::connect_as(&ts.client).await;
     let pause = ts.app.ws().pause_next_subscription();
     with_password
-        .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
+        .send(json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID}))
         .await;
     pause.reached().await;
 
@@ -355,21 +355,21 @@ async fn the_room_of_a_body_is_behind_the_wall() {
         .await
         .check_ok();
     with_password.write("after the wall").await;
-    let left = with_password.text("DOC_LEFT").await;
+    let left = with_password.text("docLeft").await;
     assert_eq!(left["reason"], json!("not_found"), "{left}");
     with_password.settle().await;
     assert!(
         with_password
             .unread()
             .iter()
-            .all(|message| message["action"] != json!("DOC_ACK")),
+            .all(|message| message["type"] != json!("docAck")),
         "nothing is taken after the wall: {:?}",
         with_password.unread()
     );
     let mut late = Peer::connect(&ts.client, 103).await;
     for peer in [&mut with_password, &mut late] {
         let refused = peer.join(TEST_WORKSPACE_ID, &t.card_id).await;
-        assert_eq!(refused["action"], json!("DOC_REFUSED"), "{refused}");
+        assert_eq!(refused["type"], json!("docRefused"), "{refused}");
         assert_eq!(refused["reason"], json!("not_found"), "{refused}");
     }
     through.write_acked("through the provider").await;
@@ -387,7 +387,7 @@ async fn the_room_of_a_body_is_behind_the_wall() {
 }
 
 /// Expected session refusals (`sso_required` and `password_sign_in_required`) on
-/// `SET_PRESENCE` clear the visit quietly instead of logging a warning as if the store
+/// `setPresence` clear the visit quietly instead of logging a warning as if the store
 /// failed.
 #[tokio::test]
 async fn presence_refused_for_sso_or_password_requirement_logs_no_warning() {
@@ -441,7 +441,7 @@ async fn presence_refused_for_sso_or_password_requirement_logs_no_warning() {
     let mut with_password = Socket::connect_as(&ts.client).await;
     with_password
         .send(json!({
-            "action": "SET_PRESENCE",
+            "type": "setPresence",
             "workspaceId": ROOT_WORKSPACE_ID,
             "containerId": org_board.id,
         }))
@@ -458,7 +458,7 @@ async fn presence_refused_for_sso_or_password_requirement_logs_no_warning() {
     let mut through_provider = Socket::connect_as(&admin).await;
     through_provider
         .send(json!({
-            "action": "SET_PRESENCE",
+            "type": "setPresence",
             "workspaceId": own.id,
             "containerId": own_board.id,
         }))
@@ -467,7 +467,7 @@ async fn presence_refused_for_sso_or_password_requirement_logs_no_warning() {
     // the refused `own_board` command and rechecks `with_password`'s prior visit there.
     through_provider
         .send(json!({
-            "action": "SET_PRESENCE",
+            "type": "setPresence",
             "workspaceId": ROOT_WORKSPACE_ID,
             "containerId": org_board.id,
         }))
@@ -476,7 +476,7 @@ async fn presence_refused_for_sso_or_password_requirement_logs_no_warning() {
 
     with_password
         .send(json!({
-            "action": "SET_PRESENCE",
+            "type": "setPresence",
             "workspaceId": ROOT_WORKSPACE_ID,
             "containerId": org_board.id,
         }))
@@ -485,7 +485,7 @@ async fn presence_refused_for_sso_or_password_requirement_logs_no_warning() {
     // command is guaranteed to have completed before checking the log.
     with_password
         .send(json!({
-            "action": "SET_PRESENCE",
+            "type": "setPresence",
             "workspaceId": own.id,
             "containerId": own_board.id,
         }))

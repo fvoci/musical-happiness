@@ -1,10 +1,11 @@
-//! Exporting boards and wikis to the archive format of version 3.
+//! Exporting boards and wikis to the native `.fvoci` archive format of version 1.
 //!
-//! An archive is a ZIP holding `version.json` and, per board, a directory with a
-//! `board.jsonl` and the board's files. Each line of `board.jsonl` is a board, a block
-//! or a member as the contract has them (`contracts/openapi.json`), bodies included; the
+//! An archive is a ZIP holding `version.json` and, per container, a directory with a
+//! `container.jsonl` and the container's files. Each line of `container.jsonl` is a
+//! container, a block, a member, or a course schedule as the contract has them
+//! (`contracts/openapi.json`), bodies included; the
 //! files are those the blocks show, those of the images and file blocks of bodies among them
-//! (`docs/s6-design.md` 3.10). A board's line also carries `fileNames`: the name each of
+//! (`docs/s6-design.md` 3.10). A container's line also carries `fileNames`: the name each of
 //! its files was uploaded with, by its stored name, which a file block shows; and
 //! `missingFiles`: the stored names of the files the blocks show that were not there to
 //! be written, which have no entry. An import gives the files it stores those names, and
@@ -17,7 +18,6 @@ use std::path::Path;
 use futures_util::StreamExt as _;
 use fvoci_model::{ArchiveHeader, ArchiveLine, Container, ContainerKind};
 use serde::Serialize;
-use serde_json::Value;
 use tokio::fs;
 use zip::write::{SimpleFileOptions, ZipWriter};
 
@@ -30,10 +30,10 @@ use crate::error::AppError;
 use crate::metrics::ContainerWork;
 
 /// The archive format version this server writes.
-pub(super) const ARCHIVE_VERSION: i64 = 3;
+pub(super) const ARCHIVE_VERSION: i64 = 1;
 
-/// A board's line of an archive: the board, and the name each of its files was uploaded
-/// with, by its stored name (`fileNames`, left out when there is none).
+/// A container's line of an archive: the container, and the name each of its files was
+/// uploaded with, by its stored name (`fileNames`, left out when there is none).
 #[derive(Serialize)]
 struct ArchivedContainer<'a> {
     #[serde(flatten)]
@@ -45,12 +45,12 @@ struct ArchivedContainer<'a> {
     missing_files: Vec<String>,
 }
 
-/// A course's shared schedule line in `board.jsonl`. Personal `unit_progress` rows
+/// A course's shared schedule line in `container.jsonl`. Personal `unit_progress` rows
 /// (`completed_at`, personal `planned_date`, `last_position`) are never exported.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ArchivedCourseSchedule<'a> {
-    board_id: &'a str,
+    container_id: &'a str,
     start_date: &'a str,
     target_date: &'a str,
     study_days: u8,
@@ -128,7 +128,7 @@ impl App {
             .map_err(|error| io_error(&error))?;
         // Removed however the export ends, also when its request is dropped meanwhile: the
         // file stays while it is sent, and goes with the archive.
-        let path = Doomed::file(directory.join(format!("{}.boardarchive", new_secret())));
+        let path = Doomed::file(directory.join(format!("{}.fvoci", new_secret())));
         self.write_archive(path.path(), workspace_id, &containers)
             .await?;
         let file = fs::File::open(path.path())
@@ -176,8 +176,8 @@ impl App {
         writer.finish().await
     }
 
-    /// Writes one board's directory: its files, then its `board.jsonl`, which names the
-    /// files that were not there to be written.
+    /// Writes one container's directory: its files, then its `container.jsonl`, which names
+    /// the files that were not there to be written.
     async fn write_container(
         &self,
         writer: &mut ArchiveWriter,
@@ -217,15 +217,15 @@ impl App {
             );
         }
         let file_names = self.file_names(&container.id, &written).await?;
-        let board = ArchivedContainer {
+        let archived = ArchivedContainer {
             container,
             file_names,
             missing_files,
         };
         writer
-            .start_entry(&format!("{}/board.jsonl", container.id))
+            .start_entry(&format!("{}/container.jsonl", container.id))
             .await?;
-        writer.write_line("board", &board).await?;
+        writer.write_line("container", &archived).await?;
         for block in &blocks {
             writer.write_line("block", block).await?;
         }
@@ -233,7 +233,7 @@ impl App {
             && let Some(schedule) = self.store().get_course_schedule(&container.id).await?
         {
             let line = ArchivedCourseSchedule {
-                board_id: &container.id,
+                container_id: &container.id,
                 start_date: &schedule.start_date,
                 target_date: &schedule.target_date,
                 study_days: schedule.study_days,
@@ -242,7 +242,7 @@ impl App {
         }
 
         for member in self.present_members_for_container(&container.id).await? {
-            writer.write_line("boardMember", &member).await?;
+            writer.write_line("containerMember", &member).await?;
         }
         Ok(())
     }
@@ -346,7 +346,7 @@ impl ArchiveWriter {
         })?;
         let line = ArchiveLine {
             line_type: line_type.to_owned(),
-            data: with_board_named(data),
+            data,
         };
         let mut bytes = serde_json::to_vec(&line).map_err(|error| {
             AppError::internal(format_args!("cannot encode archive line: {error}"))
@@ -422,20 +422,9 @@ fn io_error(error: &std::io::Error) -> AppError {
 }
 
 /// Whether a name a block shows can be the stored name of a file, and so an entry of the
-/// board's directory: one path segment, and not a name the archive itself uses.
+/// container's directory: one path segment, and not a name the archive itself uses.
 fn is_stored_name(name: &str) -> bool {
     !name.is_empty()
         && !name.contains(['/', '\\'])
-        && !matches!(name, "." | ".." | "board.jsonl" | "version.json")
-}
-
-/// A line's data under the names of the archive's format: a block and a member name their
-/// board or wiki `boardId` there, as every archive has, whatever the model calls it.
-fn with_board_named(mut data: Value) -> Value {
-    if let Value::Object(line) = &mut data
-        && let Some(container) = line.remove("containerId")
-    {
-        line.insert("boardId".to_owned(), container);
-    }
-    data
+        && !matches!(name, "." | ".." | "container.jsonl" | "version.json")
 }

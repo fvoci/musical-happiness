@@ -288,10 +288,8 @@ pub(crate) struct NewSubscription {
     block_type: String,
     /// The identifier of the block subscribed to.
     block_id: String,
-    /// Always `user`.
-    subscriber_type: String,
     /// The user of the session: a user subscribes for themselves only.
-    subscriber_id: String,
+    user_id: String,
 }
 
 /// Whether a user is to be an administrator of the instance.

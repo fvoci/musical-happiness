@@ -178,7 +178,7 @@ async fn handle_get_unit_comments(
 /// without joining it is refused with 403). The server chooses the identifier, the
 /// author and the times. Every image of the text shows a file of the course (400
 /// otherwise), and the text has no file block (400). A chapter takes no comments (404).
-/// Who reads the course is told with `UPDATE_BLOCK`, as of a comment on a card or page.
+/// Who reads the course is told with `blockChanged`, as of a comment on a card or page.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments",
@@ -293,7 +293,7 @@ async fn handle_patch_unit_comment(
 /// The comment goes to the trash, as a comment on a card or page does: by its author
 /// from the commenter's role up, and the comment of somebody else by the course's admins
 /// only (403, `access denied to delete other users' comments`). Who reads the course is
-/// told with `UPDATE_BLOCK` whose `deleteAt` is not 0.
+/// told with `blockChanged` whose `deleteAt` is not 0.
 #[utoipa::path(
     delete,
     path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}",
@@ -331,7 +331,7 @@ async fn handle_delete_unit_comment(
 /// board's admins`). A comment that went to the trash with its unit comes back with the
 /// unit (`undeleteUnit`), not on its own; that one, one not in the trash, and one of
 /// another unit are not there (404), nor is any while the unit is in the trash. Who
-/// reads the course is told with `UPDATE_BLOCK`.
+/// reads the course is told with `blockChanged`.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/undelete",

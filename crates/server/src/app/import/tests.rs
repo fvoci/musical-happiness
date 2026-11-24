@@ -233,18 +233,39 @@ fn read_bounded_line_enforces_line_and_total_limits_without_overreading() {
     let mut buf = Vec::new();
     let mut total = 0;
     assert!(
-        read_bounded_line(&mut cursor, &mut buf, 16, &mut total, 100, "b1/board.jsonl")
-            .expect("first line")
+        read_bounded_line(
+            &mut cursor,
+            &mut buf,
+            16,
+            &mut total,
+            100,
+            "b1/container.jsonl"
+        )
+        .expect("first line")
     );
     assert_eq!(buf, b"line1");
     assert!(
-        read_bounded_line(&mut cursor, &mut buf, 16, &mut total, 100, "b1/board.jsonl")
-            .expect("second line")
+        read_bounded_line(
+            &mut cursor,
+            &mut buf,
+            16,
+            &mut total,
+            100,
+            "b1/container.jsonl"
+        )
+        .expect("second line")
     );
     assert_eq!(buf, b"line2");
     assert!(
-        !read_bounded_line(&mut cursor, &mut buf, 16, &mut total, 100, "b1/board.jsonl")
-            .expect("eof")
+        !read_bounded_line(
+            &mut cursor,
+            &mut buf,
+            16,
+            &mut total,
+            100,
+            "b1/container.jsonl"
+        )
+        .expect("eof")
     );
 
     let oversized_line = vec![b'a'; 128];
@@ -256,7 +277,7 @@ fn read_bounded_line_enforces_line_and_total_limits_without_overreading() {
         32,
         &mut total,
         1024,
-        "b1/board.jsonl",
+        "b1/container.jsonl",
     )
     .expect_err("oversized single line must be rejected");
     assert_eq!(err.kind(), ErrorKind::PayloadTooLarge);
@@ -269,11 +290,25 @@ fn read_bounded_line_enforces_line_and_total_limits_without_overreading() {
     let mut cursor = Cursor::new(b"12345\n67890\n".as_slice());
     let mut total = 0;
     assert!(
-        read_bounded_line(&mut cursor, &mut buf, 32, &mut total, 8, "b1/board.jsonl")
-            .expect("first line within total")
+        read_bounded_line(
+            &mut cursor,
+            &mut buf,
+            32,
+            &mut total,
+            8,
+            "b1/container.jsonl"
+        )
+        .expect("first line within total")
     );
-    let err = read_bounded_line(&mut cursor, &mut buf, 32, &mut total, 8, "b1/board.jsonl")
-        .expect_err("exceeding max_total_bytes must be rejected");
+    let err = read_bounded_line(
+        &mut cursor,
+        &mut buf,
+        32,
+        &mut total,
+        8,
+        "b1/container.jsonl",
+    )
+    .expect_err("exceeding max_total_bytes must be rejected");
     assert_eq!(err.kind(), ErrorKind::PayloadTooLarge);
     assert_eq!(err.reason(), Some(Reason::ArchiveEntryTooLarge));
 }
@@ -282,7 +317,7 @@ fn read_bounded_line_enforces_line_and_total_limits_without_overreading() {
 fn import_format_validate_upload_checks_extension_and_non_empty() {
     assert!(
         ImportFormat::Fvoci
-            .validate_upload("archive.boardarchive", 10)
+            .validate_upload("archive.fvoci", 10)
             .is_ok()
     );
     assert!(
@@ -339,7 +374,7 @@ fn import_format_validate_upload_checks_extension_and_non_empty() {
     );
     assert!(
         ImportFormat::Notion
-            .validate_upload("export.boardarchive", 10)
+            .validate_upload("export.fvoci", 10)
             .is_err()
     );
     assert!(
@@ -357,7 +392,7 @@ async fn pass15_rechecks_attachment_field_expansion_before_staging() {
     let pad_len = fvoci_model::CARD_FIELDS_MAX_CHARS - 35;
     let pad = "x".repeat(pad_len);
     let board_line = serde_json::json!({
-        "type": "board",
+        "type": "container",
         "data": {
             "id": "b1",
             "workspaceId": "ws1",
@@ -371,7 +406,7 @@ async fn pass15_rechecks_attachment_field_expansion_before_staging() {
         "type": "block",
         "data": {
             "id": "c1",
-            "boardId": "b1",
+            "containerId": "b1",
             "parentId": "",
             "type": "card",
             "title": "Card",
@@ -384,7 +419,7 @@ async fn pass15_rechecks_attachment_field_expansion_before_staging() {
         "type": "block",
         "data": {
             "id": "att1",
-            "boardId": "b1",
+            "containerId": "b1",
             "parentId": "c1",
             "type": "attachment",
             "title": "a.png",
@@ -397,15 +432,17 @@ async fn pass15_rechecks_attachment_field_expansion_before_staging() {
 
     let dir = std::env::temp_dir().join(format!("fvoci-att-test-{}", fvoci_model::new_id()));
     std::fs::create_dir_all(&dir).expect("tempdir");
-    let zip_path = dir.join("att.boardarchive");
+    let zip_path = dir.join("att.fvoci");
     let file = std::fs::File::create(&zip_path).expect("create zip");
     let opts = zip::write::SimpleFileOptions::default();
     let mut writer = zip::ZipWriter::new(file);
     writer.start_file("version.json", opts).expect("version");
     writer
-        .write_all(br#"{"version":3,"date":1}"#)
+        .write_all(br#"{"version":1,"date":1}"#)
         .expect("write");
-    writer.start_file("b1/board.jsonl", opts).expect("jsonl");
+    writer
+        .start_file("b1/container.jsonl", opts)
+        .expect("jsonl");
     writer.write_all(jsonl.as_bytes()).expect("write jsonl");
     writer.start_file("b1/a.png", opts).expect("file");
     writer.write_all(b"PNG").expect("write png");

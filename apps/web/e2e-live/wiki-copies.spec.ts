@@ -189,7 +189,7 @@ test('a wiki saved as an archive is made again in another workspace', async ({
     .getByRole('button', { name: 'Menu of the wiki Handbook to archive', exact: true })
     .click();
   await page.getByRole('menuitem', { name: 'Export the wiki' }).click();
-  const archive = testInfo.outputPath('wiki.boardarchive');
+  const archive = testInfo.outputPath('wiki.fvoci');
   await (await saving).saveAs(archive);
 
   await page.goto(`/w/${second}`);
@@ -197,7 +197,7 @@ test('a wiki saved as an archive is made again in another workspace', async ({
   await page.getByTestId('settings-dialog').getByTestId('import-archive').setInputFiles(archive);
   await expect(
     page.getByTestId('transfers').locator('[data-transfer="import"][data-finished]'),
-  ).toContainText('wiki.boardarchive is imported.');
+  ).toContainText('wiki.fvoci is imported.');
   const wikis = async () =>
     answered<Schemas['Container'][]>(await api.get(`/api/v1/w/${second}/wikis`));
   await expect.poll(async () => (await wikis()).length).toBe(1);

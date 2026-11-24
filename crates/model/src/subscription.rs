@@ -6,26 +6,6 @@ use thiserror::Error;
 use crate::block::BlockType;
 use crate::refusal::{RefusalReason, Refusals};
 
-/// The kind of entity that subscribes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum SubscriberType {
-    /// A user.
-    User,
-    /// A channel; unused by a standalone server, kept for the wire format.
-    Channel,
-}
-
-impl SubscriberType {
-    /// Returns the wire and database form.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Channel => "channel",
-        }
-    }
-}
-
 /// Why a [`Subscription`] is rejected before it is stored: every member that is
 /// refused.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -39,10 +19,10 @@ impl SubscriptionError {
     }
 }
 
-/// A subscription to the changes of a board or card.
-// `subscriberType` is required when decoding; every other member defaults to its empty
-// value. (No doc comment: the doc comment is the description in the API contract.)
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+/// A subscription to the changes of a block.
+// Every member defaults to its empty value when decoding. (No extra doc comment: the doc
+// comment is the description in the API contract.)
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Subscription {
     /// The type of the block subscribed to.
@@ -52,11 +32,9 @@ pub struct Subscription {
     /// The identifier of the block subscribed to.
     #[serde(default)]
     pub block_id: String,
-    /// The kind of entity that subscribes.
-    pub subscriber_type: SubscriberType,
-    /// The identifier of the subscriber.
+    /// The identifier of the subscribed user.
     #[serde(default)]
-    pub subscriber_id: String,
+    pub user_id: String,
     /// The time of the last notification sent for this subscription, in milliseconds
     /// since the Unix epoch.
     #[serde(default)]
@@ -75,7 +53,7 @@ impl Subscription {
     /// # Errors
     ///
     /// Returns a [`SubscriptionError`] with every one of the block identifier, the block
-    /// type and the subscriber identifier that is empty.
+    /// type and the user identifier that is empty.
     pub fn validate(&self) -> Result<(), SubscriptionError> {
         let mut refused = Refusals::new();
         if self.block_id.is_empty() {
@@ -84,27 +62,21 @@ impl Subscription {
         if self.block_type.is_empty() {
             refused.refuse("blockType", RefusalReason::Required, "missing block type");
         }
-        if self.subscriber_id.is_empty() {
-            refused.refuse(
-                "subscriberId",
-                RefusalReason::Required,
-                "missing subscriber id",
-            );
+        if self.user_id.is_empty() {
+            refused.refuse("userId", RefusalReason::Required, "missing user id");
         }
         refused.into_result().map_err(SubscriptionError)
     }
 }
 
-/// An entity subscribed to a block.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A user subscribed to a block.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Subscriber {
-    /// The kind of entity that subscribes.
-    pub subscriber_type: SubscriberType,
-    /// The identifier of the subscriber.
+    /// The identifier of the subscribed user.
     #[serde(default)]
-    pub subscriber_id: String,
-    /// The time the subscriber was last notified, in milliseconds since the Unix epoch.
+    pub user_id: String,
+    /// The time the user was last notified, in milliseconds since the Unix epoch.
     #[serde(default)]
     pub notified_at: i64,
 }

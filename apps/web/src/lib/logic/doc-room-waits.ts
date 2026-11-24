@@ -16,7 +16,7 @@ export const ROOM_LIMITS: RoomLimits = { updateBytes: 64 * 1024 };
  * allows 50.
  */
 export const FLUSH_WAIT = 30;
-/** How long a refusal as out of step waits for the `DOC_RESET` that explains it. */
+/** How long a refusal as out of step waits for the `docReset` that explains it. */
 export const RESET_WAIT = 1500;
 /** The wait before joining again after being put out for sending or reading at the wrong pace. */
 export const PACE_WAIT = 1000;

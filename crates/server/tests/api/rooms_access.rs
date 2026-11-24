@@ -28,13 +28,13 @@ async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
     two.write_acked("as an editor").await;
 
     give(&th, &t.board_id, &user2, "viewer").await;
-    let mode = two.text("DOC_MODE").await;
+    let mode = two.text("docModeChanged").await;
     assert_eq!(
         mode,
-        json!({"action": "DOC_MODE", "doc": two.doc, "mode": "read"})
+        json!({"type": "docModeChanged", "doc": two.doc, "mode": "read"})
     );
     two.write("as a viewer").await;
-    let nack = two.text("DOC_NACK").await;
+    let nack = two.text("docNack").await;
     assert_eq!(nack["reason"], json!("document_read_only"), "{nack}");
     one.settle().await;
     assert_eq!(one.lines(), ["first", "as an editor"]);
@@ -45,7 +45,7 @@ async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
 
     // An editor again: it comes in anew to drop what was refused, and writes.
     give(&th, &t.board_id, &user2, "editor").await;
-    let mode = two.text("DOC_MODE").await;
+    let mode = two.text("docModeChanged").await;
     assert_eq!(mode["mode"], json!("write"), "{mode}");
     two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     two.write_acked("as an editor again").await;
@@ -60,10 +60,10 @@ async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
         ))
         .await
         .check_no_content();
-    let left = two.text("DOC_LEFT").await;
+    let left = two.text("docLeft").await;
     assert_eq!(
         left,
-        json!({"action": "DOC_LEFT", "doc": two.doc, "reason": "not_found"})
+        json!({"type": "docLeft", "doc": two.doc, "reason": "not_found"})
     );
     let late = two.editor().append_paragraph("after it was put out");
     two.send_binary(frame(two.doc, two.epoch, UPDATE, &late))
@@ -96,7 +96,7 @@ async fn who_is_taken_out_of_the_workspace_is_put_out_of_the_room() {
     let user2 = th.client2.me().await.id;
     crate::workspace_removal::remove_from_the_test_workspace(&th, &user2).await;
     ask_now(&th);
-    let left = two.text("DOC_LEFT").await;
+    let left = two.text("docLeft").await;
     assert_eq!(left["reason"], json!("not_found"), "{left}");
     one.write_acked("goes on").await;
     assert!(one.unread().is_empty(), "{:?}", one.unread());
@@ -117,10 +117,10 @@ async fn the_room_of_a_deleted_card_is_emptied() {
         .await
         .check_no_content();
     for peer in [&mut one, &mut two] {
-        let left = peer.text("DOC_LEFT").await;
+        let left = peer.text("docLeft").await;
         assert_eq!(
             left,
-            json!({"action": "DOC_LEFT", "doc": peer.doc, "reason": "not_found"})
+            json!({"type": "docLeft", "doc": peer.doc, "reason": "not_found"})
         );
     }
     crate::rooms::no_rooms(&th).await;
@@ -204,10 +204,10 @@ async fn a_store_that_fails_for_a_moment_empties_no_room_and_one_that_stays_fail
     rename("container_members", "container_members_away").await;
     collab.ask_again_now();
     for peer in [&mut one, &mut two] {
-        let left = peer.text("DOC_LEFT").await;
+        let left = peer.text("docLeft").await;
         assert_eq!(
             left,
-            json!({"action": "DOC_LEFT", "doc": peer.doc, "reason": "internal"})
+            json!({"type": "docLeft", "doc": peer.doc, "reason": "internal"})
         );
     }
     rename("container_members_away", "container_members").await;
@@ -269,10 +269,10 @@ async fn losing_the_team_role_puts_the_member_out_of_the_room() {
     // Out of the room as soon as the leaving has answered.
     let collab = th.app.collab();
     assert_eq!(collab.room_members(&th.app, &t.card_id).await, 1);
-    let left = two.text("DOC_LEFT").await;
+    let left = two.text("docLeft").await;
     assert_eq!(
         left,
-        json!({"action": "DOC_LEFT", "doc": two.doc, "reason": "not_found"})
+        json!({"type": "docLeft", "doc": two.doc, "reason": "not_found"})
     );
     let refused = two.join(TEST_WORKSPACE_ID, &t.card_id).await;
     assert_eq!(refused["reason"], json!("not_found"), "{refused}");

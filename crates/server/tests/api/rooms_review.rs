@@ -13,13 +13,13 @@ use crate::rooms::{
     two_in_a_room,
 };
 
-/// The refusal of a `JOIN_DOC`, which must be the one of a card that is not there.
+/// The refusal of a `joinDoc`, which must be the one of a card that is not there.
 async fn refusal(peer: &mut Peer, card_id: &str) -> Value {
     let refused = peer.join(TEST_WORKSPACE_ID, card_id).await;
     assert_eq!(
         refused,
         json!({
-            "action": "DOC_REFUSED", "workspaceId": TEST_WORKSPACE_ID,
+            "type": "docRefused", "workspaceId": TEST_WORKSPACE_ID,
             "cardId": card_id, "reason": "not_found",
         }),
         "both identifiers must have the same refusal shape"
@@ -27,7 +27,7 @@ async fn refusal(peer: &mut Peer, card_id: &str) -> Value {
     refused
 }
 
-/// A card on a private board must not turn a refused `JOIN_DOC` into an existence
+/// A card on a private board must not turn a refused `joinDoc` into an existence
 /// oracle by what its body costs to read: who is refused has nothing of the body read
 /// for them. The review measured it as time (a body of 18,001 nodes made the refusal
 /// of the hidden card fifteen times as long as that of a missing one on SQLite, five
@@ -54,8 +54,8 @@ async fn a_hidden_cards_body_does_not_make_its_refusal_distinguishable_from_a_mi
     let unread = member.join(TEST_WORKSPACE_ID, &t.card_id).await;
     rename("body_not_read", "body").await;
     assert_eq!(
-        (&unread["action"], &unread["reason"]),
-        (&json!("DOC_REFUSED"), &json!("internal")),
+        (&unread["type"], &unread["reason"]),
+        (&json!("docRefused"), &json!("internal")),
         "the body was out of reach of whatever read it: {unread}"
     );
     member.joined(TEST_WORKSPACE_ID, &t.card_id).await;
@@ -100,7 +100,7 @@ async fn an_accepted_update_keeps_its_ack_when_the_senders_queue_fills() {
         fvoci_server::app::SessionKept::with_password(),
     );
     slow.command(
-        &json!({"action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id})
+        &json!({"type": "joinDoc", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id})
             .to_string(),
     )
     .await;
@@ -129,18 +129,18 @@ async fn an_accepted_update_keeps_its_ack_when_the_senders_queue_fills() {
     loop {
         let outgoing = tokio::time::timeout(PATIENCE, outbox.next())
             .await
-            .expect("the answers end in DOC_LEFT");
+            .expect("the answers end in docLeft");
         let Some(Outgoing::Text(text)) = outgoing else {
-            panic!("an ACK or DOC_LEFT: {outgoing:?}");
+            panic!("an ACK or docLeft: {outgoing:?}");
         };
         let message: Value = serde_json::from_str(&text).expect("JSON");
-        match message["action"].as_str() {
-            Some("DOC_ACK") => acks.push(message["seq"].as_i64().expect("a sequence")),
-            Some("DOC_LEFT") => {
+        match message["type"].as_str() {
+            Some("docAck") => acks.push(message["seq"].as_i64().expect("a sequence")),
+            Some("docLeft") => {
                 assert_eq!(message["reason"], json!("connection_too_slow"));
                 break;
             }
-            _ => panic!("an ACK or DOC_LEFT: {message}"),
+            _ => panic!("an ACK or docLeft: {message}"),
         }
     }
     slow.leave_all().await;
@@ -150,7 +150,7 @@ async fn an_accepted_update_keeps_its_ack_when_the_senders_queue_fills() {
     assert_eq!(
         acks,
         (1..=17).collect::<Vec<i64>>(),
-        "DOC_LEFT must follow the answers to every accepted update"
+        "docLeft must follow the answers to every accepted update"
     );
 }
 

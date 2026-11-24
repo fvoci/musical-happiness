@@ -235,7 +235,7 @@ cargo xtask docker   # 이미지 둘(서버+웹앱, 검색 서버)을 빌드해 
 - 날짜 값의 시각 표기는 UTC 밀리초 정수다(설계 5.7).
 - WebSocket의 메시지는 OpenAPI 밖의 `contracts/websocket.md`와 `websocket.json`에 있다. 카드 본문을 함께 고치는 방(명령, 메시지, Binary 프레임, 세대, 한도)은 그 6절이고, 웹앱(R3)이 붙을 자리다.
 - 바꾸는 요청은 `fetch`의 기본 방식(`cors`)으로 보낸다. 서버가 페이지에 `Referrer-Policy: no-referrer`를 붙인다. 그래서 다른 방식(`same-origin`, `no-cors`, 브라우저가 직접 보내는 폼)의 요청은 `Origin: null`이 되어 403이다(계약의 머리말).
-- API 밖의 주소는 `/ws`, `/static/…`, 웹앱의 화면뿐이다. `hello`와 `ping`도 `/api/v1` 아래에 있다.
+- API 밖의 주소는 `/ws`, `/static/…`, 웹앱의 화면뿐이다. `ready`와 `ping`도 `/api/v1` 아래에 있다.
 
 **남은 문제를 찾는 곳.**
 

@@ -700,7 +700,7 @@ async fn personal_planned_dates_stay_private_across_peers_guests_ws_and_webhooks
 
 /// Deleting a shared schedule is idempotent, clears `schedule` to `null`, preserves unit
 /// `scheduledDate` and learner `plannedDate`, and shared `autoAssign` broadcasts
-/// `UPDATE_BLOCK` to subscribers.
+/// `blockChanged` to subscribers.
 #[tokio::test]
 async fn delete_schedule_is_idempotent_and_shared_auto_assign_broadcasts_updates() {
     let ts = Setup::local_mode().start().await.init_basic().await;
@@ -734,8 +734,8 @@ async fn delete_schedule_is_idempotent_and_shared_auto_assign_broadcasts_updates
     assert!(
         messages
             .iter()
-            .any(|msg| msg["action"] == "UPDATE_BLOCK" && msg["block"]["id"] == u1.id),
-        "shared autoAssign must broadcast UPDATE_BLOCK: {messages:?}"
+            .any(|msg| msg["type"] == "blockChanged" && msg["block"]["id"] == u1.id),
+        "shared autoAssign must broadcast blockChanged: {messages:?}"
     );
 
     set_personal_date(alice, &course, &u1.id, Some("2026-11-28")).await;

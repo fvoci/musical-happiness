@@ -520,8 +520,7 @@ impl World {
             .post(
                 &format!("{ROOT_WS}/subscriptions"),
                 &json!({
-                    "blockId": card, "blockType": "card", "subscriberId": self.me,
-                    "subscriberType": "user",
+                    "blockId": card, "blockType": "card", "userId": self.me,
                 }),
             )
             .await;
@@ -610,7 +609,14 @@ impl World {
             .replace("{commentId}", &things.comment)
             .replace("{fileId}", &things.file)
             .replace("{uploadId}", &things.upload)
-            .replace("{userId}", &self.other)
+            .replace(
+                "{userId}",
+                if template.contains("/subscriptions/") {
+                    &self.me
+                } else {
+                    &self.other
+                },
+            )
             .replace("{teamId}", &self.team)
             .replace(
                 "{categoryId}",
@@ -620,7 +626,6 @@ impl World {
                     &self.category
                 },
             )
-            .replace("{subscriberId}", &self.me)
             .replace("{partNumber}", "1")
             .replace("{version}", "1")
             // The board's card is its first.
@@ -1095,7 +1100,7 @@ async fn what_names_a_diary_in_a_body_is_refused() {
     // Nor is a diary entry a block to subscribe to.
     let subscribe = |block: &str| {
         json!({
-            "blockId": block, "blockType": "entry", "subscriberId": world.me, "subscriberType": "user",
+            "blockId": block, "blockType": "entry", "userId": world.me,
         })
     };
     let (to_entry, to_nothing) = (
@@ -1128,7 +1133,7 @@ async fn the_archive_and_the_trash_of_an_own_space_hold_every_kind() {
     let exported: BTreeSet<String> = archive
         .file_names()
         .filter_map(Result::ok)
-        .filter_map(|name| name.strip_suffix("/board.jsonl").map(str::to_owned))
+        .filter_map(|name| name.strip_suffix("/container.jsonl").map(str::to_owned))
         .collect();
     let all: BTreeSet<String> = [&board, &wiki, &diary, &course]
         .into_iter()
@@ -1214,7 +1219,7 @@ async fn every_list_is_of_its_kinds() {
     let boards_in: BTreeSet<String> = archive
         .file_names()
         .filter_map(Result::ok)
-        .filter_map(|name| name.strip_suffix("/board.jsonl").map(str::to_owned))
+        .filter_map(|name| name.strip_suffix("/container.jsonl").map(str::to_owned))
         .collect();
     let all = BTreeSet::from([
         board.container.clone(),
@@ -1380,8 +1385,7 @@ async fn assert_course_subscriptions(world: &World, course_id: &str, unit_id: &s
     let chapter_id = text(&chapter.value(), "id");
     let subscribe = |block: &str, block_type: &str| {
         json!({
-            "blockId": block, "blockType": block_type, "subscriberId": world.me,
-            "subscriberType": "user",
+            "blockId": block, "blockType": block_type, "userId": world.me,
         })
     };
     world

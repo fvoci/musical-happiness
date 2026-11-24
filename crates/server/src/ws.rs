@@ -3,7 +3,7 @@
 //!
 //! Whose connection it is is settled at the handshake, from the session the request
 //! carries; there is no message to sign in with. A user's connection may subscribe to
-//! workspaces. `SUBSCRIBE_BLOCKS` works without a session but needs the read token of the
+//! workspaces. `subscribeBlocks` works without a session but needs the read token of the
 //! shared board the blocks belong to.
 //!
 //! The commands and the binary frames of the bodies edited together are handed to the
@@ -81,7 +81,8 @@ impl std::fmt::Debug for Identity {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct Command {
-    action: String,
+    #[serde(rename = "type")]
+    kind: String,
     workspace_id: String,
     container_id: String,
     card_id: String,
@@ -92,7 +93,8 @@ struct Command {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateContainerMessage<'a> {
-    action: &'static str,
+    #[serde(rename = "type")]
+    kind: &'static str,
     workspace_id: &'a str,
     container: &'a Container,
 }
@@ -100,7 +102,8 @@ struct UpdateContainerMessage<'a> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateMemberMessage<'a> {
-    action: &'static str,
+    #[serde(rename = "type")]
+    kind: &'static str,
     workspace_id: &'a str,
     member: &'a ContainerMember,
 }
@@ -108,7 +111,8 @@ struct UpdateMemberMessage<'a> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateCategoryMessage<'a> {
-    action: &'static str,
+    #[serde(rename = "type")]
+    kind: &'static str,
     workspace_id: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     category: Option<&'a Category>,
@@ -119,7 +123,8 @@ struct UpdateCategoryMessage<'a> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CategoryReorderMessage<'a> {
-    action: &'static str,
+    #[serde(rename = "type")]
+    kind: &'static str,
     category_order: &'a [String],
     workspace_id: &'a str,
 }
@@ -127,7 +132,8 @@ struct CategoryReorderMessage<'a> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CategoryContainersReorderMessage<'a> {
-    action: &'static str,
+    #[serde(rename = "type")]
+    kind: &'static str,
     category_id: &'a str,
     container_order: &'a [String],
     workspace_id: &'a str,
@@ -137,7 +143,8 @@ struct CategoryContainersReorderMessage<'a> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UnsubscribedWorkspaceMessage<'a> {
-    action: &'static str,
+    #[serde(rename = "type")]
+    kind: &'static str,
     workspace_id: &'a str,
     reason: &'static str,
 }
@@ -146,7 +153,8 @@ struct UnsubscribedWorkspaceMessage<'a> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UnsubscribedBlocksMessage<'a> {
-    action: &'static str,
+    #[serde(rename = "type")]
+    kind: &'static str,
     workspace_id: &'a str,
     block_ids: &'a [String],
     reason: &'static str,
@@ -157,7 +165,8 @@ struct UnsubscribedBlocksMessage<'a> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateUserMessage<'a> {
-    action: &'static str,
+    #[serde(rename = "type")]
+    kind: &'static str,
     workspace_id: &'a str,
     user_id: &'a str,
 }
@@ -165,20 +174,21 @@ struct UpdateUserMessage<'a> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateClientConfigMessage<'a> {
-    action: &'static str,
+    #[serde(rename = "type")]
+    kind: &'static str,
     client_config: &'a ClientConfig,
 }
 
-/// A message the hub sends, with the action it names: the label it is counted under.
+/// A message the hub sends, with the `type` it names: the label it is counted under.
 trait Outgoing: Serialize {
-    fn action(&self) -> &'static str;
+    fn kind(&self) -> &'static str;
 }
 
 macro_rules! outgoing {
     ($($message:ident),* $(,)?) => {
         $(impl Outgoing for $message<'_> {
-            fn action(&self) -> &'static str {
-                self.action
+            fn kind(&self) -> &'static str {
+                self.kind
             }
         })*
     };
@@ -486,7 +496,7 @@ impl Hub {
         self.send_public_block(&by_token, &message).await;
     }
 
-    /// The connections that follow the block or its parent by `SUBSCRIBE_BLOCKS`, with
+    /// The connections that follow the block or its parent by `subscribeBlocks`, with
     /// their users (empty for a connection without a session).
     fn block_followers(&self, block: &Block) -> Vec<(ListenerId, String)> {
         let listeners = self.listeners();
@@ -547,7 +557,7 @@ impl Hub {
     /// Tells the board's members in the workspace that the board changed.
     pub async fn broadcast_container_change(&self, workspace_id: &str, container: &Container) {
         let message = UpdateContainerMessage {
-            action: "UPDATE_CONTAINER",
+            kind: "containerChanged",
             workspace_id,
             container,
         };
@@ -578,7 +588,7 @@ impl Hub {
     ) {
         let container = gone_container(workspace_id, container_id);
         let message = UpdateContainerMessage {
-            action: "UPDATE_CONTAINER",
+            kind: "containerChanged",
             workspace_id,
             container: &container,
         };
@@ -597,7 +607,7 @@ impl Hub {
     ) {
         let container = gone_container(workspace_id, container_id);
         let message = UpdateContainerMessage {
-            action: "UPDATE_CONTAINER",
+            kind: "containerChanged",
             workspace_id,
             container: &container,
         };
@@ -664,7 +674,7 @@ impl Hub {
         member: &ContainerMember,
     ) {
         let message = UpdateMemberMessage {
-            action: "UPDATE_MEMBER",
+            kind: "containerMemberChanged",
             workspace_id,
             member,
         };
@@ -695,7 +705,7 @@ impl Hub {
             ..ContainerMember::default()
         };
         let message = UpdateMemberMessage {
-            action: "DELETE_MEMBER",
+            kind: "containerMemberRemoved",
             workspace_id,
             member: &member,
         };
@@ -716,7 +726,7 @@ impl Hub {
     /// (`permissions::sees_person`, by name), that the person's name changed.
     pub async fn broadcast_person_change(&self, workspace_id: &str, user_id: &str) {
         let message = UpdateUserMessage {
-            action: "UPDATE_USER",
+            kind: "userChanged",
             workspace_id,
             user_id,
         };
@@ -735,7 +745,7 @@ impl Hub {
     /// Tells every connection that the client configuration changed.
     pub async fn broadcast_config_change(&self, client_config: &ClientConfig) {
         let message = UpdateClientConfigMessage {
-            action: "UPDATE_CLIENT_CONFIG",
+            kind: "clientConfigChanged",
             client_config,
         };
         let recipients: Vec<ListenerId> = self.listeners().by_id.keys().copied().collect();
@@ -745,7 +755,7 @@ impl Hub {
     /// Tells the category's owner that it changed.
     pub async fn broadcast_category_change(&self, category: &Category) {
         let message = UpdateCategoryMessage {
-            action: "UPDATE_CATEGORY",
+            kind: "categoryChanged",
             workspace_id: &category.workspace_id,
             category: Some(category),
             container_categories: &[],
@@ -762,7 +772,7 @@ impl Hub {
         container_categories: &[ContainerCategoryWebsocketData],
     ) {
         let message = UpdateCategoryMessage {
-            action: "UPDATE_CONTAINER_CATEGORY",
+            kind: "containerCategoriesChanged",
             workspace_id,
             category: None,
             container_categories,
@@ -778,7 +788,7 @@ impl Hub {
         category_order: &[String],
     ) {
         let message = CategoryReorderMessage {
-            action: "REORDER_CATEGORIES",
+            kind: "categoriesReordered",
             category_order,
             workspace_id,
         };
@@ -794,7 +804,7 @@ impl Hub {
         container_order: &[String],
     ) {
         let message = CategoryContainersReorderMessage {
-            action: "REORDER_CATEGORY_CONTAINERS",
+            kind: "categoryContainersReordered",
             category_id,
             container_order,
             workspace_id,
@@ -818,15 +828,15 @@ impl Hub {
             .await;
     }
 
-    /// Queues the text of a message whose action is `action` for the given listeners.
+    /// Queues the text of a message whose `type` is `kind` for the given listeners.
     /// A listener whose queue is full is dropped and its connection closed. Cloning the
     /// text copies none of it.
-    fn queue_text(&self, recipients: &[ListenerId], text: &Utf8Bytes, action: &'static str) {
+    fn queue_text(&self, recipients: &[ListenerId], text: &Utf8Bytes, kind: &'static str) {
         if recipients.is_empty() {
             return;
         }
         let queued = self.listeners().queue(recipients, text);
-        self.inner.metrics.websocket_queued(action, queued);
+        self.inner.metrics.websocket_queued(kind, queued);
     }
 }
 
@@ -835,7 +845,7 @@ fn text_of(message: &impl Outgoing) -> Option<Utf8Bytes> {
     match serde_json::to_string(message) {
         Ok(text) => Some(text.into()),
         Err(error) => {
-            tracing::error!(%error, action = message.action(), "websocket: a message could not be serialized");
+            tracing::error!(%error, message_type = message.kind(), "websocket: a message could not be serialized");
             None
         }
     }

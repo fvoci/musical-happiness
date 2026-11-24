@@ -24,20 +24,21 @@ const LONGEST_ID: usize = 64;
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct Command {
-    action: String,
+    #[serde(rename = "type")]
+    kind: String,
     workspace_id: String,
     card_id: String,
     doc: u32,
-    /// Of a `JOIN_DOC`: the making of the document the connection holds, if it names
+    /// Of a `joinDoc`: the making of the document the connection holds, if it names
     /// one (`state_vector`).
     epoch: i64,
-    /// Of a `JOIN_DOC`: the state vector of the document the connection holds, in
+    /// Of a `joinDoc`: the state vector of the document the connection holds, in
     /// base64; empty for a connection that holds none.
     state_vector: String,
 }
 
 /// What a command or frame that is answered with a whole document counts as, in
-/// frames: `JOIN_DOC`, and a sync step 1.
+/// frames: `joinDoc`, and a sync step 1.
 const WHOLE_DOCUMENT: u64 = 5;
 
 /// How many seconds' worth of frames a connection may have saved up at most while
@@ -255,15 +256,15 @@ impl Seat {
         }
     }
 
-    /// Carries out a text message if it is a command of the rooms (`JOIN_DOC`,
-    /// `LEAVE_DOC`); whether it was one.
+    /// Carries out a text message if it is a command of the rooms (`joinDoc`,
+    /// `leaveDoc`); whether it was one.
     pub async fn command(&mut self, text: &str) -> bool {
         let Ok(command) = serde_json::from_str::<Command>(text) else {
             return false;
         };
-        match command.action.as_str() {
-            "JOIN_DOC" => self.join(command).await,
-            "LEAVE_DOC" => self.leave(command.doc).await,
+        match command.kind.as_str() {
+            "joinDoc" => self.join(command).await,
+            "leaveDoc" => self.leave(command.doc).await,
             _ => return false,
         }
         true
@@ -280,7 +281,7 @@ impl Seat {
         let now = self.collab.rate_now();
         let admitted = self.rate.admits(WHOLE_DOCUMENT, now);
         if workspace_id.len() > LONGEST_ID || card_id.len() > LONGEST_ID {
-            tracing::debug!("websocket: a JOIN_DOC names what is no identifier");
+            tracing::debug!("websocket: a joinDoc names what is no identifier");
             return;
         }
         let doc = self.next_doc;

@@ -590,14 +590,14 @@ async fn create_boards_and_blocks_is_broadcast() {
     // of the hub only if the membership were written later; it is written with the
     // board, so all three arrive.
     socket
-        .expect("UPDATE_CONTAINER", "/container/id", board_id)
+        .expect("containerChanged", "/container/id", board_id)
         .await;
     let message = socket
-        .expect("UPDATE_BLOCK", "/block/id", &created.blocks[0].id)
+        .expect("blockChanged", "/block/id", &created.blocks[0].id)
         .await;
     assert_eq!(message["block"]["title"], json!("block 1"), "{message}");
     let message = socket
-        .expect("UPDATE_MEMBER", "/member/containerId", board_id)
+        .expect("containerMemberChanged", "/member/containerId", board_id)
         .await;
     assert_eq!(message["member"]["userId"], json!(user1.id), "{message}");
     th.teardown().await;
@@ -892,12 +892,12 @@ async fn patch_boards_and_blocks_patches_should_be_applied_if_valid_and_related(
 
     // The members are told about every block and board.
     for block in [&boards.block1, &boards.block2] {
-        let message = socket.expect("UPDATE_BLOCK", "/block/id", &block.id).await;
+        let message = socket.expect("blockChanged", "/block/id", &block.id).await;
         assert_eq!(message["block"]["title"], json!(new_title), "{message}");
     }
     for board in [&boards.board1, &boards.board2] {
         let message = socket
-            .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+            .expect("containerChanged", "/container/id", &board.id)
             .await;
         assert_eq!(message["container"]["title"], json!(new_title), "{message}");
     }
@@ -1260,7 +1260,7 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
     // Those who were members are told about every deleted block and board, although
     // the memberships went with the boards.
     for block_id in &block_ids {
-        let message = socket.expect("UPDATE_BLOCK", "/block/id", block_id).await;
+        let message = socket.expect("blockChanged", "/block/id", block_id).await;
         assert!(
             message["block"]["deleteAt"].as_i64() > Some(0),
             "a deletion: {message}"
@@ -1268,7 +1268,7 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
     }
     for board_id in &board_ids {
         let message = socket
-            .expect("UPDATE_CONTAINER", "/container/id", board_id)
+            .expect("containerChanged", "/container/id", board_id)
             .await;
         assert!(
             message["container"]["deleteAt"].as_i64() > Some(0),

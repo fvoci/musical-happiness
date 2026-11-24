@@ -85,7 +85,7 @@ async function step(page, s, measure) {
       bytes: r.transfer,
       body: r.encoded,
     })),
-    ws: c.ws.map((m) => ({ t: rel(m.t), dir: m.dir, action: m.action ?? m.kind, size: m.size })),
+    ws: c.ws.map((m) => ({ t: rel(m.t), dir: m.dir, type: m.type ?? m.kind, size: m.size })),
   };
 }
 

@@ -143,11 +143,11 @@ describe('the server backend', () => {
     });
     const socket = made[0];
     socket?.dispatchEvent(new Event('open'));
-    const subscribe = { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 'w1' };
+    const subscribe = { type: 'subscribeWorkspace', workspaceId: 'w1' };
     expect(socket?.sent).toEqual([subscribe]);
     // The account was given its first password: the server ends what the session follows
     // of its own space, and ignores the asking again that the page answers with.
-    const ended = JSON.stringify({ action: 'UNSUBSCRIBED_WORKSPACE', workspaceId: 'w1' });
+    const ended = JSON.stringify({ type: 'workspaceUnsubscribed', workspaceId: 'w1' });
     socket?.dispatchEvent(new MessageEvent('message', { data: ended }));
     expect(socket?.sent).toEqual([subscribe, subscribe]);
 

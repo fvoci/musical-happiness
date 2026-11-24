@@ -3,9 +3,7 @@
 
 use std::time::Duration;
 
-use fvoci_model::{
-    Block, BlockType, Container, ContainerMember, ContainerType, SubscriberType, Subscription,
-};
+use fvoci_model::{Block, BlockType, Container, ContainerMember, ContainerType, Subscription};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
@@ -31,42 +29,38 @@ const NOT_FOR_OTHERS: &str = "a user subscribes for themselves only";
 // -- helpers --------------------------------------------------------------------------
 
 /// The body that subscribes a user to a card.
-fn request(block_id: &str, subscriber_id: &str) -> Value {
+fn request(block_id: &str, user_id: &str) -> Value {
     json!({
         "blockType": "card",
         "blockId": block_id,
-        "subscriberType": "user",
-        "subscriberId": subscriber_id,
+        "userId": user_id,
     })
 }
 
 /// `CreateSubscription`, expecting success.
-async fn subscribe(client: &Client, block_id: &str, subscriber_id: &str) -> Subscription {
+async fn subscribe(client: &Client, block_id: &str, user_id: &str) -> Subscription {
     client
-        .post(PATH, &request(block_id, subscriber_id))
+        .post(PATH, &request(block_id, user_id))
         .await
         .created_json()
 }
 
 /// `GetSubscriptions`
-async fn get_subscriptions(client: &Client, subscriber_id: &str) -> ApiResponse {
-    client.get(&format!("{PATH}/{subscriber_id}")).await
+async fn get_subscriptions(client: &Client, user_id: &str) -> ApiResponse {
+    client.get(&format!("{PATH}/{user_id}")).await
 }
 
 /// `GetSubscriptions`, expecting success; sorted by block, because the list has no
 /// defined order.
-async fn subscriptions_of(client: &Client, subscriber_id: &str) -> Vec<Subscription> {
-    let mut subscriptions: Vec<Subscription> =
-        get_subscriptions(client, subscriber_id).await.ok_json();
+async fn subscriptions_of(client: &Client, user_id: &str) -> Vec<Subscription> {
+    let mut subscriptions: Vec<Subscription> = get_subscriptions(client, user_id).await.ok_json();
     subscriptions.sort_by(|a, b| a.block_id.cmp(&b.block_id));
     subscriptions
 }
 
 /// `DeleteSubscription`
-async fn unsubscribe(client: &Client, block_id: &str, subscriber_id: &str) -> ApiResponse {
-    client
-        .delete(&format!("{PATH}/{block_id}/{subscriber_id}"))
-        .await
+async fn unsubscribe(client: &Client, block_id: &str, user_id: &str) -> ApiResponse {
+    client.delete(&format!("{PATH}/{block_id}/{user_id}")).await
 }
 
 fn sorted(mut subscriptions: Vec<Subscription>) -> Vec<Subscription> {
@@ -110,16 +104,7 @@ async fn create_test_subscriptions(client: &Client, count: usize) -> (Vec<Subscr
     let mut subscriptions = Vec::with_capacity(count);
     for _ in 0..count {
         let card = insert_card(client, &board.id).await;
-        let subscription = Subscription {
-            block_type: card.block_type.clone(),
-            block_id: card.id.clone(),
-            subscriber_type: SubscriberType::User,
-            subscriber_id: user.id.clone(),
-            notified_at: 0,
-            create_at: 0,
-            delete_at: 0,
-        };
-        let created: Subscription = client.post(PATH, &subscription).await.created_json();
+        let created = subscribe(client, &card.id, &user.id).await;
         subscriptions.push(created);
     }
     (subscriptions, user.id)
@@ -139,7 +124,7 @@ async fn create_subscription_create_valid_subscription() {
     th.teardown().await;
 }
 
-/// Creating a subscription with an empty subscriber type is rejected.
+/// Creating a subscription with empty required fields is rejected.
 #[tokio::test]
 async fn create_subscription_create_invalid_subscription() {
     let th = Setup::native().start().await.init_basic().await;
@@ -152,10 +137,7 @@ async fn create_subscription_create_invalid_subscription() {
             &json!({
                 "blockType": "",
                 "blockId": "",
-                "subscriberType": "",
-                "subscriberId": user.id,
-                "createAt": 0,
-                "deleteAt": 0,
+                "userId": user.id,
             }),
         )
         .await;
@@ -164,16 +146,14 @@ async fn create_subscription_create_invalid_subscription() {
     check_error(
         &response,
         StatusCode::BAD_REQUEST,
-        "3 members of the request were refused",
+        "2 members of the request were refused",
     );
-    assert_eq!(
-        response.refused_places(),
-        ["/blockId", "/blockType", "/subscriberType"]
-    );
+    assert_eq!(response.refused_places(), ["/blockId", "/blockType"]);
     th.teardown().await;
 }
 
-/// Creating a subscription on behalf of another user is rejected.
+/// Creating a subscription on behalf of another user with missing required fields reports
+/// missing fields first.
 #[tokio::test]
 async fn create_subscription_create_subscription_for_another_user() {
     let th = Setup::native().start().await.init_basic().await;
@@ -186,24 +166,18 @@ async fn create_subscription_create_subscription_for_another_user() {
             &json!({
                 "blockType": "",
                 "blockId": "",
-                "subscriberType": "",
-                "subscriberId": other.id,
-                "createAt": 0,
-                "deleteAt": 0,
+                "userId": other.id,
             }),
         )
         .await;
 
-    // Missing required fields are rejected before comparing the subscriber with the session user.
+    // Missing required fields are rejected before comparing the user with the session user.
     check_error(
         &response,
         StatusCode::BAD_REQUEST,
-        "3 members of the request were refused",
+        "2 members of the request were refused",
     );
-    assert_eq!(
-        response.refused_places(),
-        ["/blockId", "/blockType", "/subscriberType"]
-    );
+    assert_eq!(response.refused_places(), ["/blockId", "/blockType"]);
     th.teardown().await;
 }
 
@@ -288,34 +262,32 @@ async fn create_subscription_validation() {
     let all_null = json!({
         "blockType": null,
         "blockId": null,
-        "subscriberType": null,
-        "subscriberId": null,
+        "userId": null,
     });
     let bad_requests = [
         (without("blockId"), "missing block id"),
         (without("blockType"), "missing block type"),
-        (without("subscriberId"), "missing subscriber id"),
-        (without("subscriberType"), "invalid subscriber type"),
-        (
-            with("subscriberType", json!("robot")),
-            "invalid subscriber type",
-        ),
-        (
-            with("subscriberType", json!("User")),
-            "invalid subscriber type",
-        ),
-        // Only `user` is an accepted subscriber type; `channel` is rejected.
-        (
-            with("subscriberType", json!("channel")),
-            "invalid subscriber type",
-        ),
+        (without("userId"), "missing user id"),
         (with("blockId", json!("")), "missing block id"),
+        // Legacy and uncontracted fields are rejected as unknown members, with no fallback.
+        (
+            with("subscriberType", json!("user")),
+            "unknown field `subscriberType`, expected one of `blockType`, `blockId`, `userId`",
+        ),
+        (
+            json!({"blockType": "card", "blockId": card.id, "subscriberId": me}),
+            "unknown field `subscriberId`, expected one of `blockType`, `blockId`, `userId`",
+        ),
+        (
+            with("createAt", json!(6)),
+            "unknown field `createAt`, expected one of `blockType`, `blockId`, `userId`",
+        ),
         // Nothing at all: everything missing is reported. `null` is no string.
-        (json!({}), "4 members of the request were refused"),
+        (json!({}), "3 members of the request were refused"),
         (all_null, "invalid type: null, expected a string"),
         (
-            json!({"subscriberId": other}),
-            "3 members of the request were refused",
+            json!({"userId": other}),
+            "2 members of the request were refused",
         ),
     ];
     for (body, message) in &bad_requests {
@@ -325,8 +297,8 @@ async fn create_subscription_validation() {
     let response = th.client.post(PATH, &json!({})).await;
     assert_eq!(
         response.refused_places(),
-        ["/blockId", "/blockType", "/subscriberId", "/subscriberType"],
-        "each member that is missing, the type after the others"
+        ["/blockId", "/blockType", "/userId"],
+        "each member that is missing"
     );
 
     // Complete, but for someone else; whether the block exists is not looked at.
@@ -376,12 +348,7 @@ async fn create_subscription_answer_and_subscribing_again() {
     let card = insert_card(&th.client, &board.id).await;
     let before = fvoci_server::auth::now_millis();
 
-    // The times are the server's, whatever the request says.
-    let mut body = request(&card.id, &me);
-    body["notifiedAt"] = json!(5);
-    body["createAt"] = json!(6);
-    body["deleteAt"] = json!(7);
-    let response = th.client.post(PATH, &body).await;
+    let response = th.client.post(PATH, &request(&card.id, &me)).await;
     let first: Subscription = response.created_json();
     assert!(
         first.create_at >= before,
@@ -393,8 +360,7 @@ async fn create_subscription_answer_and_subscribing_again() {
         json!({
             "blockType": "card",
             "blockId": card.id,
-            "subscriberType": "user",
-            "subscriberId": me,
+            "userId": me,
             "notifiedAt": first.create_at,
             "createAt": first.create_at,
             "deleteAt": 0,
@@ -433,16 +399,14 @@ async fn create_subscription_answer_and_subscribing_again() {
     );
 
     // The block type is whatever the client says, also another one than the block's.
-    for (block_type, subscriber_type) in [("text", "user"), ("whatever", "user")] {
+    for block_type in ["text", "whatever"] {
         let card = insert_card(&th.client, &board.id).await;
         let mut body = request(&card.id, &me);
         body["blockType"] = json!(block_type);
-        body["subscriberType"] = json!(subscriber_type);
         let response = th.client.post(PATH, &body).await;
         response.check_created();
         let answer = response.value();
         assert_eq!(answer["blockType"], json!(block_type), "{answer}");
-        assert_eq!(answer["subscriberType"], json!(subscriber_type), "{answer}");
         let listed = get_subscriptions(&th.client, &me).await.value();
         let listed = listed.as_array().expect("a list");
         assert!(listed.contains(&answer), "{answer} is among {listed:?}");
@@ -451,7 +415,7 @@ async fn create_subscription_answer_and_subscribing_again() {
     th.teardown().await;
 }
 
-// -- GET /subscriptions/{subscriber_id}, DELETE /subscriptions/{block_id}/{subscriber_id} --
+// -- GET /subscriptions/{user_id}, DELETE /subscriptions/{block_id}/{user_id} --
 
 /// A user reads and ends their own subscriptions only.
 #[tokio::test]
@@ -472,11 +436,11 @@ async fn subscriptions_of_another_user_are_refused() {
 
     // The subscriptions of another user are nobody's business: the answer is the same
     // for a user who has some, a user who has none, and nobody at all.
-    for subscriber_id in [user1.as_str(), UNKNOWN_ID, "nobody"] {
-        let response = get_subscriptions(&th.client2, subscriber_id).await;
-        check_error(&response, StatusCode::NOT_FOUND, "subscriber not found");
+    for user_id in [user1.as_str(), UNKNOWN_ID, "nobody"] {
+        let response = get_subscriptions(&th.client2, user_id).await;
+        check_error(&response, StatusCode::NOT_FOUND, "user not found");
         for block_id in [card.id.as_str(), UNKNOWN_ID, "nope"] {
-            let response = unsubscribe(&th.client2, block_id, subscriber_id).await;
+            let response = unsubscribe(&th.client2, block_id, user_id).await;
             check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
         }
     }

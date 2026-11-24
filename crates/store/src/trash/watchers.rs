@@ -21,8 +21,7 @@ const BATCH: usize = 300;
 #[serde(rename_all = "camelCase")]
 pub(super) struct StoredWatcher {
     block_type: String,
-    subscriber_type: String,
-    subscriber_id: String,
+    user_id: String,
     notified_at: i64,
     create_at: i64,
 }
@@ -36,18 +35,17 @@ pub(super) async fn watchers_of(
     let mut watchers: HashMap<String, Vec<StoredWatcher>> = HashMap::new();
     for batch in block_ids.chunks(BATCH) {
         let mut sql = scope.sql(
-            "SELECT block_id, block_type, subscriber_type, subscriber_id, notified_at, \
+            "SELECT block_id, block_type, user_id, notified_at, \
              create_at FROM subscriptions WHERE block_id IN (",
         );
         sql.bind_list(batch.iter().map(|id| Id(id)))
-            .push(") ORDER BY block_id, create_at, subscriber_id");
+            .push(") ORDER BY block_id, create_at, user_id");
         for row in scope.fetch_all(sql).await? {
             watchers.entry(row.id(0)?).or_default().push(StoredWatcher {
                 block_type: row.text(1)?,
-                subscriber_type: row.text(2)?,
-                subscriber_id: row.id(3)?,
-                notified_at: row.int(4)?,
-                create_at: row.int(5)?,
+                user_id: row.id(2)?,
+                notified_at: row.int(3)?,
+                create_at: row.int(4)?,
             });
         }
     }
@@ -95,7 +93,7 @@ async fn forget_watcher(scope: &mut Scope<'_>, sql: Sql, user_id: &str) -> Resul
             continue;
         };
         let before = watchers.len();
-        watchers.retain(|entry| entry.get("subscriberId").and_then(Value::as_str) != Some(user_id));
+        watchers.retain(|entry| entry.get("userId").and_then(Value::as_str) != Some(user_id));
         if watchers.len() == before {
             continue;
         }
@@ -177,22 +175,21 @@ pub(super) async fn watch_again(
     let postgres = scope.dialect() == Dialect::Postgres;
     for watcher in watchers {
         let mut sql = scope.sql(if postgres {
-            "INSERT INTO subscriptions (org_id, block_type, block_id, subscriber_type, \
-             subscriber_id, notified_at, create_at) SELECT b.org_id, "
+            "INSERT INTO subscriptions (org_id, block_type, block_id, \
+             user_id, notified_at, create_at) SELECT b.org_id, "
         } else {
-            "INSERT INTO subscriptions (block_type, block_id, subscriber_type, \
-             subscriber_id, notified_at, create_at) SELECT "
+            "INSERT INTO subscriptions (block_type, block_id, \
+             user_id, notified_at, create_at) SELECT "
         });
         sql.bind(watcher.block_type.as_str())
-            .push_bind(", b.id, ", watcher.subscriber_type.as_str())
-            .push_bind(", u.id, ", watcher.notified_at)
+            .push_bind(", b.id, u.id, ", watcher.notified_at)
             .push_bind(", ", watcher.create_at)
             .push_bind(
                 " FROM blocks AS b JOIN users AS u ON u.id = ",
-                Id(&watcher.subscriber_id),
+                Id(&watcher.user_id),
             )
             .push_bind(" WHERE u.erased_at = 0 AND b.id = ", Id(block_id))
-            .push(" ON CONFLICT (block_id, subscriber_id) DO NOTHING");
+            .push(" ON CONFLICT (block_id, user_id) DO NOTHING");
         scope.execute(sql).await?;
     }
     Ok(())

@@ -16,7 +16,7 @@ pub(super) fn reason_of(error: &AppError) -> String {
     )
 }
 
-/// `DOC_JOINED`: the connection is in the room of the card's body, known there as
+/// `docJoined`: the connection is in the room of the card's body, known there as
 /// `doc`; the whole document follows as a sync step 2.
 pub(super) fn joined(
     workspace_id: &str,
@@ -26,7 +26,7 @@ pub(super) fn joined(
     mode: DocMode,
 ) -> String {
     json!({
-        "action": "DOC_JOINED",
+        "type": "docJoined",
         "workspaceId": workspace_id,
         "cardId": card_id,
         "doc": doc,
@@ -36,10 +36,10 @@ pub(super) fn joined(
     .to_string()
 }
 
-/// `DOC_REFUSED`: the connection is not let into the room.
+/// `docRefused`: the connection is not let into the room.
 pub(super) fn refused(workspace_id: &str, card_id: &str, reason: &str) -> String {
     json!({
-        "action": "DOC_REFUSED",
+        "type": "docRefused",
         "workspaceId": workspace_id,
         "cardId": card_id,
         "reason": reason,
@@ -47,28 +47,28 @@ pub(super) fn refused(workspace_id: &str, card_id: &str, reason: &str) -> String
     .to_string()
 }
 
-/// `DOC_ACK`: the update the connection sent is in the document's log as `seq`.
+/// `docAck`: the update the connection sent is in the document's log as `seq`.
 pub(super) fn ack(doc: u32, epoch: i64, seq: i64) -> String {
-    json!({"action": "DOC_ACK", "doc": doc, "epoch": epoch, "seq": seq}).to_string()
+    json!({"type": "docAck", "doc": doc, "epoch": epoch, "seq": seq}).to_string()
 }
 
-/// `DOC_NACK`: the update the connection sent was not taken.
+/// `docNack`: the update the connection sent was not taken.
 pub(super) fn nack(doc: u32, epoch: i64, reason: &str) -> String {
-    json!({"action": "DOC_NACK", "doc": doc, "epoch": epoch, "reason": reason}).to_string()
+    json!({"type": "docNack", "doc": doc, "epoch": epoch, "reason": reason}).to_string()
 }
 
-/// `DOC_MODE`: how the connection is in the room from now on.
+/// `docModeChanged`: how the connection is in the room from now on.
 pub(super) fn mode(doc: u32, mode: DocMode) -> String {
-    json!({"action": "DOC_MODE", "doc": doc, "mode": mode.as_str()}).to_string()
+    json!({"type": "docModeChanged", "doc": doc, "mode": mode.as_str()}).to_string()
 }
 
-/// `DOC_RESET`: the document follows anew, as a sync step 2; of another `epoch` than
+/// `docReset`: the document follows anew, as a sync step 2; of another `epoch` than
 /// before, it is another document.
 pub(super) fn reset(doc: u32, epoch: i64) -> String {
-    json!({"action": "DOC_RESET", "doc": doc, "epoch": epoch}).to_string()
+    json!({"type": "docReset", "doc": doc, "epoch": epoch}).to_string()
 }
 
-/// `DOC_LEFT`: the server put the connection out of the room.
+/// `docLeft`: the server put the connection out of the room.
 pub(super) fn left(doc: u32, reason: &str) -> String {
-    json!({"action": "DOC_LEFT", "doc": doc, "reason": reason}).to_string()
+    json!({"type": "docLeft", "doc": doc, "reason": reason}).to_string()
 }

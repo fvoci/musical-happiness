@@ -305,7 +305,7 @@ async fn what_a_session_confirmed_ends_with_a_change_of_the_password() {
 /// Whether the connection was closed by the server, having read what was on its way.
 async fn closed(peer: &mut Peer) -> bool {
     while peer.step(Duration::from_secs(5)).await {}
-    peer.unread().contains(&json!({"action": "CLOSED"}))
+    peer.unread().contains(&json!({"type": "closed"}))
 }
 
 /// The server of the tests, looking at the session of each connection every second.
@@ -350,7 +350,7 @@ async fn a_connection_follows_the_space_once_its_session_gave_the_password() {
     assert!(!told_on(&ts, &mut following, &client, at).await, "before");
     let mut within = Peer::connect(&client, 311).await;
     let refused: Value = within.join(&own.id, &card).await;
-    assert_eq!(refused["action"], json!("DOC_REFUSED"), "{refused}");
+    assert_eq!(refused["type"], json!("docRefused"), "{refused}");
     assert_eq!(refused["reason"], json!("not_found"), "{refused}");
 
     let client = confirm(&ts, &client, FIRST_PASSWORD).await;
@@ -361,7 +361,7 @@ async fn a_connection_follows_the_space_once_its_session_gave_the_password() {
         within.step(Duration::from_millis(200)).await;
     }
     assert!(
-        !within.unread().contains(&json!({"action": "CLOSED"})),
+        !within.unread().contains(&json!({"type": "closed"})),
         "the connection of the session stays open: {:?}",
         within.unread()
     );
@@ -376,7 +376,7 @@ async fn a_connection_follows_the_space_once_its_session_gave_the_password() {
     );
     let mut others = Peer::connect(&other, 313).await;
     let refused: Value = others.join(&own.id, &card).await;
-    assert_eq!(refused["action"], json!("DOC_REFUSED"), "{refused}");
+    assert_eq!(refused["type"], json!("docRefused"), "{refused}");
 
     // The password is changed from another session: this one ends, and what it
     // confirmed with it.
@@ -401,7 +401,7 @@ async fn a_connection_follows_the_space_once_its_session_gave_the_password() {
 
 /// Whether the peer has read that its connection closed.
 fn closed_by_now(peer: &Peer) -> bool {
-    peer.unread().contains(&json!({"action": "CLOSED"}))
+    peer.unread().contains(&json!({"type": "closed"}))
 }
 
 /// The connections of the session that sets the account's first password, and then
@@ -435,7 +435,7 @@ async fn the_connection_of_the_session_that_sets_or_changes_the_password_stays()
         peer.step(Duration::from_millis(200)).await;
     }
     assert!(
-        !peer.unread().contains(&json!({"action": "CLOSED"})),
+        !peer.unread().contains(&json!({"type": "closed"})),
         "the connection of the session stays open: {:?}",
         peer.unread()
     );

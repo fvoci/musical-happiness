@@ -109,7 +109,7 @@ pub(super) async fn exercise(
     fake: &FakeProvider,
     smtp: &FakeSmtp,
 ) {
-    for operation in ["hello", "ping", "ready", "getClientConfig"] {
+    for operation in ["ping", "ready", "getClientConfig"] {
         case.run(operation, &[], json!({})).await;
     }
     account(case).await;

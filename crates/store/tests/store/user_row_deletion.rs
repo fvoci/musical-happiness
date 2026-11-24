@@ -9,8 +9,8 @@
 use std::collections::BTreeMap;
 
 use fvoci_model::{
-    Block, BlockType, Category, Container, ContainerMember, ContainerPatch, SubscriberType,
-    Subscription, UserPreferencesPatch, new_id,
+    Block, BlockType, Category, Container, ContainerMember, ContainerPatch, Subscription,
+    UserPreferencesPatch, new_id,
 };
 use fvoci_store::{BlockFilter, Store};
 
@@ -120,8 +120,7 @@ async fn give_belongings(
         .create_subscription(Subscription {
             block_type: block.block_type.clone(),
             block_id: block.id.clone(),
-            subscriber_type: SubscriberType::User,
-            subscriber_id: user_id.to_owned(),
+            user_id: user_id.to_owned(),
             notified_at: 0,
             create_at: 0,
             delete_at: 0,
@@ -190,7 +189,7 @@ async fn belongings_left(
         .expect("the subscribers are listed");
     let is_subscriber = subscribers
         .iter()
-        .any(|subscriber| subscriber.subscriber_id == user_id);
+        .any(|subscriber| subscriber.user_id == user_id);
     match (subscriptions.len(), is_subscriber) {
         (1, true) => left.push("subscription"),
         (0, false) => {}

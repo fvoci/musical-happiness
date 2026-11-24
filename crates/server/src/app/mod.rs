@@ -236,28 +236,18 @@ struct Inner {
 
 /// What `ping` reports about the server.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerMetadata {
     /// The version of the server, the one the contract's `info.version` gives too.
     pub version: String,
-    /// The build number; empty unless set at build time.
-    pub build_number: String,
-    /// The build date; empty unless set at build time.
-    pub build_date: String,
     /// The commit the server was built from; empty unless set at build time.
     pub commit: String,
-    /// The edition of the server.
-    pub edition: String,
+    /// The build date; empty unless set at build time.
+    pub build_date: String,
     /// The database kind: `sqlite` or `postgres`.
     pub db_type: String,
     /// The database's version string.
     pub db_version: String,
-    /// The operating system the server runs on, as Rust names it (`linux`, `macos`,
-    /// `windows`).
-    pub os_type: String,
-    /// The CPU architecture the server runs on, as Rust names it (`x86_64`, `aarch64`).
-    pub os_arch: String,
-    /// The kind of deployment: always `personal_server`.
-    pub sku: String,
 }
 
 impl App {
@@ -715,21 +705,14 @@ impl App {
         };
         ServerMetadata {
             version: env!("CARGO_PKG_VERSION").to_owned(),
-            build_number: option_env!("FVOCI_BUILD_NUMBER")
+            commit: option_env!("FVOCI_BUILD_HASH")
                 .unwrap_or_default()
                 .to_owned(),
             build_date: option_env!("FVOCI_BUILD_DATE")
                 .unwrap_or_default()
                 .to_owned(),
-            commit: option_env!("FVOCI_BUILD_HASH")
-                .unwrap_or_default()
-                .to_owned(),
-            edition: option_env!("FVOCI_EDITION").unwrap_or("dev").to_owned(),
             db_type: self.store().db_type().as_str().to_owned(),
             db_version,
-            os_type: std::env::consts::OS.to_owned(),
-            os_arch: std::env::consts::ARCH.to_owned(),
-            sku: "personal_server".to_owned(),
         }
     }
 }

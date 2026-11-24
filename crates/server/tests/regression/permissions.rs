@@ -478,7 +478,7 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         "archive: open an upload" => Request::json(
             Method::POST,
             format!("{workspace}/archive/uploads"),
-            json!({"name": "a.boardarchive", "size": 100}),
+            json!({"name": "a.fvoci", "size": 100}),
         ),
         "archive: export workspace" => {
             Request::new(Method::GET, format!("{workspace}/archive/export"))
@@ -494,10 +494,9 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
     }
 }
 
-fn subscription(fx: &Fixture<'_>, subscriber: &str) -> Value {
+fn subscription(fx: &Fixture<'_>, user: &str) -> Value {
     json!({
-        "blockType": "card", "blockId": fx.card,
-        "subscriberType": "user", "subscriberId": subscriber,
+        "blockType": "card", "blockId": fx.card, "userId": user,
     })
 }
 

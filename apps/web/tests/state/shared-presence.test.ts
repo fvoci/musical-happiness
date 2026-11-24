@@ -37,7 +37,7 @@ it('a shared visit sends only its board and token, renews after reconnect, and s
   first.dispatchEvent(new Event('open'));
   expect(first.sent).toEqual([
     {
-      action: 'SET_PRESENCE',
+      type: 'setPresence',
       workspaceId: '',
       containerId: 'shared-board',
       cardId: 'card',
@@ -46,13 +46,13 @@ it('a shared visit sends only its board and token, renews after reconnect, and s
   ]);
   first.dispatchEvent(
     new MessageEvent('message', {
-      data: JSON.stringify({ action: 'UPDATE_PRESENCE', people: [{ userId: 'never-shown' }] }),
+      data: JSON.stringify({ type: 'presenceChanged', people: [{ userId: 'never-shown' }] }),
     }),
   );
   expect(hear).not.toHaveBeenCalled();
   vi.advanceTimersByTime(30_000);
   // Renewed once, and asked once whether the connection carries (`live-heartbeat.ts`).
-  expect(first.sent.map((sent) => sent.action)).toEqual(['SET_PRESENCE', 'PING', 'SET_PRESENCE']);
+  expect(first.sent.map((sent) => sent.type)).toEqual(['setPresence', 'ping', 'setPresence']);
   first.close();
   vi.advanceTimersByTime(500);
   const second = Socket.made[1];
@@ -62,7 +62,7 @@ it('a shared visit sends only its board and token, renews after reconnect, and s
   live.setPresence(null);
   stop();
   expect(second.sent.at(-1)).toEqual({
-    action: 'SET_PRESENCE',
+    type: 'setPresence',
     containerId: '',
     workspaceId: '',
     readToken: 'read-token',

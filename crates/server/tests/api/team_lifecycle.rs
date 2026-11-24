@@ -117,7 +117,13 @@ async fn team_removal_preserves_template_subscriptions_until_workspace_membershi
             .insert_block(&mut block, &owner)
             .await
             .unwrap();
-        th.client2.post(&format!("/w/{ROOT_WORKSPACE_ID}/subscriptions"), &json!({"blockType":"card", "blockId":block.id, "subscriberType":"user", "subscriberId":user})).await.check_created();
+        th.client2
+            .post(
+                &format!("/w/{ROOT_WORKSPACE_ID}/subscriptions"),
+                &json!({"blockType":"card", "blockId":block.id, "userId":user}),
+            )
+            .await
+            .check_created();
         let subscriptions_path = format!("/w/{ROOT_WORKSPACE_ID}/subscriptions/{user}");
         th.client
             .delete(&member_path(&team, &user))

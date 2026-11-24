@@ -37,7 +37,7 @@ async fn a_slow_permission_read_for_one_member_does_not_hold_the_others_typing()
         waiting.notified().await;
         let started = Instant::now();
         owner.write("typed while another member is checked").await;
-        let acked = tokio::time::timeout(PROMPT, owner.text("DOC_ACK"))
+        let acked = tokio::time::timeout(PROMPT, owner.text("docAck"))
             .await
             .is_ok();
         (acked, started.elapsed())
@@ -80,12 +80,12 @@ async fn a_slow_permission_read_does_not_hold_other_changes_of_the_organization(
     th.teardown().await;
 }
 
-/// The `DOC_LEFT` messages a peer is sent until nothing comes for a while.
+/// The `docLeft` messages a peer is sent until nothing comes for a while.
 async fn left(peer: &mut Peer) -> Vec<serde_json::Value> {
     peer.settle().await;
     peer.unread()
         .into_iter()
-        .filter(|message| message["action"] == json!("DOC_LEFT"))
+        .filter(|message| message["type"] == json!("docLeft"))
         .collect()
 }
 
@@ -131,7 +131,7 @@ async fn a_later_change_answers_in_place_of_a_slow_earlier_one() {
         member
             .write("written once the later change was answered")
             .await;
-        let acked = tokio::time::timeout(PROMPT, member.text("DOC_ACK"))
+        let acked = tokio::time::timeout(PROMPT, member.text("docAck"))
             .await
             .is_ok();
         (acked, started.elapsed())
@@ -149,7 +149,7 @@ async fn a_later_change_answers_in_place_of_a_slow_earlier_one() {
         !member
             .unread()
             .iter()
-            .any(|message| message["action"] == "DOC_LEFT" || message["action"] == "DOC_MODE"),
+            .any(|message| message["type"] == "docLeft" || message["type"] == "docModeChanged"),
         "{:?}",
         member.unread()
     );
@@ -175,12 +175,12 @@ async fn what_a_member_sends_while_they_are_checked_waits_for_the_answer() {
         member
             .write("sent while the store is asked about the writer")
             .await;
-        member.one_of(&["DOC_ACK", "DOC_NACK", "DOC_LEFT"]).await
+        member.one_of(&["docAck", "docNack", "docLeft"]).await
     };
     let ((), answered) = tokio::join!(demote, sent_meanwhile);
     assert_eq!(
-        (&answered["action"], &answered["reason"]),
-        (&json!("DOC_LEFT"), &json!("document_unavailable")),
+        (&answered["type"], &answered["reason"]),
+        (&json!("docLeft"), &json!("document_unavailable")),
         "{answered}"
     );
     owner.write_acked("the room goes on").await;

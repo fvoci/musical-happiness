@@ -209,7 +209,7 @@ async fn siblings_numbered_anew_are_told_of_with_the_page() {
     let told = socket.drain().await;
     for page in tree.iter().filter(|page| page.parent_id.is_empty()) {
         let of_page = told.iter().find(|message| {
-            message["action"] == json!("UPDATE_BLOCK") && message["block"]["id"] == json!(page.id)
+            message["type"] == json!("blockChanged") && message["block"]["id"] == json!(page.id)
         });
         let of_page = of_page.unwrap_or_else(|| panic!("{} is told of: {told:?}", page.id));
         assert_eq!(of_page["block"]["fields"]["order"], json!(page.order));

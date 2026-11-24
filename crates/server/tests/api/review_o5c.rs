@@ -68,7 +68,7 @@ async fn a_pending_system_write_does_not_hold_an_organizations_request() {
     let mut socket = ts.client.connect_websocket().await;
     socket
         .send(Message::Text(
-            json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID})
+            json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID})
                 .to_string()
                 .into(),
         ))
@@ -115,7 +115,7 @@ async fn still_open(socket: &mut crate::common::WebSocket, why: &str) {
 async fn subscribed(socket: &mut crate::common::WebSocket, workspace_id: &str) {
     socket
         .send(Message::Text(
-            json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace_id})
+            json!({"type": "subscribeWorkspace", "workspaceId": workspace_id})
                 .to_string()
                 .into(),
         ))
@@ -138,7 +138,7 @@ async fn other_users_logouts_do_not_end_a_subscription() {
     let mut pause = ts.app.ws().pause_next_subscription();
     socket
         .send(Message::Text(
-            json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID})
+            json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID})
                 .to_string()
                 .into(),
         ))
@@ -277,7 +277,7 @@ async fn rechecked_by_housekeeping(ts: &TestServer) -> bool {
     let pause = ts.app.ws().pause_next_subscription();
     socket
         .send(Message::Text(
-            json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID})
+            json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID})
                 .to_string()
                 .into(),
         ))

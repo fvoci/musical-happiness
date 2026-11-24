@@ -290,7 +290,7 @@ impl Queue {
     }
 
     /// Queues an answer to something the connection sent that the room has dealt with
-    /// (`DOC_ACK`, `DOC_NACK`), whatever waits: what became of an update that was
+    /// (`docAck`, `docNack`), whatever waits: what became of an update that was
     /// logged is told, also to a connection that reads nothing.
     ///
     /// # Errors
@@ -324,7 +324,7 @@ impl Queue {
     }
 
     /// Drops the sync messages and carets that wait for a room the connection is no
-    /// longer in. The answers it was given there (`DOC_JOINED`, `DOC_ACK`, `DOC_NACK`) wait on:
+    /// longer in. The answers it was given there (`docJoined`, `docAck`, `docNack`) wait on:
     /// each says what became of something the connection sent.
     pub(super) fn forget_frames(&self, doc: u32) {
         self.waiting().drop_where(|queued| queued.in_frames_of(doc));

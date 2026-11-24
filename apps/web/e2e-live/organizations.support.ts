@@ -152,14 +152,14 @@ export async function archiveRoundTrip(
 ) {
   const saving = page.waitForEvent('download');
   await chooseFromMenu(page, boardMenu(page, title), 'export');
-  const archive = info.outputPath('second.boardarchive');
+  const archive = info.outputPath('second.fvoci');
   await (await saving).saveAs(archive);
   expect((await readFile(archive)).subarray(0, 2).toString()).toBe('PK');
   await sidebar(page).getByTestId('open-settings').click();
   const settings = page.getByTestId('settings-dialog');
   const savingAll = page.waitForEvent('download');
   await settings.getByTestId('export-workspace').click();
-  const all = info.outputPath('second-workspace.boardarchive');
+  const all = info.outputPath('second-workspace.fvoci');
   await (await savingAll).saveAs(all);
   expect((await readFile(all)).subarray(0, 2).toString()).toBe('PK');
   for (const file of [archive, all]) {
@@ -173,7 +173,7 @@ export async function archiveRoundTrip(
   await settings.getByTestId('import-archive').setInputFiles(archive);
   await expect(
     page.getByTestId('transfers').locator('[data-transfer="import"][data-finished]'),
-  ).toContainText('second.boardarchive is imported.');
+  ).toContainText('second.fvoci is imported.');
   const boards = (await (
     await api.get(`/api/v1/w/${workspace}/boards`)
   ).json()) as Schemas['Container'][];

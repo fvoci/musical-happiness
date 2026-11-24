@@ -1,6 +1,6 @@
 /**
  * The rooms of the page's one connection (`live.ts`): which of the server's
- * `DOC_` messages and binary frames goes to which room, and the commands a
+ * `doc*` messages and binary frames goes to which room, and the commands a
  * room sends (`contracts/websocket.md`, section 6).
  *
  * A room is named by a number the server gives when it lets a connection
@@ -37,6 +37,16 @@ export interface RoomSends {
 
 const isMode = (value: unknown): value is 'write' | 'read' => value === 'write' || value === 'read';
 
+const DOC_MESSAGE_TYPES = new Set([
+  'docJoined',
+  'docRefused',
+  'docAck',
+  'docNack',
+  'docModeChanged',
+  'docReset',
+  'docLeft',
+]);
+
 /**
  * The most bytes of a state vector a join names: in base64 it stays well
  * under what the server takes of a command (64 KiB). A document so many
@@ -44,7 +54,7 @@ const isMode = (value: unknown): value is 'write' | 'read' => value === 'write' 
  */
 const NAMED_MOST = 32 * 1024;
 
-/** What a `JOIN_DOC` says of the document held: its epoch, and its state vector in base64. */
+/** What a `joinDoc` says of the document held: its epoch, and its state vector in base64. */
 function saidOf(held: RoomHeld | undefined): { epoch?: number; stateVector?: string } {
   if (!held || held.stateVector.length > NAMED_MOST) return {};
   let binary = '';
@@ -94,15 +104,14 @@ export class LiveRooms {
           if (!this.#up || seat.closed) return;
           if (this.#another(seat)) {
             queueMicrotask(() => {
-              if (!seat.closed)
-                seat.hears.message({ action: 'DOC_REFUSED', reason: 'already_open' });
+              if (!seat.closed) seat.hears.message({ type: 'docRefused', reason: 'already_open' });
             });
             return;
           }
           const waiting = this.#joins.get(seat.key) ?? [];
           waiting.push(seat);
           this.#joins.set(seat.key, waiting);
-          this.#sends.text({ action: 'JOIN_DOC', workspaceId, cardId, ...saidOf(held) });
+          this.#sends.text({ type: 'joinDoc', workspaceId, cardId, ...saidOf(held) });
         },
         send: (frame) => {
           if (this.#up && !seat.closed) this.#sends.bytes(frame);
@@ -127,7 +136,7 @@ export class LiveRooms {
   #leave(seat: Seat): void {
     if (seat.doc === undefined) return;
     this.#byDoc.delete(seat.doc);
-    if (this.#up) this.#sends.text({ action: 'LEAVE_DOC', doc: seat.doc });
+    if (this.#up) this.#sends.text({ type: 'leaveDoc', doc: seat.doc });
     seat.doc = undefined;
   }
 
@@ -151,22 +160,22 @@ export class LiveRooms {
 
   /** A text message: true when it was one of the rooms'. */
   text(message: Record<string, unknown>): boolean {
-    const { action, doc, epoch, mode, reason } = message;
-    if (typeof action !== 'string' || !action.startsWith('DOC_')) return false;
-    if (action === 'DOC_JOINED' || action === 'DOC_REFUSED') {
+    const { type, doc, epoch, mode, reason } = message;
+    if (typeof type !== 'string' || !DOC_MESSAGE_TYPES.has(type)) return false;
+    if (type === 'docJoined' || type === 'docRefused') {
       const key = `${String(message.workspaceId)}\n${String(message.cardId)}`;
       const waiting = this.#joins.get(key);
       const seat = waiting?.shift();
       if (waiting?.length === 0) this.#joins.delete(key);
       if (!seat) return true;
-      if (action === 'DOC_REFUSED') {
+      if (type === 'docRefused') {
         // The room before, if there was one, is still the server's: it is left.
         this.#leave(seat);
         if (seat.replaces !== undefined && this.#up) {
-          this.#sends.text({ action: 'LEAVE_DOC', doc: seat.replaces });
+          this.#sends.text({ type: 'leaveDoc', doc: seat.replaces });
         }
         seat.replaces = undefined;
-        if (!seat.closed) seat.hears.message({ action, reason: String(reason) });
+        if (!seat.closed) seat.hears.message({ type, reason: String(reason) });
         return true;
       }
       if (typeof doc !== 'number' || typeof epoch !== 'number' || !isMode(mode)) return true;
@@ -184,25 +193,25 @@ export class LiveRooms {
         return true;
       }
       this.#byDoc.set(doc, seat);
-      seat.hears.message({ action, doc, epoch, mode });
+      seat.hears.message({ type, doc, epoch, mode });
       return true;
     }
     if (typeof doc !== 'number') return true;
     const seat = this.#byDoc.get(doc);
     // A room that was left: what was on its way is dropped.
     if (!seat) return true;
-    if (action === 'DOC_ACK' && typeof epoch === 'number') {
-      seat.hears.message({ action, doc, epoch });
-    } else if (action === 'DOC_NACK' && typeof epoch === 'number') {
-      seat.hears.message({ action, doc, epoch, reason: String(reason) });
-    } else if (action === 'DOC_RESET' && typeof epoch === 'number') {
-      seat.hears.message({ action, doc, epoch });
-    } else if (action === 'DOC_MODE' && isMode(mode)) {
-      seat.hears.message({ action, doc, mode });
-    } else if (action === 'DOC_LEFT') {
+    if (type === 'docAck' && typeof epoch === 'number') {
+      seat.hears.message({ type, doc, epoch });
+    } else if (type === 'docNack' && typeof epoch === 'number') {
+      seat.hears.message({ type, doc, epoch, reason: String(reason) });
+    } else if (type === 'docReset' && typeof epoch === 'number') {
+      seat.hears.message({ type, doc, epoch });
+    } else if (type === 'docModeChanged' && isMode(mode)) {
+      seat.hears.message({ type, doc, mode });
+    } else if (type === 'docLeft') {
       this.#byDoc.delete(doc);
       seat.doc = undefined;
-      seat.hears.message({ action, doc, reason: String(reason) });
+      seat.hears.message({ type, doc, reason: String(reason) });
     }
     return true;
   }

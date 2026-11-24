@@ -772,7 +772,7 @@ async fn an_archive_with_diaries_a_workspace_does_not_take_stores_nothing() {
     let diaries = files.iter().filter(|(_, lines)| of_a_diary(lines)).count();
     let boards = files
         .iter()
-        .filter(|(name, _)| name.ends_with("board.jsonl"));
+        .filter(|(name, _)| name.ends_with("container.jsonl"));
     assert_eq!((boards.count(), diaries), (3, 2), "a board and two diaries");
     let whole = archive_of_lines(&files);
     let stored = async || {
@@ -1202,17 +1202,17 @@ fn two_diary_archive_with_files(
 ) -> Vec<u8> {
     use std::io::Write as _;
 
-    let d1 = json!({"type": "board", "data": {
+    let d1 = json!({"type": "container", "data": {
         "id": "d1", "workspaceId": own_ws, "type": "P", "kind": "diary", "title": "First",
         "createAt": 1, "updateAt": 1, "fileNames": {"photo1.png": "photo1.png"},
     }});
     let e1 = json!({"type": "block", "data": {
-        "id": "e1", "boardId": "d1", "parentId": "", "type": "entry", "title": "2024-08-01",
+        "id": "e1", "containerId": "d1", "parentId": "", "type": "entry", "title": "2024-08-01",
         "fields": {"date": "2024-08-01", "mood": "good"},
         "body": {"type": "doc", "content": [{"type": "image", "attrs": {"fileId": "photo1.png"}}]},
         "createAt": 1, "updateAt": 1,
     }});
-    let d2 = json!({"type": "board", "data": {
+    let d2 = json!({"type": "container", "data": {
         "id": "d2", "workspaceId": own_ws, "type": "P", "kind": "diary", "title": "Second",
         "createAt": 1, "updateAt": 1,
     }});
@@ -1221,14 +1221,18 @@ fn two_diary_archive_with_files(
     let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     writer.start_file("version.json", options).expect("version");
     writer
-        .write_all(br#"{"version":3,"date":1}"#)
+        .write_all(br#"{"version":1,"date":1}"#)
         .expect("write version");
-    writer.start_file("d1/board.jsonl", options).expect("d1");
+    writer
+        .start_file("d1/container.jsonl", options)
+        .expect("d1");
     writeln!(writer, "{d1}").expect("d1");
     writeln!(writer, "{e1}").expect("e1");
     writer.start_file("d1/photo1.png", options).expect("photo1");
     writer.write_all(b"png-bytes-1").expect("write photo1");
-    writer.start_file("d2/board.jsonl", options).expect("d2");
+    writer
+        .start_file("d2/container.jsonl", options)
+        .expect("d2");
     writeln!(writer, "{d2}").expect("d2");
     for entry in diary2_entries {
         writeln!(writer, "{entry}").expect("d2 entry");

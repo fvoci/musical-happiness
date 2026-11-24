@@ -1,5 +1,5 @@
 //! The channel of each person: every connection with a session is told when what its
-//! user was told changed (`UPDATE_NOTIFICATIONS`), whatever workspace it follows, or
+//! user was told changed (`notificationsChanged`), whatever workspace it follows, or
 //! none.
 //!
 //! The message says nothing of what changed: the client reads the notifications again
@@ -18,7 +18,8 @@ use crate::app::SessionMade;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateNotificationsMessage {
-    action: &'static str,
+    #[serde(rename = "type")]
+    kind: &'static str,
 }
 
 /// Whether the sessions made one way hear of what some organizations told their user.
@@ -45,8 +46,8 @@ impl Opens {
 }
 
 impl Outgoing for UpdateNotificationsMessage {
-    fn action(&self) -> &'static str {
-        self.action
+    fn kind(&self) -> &'static str {
+        self.kind
     }
 }
 
@@ -79,7 +80,7 @@ impl Hub {
             return;
         }
         let message = UpdateNotificationsMessage {
-            action: "UPDATE_NOTIFICATIONS",
+            kind: "notificationsChanged",
         };
         let Some(text) = text_of(&message) else {
             return;
@@ -101,7 +102,7 @@ impl Hub {
                 Opens::Unknown => unread.push(id),
             }
         }
-        self.queue_text(&told, &text, message.action());
+        self.queue_text(&told, &text, message.kind());
         self.close_unread(&unread);
     }
 

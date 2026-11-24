@@ -315,7 +315,7 @@ async fn wait_version_body(th: &TestServer, card_id: &str, actor_id: &str) -> Va
 
 /// When the settle check fails during a live room fold (`FOLD_AFTER`), the server recovers
 /// via T3 remake without losing any updates, mentions, or versions: peers receive
-/// `DOC_RESET` for epoch 2, the log is cleared, and the remade doc takes 0 reading steps.
+/// `docReset` for epoch 2, the log is cleared, and the remade doc takes 0 reading steps.
 #[tokio::test]
 async fn collab_fold_settle_failure_recovers_via_remake_preserving_body_mentions_and_version() {
     let th = Setup::native().start().await.init_basic().await;
@@ -351,7 +351,7 @@ async fn collab_fold_settle_failure_recovers_via_remake_preserving_body_mentions
 
     let mention = one.editor().append_mention(&b.id);
     one.send_update(&mention).await;
-    one.text("DOC_ACK").await;
+    one.text("docAck").await;
     two.settle().await;
 
     // Force the next settle check (triggered by the FOLD_AFTER-th update's fold) to fail.
@@ -365,14 +365,14 @@ async fn collab_fold_settle_failure_recovers_via_remake_preserving_body_mentions
     let trigger = one.editor().append_paragraph("fold-trigger-line");
     let expected = one.body().expect("expected body");
     one.send_update(&trigger).await;
-    one.text("DOC_ACK").await;
+    one.text("docAck").await;
 
     for peer in [&mut one, &mut two] {
-        let reset = peer.text("DOC_RESET").await;
+        let reset = peer.text("docReset").await;
         assert_eq!(
             reset,
-            json!({"action": "DOC_RESET", "doc": peer.doc, "epoch": 2}),
-            "peer receives DOC_RESET for remade epoch 2"
+            json!({"type": "docReset", "doc": peer.doc, "epoch": 2}),
+            "peer receives docReset for remade epoch 2"
         );
         peer.settle().await;
         assert_eq!(peer.epoch, 2);
@@ -436,7 +436,7 @@ async fn collab_close_settle_failure_recovers_via_remake_preserving_body_mention
     peer.write_acked("close-line-1").await;
     let mention = peer.editor().append_mention(&b.id);
     peer.send_update(&mention).await;
-    peer.text("DOC_ACK").await;
+    peer.text("docAck").await;
     let expected = peer.body().expect("expected body");
 
     e.app

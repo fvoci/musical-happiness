@@ -98,7 +98,7 @@ test('creates a course from built-in template, duplicates, and exports/imports w
     .getByRole('button', { name: 'Menu of the course L6 Study Plan', exact: true })
     .click();
   await page.getByRole('menuitem', { name: 'Export the course' }).click();
-  const archive = testInfo.outputPath('course-l6.boardarchive');
+  const archive = testInfo.outputPath('course-l6.fvoci');
   await (await saving).saveAs(archive);
 
   await sidebar(page).getByTestId('open-settings').click();

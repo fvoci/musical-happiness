@@ -279,13 +279,13 @@ async fn chapters_file_blocks_trash_broadcasts_and_archive_round_trip() {
         refused.text()
     );
 
-    // WS receives UPDATE_BLOCK when creating a comment.
+    // WS receives blockChanged when creating a comment.
     let user_id = th.client.me().await.id;
     let mut socket = WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &user_id).await;
     let comment = written(&th.client, TEST_WS, &course, &unit, "broadcast").await;
     let comment_id = id(&comment);
     let heard = socket
-        .expect("UPDATE_BLOCK", "/block/id", &comment_id)
+        .expect("blockChanged", "/block/id", &comment_id)
         .await;
     assert_eq!(heard["block"]["type"], "comment");
     assert_eq!(heard["block"]["parentId"], unit);

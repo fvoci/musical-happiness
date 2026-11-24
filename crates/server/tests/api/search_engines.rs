@@ -221,7 +221,6 @@ async fn check_robots_and_headers(origin: &str, base: &str) {
     // `X-Robots-Tag`.
     for (path, expected_status) in [
         (format!("{base}/api/v1/ping"), StatusCode::OK),
-        (format!("{base}/api/v1/hello"), StatusCode::OK),
         (format!("{base}/api/v1/client-config"), StatusCode::OK),
         (
             format!("{base}/api/v1/no-such-route"),

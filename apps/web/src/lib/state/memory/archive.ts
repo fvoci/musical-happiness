@@ -26,13 +26,13 @@ export function archiveOf(
   flushContainers(world, containers);
   const lines = [JSON.stringify({ version: MEMORY_ARCHIVE })];
   for (const board of containers) {
-    lines.push(JSON.stringify({ type: 'board', data: board }));
+    lines.push(JSON.stringify({ type: 'container', data: board }));
     const schedule = board.kind === 'course' ? world.courseSchedules.get(board.id) : undefined;
     if (schedule) {
       lines.push(
         JSON.stringify({
           type: 'courseSchedule',
-          data: { boardId: board.id, ...schedule },
+          data: { containerId: board.id, ...schedule },
         }),
       );
     }
@@ -42,15 +42,13 @@ export function archiveOf(
         block.type === 'card' && block.fields.isTemplate === true
           ? { ...block, number: undefined }
           : block;
-      lines.push(
-        JSON.stringify({ type: 'block', data: renamed(exported, 'containerId', 'boardId') }),
-      );
+      lines.push(JSON.stringify({ type: 'block', data: exported }));
     }
   }
   const bytes = new Blob([`${lines.join('\n')}\n`], { type: 'application/octet-stream' });
   options?.onProgress?.({ sentBytes: bytes.size, totalBytes: bytes.size });
   const day = new Date(world.now()).toISOString().slice(0, 10);
-  return { bytes, name: `archive-${day}.boardarchive` };
+  return { bytes, name: `archive-${day}.fvoci` };
 }
 
 /** The lines of an archive of the memory backend; 400 for what is none (`exportContainer`). */
@@ -71,26 +69,18 @@ export async function archiveLines(
 }
 
 /**
- * A block of an archive's line as the backend keeps it: the line names its
- * board `boardId`, the archive's own name, as it always has. A comment with a
- * file block refuses the archive (400), as the server refuses it whole.
+ * A block of an archive's line as the backend keeps it (`containerId`). A
+ * comment with a file block refuses the archive (400), as the server refuses
+ * it whole.
  */
 export function blockOfLine(data: unknown): StoredBlock {
-  const block = (
-    typeof data === 'object' && data !== null ? renamed(data, 'boardId', 'containerId') : data
-  ) as StoredBlock;
+  if (typeof data !== 'object' || data === null) fail(400, 'invalid block in archive');
+  const block = data as StoredBlock;
   // As the server refuses the archive whole: a comment has no file block.
   if (block.type === 'comment' && block.body && hasFileBlock(block.body)) {
     fail(400, FILE_BLOCK_IN_COMMENT, { field: 'body' });
   }
   return block;
-}
-
-/** `value` with its member `from` named `to`, in the same place among the others. */
-function renamed(value: object, from: string, to: string): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(value).map(([key, each]) => [key === from ? to : key, each]),
-  );
 }
 
 /** The containers of `workspaceId` exported by `exportWorkspace` for `userId`. */
@@ -117,7 +107,6 @@ export type ArchivedCourseSchedule = {
 const MAX_SCHEDULE_SPAN_DAYS = 3660;
 const DAY_MS = 86_400_000;
 const ALLOWED_SCHEDULE_KEYS = new Set([
-  'boardId',
   'containerId',
   'startDate',
   'targetDate',
@@ -157,7 +146,7 @@ function hasMatchingStudyDay(startDay: number, targetDay: number, studyDays: num
 function parseCourseScheduleLine(
   data: unknown,
   containers: readonly Container[],
-): { boardId: string; schedule: ArchivedCourseSchedule } {
+): { containerId: string; schedule: ArchivedCourseSchedule } {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     fail(400, 'invalid courseSchedule line');
   }
@@ -165,21 +154,13 @@ function parseCourseScheduleLine(
   for (const key of Object.keys(raw)) {
     if (!ALLOWED_SCHEDULE_KEYS.has(key)) fail(400, `unknown courseSchedule field: ${key}`);
   }
-  if (
-    (raw.boardId !== undefined && typeof raw.boardId !== 'string') ||
-    (raw.containerId !== undefined && typeof raw.containerId !== 'string')
-  ) {
+  if (raw.containerId !== undefined && typeof raw.containerId !== 'string') {
     fail(400, 'invalid courseSchedule target');
   }
-  const byBoard = typeof raw.boardId === 'string' ? raw.boardId : '';
-  const byContainer = typeof raw.containerId === 'string' ? raw.containerId : '';
-  if (byBoard && byContainer && byBoard !== byContainer) {
-    fail(400, 'conflicting boardId and containerId in courseSchedule');
-  }
-  let boardId = byBoard || byContainer;
-  if (!boardId) {
-    if (containers.length !== 1) fail(400, 'missing boardId in courseSchedule');
-    boardId = containers[0]?.id ?? '';
+  let containerId = typeof raw.containerId === 'string' ? raw.containerId : '';
+  if (!containerId) {
+    if (containers.length !== 1) fail(400, 'missing containerId in courseSchedule');
+    containerId = containers[0]?.id ?? '';
   }
   if (
     typeof raw.startDate !== 'string' ||
@@ -203,7 +184,7 @@ function parseCourseScheduleLine(
     fail(400, 'courseSchedule range contains no study day');
   }
   return {
-    boardId,
+    containerId,
     schedule: {
       startDate: raw.startDate,
       targetDate: raw.targetDate,
@@ -212,6 +193,8 @@ function parseCourseScheduleLine(
   };
 }
 
+const ALLOWED_LINE_TYPES = new Set(['container', 'block', 'containerMember', 'courseSchedule']);
+
 /** Reads an archive file into its containers, blocks, and optional course schedules (`importArchive`). */
 export async function readArchive(file: File): Promise<{
   containers: Container[];
@@ -219,8 +202,13 @@ export async function readArchive(file: File): Promise<{
   schedules: Map<string, ArchivedCourseSchedule>;
 }> {
   const lines = await archiveLines(file);
+  for (const line of lines.slice(1)) {
+    if (!line.type || !ALLOWED_LINE_TYPES.has(line.type)) {
+      fail(400, `unsupported archive line type: ${String(line.type)}`);
+    }
+  }
   const containers = lines
-    .filter((line) => line.type === 'board')
+    .filter((line) => line.type === 'container')
     .map((line) => line.data as Container);
   const blocks = lines
     .filter((line) => line.type === 'block')
@@ -228,13 +216,13 @@ export async function readArchive(file: File): Promise<{
   const schedules = new Map<string, ArchivedCourseSchedule>();
   for (const line of lines) {
     if (line.type !== 'courseSchedule') continue;
-    const { boardId, schedule } = parseCourseScheduleLine(line.data, containers);
-    if (schedules.has(boardId)) fail(400, 'duplicate courseSchedule');
-    schedules.set(boardId, schedule);
+    const { containerId, schedule } = parseCourseScheduleLine(line.data, containers);
+    if (schedules.has(containerId)) fail(400, 'duplicate courseSchedule');
+    schedules.set(containerId, schedule);
   }
   const byId = new Map(containers.map((container) => [container.id, container]));
-  for (const boardId of schedules.keys()) {
-    const target = byId.get(boardId);
+  for (const containerId of schedules.keys()) {
+    const target = byId.get(containerId);
     if (!target || (target.kind ?? 'board') !== 'course') {
       fail(400, 'courseSchedule must reference a course container');
     }

@@ -149,7 +149,7 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
     one.joined(TEST_WORKSPACE_ID, &card.id).await;
     let update = one.editor().append_mention(&b.id);
     one.send_update(&update).await;
-    one.text("DOC_ACK").await;
+    one.text("docAck").await;
     card_mentions(&th, &card.id, &[&b.id]).await;
 
     let comment = comment_on(&th.client, &card, &mentioning(&[&b.id])).await;
@@ -218,7 +218,7 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
     let before = crate::metrics::scrape(&th).await;
     let update = one.editor().delete_last();
     one.send_update(&update).await;
-    one.text("DOC_ACK").await;
+    one.text("docAck").await;
     let emptied = tokio::time::Instant::now() + Duration::from_secs(20);
     while crate::collab::body_of(&crate::collab::card(&th.client, &card.id).await).is_some() {
         assert!(
@@ -229,7 +229,7 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
     }
     let update = one.editor().append_mention(&b.id);
     one.send_update(&update).await;
-    one.text("DOC_ACK").await;
+    one.text("docAck").await;
     card_mentions(&th, &card.id, &[&b.id]).await;
     for body in [plain("nobody"), mentioning(&[&b.id])] {
         let read_at = crate::blocks::blocks_of(&th.client, &board.id)
@@ -421,7 +421,7 @@ async fn notifications_are_read_one_by_one_and_all_at_once_by_their_reader_alone
 async fn type_mention(peer: &mut Peer, user: &str) {
     let update = peer.editor().append_mention(user);
     peer.send_update(&update).await;
-    peer.text("DOC_ACK").await;
+    peer.text("docAck").await;
 }
 
 /// A body typed by several is written to its card by the last of them, and each name

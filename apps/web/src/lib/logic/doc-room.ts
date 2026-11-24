@@ -15,12 +15,12 @@
  * - `out`: not in the room, with the server's reason. Some reasons are tried
  *   again after a wait; `not_found` is not.
  *
- * The document is received again in four cases. `DOC_RESET`: a new `epoch`
+ * The document is received again in four cases. `docReset`: a new `epoch`
  * is another document (the one held is dropped), the same is merged.
- * `DOC_NACK`: the refused change is in the reader's document alone, so the
+ * `docNack`: the refused change is in the reader's document alone, so the
  * room is joined once more and the document dropped for the server's (a
  * change the server only could not take just now is kept and offered
- * again). `DOC_LEFT`, and a connection that came back: joined again, saying
+ * again). `docLeft`, and a connection that came back: joined again, saying
  * which document is held, and one of the same `epoch` goes on: the server
  * sends its state vector and what the reader lacks, or the whole, and what
  * it lacks of the reader's goes to it.
@@ -79,7 +79,7 @@ export class DocRoom {
   #keep = true;
   /** Why the document held is not kept. */
   #why = '';
-  /** A refusal as out of step waits for its `DOC_RESET`. */
+  /** A refusal as out of step waits for its `docReset`. */
   #waiting = false;
   /** Changes not yet put into a frame, frames not yet sent, frames not yet answered. */
   #buffer: Uint8Array[] = [];
@@ -90,7 +90,7 @@ export class DocRoom {
   #tainted = false;
   #tries = 0;
   #retrying = false;
-  /** A `JOIN_DOC` is on its way: another is not sent until it is answered. */
+  /** A `joinDoc` is on its way: another is not sent until it is answered. */
   #joinSent = false;
   /** Answers still to come for frames given up while the room's number stayed: they are about nothing now. */
   #stale = 0;
@@ -266,7 +266,7 @@ export class DocRoom {
   }
 
   #message(message: RoomMessage): void {
-    if (message.action === 'DOC_JOINED') {
+    if (message.type === 'docJoined') {
       this.#answered();
       this.#leaveRoom();
       this.#doc = message.doc;
@@ -277,7 +277,7 @@ export class DocRoom {
       if (this.#epoch !== undefined) this.#phase = 'receiving';
       return;
     }
-    if (message.action === 'DOC_REFUSED') {
+    if (message.type === 'docRefused') {
       this.#answered();
       // Still held: an answer to the try of a room that is out, or to joining again.
       if (PACE.has(message.reason)) this.#paced();
@@ -286,19 +286,19 @@ export class DocRoom {
     }
     // Of a room this is no longer in, or never was.
     if (message.doc !== this.#doc) return;
-    switch (message.action) {
-      case 'DOC_ACK':
+    switch (message.type) {
+      case 'docAck':
         if (this.#answersDropped(message.epoch)) return;
         this.#unacked = Math.max(0, this.#unacked - 1);
         this.#settled();
         break;
-      case 'DOC_NACK':
+      case 'docNack':
         if (this.#answersDropped(message.epoch)) return;
         // Answered: whatever is given up next does not wait for this answer.
         this.#unacked = Math.max(0, this.#unacked - 1);
         this.#refused(message.reason);
         break;
-      case 'DOC_MODE':
+      case 'docModeChanged':
         if (message.mode === 'write' && this.#mode === 'read' && this.#tainted) {
           this.#mode = 'write';
           this.#rejoin('');
@@ -308,7 +308,7 @@ export class DocRoom {
           this.#rejoin('document_read_only');
         } else this.#mode = message.mode;
         break;
-      case 'DOC_RESET':
+      case 'docReset':
         this.#cancel('reset');
         this.#theirs = undefined;
         this.#expect = message.epoch;
@@ -322,7 +322,7 @@ export class DocRoom {
           this.#phase = 'receiving';
         }
         break;
-      case 'DOC_LEFT':
+      case 'docLeft':
         if (PACE.has(message.reason)) this.#paced();
         else this.#out(message.reason);
         break;
@@ -332,8 +332,8 @@ export class DocRoom {
   /**
    * Whether an answer of the server is about changes already given up: of
    * another document than the one held, of the one held while another is on
-   * its way (`DOC_RESET` to a new `epoch`), or while a refusal waits for its
-   * `DOC_RESET`.
+   * its way (`docReset` to a new `epoch`), or while a refusal waits for its
+   * `docReset`.
    */
   #answersDropped(epoch: number): boolean {
     // Of another document: told apart by its epoch alone.
@@ -356,7 +356,7 @@ export class DocRoom {
   /** The server did not take a change: it is in the document held and nowhere else. */
   #refused(reason: string): void {
     if (reason === 'update_out_of_step') {
-      // The document may just have been made anew: its `DOC_RESET` is on its way.
+      // The document may just have been made anew: its `docReset` is on its way.
       this.#unqueue();
       this.#waiting = true;
       this.#effects.push({ type: 'timer', timer: 'reset', wait: RESET_WAIT });

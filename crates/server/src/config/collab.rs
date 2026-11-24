@@ -57,7 +57,7 @@ pub struct CollabSettings {
     /// user's. 1 to 10000.
     pub collab_connections_per_user: u32,
     /// How many frames of the rooms one websocket connection may send in a second,
-    /// and at once after a pause; a `JOIN_DOC` and a sync step 1 count as five. 10
+    /// and at once after a pause; a `joinDoc` and a sync step 1 count as five. 10
     /// to 1000000.
     pub collab_frames_per_second: u32,
     /// How many messages of the rooms may wait for one websocket connection. 16 to

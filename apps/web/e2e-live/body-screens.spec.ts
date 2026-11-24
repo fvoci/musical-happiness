@@ -43,14 +43,14 @@ async function route(page: Page): Promise<{ mode: Mode; sockets: WebSocketRoute[
         return;
       }
       const command = JSON.parse(message) as {
-        action?: string;
+        type?: string;
         workspaceId?: string;
         cardId?: string;
       };
-      if (command.action === 'JOIN_DOC' && state.mode === 'refuse') {
+      if (command.type === 'joinDoc' && state.mode === 'refuse') {
         socket.send(
           JSON.stringify({
-            action: 'DOC_REFUSED',
+            type: 'docRefused',
             workspaceId: command.workspaceId,
             cardId: command.cardId,
             reason: 'document_unavailable',
@@ -64,7 +64,7 @@ async function route(page: Page): Promise<{ mode: Mode; sockets: WebSocketRoute[
       if (
         typeof message === 'string' &&
         state.mode === 'no-join' &&
-        message.includes('"DOC_JOINED"')
+        message.includes('"docJoined"')
       ) {
         return;
       }

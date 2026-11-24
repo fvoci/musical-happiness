@@ -1,4 +1,4 @@
-//! A card's, a page's and an entry's `UPDATE_BLOCK` carries a summary of the body in place
+//! A card's, a page's and an entry's `blockChanged` carries a summary of the body in place
 //! of the body (`contracts/websocket.md` 3): whether there is one, its task items and the
 //! preview a gallery shows, as a list of cards gives them. A comment's carries its body.
 
@@ -57,7 +57,7 @@ async fn told_when(socket: &mut Socket, id: &str, until: impl Fn(&Value) -> bool
             .next_json(wait)
             .await
             .unwrap_or_else(|| panic!("told of {id}"));
-        if message["action"] != "UPDATE_BLOCK" || message["block"]["id"] != id {
+        if message["type"] != "blockChanged" || message["block"]["id"] != id {
             continue;
         }
         check_message(&contract, &openapi, &message);
@@ -151,7 +151,7 @@ async fn a_long_body_is_not_sent_to_whoever_follows_the_board() {
         .await;
     let told = socket.next_json(PATIENCE).await.expect("the card is told");
     let sent = told.to_string().len();
-    println!("UPDATE_BLOCK of a card of a {body_bytes}-byte body: {sent} bytes");
+    println!("blockChanged of a card of a {body_bytes}-byte body: {sent} bytes");
     assert!(sent < 2_000, "{sent} bytes sent");
     assert_eq!(told["block"]["body"], Value::Null, "{}", told["block"]);
     assert_eq!(
@@ -315,7 +315,7 @@ async fn a_comment_and_a_view_are_told_whole() {
 }
 
 /// A diary entry's body is edited in a room too (`BlockType::WITH_ROOM`), so its
-/// `UPDATE_BLOCK` carries a summary in place of its body and matches the contract.
+/// `blockChanged` carries a summary in place of its body and matches the contract.
 #[tokio::test]
 async fn a_diary_entry_body_is_told_as_its_summary() {
     let th = Setup::local_mode().start().await.init_basic().await;

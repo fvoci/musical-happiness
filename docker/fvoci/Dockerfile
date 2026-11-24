@@ -6,7 +6,7 @@
 #   docker build -f docker/fvoci/Dockerfile -t fvoci-server \
 #       --build-arg FVOCI_BUILD_HASH=$(git rev-parse HEAD) \
 #       --build-arg FVOCI_BUILD_DATE=$(git log -1 --format=%cI) .
-#   (without the two, ping's commit and build_date are empty)
+#   (without the two, ping's commit and buildDate are empty)
 #   docker run --init -p 127.0.0.1:8080:8000 -e FVOCI_SERVER_URL=http://localhost:8080 \
 #       -v fvoci-data:/data fvoci-server
 #
@@ -57,7 +57,7 @@ RUN --mount=type=cache,id=fvoci-web-fonts,target=/src/target/web-fonts \
 FROM rust:${RUST_VERSION}-trixie AS build
 # The processor the image is built for, which keeps apart the caches of the builds.
 ARG TARGETARCH
-# The commit the server is built from and its time, for ping (`commit`, `build_date`)
+# The commit the server is built from and its time, for ping (`commit`, `buildDate`)
 # and the metrics' fvoci_build_info; empty when not given.
 ARG FVOCI_BUILD_HASH=
 ARG FVOCI_BUILD_DATE=

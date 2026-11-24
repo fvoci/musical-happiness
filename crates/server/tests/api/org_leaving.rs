@@ -32,7 +32,7 @@ async fn leave(client: &Client, org_id: &str) -> ApiResponse {
 /// A connection of `client`'s that follows the root workspace.
 async fn following_the_root(ts: &TestServer, client: &Client) -> WebSocket {
     let mut socket = client.connect_websocket().await;
-    let subscribe = json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID});
+    let subscribe = json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID});
     socket
         .send(Message::Text(subscribe.to_string().into()))
         .await
@@ -47,7 +47,7 @@ async fn told(socket: &mut WebSocket, action: &str) -> Value {
         while let Some(frame) = socket.next().await {
             if let Message::Text(text) = frame.expect("a websocket frame") {
                 let message: Value = serde_json::from_str(&text).expect("JSON");
-                if message["action"] == action {
+                if message["type"] == action {
                     return message;
                 }
             }
@@ -107,9 +107,9 @@ async fn a_member_who_leaves_is_told_and_finds_the_organization_no_more() {
 
     leave(&ts.client2, &org_id).await.check_no_content();
 
-    let ended = told(&mut other_tab, "UNSUBSCRIBED_WORKSPACE").await;
+    let ended = told(&mut other_tab, "workspaceUnsubscribed").await;
     assert_eq!(ended["workspaceId"], ROOT_WORKSPACE_ID, "{ended}");
-    let passed = told(&mut admins, "UPDATE_MEMBER").await;
+    let passed = told(&mut admins, "containerMemberChanged").await;
     assert_eq!(
         (
             &passed["member"]["containerId"],
@@ -229,10 +229,10 @@ async fn who_leaves_is_put_out_of_the_rooms_at_once() {
     leave(&ts.client2, &org_id).await.check_no_content();
     // Out of the room as soon as the leaving has answered; who stays is left.
     assert_eq!(collab.room_members(&ts.app, &table.card_id).await, 1);
-    let left = two.text("DOC_LEFT").await;
+    let left = two.text("docLeft").await;
     assert_eq!(
         left,
-        json!({"action": "DOC_LEFT", "doc": two.doc, "reason": "not_found"})
+        json!({"type": "docLeft", "doc": two.doc, "reason": "not_found"})
     );
     one.write_acked("after the member left").await;
     ts.teardown().await;
@@ -333,7 +333,7 @@ async fn passwordless_sso_account_cannot_leave_until_password_is_set_but_admin_c
 /// Removing a member via `DELETE /org/{orgId}/members/{userId}` refuses self-removal
 /// (409 `cannot_remove_self`) and unknown members (404), evicts the member from all
 /// workspaces and collab rooms within 1 second (even under a 1-hour periodic recheck),
-/// sends `UNSUBSCRIBED_WORKSPACE`, hands over sole-admin boards under the admin's name,
+/// sends `workspaceUnsubscribed`, hands over sole-admin boards under the admin's name,
 /// revokes admin joinings, and records `org_member_removed` in the org audit log.
 #[tokio::test]
 async fn org_admin_removes_member_with_realtime_eviction_and_audit() {
@@ -405,19 +405,19 @@ async fn org_admin_removes_member_with_realtime_eviction_and_audit() {
         ts.app.collab().room_members(&ts.app, &table.card_id).await,
         1
     );
-    let doc_left = tokio::time::timeout(Duration::from_secs(1), two.text("DOC_LEFT"))
+    let doc_left = tokio::time::timeout(Duration::from_secs(1), two.text("docLeft"))
         .await
-        .expect("DOC_LEFT arrived within 1 second");
+        .expect("docLeft arrived within 1 second");
     assert_eq!(
         doc_left,
-        json!({"action": "DOC_LEFT", "doc": two.doc, "reason": "not_found"})
+        json!({"type": "docLeft", "doc": two.doc, "reason": "not_found"})
     );
     one.write_acked("admin keeps writing").await;
 
-    // WS receives UNSUBSCRIBED_WORKSPACE and board handover UPDATE_MEMBER.
-    let unsub = told(&mut member_ws, "UNSUBSCRIBED_WORKSPACE").await;
+    // WS receives workspaceUnsubscribed and board handover containerMemberChanged.
+    let unsub = told(&mut member_ws, "workspaceUnsubscribed").await;
     assert_eq!(unsub["workspaceId"], ROOT_WORKSPACE_ID, "{unsub}");
-    let passed = told(&mut admin_ws, "UPDATE_MEMBER").await;
+    let passed = told(&mut admin_ws, "containerMemberChanged").await;
     assert_eq!(
         (
             &passed["member"]["containerId"],

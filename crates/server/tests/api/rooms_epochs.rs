@@ -25,16 +25,16 @@ async fn a_body_written_whole_is_sent_to_the_room_as_another_document() {
     let late = two.editor().append_paragraph("late");
     write_whole(&th.client, &t.card_id, &paragraphs(&["written whole"])).await;
     two.send_binary(frame(two.doc, 1, UPDATE, &late)).await;
-    let nack = two.text("DOC_NACK").await;
+    let nack = two.text("docNack").await;
     assert_eq!(
         nack,
-        json!({"action": "DOC_NACK", "doc": two.doc, "epoch": 1, "reason": "update_out_of_step"})
+        json!({"type": "docNack", "doc": two.doc, "epoch": 1, "reason": "update_out_of_step"})
     );
     for peer in [&mut one, &mut two] {
-        let reset = peer.text("DOC_RESET").await;
+        let reset = peer.text("docReset").await;
         assert_eq!(
             reset,
-            json!({"action": "DOC_RESET", "doc": peer.doc, "epoch": 2})
+            json!({"type": "docReset", "doc": peer.doc, "epoch": 2})
         );
         peer.settle().await;
         assert_eq!(peer.epoch, 2);
@@ -49,7 +49,7 @@ async fn a_body_written_whole_is_sent_to_the_room_as_another_document() {
     // After its sender holds the new document, too.
     let stale = one.editor().append_paragraph("of the epoch before");
     one.send_binary(frame(one.doc, 1, UPDATE, &stale)).await;
-    let nack = one.text("DOC_NACK").await;
+    let nack = one.text("docNack").await;
     assert_eq!(
         (&nack["epoch"], &nack["reason"]),
         (&json!(1), &json!("update_out_of_step")),
@@ -62,7 +62,7 @@ async fn a_body_written_whole_is_sent_to_the_room_as_another_document() {
     );
 
     // The room goes on in the new document. (`one` holds a paragraph the server
-    // refused: it comes in anew, as an editor does after a DOC_NACK.)
+    // refused: it comes in anew, as an editor does after a docNack.)
     one.joined(crate::common::TEST_WORKSPACE_ID, &t.card_id)
         .await;
     one.write_acked("one goes on").await;
@@ -104,14 +104,14 @@ async fn a_killed_worker_has_the_room_sent_the_document_again() {
 
     assert_eq!(one.write_acked("after").await, 2, "taken by the new worker");
     for peer in [&mut one, &mut two] {
-        let reset = peer.text("DOC_RESET").await;
+        let reset = peer.text("docReset").await;
         assert_eq!(
             reset,
-            json!({"action": "DOC_RESET", "doc": peer.doc, "epoch": 1})
+            json!({"type": "docReset", "doc": peer.doc, "epoch": 1})
         );
         peer.settle().await;
         assert_eq!(peer.lines(), ["first", "before", "after"]);
-        // What followed the `DOC_RESET` is the whole document, by itself.
+        // What followed the `docReset` is the whole document, by itself.
         let whole = peer.taken.last().expect("a frame");
         assert_eq!(whole.sync, STEP_2, "{:?}", whole.sync);
         let alone = fvoci_collab::testing::Editor::join(104, &whole.payload);
@@ -173,10 +173,10 @@ async fn a_document_made_again_for_its_size_is_sent_to_the_room() {
         };
         updates += 1;
         one.send_update(&update).await;
-        // Taken; or, sent before the `DOC_RESET` after the one before was read,
+        // Taken; or, sent before the `docReset` after the one before was read,
         // refused as of the document before.
-        let answer = one.one_of(&["DOC_ACK", "DOC_NACK"]).await;
-        if answer["action"] == json!("DOC_NACK") {
+        let answer = one.one_of(&["docAck", "docNack"]).await;
+        if answer["type"] == json!("docNack") {
             assert_eq!(answer["reason"], json!("update_out_of_step"), "{answer}");
             break;
         }
@@ -186,7 +186,7 @@ async fn a_document_made_again_for_its_size_is_sent_to_the_room() {
         "only once it was near the limit: {updates} updates"
     );
     for peer in [&mut one, &mut two] {
-        let reset = peer.text("DOC_RESET").await;
+        let reset = peer.text("docReset").await;
         assert_eq!(reset["epoch"], json!(2), "{reset}");
         peer.settle().await;
         assert!(peer.unread().is_empty(), "{:?}", peer.unread());

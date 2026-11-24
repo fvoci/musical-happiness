@@ -90,11 +90,11 @@ impl WebsocketMetrics {
             Opts::new(
                 "websocket_messages_queued_total",
                 "How many messages the server queued for websocket connections, one per \
-                 connection, by the message's action. A connection that ends may not get \
+                 connection, by the message's type. A connection that ends may not get \
                  what was queued for it.",
             )
             .namespace(PREFIX),
-            &["action"],
+            &["type"],
         )?;
         let disconnections = IntCounterVec::new(
             Opts::new(
@@ -148,15 +148,15 @@ impl Metrics {
         }))
     }
 
-    /// Counts `count` messages of the action `action` as queued. The action is one of
+    /// Counts `count` messages of `message_type` as queued. The `type` is one of
     /// the hub's own, never one a client named.
-    pub(crate) fn websocket_queued(&self, action: &'static str, count: usize) {
+    pub(crate) fn websocket_queued(&self, message_type: &'static str, count: usize) {
         if let Some(kept) = &self.kept
             && count > 0
         {
             kept.websocket
                 .queued
-                .with_label_values(&[action])
+                .with_label_values(&[message_type])
                 .inc_by(u64::try_from(count).unwrap_or(u64::MAX));
         }
     }

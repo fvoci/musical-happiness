@@ -101,13 +101,13 @@ it('the live connection renews after reconnect, clears stale rosters and stops i
   expect(send).not.toHaveBeenCalled();
   live.up();
   expect(send).toHaveBeenLastCalledWith({
-    action: 'SET_PRESENCE',
+    type: 'setPresence',
     workspaceId: 'workspace',
     containerId: 'board',
     cardId: 'card',
   });
   live.text({
-    action: 'UPDATE_PRESENCE',
+    type: 'presenceChanged',
     containerId: 'board',
     people: [{ userId: 'other', cardIds: [] }],
     anonymousCount: 0,
@@ -209,14 +209,14 @@ it('the live connection asks once for the same visit, and leaving forgets the ro
   live.setPresence({ ...place, cardId: 'card' });
   expect(send).toHaveBeenCalledTimes(2);
   live.text({
-    action: 'UPDATE_PRESENCE',
+    type: 'presenceChanged',
     containerId: 'board',
     people: [{ userId: 'other', cardIds: ['card'] }],
     anonymousCount: 1,
     hiddenCount: 0,
   });
   live.setPresence(null);
-  expect(send).toHaveBeenLastCalledWith({ action: 'SET_PRESENCE', containerId: '' });
+  expect(send).toHaveBeenLastCalledWith({ type: 'setPresence', containerId: '' });
   expect(hear).toHaveBeenLastCalledWith({ people: [], anonymousCount: 0, hiddenCount: 0 });
   stop();
   live.down();

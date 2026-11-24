@@ -110,7 +110,7 @@ async fn workspace_course_unit_mentions_comments_watching_and_subscriptions() {
     peer.joined(TEST_WORKSPACE_ID, &unit).await;
     let update = peer.editor().append_mention(&b.id);
     peer.send_update(&update).await;
-    peer.text("DOC_ACK").await;
+    peer.text("docAck").await;
     unit_holds(
         &th.client,
         &format!("{TEST_WS}/courses/{course}/units/{unit}"),
@@ -139,7 +139,7 @@ async fn workspace_course_unit_mentions_comments_watching_and_subscriptions() {
             .client2
             .post(
                 &format!("{TEST_WS}/subscriptions"),
-                &json!({"blockId": block_id, "blockType": block_type, "subscriberId": b.id, "subscriberType": "user"}),
+                &json!({"blockId": block_id, "blockType": block_type, "userId": b.id}),
             )
             .await;
         if ok {

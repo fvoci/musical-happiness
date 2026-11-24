@@ -40,7 +40,7 @@ impl WorkspaceSocket {
         let stream = client.connect_websocket().await;
         let mut socket = Self { stream };
         socket
-            .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace_id}))
+            .send(json!({"type": "subscribeWorkspace", "workspaceId": workspace_id}))
             .await;
 
         // Commands have no acknowledgement: wait until a broadcast comes through.
@@ -95,8 +95,7 @@ impl WorkspaceSocket {
     pub(crate) async fn expect(&mut self, action: &str, path: &str, expected: &str) -> Value {
         let mut skipped = Vec::new();
         while let Some(message) = self.next(PATIENCE).await {
-            if message["action"] == json!(action) && message.pointer(path) == Some(&json!(expected))
-            {
+            if message["type"] == json!(action) && message.pointer(path) == Some(&json!(expected)) {
                 return message;
             }
             skipped.push(message);
@@ -109,7 +108,7 @@ impl WorkspaceSocket {
 fn with_action<'m>(messages: &'m [Value], action: &str) -> Vec<&'m Value> {
     messages
         .iter()
-        .filter(|message| message["action"] == json!(action))
+        .filter(|message| message["type"] == json!(action))
         .collect()
 }
 
@@ -135,7 +134,7 @@ async fn board_changes_are_broadcast_to_the_members() {
         .await
         .created_json();
     let message = socket1
-        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .expect("containerChanged", "/container/id", &board.id)
         .await;
     assert_eq!(
         message["workspaceId"],
@@ -144,7 +143,7 @@ async fn board_changes_are_broadcast_to_the_members() {
     );
     assert_eq!(message["container"]["title"], json!("Roadmap"), "{message}");
     let message = socket1
-        .expect("UPDATE_MEMBER", "/member/containerId", &board.id)
+        .expect("containerMemberChanged", "/member/containerId", &board.id)
         .await;
     assert_eq!(message["member"]["userId"], json!(user1.id), "{message}");
     assert_eq!(message["member"]["schemeAdmin"], json!(true), "{message}");
@@ -153,7 +152,7 @@ async fn board_changes_are_broadcast_to_the_members() {
         .await
         .check_ok();
     let message = socket1
-        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .expect("containerChanged", "/container/id", &board.id)
         .await;
     assert_eq!(
         message["container"]["title"],
@@ -166,7 +165,7 @@ async fn board_changes_are_broadcast_to_the_members() {
         .await
         .check_no_content();
     let message = socket1
-        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .expect("containerChanged", "/container/id", &board.id)
         .await;
     assert!(
         message["container"]["deleteAt"].as_i64() > Some(0),
@@ -175,7 +174,7 @@ async fn board_changes_are_broadcast_to_the_members() {
 
     undelete_board(&th.client, &board.id).await.check_ok();
     let message = socket1
-        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .expect("containerChanged", "/container/id", &board.id)
         .await;
     assert_eq!(
         message["container"]["deleteAt"],
@@ -216,7 +215,7 @@ async fn member_changes_are_broadcast() {
         .check_ok();
     for socket in [&mut socket1, &mut socket2] {
         let message = socket
-            .expect("UPDATE_MEMBER", "/member/userId", &user2.id)
+            .expect("containerMemberChanged", "/member/userId", &user2.id)
             .await;
         assert_eq!(
             message["workspaceId"],
@@ -241,7 +240,7 @@ async fn member_changes_are_broadcast() {
     .await
     .check_ok();
     let message = socket2
-        .expect("UPDATE_MEMBER", "/member/userId", &user2.id)
+        .expect("containerMemberChanged", "/member/userId", &user2.id)
         .await;
     assert_eq!(message["member"]["schemeViewer"], json!(true), "{message}");
     assert_eq!(message["member"]["schemeEditor"], json!(false), "{message}");
@@ -251,7 +250,7 @@ async fn member_changes_are_broadcast() {
         .check_no_content();
     for socket in [&mut socket1, &mut socket2] {
         let message = socket
-            .expect("DELETE_MEMBER", "/member/userId", &user2.id)
+            .expect("containerMemberRemoved", "/member/userId", &user2.id)
             .await;
         assert_eq!(
             message["member"]["containerId"],
@@ -290,7 +289,7 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
         .check_ok();
     for socket in [&mut socket1, &mut socket2] {
         let message = socket
-            .expect("DELETE_MEMBER", "/member/userId", &user2.id)
+            .expect("containerMemberRemoved", "/member/userId", &user2.id)
             .await;
         assert_eq!(
             message["workspaceId"],
@@ -305,7 +304,7 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
     }
     let rest = socket1.drain().await;
     assert_eq!(
-        with_action(&rest, "DELETE_MEMBER"),
+        with_action(&rest, "containerMemberRemoved"),
         Vec::<&Value>::new(),
         "nothing about the member themselves: {rest:?}"
     );
@@ -315,7 +314,7 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
         .await
         .check_ok();
     let message = socket1
-        .expect("UPDATE_MEMBER", "/member/userId", &user2.id)
+        .expect("containerMemberChanged", "/member/userId", &user2.id)
         .await;
     assert_eq!(
         message["member"],
@@ -332,7 +331,7 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
     );
     let rest = socket1.drain().await;
     assert_eq!(
-        with_action(&rest, "UPDATE_MEMBER"),
+        with_action(&rest, "containerMemberChanged"),
         Vec::<&Value>::new(),
         "nothing about the member themselves: {rest:?}"
     );
@@ -350,11 +349,11 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
         .await
         .check_ok();
     socket1
-        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .expect("containerChanged", "/container/id", &board.id)
         .await;
     let rest = socket1.drain().await;
     assert_eq!(
-        with_action(&rest, "DELETE_MEMBER"),
+        with_action(&rest, "containerMemberRemoved"),
         Vec::<&Value>::new(),
         "no member messages for a board: {rest:?}"
     );
@@ -389,13 +388,13 @@ async fn duplicate_container_is_broadcast() {
 
     let copy_id = &copy.containers[0].id;
     socket
-        .expect("UPDATE_CONTAINER", "/container/id", copy_id)
+        .expect("containerChanged", "/container/id", copy_id)
         .await;
     socket
-        .expect("UPDATE_BLOCK", "/block/id", &copy.blocks[0].id)
+        .expect("blockChanged", "/block/id", &copy.blocks[0].id)
         .await;
     let message = socket
-        .expect("UPDATE_MEMBER", "/member/containerId", copy_id)
+        .expect("containerMemberChanged", "/member/containerId", copy_id)
         .await;
     assert_eq!(message["member"]["userId"], json!(user1.id), "{message}");
     th.teardown().await;

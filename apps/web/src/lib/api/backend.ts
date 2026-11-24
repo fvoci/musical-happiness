@@ -841,7 +841,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       this.#http,
       underWorkspace('/containers/{containerId}/archive/export'),
       this.workspaceOf({ containerId: id }),
-      'archive.boardarchive',
+      'archive.fvoci',
       options,
     );
   }
@@ -852,7 +852,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       this.#http,
       underWorkspace('/archive/export'),
       { workspaceId },
-      'archive.boardarchive',
+      'archive.fvoci',
       options,
     );
   }

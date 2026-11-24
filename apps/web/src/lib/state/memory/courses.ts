@@ -418,19 +418,19 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
     });
   }
 
-  async watching(workspaceId: string, subscriberId: string): Promise<string[]> {
+  async watching(workspaceId: string, userId: string): Promise<string[]> {
     await this.#enter('watching');
-    return memoryWatchingUnits(this.#world, this.#host.userId, workspaceId, subscriberId);
+    return memoryWatchingUnits(this.#world, this.#host.userId, workspaceId, userId);
   }
 
-  async watchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void> {
+  async watchUnit(workspaceId: string, unitId: string, userId: string): Promise<void> {
     await this.#enter('watchUnit');
-    memoryWatchUnit(this.#world, this.#host.userId, workspaceId, unitId, subscriberId);
+    memoryWatchUnit(this.#world, this.#host.userId, workspaceId, unitId, userId);
   }
 
-  async unwatchUnit(workspaceId: string, unitId: string, subscriberId: string): Promise<void> {
+  async unwatchUnit(workspaceId: string, unitId: string, userId: string): Promise<void> {
     await this.#enter('unwatchUnit');
-    memoryUnwatchUnit(this.#world, this.#host.userId, workspaceId, unitId, subscriberId);
+    memoryUnwatchUnit(this.#world, this.#host.userId, workspaceId, unitId, userId);
   }
 
   async myProgress(courseId: string): Promise<UnitProgress[]> {

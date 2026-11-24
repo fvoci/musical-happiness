@@ -370,8 +370,8 @@ mod tests {
             "/api/v1/boards/{boardId}"
         );
         assert_eq!(
-            route_label("/boards/api/v1/hello", "/boards"),
-            "/api/v1/hello"
+            route_label("/boards/api/v1/ping", "/boards"),
+            "/api/v1/ping"
         );
         assert_eq!(route_label("/boards/", "/boards"), "/");
         assert_eq!(route_label("/boards", "/boards"), "/");

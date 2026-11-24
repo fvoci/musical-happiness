@@ -2,7 +2,7 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{BlockType, RefusalReason, SubscriberType, Subscription, SubscriptionError};
+use fvoci_model::{BlockType, Subscription};
 use serde::Deserialize;
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
@@ -10,7 +10,7 @@ use utoipa_axum::routes;
 
 use super::contract::bodies::NewSubscription;
 use super::contract::params::MemberWorkspaceId;
-use super::contract::params::{BlockId, SubscriberId};
+use super::contract::params::{BlockId, SubscribedUserId};
 use super::contract::tag;
 use super::workspace::{InLinked, InWorkspace};
 
@@ -27,75 +27,48 @@ const ACCESS_DENIED: &str = "access denied";
 const SUBSCRIPTION: &str = "subscription";
 
 pub(super) fn routes() -> OpenApiRouter<App> {
-    // The first position after `/subscriptions` is a block in one route and a
-    // subscriber in the other. A router position has one name, so it gets a neutral
-    // one, and each handler reads it as what it is. The contract names each as what it
-    // is: see `contract::RENAMED_PATHS`.
+    // The first position after `/subscriptions` is a block in one route and a user in
+    // the other. A router position has one name, so it gets a neutral one, and each
+    // handler reads it as what it is. The contract names each as what it is: see
+    // `contract::RENAMED_PATHS`.
     OpenApiRouter::new()
         .routes(routes!(handle_create_subscription))
         .routes(routes!(handle_delete_subscription))
         .routes(routes!(handle_get_subscriptions))
 }
 
-/// A subscription as a request body carries it.
-///
-/// The model's subscription holds a subscriber type that exists, so decoding into it
-/// would refuse an unknown one as malformed JSON, before the other members are looked
-/// at. Any string is decoded here and refused as the last step of the validation, in
-/// [`SubscriptionRequest::into_subscription`].
+/// A subscription as a request body carries it. Unknown members are refused with 400.
 #[derive(Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 struct SubscriptionRequest {
     block_type: BlockType,
     block_id: String,
-    subscriber_type: String,
-    subscriber_id: String,
-    notified_at: i64,
-    create_at: i64,
-    delete_at: i64,
+    user_id: String,
 }
 
 impl SubscriptionRequest {
     /// Decodes the body: a member that is missing leaves the default. A body that is no
-    /// JSON object, `null` included, or whose members have the wrong types (`null` among
-    /// them) is a bad request.
+    /// JSON object, `null` included, has unknown members, or whose members have the wrong
+    /// types (`null` among them) is a bad request.
     fn decode(body: &[u8]) -> Result<Self, AppError> {
         let members = json_object(decode_json(body)?)?;
         serde_json::from_value(Value::Object(members)).map_err(AppError::bad_request)
     }
 
     /// Validates every member and refuses all that are wrong at once: block identifier,
-    /// block type, subscriber identifier, subscriber type.
+    /// block type, user identifier.
     fn into_subscription(self) -> Result<Subscription, AppError> {
-        let subscriber_type = match self.subscriber_type.as_str() {
-            "user" => Some(SubscriberType::User),
-            _ => None,
-        };
         let subscription = Subscription {
             block_type: self.block_type,
             block_id: self.block_id,
-            // A stand-in until the type is checked below, after the other members.
-            subscriber_type: subscriber_type.unwrap_or(SubscriberType::User),
-            subscriber_id: self.subscriber_id,
-            notified_at: self.notified_at,
-            create_at: self.create_at,
-            delete_at: self.delete_at,
+            user_id: self.user_id,
+            notified_at: 0,
+            create_at: 0,
+            delete_at: 0,
         };
-        // Every member that is refused, the type among them.
-        let mut refused = subscription
-            .validate()
-            .err()
-            .map(SubscriptionError::into_refusals)
-            .unwrap_or_default();
-        if subscriber_type.is_none() {
-            let reason = if self.subscriber_type.is_empty() {
-                RefusalReason::Required
-            } else {
-                RefusalReason::Invalid
-            };
-            refused.refuse("subscriberType", reason, "invalid subscriber type");
+        if let Err(error) = subscription.validate() {
+            error.into_refusals().into_result()?;
         }
-        refused.into_result()?;
         Ok(subscription)
     }
 }
@@ -105,10 +78,10 @@ impl SubscriptionRequest {
 /// Subscribes the user of the session to a block of a board, a page of a wiki, or a unit
 /// of a course they may read: whoever writes a card, a page or a unit watches it, and
 /// may stop and start again. A chapter of a course takes no subscriptions (404). A
-/// `subscriberId` that is not the user of the session is 403, and a `subscriberType`
-/// other than `user` is 400. The `blockType` is stored as it is sent, and not compared
-/// with the block. Subscribing again is no error: the subscription stays as it was
-/// made, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.
+/// `userId` that is not the user of the session is 403. The `blockType` is stored as it
+/// is sent, and not compared with the block. Subscribing again is no error: the
+/// subscription stays as it was made, with its `blockType` and `createAt`, and only its
+/// `notifiedAt` is set anew.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/subscriptions",
@@ -120,9 +93,9 @@ impl SubscriptionRequest {
 )]
 async fn handle_create_subscription(InLinked(ws): InLinked, body: Bytes) -> ApiResult {
     let subscription = SubscriptionRequest::decode(&body)?.into_subscription()?;
-    if ws.session.user_id != subscription.subscriber_id {
+    if ws.session.user_id != subscription.user_id {
         return Err(
-            AppError::forbidden("a user subscribes for themselves only").with_field("subscriberId")
+            AppError::forbidden("a user subscribes for themselves only").with_field("userId")
         );
     }
     // The request names a block and no container: check authorization before inspecting
@@ -143,7 +116,7 @@ async fn handle_create_subscription(InLinked(ws): InLinked, body: Bytes) -> ApiR
 
     let subscription = ws.app.create_subscription(subscription).await?;
     tracing::debug!(
-        subscriber_id = %subscription.subscriber_id,
+        user_id = %subscription.user_id,
         block_id = %subscription.block_id,
         "CREATE subscription"
     );
@@ -157,23 +130,23 @@ async fn handle_create_subscription(InLinked(ws): InLinked, body: Bytes) -> ApiR
 /// ended. A subscription that is not there is 404, and so are those of another user.
 #[utoipa::path(
     delete,
-    path = "/w/{workspaceId}/subscriptions/{blockOrSubscriberId}/{subscriberId}",
+    path = "/w/{workspaceId}/subscriptions/{blockOrUserId}/{userId}",
     operation_id = "deleteSubscription",
     tag = tag::SUBSCRIPTIONS,
-    params(MemberWorkspaceId, BlockId, SubscriberId),
+    params(MemberWorkspaceId, BlockId, SubscribedUserId),
     responses((status = 204, description = "The subscription is ended.")),
 )]
 async fn handle_delete_subscription(
     ws: InWorkspace,
-    Path((_, block_id, subscriber_id)): Path<(String, String, String)>,
+    Path((_, block_id, user_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     // The subscriptions of another user are nobody's business: not even that there is
     // one is said.
-    if ws.session.user_id != subscriber_id {
+    if ws.session.user_id != user_id {
         return Err(AppError::not_found(SUBSCRIPTION));
     }
     ws.app
-        .delete_subscription(&block_id, &subscriber_id)
+        .delete_subscription(&block_id, &user_id)
         .await
         .map_err(|error| {
             if error.is_not_found() {
@@ -182,7 +155,7 @@ async fn handle_delete_subscription(
                 error
             }
         })?;
-    tracing::debug!(block_id, subscriber_id, "DELETE subscription");
+    tracing::debug!(block_id, user_id, "DELETE subscription");
     Ok(no_content())
 }
 
@@ -193,24 +166,20 @@ async fn handle_delete_subscription(
 /// millisecond.
 #[utoipa::path(
     get,
-    path = "/w/{workspaceId}/subscriptions/{blockOrSubscriberId}",
+    path = "/w/{workspaceId}/subscriptions/{blockOrUserId}",
     operation_id = "getSubscriptions",
     tag = tag::SUBSCRIPTIONS,
-    params(MemberWorkspaceId, SubscriberId),
+    params(MemberWorkspaceId, SubscribedUserId),
     responses((status = 200, description = "The subscriptions.", body = Vec<Subscription>)),
 )]
 async fn handle_get_subscriptions(
     InLinked(ws): InLinked,
-    Path((_, subscriber_id)): Path<(String, String)>,
+    Path((_, user_id)): Path<(String, String)>,
 ) -> ApiResult {
-    if ws.session.user_id != subscriber_id {
-        return Err(AppError::not_found("subscriber"));
+    if ws.session.user_id != user_id {
+        return Err(AppError::not_found("user"));
     }
-    let subscriptions = ws.app.subscriptions(&subscriber_id).await?;
-    tracing::debug!(
-        subscriber_id,
-        count = subscriptions.len(),
-        "GET subscriptions"
-    );
+    let subscriptions = ws.app.subscriptions(&user_id).await?;
+    tracing::debug!(user_id, count = subscriptions.len(), "GET subscriptions");
     Ok(json_response(&subscriptions))
 }

@@ -368,10 +368,9 @@ pub(crate) async fn subscriptions(s: &mut Session) {
     let alice_id = s.user_id(&alice).await;
     let bob_id = s.user_id(&bob).await;
     let path = format!("{ROOT_API}/subscriptions");
-    let subscription = |block_id: &str, subscriber_type: &str, subscriber: &str| {
+    let subscription = |block_id: &str, user: &str| {
         json!({
-            "blockType": "card", "blockId": block_id,
-            "subscriberType": subscriber_type, "subscriberId": subscriber,
+            "blockType": "card", "blockId": block_id, "userId": user,
         })
     };
 
@@ -382,23 +381,19 @@ pub(crate) async fn subscriptions(s: &mut Session) {
     .user(&alice)
     .await;
     s.post("create", &path)
-        .json(subscription(&card, "user", &alice_id))
+        .json(subscription(&card, &alice_id))
         .user(&alice)
         .await;
     s.post("create: again", &path)
-        .json(subscription(&card, "user", &alice_id))
+        .json(subscription(&card, &alice_id))
         .user(&alice)
         .await;
     s.post("create: for another user", &path)
-        .json(subscription(&card, "user", &bob_id))
+        .json(subscription(&card, &bob_id))
         .user(&alice)
         .await;
     s.post("create: no block", &path)
-        .json(subscription("", "user", &alice_id))
-        .user(&alice)
-        .await;
-    s.post("create: bad subscriber type", &path)
-        .json(subscription(&card, "robot", &alice_id))
+        .json(subscription("", &alice_id))
         .user(&alice)
         .await;
     s.post("create: malformed body", &path)

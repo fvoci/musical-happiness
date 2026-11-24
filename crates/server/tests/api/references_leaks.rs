@@ -122,7 +122,7 @@ async fn room_of(reader: &Client, id: &str) -> Given {
     }
     Given {
         what: "the room".to_owned(),
-        succeeded: answer["action"] == "DOC_JOINED" && !peer.taken.is_empty(),
+        succeeded: answer["type"] == "docJoined" && !peer.taken.is_empty(),
         bytes: frames,
     }
 }
@@ -144,7 +144,7 @@ async fn told_of_a_change(th: &TestServer, reader: &Client, path: &str, targets:
     let mut told = Vec::new();
     let mut of_the_card = false;
     while let Some(message) = socket.next_json(Duration::from_millis(500)).await {
-        of_the_card |= message["action"] == "UPDATE_BLOCK" && message["block"]["id"] == source;
+        of_the_card |= message["type"] == "blockChanged" && message["block"]["id"] == source;
         told.extend(message.to_string().into_bytes());
     }
     Given {

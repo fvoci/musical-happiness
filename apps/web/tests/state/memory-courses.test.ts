@@ -139,11 +139,11 @@ describe('a course in memory', () => {
     const made = await aCourse();
     const beforeCount = made.world.containers.size;
     const courseLine = JSON.stringify({
-      type: 'board',
+      type: 'container',
       data: { id: 'c1', workspaceId: made.workspaceId, type: 'P', kind: 'course', title: 'Bad' },
     });
     const boardLine = JSON.stringify({
-      type: 'board',
+      type: 'container',
       data: { id: 'b1', workspaceId: made.workspaceId, type: 'P', kind: 'board', title: 'Board' },
     });
     const cases = [
@@ -155,6 +155,18 @@ describe('a course in memory', () => {
             boardId: 'c1',
             startDate: '2026-12-01',
             targetDate: '2026-12-10',
+            studyDays: 31,
+          },
+        }),
+      ],
+      [
+        courseLine,
+        JSON.stringify({
+          type: 'courseSchedule',
+          data: {
+            containerId: 'c1',
+            startDate: '2026-12-01',
+            targetDate: '2026-12-10',
             studyDays: 1.5,
           },
         }),
@@ -164,7 +176,7 @@ describe('a course in memory', () => {
         JSON.stringify({
           type: 'courseSchedule',
           data: {
-            boardId: 'c1',
+            containerId: 'c1',
             startDate: '2026-12-01',
             targetDate: '2026-12-10',
             studyDays: 31,
@@ -176,22 +188,8 @@ describe('a course in memory', () => {
         boardLine,
         JSON.stringify({
           type: 'courseSchedule',
-          data: { boardId: 'b1', startDate: '2026-12-01', targetDate: '2026-12-10', studyDays: 31 },
-        }),
-      ],
-      [
-        courseLine,
-        JSON.stringify({
-          type: 'courseSchedule',
-          data: { boardId: 'c1', startDate: '2026-02-30', targetDate: '2026-03-05', studyDays: 31 },
-        }),
-      ],
-      [
-        courseLine,
-        JSON.stringify({
-          type: 'courseSchedule',
           data: {
-            boardId: 'missing',
+            containerId: 'b1',
             startDate: '2026-12-01',
             targetDate: '2026-12-10',
             studyDays: 31,
@@ -202,13 +200,42 @@ describe('a course in memory', () => {
         courseLine,
         JSON.stringify({
           type: 'courseSchedule',
-          data: { boardId: 'c1', startDate: '2020-01-01', targetDate: '2035-01-01', studyDays: 31 },
+          data: {
+            containerId: 'c1',
+            startDate: '2026-02-30',
+            targetDate: '2026-03-05',
+            studyDays: 31,
+          },
+        }),
+      ],
+      [
+        courseLine,
+        JSON.stringify({
+          type: 'courseSchedule',
+          data: {
+            containerId: 'missing',
+            startDate: '2026-12-01',
+            targetDate: '2026-12-10',
+            studyDays: 31,
+          },
+        }),
+      ],
+      [
+        courseLine,
+        JSON.stringify({
+          type: 'courseSchedule',
+          data: {
+            containerId: 'c1',
+            startDate: '2020-01-01',
+            targetDate: '2035-01-01',
+            studyDays: 31,
+          },
         }),
       ],
     ];
     for (const lines of cases) {
       const payload = [JSON.stringify({ version: 'fvoci-memory-1' }), ...lines].join('\n');
-      const file = new File([payload], 'bad.boardarchive');
+      const file = new File([payload], 'bad.fvoci');
       expect((await rejection(made.backend.importArchive(made.workspaceId, file))).status).toBe(
         400,
       );

@@ -97,7 +97,7 @@ fn the_contract_says_when_each_reason_comes() {
 }
 
 /// The operations that need no session at all.
-const NO_SESSION: [&str; 18] = [
+const NO_SESSION: [&str; 17] = [
     "completeEmailVerification",
     "completePasswordReset",
     "confirmEmailChange",
@@ -105,7 +105,6 @@ const NO_SESSION: [&str; 18] = [
     "finishOidcLogin",
     "getClientConfig",
     "getLoginOptions",
-    "hello",
     "login",
     "ping",
     "previewInvitation",
@@ -690,15 +689,15 @@ fn the_routes_that_share_a_position_are_named_apart() {
     let document: Value = serde_json::from_str(&text).expect("JSON");
     let paths = document["paths"].as_object().expect("paths");
     assert!(
-        paths.contains_key("/api/v1/w/{workspaceId}/subscriptions/{blockId}/{subscriberId}"),
+        paths.contains_key("/api/v1/w/{workspaceId}/subscriptions/{blockId}/{userId}"),
         "the path that ends a subscription"
     );
     assert!(
-        paths.contains_key("/api/v1/w/{workspaceId}/subscriptions/{subscriberId}"),
+        paths.contains_key("/api/v1/w/{workspaceId}/subscriptions/{userId}"),
         "the path that lists subscriptions"
     );
     assert!(
-        !text.contains("blockOrSubscriberId"),
+        !text.contains("blockOrUserId"),
         "the router's name for the shared position is not in the document"
     );
 }

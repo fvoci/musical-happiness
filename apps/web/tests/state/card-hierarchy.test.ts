@@ -135,24 +135,42 @@ describe('card hierarchy in the memory backend', () => {
     // are rejected cleanly.
     const hostileCases: Record<string, unknown>[][] = [
       [
-        { id: 'a', boardId: 'b-bad', parentId: 'b', type: 'card', title: 'a', fields: {} },
-        { id: 'b', boardId: 'b-bad', parentId: 'a', type: 'card', title: 'b', fields: {} },
+        { id: 'a', containerId: 'b-bad', parentId: 'b', type: 'card', title: 'a', fields: {} },
+        { id: 'b', containerId: 'b-bad', parentId: 'a', type: 'card', title: 'b', fields: {} },
       ],
       [
-        { id: 'c2', boardId: 'b-bad', parentId: '', type: 'card', title: 'c2', fields: {} },
-        { id: 'c1', boardId: 'b-bad', parentId: '', type: 'card', title: 'c1', fields: {} },
-        { id: 'c2', boardId: 'b-bad', parentId: 'c1', type: 'card', title: 'c2', fields: {} },
-        { id: 'c3', boardId: 'b-bad', parentId: 'c2', type: 'card', title: 'c3', fields: {} },
-        { id: 'c4', boardId: 'b-bad', parentId: 'c3', type: 'card', title: 'c4', fields: {} },
+        { id: 'c2', containerId: 'b-bad', parentId: '', type: 'card', title: 'c2', fields: {} },
+        { id: 'c1', containerId: 'b-bad', parentId: '', type: 'card', title: 'c1', fields: {} },
+        { id: 'c2', containerId: 'b-bad', parentId: 'c1', type: 'card', title: 'c2', fields: {} },
+        { id: 'c3', containerId: 'b-bad', parentId: 'c2', type: 'card', title: 'c3', fields: {} },
+        { id: 'c4', containerId: 'b-bad', parentId: 'c3', type: 'card', title: 'c4', fields: {} },
       ],
-      [{ id: 'c1', boardId: 'b-bad', parentId: 'b-bad', type: 'card', title: 'c1', fields: {} }],
-      [{ id: 'c1', boardId: 'b-bad', parentId: 'missing', type: 'card', title: 'c1', fields: {} }],
+      [
+        {
+          id: 'c1',
+          containerId: 'b-bad',
+          parentId: 'b-bad',
+          type: 'card',
+          title: 'c1',
+          fields: {},
+        },
+      ],
+      [
+        {
+          id: 'c1',
+          containerId: 'b-bad',
+          parentId: 'missing',
+          type: 'card',
+          title: 'c1',
+          fields: {},
+        },
+      ],
     ];
     for (const blocks of hostileCases) {
       const badLines = [
         JSON.stringify({ version: MEMORY_ARCHIVE }),
         JSON.stringify({
-          type: 'board',
+          type: 'container',
           data: {
             id: 'b-bad',
             title: 'Bad',
@@ -165,7 +183,7 @@ describe('card hierarchy in the memory backend', () => {
         ...blocks.map((data) => JSON.stringify({ type: 'block', data })),
       ].join('\n');
       await expectError(
-        backend.importArchive(world.workspace.id, new File([badLines], 'bad.boardarchive')),
+        backend.importArchive(world.workspace.id, new File([badLines], 'bad.fvoci')),
         400,
       );
     }

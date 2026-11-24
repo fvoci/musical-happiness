@@ -155,12 +155,12 @@
             "updateAt": "<ts>",
             "workspaceId": "<id:1>"
           },
-          "type": "board"
+          "type": "container"
         },
         {
           "data": {
-            "boardId": "<id:3>",
             "body": null,
+            "containerId": "<id:3>",
             "createAt": "<ts>",
             "createdBy": "<id:2>",
             "deleteAt": 0,
@@ -180,8 +180,8 @@
         },
         {
           "data": {
-            "boardId": "<id:3>",
             "body": null,
+            "containerId": "<id:3>",
             "createAt": "<ts>",
             "createdBy": "<id:2>",
             "deleteAt": 0,
@@ -198,8 +198,8 @@
         },
         {
           "data": {
-            "boardId": "<id:3>",
             "body": null,
+            "containerId": "<id:3>",
             "createAt": "<ts>",
             "createdBy": "<id:2>",
             "deleteAt": 0,
@@ -218,8 +218,8 @@
         },
         {
           "data": {
-            "boardId": "<id:3>",
             "body": null,
+            "containerId": "<id:3>",
             "createAt": "<ts>",
             "createdBy": "<id:2>",
             "deleteAt": 0,
@@ -238,24 +238,24 @@
         },
         {
           "data": {
-            "boardId": "<id:3>",
+            "containerId": "<id:3>",
             "schemeAdmin": true,
             "schemeCommenter": false,
             "schemeEditor": true,
             "schemeViewer": false,
             "userId": "<id:2>"
           },
-          "type": "boardMember"
+          "type": "containerMember"
         }
       ],
       "names": [
         "<id:3>/<secret:1>.png",
-        "<id:3>/board.jsonl",
+        "<id:3>/container.jsonl",
         "version.json"
       ],
       "version": {
         "date": "<ts>",
-        "version": 3
+        "version": 1
       }
     }
   },
