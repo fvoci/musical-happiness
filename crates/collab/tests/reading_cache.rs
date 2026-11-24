@@ -951,57 +951,67 @@ fn total_changes_limit_matches_between_fast_cache_and_cold_scan() {
     );
 }
 
-/// Mid-text NUL repair (`"ab\0cd"`): `try_apply` adds only +1 change (fitting
-/// `total_changes`), then deletion-only repair deletes `\0` in the middle and splits the
-/// text piece, hitting `FastApply::TooManyTotalChanges` inside `recount_after_repair`
-/// (`try_apply_deletions`) identically to cold `take_update`.
+/// Table-mend repair (`repair.mended > 0`): the raw deletion update adds 0 changes
+/// (fitting `total_changes`), then mending the missing cell adds new changes and hits
+/// `TooManyTotalChanges` inside `recount_after_repair` identically to cold `take_update`.
 #[test]
-fn total_changes_limit_matches_on_deletion_only_repair_split() {
+fn total_changes_limit_matches_on_table_mend_repair() {
+    let cell = json!({"type": "tableCell", "content": [{"type": "paragraph"}]});
     let body = body_of(&json!({
         "type": "doc",
-        "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "abcdef"}]}
-        ]
+        "content": [{
+            "type": "table",
+            "content": [
+                {"type": "tableRow", "content": [cell, cell]},
+                {"type": "tableRow", "content": [cell, cell]}
+            ]
+        }]
     }));
     let made = BodyDoc::from_body_counted(Some(&body)).expect("counted body");
     let mut state = made.state;
     let mut changes = made.counts.changes;
     let held = made.doc;
 
-    let nul_text = peer_edit(&state, 50, |txn, root| {
-        let Some(XmlOut::Element(p)) = root.get(txn, 0) else {
-            panic!("first paragraph");
+    let break_row = peer_edit(&state, 50, |txn, root| {
+        let Some(XmlOut::Element(table)) = root.get(txn, 0) else {
+            panic!("table");
         };
-        let Some(XmlOut::Text(t)) = p.first_child() else {
-            panic!("first text");
+        let Some(XmlOut::Element(row)) = table.get(txn, 1) else {
+            panic!("second row");
         };
-        t.insert(txn, 6, "ab\0cd");
+        row.remove_range(txn, 1, 1);
     });
-    let cold_nul = take_update(
+    let cold_mended = take_update(
         &from_state(&state, &ROOMY).expect("cold").doc,
-        &nul_text,
+        &break_row,
         &ROOMY,
     )
-    .expect("cold nul repair");
-    assert!(cold_nul.repair.deleted > 0);
+    .expect("cold mend repair");
+    assert!(cold_mended.repair.mended > 0, "expected table cell mend");
     assert!(
-        cold_nul.changes >= changes + 2,
-        "mid-text NUL repair splits the newly inserted piece ({changes} -> {})",
-        cold_nul.changes
+        cold_mended.changes > changes,
+        "table mend adds changes past the pre-repair total ({changes} -> {})",
+        cold_mended.changes
     );
-    assert_total_changes_verdict_matches(&state, changes, &nul_text, cold_nul.changes, "nul-split");
+    assert_total_changes_verdict_matches(
+        &state,
+        changes,
+        &break_row,
+        cold_mended.changes,
+        "table-mend",
+    );
 
-    let exact_nul = UpdateLimits {
-        total_changes: Some(cold_nul.changes),
+    let exact_mended = UpdateLimits {
+        total_changes: Some(cold_mended.changes),
         ..ROOMY
     };
     let _ = step_and_assert(
         held,
         &mut state,
         &mut changes,
-        &nul_text,
-        &exact_nul,
-        PathExpect::Fast,
-        "mid-text NUL deletion-only repair accepted at exact total_changes cap",
+        &break_row,
+        &exact_mended,
+        PathExpect::Fallback,
+        "table-mend repair accepted at exact total_changes cap",
     );
 }
