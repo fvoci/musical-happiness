@@ -1,47 +1,37 @@
-//! Public sharing of boards through read tokens.
+//! Public link access to boards through read tokens.
 //!
-//! A board that is shared has a read token; whoever has the token reads the board
-//! without signing in. The token is the server's: made when sharing is turned on,
-//! forgotten when it is turned off, so that a link that was closed does not open again.
+//! A board whose public link is enabled has a read token; whoever has the token reads
+//! the board without signing in. The token is the server's: made when the public link is
+//! turned on, forgotten when it is turned off, so that a link that was closed does not
+//! open again.
 
-use fvoci_model::Sharing;
+use fvoci_model::{PublicLink, PublicLinkChange};
 
 use crate::Store;
 use crate::containers;
 use crate::db::{Id, OptId, Scope, now_millis};
 use crate::error::StoreError;
 
-/// What to do about the sharing of a board.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SharingChange {
-    /// Share the board. A board that is shared already keeps its token.
-    On,
-    /// Share the board under a new token: the old link stops working.
-    OnWithNewToken,
-    /// Stop sharing the board and forget its token.
-    Off,
-}
-
 impl Store {
-    /// Changes whether a board is shared and returns the sharing state as stored.
+    /// Changes whether a board's public link is enabled and returns the state as stored.
     ///
-    /// `fresh_token` is the token to share the board under if it needs a new one: when
-    /// it was not shared, and with [`SharingChange::OnWithNewToken`]. The caller makes
-    /// it, from a source of secrets; the store decides whether it is used.
+    /// `fresh_token` is the token to expose the board under if it needs a new one: when
+    /// its public link was disabled, and with [`PublicLinkChange::OnWithNewToken`]. The
+    /// caller makes it, from a source of secrets; the store decides whether it is used.
     ///
     /// Reading the state and writing the new one are one step: of two requests that
-    /// share a board at once, both are answered the same token.
+    /// enable a board's public link at once, both are answered the same token.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if there is no such board.
-    pub async fn set_sharing(
+    pub async fn set_public_link(
         &self,
         container_id: &str,
-        change: SharingChange,
+        change: PublicLinkChange,
         fresh_token: &str,
         user_id: &str,
-    ) -> Result<Sharing, StoreError> {
+    ) -> Result<PublicLink, StoreError> {
         self.transaction(async |scope| {
             // Only boards, wikis and courses have public links; diaries never do.
             if !containers::lock_container_of_kind(scope, container_id)
@@ -52,56 +42,59 @@ impl Store {
                     "board ID={container_id}"
                 )));
             }
-            // The token a shared board has, which it keeps unless a new one is asked for.
-            let kept = find_sharing(scope, container_id)
+            // The token an enabled public link has, kept unless a new one is asked for.
+            let kept = find_public_link(scope, container_id)
                 .await?
                 .filter(|current| current.enabled && !current.token.is_empty())
                 .map(|current| current.token);
             let token = match (change, kept) {
-                (SharingChange::Off, _) => String::new(),
-                (SharingChange::On, Some(token)) => token,
-                (SharingChange::On | SharingChange::OnWithNewToken, _) => fresh_token.to_owned(),
+                (PublicLinkChange::Off, _) => String::new(),
+                (PublicLinkChange::On, Some(token)) => token,
+                (PublicLinkChange::On | PublicLinkChange::OnWithNewToken, _) => {
+                    fresh_token.to_owned()
+                }
             };
-            let sharing = Sharing {
+            let public_link = PublicLink {
                 container_id: container_id.to_owned(),
-                enabled: change != SharingChange::Off,
+                enabled: change != PublicLinkChange::Off,
                 token,
                 modified_by: user_id.to_owned(),
                 update_at: now_millis(),
             };
-            upsert_sharing(scope, &sharing).await?;
-            Ok(sharing)
+            upsert_public_link(scope, &public_link).await?;
+            Ok(public_link)
         })
         .await
     }
 
-    /// Returns the sharing state of a board.
+    /// Returns the public link state of a board.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NoRows`] if the board was never shared.
-    pub async fn get_sharing(&self, container_id: &str) -> Result<Sharing, StoreError> {
+    /// Returns [`StoreError::NoRows`] if the board never had a public link.
+    pub async fn get_public_link(&self, container_id: &str) -> Result<PublicLink, StoreError> {
         self.with_conn(async |scope| {
-            find_sharing(scope, container_id)
+            find_public_link(scope, container_id)
                 .await?
                 .ok_or(StoreError::NoRows)
         })
         .await
     }
 
-    /// The boards of the handle's organization, or of one workspace of it, that are
-    /// shared by a link, by identifier.
+    /// The boards of the handle's organization, or of one workspace of it, whose public
+    /// link is enabled, by identifier.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn shared_container_ids(
+    pub async fn public_link_container_ids(
         &self,
         workspace_id: Option<&str>,
     ) -> Result<Vec<String>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT s.container_id FROM sharing AS s JOIN containers AS b ON b.id = s.container_id \
+                "SELECT s.container_id FROM public_links AS s \
+                 JOIN containers AS b ON b.id = s.container_id \
                  JOIN workspaces AS w ON w.id = b.workspace_id WHERE s.enabled = ",
             );
             sql.bind(true).push_bind(" AND w.org_id = ", scope.org()?);
@@ -120,19 +113,23 @@ impl Store {
     }
 }
 
-async fn upsert_sharing(scope: &mut Scope<'_>, sharing: &Sharing) -> Result<(), StoreError> {
-    let mut sql = scope
-        .sql("INSERT INTO sharing (container_id, enabled, token, modified_by, update_at) VALUES (");
-    sql.bind(Id(&sharing.container_id))
-        .push_bind(", ", sharing.enabled);
+async fn upsert_public_link(
+    scope: &mut Scope<'_>,
+    public_link: &PublicLink,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql(
+        "INSERT INTO public_links (container_id, enabled, token, modified_by, update_at) VALUES (",
+    );
+    sql.bind(Id(&public_link.container_id))
+        .push_bind(", ", public_link.enabled);
     // No token is no value: the column is unique among the tokens there are.
-    if sharing.token.is_empty() {
+    if public_link.token.is_empty() {
         sql.push(", NULL");
     } else {
-        sql.push_bind(", ", &sharing.token);
+        sql.push_bind(", ", &public_link.token);
     }
-    sql.push_bind(", ", OptId(&sharing.modified_by))
-        .push_bind(", ", sharing.update_at)
+    sql.push_bind(", ", OptId(&public_link.modified_by))
+        .push_bind(", ", public_link.update_at)
         .push(
             ") ON CONFLICT (container_id) DO UPDATE SET enabled = EXCLUDED.enabled, \
              token = EXCLUDED.token, modified_by = EXCLUDED.modified_by, \
@@ -142,19 +139,19 @@ async fn upsert_sharing(scope: &mut Scope<'_>, sharing: &Sharing) -> Result<(), 
     Ok(())
 }
 
-async fn find_sharing(
+async fn find_public_link(
     scope: &mut Scope<'_>,
     container_id: &str,
-) -> Result<Option<Sharing>, StoreError> {
+) -> Result<Option<PublicLink>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT container_id, enabled, token, modified_by, update_at FROM sharing \
+        "SELECT container_id, enabled, token, modified_by, update_at FROM public_links \
          WHERE container_id = ",
     );
     sql.bind(Id(container_id));
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(None);
     };
-    Ok(Some(Sharing {
+    Ok(Some(PublicLink {
         container_id: row.id(0)?,
         enabled: row.bool(1)?,
         token: row.text(2)?,

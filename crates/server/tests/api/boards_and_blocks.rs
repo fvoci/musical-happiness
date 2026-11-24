@@ -9,7 +9,7 @@
 
 use fvoci_model::{
     Block, BlockPatch, BlockType, Container, ContainerKinds, ContainerMember, ContainerPatch,
-    ContainerType, ContainersAndBlocks, DeleteContainersAndBlocks, PatchContainersAndBlocks,
+    ContainerVisibility, ContainersAndBlocks, DeleteContainersAndBlocks, PatchContainersAndBlocks,
     new_id,
 };
 use fvoci_store::BlockFilter;
@@ -32,7 +32,7 @@ const PATH: &str = "/w/00000000-0000-7000-8000-000000000001/boards-and-blocks";
 fn request_board(
     id: &str,
     workspace_id: &str,
-    board_type: ContainerType,
+    board_type: ContainerVisibility,
     title: &str,
 ) -> Container {
     Container {
@@ -117,11 +117,15 @@ async fn two_boards(th: &TestServer, second: SecondBoard, second_workspace: &str
     let user_id = th.client.me().await.id;
     let board1 = board_with_admin(
         th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "initial title"),
+        new_board(
+            TEST_WORKSPACE_ID,
+            ContainerVisibility::Open,
+            "initial title",
+        ),
         &user_id,
     )
     .await;
-    let board2 = new_board(second_workspace, ContainerType::Open, "initial title");
+    let board2 = new_board(second_workspace, ContainerVisibility::Open, "initial title");
     let board2 = match second {
         SecondBoard::WithAdmin => board_with_admin(th, board2, &user_id).await,
         SecondBoard::WithoutMembers => board_without_members(th, board2, &user_id).await,
@@ -192,7 +196,7 @@ async fn create_boards_and_blocks_no_blocks() {
         containers: vec![request_board(
             "board-id",
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "",
         )],
         blocks: vec![],
@@ -212,7 +216,7 @@ async fn create_boards_and_blocks_blocks_from_nonexistent_boards() {
         containers: vec![request_board(
             "board-id",
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "",
         )],
         blocks: vec![request_block("block-id", "nonexistent-board-id", "")],
@@ -231,8 +235,13 @@ async fn create_boards_and_blocks_boards_with_no_ids() {
     let th = Setup::native().start().await.init_basic().await;
     let request = ContainersAndBlocks {
         containers: vec![
-            request_board("board-id", TEST_WORKSPACE_ID, ContainerType::Private, ""),
-            request_board("", TEST_WORKSPACE_ID, ContainerType::Private, ""),
+            request_board(
+                "board-id",
+                TEST_WORKSPACE_ID,
+                ContainerVisibility::Private,
+                "",
+            ),
+            request_board("", TEST_WORKSPACE_ID, ContainerVisibility::Private, ""),
         ],
         blocks: vec![request_block("block-id", "board-id", "")],
     };
@@ -252,8 +261,18 @@ async fn create_boards_and_blocks_boards_from_different_workspaces() {
     let th = Setup::native().start().await.init_basic().await;
     let request = ContainersAndBlocks {
         containers: vec![
-            request_board("board-id-1", TEST_WORKSPACE_ID, ContainerType::Private, ""),
-            request_board("board-id-2", ROOT_WORKSPACE_ID, ContainerType::Private, ""),
+            request_board(
+                "board-id-1",
+                TEST_WORKSPACE_ID,
+                ContainerVisibility::Private,
+                "",
+            ),
+            request_board(
+                "board-id-2",
+                ROOT_WORKSPACE_ID,
+                ContainerVisibility::Private,
+                "",
+            ),
         ],
         blocks: vec![request_block("block-id", "board-id-1", "")],
     };
@@ -276,13 +295,13 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
             request_board(
                 "board-id-1",
                 TEST_WORKSPACE_ID,
-                ContainerType::Open,
+                ContainerVisibility::Open,
                 "public board",
             ),
             request_board(
                 "board-id-2",
                 TEST_WORKSPACE_ID,
-                ContainerType::Private,
+                ContainerVisibility::Private,
                 "private board",
             ),
         ],
@@ -303,14 +322,14 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
         (
             "public",
             "public board",
-            ContainerType::Open,
+            ContainerVisibility::Open,
             "board-id-1",
             "block 1",
         ),
         (
             "private",
             "private board",
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "board-id-2",
             "block 2",
         ),
@@ -329,7 +348,7 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
         assert_eq!(found.len(), 1, "one board matches {term:?}: {found:?}");
         let board = &found[0];
         assert_eq!(board.title, title, "the title");
-        assert_eq!(board.container_type, board_type, "the type");
+        assert_eq!(board.visibility, board_type, "the type");
         assert_ne!(board.id, old_id, "a new identifier");
         assert!(
             created.containers.contains(board),
@@ -382,7 +401,7 @@ async fn workspace_boards(client: &Client) -> Vec<Container> {
 #[tokio::test]
 async fn create_boards_and_blocks_refusals() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"});
+    let board = json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"});
 
     // A body that is no JSON object is a bad request.
     for body in ["{bad", "", "null", "[]"] {
@@ -394,8 +413,8 @@ async fn create_boards_and_blocks_refusals() {
     // Every board needs an identifier for the blocks to name, the first one too. (The
     // original does not check the first board at all.)
     for boards in [
-        json!([{"workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "no id"}]),
-        json!([board, {"workspaceId": TEST_WORKSPACE_ID, "type": "P"}]),
+        json!([{"workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "no id"}]),
+        json!([board, {"workspaceId": TEST_WORKSPACE_ID, "visibility": "private"}]),
     ] {
         let response = th
             .client
@@ -444,9 +463,9 @@ async fn create_boards_and_blocks_refusals() {
     // A board that names a workspace other than the path's, one that does not exist and
     // text that is no identifier among them, is refused; the path names the workspace.
     for board in [
-        json!({"id": "bd", "workspaceId": UNKNOWN_ID, "type": "P"}),
-        json!({"id": "bd", "workspaceId": ROOT_WORKSPACE_ID, "type": "P"}),
-        json!({"id": "bd", "workspaceId": "nope", "type": "P"}),
+        json!({"id": "bd", "workspaceId": UNKNOWN_ID, "visibility": "private"}),
+        json!({"id": "bd", "workspaceId": ROOT_WORKSPACE_ID, "visibility": "private"}),
+        json!({"id": "bd", "workspaceId": "nope", "visibility": "private"}),
     ] {
         let response = th
             .client
@@ -503,7 +522,7 @@ async fn create_boards_and_blocks_accepts_a_template() {
         .post(
             PATH,
             &json!({
-                "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "O", "isTemplate": true}],
+                "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "visibility": "open", "isTemplate": true}],
                 "blocks": [card_json("bd")],
             }),
         )
@@ -535,17 +554,17 @@ async fn create_boards_and_blocks_refuses_unknown_board_types_and_roles() {
 
     for (board, member, message) in [
         (
-            json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "invalid"}),
-            "type",
-            "the type of a board is `O` (open) or `P` (private)",
+            json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "visibility": "invalid"}),
+            "visibility",
+            "the visibility of a board is `open` or `private`",
         ),
         (
             json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID}),
-            "type",
-            "the type of a board is `O` (open) or `P` (private)",
+            "visibility",
+            "the visibility of a board is `open` or `private`",
         ),
         (
-            json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "O", "minimumRole": "boss"}),
+            json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "visibility": "open", "minimumRole": "boss"}),
             "minimumRole",
             "the minimum role of a board is `viewer`, `commenter` or `editor`",
         ),
@@ -577,7 +596,7 @@ async fn create_boards_and_blocks_is_broadcast() {
         containers: vec![request_board(
             "board-id-1",
             TEST_WORKSPACE_ID,
-            ContainerType::Open,
+            ContainerVisibility::Open,
             "public board",
         )],
         blocks: vec![request_block("block-id-1", "board-id-1", "block 1")],
@@ -779,7 +798,7 @@ async fn patch_boards_and_blocks_patches_should_be_rejected_if_one_is_invalid() 
     let boards = two_boards(&th, SecondBoard::WithoutMembers, TEST_WORKSPACE_ID).await;
     let request = json!({
         "containerIds": [boards.board1.id, boards.board2.id],
-        "containerPatches": [{"title": "new title 4"}, {"type": "invalid"}],
+        "containerPatches": [{"title": "new title 4"}, {"visibility": "invalid"}],
         "blockIds": [boards.block1.id, boards.block2.id],
         "blockPatches": [{"title": "new title 4"}, {"title": "new title 4"}],
     });
@@ -788,9 +807,9 @@ async fn patch_boards_and_blocks_patches_should_be_rejected_if_one_is_invalid() 
 
     expect_bad_request(
         &response,
-        "the type of a board is `O` (open) or `P` (private)",
+        "the visibility of a board is `open` or `private`",
     );
-    assert_eq!(response.refused_at(), "/containerPatches/1/type");
+    assert_eq!(response.refused_at(), "/containerPatches/1/visibility");
     assert_titles_unchanged(&th, &boards).await;
 
     // The body is checked whole before any board is looked at: a patch refused for its
@@ -940,7 +959,7 @@ async fn patch_boards_and_blocks_checks() {
 
     // A board that does not exist, and a private board of somebody else, answer alike.
     let private = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     for board_id in [UNKNOWN_ID, "nonexistent", private.id.as_str()] {
         let response = patch(
@@ -978,7 +997,7 @@ async fn patch_boards_and_blocks_checks() {
     let response = patch(
         &th.client2,
         &json!({
-            "containerIds": [first_id], "containerPatches": [{"type": "P"}],
+            "containerIds": [first_id], "containerPatches": [{"visibility": "private"}],
             "blockIds": [boards.block1.id], "blockPatches": [{"title": "n"}],
         }),
     )
@@ -1072,7 +1091,7 @@ async fn delete_boards_and_blocks_no_boards() {
     // a board and a block are required for the permission checks
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, ""),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, ""),
         &user1.id,
     )
     .await;
@@ -1102,14 +1121,14 @@ async fn delete_boards_and_blocks_boards_from_different_workspaces() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, ""),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, ""),
         &user1.id,
     )
     .await;
     let block = stored_block(&th, &board.id, &user1.id).await;
     let other_workspaces_board = board_with_admin(
         &th,
-        new_board(ROOT_WORKSPACE_ID, ContainerType::Open, ""),
+        new_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open, ""),
         &user1.id,
     )
     .await;
@@ -1138,14 +1157,14 @@ async fn delete_boards_and_blocks_without_permissions_to_one_board_nothing_is_de
     // the user is an admin of the first board
     let board1 = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, ""),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, ""),
         &user1.id,
     )
     .await;
     // but not of the second
     let board2 = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, ""),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, ""),
         &user1.id,
     )
     .await;
@@ -1190,13 +1209,13 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
             request_board(
                 &board_ids[0],
                 TEST_WORKSPACE_ID,
-                ContainerType::Open,
+                ContainerVisibility::Open,
                 "public board",
             ),
             request_board(
                 &board_ids[1],
                 TEST_WORKSPACE_ID,
-                ContainerType::Private,
+                ContainerVisibility::Private,
                 "private board",
             ),
         ],

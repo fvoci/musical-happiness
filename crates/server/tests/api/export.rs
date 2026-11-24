@@ -6,7 +6,7 @@ use crate::common::TEST_WS;
 use crate::common::{ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use fvoci_model::{Block, BlockType, Container, ContainerType, new_id};
+use fvoci_model::{Block, BlockType, Container, ContainerVisibility, new_id};
 use reqwest::{Method, StatusCode};
 use sha2::{Digest as _, Sha256};
 
@@ -86,7 +86,9 @@ pub(crate) async fn put_part(
 
 /// Makes a board with one card for the first client.
 async fn board_with_card(ts: &TestServer, workspace_id: &str) -> Container {
-    let board = ts.create_board(workspace_id, ContainerType::Open).await;
+    let board = ts
+        .create_board(workspace_id, ContainerVisibility::Open)
+        .await;
     let card = Block {
         id: new_id(),
         parent_id: String::new(),
@@ -149,7 +151,7 @@ async fn export_single_board_round_trips() {
 async fn export_of_a_board_without_blocks_round_trips() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     let exported = export_board(&ts.client, &board).await;
@@ -474,7 +476,7 @@ pub(crate) async fn boards_of(ts: &TestServer) -> Vec<Container> {
 async fn archives_of_the_former_formats_are_refused() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = serde_json::json!({"type": "container", "data": {
-        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Former", "createAt": 1, "updateAt": 1,
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Former", "createAt": 1, "updateAt": 1,
     }});
     let zip_of = |entries: &[(&str, String)]| {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
@@ -509,7 +511,7 @@ async fn archives_of_the_former_formats_are_refused() {
                 "{}\n",
                 serde_json::json!({
                     "type": "board",
-                    "data": {"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Former"}
+                    "data": {"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Former"}
                 })
             ),
         ),
@@ -579,7 +581,7 @@ fn board_line(mut archive: zip::ZipArchive<Cursor<Vec<u8>>>, board_id: &str) -> 
 async fn an_archive_carries_the_files_of_bodies(kind: &str) {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&ts.client, &board.id, "picture.png", b"png").await,
@@ -685,7 +687,7 @@ async fn an_archive_carries_the_files_of_bodies(kind: &str) {
 async fn an_imported_comment_with_an_image_is_not_edited() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&ts.client, &board.id, "picture.png", b"png").await,
@@ -773,7 +775,7 @@ async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
     };
     let board = line(
         "container",
-        serde_json::json!({"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Comments",
+        serde_json::json!({"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Comments",
                            "createAt": 1, "updateAt": 1}),
     );
     let before = boards_of(&ts).await.len();
@@ -816,7 +818,7 @@ async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
 async fn an_archive_with_a_broken_entry_stores_nothing() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = serde_json::json!({"type": "container", "data": {
-        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Broken", "createAt": 1, "updateAt": 1,
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Broken", "createAt": 1, "updateAt": 1,
     }});
     let stored =
         zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
@@ -897,7 +899,7 @@ async fn an_archive_reads_back_whatever_an_attachment_names() {
 pub(crate) fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> {
     let board = |id: &str| {
         serde_json::json!({"type": "container", "data": {
-            "id": id, "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": id, "createAt": 1,
+            "id": id, "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": id, "createAt": 1,
             "updateAt": 1,
         }})
     };
@@ -1015,7 +1017,7 @@ async fn an_export_is_sent_with_its_length_and_leaves_nothing() {
 async fn a_large_file_is_whole_in_the_archive() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let data: Vec<u8> = (0..5 * 1024 * 1024 / 2)
         .map(|index: usize| u8::try_from(index % 251).expect("below 251"))
@@ -1099,7 +1101,7 @@ async fn exports_run_one_per_user_and_two_on_the_server() {
 /// most), so that its archive is larger than what the connection's buffers take in.
 async fn board_with_large_archive(ts: &TestServer) -> Container {
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let mut state: u64 = 0x2545_f491_4f6c_dd1d;
     let mut attachments = Vec::new();
@@ -1301,7 +1303,7 @@ struct MissingFiles {
 
 async fn board_with_missing_files(ts: &TestServer) -> MissingFiles {
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let upload = async |name: &str, bytes: &[u8]| {
         crate::files::uploaded_id(&crate::files::upload(&ts.client, &board.id, name, bytes).await)
@@ -1311,7 +1313,7 @@ async fn board_with_missing_files(ts: &TestServer) -> MissingFiles {
     let gone_info = ts
         .app
         .store()
-        .get_file_info(&board.id, &gone)
+        .get_file_record(&board.id, &gone)
         .await
         .expect("the record of the file whose object goes");
     ts.app
@@ -1403,7 +1405,7 @@ async fn imported_without(ts: &TestServer, archive: &[u8], missing: [&str; 2]) {
         "{attachments:?}"
     );
     for name in missing {
-        let missing = ts.app.store().get_file_info(&imported.id, name).await;
+        let missing = ts.app.store().get_file_record(&imported.id, name).await;
         assert!(missing.is_err(), "no record of {name}: {missing:?}");
     }
 }

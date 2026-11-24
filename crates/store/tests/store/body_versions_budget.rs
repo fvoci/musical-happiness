@@ -415,7 +415,18 @@ async fn seed_pre_0062_versions(
     };
     let scoped1 = before.for_org(&org1).expect("org1");
     let author = common::user(&scoped1, "mig62.author").await;
-    let board_id = board_with_files(&scoped1, &author, &[]).await;
+    let ws1 = common::workspace(&scoped1).await;
+    let board_id = new_id();
+    scoped1
+        .execute_unchecked(&format!(
+            "INSERT INTO containers \
+             (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
+              show_description, is_template, properties, card_properties, create_at, update_at) \
+             VALUES ('{board_id}', '{ws1}', '{author}', '{author}', 'O', 'board', 'board 0', \
+              '', '', false, false, '{{}}', '[]', 1, 1)"
+        ))
+        .await
+        .expect("pre-0062 board stored");
     let card1 = card_with(&scoped1.telling_nobody(), &board_id, None, &author).await;
     before.close().await;
 

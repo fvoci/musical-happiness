@@ -1,21 +1,21 @@
 //! The objects of the file storage that may have no record: marked while they are
 //! written, doomed with the record that goes, and kept apart by organization.
 
-use fvoci_model::{FileInfo, Upload, new_id};
+use fvoci_model::{FileRecord, Upload, new_id};
 use fvoci_store::{DbType, LooseObject, LooseState, SYSTEM_ORG_ID, Store, StoreError, Tenant};
 
 use crate::common;
 
 /// A record of a file of the board at `path`, as the server makes one.
-fn file_at(board_id: &str, path: &str) -> FileInfo {
-    FileInfo {
+fn file_at(board_id: &str, path: &str) -> FileRecord {
+    FileRecord {
         id: new_id(),
         container_id: board_id.to_owned(),
         stored_name: path.rsplit('/').next().unwrap_or(path).to_owned(),
         path: path.to_owned(),
         size: 3,
         create_at: 1,
-        ..FileInfo::default()
+        ..FileRecord::default()
     }
 }
 
@@ -44,7 +44,7 @@ async fn the_records_that_go_doom_their_objects_in_the_same_transaction() {
     let test = common::setup().await;
     let (board_id, user_id) = board(&test).await;
     let purged_path = format!("boards/20261112/{board_id}/purged.png");
-    test.save_file_info(&file_at(&board_id, &purged_path))
+    test.save_file_record(&file_at(&board_id, &purged_path))
         .await
         .expect("a file of the board");
     test.delete_container(&board_id, &user_id)
@@ -52,7 +52,7 @@ async fn the_records_that_go_doom_their_objects_in_the_same_transaction() {
         .expect("the board goes to the trash");
     let (kept_board, _) = board(&test).await;
     let unshown_path = format!("boards/20261112/{kept_board}/unshown.png");
-    test.save_file_info(&file_at(&kept_board, &unshown_path))
+    test.save_file_record(&file_at(&kept_board, &unshown_path))
         .await
         .expect("a file no block shows");
 
@@ -115,7 +115,7 @@ async fn a_written_file_is_recorded_only_while_it_is_marked() {
         [unmarked_path.as_str()],
         "the record took the mark away; what was written without one is doomed"
     );
-    test.get_file_info(&board_id, &file.stored_name)
+    test.get_file_record(&board_id, &file.stored_name)
         .await
         .expect("the record is there");
 
@@ -148,7 +148,7 @@ async fn a_written_file_is_recorded_only_while_it_is_marked() {
         "doomed again: what the late writer wrote is the housekeeping's to remove"
     );
     let missing = test
-        .get_file_info(&board_id, "doomed.png")
+        .get_file_record(&board_id, "doomed.png")
         .await
         .expect_err("nothing is recorded");
     assert!(missing.is_not_found(), "{missing:?}");
@@ -293,7 +293,7 @@ async fn the_system_dooms_each_object_as_its_organizations() {
     for (store, name) in [(&test.store, "ours"), (&theirs, "theirs")] {
         let (board_id, user_id) = board(store).await;
         store
-            .save_file_info(&file_at(&board_id, &format!("boards/{name}")))
+            .save_file_record(&file_at(&board_id, &format!("boards/{name}")))
             .await
             .expect("a file of the board");
         store
@@ -360,7 +360,7 @@ async fn what_holds_an_object() {
     let test = common::setup().await;
     let (board_id, user_id) = board(&test).await;
     let trashed = format!("boards/20261112/{board_id}/trashed.png");
-    test.save_file_info(&file_at(&board_id, &trashed))
+    test.save_file_record(&file_at(&board_id, &trashed))
         .await
         .expect("a file of the board");
     test.delete_container(&board_id, &user_id)
@@ -368,7 +368,7 @@ async fn what_holds_an_object() {
         .expect("the board goes to the trash");
     let (live_board, user_id) = board(&test).await;
     let live = format!("boards/20261112/{live_board}/live.png");
-    test.save_file_info(&file_at(&live_board, &live))
+    test.save_file_record(&file_at(&live_board, &live))
         .await
         .expect("a file of the board");
     test.mark_writing("boards/being-written", i64::MAX)
@@ -526,7 +526,7 @@ async fn the_recorded_places_are_read_a_page_at_a_time() {
     ] {
         for name in names {
             let path = format!("boards/{name}");
-            test.save_file_info(&file_at(board_id, &path))
+            test.save_file_record(&file_at(board_id, &path))
                 .await
                 .expect("a file of the board");
             expected.push(path);
@@ -563,7 +563,7 @@ async fn a_place_is_taken_and_compared_in_one_spelling() {
     let alias = format!("boards//20261112/{board_id}/x.png");
     let is_invalid_path = |error: &StoreError| matches!(error, StoreError::InvalidPath(_));
     let error = test
-        .save_file_info(&file_at(&board_id, &alias))
+        .save_file_record(&file_at(&board_id, &alias))
         .await
         .expect_err("a record of another spelling");
     assert!(is_invalid_path(&error), "{error:?}");
@@ -613,11 +613,11 @@ async fn a_row_of_another_spelling_holds_every_place() {
     let test = common::setup().await;
     let (board_id, user_id) = board(&test).await;
     let place = format!("boards/20261112/{board_id}/x.png");
-    test.save_file_info(&file_at(&board_id, &place))
+    test.save_file_record(&file_at(&board_id, &place))
         .await
         .expect("a record");
     test.execute_unchecked(&format!(
-        "UPDATE file_info SET path = 'boards//20261112/{board_id}/x.png'"
+        "UPDATE files SET path = 'boards//20261112/{board_id}/x.png'"
     ))
     .await
     .expect("a record of the time before the rule");

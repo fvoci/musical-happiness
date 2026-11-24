@@ -14,8 +14,8 @@ use crate::harness::{API, Session};
 
 pub(crate) async fn categories(s: &mut Session) {
     let [alice, bob] = s.users("cat", ["alice", "bob"]).await;
-    let board = new_board(s, &alice, "Filed board", "P", json!({})).await;
-    let other = new_board(s, &alice, "Other board", "P", json!({})).await;
+    let board = new_board(s, &alice, "Filed board", "private", json!({})).await;
+    let other = new_board(s, &alice, "Other board", "private", json!({})).await;
     let alice_id = s.user_id(&alice).await;
     let bob_id = s.user_id(&bob).await;
     let path = format!("{ROOT_API}/categories");
@@ -205,9 +205,9 @@ pub(crate) async fn categories(s: &mut Session) {
         .await;
 }
 
-pub(crate) async fn sharing(s: &mut Session) {
+pub(crate) async fn public_links(s: &mut Session) {
     let [alice, bob] = s.users("share", ["alice", "bob"]).await;
-    let board = new_board(s, &alice, "Shared board", "P", json!({})).await;
+    let board = new_board(s, &alice, "Shared board", "private", json!({})).await;
     add_member(s, &alice, &board, &bob, "editor").await;
     let created = new_blocks(
         s,
@@ -218,7 +218,7 @@ pub(crate) async fn sharing(s: &mut Session) {
     )
     .await;
     let card = id_of(&created[0]);
-    let path = format!("{ROOT_API}/containers/{board}/sharing");
+    let path = format!("{ROOT_API}/containers/{board}/public-link");
     let board_path = format!("{ROOT_API}/containers/{board}");
     let shared_path = format!("{API}/shared/{board}");
 
@@ -250,7 +250,7 @@ pub(crate) async fn sharing(s: &mut Session) {
     s.get("get: editor", &path).user(&bob).await;
     s.get(
         "get: unknown board",
-        &format!("{ROOT_API}/containers/unknown-board/sharing"),
+        &format!("{ROOT_API}/containers/unknown-board/public-link"),
     )
     .user(&alice)
     .await;
@@ -355,7 +355,7 @@ pub(crate) async fn sharing(s: &mut Session) {
 
 pub(crate) async fn subscriptions(s: &mut Session) {
     let [alice, bob] = s.users("subs", ["alice", "bob"]).await;
-    let board = new_board(s, &alice, "Subscribed board", "P", json!({})).await;
+    let board = new_board(s, &alice, "Subscribed board", "private", json!({})).await;
     let created = new_blocks(
         s,
         &alice,
@@ -425,9 +425,9 @@ pub(crate) async fn subscriptions(s: &mut Session) {
 
 pub(crate) async fn search(s: &mut Session) {
     let [alice, bob] = s.users("search", ["alice", "bob"]).await;
-    new_board(s, &alice, "Quarterly zebra plan", "P", json!({})).await;
-    new_board(s, &alice, "Open zebra notes", "O", json!({})).await;
-    new_board(s, &bob, "Private zebra diary", "P", json!({})).await;
+    new_board(s, &alice, "Quarterly zebra plan", "private", json!({})).await;
+    new_board(s, &alice, "Open zebra notes", "open", json!({})).await;
+    new_board(s, &bob, "Private zebra diary", "private", json!({})).await;
     let workspace_search = format!("{ROOT_API}/boards/search");
 
     s.get("workspace search", &format!("{workspace_search}?q=zebra"))

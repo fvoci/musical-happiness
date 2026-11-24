@@ -172,7 +172,7 @@ describe('changes from the server', () => {
       channelId: '',
       createdBy: 'u',
       modifiedBy: 'u',
-      type: 'P',
+      visibility: 'private',
       minimumRole: '',
       title: 'B',
       description: '',

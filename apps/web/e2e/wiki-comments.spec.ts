@@ -205,7 +205,7 @@ for (const role of ['viewer', 'commenter'] as const) {
     await openApp(page);
     const made = await wikiBySomebodyElse(page, {
       title: 'Rules',
-      type: 'P',
+      visibility: 'private',
       page: 'Read me',
       readerRole: role,
     });

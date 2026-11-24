@@ -1,5 +1,5 @@
 //! File upload, download and info.
-use fvoci_model::{Block, BlockType, Container, ContainerType, JsonMap, new_id};
+use fvoci_model::{Block, BlockType, Container, ContainerVisibility, JsonMap, new_id};
 use reqwest::Method;
 use reqwest::StatusCode;
 use reqwest::multipart::{Form, Part};
@@ -65,7 +65,7 @@ pub(crate) fn uploaded_id(response: &crate::common::ApiResponse) -> String {
 /// to an uploaded file, and returns the board and the file identifier.
 async fn board_with_attachment(ts: &TestServer) -> (Container, String) {
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let file_id =
         uploaded_id(&upload(&ts.client, &board.id, "pic.png", b"hello world, a file\n").await);
@@ -130,7 +130,7 @@ async fn upload_file_to_a_board_that_does_not_exist_is_not_found() {
 async fn upload_file_with_permissions() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = upload(&ts.client, &board.id, "test.txt", b"test").await;
     response.check_created();
@@ -148,7 +148,7 @@ async fn upload_file_reaching_the_max_file_size() {
         .init_basic()
         .await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = upload(&ts.client, &board.id, "test.txt", b"test").await;
     response.check_request_entity_too_large();
@@ -170,13 +170,13 @@ async fn workspace_upload_file_no_permission() {
     response.check_error(StatusCode::NOT_FOUND, "board not found");
 
     let private = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let response = upload(&ts.client2, &private.id, "x.bin", &[0_u8; 64]).await;
     response.check_error(StatusCode::NOT_FOUND, "board not found");
 
     let open = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = upload(&ts.client2, &open.id, "x.bin", &[0_u8; 64]).await;
     response.check_forbidden();
@@ -188,7 +188,7 @@ async fn workspace_upload_file_no_permission() {
 async fn workspace_upload_file_a_board_admin_can_upload() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = upload(&ts.client, &board.id, "x.bin", &[1_u8; 64]).await;
     response.check_created();
@@ -201,7 +201,7 @@ async fn workspace_upload_file_a_board_admin_can_upload() {
 async fn workspace_upload_file_a_non_member_is_forbidden() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = upload(&ts.client2, &board.id, "x.bin", &[1_u8; 64]).await;
     response.check_forbidden();
@@ -213,7 +213,7 @@ async fn workspace_upload_file_a_non_member_is_forbidden() {
 async fn upload_maps_jpeg_to_jpg() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "photo.JPEG", b"x").await);
     assert_eq!(
@@ -230,7 +230,7 @@ async fn upload_maps_jpeg_to_jpg() {
 async fn upload_answers_a_generated_name() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "picture.png", b"x").await);
     let (stem, extension) = file_id.split_once('.').expect("name has an extension");
@@ -250,7 +250,7 @@ async fn upload_answers_a_generated_name() {
 async fn upload_name_with_path_separators_is_reduced_to_its_base() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = upload(&ts.client, &board.id, "../../evil.sh", b"x").await;
     response.check_created();
@@ -271,7 +271,7 @@ async fn upload_name_with_path_separators_is_reduced_to_its_base() {
 async fn an_upload_name_that_names_no_file_is_refused() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let too_long = "가".repeat(256);
     for name in [
@@ -307,7 +307,7 @@ async fn an_upload_name_that_names_no_file_is_refused() {
 async fn a_download_is_offered_under_the_name_of_the_upload() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "docs/분기 보고서.pdf", b"pdf").await);
     let expected = format!(
@@ -327,7 +327,7 @@ async fn a_download_is_offered_under_the_name_of_the_upload() {
     let shared = ts
         .client
         .post(
-            &format!("{TEST_WS}/containers/{}/sharing", board.id),
+            &format!("{TEST_WS}/containers/{}/public-link", board.id),
             &json!({"enabled": true}),
         )
         .await;
@@ -352,10 +352,10 @@ async fn a_download_is_offered_under_the_name_of_the_upload() {
 
 /// Requesting file info for an unknown stored name returns 404.
 #[tokio::test]
-async fn file_info_of_an_unknown_file_is_not_found() {
+async fn file_record_of_an_unknown_file_is_not_found() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = ts
         .client
@@ -371,7 +371,7 @@ async fn file_info_of_an_unknown_file_is_not_found() {
 /// The info JSON says what a client may know about a file, and neither where it is
 /// stored nor which board it is filed under.
 #[tokio::test]
-async fn file_info_has_the_members_of_the_record() {
+async fn file_record_has_the_members_of_the_record() {
     let ts = Setup::native().start().await.init_basic().await;
     let (board, file_id) = board_with_attachment(&ts).await;
     let response = ts
@@ -561,7 +561,7 @@ async fn download_if_modified_since_in_the_future_is_304() {
 async fn download_of_an_unknown_file_is_not_found() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = ts
         .client
@@ -616,7 +616,7 @@ async fn download_with_a_valid_read_token() {
     let shared = ts
         .client
         .post(
-            &format!("{TEST_WS}/containers/{}/sharing", board.id),
+            &format!("{TEST_WS}/containers/{}/public-link", board.id),
             &json!({"enabled": true}),
         )
         .await;
@@ -779,13 +779,13 @@ const SECRET: &[u8] = b"the first user's file\n";
 
 async fn foreign_file(ts: &TestServer) -> ForeignFile {
     let owner_board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &owner_board.id, "secret.png", SECRET).await);
 
     let board = Container {
         workspace_id: TEST_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         ..Container::default()
     };
     let intruder_board: Container = ts.client2.create_board(&board).await.created_json();
@@ -1004,7 +1004,7 @@ async fn template_file(ts: &TestServer) -> TemplateFile {
         .client2
         .create_board(&Container {
             workspace_id: TEST_WORKSPACE_ID.to_owned(),
-            container_type: ContainerType::Private,
+            visibility: ContainerVisibility::Private,
             ..Container::default()
         })
         .await
@@ -1066,10 +1066,10 @@ async fn a_template_file_is_given_out_through_its_template() {
 async fn a_file_without_a_record_is_given_out_through_no_board() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let other = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
 
     let secret = fvoci_server::auth::secret::new_secret();
@@ -1097,7 +1097,7 @@ async fn a_file_without_a_record_is_given_out_through_no_board() {
 async fn duplicating_a_board_with_an_empty_file_reference_works() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let card_id = new_id();
     let mut empty = JsonMap::new();
@@ -1151,7 +1151,7 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = Container {
         workspace_id: TEST_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         is_template: true,
         ..Container::default()
     };
@@ -1244,7 +1244,7 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
 async fn a_range_on_an_empty_file_is_ignored() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "empty.txt", b"").await);
     let path = format!("{TEST_WS}/containers/{}/files/{file_id}", board.id);
@@ -1268,7 +1268,7 @@ async fn blocks_posted_from_a_source_board_get_copies_of_their_files() {
     let ts = Setup::native().start().await.init_basic().await;
     let (source, file_id) = board_with_attachment(&ts).await;
     let target = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let mut image_fields = JsonMap::new();
     image_fields.insert("fileId".to_owned(), Value::String(file_id.clone()));

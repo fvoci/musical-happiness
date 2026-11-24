@@ -712,7 +712,7 @@ describe('an open board the reader is no member of', () => {
     if (!first) throw new Error('the seed has no board');
     const stored = made.world.containers.get(first.id);
     if (!stored) throw new Error('no stored board');
-    made.world.containers.set(first.id, { ...stored, type: 'O' });
+    made.world.containers.set(first.id, { ...stored, visibility: 'open' });
     const readerId = (await made.backend.me()).id;
     made.world.members.set(
       first.id,
@@ -746,7 +746,7 @@ describe('an open board the reader is no member of', () => {
     if (!first) throw new Error('the seed has no board');
     const stored = made.world.containers.get(first.id);
     if (!stored) throw new Error('no stored board');
-    made.world.containers.set(first.id, { ...stored, type: 'O' });
+    made.world.containers.set(first.id, { ...stored, visibility: 'open' });
     const board = await made.workspace.openBoard(first.id);
     expect(board.status).toBe('ready');
 
@@ -834,7 +834,7 @@ describe('sharing a board', () => {
     await board.setOpen(true);
     await board.setMinimumRole('commenter');
     expect(await backend.container(board.boardId)).toMatchObject({
-      type: 'O',
+      visibility: 'open',
       minimumRole: 'commenter',
     });
   });

@@ -1,6 +1,6 @@
 //! Independent review regressions for organization administration and its older entry points.
 
-use fvoci_model::{Container, ContainerMember, ContainerType, UserWorkspace, WorkspaceRole};
+use fvoci_model::{Container, ContainerMember, ContainerVisibility, UserWorkspace, WorkspaceRole};
 use serde_json::{Value, json};
 
 use crate::common::{Setup, TestServer};
@@ -86,7 +86,7 @@ async fn organization_demotion_revokes_workspace_power_granted_by_the_instance_r
         .client
         .create_board(&Container {
             workspace_id: workspace.clone(),
-            container_type: ContainerType::Private,
+            visibility: ContainerVisibility::Private,
             title: "Private plans".to_owned(),
             ..Container::default()
         })

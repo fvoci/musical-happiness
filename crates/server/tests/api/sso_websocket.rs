@@ -396,7 +396,7 @@ async fn presence_refused_for_sso_or_password_requirement_logs_no_warning() {
 
     use crate::own_space::own_workspace;
     use crate::presence::people;
-    use fvoci_model::{Container, ContainerType};
+    use fvoci_model::{Container, ContainerVisibility};
 
     #[derive(Clone, Default)]
     struct Captured(Arc<Mutex<Vec<u8>>>);
@@ -422,14 +422,14 @@ async fn presence_refused_for_sso_or_password_requirement_logs_no_warning() {
     let fake = FakeProvider::start().await;
     let (ts, org_id, admin) = server(&fake).await;
     let org_board = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let own = own_workspace(&ts.client).await;
     let own_board: Container = ts
         .client
         .create_board(&Container {
             workspace_id: own.id.clone(),
-            container_type: ContainerType::Private,
+            visibility: ContainerVisibility::Private,
             title: "own".to_owned(),
             ..Container::default()
         })

@@ -4,7 +4,8 @@
 //! same rule).
 
 use fvoci_model::{
-    Container, ContainerMember, ContainerType, OrgRole, UserWorkspace, Workspace, WorkspaceRole,
+    Container, ContainerMember, ContainerVisibility, OrgRole, UserWorkspace, Workspace,
+    WorkspaceRole,
 };
 use fvoci_store::{DbType, Store};
 use serde_json::{Value, json};
@@ -104,17 +105,17 @@ async fn a_user_lists_the_workspaces_they_are_a_member_of() {
 async fn the_boards_of_a_workspace_are_for_its_members() {
     let ts = Setup::native().start().await.init_basic().await;
     let open = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let private = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     // A board of the hidden workspace, which no user of the test could make there.
     let stranger = ts.stranger().await;
     let mut elsewhere = Container {
         id: fvoci_model::new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..Container::default()
     };
     ts.app
@@ -230,7 +231,7 @@ pub(crate) async fn another_organization(ts: &TestServer) -> (Store, String, Str
     let mut board = Container {
         id: fvoci_model::new_id(),
         workspace_id: workspace.id.clone(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         title: "theirs".to_owned(),
         ..Container::default()
     };
@@ -260,7 +261,7 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
     let ts = Setup::native().start().await.init_basic().await;
     let (theirs, their_workspace, their_board) = another_organization(&ts).await;
     let mine = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     let their_boards = format!("/w/{their_workspace}/boards");
@@ -356,7 +357,7 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
         .await
         .check_ok();
     // A body that names their workspace under the server's is refused: the path names it.
-    let board = json!({"workspaceId": their_workspace, "type": "P", "title": "new"});
+    let board = json!({"workspaceId": their_workspace, "visibility": "private", "title": "new"});
     let refused = ts.client.post(&format!("{ROOT_WS}/boards"), &board).await;
     refused.check_error(
         reqwest::StatusCode::BAD_REQUEST,
@@ -500,7 +501,7 @@ async fn open_board_in(ts: &TestServer, workspace_id: &str, board: Container) ->
     let mut board = Container {
         id: fvoci_model::new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..board
     };
     ts.app
@@ -649,7 +650,7 @@ async fn a_read_token_opens_its_board_in_the_boards_organization_and_no_other() 
     let mut other = Container {
         id: fvoci_model::new_id(),
         workspace_id: their_workspace,
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..Container::default()
     };
     theirs
@@ -657,9 +658,9 @@ async fn a_read_token_opens_its_board_in_the_boards_organization_and_no_other() 
         .await
         .expect("another board of theirs is stored");
     let token = theirs
-        .set_sharing(
+        .set_public_link(
             &shared,
-            fvoci_store::SharingChange::On,
+            fvoci_model::PublicLinkChange::On,
             "a-read-token-of-theirs",
             &owner,
         )
@@ -703,7 +704,7 @@ async fn a_board_takes_the_people_of_its_workspace() {
     let ts = Setup::native().start().await.init_basic().await;
     let user1 = ts.client.me().await.id;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     // The stranger is in the root workspace, as everybody is, and not in the board's.
     let stranger = ts.stranger().await;

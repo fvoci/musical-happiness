@@ -449,7 +449,7 @@ fn writes_access(text: &str) -> bool {
         "container_teams",
         "organization_members",
         "container_members",
-        "sharing",
+        "public_links",
         "workspaces",
         "organizations",
         "containers",
@@ -491,7 +491,7 @@ fn affects_visibility(text: &str) -> bool {
         "container_teams",
         "organization_members",
         "container_members",
-        "sharing",
+        "public_links",
         "workspaces",
         "organizations",
         "containers",
@@ -598,7 +598,7 @@ mod tests {
     async fn an_abandoned_write_stops_caching_for_a_while_but_not_dispatch() {
         let visibility = Visibility::settling_for(Duration::from_millis(50));
         let writing = visibility.writing(Tenant::Unset);
-        writing.statement("DELETE FROM sharing");
+        writing.statement("DELETE FROM public_links");
         drop(writing);
         let unsettled = visibility.version(Tenant::Unset).await;
         assert!(!unsettled.cacheable(), "its outcome may still land");
@@ -696,7 +696,7 @@ mod tests {
     #[test]
     fn what_a_statement_writes_is_told_from_what_it_reads() {
         assert!(writes_access("UPDATE workspace_members SET role = $1"));
-        assert!(writes_access("INSERT INTO sharing (id) VALUES ($1)"));
+        assert!(writes_access("INSERT INTO public_links (id) VALUES ($1)"));
         assert!(writes_access("DELETE FROM users WHERE id = $1"));
         assert!(writes_access(
             "WITH gone AS (DELETE FROM container_members RETURNING 1) SELECT 1"

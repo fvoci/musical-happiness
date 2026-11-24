@@ -1,11 +1,11 @@
-//! Sharing a board through a read token: who may share, what the server answers, and
+//! Sharing a board through a public link token: who may share, what the server answers, and
 //! that the token is the server's to make and to forget.
 //!
 //! Each test starts its own server with public sharing enabled or disabled as needed.
 
-use fvoci_model::{Container, ContainerMember, ContainerType, Sharing, new_id};
+use fvoci_model::PublicLinkChange;
+use fvoci_model::{Container, ContainerMember, ContainerVisibility, PublicLink, new_id};
 use fvoci_server::auth::secret::SECRET_LENGTH;
-use fvoci_store::SharingChange;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
@@ -14,11 +14,15 @@ use crate::common::{ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TestServer, U
 
 /// Puts a board into the store without going through the board routes, with `user_id` as
 /// its administrator.
-async fn board_with_admin(th: &TestServer, user_id: &str, board_type: ContainerType) -> Container {
+async fn board_with_admin(
+    th: &TestServer,
+    user_id: &str,
+    board_type: ContainerVisibility,
+) -> Container {
     let mut board = Container {
         id: new_id(),
         workspace_id: ROOT_WORKSPACE_ID.to_owned(),
-        container_type: board_type,
+        visibility: board_type,
         ..Container::default()
     };
     th.app
@@ -30,23 +34,23 @@ async fn board_with_admin(th: &TestServer, user_id: &str, board_type: ContainerT
 }
 
 fn sharing_path(board_id: &str) -> String {
-    format!("{ROOT_WS}/containers/{board_id}/sharing")
+    format!("{ROOT_WS}/containers/{board_id}/public-link")
 }
 
-/// `POST /boards/{id}/sharing` with a body.
+/// `POST /containers/{id}/public-link` with a body.
 async fn post_sharing(client: &Client, board_id: &str, body: Value) -> ApiResponse {
     client.post(&sharing_path(board_id), &body).await
 }
 
 /// Shares the board through the route and returns the answer, which is the sharing
 /// state.
-async fn share(client: &Client, board_id: &str) -> Sharing {
+async fn share(client: &Client, board_id: &str) -> PublicLink {
     post_sharing(client, board_id, json!({"enabled": true}))
         .await
         .ok_json()
 }
 
-async fn sharing_of(client: &Client, board_id: &str) -> Sharing {
+async fn sharing_of(client: &Client, board_id: &str) -> PublicLink {
     client.get(&sharing_path(board_id)).await.ok_json()
 }
 
@@ -66,7 +70,7 @@ fn check_never_shared(response: &ApiResponse) {
 async fn shared_setup() -> (TestServer, Container) {
     let th = Setup::local_mode().start().await.init_basic().await;
     let user = th.client.me().await;
-    let board = board_with_admin(&th, &user.id, ContainerType::Open).await;
+    let board = board_with_admin(&th, &user.id, ContainerVisibility::Open).await;
     (th, board)
 }
 
@@ -95,11 +99,11 @@ async fn sharing_an_unauthenticated_client_should_not_be_able_to_get_a_sharing()
 async fn sharing_check_no_initial_sharing() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let board = board_with_admin(&th, &user.id, ContainerType::Open).await;
+    let board = board_with_admin(&th, &user.id, ContainerVisibility::Open).await;
 
     let sharing = th
         .app
-        .sharing(&board.id)
+        .public_link(&board.id)
         .await
         .expect("a board that was never shared has a sharing state too");
     assert!(!sharing.enabled, "not shared");
@@ -115,7 +119,7 @@ async fn sharing_check_no_initial_sharing() {
 async fn sharing_post_sharing_config_false() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let board = board_with_admin(&th, &user.id, ContainerType::Open).await;
+    let board = board_with_admin(&th, &user.id, ContainerVisibility::Open).await;
 
     for body in [json!({"enabled": true}), json!({"enabled": false})] {
         let response = post_sharing(&th.client, &board.id, body).await;
@@ -140,7 +144,7 @@ async fn sharing_post_sharing_config_true() {
     let (th, board) = shared_setup().await;
 
     let response = post_sharing(&th.client, &board.id, json!({"enabled": true})).await;
-    let shared: Sharing = response.ok_json();
+    let shared: PublicLink = response.ok_json();
     assert!(shared.enabled, "sharing is on");
     assert_eq!(shared.token.len(), SECRET_LENGTH, "a secret of the server");
     assert!(shared.update_at > 0, "changed now");
@@ -154,7 +158,7 @@ async fn sharing_post_sharing_config_true() {
     // "GET sharing"
     let response = th.client.get(&sharing_path(&board.id)).await;
     assert_eq!(
-        response.ok_json::<Sharing>(),
+        response.ok_json::<PublicLink>(),
         shared,
         "what is read is what was answered"
     );
@@ -211,13 +215,13 @@ async fn a_request_cannot_set_the_read_token() {
 }
 
 /// Every shared board has a token of its own, which opens that board and no other.
-/// Sharing a board that is shared keeps its token; asking for a new one replaces it,
-/// and the old link is dead.
+/// Enabling a public link on a board that is already shared keeps its token; asking for a
+/// new one replaces it, and the old link is dead.
 #[tokio::test]
 async fn a_shared_board_keeps_its_token_until_a_new_one_is_asked_for() {
     let (th, board) = shared_setup().await;
     let user = th.client.me().await;
-    let second = board_with_admin(&th, &user.id, ContainerType::Private).await;
+    let second = board_with_admin(&th, &user.id, ContainerVisibility::Private).await;
 
     let first = share(&th.client, &board.id).await;
     let other = share(&th.client, &second.id).await;
@@ -235,17 +239,17 @@ async fn a_shared_board_keeps_its_token_until_a_new_one_is_asked_for() {
         "no token opens nothing"
     );
 
-    // Sharing what is shared: the same token, also with `regenerate` said to be false.
+    // PublicLink what is shared: the same token, also with `regenerate` said to be false.
     for body in [
         json!({"enabled": true}),
         json!({"enabled": true, "regenerate": false}),
         json!({"enabled": true, "regenerate": null}),
     ] {
-        let again: Sharing = post_sharing(&th.client, &board.id, body).await.ok_json();
+        let again: PublicLink = post_sharing(&th.client, &board.id, body).await.ok_json();
         assert_eq!(again.token, first.token, "the token stays");
     }
 
-    let renewed: Sharing = post_sharing(
+    let renewed: PublicLink = post_sharing(
         &th.client,
         &board.id,
         json!({"enabled": true, "regenerate": true}),
@@ -289,7 +293,7 @@ async fn turning_sharing_off_forgets_the_token() {
         json!({"enabled": false, "regenerate": true}),
     ] {
         let response = post_sharing(&th.client, &board.id, body).await;
-        let off: Sharing = response.ok_json();
+        let off: PublicLink = response.ok_json();
         assert!(!off.enabled, "sharing is off");
         assert_eq!(
             response.value(),
@@ -332,7 +336,7 @@ async fn sharing_needs_the_permission_to_share_the_board() {
     let (th, board) = shared_setup().await;
     let owner = th.client.me().await;
     let other = th.client2.me().await;
-    let private = board_with_admin(&th, &owner.id, ContainerType::Private).await;
+    let private = board_with_admin(&th, &owner.id, ContainerVisibility::Private).await;
     let request = || json!({"enabled": true});
     let refusal = "access denied to sharing the board";
 
@@ -406,9 +410,9 @@ async fn sharing_needs_the_permission_to_share_the_board() {
 async fn post_sharing_takes_the_board_and_the_modifier_from_the_request() {
     let (th, board) = shared_setup().await;
     let user = th.client.me().await;
-    let other_board = board_with_admin(&th, &user.id, ContainerType::Open).await;
+    let other_board = board_with_admin(&th, &user.id, ContainerVisibility::Open).await;
 
-    let shared: Sharing = post_sharing(
+    let shared: PublicLink = post_sharing(
         &th.client,
         &board.id,
         json!({
@@ -426,7 +430,7 @@ async fn post_sharing_takes_the_board_and_the_modifier_from_the_request() {
     let stored = th
         .app
         .store()
-        .get_sharing(&board.id)
+        .get_public_link(&board.id)
         .await
         .expect("the board of the path is shared");
     assert_eq!(stored.modified_by, user.id, "by the user of the session");
@@ -493,10 +497,10 @@ async fn post_sharing_wants_a_boolean_and_refuses_the_rest() {
 /// configuration, but the token of a board that was shared while it was on opens
 /// nothing while it is off.
 #[tokio::test]
-async fn get_sharing_does_not_depend_on_the_configuration() {
+async fn get_public_link_does_not_depend_on_the_configuration() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let board = board_with_admin(&th, &user.id, ContainerType::Open).await;
+    let board = board_with_admin(&th, &user.id, ContainerVisibility::Open).await;
     // A board shared at a time when sharing was turned on.
     let token = th.share(&board.id).await;
 
@@ -520,14 +524,18 @@ async fn get_sharing_does_not_depend_on_the_configuration() {
 async fn app_sharing_is_set_and_read() {
     let th = Setup::native().start().await;
     let user_id = th.stranger().await;
-    let board = board_with_admin(&th, &user_id, ContainerType::Open).await;
+    let board = board_with_admin(&th, &user_id, ContainerVisibility::Open).await;
 
     let set = th
         .app
-        .set_sharing(&board.id, SharingChange::On, &user_id)
+        .set_public_link(&board.id, PublicLinkChange::On, &user_id)
         .await
         .expect("the board is shared");
-    let got = th.app.sharing(&board.id).await.expect("the state is read");
+    let got = th
+        .app
+        .public_link(&board.id)
+        .await
+        .expect("the state is read");
     assert_eq!(got, set, "what was stored");
     assert_eq!(got.container_id, board.id, "of the board");
     assert_eq!(got.modified_by, user_id, "by the user");
@@ -535,7 +543,7 @@ async fn app_sharing_is_set_and_read() {
 
     let off = th
         .app
-        .set_sharing(&board.id, SharingChange::Off, &user_id)
+        .set_public_link(&board.id, PublicLinkChange::Off, &user_id)
         .await
         .expect("the board is unshared");
     assert!(!off.enabled, "the later state");
@@ -544,14 +552,14 @@ async fn app_sharing_is_set_and_read() {
     for board_id in [UNKNOWN_ID, "test-id"] {
         let error = th
             .app
-            .set_sharing(board_id, SharingChange::On, &user_id)
+            .set_public_link(board_id, PublicLinkChange::On, &user_id)
             .await
             .expect_err("there is no such board");
         assert_eq!(error.status(), StatusCode::NOT_FOUND, "{error}");
         assert_eq!(error.to_string(), "board not found", "the message");
         let never = th
             .app
-            .sharing(board_id)
+            .public_link(board_id)
             .await
             .expect("what is not there is not shared");
         assert!(!never.enabled, "{board_id}");

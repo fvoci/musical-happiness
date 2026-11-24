@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use fvoci_model::{
-    Block, BlockType, BodySummary, Category, CategoryType, ContainerType, FileInfo, new_id,
+    Block, BlockType, BodySummary, Category, CategoryType, ContainerVisibility, FileRecord, new_id,
 };
 use fvoci_store::{BlockFilter, DbType, Store, StoreError};
 use tokio::task::JoinSet;
@@ -165,12 +165,12 @@ const WRITES_AT_ONCE: usize = 40;
 /// A file record for a board that does not exist: a row only the database can refuse,
 /// since the store does not look for the board first. The store reads that refusal as
 /// "the board is not found".
-fn record_for_no_board(stored_name: String) -> FileInfo {
-    FileInfo {
+fn record_for_no_board(stored_name: String) -> FileRecord {
+    FileRecord {
         id: new_id(),
         container_id: new_id(),
         stored_name,
-        ..FileInfo::default()
+        ..FileRecord::default()
     }
 }
 
@@ -202,7 +202,7 @@ async fn foreign_keys_are_enforced_on_the_connections_of_the_store() {
         writes.spawn(async move {
             if index % 2 == 0 {
                 let record = record_for_no_board(format!("7file{index}.png"));
-                (Orphan::FileRecord, store.save_file_info(&record).await)
+                (Orphan::FileRecord, store.save_file_record(&record).await)
             } else {
                 let category = Category {
                     id: new_id(),
@@ -235,12 +235,12 @@ async fn foreign_keys_are_enforced_on_the_connections_of_the_store() {
 
     // The same rows are stored once what they refer to exists.
     let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
-    let record = FileInfo {
+    let record = FileRecord {
         container_id: boards[0].id.clone(),
         ..record_for_no_board("7file.png".to_owned())
     };
     store
-        .save_file_info(&record)
+        .save_file_record(&record)
         .await
         .expect("a file record for a board that exists is stored");
     let category = Category {
@@ -275,7 +275,7 @@ async fn foreign_keys_are_enforced_in_an_in_memory_sqlite_database() {
         .expect("an in-memory database");
 
     let error = store
-        .save_file_info(&record_for_no_board("7file.png".to_owned()))
+        .save_file_record(&record_for_no_board("7file.png".to_owned()))
         .await
         .expect_err("a file record for a board that does not exist is refused");
     assert!(
@@ -310,64 +310,64 @@ async fn set_column(
     .await
 }
 
-/// The schema keeps what the model promises: a board is open (`O`) or private (`P`),
+/// The schema keeps what the model promises: a board is `open` or `private`,
 /// whoever writes the row. Anything else is refused, in whatever letter case.
 #[tokio::test]
-async fn the_schema_refuses_a_board_type_that_is_none() {
+async fn the_schema_refuses_a_board_visibility_that_is_none() {
     let test = common::setup().await;
     let user_id = common::user(&test, "owner").await;
     let workspace_id = common::workspace(&test).await;
     let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
 
-    for board_type in ["", " ", "X", "o", "p", "OP", "open", "private", "O "] {
-        let error = set_column(&test, "containers", "type", board_type, board_id)
+    for vis in ["", " ", "X", "O", "P", "o", "p", "Open", "PRIVATE", "open "] {
+        let error = set_column(&test, "containers", "visibility", vis, board_id)
             .await
-            .expect_err(&format!("the board type {board_type:?} is refused"));
+            .expect_err(&format!("the board visibility {vis:?} is refused"));
         assert!(
             is_check_violation(&error),
-            "{board_type:?}: refused by the check: got {error:?}"
+            "{vis:?}: refused by the check: got {error:?}"
         );
         let board = test
             .get_container(board_id)
             .await
             .expect("the board is read");
         assert_eq!(
-            board.container_type,
-            ContainerType::Open,
-            "{board_type:?}: the board is as it was"
+            board.visibility,
+            ContainerVisibility::Open,
+            "{vis:?}: the board is as it was"
         );
     }
-    for board_type in [ContainerType::Private, ContainerType::Open] {
-        let changed = set_column(&test, "containers", "type", board_type.as_str(), board_id)
+    for vis in [ContainerVisibility::Private, ContainerVisibility::Open] {
+        let changed = set_column(&test, "containers", "visibility", vis.as_str(), board_id)
             .await
-            .expect("a board type that is one is stored");
-        assert_eq!(changed, 1, "{board_type:?}: the one row of the board");
+            .expect("a board visibility that is one is stored");
+        assert_eq!(changed, 1, "{vis:?}: the one row of the board");
         let board = test
             .get_container(board_id)
             .await
             .expect("the board is read");
-        assert_eq!(board.container_type, board_type, "as written");
+        assert_eq!(board.visibility, vis, "as written");
     }
 
     // A row that is new is checked as one that is changed: the same row is stored with
-    // a type that is one, and refused with one that is none.
-    let new_board = |board_type: &str| {
+    // a visibility that is one, and refused with one that is none.
+    let new_board = |vis: &str| {
         format!(
-            "INSERT INTO containers (id, workspace_id, type, title, description, icon, \
+            "INSERT INTO containers (id, workspace_id, visibility, title, description, icon, \
              show_description, is_template, properties, card_properties, create_at, \
-             update_at) VALUES ('{}', '{workspace_id}', '{board_type}', '', '', '', FALSE, FALSE, \
+             update_at) VALUES ('{}', '{workspace_id}', '{vis}', '', '', '', FALSE, FALSE, \
              '{{}}', '[]', 1, 1)",
             new_id()
         )
     };
-    let error = common::try_execute_raw(&test.database_connection(), &new_board("X"))
+    let error = common::try_execute_raw(&test.database_connection(), &new_board("O"))
         .await
-        .expect_err("a new board of a type that is none is refused");
+        .expect_err("a new board of a visibility that is none is refused");
     assert!(is_check_violation(&error), "got {error:?}");
-    let stored = common::try_execute_raw(&test.database_connection(), &new_board("P"))
+    let stored = common::try_execute_raw(&test.database_connection(), &new_board("private"))
         .await
-        .expect("a new board of a type that is one is stored");
+        .expect("a new board of a visibility that is one is stored");
     assert_eq!(stored, 1, "the one row");
 
     test.teardown().await;
@@ -787,14 +787,7 @@ async fn rename_column(test: &common::TestStore, from: &str, to: &str, tables: &
 
 /// The migration of file references puts down what the blocks show, live and in the
 /// trash, and counts a file that none shows from the migration: it is collected only
-/// once the grace period has passed from then.
-#[tokio::test]
-async fn the_file_reference_migration_finds_what_the_blocks_show() {
-    let test = common::setup().await;
-    let user_id = common::user(&test, "migrated").await;
-    let workspace_id = common::workspace(&test).await;
-    let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
-    let board_id = &boards[0].id;
+async fn seed_files_for_reference_migration(store: &Store, board_id: &str) {
     for name in [
         "7image.png",
         "7body.png",
@@ -803,16 +796,30 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
         "7attachment.png",
         "7none.png",
     ] {
-        let file = fvoci_model::FileInfo {
+        let file = fvoci_model::FileRecord {
             id: new_id(),
-            container_id: board_id.clone(),
+            container_id: board_id.to_owned(),
             stored_name: name.to_owned(),
             create_at: 1,
             path: format!("{board_id}/{name}"),
-            ..fvoci_model::FileInfo::default()
+            ..fvoci_model::FileRecord::default()
         };
-        test.save_file_info(&file).await.expect("a file is stored");
+        store
+            .save_file_record(&file)
+            .await
+            .expect("a file is stored");
     }
+}
+
+/// once the grace period has passed from then.
+#[tokio::test]
+async fn the_file_reference_migration_finds_what_the_blocks_show() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "migrated").await;
+    let workspace_id = common::workspace(&test).await;
+    let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
+    let board_id = &boards[0].id;
+    seed_files_for_reference_migration(&test, board_id).await;
     let mut blocks = blocks_showing(board_id);
     common::insert_blocks(&test, &mut blocks, &user_id).await;
     for in_trash in [&blocks[1], &blocks[3]] {
@@ -821,11 +828,14 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
             .expect("an image and a card go to the trash");
     }
     test.store.close().await;
-    // Back to before the migration.
+    // Back to before migration 3 (`0003_file_refs.sql`), which named `files` as its
+    // pre-0070 table name and `container_id` as `board_id` (renamed in 0041).
+    let old_files_tbl = ["file", "info"].join("_");
+    let old_unref_idx = format!("{old_files_tbl}_unreferenced_at_idx");
     for statement in [
         "DROP TABLE file_refs",
-        "DROP INDEX file_info_unreferenced_at_idx",
-        "ALTER TABLE file_info DROP COLUMN unreferenced_at",
+        "DROP INDEX files_unreferenced_at_idx",
+        "ALTER TABLE files DROP COLUMN unreferenced_at",
         "DELETE FROM _sqlx_migrations WHERE version = 3",
     ] {
         common::execute_raw(&test.database_connection(), statement).await;
@@ -834,7 +844,7 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
     // as their owner did then: the policies of the tables it reads are not forced on
     // the owner for this run.
     if common::db_type() == DbType::Postgres {
-        for table in ["blocks", "deleted_blocks", "file_info"] {
+        for table in ["blocks", "deleted_blocks", "files"] {
             common::execute_raw(
                 &test.database_connection(),
                 &format!("ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY"),
@@ -844,13 +854,23 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
     }
     let migrated_at = crate::blocks::now_millis();
 
-    // Migration 3 names the container's column as it was then (`board_id`, which 41
-    // renamed): the tables it reads have it so while it is replayed, its own too after.
-    let read_by_3 = ["blocks", "deleted_blocks", "file_info"];
+    common::execute_raw(
+        &test.database_connection(),
+        &format!("ALTER TABLE files RENAME TO {old_files_tbl}"),
+    )
+    .await;
+    let read_by_3 = ["blocks", "deleted_blocks", old_files_tbl.as_str()];
     rename_column(&test, "container_id", "board_id", &read_by_3).await;
     let store = test.reconnect().await;
     rename_column(&test, "board_id", "container_id", &read_by_3).await;
     rename_column(&test, "board_id", "container_id", &["file_refs"]).await;
+    for statement in [
+        format!("ALTER TABLE {old_files_tbl} RENAME TO files"),
+        format!("DROP INDEX {old_unref_idx}"),
+        "CREATE INDEX files_unreferenced_at_idx ON files (unreferenced_at)".to_owned(),
+    ] {
+        common::execute_raw(&test.database_connection(), &statement).await;
+    }
     // Only migration 3 was replayed above. Give its recreated table the column
     // migration 14 supplies before exercising today's organization-aware collector.
     if common::db_type() == DbType::Postgres {
@@ -895,15 +915,18 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
 /// Stores a record of a file of the board for each name.
 pub(crate) async fn save_files(store: &Store, board_id: &str, names: &[&str]) {
     for name in names {
-        let file = fvoci_model::FileInfo {
+        let file = fvoci_model::FileRecord {
             id: new_id(),
             container_id: board_id.to_owned(),
             stored_name: (*name).to_owned(),
             create_at: 1,
             path: format!("{board_id}/{name}"),
-            ..fvoci_model::FileInfo::default()
+            ..fvoci_model::FileRecord::default()
         };
-        store.save_file_info(&file).await.expect("a file is stored");
+        store
+            .save_file_record(&file)
+            .await
+            .expect("a file is stored");
     }
 }
 

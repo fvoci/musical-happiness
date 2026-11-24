@@ -28,7 +28,7 @@ async fn private_template_for_admin() -> (TestServer, Container, String) {
             &format!("{TEST_WS}/boards"),
             &json!({
                 "workspaceId": TEST_WORKSPACE_ID,
-                "type": "P",
+                "visibility": "private",
                 "title": "Private template",
                 "isTemplate": true,
                 "description": "Confidential template description",
@@ -111,7 +111,7 @@ async fn a_former_non_author_is_not_discoverable_through_a_stale_board_role() {
     let server = Setup::native().start().await.init_basic().await;
     let leaver = server.client2.me().await.id;
     let board = server
-        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerVisibility::Private)
         .await;
     server
         .client

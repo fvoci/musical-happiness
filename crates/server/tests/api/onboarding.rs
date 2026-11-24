@@ -1,6 +1,6 @@
 //! A new account's first board: a copy of the built-in welcome board.
 
-use fvoci_model::{Block, BlockType, Container, ContainerType, new_id};
+use fvoci_model::{Block, BlockType, Container, ContainerVisibility, new_id};
 use serde_json::{Value, json};
 
 use crate::common::ROOT_WS;
@@ -19,7 +19,7 @@ async fn impostor_template(client: &Client) -> Container {
         .post(
             &format!("{ROOT_WS}/boards"),
             &json!({
-                "workspaceId": ROOT_WORKSPACE_ID, "type": "O", "title": WELCOME_TITLE, "isTemplate": true,
+                "workspaceId": ROOT_WORKSPACE_ID, "visibility": "open", "title": WELCOME_TITLE, "isTemplate": true,
                 "properties": {"onboarding": true}, "createdBy": "system",
             }),
         )
@@ -148,8 +148,8 @@ async fn onboarding_copies_the_built_in_board_whatever_users_made() {
         );
     }
     assert_eq!(
-        copy.container_type,
-        ContainerType::Private,
+        copy.visibility,
+        ContainerVisibility::Private,
         "and it is private"
     );
     ts.teardown().await;
@@ -222,8 +222,8 @@ async fn onboard_copies_the_welcome_board_as_a_private_board() {
         .await
         .ok_json::<Container>();
     assert_eq!(
-        board.container_type,
-        ContainerType::Private,
+        board.visibility,
+        ContainerVisibility::Private,
         "the new board is private"
     );
     assert_eq!(board.title, WELCOME_TITLE, "it is the welcome board");

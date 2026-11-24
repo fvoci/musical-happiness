@@ -15,7 +15,10 @@ use crate::websocket::Socket;
 /// the identifiers of both.
 async fn wiki_of(maker: &Client, wiki_type: &str) -> (String, String) {
     let wiki = maker
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": wiki_type}))
+        .post(
+            &format!("{TEST_WS}/wikis"),
+            &json!({"visibility": wiki_type}),
+        )
         .await;
     wiki.check_created();
     let wiki = wiki.value()["id"].as_str().expect("an id").to_owned();
@@ -47,7 +50,7 @@ async fn answers(client: &Client, wiki: &str, page: &str) -> [u16; 6] {
         client
             .patch(
                 &format!("{TEST_WS}/containers/{wiki}"),
-                &json!({"type": "O"}),
+                &json!({"visibility": "open"}),
             )
             .await,
     ]
@@ -65,12 +68,12 @@ async fn retitle(client: &Client, wiki: &str, page: &str, title: &str) {
         .check_ok();
 }
 
-/// Makes the wiki `wiki_type` (`O` or `P`) as `admin`.
-async fn make(admin: &Client, wiki: &str, wiki_type: &str) {
+/// Makes the wiki `visibility` (`open` or `private`) as `admin`.
+async fn make(admin: &Client, wiki: &str, visibility: &str) {
     admin
         .patch(
             &format!("{TEST_WS}/containers/{wiki}"),
-            &json!({"type": wiki_type}),
+            &json!({"visibility": visibility}),
         )
         .await
         .check_ok();
@@ -131,7 +134,7 @@ fn ids(of: &[&str]) -> std::collections::BTreeSet<String> {
 #[tokio::test]
 async fn an_open_wiki_is_read_without_joining_and_written_in_once_joined() {
     let th = Setup::native().start().await.init_basic().await;
-    let (wiki, page) = wiki_of(&th.client, "O").await;
+    let (wiki, page) = wiki_of(&th.client, "open").await;
     let member = &th.client2;
     assert_eq!(
         answers(member, &wiki, &page).await,
@@ -161,9 +164,9 @@ async fn an_open_wiki_is_read_without_joining_and_written_in_once_joined() {
     );
 
     // Made private, it is not there for them; open again, it is read again.
-    make(&th.client, &wiki, "P").await;
+    make(&th.client, &wiki, "private").await;
     assert_eq!(answers(member, &wiki, &page).await, [404; 6]);
-    make(&th.client, &wiki, "O").await;
+    make(&th.client, &wiki, "open").await;
     assert_eq!(answers(member, &wiki, &page).await[..3], [200, 200, 200]);
     th.teardown().await;
 }
@@ -173,7 +176,7 @@ async fn an_open_wiki_is_read_without_joining_and_written_in_once_joined() {
 #[tokio::test]
 async fn joining_an_open_wiki_gives_its_minimum_role() {
     let th = Setup::native().start().await.init_basic().await;
-    let (wiki, page) = wiki_of(&th.client, "O").await;
+    let (wiki, page) = wiki_of(&th.client, "open").await;
     th.client
         .patch(
             &format!("{TEST_WS}/containers/{wiki}"),
@@ -208,8 +211,8 @@ async fn joining_an_open_wiki_gives_its_minimum_role() {
 async fn an_open_wiki_is_nothing_to_a_guest() {
     let th = Setup::native().start().await.init_basic().await;
     let guest = crate::guests::guest_of_the_workspace(&th).await;
-    let (open, open_page) = wiki_of(&th.client, "O").await;
-    let (invited, invited_page) = wiki_of(&th.client, "P").await;
+    let (open, open_page) = wiki_of(&th.client, "open").await;
+    let (invited, invited_page) = wiki_of(&th.client, "private").await;
     crate::references::let_read(&th.client, &invited, &guest).await;
     assert_eq!(answers(&th.client2, &open, &open_page).await, [404; 6]);
     let listed: Vec<Value> = th.client2.get(&format!("{TEST_WS}/wikis")).await.ok_json();
@@ -219,7 +222,7 @@ async fn an_open_wiki_is_nothing_to_a_guest() {
     let mut socket = WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &guest).await;
     retitle(&th.client, &open, &open_page, "told nobody").await;
     retitle(&th.client, &invited, &invited_page, "told the guest").await;
-    make(&th.client, &open, "P").await;
+    make(&th.client, &open, "private").await;
     retitle(&th.client, &invited, &invited_page, "told the guest again").await;
     let heard = told_until(&mut socket, has_block(&invited_page)).await;
     assert_eq!(about(&heard), ids(&[&invited_page]), "{heard:?}");
@@ -239,11 +242,11 @@ async fn an_open_wiki_is_nothing_to_a_guest() {
 async fn who_works_there_is_told_the_changes_of_an_open_wiki_they_did_not_join() {
     let th = Setup::native().start().await.init_basic().await;
     let (owner, member) = (th.client.me().await.id, th.client2.me().await.id);
-    let (open, page) = wiki_of(&th.client, "O").await;
-    let (own, own_page) = wiki_of(&th.client2, "P").await;
+    let (open, page) = wiki_of(&th.client, "open").await;
+    let (own, own_page) = wiki_of(&th.client2, "private").await;
     let board = th
         .client
-        .post(&format!("{TEST_WS}/boards"), &json!({"type": "O"}))
+        .post(&format!("{TEST_WS}/boards"), &json!({"visibility": "open"}))
         .await
         .value()["id"]
         .as_str()
@@ -287,7 +290,7 @@ async fn who_works_there_is_told_the_changes_of_an_open_wiki_they_did_not_join()
         json!("told who reads it")
     );
 
-    make(&th.client, &open, "P").await;
+    make(&th.client, &open, "private").await;
     let heard = told_until(&mut socket, |heard| {
         heard.iter().any(|told| is_gone(told, &open))
     })
@@ -306,7 +309,7 @@ async fn who_works_there_is_told_the_changes_of_an_open_wiki_they_did_not_join()
         "a member reads it still: {to_owner:?}"
     );
 
-    make(&th.client, &open, "O").await;
+    make(&th.client, &open, "open").await;
     th.client
         .delete(&format!("{TEST_WS}/containers/{board}"))
         .await
@@ -320,7 +323,7 @@ async fn who_works_there_is_told_the_changes_of_an_open_wiki_they_did_not_join()
     })
     .await;
     let reopened = heard.iter().any(|told| {
-        told["container"]["id"] == json!(open) && told["container"]["type"] == json!("O")
+        told["container"]["id"] == json!(open) && told["container"]["visibility"] == json!("open")
     });
     assert!(reopened, "made open: {heard:?}");
     assert!(
@@ -345,7 +348,7 @@ async fn who_did_not_join_an_open_wiki_reads_in_the_rooms_of_its_pages() {
         .await
         .init_basic()
         .await;
-    let (wiki, page) = wiki_of(&th.client, "O").await;
+    let (wiki, page) = wiki_of(&th.client, "open").await;
     let mut writer = Peer::connect(&th.client, 501).await;
     writer.joined(TEST_WORKSPACE_ID, &page).await;
     let mut reader = Peer::connect(&th.client2, 502).await;
@@ -377,7 +380,7 @@ async fn who_did_not_join_an_open_wiki_reads_in_the_rooms_of_its_pages() {
         "left, it reads"
     );
 
-    make(&th.client, &wiki, "P").await;
+    make(&th.client, &wiki, "private").await;
     let left = reader.text("docLeft").await;
     assert_eq!(left["reason"], json!("not_found"), "{left}");
     th.teardown().await;
@@ -388,7 +391,7 @@ async fn who_did_not_join_an_open_wiki_reads_in_the_rooms_of_its_pages() {
 #[tokio::test]
 async fn who_did_not_join_an_open_wiki_is_on_it_by_name() {
     let th = Setup::native().start().await.init_basic().await;
-    let (wiki, page) = wiki_of(&th.client, "O").await;
+    let (wiki, page) = wiki_of(&th.client, "open").await;
     let member = th.client2.me().await.id;
     let owner = th.client.me().await.id;
     let mut there = Socket::connect_as(&th.client).await;
@@ -418,7 +421,7 @@ async fn the_pages_of_an_open_wiki_are_searched_by_who_works_there() {
     let (fake, th) = search_world().await;
     let wiki = th
         .client
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "O"}))
+        .post(&format!("{TEST_WS}/wikis"), &json!({"visibility": "open"}))
         .await
         .value()["id"]
         .as_str()

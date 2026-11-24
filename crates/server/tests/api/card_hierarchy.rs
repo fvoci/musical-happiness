@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::Write as _;
 
-use fvoci_model::{Block, BlockType, Card, ContainerType};
+use fvoci_model::{Block, BlockType, Card, ContainerVisibility};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 use zip::ZipWriter;
@@ -54,7 +54,7 @@ fn build_zip(board_id: &str, container_jsonl: &str) -> Vec<u8> {
 async fn card_api_creates_reads_and_patches_parent_id() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
 
     let d1 = make_card(&th.client, &board.id, json!({ "title": "d1" })).await;
@@ -122,10 +122,10 @@ async fn card_api_creates_reads_and_patches_parent_id() {
 async fn card_api_rejects_invalid_hierarchy_operations() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let other_board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
 
     let d1 = make_card(&th.client, &board.id, json!({ "title": "d1" })).await;
@@ -224,7 +224,7 @@ async fn card_api_rejects_invalid_hierarchy_operations() {
 async fn ws_broadcasts_subcard_deletion_and_restoration() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let me = th.client.me().await.id;
     let d1 = make_card(&th.client, &board.id, json!({ "title": "d1" })).await;
@@ -283,7 +283,7 @@ async fn ws_broadcasts_subcard_deletion_and_restoration() {
 async fn export_import_roundtrip_preserves_card_hierarchy() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
 
     // Create child before parent, then reparent so creation order is reversed.
@@ -360,7 +360,7 @@ async fn hostile_archives_are_rejected_without_storing_boards() {
 
     let board_line = json!({
         "type": "container",
-        "data": { "id": "b1", "type": "P", "kind": "board", "title": "Bad", "createAt": 1, "updateAt": 1 }
+        "data": { "id": "b1", "visibility": "private", "kind": "board", "title": "Bad", "createAt": 1, "updateAt": 1 }
     });
     let card_line = |id: &str, parent_id: &str, is_template: bool| {
         json!({

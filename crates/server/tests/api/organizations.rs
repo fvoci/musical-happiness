@@ -2,7 +2,7 @@
 //! connects to PostgreSQL as: a server that takes in several organizations does not
 //! start as a role that the wall between them does not hold.
 
-use fvoci_model::ContainerType;
+use fvoci_model::ContainerVisibility;
 use fvoci_server::Server;
 use fvoci_server::config::Configuration;
 use fvoci_store::testing::{TestDatabase, db_type_of_the_tests};
@@ -151,7 +151,7 @@ async fn a_server_of_one_organization_starts_past_the_wall_and_works() {
         .init_basic()
         .await;
     let private = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     ts.client
         .get(&format!("{ROOT_WS}/containers/{}", private.id))
@@ -228,7 +228,9 @@ async fn the_first_signup_makes_the_organization_and_a_second_start_finds_it() {
         "named as the organization is"
     );
     // And it is there to work in.
-    let board = ts.create_board(&workspace.id, ContainerType::Private).await;
+    let board = ts
+        .create_board(&workspace.id, ContainerVisibility::Private)
+        .await;
     let organizations = |ts: &crate::common::TestServer| {
         let system = ts.app.store().system();
         async move {
@@ -288,7 +290,7 @@ async fn the_housekeeping_reaches_every_organization() {
     let mut board = fvoci_model::Container {
         id: fvoci_model::new_id(),
         workspace_id: workspace.id.clone(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..fvoci_model::Container::default()
     };
     theirs

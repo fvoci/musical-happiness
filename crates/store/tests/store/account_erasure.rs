@@ -4,10 +4,10 @@
 
 use fvoci_model::{
     AttendanceStatus, AuditAction, Block, BlockType, Category, CompletionChange, Container,
-    ContainerKind, ContainerMember, ContainerType, CourseLimits, Credential, LastPositionChange,
-    NameShown, NewCourseExam, NewCourseMeeting, NewUnit, NewUnitNote, NewUnitReview, OrgRole,
-    PersonName, Session, Title, UnitNoteKind, UnitProgressChange, User, ValidatedMyExamScore,
-    WorkspaceRole, new_id,
+    ContainerKind, ContainerMember, ContainerVisibility, CourseLimits, Credential,
+    LastPositionChange, NameShown, NewCourseExam, NewCourseMeeting, NewUnit, NewUnitNote,
+    NewUnitReview, OrgRole, PersonName, Session, Title, UnitNoteKind, UnitProgressChange, User,
+    ValidatedMyExamScore, WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AuditPlace, DbType, DeletionAsking, Erasing, ErasureEnd, ErasureStart, Identity, LeftFrom,
@@ -181,7 +181,7 @@ pub(crate) async fn board_of(store: &Store, workspace_id: &str, user_id: &str) -
     let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         title: "a board".to_owned(),
         ..Container::default()
     };
@@ -641,7 +641,7 @@ async fn record_course_progress(store: &Store, workspace_id: &str, owner: &str, 
     let mut course = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Course,
         title: "erasure course".to_owned(),
         ..Container::default()

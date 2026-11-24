@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use fvoci_model::{ContainerType, Notification, NotificationKind, SearchKind};
+use fvoci_model::{ContainerVisibility, Notification, NotificationKind, SearchKind};
 use fvoci_server::app::tend_notifications;
 use serde_json::{Value, json};
 
@@ -69,7 +69,7 @@ async fn whoever_writes_comments_on_or_is_given_a_card_is_told_of_its_comments_u
     let b = th.client2.me().await;
     let c_client = th.add_user("third").await;
     let c = c_client.me().await;
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     for user in [&b.id, &c.id] {
         give(&th, &board.id, user, "editor").await;
     }
@@ -242,7 +242,7 @@ async fn the_writer_of_a_page_is_told_of_its_comments() {
 async fn a_kind_switched_off_is_not_told_and_stays_off() {
     let th = Setup::native().start().await.init_basic().await;
     let b = th.client2.me().await;
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
     let card = card_with(&th.client2, &board.id, &Value::Null).await;
     let settings: Value = th
@@ -290,7 +290,7 @@ async fn a_kind_switched_off_is_not_told_and_stays_off() {
 async fn every_connection_of_the_user_hears_that_their_notifications_changed() {
     let th = Setup::native().start().await.init_basic().await;
     let b = th.client2.me().await;
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
     let card = card_with(&th.client2, &board.id, &Value::Null).await;
     let mut tabs = [
@@ -363,7 +363,7 @@ async fn a_connection_hears_only_of_what_its_session_opens() {
     let user1 = th.client.me().await.id;
     let user2 = th.client2.me().await.id;
     // Noted before ours takes only its provider's sessions, and told after.
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &user2, "editor").await;
     card_with(&th.client2, &board.id, &mentioning(&[&user1])).await;
     tie(&th, &th.client, &fake, ADMIN_SUBJECT).await;

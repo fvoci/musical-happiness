@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::ContainerType;
+use fvoci_model::ContainerVisibility;
 use reqwest::multipart::{Form, Part};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -78,7 +78,7 @@ async fn board_count(th: &TestServer) -> usize {
 async fn a_json_body_over_the_default_limit_is_refused_with_413() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     let at_the_limit = json_of_length(DEFAULT_JSON_LIMIT);
@@ -153,7 +153,7 @@ async fn the_json_limit_is_the_configured_one() {
     check_read_and_refused(&response);
 
     // A request that fits goes through as ever.
-    th.create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+    th.create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     assert_eq!(board_count(&th).await, 1, "the board was created");
     th.teardown().await;
@@ -327,7 +327,7 @@ async fn uploads_are_not_behind_the_json_limit() {
         .init_basic()
         .await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     let part = Part::bytes(vec![b'x'; 8000])

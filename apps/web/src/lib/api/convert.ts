@@ -40,7 +40,7 @@ import {
   type Comment,
   type CommentVersion,
   type Category,
-  type Sharing,
+  type PublicLink,
   type WorkspaceInfo,
   type User,
   type ViewDraft,
@@ -107,7 +107,7 @@ export function containerOf(board: Schemas['Container']): Container {
     workspaceId: board.workspaceId,
     createdBy: board.createdBy,
     modifiedBy: board.modifiedBy,
-    type: board.type,
+    visibility: board.visibility,
     kind: board.kind,
     minimumRole: board.minimumRole,
     title: board.title,
@@ -351,8 +351,8 @@ export function rolesOf(role: ContainerRole): Schemas['MemberRoles'] {
 }
 
 /** A public link; one that was never on has no token. */
-export function sharingOf(sharing: Schemas['Sharing']): Sharing {
-  return { enabled: sharing.enabled, token: sharing.token ?? '' };
+export function publicLinkOf(link: Schemas['PublicLink']): PublicLink {
+  return { enabled: link.enabled, token: link.token ?? '' };
 }
 
 /**
@@ -368,7 +368,7 @@ export function newBoardAndViewOf(
     containers: [
       {
         id: boardRef,
-        type: draft.type ?? 'P',
+        visibility: draft.visibility ?? 'private',
         title: draft.title,
         description: draft.description ?? '',
         icon: draft.icon ?? '',

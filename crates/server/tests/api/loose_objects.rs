@@ -2,7 +2,7 @@
 //! tried again when the removal fails, and finished when a run was cut off. And what
 //! keeps an object: a record of any board or organization.
 
-use fvoci_model::{ContainerType, FileInfo, Upload, UploadPurpose, Workspace, new_id};
+use fvoci_model::{ContainerVisibility, FileRecord, Upload, UploadPurpose, Workspace, new_id};
 use fvoci_server::app::{RemovedObjects, WRITING_GRACE_MILLIS};
 use fvoci_server::auth::now_millis;
 use fvoci_server::auth::secret::new_secret;
@@ -23,14 +23,14 @@ const DAY_MILLIS: i64 = 24 * 60 * 60 * 1000;
 /// file storage.
 pub(crate) async fn uploaded(ts: &TestServer, data: &[u8]) -> (String, String) {
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = upload(&ts.client, &board.id, "a.txt", data).await;
     response.check_created();
     let info = ts
         .app
         .store()
-        .get_file_info(&board.id, &uploaded_id(&response))
+        .get_file_record(&board.id, &uploaded_id(&response))
         .await
         .expect("the file is recorded");
     (board.id, info.path)
@@ -196,14 +196,14 @@ async fn recorded_file(ts: &TestServer, owner: &Store, board_id: &str) -> String
         .await
         .expect("the file is written");
     owner
-        .save_file_info(&FileInfo {
+        .save_file_record(&FileRecord {
             id: new_id(),
             container_id: board_id.to_owned(),
             stored_name,
             path: path.clone(),
             size: 8,
             create_at: 1,
-            ..FileInfo::default()
+            ..FileRecord::default()
         })
         .await
         .expect("the file is recorded");
@@ -214,7 +214,7 @@ async fn recorded_file(ts: &TestServer, owner: &Store, board_id: &str) -> String
 /// makes its file at `path`: as only a wrong call of the store could store one.
 async fn misbound_upload(ts: &TestServer, path: &str) -> Upload {
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let upload = Upload {
         id: new_secret(),
@@ -259,7 +259,7 @@ async fn abandoning_it_keeps_the_file(ts: &TestServer, path: &str) {
 async fn abandoning_a_misbound_upload_keeps_another_boards_file() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let path = recorded_file(&ts, ts.app.store(), &board.id).await;
     abandoning_it_keeps_the_file(&ts, &path).await;
@@ -297,7 +297,7 @@ async fn another_organizations_board(ts: &TestServer) -> (Store, String) {
     let mut board = fvoci_model::Container {
         id: new_id(),
         workspace_id: workspace.id.clone(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..fvoci_model::Container::default()
     };
     theirs
@@ -343,7 +343,7 @@ async fn a_doomed_object_that_is_held_is_kept(ts: &TestServer, path: &str) {
 async fn a_doomed_object_that_another_board_holds_is_kept() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let path = recorded_file(&ts, ts.app.store(), &board.id).await;
     a_doomed_object_that_is_held_is_kept(&ts, &path).await;
@@ -375,7 +375,7 @@ async fn slow_write(
     tokio::task::JoinHandle<Result<String, fvoci_server::error::AppError>>,
 ) {
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let (mut writer, mut reader) = tokio::io::duplex(64);
     let app = ts.app.clone();
@@ -428,7 +428,7 @@ async fn a_file_that_is_not_recorded_leaves_nothing(ts: &TestServer) {
     assert_eq!(all_listed(ts).await, [], "and nothing is left listed");
 
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let faults = ts
         .app
@@ -510,7 +510,7 @@ async fn the_housekeeping_leaves_a_slow_write_alone(ts: &TestServer) {
     assert!(exists(ts, &path).await, "the object is there");
     ts.app
         .store()
-        .get_file_info(&board_id, &stored_name)
+        .get_file_record(&board_id, &stored_name)
         .await
         .expect("and recorded");
     assert_eq!(all_listed(ts).await, [], "the record took the mark away");
@@ -540,7 +540,7 @@ async fn the_housekeeping_leaves_a_slow_write_alone(ts: &TestServer) {
     let files = ts
         .app
         .store()
-        .get_file_info(&board_id, &stored_name_at(&path))
+        .get_file_record(&board_id, &stored_name_at(&path))
         .await;
     assert!(files.is_err(), "nothing is recorded: {files:?}");
 }
@@ -602,7 +602,7 @@ async fn a_copied_file_is_marked_until_it_is_recorded() {
     let record = ts
         .app
         .store()
-        .get_file_info(&board_id, &copy)
+        .get_file_record(&board_id, &copy)
         .await
         .expect("the copy is recorded");
     assert!(exists(&ts, &record.path).await, "and there");

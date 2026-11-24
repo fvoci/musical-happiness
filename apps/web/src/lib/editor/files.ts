@@ -25,7 +25,7 @@
  *   until then the editor shows a placeholder and not a node.
  */
 
-/** What a file block shows of its file: its record's name and size (`getFileInfo`). */
+/** What a file block shows of its file: its record's name and size (`getFileRecord`). */
 export interface FileDetails {
   name: string;
   /** In bytes. */

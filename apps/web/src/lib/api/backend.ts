@@ -42,8 +42,8 @@ import {
   type DownloadedFile,
   type DownloadOptions,
   type ImportOptions,
-  type Sharing,
-  type SharingChange,
+  type PublicLink,
+  type PublicLinkChange,
   type UploadedFile,
   type UploadOptions,
   type User,
@@ -67,7 +67,7 @@ import {
   settingsChangeOf,
   rolesOf,
   settingsOf,
-  sharingOf,
+  publicLinkOf,
   userOf,
   viewOf,
   wireBody,
@@ -298,20 +298,20 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     );
   }
 
-  async sharing(id: string): Promise<Sharing> {
-    const path = '/containers/{containerId}/sharing';
-    return sharingOf(await this.inWorkspace<Schemas['Sharing']>(path, { containerId: id }));
+  async publicLink(id: string): Promise<PublicLink> {
+    const path = '/containers/{containerId}/public-link';
+    return publicLinkOf(await this.inWorkspace<Schemas['PublicLink']>(path, { containerId: id }));
   }
 
-  async setSharing(id: string, change: SharingChange): Promise<Sharing> {
-    const json: Schemas['SharingRequest'] = {
+  async setPublicLink(id: string, change: PublicLinkChange): Promise<PublicLink> {
+    const json: Schemas['PublicLinkRequest'] = {
       enabled: change.enabled,
       ...(change.regenerate ? { regenerate: true } : {}),
     };
-    const path = '/containers/{containerId}/sharing';
+    const path = '/containers/{containerId}/public-link';
     const options = { method: 'POST', json } as const;
-    return sharingOf(
-      await this.inWorkspace<Schemas['Sharing']>(path, { containerId: id }, options),
+    return publicLinkOf(
+      await this.inWorkspace<Schemas['PublicLink']>(path, { containerId: id }, options),
     );
   }
 
@@ -742,7 +742,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /**
    * Attaches an uploaded file: a block under the card that names the file
    * (`fields.fileId`), with the name as its title. The block also keeps the
-   * size and type, which the server's file record lacks (`getFileInfo` has
+   * size and type, which the server's file record lacks (`getFileRecord` has
    * no type).
    */
   async createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment> {

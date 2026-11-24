@@ -340,9 +340,9 @@ async fn assert_every_row_is_behind_the_wall(unset: &Store, ours: &Store) {
         ("deleted_blocks", 2, 0),
         ("categories", 2, 0),
         ("category_containers", 2, 0),
-        ("file_info", 1, 1),
+        ("files", 1, 1),
         ("file_refs", 2, 0),
-        ("sharing", 1, 1),
+        ("public_links", 1, 1),
         ("subscriptions", 1, 1),
         ("uploads", 1, 0),
         ("upload_parts", 1, 0),
@@ -350,7 +350,7 @@ async fn assert_every_row_is_behind_the_wall(unset: &Store, ours: &Store) {
     ];
     for (table, of_ours, of_the_system) in expected {
         let count = async |store: &Store| store.count_rows(table).await.expect("counted");
-        let read_besides = if ["containers", "blocks", "file_info"].contains(&table) {
+        let read_besides = if ["containers", "blocks", "files"].contains(&table) {
             of_the_system
         } else {
             0

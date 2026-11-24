@@ -3,7 +3,7 @@
 
 use crate::boards::new_board;
 use crate::common;
-use fvoci_model::{Container, ContainerType, FileInfo, new_id};
+use fvoci_model::{Container, ContainerVisibility, FileRecord, new_id};
 
 /// Replacing the built-in templates is decided, done and handed back in one go: it keeps
 /// the templates when `needed` says so, and otherwise removes them with their file
@@ -15,13 +15,13 @@ async fn replacing_the_built_in_templates_hands_back_the_old_files() {
     let template = |title: &str| Container {
         is_template: true,
         title: title.to_owned(),
-        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
     };
     let mut old = template("old");
     test.insert_container(&mut old, "")
         .await
         .expect("the old template is stored");
-    let file = FileInfo {
+    let file = FileRecord {
         id: new_id(),
         container_id: old.id.clone(),
         stored_name: "picture.png".to_owned(),
@@ -29,9 +29,9 @@ async fn replacing_the_built_in_templates_hands_back_the_old_files() {
         size: 1,
         path: format!("{}/picture.png", old.id),
         create_at: 1,
-        ..FileInfo::default()
+        ..FileRecord::default()
     };
-    test.save_file_info(&file)
+    test.save_file_record(&file)
         .await
         .expect("the template's file is recorded");
 
@@ -69,7 +69,7 @@ async fn replacing_the_built_in_templates_hands_back_the_old_files() {
         .collect();
     assert_eq!(titles, ["new"], "the new templates are stored, built in");
     let error = test
-        .get_file_info(&old.id, &file.stored_name)
+        .get_file_record(&old.id, &file.stored_name)
         .await
         .expect_err("the record went with its board");
     assert!(error.is_not_found(), "got {error:?}");
@@ -87,7 +87,7 @@ async fn replacements_of_the_built_in_templates_at_once_store_them_once() {
     let templates = || fvoci_model::ContainersAndBlocks {
         containers: vec![Container {
             is_template: true,
-            ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+            ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
         }],
         blocks: Vec::new(),
     };
@@ -123,9 +123,9 @@ async fn the_files_of_new_templates_are_recorded_with_them_or_nothing_is_stored(
     let template = |title: &str| Container {
         is_template: true,
         title: title.to_owned(),
-        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
     };
-    let file_of = |board: &Container, name: &str| FileInfo {
+    let file_of = |board: &Container, name: &str| FileRecord {
         id: new_id(),
         container_id: board.id.clone(),
         stored_name: name.to_owned(),
@@ -133,7 +133,7 @@ async fn the_files_of_new_templates_are_recorded_with_them_or_nothing_is_stored(
         size: 1,
         path: format!("boards/{}/{name}", board.id),
         create_at: 1,
-        ..FileInfo::default()
+        ..FileRecord::default()
     };
 
     let first = template("first");
@@ -154,7 +154,7 @@ async fn the_files_of_new_templates_are_recorded_with_them_or_nothing_is_stored(
     .expect("the templates are stored")
     .expect("there were none");
     let recorded = test
-        .get_file_info(&marked.container_id, &marked.stored_name)
+        .get_file_record(&marked.container_id, &marked.stored_name)
         .await
         .expect("the file is recorded with its board");
     assert_eq!(recorded.path, marked.path, "at its place");
@@ -187,7 +187,7 @@ async fn the_files_of_new_templates_are_recorded_with_them_or_nothing_is_stored(
         .map(|board| board.title)
         .collect();
     assert_eq!(titles, ["first"], "the stored templates stay");
-    test.get_file_info(&marked.container_id, &marked.stored_name)
+    test.get_file_record(&marked.container_id, &marked.stored_name)
         .await
         .expect("and so does the record of their file");
     assert!(

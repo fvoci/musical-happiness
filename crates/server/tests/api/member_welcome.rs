@@ -2,7 +2,9 @@
 //! private board of their own, given once to an account whatever it comes into after.
 //! A guest is given none.
 
-use fvoci_model::{Container, ContainerType, Invitation, User, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{
+    Container, ContainerVisibility, Invitation, User, Workspace, WorkspaceRole, new_id,
+};
 use fvoci_server::app::Inviting;
 use fvoci_store::{DbType, Store, Tenant};
 use serde_json::{Value, json};
@@ -61,7 +63,7 @@ async fn link(ts: &TestServer, whom: For) -> String {
             .client
             .create_board(&Container {
                 workspace_id: ROOT_WORKSPACE_ID.to_owned(),
-                container_type: ContainerType::Open,
+                visibility: ContainerVisibility::Open,
                 title: "for a guest".to_owned(),
                 ..Container::default()
             })
@@ -187,7 +189,7 @@ async fn a_member_let_in_by_a_link_has_a_welcome_board_of_their_own() {
         .await
         .ok_json();
     assert_eq!(board.workspace_id, ROOT_WORKSPACE_ID, "where they came in");
-    assert_eq!(board.container_type, ContainerType::Private);
+    assert_eq!(board.visibility, ContainerVisibility::Private);
     assert!(!board.is_template && !board.is_builtin, "{board:?}");
     for mark in [
         "onboarding",
@@ -347,7 +349,7 @@ async fn a_newcomer_through_the_provider_has_one_welcome_board() {
         board.workspace_id, ROOT_WORKSPACE_ID,
         "the default workspace"
     );
-    assert_eq!(board.container_type, ContainerType::Private);
+    assert_eq!(board.visibility, ContainerVisibility::Private);
     ts.teardown().await;
     fake.stop();
 }

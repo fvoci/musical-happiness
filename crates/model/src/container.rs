@@ -17,23 +17,48 @@ use crate::card_property::{
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
 )]
-pub enum ContainerType {
+#[serde(rename_all = "lowercase")]
+pub enum ContainerVisibility {
     /// Any member of the workspace may find and join the board.
     #[default]
-    #[serde(rename = "O")]
     Open,
     /// Only invited users may access the board.
-    #[serde(rename = "P")]
     Private,
 }
 
-impl ContainerType {
-    /// Returns the one-letter wire and database form.
+impl ContainerVisibility {
+    /// Every visibility there is.
+    pub const ALL: [Self; 2] = [Self::Open, Self::Private];
+
+    /// Returns the wire and database form.
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Open => "O",
-            Self::Private => "P",
+            Self::Open => "open",
+            Self::Private => "private",
         }
+    }
+}
+
+impl std::fmt::Display for ContainerVisibility {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Error returned when a string names no board visibility.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("{0:?} is no board visibility")]
+pub struct ParseContainerVisibilityError(String);
+
+impl FromStr for ContainerVisibility {
+    type Err = ParseContainerVisibilityError;
+
+    /// Reads the wire and database form ([`ContainerVisibility::as_str`]), exactly.
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|visibility| visibility.as_str() == text)
+            .ok_or_else(|| ParseContainerVisibilityError(text.to_owned()))
     }
 }
 
@@ -332,7 +357,7 @@ pub enum ContainerError {
     #[error("a diary has no card properties: it holds entries and no cards")]
     DiaryHasCardProperties,
     /// A diary is stored as open: there is nobody to open it to.
-    #[error("a diary is private: its type is `P`")]
+    #[error("a diary is private: its visibility is `private`")]
     DiaryNotPrivate,
     /// A diary is stored in a workspace that is not of a user's own space.
     #[error("a diary is of a user's own space: no other workspace has one")]
@@ -349,7 +374,7 @@ pub enum ContainerError {
 }
 
 /// A board: a set of blocks and the property definitions of its cards.
-// `type` is required when decoding; every other member defaults to its empty value.
+// `visibility` is required when decoding; every other member defaults to its empty value.
 // (No doc comment: the doc comment is the description in the API contract.)
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -368,15 +393,14 @@ pub struct Container {
     #[serde(default)]
     pub modified_by: String,
     /// Whether the board is open or private.
-    #[serde(rename = "type")]
-    pub container_type: ContainerType,
+    pub visibility: ContainerVisibility,
     /// What the board is for: `board` for cards, `wiki` for pages, `diary` for the
     /// entries of its days, `course` for chapters and units. It is what the board was
     /// made as and never changes; a board decoded without it is a `board`. A wiki, a
     /// diary and a course are no template and have no card properties, and the
     /// operations that are about cards answer for them as for a board that is not there.
-    /// A diary is private (`type` `P`) besides, and is only in the workspace of a user's
-    /// own space ("Diaries").
+    /// A diary is private (`visibility` `private`) besides, and is only in the workspace
+    /// of a user's own space ("Diaries").
     #[serde(default)]
     pub kind: ContainerKind,
     /// The role a user gets who joins the board, or is added by somebody who does not
@@ -527,7 +551,7 @@ impl Container {
         if let Some(refused) = has_card_properties.filter(|_| !self.card_properties.is_empty()) {
             return Err(refused);
         }
-        if self.kind == ContainerKind::Diary && self.container_type != ContainerType::Private {
+        if self.kind == ContainerKind::Diary && self.visibility != ContainerVisibility::Private {
             return Err(ContainerError::DiaryNotPrivate);
         }
         let texts = [
@@ -570,9 +594,9 @@ impl Container {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ContainerPatch {
-    /// The new board type.
-    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    pub container_type: Option<ContainerType>,
+    /// The new board visibility.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<ContainerVisibility>,
     /// The new minimum role.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub minimum_role: Option<MinimumRole>,
@@ -619,8 +643,8 @@ impl ContainerPatch {
     /// position and once at the end. Whenever the patch touches card properties, existing
     /// definitions without a string `id` are dropped.
     pub fn apply(&self, container: &mut Container) {
-        if let Some(container_type) = self.container_type {
-            container.container_type = container_type;
+        if let Some(visibility) = self.visibility {
+            container.visibility = visibility;
         }
         if let Some(title) = &self.title {
             container.title.clone_from(title);

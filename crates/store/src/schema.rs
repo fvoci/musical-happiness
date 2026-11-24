@@ -87,6 +87,10 @@ pub(crate) const BEFORE_COURSE_EVENTS_VERSION: i64 = 67;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_SUBSCRIPTIONS_USER_ID_VERSION: i64 = 68;
 
+/// The migration before container visibility, `public_links`, and `files` (0070).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_CONTAINER_VISIBILITY_VERSION: i64 = 69;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -131,9 +135,9 @@ pub(crate) const ORG_TABLES: [&str; 48] = [
     "deleted_containers",
     "diary_days",
     "exam_scores",
-    "file_info",
     "file_refs",
     "file_versions",
+    "files",
     "invitations",
     "loose_objects",
     "meeting_attendance",
@@ -146,8 +150,8 @@ pub(crate) const ORG_TABLES: [&str; 48] = [
     "oidc_providers",
     "organization_members",
     "organizations",
+    "public_links",
     "search_outbox",
-    "sharing",
     "subscriptions",
     "team_members",
     "teams",
@@ -468,5 +472,16 @@ mod tests {
             .expect("migration 69 is in the list");
         assert_eq!(step.version, 69);
         assert_eq!(step.description, "subscriptions user id");
+    }
+
+    /// Migration 70 is container visibility, `public_links`, and `files`, immediately following `BEFORE_CONTAINER_VISIBILITY_VERSION` (69).
+    #[test]
+    fn migration_70_is_container_visibility_public_links_files() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_CONTAINER_VISIBILITY_VERSION + 1)
+            .expect("migration 70 is in the list");
+        assert_eq!(step.version, 70);
+        assert_eq!(step.description, "container visibility public links files");
     }
 }

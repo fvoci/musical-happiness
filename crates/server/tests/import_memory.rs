@@ -166,7 +166,7 @@ fn write_large_native_archive(
             "data": {
                 "id": "b1",
                 "workspaceId": TEST_WORKSPACE_ID,
-                "type": "P",
+                "visibility": "private",
                 "kind": "board",
                 "title": "Large Native Import",
                 "createAt": 1,
@@ -328,7 +328,7 @@ async fn streaming_native_import_bounds_peak_memory_and_handles_out_of_order_par
             .expect("board");
         let lines = [
             json!({"type": "container", "data": {
-                "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": "board",
+                "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": "board",
                 "title": "Out Of Order", "createAt": 1, "updateAt": 1
             }}),
             json!({"type": "block", "data": {
@@ -413,7 +413,7 @@ async fn streaming_native_import_handles_revisit_spillover_and_bounds_deep_rever
     // 1. Revisit spillover: 10 x ~260 KiB comments BEFORE their parent card (>2 MiB pending).
     let big_text = "x".repeat(260 * 1024);
     let mut revisit_lines = vec![json!({"type": "container", "data": {
-        "id": "b-rev", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": "board",
+        "id": "b-rev", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": "board",
         "title": "Revisit Spillover", "createAt": 1, "updateAt": 1
     }})];
     for i in 0..10 {
@@ -461,7 +461,7 @@ async fn streaming_native_import_handles_revisit_spillover_and_bounds_deep_rever
         .expect("list containers")
         .len();
     let mut deep_lines = vec![json!({"type": "container", "data": {
-        "id": "b-deep", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": "board",
+        "id": "b-deep", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": "board",
         "title": "Too Deep Reverse", "createAt": 1, "updateAt": 1
     }})];
     for i in (1..=45).rev() {
@@ -520,7 +520,7 @@ async fn streaming_native_import_handles_empty_board_id_attachments_and_cross_bo
     let old_target_id = new_id();
     let b1_lines = jsonl_bytes(&[
         json!({"type": "container", "data": {
-            "id": "", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": "board",
+            "id": "", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": "board",
             "title": "Empty ID Target", "createAt": 1, "updateAt": 1
         }}),
         json!({"type": "block", "data": {
@@ -530,7 +530,7 @@ async fn streaming_native_import_handles_empty_board_id_attachments_and_cross_bo
     ]);
     let b2_lines = jsonl_bytes(&[
         json!({"type": "container", "data": {
-            "id": "b-src", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": "board",
+            "id": "b-src", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": "board",
             "title": "Attachment And CrossRef", "createAt": 1, "updateAt": 1
         }}),
         json!({"type": "block", "data": {

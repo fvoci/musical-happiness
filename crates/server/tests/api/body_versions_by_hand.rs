@@ -289,7 +289,7 @@ async fn only_who_edits_the_board_keeps_a_version() {
 #[tokio::test]
 async fn a_pages_body_is_kept_now_by_who_edits_the_wiki() {
     let th = Setup::native().start().await.init_basic().await;
-    let (wiki, page) = wiki_of(&th.client, "P").await;
+    let (wiki, page) = wiki_of(&th.client, "private").await;
     let at = format!("{TEST_WS}/wikis/{wiki}/pages/{page}");
     let read = th.client.get(&at).await.value();
     th.client

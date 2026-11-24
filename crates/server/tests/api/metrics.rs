@@ -472,7 +472,7 @@ async fn the_pool_and_the_open_uploads_are_measured() {
     let board = server
         .create_board(
             crate::common::TEST_WORKSPACE_ID,
-            fvoci_model::ContainerType::Open,
+            fvoci_model::ContainerVisibility::Open,
         )
         .await;
     let mut uploads = Vec::new();
@@ -529,7 +529,7 @@ async fn the_archives_that_hold_their_place_are_counted() {
     let board = server
         .create_board(
             crate::common::TEST_WORKSPACE_ID,
-            fvoci_model::ContainerType::Open,
+            fvoci_model::ContainerVisibility::Open,
         )
         .await;
     let export = server
@@ -633,7 +633,7 @@ async fn the_boards_wikis_and_diaries_copied_whole_are_counted_by_work_and_kind(
     let board = server
         .create_board(
             crate::common::TEST_WORKSPACE_ID,
-            fvoci_model::ContainerType::Open,
+            fvoci_model::ContainerVisibility::Open,
         )
         .await;
     let wiki = crate::wiki_copies::wiki(client, "Counted").await;
@@ -659,7 +659,7 @@ async fn the_boards_wikis_and_diaries_copied_whole_are_counted_by_work_and_kind(
     let course = client
         .post(
             &format!("{TEST_WS}/courses"),
-            &serde_json::json!({"type": "P", "title": "Counted"}),
+            &serde_json::json!({"visibility": "private", "title": "Counted"}),
         )
         .await;
     course.check_created();

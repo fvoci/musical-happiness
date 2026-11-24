@@ -341,7 +341,7 @@ describe('a version kept by hand, from the dialog', () => {
     const made = setup();
     const wiki = await made.backend.wiki.createWiki(made.world.workspace.id, {
       title: 'Handbook',
-      type: 'O',
+      visibility: 'open',
     });
     const created = await made.backend.wiki.createPage(wiki.id, { title: 'Page' });
     await made.workspace.load();

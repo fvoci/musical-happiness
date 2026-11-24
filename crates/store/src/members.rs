@@ -3,7 +3,7 @@
 //! Every statement here names the organization itself: the handle's
 //! ([`Tenant::Org`](crate::Tenant::Org)).
 
-use fvoci_model::{ContainerKinds, ContainerType, OrgRole, WorkspaceRole};
+use fvoci_model::{ContainerKinds, ContainerVisibility, OrgRole, WorkspaceRole};
 
 use crate::audit::AuditActor;
 use crate::db::{Dialect, Id, Scope, Sql, now_millis};
@@ -27,7 +27,7 @@ pub(crate) fn push_open_containers_at_work<'sql>(
     user_id: &str,
     kinds: ContainerKinds,
 ) -> &'sql mut Sql {
-    sql.push_bind(" AND ((b.type = ", ContainerType::Open.as_str());
+    sql.push_bind(" AND ((b.visibility = ", ContainerVisibility::Open.as_str());
     container_kinds::push_kinds(sql, "b.kind", kinds);
     sql.push(IN_USE_MEMBERSHIPS)
         .push_bind(" AND wm.user_id = ", Id(user_id))

@@ -1,7 +1,7 @@
 //! Integration tests for searching boards across a user's accessible boards and within a
 //! single workspace.
 
-use fvoci_model::{Container, ContainerKinds, ContainerSearchField, ContainerType, new_id};
+use fvoci_model::{Container, ContainerKinds, ContainerSearchField, ContainerVisibility, new_id};
 use fvoci_store::PublicContainers;
 use serde_json::json;
 
@@ -47,7 +47,7 @@ async fn search_containers_for_user() {
     let mut board1 = Container {
         title: "Public Board with admin".to_owned(),
         properties: object(json!({ "foo": "bar1" })),
-        ..new_board(&new_id(), &workspace_id_1, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id_1, ContainerVisibility::Open)
     };
     test.insert_container_with_admin(&mut board1, &user_id)
         .await
@@ -56,7 +56,7 @@ async fn search_containers_for_user() {
     let mut board2 = Container {
         title: "Public Board".to_owned(),
         properties: object(json!({ "foo": "bar2" })),
-        ..new_board(&new_id(), &workspace_id_1, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id_1, ContainerVisibility::Open)
     };
     test.insert_container(&mut board2, &user_id)
         .await
@@ -64,7 +64,7 @@ async fn search_containers_for_user() {
 
     let mut board3 = Container {
         title: "Private Board with admin".to_owned(),
-        ..new_board(&new_id(), &workspace_id_1, ContainerType::Private)
+        ..new_board(&new_id(), &workspace_id_1, ContainerVisibility::Private)
     };
     test.insert_container_with_admin(&mut board3, &user_id)
         .await
@@ -72,7 +72,7 @@ async fn search_containers_for_user() {
 
     let mut board4 = Container {
         title: "Private Board".to_owned(),
-        ..new_board(&new_id(), &workspace_id_1, ContainerType::Private)
+        ..new_board(&new_id(), &workspace_id_1, ContainerVisibility::Private)
     };
     test.insert_container(&mut board4, &user_id)
         .await
@@ -80,7 +80,7 @@ async fn search_containers_for_user() {
 
     let mut board5 = Container {
         title: "Public Board with admin in workspace 2".to_owned(),
-        ..new_board(&new_id(), &workspace_id_2, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id_2, ContainerVisibility::Open)
     };
     test.insert_container_with_admin(&mut board5, &user_id)
         .await
@@ -205,28 +205,28 @@ async fn search_containers_for_user_in_workspace_finds_open_boards_and_own_priva
 
     let mut open = Container {
         title: "Open Roadmap".to_owned(),
-        ..new_board(&new_id(), &workspace_id_1, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id_1, ContainerVisibility::Open)
     };
     test.insert_container(&mut open, &other_user_id)
         .await
         .expect("the board is inserted");
     let mut own_private = Container {
         title: "Private Roadmap".to_owned(),
-        ..new_board(&new_id(), &workspace_id_1, ContainerType::Private)
+        ..new_board(&new_id(), &workspace_id_1, ContainerVisibility::Private)
     };
     test.insert_container_with_admin(&mut own_private, &user_id)
         .await
         .expect("the board is inserted");
     let mut foreign_private = Container {
         title: "Secret Roadmap".to_owned(),
-        ..new_board(&new_id(), &workspace_id_1, ContainerType::Private)
+        ..new_board(&new_id(), &workspace_id_1, ContainerVisibility::Private)
     };
     test.insert_container_with_admin(&mut foreign_private, &other_user_id)
         .await
         .expect("the board is inserted");
     let mut other_workspace = Container {
         title: "Open Roadmap elsewhere".to_owned(),
-        ..new_board(&new_id(), &workspace_id_2, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id_2, ContainerVisibility::Open)
     };
     test.insert_container(&mut other_workspace, &user_id)
         .await
@@ -234,7 +234,7 @@ async fn search_containers_for_user_in_workspace_finds_open_boards_and_own_priva
     let mut template = Container {
         title: "Roadmap template".to_owned(),
         is_template: true,
-        ..new_board(&new_id(), &workspace_id_1, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id_1, ContainerVisibility::Open)
     };
     test.insert_container(&mut template, &user_id)
         .await

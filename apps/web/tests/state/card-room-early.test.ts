@@ -62,7 +62,7 @@ function watchRooms(made: Made, held?: Promise<void>) {
 async function theirCard(made: Made): Promise<string> {
   const { board } = await made.other.createBoard(
     made.world.workspace.id,
-    { title: 'Theirs', type: 'P' },
+    { title: 'Theirs', visibility: 'private' },
     { title: 'Board', fields: createBoardView().fields },
   );
   return (await made.other.createCard(board.id, { title: 'Hidden' })).id;

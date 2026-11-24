@@ -146,7 +146,7 @@ async fn use_the_links(api: &Api) -> (Vec<String>, Vec<String>) {
         admin
             .post(
                 &format!("/api/v1/w/{workspace}/boards"),
-                &json!({"workspaceId": workspace, "type": "P", "title": "Plans"}),
+                &json!({"workspaceId": workspace, "visibility": "private", "title": "Plans"}),
             )
             .await,
     );

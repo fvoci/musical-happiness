@@ -5,12 +5,11 @@
 //! such wall.
 
 use fvoci_model::{
-    Container, ContainerKind, ContainerMember, ContainerType, Upload, Workspace, WorkspaceRole,
-    is_id, new_id,
+    Container, ContainerKind, ContainerMember, ContainerVisibility, PublicLinkChange, Upload,
+    Workspace, WorkspaceRole, is_id, new_id,
 };
 use fvoci_store::{
-    DbType, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SharedContainer, SharingChange, Store, StoreError,
-    Tenant,
+    DbType, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SharedContainer, Store, StoreError, Tenant,
 };
 
 use crate::common;
@@ -21,7 +20,7 @@ pub(crate) async fn board(store: &Store, workspace_id: &str, user_id: &str, titl
     let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         title: title.to_owned(),
         ..Container::default()
     };
@@ -93,9 +92,9 @@ async fn the_boards_of_two_organizations_are_out_of_each_others_reach() {
     // to apart from the wall.
     let insert = |org: &str| {
         format!(
-            "INSERT INTO containers (id, org_id, workspace_id, type, title, description, icon, \
+            "INSERT INTO containers (id, org_id, workspace_id, visibility, title, description, icon, \
              show_description, is_template, properties, card_properties, create_at, update_at) \
-             VALUES ('{}', {org}, '{their_workspace}', 'O', '', '', '', false, false, '{{}}', '[]', 0, 0)",
+             VALUES ('{}', {org}, '{their_workspace}', 'open', '', '', '', false, false, '{{}}', '[]', 0, 0)",
             new_id()
         )
     };
@@ -414,19 +413,19 @@ async fn the_organization_of_a_shared_board_is_for_the_holder_of_its_token() {
     let workspace_id = common::workspace(&test).await;
     let shared = board(&test, &workspace_id, &user_id, "shared").await;
     let not_shared = board(&test, &workspace_id, &user_id, "not shared").await;
-    test.set_sharing(&shared, SharingChange::On, "the-token", &user_id)
+    test.set_public_link(&shared, PublicLinkChange::On, "the-token", &user_id)
         .await
         .expect("the board is shared");
-    test.set_sharing(&not_shared, SharingChange::On, "another-token", &user_id)
+    test.set_public_link(&not_shared, PublicLinkChange::On, "another-token", &user_id)
         .await
         .expect("the other board is shared");
-    test.set_sharing(&not_shared, SharingChange::Off, "", &user_id)
+    test.set_public_link(&not_shared, PublicLinkChange::Off, "", &user_id)
         .await
         .expect("and shared no more");
     let system_org = test.for_org(SYSTEM_ORG_ID).expect("an identifier");
     let template = board(&system_org, SYSTEM_WORKSPACE_ID, &user_id, "a template").await;
     system_org
-        .set_sharing(&template, SharingChange::On, "template-token", &user_id)
+        .set_public_link(&template, PublicLinkChange::On, "template-token", &user_id)
         .await
         .expect("the template is shared");
 
@@ -452,7 +451,7 @@ async fn the_organization_of_a_shared_board_is_for_the_holder_of_its_token() {
     test.insert_container(&mut wiki, &user_id)
         .await
         .expect("the wiki is stored");
-    test.set_sharing(&wiki.id, SharingChange::On, "the-wiki-token", &user_id)
+    test.set_public_link(&wiki.id, PublicLinkChange::On, "the-wiki-token", &user_id)
         .await
         .expect("the wiki is shared");
     assert_eq!(

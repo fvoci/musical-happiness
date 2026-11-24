@@ -22,7 +22,7 @@ describe('course progress UI components', () => {
     await made.workspace.load();
     const course = await made.backend.course.createCourse(made.world.workspace.id, {
       title: 'Algorithms',
-      type: 'O',
+      visibility: 'open',
     });
     const store = new CourseStore(made.workspace, course.id);
     await store.load();
@@ -63,7 +63,7 @@ describe('course progress UI components', () => {
     await made.workspace.load();
     const course = await made.backend.course.createCourse(made.world.workspace.id, {
       title: 'Design Systems',
-      type: 'O',
+      visibility: 'open',
     });
     const u1 = await made.backend.course.createUnit(course.id, { kind: 'unit', title: 'Tokens' });
 
@@ -127,7 +127,7 @@ describe('course progress UI components', () => {
     await made.workspace.load();
     const course = await made.backend.course.createCourse(made.world.workspace.id, {
       title: 'Shared Study',
-      type: 'P',
+      visibility: 'private',
     });
     await made.backend.addMember(course.id, made.other.userId, 'viewer');
     const u1 = await made.backend.course.createUnit(course.id, {

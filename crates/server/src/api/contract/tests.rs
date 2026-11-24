@@ -122,7 +122,7 @@ const READ_TOKEN: [&str; 9] = [
     "getSharedCards",
     "getSharedContainer",
     "getSharedFile",
-    "getSharedFileInfo",
+    "getSharedFileRecord",
     "getSharedPage",
     "getSharedPageTree",
     "getSharedUnit",
@@ -199,9 +199,9 @@ fn an_answer_has_every_member_and_a_patch_needs_none() {
         "a patch needs no member"
     );
     assert_eq!(
-        schemas["Sharing"]["required"],
+        schemas["PublicLink"]["required"],
         json!(["enabled"]),
-        "the token and the time are left out while a board is not shared"
+        "the token and the time are left out while a board has no public link"
     );
     assert_eq!(
         schemas["CategoryContainers"]["allOf"][1]["required"],
@@ -286,7 +286,7 @@ fn required_of(schemas: &Value, schema: &Value) -> Vec<String> {
 fn what_is_always_there_is_what_the_server_writes() {
     use fvoci_model::{
         Block, Card, Category, CategoryContainerMetadata, CategoryContainers, ClientConfig,
-        Container, ContainerMember, ContainersAndBlocks, FileInfo, Sharing, User, Workspace,
+        Container, ContainerMember, ContainersAndBlocks, FileRecord, PublicLink, User, Workspace,
     };
 
     let text = document().expect("the document");
@@ -305,8 +305,8 @@ fn what_is_always_there_is_what_the_server_writes() {
         ("Container", sent(&Container::default())),
         ("ContainerMember", sent(&ContainerMember::default())),
         ("ContainersAndBlocks", sent(&ContainersAndBlocks::default())),
-        ("FileInfo", sent(&FileInfo::default())),
-        ("Sharing", sent(&Sharing::default())),
+        ("FileRecord", sent(&FileRecord::default())),
+        ("PublicLink", sent(&PublicLink::default())),
         ("Workspace", sent(&Workspace::default())),
         ("User", sent(&User::default())),
     ];
@@ -371,8 +371,14 @@ fn a_closed_set_of_words_lists_the_words_as_they_are_written() {
         );
     }
     for (set, value) in [
-        ("ContainerType", json!(fvoci_model::ContainerType::Open)),
-        ("ContainerType", json!(fvoci_model::ContainerType::Private)),
+        (
+            "ContainerVisibility",
+            json!(fvoci_model::ContainerVisibility::Open),
+        ),
+        (
+            "ContainerVisibility",
+            json!(fvoci_model::ContainerVisibility::Private),
+        ),
         ("MinimumRole", json!(fvoci_model::MinimumRole::default())),
         ("CategoryType", json!(fvoci_model::CategoryType::default())),
         ("WorkspaceRole", json!(fvoci_model::WorkspaceRole::Admin)),

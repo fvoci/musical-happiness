@@ -19,13 +19,13 @@ import {
 
 import { settle, setup, text } from './support.ts';
 
-async function openCourse(type: 'O' | 'P' = 'P') {
+async function openCourse(visibility: 'open' | 'private' = 'private') {
   const made = setup();
   await made.workspace.load();
   const workspaceId = made.world.workspace.id;
   const course = await made.backend.course.createCourse(workspaceId, {
     title: 'Onboarding',
-    type,
+    visibility,
   });
   const store = new CourseStore(made.workspace, course.id);
   await store.load();
@@ -44,7 +44,7 @@ describe('an open course', () => {
     await made.workspace.load();
     const course = await made.backend.course.createCourse(made.world.workspace.id, {
       title: 'Onboarding',
-      type: 'P',
+      visibility: 'private',
     });
     const ch = await made.backend.course.createUnit(course.id, {
       kind: 'chapter',
@@ -76,7 +76,7 @@ describe('an open course', () => {
   });
 
   it('reads an open course unjoined and lets a workspace member join to edit', async () => {
-    const made = await openCourse('O');
+    const made = await openCourse('open');
     const otherWorkspace = new Workspace({ backend: made.other, locale: () => 'en' });
     await otherWorkspace.load();
     const store = new CourseStore(otherWorkspace, made.courseId);
@@ -151,7 +151,7 @@ describe('an open course', () => {
   });
 
   it('loads unit comments, receives live comment changes, toggles watching, and updates reference titles', async () => {
-    const made = await openCourse('O');
+    const made = await openCourse('open');
     await made.backend.addMember(made.courseId, made.other.userId, 'editor');
     const ch = await made.store.createUnit({ kind: 'chapter', title: 'Ch 1' });
     const u = await made.store.createUnit({ kind: 'unit', title: 'Unit A', parentId: ch?.id });
@@ -201,7 +201,7 @@ describe('an open course', () => {
   });
 
   it('closes and clears the open unit when the course is deleted or access is revoked, and opens a fresh store on recovery', async () => {
-    const made = await openCourse('P');
+    const made = await openCourse('private');
     await made.backend.addMember(made.courseId, made.other.userId, 'editor');
     const unit = await made.backend.course.createUnit(made.courseId, {
       kind: 'unit',
@@ -254,7 +254,7 @@ describe('an open course', () => {
     await made.workspace.load();
     const course = await made.backend.course.createCourse(made.world.workspace.id, {
       title: 'Session Check',
-      type: 'P',
+      visibility: 'private',
     });
     const unit = await made.backend.course.createUnit(course.id, {
       kind: 'unit',
@@ -293,7 +293,7 @@ describe('an open course', () => {
   });
 
   it('does not evict an open course when a member is removed, and tears down openUnit on join 404', async () => {
-    const made = await openCourse('O');
+    const made = await openCourse('open');
     await made.backend.addMember(made.courseId, made.other.userId, 'editor');
     const unit = await made.backend.course.createUnit(made.courseId, {
       kind: 'unit',

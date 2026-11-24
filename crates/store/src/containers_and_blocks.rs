@@ -3,8 +3,8 @@
 use std::collections::HashSet;
 
 use fvoci_model::{
-    BlockType, Container, ContainerMember, ContainerType, ContainersAndBlocks,
-    ContainersAndBlocksError, DeleteContainersAndBlocks, FileInfo, PatchContainersAndBlocks,
+    BlockType, Container, ContainerMember, ContainerVisibility, ContainersAndBlocks,
+    ContainersAndBlocksError, DeleteContainersAndBlocks, FileRecord, PatchContainersAndBlocks,
     renew_containers_and_blocks_ids,
 };
 
@@ -16,8 +16,8 @@ use crate::container_membership;
 use crate::containers;
 use crate::db::{Dialect, Scope, now_millis};
 use crate::error::StoreError;
-use crate::file_info;
 use crate::file_refs::NewBodyFiles;
+use crate::files;
 use crate::loose_objects;
 use crate::members;
 use crate::notification_noting::Telling;
@@ -95,11 +95,11 @@ impl Store {
     pub async fn replace_builtin_templates(
         &self,
         templates: &mut ContainersAndBlocks,
-        files: &[FileInfo],
+        files: &[FileRecord],
         needed: impl FnOnce(&[Container]) -> bool + Send,
-    ) -> Result<Option<Vec<FileInfo>>, StoreError> {
+    ) -> Result<Option<Vec<FileRecord>>, StoreError> {
         for file in files {
-            file_info::check_new_path(&file.path)?;
+            files::check_new_path(&file.path)?;
         }
         self.transaction(async |scope| {
             // On SQLite the transaction holds the database from its start.
@@ -117,7 +117,7 @@ impl Store {
             }
             let mut removed = Vec::new();
             for container in &stored {
-                removed.extend(file_info::file_infos_of_container(scope, &container.id).await?);
+                removed.extend(files::files_of_container(scope, &container.id).await?);
             }
             // The records go with the templates; their objects are doomed now.
             let doomed: Vec<_> = removed
@@ -215,7 +215,7 @@ impl Store {
     pub async fn create_imported_containers_blocks_files_and_members_streamed<E>(
         &self,
         containers: &mut [Container],
-        files: &[FileInfo],
+        files: &[FileRecord],
         extra_members: &[ContainerMember],
         user_id: &str,
         batches: tokio::sync::mpsc::Receiver<StreamBatch<E>>,
@@ -246,7 +246,7 @@ impl Store {
     pub async fn create_imported_containers_blocks_files_members_and_schedules_streamed<E>(
         &self,
         containers: &mut [Container],
-        files: &[FileInfo],
+        files: &[FileRecord],
         extra_members: &[ContainerMember],
         schedules: &[(usize, fvoci_model::ValidatedCourseSchedule)],
         user_id: &str,
@@ -256,7 +256,7 @@ impl Store {
         E: Send,
     {
         for file in files {
-            file_info::check_new_path(&file.path)?;
+            files::check_new_path(&file.path)?;
         }
         let mut abort: Option<StreamAbort<E>> = None;
         let outcome = self
@@ -331,7 +331,7 @@ impl Store {
     pub async fn create_imported_containers_blocks_and_files(
         &self,
         containers_and_blocks: &mut ContainersAndBlocks,
-        files: &[FileInfo],
+        files: &[FileRecord],
         user_id: &str,
     ) -> Result<Vec<ContainerMember>, StoreError> {
         self.create_imported_containers_blocks_files_and_members(
@@ -359,12 +359,12 @@ impl Store {
     pub async fn create_imported_containers_blocks_files_and_members(
         &self,
         containers_and_blocks: &mut ContainersAndBlocks,
-        files: &[FileInfo],
+        files: &[FileRecord],
         extra_members: &[ContainerMember],
         user_id: &str,
     ) -> Result<Vec<ContainerMember>, StoreError> {
         for file in files {
-            file_info::check_new_path(&file.path)?;
+            files::check_new_path(&file.path)?;
         }
         self.transaction(async |scope| {
             create_imported_containers_blocks_and_files(
@@ -568,7 +568,7 @@ fn map_stream_outcome<T, E>(
 
 async fn record_imported_files(
     scope: &mut Scope<'_>,
-    files: &[FileInfo],
+    files: &[FileRecord],
 ) -> Result<(), StoreError> {
     for file in files {
         if !loose_objects::record_written(scope, file).await? {
@@ -602,7 +602,7 @@ async fn add_imported_members(
 async fn create_imported_containers_blocks_and_files(
     scope: &mut Scope<'_>,
     containers_and_blocks: &mut ContainersAndBlocks,
-    files: &[FileInfo],
+    files: &[FileRecord],
     extra_members: &[ContainerMember],
     user_id: &str,
 ) -> Result<Vec<ContainerMember>, StoreError> {
@@ -743,7 +743,7 @@ pub(crate) async fn duplicate_container(
     }
 
     // The copy is private to the user who made it.
-    container.container_type = ContainerType::Private;
+    container.visibility = ContainerVisibility::Private;
     container.is_template = as_template;
     user_id.clone_into(&mut container.created_by);
     if let Some(workspace_id) = to_workspace {

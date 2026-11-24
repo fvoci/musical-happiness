@@ -96,7 +96,7 @@ async fn refused(
 async fn the_wikis_members_read_the_versions_and_its_editors_go_back_to_one() {
     let th = Setup::native().start().await.init_basic().await;
     let member = th.client2.me().await.id;
-    let (wiki, page) = wiki_of(&th.client, "P").await;
+    let (wiki, page) = wiki_of(&th.client, "private").await;
     write(&th.client, &wiki, &page, &["first", "second"]).await;
     let first = version_saying(&th.client, &wiki, &page, "first").await;
 
@@ -165,7 +165,7 @@ async fn the_wikis_members_read_the_versions_and_its_editors_go_back_to_one() {
 #[tokio::test]
 async fn the_versions_are_reached_through_their_page_while_it_is_there() {
     let th = Setup::native().start().await.init_basic().await;
-    let (wiki, page) = wiki_of(&th.client, "P").await;
+    let (wiki, page) = wiki_of(&th.client, "private").await;
     write(&th.client, &wiki, &page, &["first", "second"]).await;
     let first = version_saying(&th.client, &wiki, &page, "first").await;
     let none = asked(&th.client2, TEST_WS, UNKNOWN_ID, UNKNOWN_ID, first).await;
@@ -196,7 +196,7 @@ async fn the_versions_are_reached_through_their_page_while_it_is_there() {
         "the first page's version through the sibling's path"
     );
     // A number is a number.
-    let (other_wiki, other_page) = wiki_of(&th.client, "P").await;
+    let (other_wiki, other_page) = wiki_of(&th.client, "private").await;
     let at = format!("{}/body-versions", page_path(TEST_WS, &wiki, &page));
     for missing in ["999", "one", "-1"] {
         th.client

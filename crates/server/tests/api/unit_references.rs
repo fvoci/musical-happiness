@@ -22,7 +22,7 @@ async fn make_course(
     let course = client
         .post(
             &format!("{at}/courses"),
-            &json!({"type": course_type, "title": format!("{title} course")}),
+            &json!({"visibility": course_type, "title": format!("{title} course")}),
         )
         .await;
     course.check_created();
@@ -58,8 +58,9 @@ async fn write_unit_body(client: &Client, at: &str, course: &str, unit: &str, bo
 #[tokio::test]
 async fn linked_kind_unit_works_in_resolve_backlinks_and_search() {
     let th = Setup::native().start().await.init_basic().await;
-    let other = made(&th.client, TEST_WS, "P", "Reference Target").await;
-    let (course, chapter, unit) = make_course(&th.client, TEST_WS, "P", "Ownership Basics").await;
+    let other = made(&th.client, TEST_WS, "private", "Reference Target").await;
+    let (course, chapter, unit) =
+        make_course(&th.client, TEST_WS, "private", "Ownership Basics").await;
     let second_unit = id(&th
         .client
         .post(
@@ -149,17 +150,28 @@ async fn linked_kind_unit_works_in_resolve_backlinks_and_search() {
 }
 
 /// Private courses are hidden from non-members (including workspace admins), open courses
+async fn promote_to_workspace_admin(th: &crate::common::TestServer, user_id: &str) {
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = 'admin' \
+             WHERE workspace_id = '{TEST_WORKSPACE_ID}' AND user_id = '{user_id}'"
+        ))
+        .await
+        .expect("promote client to workspace admin");
+}
+
 /// are visible to unjoined workspace members but hidden from guests, and units from other
 /// workspaces or own spaces never leak.
 #[tokio::test]
 async fn unit_references_enforce_course_workspace_and_own_space_isolation() {
     let th = Setup::native().start().await.init_basic().await;
     let (private_course, _, private_unit) =
-        make_course(&th.client, TEST_WS, "P", &format!("{HIDDEN} private")).await;
-    let (_open_course, _, open_unit) = make_course(&th.client, TEST_WS, "O", "Open Unit").await;
+        make_course(&th.client, TEST_WS, "private", &format!("{HIDDEN} private")).await;
+    let (_open_course, _, open_unit) = make_course(&th.client, TEST_WS, "open", "Open Unit").await;
     let (_root_course, _, root_unit) =
-        make_course(&th.client, ROOT_WS, "O", &format!("{HIDDEN} root")).await;
-    let known = made(&th.client2, TEST_WS, "P", "Known").await;
+        make_course(&th.client, ROOT_WS, "open", &format!("{HIDDEN} root")).await;
+    let known = made(&th.client2, TEST_WS, "private", "Known").await;
 
     // 1) Workspace member (client2) sees open_unit, never private_unit or root_unit.
     let open_res = resolved(&th.client2, TEST_WS, &[&open_unit]).await;
@@ -185,16 +197,14 @@ async fn unit_references_enforce_course_workspace_and_own_space_isolation() {
     // 2) Workspace admin (client) lists private courses in the workspace, yet does NOT
     //    resolve an unjoined private course unit made by client2.
     let admin_id = th.client.me().await.id;
-    th.app
-        .store()
-        .execute_unchecked(&format!(
-            "UPDATE workspace_members SET role = 'admin' \
-             WHERE workspace_id = '{TEST_WORKSPACE_ID}' AND user_id = '{admin_id}'"
-        ))
-        .await
-        .expect("promote client to workspace admin");
-    let (their_course, _, their_private_unit) =
-        make_course(&th.client2, TEST_WS, "P", &format!("{HIDDEN} admin-blind")).await;
+    promote_to_workspace_admin(&th, &admin_id).await;
+    let (their_course, _, their_private_unit) = make_course(
+        &th.client2,
+        TEST_WS,
+        "private",
+        &format!("{HIDDEN} admin-blind"),
+    )
+    .await;
     let listed: Vec<Value> = th.client.get(&format!("{TEST_WS}/courses")).await.ok_json();
     assert!(
         listed.iter().any(|c| c["id"] == their_course),
@@ -244,7 +254,7 @@ async fn unit_references_enforce_course_workspace_and_own_space_isolation() {
         .id;
     let own_ws = format!("/w/{own}");
     let (_own_course, _, own_unit) =
-        make_course(&th.client, &own_ws, "P", &format!("{HIDDEN} own")).await;
+        make_course(&th.client, &own_ws, "private", &format!("{HIDDEN} own")).await;
     assert_eq!(
         named(&resolved(&th.client, &own_ws, &[&own_unit]).await),
         vec![own_unit.clone()]

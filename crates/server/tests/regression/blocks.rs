@@ -12,7 +12,7 @@ use crate::harness::{API, Body, Session, id_by_title};
 
 pub(crate) async fn blocks(s: &mut Session) {
     let [alice, bob, carol] = s.users("blocks", ["alice", "bob", "carol"]).await;
-    let board = new_board(s, &alice, "Blocks", "P", json!({})).await;
+    let board = new_board(s, &alice, "Blocks", "private", json!({})).await;
     add_member(s, &alice, &board, &bob, "commenter").await;
     let path = format!("{ROOT_API}/boards/{board}/blocks");
 
@@ -292,7 +292,7 @@ pub(crate) async fn blocks(s: &mut Session) {
     // Blocks without identifiers, and a request that has the children before their
     // parents: each block gets an identifier of its own, and the list has the blocks
     // of a request in the order the request had them in.
-    let second = new_board(s, &alice, "Order of a request", "P", json!({})).await;
+    let second = new_board(s, &alice, "Order of a request", "private", json!({})).await;
     let second_path = format!("{ROOT_API}/boards/{second}/blocks");
     s.post("insert without identifiers", &second_path)
         .json(json!([
@@ -335,7 +335,7 @@ pub(crate) async fn blocks(s: &mut Session) {
 
 pub(crate) async fn cards(s: &mut Session) {
     let [alice, bob] = s.users("cards", ["alice", "bob"]).await;
-    let board = new_board(s, &alice, "Cards", "P", json!({})).await;
+    let board = new_board(s, &alice, "Cards", "private", json!({})).await;
     add_member(s, &alice, &board, &bob, "viewer").await;
     let path = format!("{ROOT_API}/boards/{board}/cards");
 

@@ -14,7 +14,7 @@ test.describe.configure({ mode: 'parallel', timeout: 90_000 });
 interface DevCourse {
   createCourse(
     workspaceId: string,
-    draft: { title: string; type: 'O' | 'P'; minimumRole?: 'viewer' | 'editor' },
+    draft: { title: string; visibility: 'open' | 'private'; minimumRole?: 'viewer' | 'editor' },
   ): Promise<{ id: string }>;
   createUnit(
     courseId: string,
@@ -75,7 +75,7 @@ test('manages study meetings, shared attendance, exams, personal scores, tombsto
     const third = dev.someoneElse(1);
     const course = await dev.backend.course.createCourse(wsId, {
       title: 'Operating Systems',
-      type: 'O',
+      visibility: 'open',
       minimumRole: 'viewer',
     });
     await dev.backend.addMember(course.id, other.userId, 'viewer');
@@ -264,7 +264,7 @@ test('isolates unjoined open-course readers and strips all meetings/exams UI & r
     const other = dev.someoneElse();
     const course = await other.course.createCourse(wsId, {
       title: 'Open Linear Algebra',
-      type: 'O',
+      visibility: 'open',
       minimumRole: 'viewer',
     });
     await other.course.createUnit(course.id, { kind: 'unit', title: 'Eigenvalues' });
@@ -315,7 +315,7 @@ test('isolates unjoined open-course readers and strips all meetings/exams UI & r
           workspaceId: '',
           kind: 'course',
           title: 'Public Shared Course',
-          type: 'P',
+          visibility: 'private',
           icon: '',
           description: '',
           cardProperties: [],

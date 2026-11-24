@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
-    Category, Container, ContainerMember, ContainerType, ContainersAndBlocks, new_id,
+    Category, Container, ContainerMember, ContainerVisibility, ContainersAndBlocks, new_id,
 };
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
@@ -128,7 +128,7 @@ async fn board_changes_are_broadcast_to_the_members() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Open,
+            ContainerVisibility::Open,
             "Roadmap",
         ))
         .await
@@ -200,7 +200,7 @@ async fn member_changes_are_broadcast() {
     let user2 = th.client2.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "title"),
         &user1.id,
     )
     .await;
@@ -272,7 +272,7 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
         &th,
         Container {
             is_template: true,
-            ..new_board(TEST_WORKSPACE_ID, ContainerType::Open, "a template")
+            ..new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "a template")
         },
         &user1.id,
     )
@@ -284,7 +284,7 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
 
     // Private: every user who is not a member is told that their access ended. The
     // message goes to the members and to that user.
-    patch_board(&th.client, &template.id, &json!({"type": "P"}))
+    patch_board(&th.client, &template.id, &json!({"visibility": "private"}))
         .await
         .check_ok();
     for socket in [&mut socket1, &mut socket2] {
@@ -310,7 +310,7 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
     );
 
     // Open: the members are told about a viewer membership of every other user.
-    patch_board(&th.client, &template.id, &json!({"type": "O"}))
+    patch_board(&th.client, &template.id, &json!({"visibility": "open"}))
         .await
         .check_ok();
     let message = socket1
@@ -339,13 +339,13 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
     // A board that is not a template: only the board change is broadcast.
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "a board"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "a board"),
         &user1.id,
     )
     .await;
     socket1.drain().await;
     socket2.drain().await;
-    patch_board(&th.client, &board.id, &json!({"type": "P"}))
+    patch_board(&th.client, &board.id, &json!({"visibility": "private"}))
         .await
         .check_ok();
     socket1
@@ -374,7 +374,7 @@ async fn duplicate_container_is_broadcast() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Source"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "Source"),
         &user1.id,
     )
     .await;

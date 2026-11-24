@@ -93,10 +93,10 @@ test('a language chosen from the keys is stored, alone, and the block opens agai
 
   // By the public link, signed in as nobody, with nothing chosen on this device.
   const shared = (await (
-    await api.post(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}/sharing`, {
+    await api.post(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}/public-link`, {
       data: { enabled: true },
     })
-  ).json()) as Schemas['Sharing'];
+  ).json()) as Schemas['PublicLink'];
   const token = shared.token ?? '';
   const context = await browser.newContext({ locale: 'en-US', baseURL: base });
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);

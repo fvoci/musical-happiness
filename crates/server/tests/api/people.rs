@@ -2,7 +2,7 @@
 //! board with them in a workspace they are in, and themselves. A guest sees who is on
 //! its boards. Anybody else is as one who does not exist.
 
-use fvoci_model::{ContainerMember, ContainerType, User, WorkspaceRole};
+use fvoci_model::{ContainerMember, ContainerVisibility, User, WorkspaceRole};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -126,7 +126,7 @@ async fn a_guest_sees_who_is_on_its_boards() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Shared",
         ))
         .await
@@ -169,7 +169,7 @@ async fn who_left_a_workspace_is_named_where_they_wrote_and_found_nowhere() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Ours",
         ))
         .await
@@ -261,7 +261,7 @@ async fn a_guest_sees_by_identifier_who_is_on_a_board_with_a_role_and_nobody_els
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Shared",
         ))
         .await
@@ -278,7 +278,7 @@ async fn a_guest_sees_by_identifier_who_is_on_a_board_with_a_role_and_nobody_els
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "No role",
         ))
         .await
@@ -335,7 +335,11 @@ async fn a_guest_editing_an_open_board_adds_nobody() {
     let third = th.add_user("third").await.me().await.id;
     let board: fvoci_model::Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Open"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerVisibility::Open,
+            "Open",
+        ))
         .await
         .created_json();
     th.client
@@ -397,7 +401,11 @@ async fn who_left_is_named_on_an_open_board_to_its_members_only() {
     let third = th.add_user("third").await;
     let open: fvoci_model::Container = th
         .client
-        .create_board(&new_board(ROOT_WORKSPACE_ID, ContainerType::Open, "Open"))
+        .create_board(&new_board(
+            ROOT_WORKSPACE_ID,
+            ContainerVisibility::Open,
+            "Open",
+        ))
         .await
         .created_json();
     th.client2
@@ -447,7 +455,7 @@ async fn who_left_is_named_on_an_open_wiki_to_whoever_works_there() {
     let third = th.add_user("third").await;
     let wiki = th
         .client
-        .post(&format!("{ROOT_WS}/wikis"), &json!({"type": "O"}))
+        .post(&format!("{ROOT_WS}/wikis"), &json!({"visibility": "open"}))
         .await
         .value()["id"]
         .as_str()
@@ -513,7 +521,7 @@ async fn a_guest_names_who_wrote_on_its_board_and_finds_them_nowhere() {
         .client
         .create_board(&new_board(
             ROOT_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Ours",
         ))
         .await

@@ -1,7 +1,7 @@
 //! Assigning workspace groups to boards, with authorization and audit in the transaction.
 
 use fvoci_model::{
-    AuditAction, Container, ContainerMember, ContainerTeam, ContainerType, MinimumRole,
+    AuditAction, Container, ContainerMember, ContainerTeam, ContainerVisibility, MinimumRole,
     WorkspaceRole,
 };
 
@@ -188,7 +188,7 @@ pub(crate) async fn record_new_access(
     users: &[String],
     by: &str,
 ) -> Result<(), StoreError> {
-    if container.container_type == ContainerType::Open || reads(scope, &container.id, by).await? {
+    if container.visibility == ContainerVisibility::Open || reads(scope, &container.id, by).await? {
         return Ok(());
     }
     if org_admin::membership(scope, &container.workspace_id, by)
@@ -314,7 +314,7 @@ async fn reads_template(
         return Ok(false);
     }
     let container = containers::get_container(scope, &member.container_id).await?;
-    if !container.is_template || container.container_type != ContainerType::Open {
+    if !container.is_template || container.visibility != ContainerVisibility::Open {
         return Ok(false);
     }
     Ok(

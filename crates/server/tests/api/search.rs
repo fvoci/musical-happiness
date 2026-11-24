@@ -1,6 +1,6 @@
 //! Integration tests for board search routes and visibility rules.
 
-use fvoci_model::{Container, ContainerType, JsonMap, new_id};
+use fvoci_model::{Container, ContainerVisibility, JsonMap, new_id};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -45,10 +45,10 @@ async fn create_board(
     board
 }
 
-fn titled(title: &str, board_type: ContainerType, workspace_id: &str) -> Container {
+fn titled(title: &str, board_type: ContainerVisibility, workspace_id: &str) -> Container {
     Container {
         title: title.to_owned(),
-        container_type: board_type,
+        visibility: board_type,
         workspace_id: workspace_id.to_owned(),
         ..Container::default()
     }
@@ -111,7 +111,7 @@ async fn search_boards_all_the_matching_private_boards_that_the_user_is_a_member
     let user1 = th.client.me().await;
     let workspace_id = TEST_WORKSPACE_ID;
     let board = async |title: &str,
-                       board_type: ContainerType,
+                       board_type: ContainerVisibility,
                        workspace_id: &str,
                        membership: Membership| {
         create_board(
@@ -125,35 +125,35 @@ async fn search_boards_all_the_matching_private_boards_that_the_user_is_a_member
 
     let board1 = board(
         "public board where user1 is admin",
-        ContainerType::Open,
+        ContainerVisibility::Open,
         workspace_id,
         Membership::Admin,
     )
     .await;
     let board2 = board(
         "public board where user1 is not member",
-        ContainerType::Open,
+        ContainerVisibility::Open,
         workspace_id,
         Membership::None,
     )
     .await;
     let board3 = board(
         "private board where user1 is admin",
-        ContainerType::Private,
+        ContainerVisibility::Private,
         workspace_id,
         Membership::Admin,
     )
     .await;
     board(
         "private board where user1 is not member",
-        ContainerType::Private,
+        ContainerVisibility::Private,
         workspace_id,
         Membership::None,
     )
     .await;
     let board5 = board(
         "private board where user1 is admin, but in other workspace",
-        ContainerType::Private,
+        ContainerVisibility::Private,
         ROOT_WORKSPACE_ID,
         Membership::Admin,
     )
@@ -215,14 +215,14 @@ async fn two_boards() -> (TestServer, Container, Container) {
     let user = th.client.me().await;
     let open = create_board(
         &th,
-        titled("b one", ContainerType::Open, ROOT_WORKSPACE_ID),
+        titled("b one", ContainerVisibility::Open, ROOT_WORKSPACE_ID),
         &user.id,
         Membership::Admin,
     )
     .await;
     let private = create_board(
         &th,
-        titled("b two", ContainerType::Private, ROOT_WORKSPACE_ID),
+        titled("b two", ContainerVisibility::Private, ROOT_WORKSPACE_ID),
         &user.id,
         Membership::Admin,
     )
@@ -312,7 +312,11 @@ async fn search_boards_by_field() {
         &th,
         Container {
             properties,
-            ..titled("with a property", ContainerType::Open, ROOT_WORKSPACE_ID)
+            ..titled(
+                "with a property",
+                ContainerVisibility::Open,
+                ROOT_WORKSPACE_ID,
+            )
         },
         &user.id,
         Membership::Admin,
@@ -370,7 +374,7 @@ async fn searches_answer_the_same_on_both_databases() {
             properties,
             ..titled(
                 "Ärger 100% über_all",
-                ContainerType::Open,
+                ContainerVisibility::Open,
                 ROOT_WORKSPACE_ID,
             )
         },
@@ -417,7 +421,7 @@ async fn search_all_boards() {
     let user = th.client.me().await;
     let elsewhere = create_board(
         &th,
-        titled("b three", ContainerType::Private, TEST_WORKSPACE_ID),
+        titled("b three", ContainerVisibility::Private, TEST_WORKSPACE_ID),
         &user.id,
         Membership::Admin,
     )
@@ -426,7 +430,7 @@ async fn search_all_boards() {
         &th,
         Container {
             is_template: true,
-            ..titled("b template", ContainerType::Open, ROOT_WORKSPACE_ID)
+            ..titled("b template", ContainerVisibility::Open, ROOT_WORKSPACE_ID)
         },
         &user.id,
         Membership::Admin,
@@ -483,7 +487,7 @@ async fn search_containers_for_user_in_workspace() {
     let other = th.client2.me().await;
     create_board(
         &th,
-        titled("b three", ContainerType::Open, TEST_WORKSPACE_ID),
+        titled("b three", ContainerVisibility::Open, TEST_WORKSPACE_ID),
         &user.id,
         Membership::Admin,
     )

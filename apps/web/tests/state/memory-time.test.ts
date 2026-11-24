@@ -50,7 +50,7 @@ describe('MemoryTime parity with server rules', () => {
     const card = await backend.createCard(board.id, { title: 'Write specs' });
     const course = await backend.course.createCourse(world.workspace.id, {
       title: 'Math 101',
-      type: 'P',
+      visibility: 'private',
     });
     const unit = await backend.course.createUnit(course.id, { kind: 'unit', title: 'Limits' });
 
@@ -136,7 +136,7 @@ describe('MemoryTime parity with server rules', () => {
     // Chapter rejected
     const course = await backend.course.createCourse(world.workspace.id, {
       title: 'Course',
-      type: 'P',
+      visibility: 'private',
     });
     const chapter = await backend.course.createUnit(course.id, {
       kind: 'chapter',

@@ -1,16 +1,16 @@
 //! Validation and ID regeneration for combined container-and-block payloads.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Container, ContainerPatch, ContainerType, ContainersAndBlocks,
-    ContainersAndBlocksError, DeleteContainersAndBlocks, PatchContainersAndBlocks,
-    generate_containers_and_blocks_ids, renew_containers_and_blocks_ids,
+    Block, BlockPatch, BlockType, Container, ContainerPatch, ContainerVisibility,
+    ContainersAndBlocks, ContainersAndBlocksError, DeleteContainersAndBlocks,
+    PatchContainersAndBlocks, generate_containers_and_blocks_ids, renew_containers_and_blocks_ids,
     renew_containers_and_blocks_ids_told,
 };
 
-fn board(id: &str, board_type: ContainerType, title: &str) -> Container {
+fn board(id: &str, visibility: ContainerVisibility, title: &str) -> Container {
     Container {
         id: id.to_owned(),
-        container_type: board_type,
+        visibility,
         title: title.to_owned(),
         ..Container::default()
     }
@@ -54,8 +54,8 @@ fn containers_and_blocks_validate_no_containers() {
 fn containers_and_blocks_validate_no_blocks() {
     let bab = ContainersAndBlocks {
         containers: vec![
-            board("board-id-1", ContainerType::Open, ""),
-            board("board-id-2", ContainerType::Private, ""),
+            board("board-id-1", ContainerVisibility::Open, ""),
+            board("board-id-2", ContainerVisibility::Private, ""),
         ],
         blocks: vec![],
     };
@@ -67,8 +67,8 @@ fn containers_and_blocks_validate_no_blocks() {
 fn containers_and_blocks_validate_block_that_does_not_belong_to_the_boards() {
     let bab = ContainersAndBlocks {
         containers: vec![
-            board("board-id-1", ContainerType::Open, ""),
-            board("board-id-2", ContainerType::Private, ""),
+            board("board-id-1", ContainerVisibility::Open, ""),
+            board("board-id-2", ContainerVisibility::Private, ""),
         ],
         blocks: vec![
             block("block-id-1", "board-id-1", BlockType::Card),
@@ -89,8 +89,8 @@ fn containers_and_blocks_validate_block_that_does_not_belong_to_the_boards() {
 fn containers_and_blocks_validate_valid() {
     let bab = ContainersAndBlocks {
         containers: vec![
-            board("board-id-1", ContainerType::Open, ""),
-            board("board-id-2", ContainerType::Private, ""),
+            board("board-id-1", ContainerVisibility::Open, ""),
+            board("board-id-2", ContainerVisibility::Private, ""),
         ],
         blocks: vec![
             block("block-id-1", "board-id-1", BlockType::Card),
@@ -122,7 +122,7 @@ fn generate_containers_and_blocks_ids_invalid_boards_and_blocks() {
 #[test]
 fn renew_containers_and_blocks_ids_takes_boards_without_blocks() {
     let renewed = renew_containers_and_blocks_ids(ContainersAndBlocks {
-        containers: vec![board("board-id-1", ContainerType::Open, "title")],
+        containers: vec![board("board-id-1", ContainerVisibility::Open, "title")],
         blocks: vec![],
     });
     assert_eq!(renewed.containers.len(), 1, "the board is kept");
@@ -133,7 +133,7 @@ fn renew_containers_and_blocks_ids_takes_boards_without_blocks() {
     assert!(renewed.blocks.is_empty(), "without blocks");
 
     let renewed = renew_containers_and_blocks_ids(ContainersAndBlocks {
-        containers: vec![board("board-id-1", ContainerType::Open, "title")],
+        containers: vec![board("board-id-1", ContainerVisibility::Open, "title")],
         blocks: vec![
             block("block-id-1", "board-id-1", BlockType::Card),
             block("block-id-2", "board-id-2", BlockType::Card),
@@ -154,7 +154,7 @@ fn renew_containers_and_blocks_ids_told_tells_the_new_identifiers_asked_for() {
     let told = ["block-id-1", "block-id-3"];
     let renewed = renew_containers_and_blocks_ids_told(
         ContainersAndBlocks {
-            containers: vec![board("board-id-1", ContainerType::Open, "title")],
+            containers: vec![board("board-id-1", ContainerVisibility::Open, "title")],
             blocks: vec![
                 block("block-id-1", "board-id-1", BlockType::Card),
                 block("block-id-2", "board-id-1", BlockType::Card),
@@ -174,9 +174,9 @@ fn renew_containers_and_blocks_ids_told_tells_the_new_identifiers_asked_for() {
 fn generate_containers_and_blocks_ids_links_blocks_to_new_board_ids() {
     let bab = ContainersAndBlocks {
         containers: vec![
-            board("board-id-1", ContainerType::Open, "board1"),
-            board("board-id-2", ContainerType::Private, "board2"),
-            board("board-id-3", ContainerType::Open, "board3"),
+            board("board-id-1", ContainerVisibility::Open, "board1"),
+            board("board-id-2", ContainerVisibility::Private, "board2"),
+            board("board-id-3", ContainerVisibility::Open, "board3"),
         ],
         blocks: vec![
             block("block-id-1", "board-id-1", BlockType::Card),
@@ -346,7 +346,7 @@ fn delete_containers_and_blocks_validate_requires_only_containers() {
 #[test]
 fn delete_containers_and_blocks_from_containers_and_blocks() {
     let bab = ContainersAndBlocks {
-        containers: vec![board("board-id-1", ContainerType::Open, "")],
+        containers: vec![board("board-id-1", ContainerVisibility::Open, "")],
         blocks: vec![
             block("block-id-1", "board-id-1", BlockType::Card),
             block("block-id-2", "board-id-1", BlockType::View),

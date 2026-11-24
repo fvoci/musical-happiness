@@ -5,7 +5,7 @@
 //! wiki, over HTTP and at the door of a page's room.
 
 use fvoci_model::{
-    Container, ContainerKind, ContainerMember, ContainerType, NewPage, WorkspaceRole,
+    Container, ContainerKind, ContainerMember, ContainerVisibility, NewPage, WorkspaceRole,
 };
 use reqwest::StatusCode;
 use serde_json::{Value, json};
@@ -33,11 +33,11 @@ const ALL_DONE: Answers = [200, 200, 201, 200, 204];
 /// manages it.
 const DESCRIPTION: &str = "What this wiki is for";
 
-/// A wiki of the test workspace made by `maker`, of the type `wiki_type` (`P` for the
-/// invited only, `O` for everybody in the workspace), with a page: the identifiers of
+/// A wiki of the test workspace made by `maker`, of the visibility `visibility` (`private` for the
+/// invited only, `open` for everybody in the workspace), with a page: the identifiers of
 /// both.
-pub(crate) async fn wiki_of(maker: &Client, wiki_type: &str) -> (String, String) {
-    let wiki = json!({"type": wiki_type, "description": DESCRIPTION});
+pub(crate) async fn wiki_of(maker: &Client, visibility: &str) -> (String, String) {
+    let wiki = json!({"visibility": visibility, "description": DESCRIPTION});
     let wiki = maker.post(&format!("{TEST_WS}/wikis"), &wiki).await;
     wiki.check_created();
     let wiki = wiki.value()["id"].as_str().expect("an id").to_owned();
@@ -121,7 +121,7 @@ pub(crate) async fn put_on(admin: &Client, wiki_id: &str, user_id: &str, role: &
 #[tokio::test]
 async fn a_wiki_and_its_pages_are_under_their_own_workspace_only() {
     let th = Setup::native().start().await.init_basic().await;
-    let (wiki, page) = wiki_of(&th.client, "O").await;
+    let (wiki, page) = wiki_of(&th.client, "open").await;
     assert!(listed(&th.client, TEST_WS).await.contains(&wiki));
 
     // Under the root workspace, which the user works in, it is the wiki that is not
@@ -183,7 +183,7 @@ async fn a_wiki_of_another_organization_is_reached_through_its_workspace_only() 
     let mut wiki = Container {
         id: fvoci_model::new_id(),
         workspace_id: their_workspace.clone(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         kind: ContainerKind::Wiki,
         title: "theirs".to_owned(),
         ..Container::default()
@@ -203,7 +203,7 @@ async fn a_wiki_of_another_organization_is_reached_through_its_workspace_only() 
         .expect("their page is stored")
         .page;
     let (wiki, page) = (wiki.id, page.id);
-    let (our_wiki, our_page) = wiki_of(&th.client, "O").await;
+    let (our_wiki, our_page) = wiki_of(&th.client, "open").await;
 
     let there = format!("/w/{their_workspace}");
     for at in [TEST_WS, there.as_str()] {
@@ -276,9 +276,9 @@ async fn a_wiki_of_another_organization_is_reached_through_its_workspace_only() 
 async fn a_guest_has_only_the_wikis_it_was_invited_to() {
     let th = Setup::native().start().await.init_basic().await;
     let guest = crate::guests::guest_of_the_workspace(&th).await;
-    let (invited, invited_page) = wiki_of(&th.client, "P").await;
-    let (open, open_page) = wiki_of(&th.client, "O").await;
-    let (private, private_page) = wiki_of(&th.client, "P").await;
+    let (invited, invited_page) = wiki_of(&th.client, "private").await;
+    let (open, open_page) = wiki_of(&th.client, "open").await;
+    let (private, private_page) = wiki_of(&th.client, "private").await;
     put_on(&th.client, &invited, &guest, "viewer").await;
 
     assert_eq!(
@@ -336,7 +336,7 @@ async fn who_only_manages_a_wiki_reads_none_of_its_pages() {
     let th = Setup::native().start().await.init_basic().await;
     let admin = crate::workspace_admin::workspace_admin(&th).await;
     let (maker, admin_client) = (&th.client, &th.client2);
-    let (wiki, page) = wiki_of(maker, "P").await;
+    let (wiki, page) = wiki_of(maker, "private").await;
 
     assert!(listed(admin_client, TEST_WS).await.contains(&wiki));
     let seen: Container = admin_client
@@ -355,7 +355,7 @@ async fn who_only_manages_a_wiki_reads_none_of_its_pages() {
     assert_eq!(of_maker.description, DESCRIPTION);
     // The link that shows the wiki's pages is of its content.
     admin_client
-        .get(&format!("{TEST_WS}/containers/{wiki}/sharing"))
+        .get(&format!("{TEST_WS}/containers/{wiki}/public-link"))
         .await
         .check_not_found();
     admin_client
@@ -400,8 +400,8 @@ async fn who_only_manages_a_wiki_reads_none_of_its_pages() {
 async fn the_pages_of_a_wiki_are_for_each_role_what_the_role_is_let_do() {
     let th = Setup::native().start().await.init_basic().await;
     let member = th.client2.me().await.id;
-    let (private, private_page) = wiki_of(&th.client, "P").await;
-    let (open, open_page) = wiki_of(&th.client, "O").await;
+    let (private, private_page) = wiki_of(&th.client, "private").await;
+    let (open, open_page) = wiki_of(&th.client, "open").await;
 
     assert_eq!(
         asked(&th.client2, TEST_WS, &private, &private_page).await,
@@ -465,7 +465,7 @@ async fn the_pages_of_a_wiki_are_for_each_role_what_the_role_is_let_do() {
     assert_eq!(of_page.problem(), of_none.problem());
     // A page of a wiki the reader is not on is no page of the wiki they read: asked
     // for by that wiki's path, it is answered as a page that is nowhere.
-    let (_, hidden_page) = wiki_of(&th.client, "P").await;
+    let (_, hidden_page) = wiki_of(&th.client, "private").await;
     let of_none = th.client2.get(&format!("{pages}/{UNKNOWN_ID}")).await;
     of_none.check_not_found();
     for no_page in [hidden_page.as_str(), private.as_str()] {
@@ -500,8 +500,8 @@ async fn who_may_not_read_a_wiki_is_told_nothing_of_its_pages() {
             "administrator" => crate::workspace_admin::workspace_admin(&th).await,
             unknown => unreachable!("no such standing: {unknown}"),
         };
-        let (hidden, hidden_page) = wiki_of(&th.client, "P").await;
-        let (shown, shown_page) = wiki_of(&th.client, "P").await;
+        let (hidden, hidden_page) = wiki_of(&th.client, "private").await;
+        let (shown, shown_page) = wiki_of(&th.client, "private").await;
         put_on(&th.client, &shown, &other, "viewer").await;
         let mut listener =
             WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &other).await;

@@ -87,7 +87,7 @@ test('unit comments, body versions (⌘S + restore), and [[ unit references on t
   const at = `/api/v1/w/${workspaceId}`;
 
   const course = (await (
-    await api.post(`${at}/courses`, { data: { title: 'Linear Algebra', type: 'O' } })
+    await api.post(`${at}/courses`, { data: { title: 'Linear Algebra', visibility: 'open' } })
   ).json()) as Schemas['Container'];
   const chapter = (await (
     await api.post(`${at}/courses/${course.id}/units`, {
@@ -238,7 +238,7 @@ test('public course link reader strips outside references & user identities, and
   const me = (await (await api.get('/api/v1/users/me')).json()) as Schemas['User'];
 
   const course = (await (
-    await api.post(`${at}/courses`, { data: { title: 'Open Syllabus', type: 'P' } })
+    await api.post(`${at}/courses`, { data: { title: 'Open Syllabus', visibility: 'private' } })
   ).json()) as Schemas['Container'];
   const chapter = (await (
     await api.post(`${at}/courses/${course.id}/units`, {
@@ -357,7 +357,7 @@ test('public course link reader strips outside references & user identities, and
   expect(ownSpace).toBeTruthy();
   const ownCourse = (await (
     await api.post(`/api/v1/w/${ownSpace?.id}/courses`, {
-      data: { title: 'Personal Study', type: 'P' },
+      data: { title: 'Personal Study', visibility: 'private' },
     })
   ).json()) as Schemas['Container'];
   const ownUnit = (await (
@@ -366,10 +366,10 @@ test('public course link reader strips outside references & user identities, and
     })
   ).json()) as Schemas['Unit'];
   const ownShare = (await (
-    await api.post(`/api/v1/w/${ownSpace?.id}/containers/${ownCourse.id}/sharing`, {
+    await api.post(`/api/v1/w/${ownSpace?.id}/containers/${ownCourse.id}/public-link`, {
       data: { enabled: true },
     })
-  ).json()) as Schemas['Sharing'];
+  ).json()) as Schemas['PublicLink'];
   await anonPage.goto(sharedPath(ownCourse.id, ownShare.token ?? '', ownUnit.id));
   await expect(anonPage.getByTestId('shared-title')).toHaveText('Personal Study');
   await expect(anonPage.getByTestId('shared-course').getByTestId('unit-title')).toHaveText('Notes');
@@ -396,7 +396,7 @@ test('unit mention and comment notifications navigate to the unit and watch togg
   const readerMe = (await (await readerApi.get('/api/v1/users/me')).json()) as Schemas['User'];
 
   const course = (await (
-    await writerApi.post(`${at}/courses`, { data: { title: 'Notify Course', type: 'O' } })
+    await writerApi.post(`${at}/courses`, { data: { title: 'Notify Course', visibility: 'open' } })
   ).json()) as Schemas['Container'];
   const unit = (await (
     await writerApi.post(`${at}/courses/${course.id}/units`, {
@@ -465,7 +465,7 @@ test('unit mention and comment notifications navigate to the unit and watch togg
   expect(ownSpace).toBeTruthy();
   const ownCourse = (await (
     await readerApi.post(`/api/v1/w/${ownSpace?.id}/courses`, {
-      data: { title: 'My Private Course', type: 'P' },
+      data: { title: 'My Private Course', visibility: 'private' },
     })
   ).json()) as Schemas['Container'];
   const ownUnit = (await (

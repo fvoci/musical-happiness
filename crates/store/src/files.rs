@@ -4,17 +4,17 @@
 //! and the record ties that name to the board, to the place in the file storage and to
 //! the name the file was uploaded with.
 
-use fvoci_model::FileInfo;
+use fvoci_model::FileRecord;
 
 use crate::Store;
 use crate::db::{Dialect, Id, OptId, Row, Scope};
 use crate::error::StoreError;
 
-pub(crate) const FILE_INFO_COLUMNS: &str =
+pub(crate) const FILE_COLUMNS: &str =
     "id, container_id, name, original_name, extension, size, path, create_at, version, created_by";
 
-/// How many columns [`FILE_INFO_COLUMNS`] names: the index of a column read after them.
-pub(crate) const FILE_INFO_COLUMN_COUNT: usize = 10;
+/// How many columns [`FILE_COLUMNS`] names: the index of a column read after them.
+pub(crate) const FILE_COLUMN_COUNT: usize = 10;
 
 impl Store {
     /// Returns the record of the file a board has under a stored name.
@@ -23,14 +23,14 @@ impl Store {
     ///
     /// Returns [`StoreError::NotFound`] if the board has no file of that name. A file of
     /// another board is not found.
-    pub async fn get_file_info(
+    pub async fn get_file_record(
         &self,
         container_id: &str,
         stored_name: &str,
-    ) -> Result<FileInfo, StoreError> {
+    ) -> Result<FileRecord, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(&format!(
-                "SELECT {FILE_INFO_COLUMNS} FROM file_info WHERE container_id = "
+                "SELECT {FILE_COLUMNS} FROM files WHERE container_id = "
             ));
             sql.bind(Id(container_id))
                 .push_bind(" AND name = ", stored_name);
@@ -38,7 +38,7 @@ impl Store {
                 .fetch_optional(sql)
                 .await?
                 .ok_or_else(|| StoreError::not_found("file"))?;
-            file_info_from_row(&row)
+            file_from_row(&row)
         })
         .await
     }
@@ -74,9 +74,9 @@ impl Store {
     /// one, [`StoreError::InvalidPath`] for a place spelled otherwise than the one way,
     /// [`StoreError::NotFound`] if the board does not exist, and
     /// [`StoreError::Database`] if the board has a file of that stored name already.
-    pub async fn save_file_info(&self, file_info: &FileInfo) -> Result<(), StoreError> {
-        check_new_path(&file_info.path)?;
-        self.with_write_conn(async |scope| save_file_info(scope, file_info).await)
+    pub async fn save_file_record(&self, file: &FileRecord) -> Result<(), StoreError> {
+        check_new_path(&file.path)?;
+        self.with_write_conn(async |scope| save_file_record(scope, file).await)
             .await
     }
 }
@@ -104,8 +104,8 @@ impl Store {
             };
             // Each side takes its own page first, so that the live records are read a
             // page at a time by their index; the trash has none to read by.
-            let mut sql = scope
-                .sql("SELECT path FROM (SELECT * FROM (SELECT path FROM file_info WHERE path > ");
+            let mut sql =
+                scope.sql("SELECT path FROM (SELECT * FROM (SELECT path FROM files WHERE path > ");
             sql.bind(after)
                 .push_bind(" ORDER BY path LIMIT ", limit)
                 .push(&format!(
@@ -165,7 +165,7 @@ pub(crate) async fn other_spellings(scope: &mut Scope<'_>) -> Result<Vec<String>
         )
     };
     let statement = format!(
-        "SELECT path FROM file_info WHERE {} \
+        "SELECT path FROM files WHERE {} \
          UNION SELECT path FROM uploads WHERE {} \
          UNION SELECT path FROM loose_objects WHERE {} \
          UNION SELECT path FROM file_versions WHERE {} \
@@ -187,25 +187,25 @@ pub(crate) async fn other_spellings(scope: &mut Scope<'_>) -> Result<Vec<String>
     Ok(found)
 }
 
-pub(crate) async fn save_file_info(
+pub(crate) async fn save_file_record(
     scope: &mut Scope<'_>,
-    file_info: &FileInfo,
+    file: &FileRecord,
 ) -> Result<(), StoreError> {
     // A new file is shown by no block until one is written that shows it.
     let mut sql = scope.sql(&format!(
-        "INSERT INTO file_info ({FILE_INFO_COLUMNS}, unreferenced_at) VALUES ("
+        "INSERT INTO files ({FILE_COLUMNS}, unreferenced_at) VALUES ("
     ));
-    sql.bind(Id(&file_info.id))
-        .push_bind(", ", Id(&file_info.container_id))
-        .push_bind(", ", &file_info.stored_name)
-        .push_bind(", ", &file_info.name)
-        .push_bind(", ", &file_info.extension)
-        .push_bind(", ", file_info.size)
-        .push_bind(", ", &file_info.path)
-        .push_bind(", ", file_info.create_at)
-        .push_bind(", ", file_info.version)
-        .push_bind(", ", OptId(&file_info.created_by))
-        .push_bind(", ", file_info.create_at)
+    sql.bind(Id(&file.id))
+        .push_bind(", ", Id(&file.container_id))
+        .push_bind(", ", &file.stored_name)
+        .push_bind(", ", &file.name)
+        .push_bind(", ", &file.extension)
+        .push_bind(", ", file.size)
+        .push_bind(", ", &file.path)
+        .push_bind(", ", file.create_at)
+        .push_bind(", ", file.version)
+        .push_bind(", ", OptId(&file.created_by))
+        .push_bind(", ", file.create_at)
         .push(")");
     scope
         .execute(sql)
@@ -218,12 +218,12 @@ pub(crate) async fn save_file_info(
 /// transaction ends: the board's deletion takes them to the trash, and a collection of
 /// the files no block shows skips them meanwhile (PostgreSQL); or it took one before,
 /// and that one is not taken to the trash.
-pub(crate) async fn file_infos_of_container(
+pub(crate) async fn files_of_container(
     scope: &mut Scope<'_>,
     container_id: &str,
-) -> Result<Vec<FileInfo>, StoreError> {
+) -> Result<Vec<FileRecord>, StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT {FILE_INFO_COLUMNS} FROM file_info WHERE container_id = "
+        "SELECT {FILE_COLUMNS} FROM files WHERE container_id = "
     ));
     sql.bind(Id(container_id)).push(" ORDER BY create_at, id");
     if scope.dialect() == Dialect::Postgres {
@@ -233,12 +233,12 @@ pub(crate) async fn file_infos_of_container(
         .fetch_all(sql)
         .await?
         .iter()
-        .map(file_info_from_row)
+        .map(file_from_row)
         .collect()
 }
 
-pub(crate) fn file_info_from_row(row: &Row) -> Result<FileInfo, StoreError> {
-    Ok(FileInfo {
+pub(crate) fn file_from_row(row: &Row) -> Result<FileRecord, StoreError> {
+    Ok(FileRecord {
         id: row.id(0)?,
         container_id: row.id(1)?,
         stored_name: row.text(2)?,
@@ -259,9 +259,9 @@ mod tests {
     #[test]
     fn the_count_of_the_columns_is_the_columns() {
         assert_eq!(
-            FILE_INFO_COLUMNS.split(',').count(),
-            FILE_INFO_COLUMN_COUNT,
-            "{FILE_INFO_COLUMNS}"
+            FILE_COLUMNS.split(',').count(),
+            FILE_COLUMN_COUNT,
+            "{FILE_COLUMNS}"
         );
     }
 }

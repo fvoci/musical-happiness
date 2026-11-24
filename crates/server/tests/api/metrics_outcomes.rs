@@ -2,7 +2,7 @@
 //! calls of the database, and the operations on the file storage.
 
 use base64::Engine as _;
-use fvoci_model::ContainerType;
+use fvoci_model::ContainerVisibility;
 use reqwest::{Method, StatusCode};
 use sha2::Digest as _;
 
@@ -216,7 +216,7 @@ async fn the_operations_on_the_local_disk_are_measured() {
         .init_basic()
         .await;
     let board = server
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = crate::files::upload(&server.client, &board.id, "a.txt", b"abc").await;
     let file_id = crate::files::uploaded_id(&response);
@@ -266,7 +266,7 @@ async fn an_upload_past_its_limit_is_no_failure_of_the_storage() {
         .init_basic()
         .await;
     let board = server
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = crate::files::upload(&server.client, &board.id, "a.txt", b"test").await;
     response.check_request_entity_too_large();
@@ -297,7 +297,7 @@ async fn with_s3_the_steps_of_an_upload_in_parts_are_measured() {
         .init_basic()
         .await;
     let board = server
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let open = |name: &'static str| {
         let client = &server.client;

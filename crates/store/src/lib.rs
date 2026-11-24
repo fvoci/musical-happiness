@@ -46,9 +46,9 @@ mod directory;
 mod email_change;
 mod email_revert;
 mod error;
-mod file_info;
 mod file_refs;
 mod file_versions;
+mod files;
 mod invitations;
 mod invited_signups;
 mod joinings;
@@ -75,13 +75,13 @@ mod page_trash;
 mod pages;
 mod password_reset;
 mod person_names;
+mod public_links;
 mod schema;
 mod search_docs;
 mod search_outbox;
 mod search_text;
 mod server_lock;
 mod sessions;
-mod sharing;
 mod signups;
 mod subscriptions;
 mod teams;
@@ -118,7 +118,7 @@ pub use body_docs::{DocAsRead, LoggedUpdate, StoredDoc};
 pub use body_versions::{
     BodyBefore, ByHand, DEFAULT_BODY_VERSIONS_KEPT, DEFAULT_BODY_VERSIONS_MAX_BYTES, KeptVersion,
 };
-pub use category_containers::{ContainerPlace, ContainerVisibility};
+pub use category_containers::ContainerPlace;
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use container_membership::Standing;
@@ -143,6 +143,7 @@ pub use file_versions::{
     DEFAULT_FILE_VERSIONS_KEPT, KeptFileVersion, RestoredCopy, UnusableUpload, VersionAdded,
     VersionRestored,
 };
+pub use fvoci_model::{PublicLinkChange, SidebarVisibility};
 pub use invitations::{
     Acceptance, Accepted, Acceptor, Inviter, InviterOfContainer, MailedTo, NewLink,
 };
@@ -170,7 +171,6 @@ pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, Searc
 pub use search_text::{NumberSearch, TextFound, TextSearch};
 pub use server_lock::ServerLock;
 pub use sessions::ConfirmedPassword;
-pub use sharing::SharingChange;
 pub use signups::{
     Confirmed, Proof, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS, Signup, SignupLookup,
     SignupStart, Started,

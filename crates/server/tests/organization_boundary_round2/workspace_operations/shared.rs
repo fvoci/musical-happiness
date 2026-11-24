@@ -10,7 +10,7 @@ pub(super) async fn exercise(case: &mut Case) {
         .run(
             "createBoard",
             &[],
-            json!({"title": format!("{} shared", case.label), "type": "P"}),
+            json!({"title": format!("{} shared", case.label), "visibility": "private"}),
         )
         .await
         .value();
@@ -26,7 +26,7 @@ pub(super) async fn exercise(case: &mut Case) {
         .value();
     let card = case.remember(&made, "id");
     let sharing = case
-        .run("setSharing", at, json!({"enabled": true}))
+        .run("setPublicLink", at, json!({"enabled": true}))
         .await
         .value();
     let token = sharing["token"].as_str().expect("read token");
@@ -64,8 +64,8 @@ pub(super) async fn exercise(case: &mut Case) {
         read.body, payload,
         "public file belongs to this organization"
     );
-    let request = super::with_query(case.request("getSharedFileInfo", at), "readToken", token);
-    let info = case.send("getSharedFileInfo", request).await.value();
+    let request = super::with_query(case.request("getSharedFileRecord", at), "readToken", token);
+    let info = case.send("getSharedFileRecord", request).await.value();
     assert_eq!(info["name"], name, "public file metadata names this upload");
 }
 
@@ -75,7 +75,7 @@ pub(super) async fn exercise_wiki(case: &mut Case) {
         .run(
             "createWiki",
             &[],
-            json!({"title": format!("{} shared wiki", case.label), "type": "P"}),
+            json!({"title": format!("{} shared wiki", case.label), "visibility": "private"}),
         )
         .await
         .value();
@@ -91,7 +91,7 @@ pub(super) async fn exercise_wiki(case: &mut Case) {
     let page = case.remember(&made, "id");
     let at = &[("containerId", wiki.as_str())];
     let sharing = case
-        .run("setSharing", at, json!({"enabled": true}))
+        .run("setPublicLink", at, json!({"enabled": true}))
         .await
         .value();
     let token = sharing["token"].as_str().expect("read token");
@@ -123,7 +123,7 @@ pub(super) async fn exercise_course(case: &mut Case) {
         .run(
             "createCourse",
             &[],
-            json!({"title": format!("{} shared course", case.label), "type": "P"}),
+            json!({"title": format!("{} shared course", case.label), "visibility": "private"}),
         )
         .await
         .value();
@@ -139,7 +139,7 @@ pub(super) async fn exercise_course(case: &mut Case) {
     let unit = case.remember(&made, "id");
     let at = &[("containerId", course.as_str())];
     let sharing = case
-        .run("setSharing", at, json!({"enabled": true}))
+        .run("setPublicLink", at, json!({"enabled": true}))
         .await
         .value();
     let token = sharing["token"].as_str().expect("read token");

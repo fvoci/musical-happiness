@@ -6,7 +6,7 @@
 
 use std::io::{Cursor, Write as _};
 
-use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_DEPTH, Card, ContainerType, ContainersAndBlocks};
+use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_DEPTH, Card, ContainerVisibility, ContainersAndBlocks};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -51,7 +51,7 @@ fn check_too_large(response: &ApiResponse) {
 async fn the_largest_body_is_written_copied_and_restored_and_a_byte_more_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let cards = format!("{TEST_WS}/boards/{}/cards", board.id);
     let most = document_of(BODY_MAX_BYTES, &[]);
@@ -157,7 +157,7 @@ fn deepest() -> Value {
 async fn the_deepest_body_is_read_back_from_every_place_it_is_written_in() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let cards = format!("{TEST_WS}/boards/{}/cards", board.id);
     let deep = deepest();
@@ -230,7 +230,7 @@ async fn the_deepest_body_is_read_back_from_every_place_it_is_written_in() {
 /// An archive of one board with one card of the given body.
 fn archive_of(body: &Value) -> Vec<u8> {
     let board = json!({"type": "container", "data": {
-        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Limits",
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Limits",
         "createAt": 1, "updateAt": 1,
     }});
     let card = json!({"type": "block", "data": {

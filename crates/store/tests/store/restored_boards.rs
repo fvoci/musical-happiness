@@ -1,6 +1,6 @@
 //! Where a board that comes back from the trash is filed.
 
-use fvoci_model::{Category, ContainerMember, ContainerType, new_id};
+use fvoci_model::{Category, ContainerMember, ContainerVisibility, new_id};
 use fvoci_store::Store;
 
 use crate::boards::new_board;
@@ -69,7 +69,7 @@ async fn stored_board_of(
     test: &Store,
     workspace_id: &str,
     user_id: &str,
-    board_type: ContainerType,
+    board_type: ContainerVisibility,
 ) -> String {
     let board_id = new_id();
     let mut board = new_board(&board_id, workspace_id, board_type);
@@ -98,9 +98,9 @@ async fn a_restored_board_is_filed_where_it_was() {
         common::user(&test, "unfiled").await,
     ];
     // Made last, so that a tie of sort orders would put it after its neighbours.
-    let before = stored_board_of(&test, &workspace_id, &kept, ContainerType::Open).await;
-    let after = stored_board_of(&test, &workspace_id, &kept, ContainerType::Open).await;
-    let board_id = stored_board_of(&test, &workspace_id, &kept, ContainerType::Open).await;
+    let before = stored_board_of(&test, &workspace_id, &kept, ContainerVisibility::Open).await;
+    let after = stored_board_of(&test, &workspace_id, &kept, ContainerVisibility::Open).await;
+    let board_id = stored_board_of(&test, &workspace_id, &kept, ContainerVisibility::Open).await;
     let custom = fvoci_model::CategoryType::Custom;
     let kept_category = stored_category(&test, &kept, &workspace_id, custom).await;
     let moved_category = stored_category(&test, &moved, &workspace_id, custom).await;
@@ -133,7 +133,7 @@ async fn a_restored_board_is_filed_where_it_was() {
             user_id,
             category_id,
             &board_id,
-            fvoci_store::ContainerVisibility::Hidden,
+            fvoci_model::SidebarVisibility::Hidden,
         )
         .await
         .expect("the board is hidden");
@@ -208,7 +208,8 @@ async fn a_restored_private_board_is_filed_for_its_members_only() {
     let workspace_id = common::workspace(&test).await;
     let admin = common::user(&test, "admin").await;
     let former = common::user(&test, "former").await;
-    let board_id = stored_board_of(&test, &workspace_id, &admin, ContainerType::Private).await;
+    let board_id =
+        stored_board_of(&test, &workspace_id, &admin, ContainerVisibility::Private).await;
     test.save_member(&ContainerMember {
         container_id: board_id.clone(),
         user_id: admin.clone(),

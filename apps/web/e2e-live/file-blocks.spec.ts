@@ -138,7 +138,9 @@ test('a PDF put into a page is a file block that others, a copy and the public l
   // Whom the viewer must never name to the public link's reader.
   const people = [((await (await api.get('/api/v1/users/me')).json()) as Schemas['User']).id];
   const wiki = await answered<Schemas['Container']>(
-    await api.post(`/api/v1/w/${ws}/wikis`, { data: { title: 'Committee', type: 'P' } }),
+    await api.post(`/api/v1/w/${ws}/wikis`, {
+      data: { title: 'Committee', visibility: 'private' },
+    }),
   );
   const pages = `/api/v1/w/${ws}/wikis/${wiki.id}/pages`;
   const minutes = await answered<Schemas['Page']>(
@@ -269,8 +271,10 @@ test('a PDF put into a page is a file block that others, a copy and the public l
   expect(await download(page)).toEqual([NAME, PDF]);
 
   // The reader by the wiki's public link downloads it, and the file of the copy is not there.
-  const shared = await answered<Schemas['Sharing']>(
-    await api.post(`/api/v1/w/${ws}/containers/${wiki.id}/sharing`, { data: { enabled: true } }),
+  const shared = await answered<Schemas['PublicLink']>(
+    await api.post(`/api/v1/w/${ws}/containers/${wiki.id}/public-link`, {
+      data: { enabled: true },
+    }),
   );
   const token = shared.token ?? '';
   const anonymous = await browser.newContext({ locale: 'en-US', baseURL: base });

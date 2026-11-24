@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use fvoci_model::{Card, ContainerType};
+use fvoci_model::{Card, ContainerVisibility};
 use fvoci_store::DbType;
 use fvoci_store::testing::OtherWriter;
 use reqwest::StatusCode;
@@ -40,7 +40,7 @@ async fn with_a_card() -> Option<(TestServer, String, Card)> {
         .init_basic()
         .await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let cards = format!("{TEST_WS}/boards/{}/cards", board.id);
     let card: Card = th

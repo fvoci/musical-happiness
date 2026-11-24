@@ -3,7 +3,7 @@
 //! names them; a lease keeps nobody from writing a version. Its term is counted in the
 //! server's unit tests (`app::file_leases`).
 
-use fvoci_model::{ContainerMember, ContainerType};
+use fvoci_model::{ContainerMember, ContainerVisibility};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -65,7 +65,7 @@ fn lease_id(held: &Value) -> String {
 async fn one_editor_holds_a_file_s_lease_at_a_time() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "a.hwpx", b"first").await);
     let other_file = uploaded_id(&upload(&ts.client, &board.id, "b.hwpx", b"other").await);
@@ -138,7 +138,7 @@ async fn one_editor_holds_a_file_s_lease_at_a_time() {
 async fn the_lease_is_held_by_editors_and_told_to_readers() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "a.hwpx", b"first").await);
     let path = lease_path(&board.id, &file_id);
@@ -190,7 +190,7 @@ async fn the_lease_is_held_by_editors_and_told_to_readers() {
 
     // A file of no such name, and one of another board.
     let elsewhere = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let theirs = uploaded_id(&upload(&ts.client, &elsewhere.id, "b.hwpx", b"b").await);
     for (board_id, file) in [(&board.id, "none.hwpx"), (&board.id, theirs.as_str())] {
@@ -221,7 +221,7 @@ async fn a_guest_on_the_board_is_told_who_edits_as_presence_names_them() {
     let ts = Setup::native().start().await.init_basic().await;
     workspace_admin(&ts).await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "a.hwpx", b"first").await);
     // The holder edits through a team: no role of their own on the board.

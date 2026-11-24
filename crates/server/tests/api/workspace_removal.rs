@@ -3,7 +3,7 @@
 //! exports nothing but a 404; and an import leaves out who is not in the workspace,
 //! saying how many.
 
-use fvoci_model::{Container, ContainerMember, ContainerType};
+use fvoci_model::{Container, ContainerMember, ContainerVisibility};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -43,7 +43,7 @@ async fn who_left_a_workspace_finds_none_of_its_boards() {
         .client2
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Quarterly secret",
         ))
         .await
@@ -105,7 +105,7 @@ async fn an_admin_who_cannot_act_as_one_does_not_keep_a_board_from_its_last_admi
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Ours",
         ))
         .await
@@ -151,7 +151,7 @@ async fn an_import_leaves_out_who_is_not_in_the_workspace_and_says_how_many() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Shared",
         ))
         .await
@@ -203,7 +203,11 @@ async fn an_import_counts_each_user_once_and_no_membership_without_a_role() {
     for title in ["One", "Two"] {
         let board: Container = th
             .client
-            .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Private, title))
+            .create_board(&new_board(
+                TEST_WORKSPACE_ID,
+                ContainerVisibility::Private,
+                title,
+            ))
             .await
             .created_json();
         th.client

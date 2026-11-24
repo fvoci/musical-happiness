@@ -56,7 +56,7 @@ async fn an_overlapping_worker_without_the_lock_of_the_server_does_not_run() {
         .write(&file.path, &mut &b"replacement bytes"[..])
         .await
         .expect("the replacement is written");
-    let replacement = fvoci_model::FileInfo {
+    let replacement = fvoci_model::FileRecord {
         id: new_id(),
         create_at: now_millis(),
         size: i64::try_from(size).expect("a small file"),
@@ -82,7 +82,7 @@ async fn an_overlapping_worker_without_the_lock_of_the_server_does_not_run() {
     let still_recorded = ts
         .app
         .store()
-        .get_file_info(&replacement.container_id, &replacement.stored_name)
+        .get_file_record(&replacement.container_id, &replacement.stored_name)
         .await
         .is_ok();
     let still_present = ts

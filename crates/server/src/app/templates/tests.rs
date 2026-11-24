@@ -11,7 +11,7 @@ fn unmarked() -> Container {
         is_template: true,
         is_builtin: true,
         template_version: DEFAULT_TEMPLATE_VERSION,
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..Container::default()
     };
     board.properties.insert(
@@ -274,8 +274,8 @@ fn the_bodies_point_at_the_places_of_their_files() {
         .iter()
         .map(|file| {
             (
-                file.info.container_id.clone(),
-                file.info.stored_name.clone(),
+                file.record.container_id.clone(),
+                file.record.stored_name.clone(),
             )
         })
         .collect();
@@ -285,15 +285,15 @@ fn the_bodies_point_at_the_places_of_their_files() {
     );
     for file in &templates.files {
         assert_eq!(
-            usize::try_from(file.info.size).ok(),
+            usize::try_from(file.record.size).ok(),
             Some(file.bytes.len()),
             "{} is recorded at its size",
-            file.info.name
+            file.record.name
         );
         assert!(
-            fvoci_model::is_storage_path(&file.info.path),
+            fvoci_model::is_storage_path(&file.record.path),
             "{} is a place of the storage",
-            file.info.path
+            file.record.path
         );
     }
     let used: BTreeSet<&[u8]> = templates.files.iter().map(|file| file.bytes).collect();

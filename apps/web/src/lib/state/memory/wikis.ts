@@ -167,7 +167,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
       (board) =>
         isWiki(board) &&
         board.workspaceId === workspaceId &&
-        (board.type === 'O' ||
+        (board.visibility === 'open' ||
           (this.#world.members.get(board.id) ?? []).some((member) => member.userId === userId)),
     );
     return scramble(theirs).map(copy);
@@ -186,7 +186,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
       kind: 'wiki',
       createdBy: userId,
       modifiedBy: userId,
-      type: draft.type,
+      visibility: draft.visibility,
       minimumRole: draft.minimumRole ?? 'editor',
       title: draft.title,
       description: draft.description ?? '',

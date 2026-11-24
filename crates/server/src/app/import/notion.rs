@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use fvoci_model::{
-    BLOCK_TITLE_MAX_CHARS, Block, BlockType, Body, Container, ContainerKind, ContainerType,
+    BLOCK_TITLE_MAX_CHARS, Block, BlockType, Body, Container, ContainerKind, ContainerVisibility,
     JsonMap, PAGE_ORDER_FIELD, new_id, order_between,
 };
 use serde_json::{Value, json};
@@ -578,7 +578,7 @@ async fn build_wiki_container(
 
     let container = Container {
         id: wiki_id,
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Wiki,
         title: truncate_title(wiki_title, summary),
         ..Container::default()
@@ -667,7 +667,7 @@ async fn build_board_container(
 
     let container = Container {
         id: board_id,
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Board,
         title: truncate_title(&spec.title, summary),
         card_properties: parsed.card_properties,

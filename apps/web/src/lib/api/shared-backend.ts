@@ -350,7 +350,7 @@ export class SharedBackend implements Backend {
 
   async fileDetails(containerId: string, fileId: string): Promise<FileDetails> {
     this.#only(containerId);
-    const info = await this.#read<Schemas['FileInfo']>('/files/{fileId}/info', { fileId });
+    const info = await this.#read<Schemas['FileRecord']>('/files/{fileId}/info', { fileId });
     return { name: info.name, size: info.size };
   }
 
@@ -398,8 +398,8 @@ export class SharedBackend implements Backend {
   addMember: Backend['addMember'] = refused;
   setMemberRole: Backend['setMemberRole'] = refused;
   removeMember: Backend['removeMember'] = refused;
-  sharing: Backend['sharing'] = refused;
-  setSharing: Backend['setSharing'] = refused;
+  publicLink: Backend['publicLink'] = refused;
+  setPublicLink: Backend['setPublicLink'] = refused;
   joinContainer: Backend['joinContainer'] = refused;
   createCategory: Backend['createCategory'] = refused;
   patchCategory: Backend['patchCategory'] = refused;

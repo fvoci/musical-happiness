@@ -4,8 +4,8 @@
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockType, BodyChange, Container, ContainerType,
-    ContainersAndBlocks, FileInfo, new_id,
+    Block, BlockError, BlockPatch, BlockType, BodyChange, Container, ContainerVisibility,
+    ContainersAndBlocks, FileRecord, new_id,
 };
 use fvoci_store::{DbType, DuplicateAs, NewBodyFiles, StoreError};
 use serde_json::json;
@@ -13,8 +13,8 @@ use serde_json::json;
 use crate::common;
 
 /// A record of a file of the board, unreferenced since long ago.
-fn record_of(board_id: &str, stored_name: &str) -> FileInfo {
-    FileInfo {
+fn record_of(board_id: &str, stored_name: &str) -> FileRecord {
+    FileRecord {
         id: new_id(),
         container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
@@ -23,7 +23,7 @@ fn record_of(board_id: &str, stored_name: &str) -> FileInfo {
         name: "upload.png".to_owned(),
         extension: ".png".to_owned(),
         size: 7,
-        ..FileInfo::default()
+        ..FileRecord::default()
     }
 }
 
@@ -82,11 +82,11 @@ async fn a_write_that_shows_a_file_newly_needs_the_boards_file() {
     let workspace_id = common::workspace(&test).await;
     let boards = common::create_test_boards(&test, &workspace_id, &user_id, 2).await;
     let (board_id, other_board) = (&boards[0].id, &boards[1].id);
-    test.save_file_info(&record_of(board_id, "7kept.png"))
+    test.save_file_record(&record_of(board_id, "7kept.png"))
         .await
         .expect("a file of the board");
     for name in ["7other.png", "7other.pdf"] {
-        test.save_file_info(&record_of(other_board, name))
+        test.save_file_record(&record_of(other_board, name))
             .await
             .expect("a file of another board");
     }
@@ -121,7 +121,7 @@ async fn a_write_that_shows_a_file_newly_needs_the_boards_file() {
     // The record of a file the card shows goes, as a wrong call of the store could
     // make it: the card is written all the same, and so is its copy.
     test.execute_unchecked(&format!(
-        "DELETE FROM file_info WHERE container_id = '{board_id}' AND name = '7kept.png'"
+        "DELETE FROM files WHERE container_id = '{board_id}' AND name = '7kept.png'"
     ))
     .await
     .expect("the record goes");
@@ -139,7 +139,7 @@ async fn a_write_that_shows_a_file_newly_needs_the_boards_file() {
     let new_board = Container {
         id: new_id(),
         workspace_id: workspace_id.clone(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..Container::default()
     };
     let new = |new_files| {
@@ -184,7 +184,7 @@ async fn the_collector_skips_a_record_that_a_write_holds() {
     let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
     let board_id = boards[0].id.clone();
     for name in ["7held.png", "7free.png"] {
-        test.save_file_info(&record_of(&board_id, name))
+        test.save_file_record(&record_of(&board_id, name))
             .await
             .expect("a file of the board");
     }
@@ -192,14 +192,14 @@ async fn the_collector_skips_a_record_that_a_write_holds() {
     // The statement of the write, on a connection of the test's own.
     let mut writer = common::connect_past_the_store(&test.database_connection()).await;
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-        "BEGIN; SELECT name FROM file_info WHERE container_id = '{board_id}' \
+        "BEGIN; SELECT name FROM files WHERE container_id = '{board_id}' \
          AND name IN ('7held.png') FOR KEY SHARE"
     )))
     .execute(&mut writer)
     .await
     .expect("the record is held");
     let system = test.system();
-    let names = |files: Vec<FileInfo>| -> Vec<String> {
+    let names = |files: Vec<FileRecord>| -> Vec<String> {
         files.into_iter().map(|file| file.stored_name).collect()
     };
     let collected = tokio::time::timeout(
@@ -238,18 +238,18 @@ async fn the_purge_skips_a_file_whose_mark_a_writer_holds() {
     let workspace = common::workspace(&test).await;
     let boards = common::create_test_boards(&test, &workspace, &user, 1).await;
     let file = record_of(&boards[0].id, "7held.png");
-    test.save_file_info(&file)
+    test.save_file_record(&file)
         .await
         .expect("the file is stored");
     test.execute_unchecked(&format!(
-        "UPDATE file_info SET unreferenced_at = NULL WHERE id = '{}'",
+        "UPDATE files SET unreferenced_at = NULL WHERE id = '{}'",
         file.id,
     ))
     .await
     .expect("the committed row needs a mark");
     let mut writer = common::connect_past_the_store(&test.database_connection()).await;
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-        "BEGIN; SELECT id FROM file_info WHERE id = '{}' FOR NO KEY UPDATE",
+        "BEGIN; SELECT id FROM files WHERE id = '{}' FOR NO KEY UPDATE",
         file.id,
     )))
     .execute(&mut writer)

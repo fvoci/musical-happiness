@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Container, ContainerType, ContainersAndBlocks, new_id,
+    Block, BlockPatch, BlockType, Container, ContainerVisibility, ContainersAndBlocks, new_id,
 };
 use fvoci_store::{
     BlockFilter, CopyChanges, CopyTitles, DbType, DuplicateAs, NewBodyFiles, Previews, Store,
@@ -27,7 +27,7 @@ async fn board(store: &Store, workspace_id: &str, user_id: &str) -> String {
     let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         title: "board".to_owned(),
         ..Container::default()
     };
@@ -517,7 +517,7 @@ async fn a_copy_and_an_import_are_new_cards_with_new_numbers() {
     let imported_board = Container {
         id: new_id(),
         workspace_id: workspace_id.clone(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         ..Container::default()
     };
     let mut archive = ContainersAndBlocks {
@@ -599,7 +599,7 @@ async fn writers_at_once_never_take_one_number() {
         let import = Container {
             id: new_id(),
             workspace_id: workspace_id.clone(),
-            container_type: ContainerType::Private,
+            visibility: ContainerVisibility::Private,
             ..Container::default()
         };
         imported.push(import.id.clone());
@@ -697,15 +697,10 @@ async fn write_once(store: &Store, board_id: &str, user_id: &str, write: Write) 
     }
 }
 
-/// The migration numbers the cards that are there: on each board from 1, in the order
-/// they were made, those made at one time by identifier; no template of the board's
-/// cards and no other block. A card made after it takes the next number.
-#[tokio::test]
-async fn the_migration_numbers_the_cards_of_each_board_in_the_order_they_were_made() {
-    let database = common::empty_database().await;
-    let connection = common::raw_connection(&database);
-    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 57)
-        .await;
+/// Seeds an organization, user, and two pre-0058 boards at migration 57.
+async fn seed_pre_0058_boards(
+    database: &fvoci_store::testing::TestDatabase,
+) -> (String, String, [String; 2]) {
     let before = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("the store opens the schema of before");
@@ -722,9 +717,33 @@ async fn the_migration_numbers_the_cards_of_each_board_in_the_order_they_were_ma
         .await
         .expect("the user is stored");
     common::works_in(&before, &workspace_id, &user_id).await;
-    let board_id = board(&before, &workspace_id, &user_id).await;
-    let other_board = board(&before, &workspace_id, &user_id).await;
+    let boards = [new_id(), new_id()];
+    for id in &boards {
+        before
+            .execute_unchecked(&format!(
+                "INSERT INTO containers \
+                 (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
+                  show_description, is_template, properties, card_properties, create_at, update_at) \
+                 VALUES ('{id}', '{workspace_id}', '{user_id}', '{user_id}', 'O', 'board', 'board', \
+                  '', '', false, false, '{{}}', '[]', 1, 1)"
+            ))
+            .await
+            .expect("the pre-0058 board is stored");
+    }
     before.close().await;
+    (org_id, user_id, boards)
+}
+
+/// The migration numbers the cards that are there: on each board from 1, in the order
+/// they were made, those made at one time by identifier; no template of the board's
+/// cards and no other block. A card made after it takes the next number.
+#[tokio::test]
+async fn the_migration_numbers_the_cards_of_each_board_in_the_order_they_were_made() {
+    let database = common::empty_database().await;
+    let connection = common::raw_connection(&database);
+    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 57)
+        .await;
+    let (org_id, user_id, [board_id, other_board]) = seed_pre_0058_boards(&database).await;
 
     let [late, first, template, view] = [new_id(), new_id(), new_id(), new_id()];
     let mut at_once = [new_id(), new_id()];

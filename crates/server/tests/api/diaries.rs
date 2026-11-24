@@ -5,8 +5,8 @@
 //! alone.
 
 use fvoci_model::{
-    BODY_MAX_BYTES, BODY_MAX_NODES, Block, BlockType, Container, ContainerKind, ContainerType,
-    ContainersAndBlocks, DIARIES_PER_SPACE, DiaryDate, new_id,
+    BODY_MAX_BYTES, BODY_MAX_NODES, Block, BlockType, Container, ContainerKind,
+    ContainerVisibility, ContainersAndBlocks, DIARIES_PER_SPACE, DiaryDate, new_id,
 };
 use reqwest::StatusCode;
 use serde_json::{Value, json};
@@ -102,8 +102,8 @@ async fn a_space_has_its_first_diary_once_and_so_many_at_most() {
     assert_eq!(id_of(&one), id_of(&other), "one diary for both");
     let made = one.value();
     assert_eq!(
-        (&made["kind"], &made["type"], &made["title"]),
-        (&json!("diary"), &json!("P"), &json!("")),
+        (&made["kind"], &made["visibility"], &made["title"]),
+        (&json!("diary"), &json!("private"), &json!("")),
         "{made}"
     );
     let again = client.post(&diaries, &first).await;
@@ -757,7 +757,7 @@ async fn an_archive_with_diaries_a_workspace_does_not_take_stores_nothing() {
     let (th, ws) = in_a_space().await;
     let client = &th.client;
     let own = last_of(&ws).to_owned();
-    let board = json!({"type": "P", "title": "Beside the diaries"});
+    let board = json!({"visibility": "private", "title": "Beside the diaries"});
     let board = client.post(&format!("{ws}/boards"), &board).await;
     assert!(board.status.is_success(), "{}", board.text());
     let (_, _, one_diary) = an_archived_diary(client, &ws).await;
@@ -1203,7 +1203,7 @@ fn two_diary_archive_with_files(
     use std::io::Write as _;
 
     let d1 = json!({"type": "container", "data": {
-        "id": "d1", "workspaceId": own_ws, "type": "P", "kind": "diary", "title": "First",
+        "id": "d1", "workspaceId": own_ws, "visibility": "private", "kind": "diary", "title": "First",
         "createAt": 1, "updateAt": 1, "fileNames": {"photo1.png": "photo1.png"},
     }});
     let e1 = json!({"type": "block", "data": {
@@ -1213,7 +1213,7 @@ fn two_diary_archive_with_files(
         "createAt": 1, "updateAt": 1,
     }});
     let d2 = json!({"type": "container", "data": {
-        "id": "d2", "workspaceId": own_ws, "type": "P", "kind": "diary", "title": "Second",
+        "id": "d2", "workspaceId": own_ws, "visibility": "private", "kind": "diary", "title": "Second",
         "createAt": 1, "updateAt": 1,
     }});
     let options =
@@ -1275,7 +1275,7 @@ async fn diary_rollback_snapshot(th: &TestServer) -> (i64, i64, i64, i64, usize,
     (
         count_sql("SELECT CAST(count(*) AS TEXT) FROM containers WHERE kind = 'diary'").await,
         count_sql("SELECT CAST(count(*) AS TEXT) FROM diary_days").await,
-        count_sql("SELECT CAST(count(*) AS TEXT) FROM file_info").await,
+        count_sql("SELECT CAST(count(*) AS TEXT) FROM files").await,
         count_sql("SELECT CAST(count(*) AS TEXT) FROM loose_objects").await,
         stages,
         stored_files,
@@ -1286,7 +1286,7 @@ fn test_diary_and_entry(own_ws: &str, title: &str, date: &str) -> (Container, Bl
     let diary = Container {
         id: new_id(),
         workspace_id: own_ws.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Diary,
         title: title.to_owned(),
         ..Container::default()
@@ -1319,7 +1319,7 @@ async fn assert_commit_time_diary_rollback(
     let own_store = th.app.store().for_org(own_org_id).expect("own store");
     let (d1, e1) = test_diary_and_entry(own_ws, "TxFirst", "2024-08-05");
     let (d2, e2a) = test_diary_and_entry(own_ws, "TxSecond", "2024-08-06");
-    let f1 = fvoci_model::FileInfo {
+    let f1 = fvoci_model::FileRecord {
         id: new_id(),
         name: "photo1.png".to_owned(),
         stored_name: "stored-photo1.png".to_owned(),
@@ -1328,7 +1328,7 @@ async fn assert_commit_time_diary_rollback(
         container_id: d1.id.clone(),
         path: format!("{own_org_id}/{}/stored-photo1.png", d1.id),
         create_at: 1,
-        ..fvoci_model::FileInfo::default()
+        ..fvoci_model::FileRecord::default()
     };
     let mut blocks = vec![e1];
     if case == CommitRollbackCase::DuplicateEntryDate {
@@ -1354,7 +1354,7 @@ async fn assert_commit_time_diary_rollback(
     assert_eq!(
         diary_rollback_snapshot(th).await,
         expected,
-        "commit-time rollback left zero partial diaries, diary_days, or file_info"
+        "commit-time rollback left zero partial diaries, diary_days, or files"
     );
 }
 
@@ -1402,7 +1402,7 @@ async fn assert_storage_write_failure_cleans_staged_files(
 
 /// Multi-diary archive import failure (second diary violating limits, duplicate/future
 /// date, post-staging storage write failure, or DB commit-time failure) rolls back the
-/// first diary, all blocks, `diary_days`, `file_info`, staged `FileBackend` objects,
+/// first diary, all blocks, `diary_days`, `files`, staged `FileBackend` objects,
 /// `loose_objects`, and temporary staging directories.
 #[tokio::test]
 async fn multi_diary_archive_failure_rolls_back_all_diaries_and_staged_files() {
@@ -1459,7 +1459,7 @@ async fn multi_diary_archive_failure_rolls_back_all_diaries_and_staged_files() {
     let ok_entry = entry_line("e2ok", "2024-08-02");
     assert_storage_write_failure_cleans_staged_files(&th, &own_ws, &ok_entry, before).await;
 
-    // 3. Commit-time DB rollback after containers, file_info, and diary_days are inserted.
+    // 3. Commit-time DB rollback after containers, files, and diary_days are inserted.
     for _ in 0..DIARIES_PER_SPACE - 2 {
         a_diary(client, &ws).await;
     }

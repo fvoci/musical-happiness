@@ -11,7 +11,7 @@
 //! other members, access groups, and public links are never copied.
 
 use fvoci_model::{
-    BlockError, BlockType, Container, ContainerKind, ContainerMember, ContainerType,
+    BlockError, BlockType, Container, ContainerKind, ContainerMember, ContainerVisibility,
     ContainersAndBlocks, CourseLimits, CourseScheduleUpdate, TEMPLATE_SCHEDULE_PROPERTY,
     ValidatedCourseSchedule, renew_containers_and_blocks_ids, shift_unit_scheduled_date,
 };
@@ -98,7 +98,7 @@ async fn duplicate_course(
         titles.new_template.clone_into(&mut container.title);
     }
 
-    container.container_type = ContainerType::Private;
+    container.visibility = ContainerVisibility::Private;
     container.is_template = as_template;
     user_id.clone_into(&mut container.created_by);
     if container.is_builtin && to_workspace.is_none() {

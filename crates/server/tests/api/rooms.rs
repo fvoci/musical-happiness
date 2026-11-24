@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_collab::testing::Editor;
-use fvoci_model::{Card, ContainerMember, ContainerType};
+use fvoci_model::{Card, ContainerMember, ContainerVisibility};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -513,7 +513,7 @@ pub(crate) struct Table {
 
 pub(crate) async fn table(th: &TestServer, body: &Value) -> Table {
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let card: Card = th
         .client

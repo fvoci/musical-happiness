@@ -36,7 +36,7 @@ const ROUTES: [&str; 53] = [
     "board: get",
     "board: patch title",
     "board: patch properties",
-    "board: patch type",
+    "board: patch visibility",
     "board: patch minimum role",
     "board: delete",
     "board: undelete",
@@ -70,8 +70,8 @@ const ROUTES: [&str; 53] = [
     "cards: list",
     "cards: get",
     "cards: patch",
-    "sharing: get",
-    "sharing: post",
+    "public-link: get",
+    "public-link: post",
     "subscriptions: create",
     "subscriptions: delete",
     "files: upload",
@@ -144,7 +144,7 @@ impl<'a> Fixture<'a> {
                 Method::POST,
                 &format!("{ROOT_API}/boards"),
                 Payload::Json(json!({
-                    "workspaceId": ROOT_WORKSPACE_ID, "type": board_type, "title": "Matrix",
+                    "workspaceId": ROOT_WORKSPACE_ID, "visibility": board_type, "title": "Matrix",
                     "properties": {}, "cardProperties": [],
                 })),
                 &owner,
@@ -289,7 +289,9 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
             board_path,
             json!({"updatedProperties": {"a": 1}}),
         ),
-        "board: patch type" => Request::json(Method::PATCH, board_path, json!({"type": "O"})),
+        "board: patch visibility" => {
+            Request::json(Method::PATCH, board_path, json!({"visibility": "open"}))
+        }
         "board: patch minimum role" => {
             Request::json(Method::PATCH, board_path, json!({"minimumRole": "editor"}))
         }
@@ -398,18 +400,18 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
             format!("{ROOT_API}/cards/{}", fx.card),
             json!({"title": "patched"}),
         ),
-        "sharing: get" => {
+        "public-link: get" => {
             fx.owner(
                 Method::POST,
-                &format!("{board_path}/sharing"),
+                &format!("{board_path}/public-link"),
                 Payload::Json(json!({"enabled": true})),
             )
             .await;
-            Request::new(Method::GET, format!("{board_path}/sharing"))
+            Request::new(Method::GET, format!("{board_path}/public-link"))
         }
-        "sharing: post" => Request::json(
+        "public-link: post" => Request::json(
             Method::POST,
-            format!("{board_path}/sharing"),
+            format!("{board_path}/public-link"),
             json!({"enabled": true}),
         ),
         "subscriptions: create" => Request::json(
@@ -418,37 +420,7 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
             subscription(fx, me),
         ),
         "subscriptions: delete" => {
-            let subscriber = if me.is_empty() { "nobody" } else { me };
-            if !me.is_empty() {
-                let (name, _) = fx
-                    .users
-                    .ids
-                    .iter()
-                    .find(|(_, id)| id.as_str() == me)
-                    .expect("the caller is a registered user");
-                let token = fx.users.caller(name);
-                let reply = fx
-                    .http
-                    .api(
-                        Method::POST,
-                        &format!("{ROOT_API}/subscriptions"),
-                        Payload::Json(subscription(fx, me)),
-                        &token,
-                    )
-                    .await;
-                // A member has a subscription to end. Who is no member cannot subscribe,
-                // and their cell says what ending a subscription one does not have
-                // answers.
-                let wanted = if MEMBER_ROLES.contains(name) {
-                    201
-                } else {
-                    404
-                };
-                assert_eq!(
-                    reply.status, wanted,
-                    "subscribing as {name} before the subscription is ended"
-                );
-            }
+            let subscriber = subscribe_before_delete(fx, me).await;
             Request::new(
                 Method::DELETE,
                 format!("{ROOT_API}/subscriptions/{}/{subscriber}", fx.card),
@@ -494,6 +466,40 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
     }
 }
 
+async fn subscribe_before_delete<'a>(fx: &Fixture<'_>, me: &'a str) -> &'a str {
+    if me.is_empty() {
+        return "nobody";
+    }
+    let (name, _) = fx
+        .users
+        .ids
+        .iter()
+        .find(|(_, id)| id.as_str() == me)
+        .expect("the caller is a registered user");
+    let token = fx.users.caller(name);
+    let reply = fx
+        .http
+        .api(
+            Method::POST,
+            &format!("{ROOT_API}/subscriptions"),
+            Payload::Json(subscription(fx, me)),
+            &token,
+        )
+        .await;
+    // A member has a subscription to end. Who is no member cannot subscribe,
+    // and their cell says what ending a subscription one does not have answers.
+    let wanted = if MEMBER_ROLES.contains(name) {
+        201
+    } else {
+        404
+    };
+    assert_eq!(
+        reply.status, wanted,
+        "subscribing as {name} before the subscription is ended"
+    );
+    me
+}
+
 fn subscription(fx: &Fixture<'_>, user: &str) -> Value {
     json!({
         "blockType": "card", "blockId": fx.card, "userId": user,
@@ -503,9 +509,9 @@ fn subscription(fx: &Fixture<'_>, user: &str) -> Value {
 /// The status codes of one route, in the order of [`ROLES`].
 type Row = [u16; ROLES.len()];
 
-/// Records the table for boards of one type (`P` or `O`) on a server of its own and
-/// compares it with `golden/<name>.txt`.
-pub(crate) async fn record(name: &str, board_type: &str) {
+/// Records the table for boards of one visibility (`private` or `open`) on a server of
+/// its own and compares it with `golden/<name>.txt`.
+pub(crate) async fn record(name: &str, visibility: &str) {
     let server = start_server().await;
     let http = Http::new(&server);
     let users = Users::register(&http).await;
@@ -514,7 +520,7 @@ pub(crate) async fn record(name: &str, board_type: &str) {
     for route in ROUTES {
         let mut row = [0; ROLES.len()];
         for (cell, role) in row.iter_mut().zip(ROLES) {
-            let fx = Fixture::create(&http, &users, board_type).await;
+            let fx = Fixture::create(&http, &users, visibility).await;
             let (me, caller) = if role == "anonymous" {
                 ("", Caller::Anonymous)
             } else {
@@ -530,13 +536,17 @@ pub(crate) async fn record(name: &str, board_type: &str) {
     }
     server.teardown().await;
 
-    golden::check_table(name, &render(board_type, &rows), |expected| {
+    golden::check_table(name, &render(visibility, &rows), |expected| {
         differences(expected, &rows)
     });
 }
 
-fn render(board_type: &str, rows: &[(&str, Row)]) -> String {
-    let kind = if board_type == "P" { "private" } else { "open" };
+fn render(visibility: &str, rows: &[(&str, Row)]) -> String {
+    let kind = if visibility == "private" {
+        "private"
+    } else {
+        "open"
+    };
     let mut table = format!("# Status code by route and caller, on a board of the {kind} type.\n");
     let _ = write!(table, "{:36}", "route");
     for role in ROLES {
@@ -605,7 +615,7 @@ mod tests {
                 [401, 403, 403, 403, 403, 200],
             ),
         ];
-        let table = render("P", &rows);
+        let table = render("private", &rows);
         assert_eq!(differences(&table, &rows), "", "a table equals itself");
 
         let mut changed = rows;

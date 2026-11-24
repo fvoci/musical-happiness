@@ -8,11 +8,10 @@ use std::time::Duration;
 
 use fvoci_model::{
     Block, BlockType, Body, Category, Container, ContainerKind, ContainerKinds, ContainerMember,
-    ContainerPatch, ContainerType, FileInfo, JsonMap, MinimumRole, Subscription, new_id,
+    ContainerPatch, ContainerVisibility, FileRecord, JsonMap, MinimumRole, PublicLinkChange,
+    Subscription, new_id,
 };
-use fvoci_store::{
-    BlockFilter, Joined, MemberChange, PublicContainers, Purged, SharingChange, Store, StoreError,
-};
+use fvoci_store::{BlockFilter, Joined, MemberChange, PublicContainers, Purged, Store, StoreError};
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::Barrier;
@@ -24,18 +23,22 @@ use crate::common;
 pub(crate) const NOT_AN_ID: &str = "nonexistent-id";
 
 /// A board with the three members nearly every test sets.
-pub(crate) fn new_board(id: &str, workspace_id: &str, board_type: ContainerType) -> Container {
+pub(crate) fn new_board(
+    id: &str,
+    workspace_id: &str,
+    board_type: ContainerVisibility,
+) -> Container {
     Container {
         id: id.to_owned(),
         workspace_id: workspace_id.to_owned(),
-        container_type: board_type,
+        visibility: board_type,
         ..Container::default()
     }
 }
 
 /// Stores an open board of a workspace, without members, and returns its identifier.
 async fn stored_board(store: &Store, workspace_id: &str, user_id: &str) -> String {
-    let mut board = new_board(&new_id(), workspace_id, ContainerType::Open);
+    let mut board = new_board(&new_id(), workspace_id, ContainerVisibility::Open);
     store
         .insert_container(&mut board, user_id)
         .await
@@ -81,7 +84,7 @@ async fn get_container() {
 
     // "existing board"
     {
-        let mut board = new_board(&new_id(), &workspace_id, ContainerType::Open);
+        let mut board = new_board(&new_id(), &workspace_id, ContainerVisibility::Open);
         test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
@@ -94,7 +97,7 @@ async fn get_container() {
         assert_eq!(board.workspace_id, r_board.workspace_id, "the workspace");
         assert_eq!(user_id, r_board.created_by, "the creator");
         assert_eq!(user_id, r_board.modified_by, "the modifier");
-        assert_eq!(board.container_type, r_board.container_type, "the type");
+        assert_eq!(board.visibility, r_board.visibility, "the type");
         assert_ne!(r_board.create_at, 0, "the creation time is set");
         assert_ne!(r_board.update_at, 0, "the modification time is set");
     }
@@ -141,33 +144,33 @@ async fn get_containers_for_user_and_workspace() {
     // Returns only the boards of the workspace that the user is a member of.
     {
         // workspace 1 boards
-        let mut board1 = new_board(&new_id(), &workspace_id_1, ContainerType::Open);
+        let mut board1 = new_board(&new_id(), &workspace_id_1, ContainerVisibility::Open);
         test.insert_container_with_admin(&mut board1, &user_id)
             .await
             .expect("board 1 is inserted");
 
-        let mut board2 = new_board(&new_id(), &workspace_id_1, ContainerType::Private);
+        let mut board2 = new_board(&new_id(), &workspace_id_1, ContainerVisibility::Private);
         test.insert_container_with_admin(&mut board2, &user_id)
             .await
             .expect("board 2 is inserted");
 
-        let mut board3 = new_board(&new_id(), &workspace_id_1, ContainerType::Open);
+        let mut board3 = new_board(&new_id(), &workspace_id_1, ContainerVisibility::Open);
         test.insert_container(&mut board3, &other_user_id)
             .await
             .expect("board 3 is inserted");
 
-        let mut board4 = new_board(&new_id(), &workspace_id_1, ContainerType::Private);
+        let mut board4 = new_board(&new_id(), &workspace_id_1, ContainerVisibility::Private);
         test.insert_container(&mut board4, &other_user_id)
             .await
             .expect("board 4 is inserted");
 
         // workspace 2 boards
-        let mut board5 = new_board(&new_id(), &workspace_id_2, ContainerType::Open);
+        let mut board5 = new_board(&new_id(), &workspace_id_2, ContainerVisibility::Open);
         test.insert_container_with_admin(&mut board5, &user_id)
             .await
             .expect("board 5 is inserted");
 
-        let mut board6 = new_board(&new_id(), &workspace_id_1, ContainerType::Private);
+        let mut board6 = new_board(&new_id(), &workspace_id_1, ContainerVisibility::Private);
         test.insert_container(&mut board6, &other_user_id)
             .await
             .expect("board 6 is inserted");
@@ -247,7 +250,7 @@ async fn get_containers_in_workspace_by_ids() {
         let board_id_1 = new_id();
         let board_id_2 = new_id();
         for board_id in [&board_id_1, &board_id_2] {
-            let mut board = new_board(board_id, &workspace_id, ContainerType::Open);
+            let mut board = new_board(board_id, &workspace_id, ContainerVisibility::Open);
             test.insert_container_with_admin(&mut board, &user_id)
                 .await
                 .expect("the board is inserted");
@@ -326,38 +329,17 @@ async fn insert_container() {
     let workspace_id = common::workspace(&test).await;
     let public_board_id = new_id();
 
-    // "valid public board"
-    {
-        let mut board = new_board(&public_board_id, &workspace_id, ContainerType::Open);
+    // "valid public board" and "valid private board"
+    for (id, visibility) in [
+        (public_board_id.clone(), ContainerVisibility::Open),
+        (new_id(), ContainerVisibility::Private),
+    ] {
+        let mut board = new_board(&id, &workspace_id, visibility);
         test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
-        assert_eq!(board.id, public_board_id, "the identifier is kept");
-        assert_eq!(
-            board.container_type,
-            ContainerType::Open,
-            "the type is kept"
-        );
-        assert_ne!(board.create_at, 0, "the creation time is set");
-        assert_ne!(board.update_at, 0, "the modification time is set");
-        assert_eq!(board.delete_at, 0, "the board is not deleted");
-        assert_eq!(user_id, board.created_by, "the creator");
-        assert_eq!(board.created_by, board.modified_by, "the modifier");
-    }
-
-    // "valid private board"
-    {
-        let private_board_id = new_id();
-        let mut board = new_board(&private_board_id, &workspace_id, ContainerType::Private);
-        test.insert_container(&mut board, &user_id)
-            .await
-            .expect("the board is inserted");
-        assert_eq!(board.id, private_board_id, "the identifier is kept");
-        assert_eq!(
-            board.container_type,
-            ContainerType::Private,
-            "the type is kept"
-        );
+        assert_eq!(board.id, id, "the identifier is kept");
+        assert_eq!(board.visibility, visibility, "the visibility is kept");
         assert_ne!(board.create_at, 0, "the creation time is set");
         assert_ne!(board.update_at, 0, "the modification time is set");
         assert_eq!(board.delete_at, 0, "the board is not deleted");
@@ -392,7 +374,7 @@ async fn insert_container() {
         let mut board = Container {
             id: type_board_id.clone(),
             title: "Public board".to_owned(),
-            container_type: ContainerType::Open,
+            visibility: ContainerVisibility::Open,
             ..Container::default()
         };
         let error = test
@@ -414,23 +396,23 @@ async fn insert_container() {
             .await
             .expect("the board is inserted");
         assert_eq!(
-            ContainerType::Open,
-            board.container_type,
+            ContainerVisibility::Open,
+            board.visibility,
             "the board is open"
         );
 
         let mut board_update = Container {
             id: type_board_id,
             workspace_id,
-            container_type: ContainerType::Private,
+            visibility: ContainerVisibility::Private,
             ..Container::default()
         };
         test.insert_container(&mut board_update, &user_id)
             .await
             .expect("the board is updated");
         assert_eq!(
-            ContainerType::Private,
-            board_update.container_type,
+            ContainerVisibility::Private,
+            board_update.visibility,
             "the board is private now"
         );
     }
@@ -469,7 +451,7 @@ async fn patch_container() {
         let mut board = Container {
             title: "A simple title".to_owned(),
             description: "A simple description".to_owned(),
-            ..new_board(&board_id, &workspace_id, ContainerType::Open)
+            ..new_board(&board_id, &workspace_id, ContainerVisibility::Open)
         };
         test.insert_container(&mut board, &user_id)
             .await
@@ -502,7 +484,7 @@ async fn patch_container() {
 
         let mut board = Container {
             properties: object(json!({ "one": "1", "two": "2" })),
-            ..new_board(&board_id, &workspace_id, ContainerType::Open)
+            ..new_board(&board_id, &workspace_id, ContainerVisibility::Open)
         };
         test.insert_container(&mut board, &user_id)
             .await
@@ -536,18 +518,18 @@ async fn patch_container() {
     {
         let board_id = new_id();
 
-        let mut board = new_board(&board_id, &workspace_id, ContainerType::Open);
+        let mut board = new_board(&board_id, &workspace_id, ContainerVisibility::Open);
         test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
         assert_eq!(
-            board.container_type,
-            ContainerType::Open,
+            board.visibility,
+            ContainerVisibility::Open,
             "the board is open"
         );
 
         let patch = ContainerPatch {
-            container_type: Some(ContainerType::Private),
+            visibility: Some(ContainerVisibility::Private),
             ..ContainerPatch::default()
         };
         let patched_board = test
@@ -555,8 +537,8 @@ async fn patch_container() {
             .await
             .expect("the patch is applied");
         assert_eq!(
-            ContainerType::Private,
-            patched_board.container_type,
+            ContainerVisibility::Private,
+            patched_board.visibility,
             "the board is private now"
         );
     }
@@ -571,14 +553,14 @@ async fn patch_container() {
         let mut board = Container {
             properties: properties.clone(),
             card_properties: card_properties.clone(),
-            ..new_board(&board_id, &workspace_id, ContainerType::Open)
+            ..new_board(&board_id, &workspace_id, ContainerVisibility::Open)
         };
         test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
         assert_eq!(
-            board.container_type,
-            ContainerType::Open,
+            board.visibility,
+            ContainerVisibility::Open,
             "the board is open"
         );
         assert_eq!(properties, board.properties, "the properties");
@@ -588,7 +570,7 @@ async fn patch_container() {
         );
 
         let patch = ContainerPatch {
-            container_type: Some(ContainerType::Private),
+            visibility: Some(ContainerVisibility::Private),
             ..ContainerPatch::default()
         };
         let patched_board = test
@@ -596,8 +578,8 @@ async fn patch_container() {
             .await
             .expect("the patch is applied");
         assert_eq!(
-            ContainerType::Private,
-            patched_board.container_type,
+            ContainerVisibility::Private,
+            patched_board.visibility,
             "the board is private now"
         );
         assert_eq!(
@@ -630,14 +612,14 @@ async fn patch_removes_one_card_property_and_updates_another(
 
     let mut board = Container {
         card_properties: card_properties.clone(),
-        ..new_board(&board_id, workspace_id, ContainerType::Open)
+        ..new_board(&board_id, workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut board, user_id)
         .await
         .expect("the board is inserted");
     assert_eq!(
-        board.container_type,
-        ContainerType::Open,
+        board.visibility,
+        ContainerVisibility::Open,
         "the board is open"
     );
     assert_eq!(
@@ -683,7 +665,7 @@ async fn delete_container() {
     {
         let board_id = new_id();
 
-        let mut board = new_board(&board_id, &workspace_id, ContainerType::Open);
+        let mut board = new_board(&board_id, &workspace_id, ContainerVisibility::Open);
         test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
@@ -728,7 +710,7 @@ async fn undelete_container() {
             is_template: false,
             properties: object(json!({ "prop_1": "value_1" })),
             card_properties: vec![object(json!({ "id": "prop_1", "name": "value_1" }))],
-            ..new_board(&board_id, &workspace_id, ContainerType::Open)
+            ..new_board(&board_id, &workspace_id, ContainerVisibility::Open)
         };
         test.insert_container(&mut board, &user_id)
             .await
@@ -781,7 +763,7 @@ async fn undelete_container() {
     {
         let board_id = new_id();
 
-        let mut board = new_board(&board_id, &workspace_id, ContainerType::Open);
+        let mut board = new_board(&board_id, &workspace_id, ContainerVisibility::Open);
         test.insert_container(&mut board, &user_id)
             .await
             .expect("the board is inserted");
@@ -840,7 +822,7 @@ async fn insert_container_with_admin() {
     {
         let board_id = new_id();
 
-        let mut board = new_board(&board_id, &workspace_id, ContainerType::Open);
+        let mut board = new_board(&board_id, &workspace_id, ContainerVisibility::Open);
         let new_member = test
             .insert_container_with_admin(&mut board, &user_id)
             .await
@@ -1122,7 +1104,7 @@ async fn a_template_stored_on_behalf_of_nobody_is_built_in_and_stays_so() {
     let mut builtin = Container {
         title: "hello".to_owned(),
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut builtin, "")
         .await
@@ -1148,7 +1130,7 @@ async fn a_template_stored_on_behalf_of_nobody_is_built_in_and_stays_so() {
         title: "hello".to_owned(),
         is_template: true,
         is_builtin: true,
-        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut of_user, &user_id)
         .await
@@ -1157,7 +1139,7 @@ async fn a_template_stored_on_behalf_of_nobody_is_built_in_and_stays_so() {
 
     let mut board = Container {
         title: "hello".to_owned(),
-        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut board, "")
         .await
@@ -1168,7 +1150,7 @@ async fn a_template_stored_on_behalf_of_nobody_is_built_in_and_stays_so() {
     let mut renamed = Container {
         title: "world".to_owned(),
         is_template: true,
-        ..new_board(&builtin.id, &workspace_id, ContainerType::Open)
+        ..new_board(&builtin.id, &workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut renamed, &user_id)
         .await
@@ -1189,7 +1171,7 @@ async fn insert_container_update_keeps_workspace_creator_and_creation_time() {
     let another_workspace_id = common::workspace(&test).await;
     let board_id = new_id();
 
-    let mut board = new_board(&board_id, &workspace_id, ContainerType::Open);
+    let mut board = new_board(&board_id, &workspace_id, ContainerVisibility::Open);
     test.insert_container(&mut board, &creator_id)
         .await
         .expect("the board is inserted");
@@ -1206,7 +1188,7 @@ async fn insert_container_update_keeps_workspace_creator_and_creation_time() {
             title: format!("Updated by a caller who claims {claimed_create_at}"),
             created_by: claimed_creator.to_owned(),
             create_at: claimed_create_at,
-            ..new_board(&board_id, claimed_workspace, ContainerType::Private)
+            ..new_board(&board_id, claimed_workspace, ContainerVisibility::Private)
         };
         test.insert_container(&mut update, &editor_id)
             .await
@@ -1233,8 +1215,8 @@ async fn insert_container_update_keeps_workspace_creator_and_creation_time() {
         assert_eq!(stored.created_by, creator_id, "the creator stays");
         assert_eq!(stored.create_at, board.create_at, "the creation time stays");
         assert_eq!(
-            stored.container_type,
-            ContainerType::Private,
+            stored.visibility,
+            ContainerVisibility::Private,
             "the type is the new one"
         );
         assert_eq!(update, stored, "the caller's board is the stored board");
@@ -1255,7 +1237,7 @@ async fn delete_and_undelete_container_take_the_blocks_along() {
     let card_id = new_id();
     let text_id = new_id();
 
-    let mut board = new_board(&board_id, &workspace_id, ContainerType::Open);
+    let mut board = new_board(&board_id, &workspace_id, ContainerVisibility::Open);
     test.insert_container(&mut board, &user_id)
         .await
         .expect("the board is inserted");
@@ -1358,7 +1340,7 @@ async fn save_member_stores_the_scheme_flags_and_no_roles() {
 
     let mut board = Container {
         minimum_role: MinimumRole::Editor,
-        ..new_board(&board_id, &workspace_id, ContainerType::Open)
+        ..new_board(&board_id, &workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut board, &user_id)
         .await
@@ -1411,40 +1393,40 @@ async fn get_template_boards_returns_open_templates_and_templates_the_user_is_me
 
     let mut open_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut open_template, &other_user_id)
         .await
         .expect("the template is inserted");
     let mut own_private_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, ContainerType::Private)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Private)
     };
     test.insert_container_with_admin(&mut own_private_template, &user_id)
         .await
         .expect("the template is inserted");
     let mut foreign_private_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, ContainerType::Private)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Private)
     };
     test.insert_container_with_admin(&mut foreign_private_template, &other_user_id)
         .await
         .expect("the template is inserted");
     let mut other_workspace_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &another_workspace_id, ContainerType::Open)
+        ..new_board(&new_id(), &another_workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut other_workspace_template, &user_id)
         .await
         .expect("the template is inserted");
     let mut builtin_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut builtin_template, "")
         .await
         .expect("the template is inserted");
-    let mut board = new_board(&new_id(), &workspace_id, ContainerType::Open);
+    let mut board = new_board(&new_id(), &workspace_id, ContainerVisibility::Open);
     test.insert_container_with_admin(&mut board, &user_id)
         .await
         .expect("the board is inserted");
@@ -1486,19 +1468,19 @@ async fn remove_default_templates_removes_system_templates_and_their_blocks_past
 
     let mut builtin_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut builtin_template, "")
         .await
         .expect("the template is inserted");
     let mut user_template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut user_template, &user_id)
         .await
         .expect("the template is inserted");
-    let mut plain_board = new_board(&new_id(), &workspace_id, ContainerType::Open);
+    let mut plain_board = new_board(&new_id(), &workspace_id, ContainerVisibility::Open);
     test.insert_container(&mut plain_board, "")
         .await
         .expect("the board is inserted");
@@ -1597,7 +1579,7 @@ async fn boards_with_malformed_card_property_definitions_are_not_stored() {
 
     let mut malformed = Container {
         card_properties: vec![object(json!({ "name": "no id" }))],
-        ..new_board(&board_id, &workspace_id, ContainerType::Open)
+        ..new_board(&board_id, &workspace_id, ContainerVisibility::Open)
     };
     let error = test
         .insert_container(&mut malformed, &user_id)
@@ -1618,7 +1600,7 @@ async fn boards_with_malformed_card_property_definitions_are_not_stored() {
 
     let mut board = Container {
         card_properties: well_formed.clone(),
-        ..new_board(&board_id, &workspace_id, ContainerType::Open)
+        ..new_board(&board_id, &workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut board, &user_id)
         .await
@@ -1757,7 +1739,7 @@ struct FullBoard {
     card_id: String,
     /// The memberships as they read while the board exists, sorted by user.
     members: Vec<ContainerMember>,
-    file: FileInfo,
+    file: FileRecord,
 }
 
 impl FullBoard {
@@ -1774,7 +1756,7 @@ impl FullBoard {
             minimum_role: MinimumRole::Commenter,
             properties: object(json!({ "color": "blue" })),
             card_properties: vec![object(json!({ "id": "status", "name": "Status" }))],
-            ..new_board(&new_id(), &workspace_id, ContainerType::Private)
+            ..new_board(&new_id(), &workspace_id, ContainerVisibility::Private)
         };
         store
             .insert_container_with_admin(&mut board, &admin_id)
@@ -1797,18 +1779,18 @@ impl FullBoard {
             .await
             .expect("the blocks are stored");
 
-        let file = FileInfo {
+        let file = FileRecord {
             name: "diagram.png".to_owned(),
             create_at: board.create_at,
             ..file_of(&board.id, "7f3a9c.png")
         };
         store
-            .save_file_info(&file)
+            .save_file_record(&file)
             .await
             .expect("the file record is stored");
 
         store
-            .set_sharing(&board.id, SharingChange::On, "read-token", &admin_id)
+            .set_public_link(&board.id, PublicLinkChange::On, "read-token", &admin_id)
             .await
             .expect("the board is shared");
 
@@ -1864,7 +1846,10 @@ impl FullBoard {
 
     /// The board is not shared and the subscribers to its card match `want`.
     async fn assert_sharing_gone_and_watchers(&self, store: &Store, want: &[&str]) {
-        let err = store.get_sharing(&self.board.id).await.expect_err("none");
+        let err = store
+            .get_public_link(&self.board.id)
+            .await
+            .expect_err("none");
         assert!(err.is_not_found(), "got {err:?}");
         let subs = store
             .get_subscribers_for_block(&self.card_id)
@@ -1908,7 +1893,7 @@ async fn delete_container_moves_the_board_and_what_is_its_own_to_the_trash() {
         "the user is left a member: {of_admin:?}"
     );
     let error = test
-        .get_file_info(board_id, &full.file.stored_name)
+        .get_file_record(board_id, &full.file.stored_name)
         .await
         .expect_err("the file record is gone");
     assert!(error.is_not_found(), "got {error:?}");
@@ -1973,7 +1958,7 @@ async fn delete_container_ends_sharing_category_filing_and_subscriptions() {
     let full = FullBoard::store(&test).await;
 
     // Before: the board is shared, filed and subscribed to.
-    test.get_sharing(&full.board.id)
+    test.get_public_link(&full.board.id)
         .await
         .expect("the board is shared");
     let categories = test
@@ -2058,7 +2043,7 @@ async fn undelete_container_brings_back_the_board_its_blocks_files_and_members()
     );
 
     let file = test
-        .get_file_info(board_id, &full.file.stored_name)
+        .get_file_record(board_id, &full.file.stored_name)
         .await
         .expect("the file record is back");
     assert_eq!(file, full.file, "the file record as it was, path included");
@@ -2205,7 +2190,7 @@ async fn undelete_container_restores_a_board_whose_creator_is_gone_as_made_by_no
     let editor_id = common::user(&test, "editor").await;
     let workspace_id = common::workspace_of(&test, &[&creator_id]).await;
 
-    let mut board = new_board(&new_id(), &workspace_id, ContainerType::Open);
+    let mut board = new_board(&new_id(), &workspace_id, ContainerVisibility::Open);
     test.insert_container_with_admin(&mut board, &creator_id)
         .await
         .expect("the board and its administrator are stored");
@@ -2672,7 +2657,7 @@ async fn purge_trash_removes_deleted_blocks_of_a_board_that_is_gone_for_good() {
 
     let mut template = Container {
         is_template: true,
-        ..new_board(&new_id(), &workspace_id, ContainerType::Open)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut template, "")
         .await
@@ -2716,8 +2701,8 @@ async fn purge_trash_removes_deleted_blocks_of_a_board_that_is_gone_for_good() {
 }
 
 /// A file record of the board, not stored yet.
-fn file_of(board_id: &str, stored_name: &str) -> FileInfo {
-    FileInfo {
+fn file_of(board_id: &str, stored_name: &str) -> FileRecord {
+    FileRecord {
         id: new_id(),
         container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
@@ -2726,7 +2711,7 @@ fn file_of(board_id: &str, stored_name: &str) -> FileInfo {
         size: 2048,
         path: format!("boards/{board_id}/{stored_name}"),
         create_at: 1,
-        ..FileInfo::default()
+        ..FileRecord::default()
     }
 }
 
@@ -2746,7 +2731,7 @@ async fn purge_trash_returns_the_file_records_of_the_boards_it_removed() {
     let of_newer = file_of(&newer_id, "7a.png");
     let of_kept = file_of(&kept_id, "7a.png");
     for file in of_old.iter().chain([&of_newer, &of_kept]) {
-        test.save_file_info(file)
+        test.save_file_record(file)
             .await
             .expect("the file record is stored");
     }
@@ -2777,7 +2762,7 @@ async fn purge_trash_returns_the_file_records_of_the_boards_it_removed() {
         .expect("what is newer than the cutoff is restored");
     for file in [&of_newer, &of_kept] {
         let stored = test
-            .get_file_info(&file.container_id, &file.stored_name)
+            .get_file_record(&file.container_id, &file.stored_name)
             .await
             .expect("the file record is there");
         assert_eq!(&stored, file, "as it was stored");
@@ -3371,7 +3356,7 @@ async fn join_container_gives_the_minimum_role_raises_to_it_and_never_lowers() {
         let board_id = new_id();
         let mut board = Container {
             minimum_role,
-            ..new_board(&board_id, &workspace_id, ContainerType::Open)
+            ..new_board(&board_id, &workspace_id, ContainerVisibility::Open)
         };
         test.insert_container_with_admin(&mut board, &owner_id)
             .await
@@ -3431,7 +3416,7 @@ async fn join_container_gives_the_minimum_role_raises_to_it_and_never_lowers() {
     let board_id = new_id();
     let mut board = Container {
         minimum_role: MinimumRole::Commenter,
-        ..new_board(&board_id, &workspace_id, ContainerType::Open)
+        ..new_board(&board_id, &workspace_id, ContainerVisibility::Open)
     };
     test.insert_container_with_admin(&mut board, &owner_id)
         .await
@@ -3846,7 +3831,7 @@ async fn a_file_saved_while_the_board_is_deleted_goes_with_the_board_or_is_not_f
             let (store, start, late) = (test.store.clone(), Arc::clone(&start), late.clone());
             async move {
                 start.wait().await;
-                store.save_file_info(&late).await
+                store.save_file_record(&late).await
             }
         });
         deleting
@@ -3856,7 +3841,7 @@ async fn a_file_saved_while_the_board_is_deleted_goes_with_the_board_or_is_not_f
         let saved = saving.await.expect("the saving task runs to its end");
 
         let error = test
-            .get_file_info(&board_id, &late.stored_name)
+            .get_file_record(&board_id, &late.stored_name)
             .await
             .expect_err("a deleted board has no file records");
         assert!(error.is_not_found(), "round {round}: got {error:?}");
@@ -3871,7 +3856,7 @@ async fn a_file_saved_while_the_board_is_deleted_goes_with_the_board_or_is_not_f
         test.undelete_container(&board_id, &user_id)
             .await
             .unwrap_or_else(|error| panic!("round {round}: the board is restored: {error:?}"));
-        let back = test.get_file_info(&board_id, &late.stored_name).await;
+        let back = test.get_file_record(&board_id, &late.stored_name).await;
         match (&saved, back) {
             (Ok(()), Ok(back)) => {
                 assert_eq!(back, late, "round {round}: the record came back as it was");
@@ -3934,7 +3919,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         // Stamped by the store when the board is inserted.
         created_by: String::new(),
         modified_by: String::new(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Board,
         minimum_role: MinimumRole::Commenter,
         title: "Roadmap".to_owned(),

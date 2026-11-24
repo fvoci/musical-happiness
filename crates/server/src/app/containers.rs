@@ -2,7 +2,7 @@
 
 use fvoci_model::{
     AuditAction, Container, ContainerCategoryWebsocketData, ContainerKind, ContainerMember,
-    ContainerPatch, ContainerType, new_id,
+    ContainerPatch, ContainerVisibility, new_id,
 };
 use fvoci_store::{AuditEntry, DeletedContainer, Joined, MemberChange, PublicContainers, Standing};
 
@@ -12,10 +12,10 @@ use crate::error::{AppError, Reason};
 use crate::metrics::CourseSource;
 use crate::permissions::ContainerScope;
 
-/// Whether a patch of a board changes who may do what on it: its type (open to the
+/// Whether a patch of a board changes who may do what on it: its visibility (open to the
 /// workspace or by invitation) or the role of who joins it.
 pub(super) fn changes_access(patch: &ContainerPatch) -> bool {
-    patch.container_type.is_some() || patch.minimum_role.is_some()
+    patch.visibility.is_some() || patch.minimum_role.is_some()
 }
 
 /// The message of the refusal to remove or demote a board's only admin.
@@ -195,7 +195,7 @@ impl App {
     ) -> Result<Container, AppError> {
         let mut is_template = false;
         let mut scope_before = None;
-        if patch.container_type.is_some() {
+        if patch.visibility.is_some() {
             let container = match self.store().get_container(container_id).await {
                 Ok(container) => container,
                 Err(error) if error.is_not_found() => {
@@ -225,14 +225,13 @@ impl App {
 
         let app = self.clone();
         let container = updated.clone();
-        let new_type = patch.container_type.filter(|_| is_template);
+        let new_visibility = patch.visibility.filter(|_| is_template);
         self.spawn_background(async move {
             app.ws()
                 .broadcast_container_change(&container.workspace_id, &container)
                 .await;
-            if let Some(container_type) = new_type {
-                app.broadcast_workspace_users(&container, container_type)
-                    .await;
+            if let Some(visibility) = new_visibility {
+                app.broadcast_workspace_users(&container, visibility).await;
             }
             if let Some(scope) = closed {
                 app.broadcast_closed(&container, scope).await;
@@ -306,7 +305,7 @@ impl App {
     async fn broadcast_workspace_users(
         &self,
         container: &Container,
-        container_type: ContainerType,
+        visibility: ContainerVisibility,
     ) {
         // A team's people keep their role across the change, as direct members do.
         let members = match self.effective_container_members(&container.id).await {
@@ -333,13 +332,13 @@ impl App {
             .iter()
             .filter(|user_id| !members.iter().any(|member| member.user_id == **user_id));
         for user_id in others {
-            match container_type {
-                ContainerType::Private => {
+            match visibility {
+                ContainerVisibility::Private => {
                     self.ws()
                         .broadcast_member_delete(&container.workspace_id, &container.id, user_id)
                         .await;
                 }
-                ContainerType::Open => {
+                ContainerVisibility::Open => {
                     let viewer = ContainerMember {
                         user_id: user_id.clone(),
                         container_id: container.id.clone(),

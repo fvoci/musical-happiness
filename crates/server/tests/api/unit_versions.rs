@@ -37,7 +37,7 @@ async fn course_with_unit(client: &Client, course_type: &str) -> (String, String
     let course = client
         .post(
             &format!("{TEST_WS}/courses"),
-            &json!({"type": course_type, "title": "Course"}),
+            &json!({"visibility": course_type, "title": "Course"}),
         )
         .await;
     course.check_created();
@@ -61,7 +61,7 @@ async fn course_with_unit(client: &Client, course_type: &str) -> (String, String
 async fn unit_body_versions_roles_keep_by_hand_and_restore() {
     let th = Setup::native().start().await.init_basic().await;
     let member = th.client2.me().await.id;
-    let (course, _, unit) = course_with_unit(&th.client, "P").await;
+    let (course, _, unit) = course_with_unit(&th.client, "private").await;
     write_bodies(
         &th.client,
         &course,
@@ -144,7 +144,7 @@ async fn unit_body_versions_roles_keep_by_hand_and_restore() {
 #[tokio::test]
 async fn open_course_versions_distinguish_unjoined_member_and_guest() {
     let th = Setup::native().start().await.init_basic().await;
-    let (open, _, open_unit) = course_with_unit(&th.client, "O").await;
+    let (open, _, open_unit) = course_with_unit(&th.client, "open").await;
     write_bodies(&th.client, &open, &open_unit, &[paragraphs(&["open"])]).await;
     let open_versions = versions_path(TEST_WS, &open, &open_unit);
     th.client2.get(&open_versions).await.check_ok();
@@ -189,7 +189,7 @@ async fn open_course_versions_distinguish_unjoined_member_and_guest() {
 #[tokio::test]
 async fn unit_versions_file_refs_chapters_and_trash_isolation() {
     let th = Setup::native().start().await.init_basic().await;
-    let (course, chapter, unit) = course_with_unit(&th.client, "P").await;
+    let (course, chapter, unit) = course_with_unit(&th.client, "private").await;
 
     // Upload a file, embed it in version 1, overwrite with plain text in version 2,
     // and restore version 1: file remains accessible and restored body references it.

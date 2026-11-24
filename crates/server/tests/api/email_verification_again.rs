@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use fvoci_model::{Container, ContainerType, Invitation};
+use fvoci_model::{Container, ContainerVisibility, Invitation};
 use fvoci_store::SignupLookup;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -89,7 +89,7 @@ impl Org {
             .founder
             .create_board(&Container {
                 workspace_id: self.workspace_id.clone(),
-                container_type: ContainerType::Open,
+                visibility: ContainerVisibility::Open,
                 ..Container::default()
             })
             .await

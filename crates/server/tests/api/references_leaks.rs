@@ -41,7 +41,7 @@ impl Given {
 /// the card.
 async fn source_naming(th: &TestServer, targets: &[&str]) -> (String, String) {
     let owner = &th.client;
-    let held = made(owner, TEST_WS, "P", "held").await;
+    let held = made(owner, TEST_WS, "private", "held").await;
     give(th, &held.board, &th.client2.me().await.id, "editor").await;
     card_names(owner, TEST_WS, &held.card, targets).await;
     comment_naming(owner, &held.board, &held.card, targets).await;
@@ -194,8 +194,8 @@ fn check_all(all: &[Given]) {
 async fn nothing_a_page_gives_tells_the_title_of_what_it_names() {
     let th = Setup::native().start().await.init_basic().await;
     let (owner, reader) = (&th.client, &th.client2);
-    let private = made(owner, TEST_WS, "P", HIDDEN).await;
-    let held = made(owner, TEST_WS, "P", "held").await;
+    let private = made(owner, TEST_WS, "private", HIDDEN).await;
+    let held = made(owner, TEST_WS, "private", "held").await;
     give(&th, &held.wiki, &reader.me().await.id, "editor").await;
     let targets = private.both();
     page_names(owner, TEST_WS, &held, &targets).await;
@@ -220,8 +220,8 @@ async fn nothing_a_page_gives_tells_the_title_of_what_it_names() {
 #[tokio::test]
 async fn nothing_tells_a_member_the_title_of_what_is_on_a_board_they_are_not_on() {
     let th = Setup::native().start().await.init_basic().await;
-    let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
-    let open = made(&th.client, TEST_WS, "O", HIDDEN).await;
+    let private = made(&th.client, TEST_WS, "private", HIDDEN).await;
+    let open = made(&th.client, TEST_WS, "open", HIDDEN).await;
     let targets = [private.card.as_str(), &private.page, &open.card];
     // The page of the open wiki is read unjoined: its title is no secret.
     th.client
@@ -241,8 +241,8 @@ async fn nothing_tells_a_member_the_title_of_what_is_on_a_board_they_are_not_on(
 async fn nothing_tells_a_guest_the_title_of_what_they_were_not_invited_to() {
     let th = Setup::native().start().await.init_basic().await;
     crate::guests::guest_of_the_workspace(&th).await;
-    let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
-    let open = made(&th.client, TEST_WS, "O", HIDDEN).await;
+    let private = made(&th.client, TEST_WS, "private", HIDDEN).await;
+    let open = made(&th.client, TEST_WS, "open", HIDDEN).await;
     let targets = [private.both(), open.both()].concat();
     check_nothing_tells_the_title(&th, &targets).await;
     th.teardown().await;
@@ -254,7 +254,7 @@ async fn nothing_tells_a_guest_the_title_of_what_they_were_not_invited_to() {
 async fn nothing_tells_who_only_manages_the_title_of_what_is_on_the_board() {
     let th = Setup::native().start().await.init_basic().await;
     crate::workspace_admin::workspace_admin(&th).await;
-    let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
+    let private = made(&th.client, TEST_WS, "private", HIDDEN).await;
     check_nothing_tells_the_title(&th, &private.both()).await;
     th.teardown().await;
 }
@@ -263,7 +263,7 @@ async fn nothing_tells_who_only_manages_the_title_of_what_is_on_the_board() {
 #[tokio::test]
 async fn nothing_tells_the_title_of_what_is_of_another_workspace_or_organization() {
     let th = Setup::native().start().await.init_basic().await;
-    let root = made(&th.client, ROOT_WS, "P", HIDDEN).await;
+    let root = made(&th.client, ROOT_WS, "private", HIDDEN).await;
     let mut targets: Vec<String> = root.both().map(str::to_owned).to_vec();
     // SQLite holds one organization.
     if fvoci_store::testing::db_type_of_the_tests() == fvoci_store::DbType::Postgres {
@@ -324,8 +324,8 @@ async fn a_webhook_is_posted_what_a_body_names_by_identifier_alone() {
         .await
         .init_basic()
         .await;
-    let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
-    let held = made(&th.client, TEST_WS, "P", "held").await;
+    let private = made(&th.client, TEST_WS, "private", HIDDEN).await;
+    let held = made(&th.client, TEST_WS, "private", "held").await;
     let source = card_of(&th.client, TEST_WS, &held.board, "source").await;
     card_names(&th.client, TEST_WS, &source, &private.both()).await;
     comment_naming(&th.client, &held.board, &source, &private.both()).await;
@@ -362,7 +362,7 @@ async fn a_webhook_is_posted_what_a_body_names_by_identifier_alone() {
 async fn a_version_keeps_what_the_body_named_and_only_the_body_of_now_names() {
     let th = Setup::native().start().await.init_basic().await;
     let user = &th.client;
-    let mine = made(user, TEST_WS, "P", "mine").await;
+    let mine = made(user, TEST_WS, "private", "mine").await;
     let before = card_of(user, TEST_WS, &mine.board, "named before").await;
     let now = card_of(user, TEST_WS, &mine.board, "named now").await;
     let source = mine.card.as_str();

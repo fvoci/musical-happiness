@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use fvoci_model::{Block, BlockPatch, BlockType, Body, BodyChange, FileInfo, new_id};
+use fvoci_model::{Block, BlockPatch, BlockType, Body, BodyChange, FileRecord, new_id};
 use fvoci_store::DbType;
 use serde_json::json;
 use sqlx::PgConnection;
@@ -25,7 +25,7 @@ async fn pause_marking(test: &common::TestStore) -> (PgConnection, i64) {
     let trigger = format!(
         "CREATE FUNCTION pause_file_mark() RETURNS trigger LANGUAGE plpgsql AS $$ \
          BEGIN PERFORM pg_advisory_xact_lock({key}::bigint); RETURN NEW; END $$; \
-         CREATE TRIGGER pause_file_mark BEFORE UPDATE ON file_info FOR EACH ROW \
+         CREATE TRIGGER pause_file_mark BEFORE UPDATE ON files FOR EACH ROW \
          WHEN (OLD.unreferenced_at IS NULL AND NEW.unreferenced_at IS NOT NULL) \
          EXECUTE FUNCTION pause_file_mark()"
     );
@@ -64,15 +64,15 @@ async fn a_new_image_survives_a_purge_that_saw_no_reference() {
     let workspace = common::workspace(&test).await;
     let boards = common::create_test_boards(&test, &workspace, &user, 1).await;
     let board = &boards[0].id;
-    let file = FileInfo {
+    let file = FileRecord {
         id: new_id(),
         container_id: board.clone(),
         stored_name: "7shown.png".to_owned(),
         path: format!("boards/{board}/7shown.png"),
         create_at: 1,
-        ..FileInfo::default()
+        ..FileRecord::default()
     };
-    test.save_file_info(&file)
+    test.save_file_record(&file)
         .await
         .expect("the file is stored");
     let body = Body::parse(json!({"type": "doc", "content": [
@@ -186,11 +186,16 @@ async fn race_with_mark(test: &common::TestStore, card: &str, patch: &BlockPatch
         .expect("the purge commits");
 }
 
-async fn assert_fresh_retention(test: &common::TestStore, card: &str, user: &str, file: &FileInfo) {
+async fn assert_fresh_retention(
+    test: &common::TestStore,
+    card: &str,
+    user: &str,
+    file: &FileRecord,
+) {
     let unmarked = common::try_execute_raw(
         &test.database_connection(),
         &format!(
-            "UPDATE file_info SET unreferenced_at = unreferenced_at \
+            "UPDATE files SET unreferenced_at = unreferenced_at \
          WHERE id = '{}' AND unreferenced_at IS NULL",
             file.id,
         ),

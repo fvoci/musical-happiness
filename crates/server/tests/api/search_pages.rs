@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use fvoci_model::{
-    Container, ContainerKind, ContainerType, NewPage, Page, SearchHit, SearchKind, new_id,
+    Container, ContainerKind, ContainerVisibility, NewPage, Page, SearchHit, SearchKind, new_id,
 };
 use fvoci_server::search::tend;
 use fvoci_store::testing::db_type_of_the_tests;
@@ -28,7 +28,10 @@ fn body(text: &str) -> Value {
 /// A private wiki of the test workspace made by `client`'s user.
 pub(crate) async fn new_wiki(client: &Client) -> String {
     let made = client
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "P"}))
+        .post(
+            &format!("{TEST_WS}/wikis"),
+            &json!({"visibility": "private"}),
+        )
         .await;
     made.check_created();
     made.value()["id"].as_str().expect("an id").to_owned()
@@ -63,7 +66,7 @@ pub(crate) async fn new_page(
 pub(crate) async fn stored_wiki(
     store: &Store,
     workspace_id: &str,
-    wiki_type: ContainerType,
+    wiki_type: ContainerVisibility,
     user_id: &str,
 ) -> (String, String) {
     let mut wiki = Container {
@@ -129,7 +132,7 @@ async fn a_page_is_sent_and_found_with_the_cards_while_it_is_there() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Support",
         ))
         .await
@@ -234,7 +237,7 @@ async fn page_of_another_organization(th: &TestServer) -> String {
     let (_, page) = stored_wiki(
         &theirs,
         &their_workspace,
-        ContainerType::Private,
+        ContainerVisibility::Private,
         &their_user.id,
     )
     .await;
@@ -255,7 +258,7 @@ async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
     let org_id = th.app.store().tenant().org_id().expect("an organization");
     let store = th.app.store();
     // A board of the first user in the root workspace: a search there asks the index.
-    th.create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+    th.create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
 
     // The first user's wiki: a page they read, and a page that went with one below.
@@ -283,16 +286,26 @@ async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
     // A private wiki of somebody else in the same workspace, and one of a workspace
     // the searchers are not in.
     let stranger = th.stranger_in(TEST_WORKSPACE_ID).await;
-    let (private, private_page) =
-        stored_wiki(store, TEST_WORKSPACE_ID, ContainerType::Private, &stranger).await;
+    let (private, private_page) = stored_wiki(
+        store,
+        TEST_WORKSPACE_ID,
+        ContainerVisibility::Private,
+        &stranger,
+    )
+    .await;
     // An open wiki the searchers have not joined: read by whoever works there.
-    let (open, open_page) =
-        stored_wiki(store, TEST_WORKSPACE_ID, ContainerType::Open, &stranger).await;
+    let (open, open_page) = stored_wiki(
+        store,
+        TEST_WORKSPACE_ID,
+        ContainerVisibility::Open,
+        &stranger,
+    )
+    .await;
     let hidden_owner = th.stranger_in(HIDDEN_WORKSPACE_ID).await;
     let (_, hidden_page) = stored_wiki(
         store,
         HIDDEN_WORKSPACE_ID,
-        ContainerType::Private,
+        ContainerVisibility::Private,
         &hidden_owner,
     )
     .await;
@@ -322,7 +335,7 @@ async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
         .client2
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Theirs",
         ))
         .await

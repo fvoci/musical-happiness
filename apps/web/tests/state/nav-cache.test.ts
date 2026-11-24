@@ -244,7 +244,7 @@ describe('wiki fast first-page open and fallback', () => {
     await made.workspace.load();
     const wiki = await made.backend.wiki.createWiki(made.world.workspace.id, {
       title: 'Docs',
-      type: 'P',
+      visibility: 'private',
     });
     const p1 = await made.backend.wiki.createPage(wiki.id, { title: 'First Page' });
     await made.backend.wiki.patchPage(wiki.id, p1.id, {
@@ -758,7 +758,7 @@ describe('strict security, isolation and cache invalidation', () => {
         id: 'stale-board',
         workspaceId: first.id,
         title: 'Stale',
-        type: 'O',
+        visibility: 'open',
         module: 'boards',
         createAt: 1,
         updateAt: 1,
@@ -805,7 +805,7 @@ describe('strict security, isolation and cache invalidation', () => {
     await made.workspace.load();
     const wiki = await made.backend.wiki.createWiki(made.world.workspace.id, {
       title: 'Docs',
-      type: 'P',
+      visibility: 'private',
     });
     const page = await made.backend.wiki.createPage(wiki.id, { title: 'P1' });
     const store = track(new WikiStore(made.workspace, wiki.id));
@@ -946,7 +946,7 @@ describe('strict security, isolation and cache invalidation', () => {
     await made.workspace.load();
     const wiki = await made.backend.wiki.createWiki(made.world.workspace.id, {
       title: 'Docs',
-      type: 'P',
+      visibility: 'private',
     });
     const p1 = await made.backend.wiki.createPage(wiki.id, { title: 'Keep' });
     const p2 = await made.backend.wiki.createPage(wiki.id, { title: 'Soon Gone' });

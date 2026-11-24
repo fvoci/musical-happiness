@@ -42,7 +42,7 @@ export {
   type OrgRole,
   type Registration,
   type SignInOrganization,
-  type Sharing,
+  type PublicLink,
   type UserOrganization,
   type WorkspaceInfo,
   type UploadedFile,

@@ -4,9 +4,9 @@ use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
     CATEGORY_CONTAINERS_SORT_ORDER_GAP, Category, CategoryContainerMetadata, CategoryContainers,
-    CategoryType, Container, ContainerCategoryWebsocketData, ContainerKinds,
+    CategoryType, Container, ContainerCategoryWebsocketData, ContainerKinds, SidebarVisibility,
 };
-use fvoci_store::{ContainerVisibility, PublicContainers};
+use fvoci_store::PublicContainers;
 
 use super::App;
 use super::category::CATEGORY;
@@ -348,13 +348,13 @@ impl App {
     /// Returns a not-found error if the category is not one of the user's categories in
     /// the workspace, or the board is not there or is one of another workspace; and the store's
     /// error if the write fails.
-    pub async fn set_container_visibility(
+    pub async fn set_sidebar_visibility(
         &self,
         workspace_id: &str,
         user_id: &str,
         category_id: &str,
         container_id: &str,
-        visibility: ContainerVisibility,
+        visibility: SidebarVisibility,
     ) -> Result<(), AppError> {
         self.user_category(workspace_id, user_id, category_id)
             .await?;
@@ -370,7 +370,7 @@ impl App {
         let change = ContainerCategoryWebsocketData {
             container_id: container_id.to_owned(),
             category_id: category_id.to_owned(),
-            hidden: visibility == ContainerVisibility::Hidden,
+            hidden: visibility == SidebarVisibility::Hidden,
         };
         self.ws()
             .broadcast_category_container_change(workspace_id, user_id, &[change])

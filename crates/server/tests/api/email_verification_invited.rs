@@ -72,7 +72,7 @@ impl Scene {
                 .ada
                 .create_board(&fvoci_model::Container {
                     workspace_id: self.workspace_id.clone(),
-                    container_type: fvoci_model::ContainerType::Open,
+                    visibility: fvoci_model::ContainerVisibility::Open,
                     ..fvoci_model::Container::default()
                 })
                 .await
@@ -483,7 +483,7 @@ async fn a_confirmed_guest_is_told_whether_a_board_or_a_wiki_let_them_in() {
         .ada
         .post(
             &format!("/w/{}/wikis", scene.workspace_id),
-            &json!({"type": "P", "title": "Handbook"}),
+            &json!({"visibility": "private", "title": "Handbook"}),
         )
         .await;
     wiki.check_created();

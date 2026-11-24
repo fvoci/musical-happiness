@@ -15,7 +15,7 @@ mod s3;
 #[path = "file_storage_review/startup.rs"]
 mod startup;
 
-use fvoci_model::{Body, Card, ContainerType, FileInfo, Upload, UploadPurpose};
+use fvoci_model::{Body, Card, ContainerVisibility, FileRecord, Upload, UploadPurpose};
 use fvoci_server::app::ChangeNotification;
 use fvoci_server::auth::now_millis;
 use fvoci_server::auth::secret::new_secret;
@@ -24,9 +24,9 @@ use fvoci_store::StoreError;
 
 use common::{Setup, TEST_WORKSPACE_ID, TestServer};
 
-async fn recorded(ts: &TestServer) -> FileInfo {
+async fn recorded(ts: &TestServer) -> FileRecord {
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let name = ts
         .app
@@ -35,7 +35,7 @@ async fn recorded(ts: &TestServer) -> FileInfo {
         .expect("the file is stored");
     ts.app
         .store()
-        .get_file_info(&board.id, &name)
+        .get_file_record(&board.id, &name)
         .await
         .expect("the file is recorded")
 }
@@ -98,7 +98,7 @@ async fn abandoning_an_upload_with_a_path_alias_preserves_the_recorded_object() 
     let still_recorded = ts
         .app
         .store()
-        .get_file_info(&file.container_id, &file.stored_name)
+        .get_file_record(&file.container_id, &file.stored_name)
         .await
         .is_ok();
     let still_present = ts.app.files().exists(&file.path).await.expect("read");
@@ -121,7 +121,7 @@ async fn a_body_checked_before_collection_cannot_commit_a_missing_image() {
     ts.app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE file_info SET unreferenced_at = 1 WHERE id = '{}'",
+            "UPDATE files SET unreferenced_at = 1 WHERE id = '{}'",
             file.id
         ))
         .await
@@ -208,7 +208,7 @@ async fn a_purge_mark_cannot_doom_the_bytes_of_a_newly_shown_image() {
     ts.app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE file_info SET unreferenced_at = 1 WHERE id = '{}'",
+            "UPDATE files SET unreferenced_at = 1 WHERE id = '{}'",
             file.id,
         ))
         .await
@@ -232,7 +232,7 @@ async fn a_purge_mark_cannot_doom_the_bytes_of_a_newly_shown_image() {
     let recorded = ts
         .app
         .store()
-        .get_file_info(&file.container_id, &file.stored_name)
+        .get_file_record(&file.container_id, &file.stored_name)
         .await;
     let present = ts.app.files().exists(&file.path).await.expect("read");
     ts.teardown().await;

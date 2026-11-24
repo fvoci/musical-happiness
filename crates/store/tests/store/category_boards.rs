@@ -2,8 +2,10 @@
 //! categories. Every identifier is generated, and referenced users, workspaces, categories,
 //! and boards are stored first.
 
-use fvoci_model::{Category, CategoryContainerMetadata, CategoryContainers, new_id};
-use fvoci_store::{ContainerVisibility, Store, StoreError};
+use fvoci_model::{
+    Category, CategoryContainerMetadata, CategoryContainers, SidebarVisibility, new_id,
+};
+use fvoci_store::{Store, StoreError};
 
 use crate::categories::{create_boards, ids, now_millis, visible};
 use crate::common;
@@ -306,7 +308,7 @@ async fn set_container_visibility() {
         .expect("the board is added");
 
     store
-        .set_container_visibility(user_id, &category_id, &board1, ContainerVisibility::Visible)
+        .set_container_visibility(user_id, &category_id, &board1, SidebarVisibility::Visible)
         .await
         .expect("the board is made visible");
 
@@ -319,7 +321,7 @@ async fn set_container_visibility() {
     assert!(!metadata[0].hidden, "got {metadata:?}");
 
     store
-        .set_container_visibility(user_id, &category_id, &board1, ContainerVisibility::Hidden)
+        .set_container_visibility(user_id, &category_id, &board1, SidebarVisibility::Hidden)
         .await
         .expect("the board is hidden");
 
@@ -396,7 +398,7 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
 
     // A board moved to another category keeps its hidden flag and its sort order.
     store
-        .set_container_visibility(user_id, &a, &two, ContainerVisibility::Hidden)
+        .set_container_visibility(user_id, &a, &two, SidebarVisibility::Hidden)
         .await
         .expect("the board is hidden");
     store
@@ -422,11 +424,11 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
 
     // Visibility is keyed by user, category and board; a mismatch changes nothing.
     store
-        .set_container_visibility(user_id, &a, &two, ContainerVisibility::Visible)
+        .set_container_visibility(user_id, &a, &two, SidebarVisibility::Visible)
         .await
         .expect("a board of another category is not found, which is not an error");
     store
-        .set_container_visibility(&someone_else, &b, &two, ContainerVisibility::Visible)
+        .set_container_visibility(&someone_else, &b, &two, SidebarVisibility::Visible)
         .await
         .expect("a board of another user is not found, which is not an error");
     assert!(
@@ -548,7 +550,7 @@ async fn deleting_a_category_files_its_boards_under_nothing() {
         .await
         .expect("a board is filed under the category that stays");
     store
-        .set_container_visibility(user_id, &doomed, &one, ContainerVisibility::Hidden)
+        .set_container_visibility(user_id, &doomed, &one, SidebarVisibility::Hidden)
         .await
         .expect("the board is hidden");
 
@@ -620,7 +622,7 @@ async fn deleting_a_category_of_another_user_or_workspace_changes_nothing() {
         .await
         .expect("the boards are ordered");
     store
-        .set_container_visibility(user_id, &category_id, &two, ContainerVisibility::Hidden)
+        .set_container_visibility(user_id, &category_id, &two, SidebarVisibility::Hidden)
         .await
         .expect("a board is hidden");
     let before = sidebar.category_boards(store).await;

@@ -1,7 +1,7 @@
 //! Signing up with the name of an organization, and the links that let others into it.
 
 use fvoci_model::{
-    Container, ContainerType, INVITATION_LIFETIME_MILLIS, Invitation, UserWorkspace,
+    Container, ContainerVisibility, INVITATION_LIFETIME_MILLIS, Invitation, UserWorkspace,
 };
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
@@ -185,11 +185,11 @@ async fn open_board(client: &Client, workspace_id: &str) -> Container {
     let board: Container = client
         .post(
             &format!("/w/{workspace_id}/boards"),
-            &json!({"workspaceId": workspace_id, "type": "O", "title": "Open"}),
+            &json!({"workspaceId": workspace_id, "visibility": "open", "title": "Open"}),
         )
         .await
         .created_json();
-    assert_eq!(board.container_type, ContainerType::Open, "{board:?}");
+    assert_eq!(board.visibility, ContainerVisibility::Open, "{board:?}");
     board
 }
 
@@ -609,7 +609,7 @@ async fn private_board(client: &Client, title: &str) -> Container {
     client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
-            &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": title}),
+            &json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": title}),
         )
         .await
         .created_json()
@@ -671,7 +671,7 @@ async fn who_adds_the_members_of_a_board_asks_a_guest_to_it() {
         .client2
         .post(
             &format!("/w/{}/boards", crate::common::TEST_WORKSPACE_ID),
-            &json!({"workspaceId": crate::common::TEST_WORKSPACE_ID, "type": "P", "title": "Elsewhere"}),
+            &json!({"workspaceId": crate::common::TEST_WORKSPACE_ID, "visibility": "private", "title": "Elsewhere"}),
         )
         .await
         .created_json();
@@ -679,7 +679,7 @@ async fn who_adds_the_members_of_a_board_asks_a_guest_to_it() {
         .client2
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
-            &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "A template", "isTemplate": true}),
+            &json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": "A template", "isTemplate": true}),
         )
         .await
         .created_json();
@@ -1317,13 +1317,13 @@ async fn a_guest_let_in_by_a_manager_who_does_not_read_the_board_is_on_the_recor
     th.teardown().await;
 }
 
-/// Makes a wiki of the root workspace of `wiki_type` (`P` or `O`) titled `title`, as
+/// Makes a wiki of the root workspace of `visibility` (`private` or `open`) titled `title`, as
 /// `client`, who is its admin: its identifier.
-async fn wiki_in_the_root(client: &Client, wiki_type: &str, title: &str) -> String {
+async fn wiki_in_the_root(client: &Client, visibility: &str, title: &str) -> String {
     let made = client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/wikis"),
-            &json!({"type": wiki_type, "title": title}),
+            &json!({"visibility": visibility, "title": title}),
         )
         .await;
     made.check_created();
@@ -1337,13 +1337,13 @@ async fn wiki_in_the_root(client: &Client, wiki_type: &str, title: &str) -> Stri
 #[tokio::test]
 async fn a_guest_comes_in_by_a_link_onto_one_wiki() {
     let th = Setup::native().start().await.init_basic().await;
-    let wiki = wiki_in_the_root(&th.client2, "P", "Handbook").await;
-    let open = wiki_in_the_root(&th.client2, "O", "Open to the workspace").await;
+    let wiki = wiki_in_the_root(&th.client2, "private", "Handbook").await;
+    let open = wiki_in_the_root(&th.client2, "open", "Open to the workspace").await;
     let elsewhere = th
         .client2
         .post(
             &format!("/w/{}/wikis", crate::common::TEST_WORKSPACE_ID),
-            &json!({"type": "P"}),
+            &json!({"visibility": "private"}),
         )
         .await
         .value()["id"]

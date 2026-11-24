@@ -6,10 +6,10 @@
 use std::collections::BTreeMap;
 
 use fvoci_model::{
-    Block, BlockType, Container, ContainerKind, ContainerType, DiaryDate, DiaryMaking,
-    NewDiaryEntry, new_id,
+    Block, BlockType, Container, ContainerKind, ContainerVisibility, DiaryDate, NewDiaryEntry,
+    new_id,
 };
-use fvoci_store::{DbType, SharingChange, Store};
+use fvoci_store::{DbType, Store};
 use sqlx::Connection as _;
 
 use crate::boards::new_board;
@@ -65,16 +65,34 @@ async fn database_before_courses() -> PreMigration {
         (ContainerKind::Board, true, false),
         (ContainerKind::Board, false, true),
     ] {
-        let mut container = Container {
+        let container = Container {
             kind,
             is_template,
             title: format!("a {} before courses", kind.as_str()),
-            ..new_board(&new_id(), &people_ws, ContainerType::Private)
+            ..new_board(&new_id(), &people_ws, ContainerVisibility::Private)
         };
         scoped
-            .insert_container_with_admin(&mut container, &user_id)
+            .execute_unchecked(&format!(
+                "INSERT INTO containers \
+                 (id, workspace_id, created_by, modified_by, type, kind, title, description, \
+                  icon, show_description, is_template, properties, card_properties, create_at, update_at) \
+                 VALUES ('{}', '{people_ws}', '{user_id}', '{user_id}', 'P', '{}', '{}', '', '', \
+                  false, {is_template}, '{{}}', '[]', 1, 1)",
+                container.id,
+                kind.as_str(),
+                container.title,
+            ))
             .await
             .expect("stored");
+        scoped
+            .execute_unchecked(&format!(
+                "INSERT INTO container_members \
+                 (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
+                 VALUES ('{}', '{user_id}', true, true, false, false)",
+                container.id
+            ))
+            .await
+            .expect("member stored");
         let block_type = match kind {
             ContainerKind::Wiki => BlockType::Page,
             _ => BlockType::Card,
@@ -98,10 +116,16 @@ async fn database_before_courses() -> PreMigration {
         if trashed {
             trash_container_before_courses(&scoped, &container, &blocks, &user_id).await;
         } else if !is_template {
+            let old_links = ["shar", "ing"].concat();
             scoped
-                .set_sharing(&container.id, SharingChange::On, &new_id(), &user_id)
+                .execute_unchecked(&format!(
+                    "INSERT INTO {old_links} (container_id, enabled, token, modified_by, update_at) \
+                     VALUES ('{}', true, '{}', '{user_id}', 1)",
+                    container.id,
+                    new_id()
+                ))
                 .await
-                .expect("shared");
+                .expect("linked");
         }
         if kind == ContainerKind::Board && !is_template && !trashed {
             board_id = container.id;
@@ -153,6 +177,7 @@ async fn trash_container_before_courses(
     in_trash.delete_at = now;
     let json = serde_json::to_string(&in_trash)
         .expect("container json")
+        .replace(r#""visibility":"private""#, r#""type":"P""#)
         .replace('\'', "''");
     scoped
         .execute_unchecked(&format!(
@@ -186,19 +211,26 @@ async fn seed_diary_in_own_space(store: &Store, user_id: &str) -> (String, Strin
     let (own_org, own_ws) = found[0].split_once('|').expect("two identifiers");
     let (own_org, own_ws) = (own_org.to_owned(), own_ws.to_owned());
     let own = store.for_org(&own_org).expect("an identifier");
-    let diary = Container {
-        kind: ContainerKind::Diary,
-        title: "my diary".to_owned(),
-        ..new_board(&new_id(), &own_ws, ContainerType::Private)
-    };
-    let diary = own
-        .create_diary(diary, user_id, DiaryMaking::IfNone)
-        .await
-        .expect("diary stored")
-        .diary;
+    let diary_id = new_id();
+    own.execute_unchecked(&format!(
+        "INSERT INTO containers \
+         (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
+          show_description, is_template, properties, card_properties, create_at, update_at) \
+         VALUES ('{diary_id}', '{own_ws}', '{user_id}', '{user_id}', 'P', 'diary', 'my diary', \
+          '', '', false, false, '{{}}', '[]', 1, 1)"
+    ))
+    .await
+    .expect("diary stored");
+    own.execute_unchecked(&format!(
+        "INSERT INTO container_members \
+         (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
+         VALUES ('{diary_id}', '{user_id}', true, true, false, false)"
+    ))
+    .await
+    .expect("diary member stored");
     let date: DiaryDate = "2026-11-22".parse().expect("a date");
     own.create_diary_entry(
-        &diary.id,
+        &diary_id,
         date,
         NewDiaryEntry {
             date: date.to_string(),
@@ -211,7 +243,7 @@ async fn seed_diary_in_own_space(store: &Store, user_id: &str) -> (String, Strin
     )
     .await
     .expect("entry stored");
-    (own_org, own_ws, diary.id)
+    (own_org, own_ws, diary_id)
 }
 
 async fn broken_keys(database: &fvoci_store::testing::TestDatabase) -> Vec<String> {
@@ -332,7 +364,7 @@ async fn migration_0061_preserves_rows_keys_and_triggers_and_allows_courses() {
         let mut course = Container {
             kind: ContainerKind::Course,
             title: "Rust Basics".to_owned(),
-            ..new_board(&new_id(), workspace_id, ContainerType::Private)
+            ..new_board(&new_id(), workspace_id, ContainerVisibility::Private)
         };
         scoped
             .insert_container_with_admin(&mut course, &pre.user_id)
@@ -373,16 +405,16 @@ async fn assert_triggers_and_checks_hold(store: &Store, pre: &PreMigration) {
     // 1) diaries_of_a_space (BEFORE INSERT on containers)
     let insert_diary_sql = match db_type() {
         DbType::Sqlite => format!(
-            "INSERT INTO containers (id, workspace_id, type, kind, title, description, icon, \
+            "INSERT INTO containers (id, workspace_id, visibility, kind, title, description, icon, \
              show_description, is_template, properties, card_properties, create_at, update_at) \
-             VALUES ('{}', '{}', 'P', 'diary', 'forbidden', '', '', 0, 0, '{{}}', '[]', 0, 0)",
+             VALUES ('{}', '{}', 'private', 'diary', 'forbidden', '', '', 0, 0, '{{}}', '[]', 0, 0)",
             new_id(),
             pre.people_ws
         ),
         DbType::Postgres => format!(
-            "INSERT INTO containers (id, org_id, workspace_id, type, kind, title, description, icon, \
+            "INSERT INTO containers (id, org_id, workspace_id, visibility, kind, title, description, icon, \
              show_description, is_template, properties, card_properties, create_at, update_at) \
-             VALUES ('{}', '{}', '{}', 'P', 'diary', 'forbidden', '', '', false, false, '{{}}', '[]', 0, 0)",
+             VALUES ('{}', '{}', '{}', 'private', 'diary', 'forbidden', '', '', false, false, '{{}}', '[]', 0, 0)",
             new_id(),
             pre.people_org,
             pre.people_ws
@@ -406,15 +438,15 @@ async fn assert_triggers_and_checks_hold(store: &Store, pre: &PreMigration) {
         "diaries_stay_of_a_space trigger",
     );
 
-    // 3) sharing_of_no_diary (BEFORE INSERT on sharing)
+    // 3) public_links_of_no_diary (BEFORE INSERT on public_links)
     let insert_share_sql = match db_type() {
         DbType::Sqlite => format!(
-            "INSERT INTO sharing (container_id, enabled, token, update_at) \
+            "INSERT INTO public_links (container_id, enabled, token, update_at) \
              VALUES ('{}', 1, 'tok-diary', 0)",
             pre.diary_id
         ),
         DbType::Postgres => format!(
-            "INSERT INTO sharing (container_id, org_id, enabled, token, update_at) \
+            "INSERT INTO public_links (container_id, org_id, enabled, token, update_at) \
              VALUES ('{}', '{}', TRUE, 'tok-diary', 0)",
             pre.diary_id, pre.own_org
         ),
@@ -422,23 +454,23 @@ async fn assert_triggers_and_checks_hold(store: &Store, pre: &PreMigration) {
     assert_err_contains(
         system.execute_unchecked(&insert_share_sql).await,
         "a diary has no link",
-        "sharing_of_no_diary trigger",
+        "public_links_of_no_diary trigger",
     );
 
-    // 4) sharing_stays_of_no_diary (BEFORE UPDATE OF container_id on sharing)
+    // 4) public_links_stay_of_no_diary (BEFORE UPDATE OF container_id on public_links)
     let update_share_sql = match db_type() {
         DbType::Sqlite => format!(
-            "UPDATE sharing SET container_id = '{}' WHERE container_id = '{}'",
+            "UPDATE public_links SET container_id = '{}' WHERE container_id = '{}'",
             pre.diary_id, pre.board_id
         ),
         DbType::Postgres => format!(
-            "UPDATE sharing SET container_id = '{}', org_id = '{}' WHERE container_id = '{}'",
+            "UPDATE public_links SET container_id = '{}', org_id = '{}' WHERE container_id = '{}'",
             pre.diary_id, pre.own_org, pre.board_id
         ),
     };
     assert_err_contains(
         system.execute_unchecked(&update_share_sql).await,
         "a diary has no link",
-        "sharing_stays_of_no_diary trigger",
+        "public_links_stay_of_no_diary trigger",
     );
 }

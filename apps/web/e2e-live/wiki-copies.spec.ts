@@ -71,7 +71,7 @@ export async function makeWiki(api: APIRequestContext, title: string): Promise<M
   );
   const ws = home?.id ?? '';
   const wiki = await answered<Schemas['Container']>(
-    await api.post(`/api/v1/w/${ws}/wikis`, { data: { title, type: 'P' } }),
+    await api.post(`/api/v1/w/${ws}/wikis`, { data: { title, visibility: 'private' } }),
   );
   const at = `/api/v1/w/${ws}/wikis/${wiki.id}/pages`;
   const make = async (title: string, parentId = '') =>

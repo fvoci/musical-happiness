@@ -82,14 +82,14 @@ async fn handle_get_file_version(
     headers: HeaderMap,
 ) -> ApiResult {
     require_file_reader(&ws.app, &ws.session.user_id, &container_id).await?;
-    let Some(info) = ws.app.file_info(&container_id, &file_id).await? else {
+    let Some(record) = ws.app.file_record(&container_id, &file_id).await? else {
         return Err(AppError::not_found(FILE));
     };
     let kept = ws
         .app
         .kept_file_version(&container_id, &file_id, version_number(&version)?)
         .await?;
-    serve_stored(&ws.app, &info, &kept.path, &headers).await
+    serve_stored(&ws.app, &record, &kept.path, &headers).await
 }
 
 /// Write a new version of a file

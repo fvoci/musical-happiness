@@ -15,7 +15,7 @@ use axum::http::header::{
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::IntoResponse;
 use futures_util::StreamExt as _;
-use fvoci_model::{FileInfo, Problem};
+use fvoci_model::{FileRecord, Problem};
 use serde::Serialize;
 use tokio_util::io::StreamReader;
 use utoipa::ToSchema;
@@ -71,7 +71,7 @@ const NO_FILE_PART: &str = "the request has no part named `file` with a file nam
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct UploadedFile {
-    /// The identifier of the file: what `getFile` and `getFileInfo` take, and what an
+    /// The identifier of the file: what `getFile` and `getFileRecord` take, and what an
     /// attachment block, an image or a file block of a body names in its `fileId`.
     pub(super) file_id: String,
 }
@@ -80,7 +80,7 @@ pub(super) struct UploadedFile {
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_serve_file))
-        .routes(routes!(handle_get_file_info))
+        .routes(routes!(handle_get_file_record))
 }
 
 /// The route that takes a file, whose size has a limit of its own.
@@ -95,7 +95,7 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
 ///
 /// Every file is sent as `application/octet-stream` and offered as a download
 /// (`Content-Disposition: attachment`) under the name it was uploaded with, which
-/// `getFileInfo` has: `filename*` carries that name, and `filename` the `fileId` for a
+/// `getFileRecord` has: `filename*` carries that name, and `filename` the `fileId` for a
 /// reader that knows no `filename*`. A file whose record has no name, or one of more
 /// than 255 characters, is offered under its `fileId`. The answer honours `Range` with one range,
 /// unless the request has `If-Range`. It may be cached by the browser of who asked but
@@ -144,17 +144,17 @@ pub(super) async fn serve_container_file(
 ) -> ApiResult {
     // A file is its board's. Through another board it is as missing as a file that
     // does not exist: the answers must not tell the two apart.
-    let Some(info) = app.file_info(container_id, file_id).await? else {
+    let Some(record) = app.file_record(container_id, file_id).await? else {
         return Err(AppError::not_found(FILE));
     };
-    serve_stored(app, &info, &info.path, headers).await
+    serve_stored(app, &record, &record.path, headers).await
 }
 
-/// Answers with the bytes stored at `path`, as the file `info`: its newest version, or
+/// Answers with the bytes stored at `path`, as the file `record`: its newest version, or
 /// an older one. 404 if the storage has nothing there.
 pub(super) async fn serve_stored(
     app: &App,
-    info: &FileInfo,
+    record: &FileRecord,
     path: &str,
     headers: &HeaderMap,
 ) -> ApiResult {
@@ -162,7 +162,7 @@ pub(super) async fn serve_stored(
         return Err(AppError::not_found(FILE));
     }
     let size = app.files().size(path).await?.unwrap_or(0);
-    let name = DownloadName::of(&info.stored_name, &info.name);
+    let name = DownloadName::of(&record.stored_name, &record.name);
     serve_content(app, name, path, size, "", headers).await
 }
 
@@ -214,29 +214,29 @@ impl<'a> DownloadName<'a> {
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/containers/{containerId}/files/{fileId}/info",
-    operation_id = "getFileInfo",
+    operation_id = "getFileRecord",
     tag = tag::FILES,
     params(MemberWorkspaceId, ContainerId, FileId),
-    responses((status = 200, description = "What is known about the file.", body = FileInfo)),
+    responses((status = 200, description = "What is known about the file.", body = FileRecord)),
 )]
-async fn handle_get_file_info(
+async fn handle_get_file_record(
     InContainer(ws): InContainer,
     Path((_, container_id, file_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     require_file_reader(&ws.app, &ws.session.user_id, &container_id).await?;
     Ok(json_response(
-        &container_file_info(&ws.app, &container_id, file_id.as_str()).await?,
+        &container_file_record(&ws.app, &container_id, file_id.as_str()).await?,
     ))
 }
 
 /// What is known about a file of the board; 404 for no record, and for the record of
 /// another board's file.
-pub(super) async fn container_file_info(
+pub(super) async fn container_file_record(
     app: &App,
     container_id: &str,
     file_id: &str,
-) -> Result<FileInfo, AppError> {
-    app.file_info(container_id, file_id)
+) -> Result<FileRecord, AppError> {
+    app.file_record(container_id, file_id)
         .await?
         .ok_or_else(|| AppError::not_found(FILE))
 }

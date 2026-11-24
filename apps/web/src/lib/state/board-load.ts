@@ -121,7 +121,7 @@ export async function explainBoardRefusal(
 ): Promise<{ kind: 'joinable'; board: Container } | { kind: 'missing' } | { kind: 'forbidden' }> {
   try {
     const board = await containerOfWorkspace(workspace.backend, boardId, workspace.info?.id);
-    if (board.type !== 'O' || board.isTemplate) return { kind: 'forbidden' };
+    if (board.visibility !== 'open' || board.isTemplate) return { kind: 'forbidden' };
     return { kind: 'joinable', board };
   } catch (error) {
     return isBackendError(error) && error.status === 404

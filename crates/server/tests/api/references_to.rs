@@ -3,7 +3,7 @@
 //! from where the asker does not read changes no letter of the answer, and a block the
 //! asker does not read is asked about as one that is not there.
 
-use fvoci_model::{Block, BlockType, Container, ContainerType};
+use fvoci_model::{Block, BlockType, Container, ContainerVisibility};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -112,7 +112,7 @@ fn listed(response: &ApiResponse) -> Vec<String> {
 async fn what_names_a_card_or_a_page_is_told_once_and_in_pages() {
     let th = Setup::native().start().await.init_basic().await;
     let user = &th.client;
-    let mine = made(user, TEST_WS, "P", "The plan").await;
+    let mine = made(user, TEST_WS, "private", "The plan").await;
     let first = card_of(user, TEST_WS, &mine.board, "first").await;
     let second = card_of(user, TEST_WS, &mine.board, "second").await;
     let (target, page) = (mine.card.as_str(), mine.page.as_str());
@@ -200,12 +200,12 @@ async fn what_names_from_where_the_asker_does_not_read_is_not_told() {
     let th = Setup::native().start().await.init_basic().await;
     let (owner, member) = (&th.client, &th.client2);
     let member_id = member.me().await.id;
-    let shown = made(owner, TEST_WS, "P", "shown").await;
+    let shown = made(owner, TEST_WS, "private", "shown").await;
     let_read(owner, &shown.board, &member_id).await;
     let seen = card_of(owner, TEST_WS, &shown.board, "seen").await;
     card_names(owner, TEST_WS, &seen, &[&shown.card]).await;
-    let private = made(owner, TEST_WS, "P", HIDDEN).await;
-    let open = made(owner, TEST_WS, "O", HIDDEN).await;
+    let private = made(owner, TEST_WS, "private", HIDDEN).await;
+    let open = made(owner, TEST_WS, "open", HIDDEN).await;
     let queries = ["", "?perPage=1", "?perPage=1&page=1", "?perPage=1&page=2"];
     // The page of the open wiki is read unjoined: its title is no secret.
     owner
@@ -274,10 +274,10 @@ async fn what_names_from_where_the_asker_does_not_read_is_not_told() {
 async fn what_names_a_block_the_asker_does_not_read_is_asked_as_of_nothing() {
     let th = Setup::native().start().await.init_basic().await;
     let (owner, member) = (&th.client, &th.client2);
-    let own = made(member, TEST_WS, "P", "own").await;
-    let private = made(owner, TEST_WS, "P", HIDDEN).await;
-    let open = made(owner, TEST_WS, "O", HIDDEN).await;
-    let elsewhere = made(owner, ROOT_WS, "O", HIDDEN).await;
+    let own = made(member, TEST_WS, "private", "own").await;
+    let private = made(owner, TEST_WS, "private", HIDDEN).await;
+    let open = made(owner, TEST_WS, "open", HIDDEN).await;
+    let elsewhere = made(owner, ROOT_WS, "open", HIDDEN).await;
     // Each is named by what the member reads, and by what the member does not.
     for hidden in [&private, &open] {
         card_names(member, TEST_WS, &own.card, &hidden.both()).await;
@@ -333,17 +333,17 @@ async fn a_guest_and_who_only_manages_are_told_what_they_read_names() {
         } else {
             crate::guests::guest_of_the_workspace(&th).await
         };
-        let shown = made(owner, TEST_WS, "P", "shown").await;
+        let shown = made(owner, TEST_WS, "private", "shown").await;
         let_read(owner, &shown.board, &asker_id).await;
         let seen = card_of(owner, TEST_WS, &shown.board, "seen").await;
         card_names(owner, TEST_WS, &seen, &[&shown.card]).await;
         // An open wiki's page names it: the administrator, who works in the workspace,
         // reads it unjoined; a guest does not.
-        let open = made(owner, TEST_WS, "O", HIDDEN).await;
+        let open = made(owner, TEST_WS, "open", HIDDEN).await;
         page_names(owner, TEST_WS, &open, &[&shown.card]).await;
         let before = naming(asker, TEST_WS, &shown.card, "").await.text();
 
-        let private = made(owner, TEST_WS, "P", HIDDEN).await;
+        let private = made(owner, TEST_WS, "private", HIDDEN).await;
         card_names(owner, TEST_WS, &private.card, &[&shown.card]).await;
         page_names(owner, TEST_WS, &private, &[&shown.card]).await;
         card_names(owner, TEST_WS, &open.card, &[&shown.card]).await;
@@ -387,12 +387,12 @@ async fn what_names_from_a_template_a_guest_does_not_read_moves_no_page() {
         .await;
     let guest_id = crate::guests::guest_of_the_workspace(&th).await;
     let (owner, guest) = (&th.client, &th.client2);
-    let shown = made(owner, TEST_WS, "P", "shown").await;
+    let shown = made(owner, TEST_WS, "private", "shown").await;
     let_read(owner, &shown.board, &guest_id).await;
     let template: Container = owner
         .create_board(&Container {
             is_template: true,
-            ..crate::boards::new_board(TEST_WORKSPACE_ID, ContainerType::Open, HIDDEN)
+            ..crate::boards::new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, HIDDEN)
         })
         .await
         .created_json();
@@ -444,7 +444,7 @@ async fn what_is_of_another_organization_neither_names_nor_is_found() {
         return;
     }
     let th = Setup::native().start().await.init_basic().await;
-    let here = made(&th.client, TEST_WS, "O", "here").await;
+    let here = made(&th.client, TEST_WS, "open", "here").await;
     let before = naming(&th.client, TEST_WS, &here.card, "").await.text();
     let (theirs, their_workspace, their_board) = crate::workspaces::another_organization(&th).await;
     let members = theirs.get_members_for_container(&their_board).await;
@@ -488,7 +488,7 @@ async fn what_is_of_another_organization_neither_names_nor_is_found() {
 async fn what_a_reference_may_name_is_found_by_its_title() {
     let th = Setup::native().start().await.init_basic().await;
     let user = &th.client;
-    let mine = made(user, TEST_WS, "P", "Quarterly Plan").await;
+    let mine = made(user, TEST_WS, "private", "Quarterly Plan").await;
     let percent = card_of(user, TEST_WS, &mine.board, "100% done_now").await;
     let accented = card_of(user, TEST_WS, &mine.board, "ÉTUDE plan").await;
     let other = card_of(user, TEST_WS, &mine.board, "something else").await;
@@ -556,7 +556,7 @@ async fn what_a_reference_may_name_is_found_by_its_title() {
             is_template: true,
             ..crate::boards::new_board(
                 crate::common::TEST_WORKSPACE_ID,
-                fvoci_model::ContainerType::Open,
+                fvoci_model::ContainerVisibility::Open,
                 "Template",
             )
         })
@@ -589,11 +589,11 @@ async fn what_a_reference_may_name_is_found_by_its_title() {
 async fn what_the_asker_does_not_read_is_not_found() {
     let th = Setup::native().start().await.init_basic().await;
     let (owner, member) = (&th.client, &th.client2);
-    let own = made(member, TEST_WS, "P", "own plan").await;
+    let own = made(member, TEST_WS, "private", "own plan").await;
     let before = found(member, TEST_WS, "").await.text();
-    let private = made(owner, TEST_WS, "P", HIDDEN).await;
-    let open = made(owner, TEST_WS, "O", HIDDEN).await;
-    made(owner, ROOT_WS, "O", HIDDEN).await;
+    let private = made(owner, TEST_WS, "private", HIDDEN).await;
+    let open = made(owner, TEST_WS, "open", HIDDEN).await;
+    made(owner, ROOT_WS, "open", HIDDEN).await;
 
     assert_eq!(listed(&found(owner, TEST_WS, HIDDEN).await).len(), 4);
     for term in [HIDDEN, "hidden", "title", "HIDDEN-TITLE"] {

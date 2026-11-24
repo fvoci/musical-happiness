@@ -45,7 +45,7 @@ async function twoOnAPage(
   const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
-    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } })
+    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', visibility: 'private' } })
   ).json()) as Schemas['Container'];
   const [found] = (await (
     await api.get(`${inWorkspace}/users`, { params: { search: colleague.username } })

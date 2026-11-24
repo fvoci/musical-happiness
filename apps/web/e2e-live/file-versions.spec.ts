@@ -143,7 +143,9 @@ test('a member writes versions of a file and goes back to one; the public link s
   await expect(viewer(page)).toHaveCount(0);
 
   // The public link: the newest version, no list, and no way to a version by the link's token.
-  const shared = (await (await api.post(`${at}/sharing`, { data: { enabled: true } })).json()) as {
+  const shared = (await (
+    await api.post(`${at}/public-link`, { data: { enabled: true } })
+  ).json()) as {
     token?: string;
   };
   const token = encodeURIComponent(shared.token ?? '');

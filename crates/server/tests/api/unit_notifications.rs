@@ -23,7 +23,7 @@ async fn make_course(client: &Client, at: &str, course_type: &str) -> (String, S
     let course = client
         .post(
             &format!("{at}/courses"),
-            &json!({"type": course_type, "title": "Notified Course"}),
+            &json!({"visibility": course_type, "title": "Notified Course"}),
         )
         .await;
     course.check_created();
@@ -63,7 +63,7 @@ async fn unit_holds(client: &Client, path: &str, expected: &Value) {
 async fn workspace_course_unit_mentions_comments_watching_and_subscriptions() {
     let th = Setup::native().start().await.init_basic().await;
     let (a, b) = (th.client.me().await, th.client2.me().await);
-    let (course, chapter, unit) = make_course(&th.client, TEST_WS, "P").await;
+    let (course, chapter, unit) = make_course(&th.client, TEST_WS, "private").await;
     put_on(&th.client, &course, &b.id, "editor").await;
 
     // 1) Creating the unit auto-subscribed `a` (creator), and NOT to the chapter.
@@ -156,7 +156,7 @@ async fn workspace_course_unit_mentions_comments_watching_and_subscriptions() {
         .check_no_content();
     assert_eq!(kinds(&told(&th, &th.client2).await), (vec![], 1));
 
-    let (open, _, open_unit) = make_course(&th.client, TEST_WS, "O").await;
+    let (open, _, open_unit) = make_course(&th.client, TEST_WS, "open").await;
     let open_path = format!("{TEST_WS}/courses/{open}/units/{open_unit}");
     let read_at = th.client.get(&open_path).await.value()["updateAt"].clone();
     th.client
@@ -183,7 +183,7 @@ async fn own_space_course_produces_zero_notifications_and_zero_outbox_rows() {
         .expect("own space");
     let own_ws = format!("/w/{}", own.id);
 
-    let (course, _, unit) = make_course(&th.client, &own_ws, "P").await;
+    let (course, _, unit) = make_course(&th.client, &own_ws, "private").await;
     let unit_path = format!("{own_ws}/courses/{course}/units/{unit}");
     let read_at = th.client.get(&unit_path).await.value()["updateAt"].clone();
     th.client

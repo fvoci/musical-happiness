@@ -37,7 +37,7 @@ export async function readManagedOnly(
       containerOfWorkspace(backend, store.containerId, store.workspace.info?.id, kind),
       backend.members(store.containerId),
     ]);
-    if (container.type !== 'P' || container.isTemplate) return false;
+    if (container.visibility !== 'private' || container.isTemplate) return false;
     store.container = container;
     store.members = members;
     void store.workspace.learnUsers(members.map(memberId), { members: true });

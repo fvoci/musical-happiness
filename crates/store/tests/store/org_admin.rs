@@ -3,8 +3,8 @@
 //! log that records it and is never changed.
 
 use fvoci_model::{
-    AuditAction, Block, BlockType, Container, ContainerMember, ContainerType, FileInfo, OrgRole,
-    Workspace, WorkspaceRole, new_id,
+    AuditAction, Block, BlockType, Container, ContainerMember, ContainerVisibility, FileRecord,
+    OrgRole, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AuditEntry, AuditPlace, DbType, InstanceRole, Joining, LooseState, OrgRoleChange, Paging,
@@ -54,7 +54,7 @@ async fn private_board(store: &Store, workspace_id: &str, user_id: &str) -> Stri
     let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         ..Container::default()
     };
     common::works_in(store, workspace_id, user_id).await;
@@ -65,8 +65,8 @@ async fn private_board(store: &Store, workspace_id: &str, user_id: &str) -> Stri
     board.id
 }
 
-fn file_of(board_id: &str, stored_name: &str) -> FileInfo {
-    FileInfo {
+fn file_of(board_id: &str, stored_name: &str) -> FileRecord {
+    FileRecord {
         id: new_id(),
         container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
@@ -75,7 +75,7 @@ fn file_of(board_id: &str, stored_name: &str) -> FileInfo {
         size: 2048,
         path: format!("boards/{board_id}/{stored_name}"),
         create_at: 1,
-        ..FileInfo::default()
+        ..FileRecord::default()
     }
 }
 
@@ -149,7 +149,7 @@ async fn a_workspace_in_the_trash_goes_for_good_as_its_boards_do() {
         file_of(&trashed_before, "7b.png"),
     ];
     for file in files.iter().chain([&file_of(&other, "7c.png")]) {
-        test.save_file_info(file)
+        test.save_file_record(file)
             .await
             .expect("the file is recorded");
     }
@@ -231,7 +231,7 @@ async fn a_workspace_in_the_trash_goes_for_good_as_its_boards_do() {
     test.get_container(&other)
         .await
         .expect("the other board stays");
-    test.get_file_info(&other, "7c.png")
+    test.get_file_record(&other, "7c.png")
         .await
         .expect("the other board's file stays");
     let of_the_organization = organization_records(&test).await;

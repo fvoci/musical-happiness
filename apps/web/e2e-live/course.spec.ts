@@ -452,7 +452,7 @@ test('shared workspace: open course read without joining, joined co-editing with
 
     const course = await postJson<Schemas['Container']>(adaApi, `${inWorkspace}/courses`, {
       title: 'Shared Curriculum',
-      type: 'O',
+      visibility: 'open',
     });
     const chapter = await postJson<Schemas['Unit']>(
       adaApi,
@@ -572,7 +572,7 @@ test('shared workspace: open course read without joining, joined co-editing with
     const openDocId = joinedDocOf(boraWs, unit2.id);
     boraWs.length = 0;
     const madePrivate = await adaApi.patch(`${inWorkspace}/containers/${course.id}`, {
-      data: { type: 'P' },
+      data: { visibility: 'private' },
     });
     expect(madePrivate.ok(), await madePrivate.text()).toBe(true);
     await expect
@@ -658,7 +658,7 @@ test('unit body table: inserts, syncs live between two editors, persists in DB a
     const course = await postJson<Schemas['Container']>(adaApi, `${inWorkspace}/courses`, {
       title: 'Calculus 101',
       description: 'Limits, derivatives, and integrals.',
-      type: 'P',
+      visibility: 'private',
     });
     await postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {
       userId: boraId,
@@ -772,7 +772,7 @@ test('boundaries and search: rejects board ID at course URL and finds a unit via
     const word = `narwhal${Date.now().toString(36)}`;
     const course = await postJson<Schemas['Container']>(api, `${inWorkspace}/courses`, {
       title: 'Marine Biology',
-      type: 'P',
+      visibility: 'private',
     });
     const created = await postJson<Schemas['Unit']>(
       api,

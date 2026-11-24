@@ -9,22 +9,13 @@ use std::collections::HashSet;
 
 use fvoci_model::{
     CATEGORY_CONTAINERS_SORT_ORDER_GAP, CategoryContainerMetadata, CategoryContainers,
-    DEFAULT_CATEGORY_NAME, new_id,
+    DEFAULT_CATEGORY_NAME, SidebarVisibility, new_id,
 };
 
 use crate::Store;
 use crate::categories::get_user_categories;
 use crate::db::{Dialect, Id, Scope, now_millis};
 use crate::error::StoreError;
-
-/// Whether a board shows in its user's sidebar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ContainerVisibility {
-    /// The board shows.
-    Visible,
-    /// The user has hidden the board.
-    Hidden,
-}
 
 impl Store {
     /// Returns the categories of a user in a workspace, in the order of
@@ -119,11 +110,11 @@ impl Store {
         user_id: &str,
         category_id: &str,
         container_id: &str,
-        visibility: ContainerVisibility,
+        visibility: SidebarVisibility,
     ) -> Result<(), StoreError> {
         self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE category_containers SET hidden = ");
-            sql.bind(visibility == ContainerVisibility::Hidden)
+            sql.bind(visibility == SidebarVisibility::Hidden)
                 .push_bind(" WHERE user_id = ", Id(user_id))
                 .push_bind(" AND category_id = ", Id(category_id))
                 .push_bind(" AND container_id = ", Id(container_id));

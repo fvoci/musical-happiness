@@ -34,7 +34,7 @@ const BOARD = {
   id: 'b1',
   workspaceId: '',
   title: 'Shared',
-  type: 'P',
+  visibility: 'private',
   cardProperties: [],
   properties: {},
   createAt: 1,

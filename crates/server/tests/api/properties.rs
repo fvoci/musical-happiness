@@ -54,7 +54,7 @@ async fn new_board(client: &Client, card_properties: Value) -> ApiResponse {
         .post(
             &format!("{TEST_WS}/boards"),
             &json!({
-                "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Properties",
+                "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Properties",
                 "cardProperties": card_properties,
             }),
         )
@@ -405,7 +405,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
     let request = |card_properties: Value, values: Value| {
         json!({
             "containers": [{
-                "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Both",
+                "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Both",
                 "cardProperties": card_properties,
             }],
             "blocks": [card_block("b1", values)],
@@ -479,7 +479,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
 /// An archive with one board and one card on it.
 fn archive(card_properties: &Value, values: Value) -> Vec<u8> {
     let board = json!({"type": "container", "data": {
-        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Imported",
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Imported",
         "cardProperties": card_properties, "createAt": 1, "updateAt": 1,
     }});
     let data = card_block("b1", values);

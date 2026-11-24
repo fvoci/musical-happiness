@@ -3,7 +3,7 @@
 //! a server names the organization they start, and an account that is there starts a
 //! few and no more.
 
-use fvoci_model::{Container, ContainerType, OrgKind, UserWorkspace, WorkspaceRole};
+use fvoci_model::{Container, ContainerVisibility, OrgKind, UserWorkspace, WorkspaceRole};
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
 use reqwest::StatusCode;
@@ -260,7 +260,7 @@ async fn who_registers_without_an_organization_has_their_own_space_alone_on_post
     let me = carol.me().await;
     assert!(!me.is_admin, "no administrator of the server");
     let board: Container = carol
-        .create_board(&new_board(&own.id, ContainerType::Private, "mine"))
+        .create_board(&new_board(&own.id, ContainerVisibility::Private, "mine"))
         .await
         .created_json();
     assert_eq!(board.workspace_id, own.id);

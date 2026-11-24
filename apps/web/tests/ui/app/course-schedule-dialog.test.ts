@@ -24,7 +24,7 @@ describe('CourseScheduleDialog loading-open snapshot', () => {
     await made.workspace.load();
     const course = await made.backend.course.createCourse(made.world.workspace.id, {
       title: 'Delayed Schedule',
-      type: 'P',
+      visibility: 'private',
     });
     const store = new CourseStore(made.workspace, course.id);
     await store.load();

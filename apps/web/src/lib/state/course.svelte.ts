@@ -72,7 +72,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
   readonly canEdit = $derived(this.role === 'admin' || this.role === 'editor');
   readonly canManage = $derived(this.role === 'admin');
   readonly joinable = $derived(
-    this.status === 'ready' && this.course?.type === 'O' && this.role === '',
+    this.status === 'ready' && this.course?.visibility === 'open' && this.role === '',
   );
   readonly canTrackProgress = $derived(this.status === 'ready' && this.role !== '');
 
@@ -259,7 +259,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
         break;
       case 'containerDeleted':
         if (change.containerId !== this.courseId) break;
-        if (this.course?.type === 'O' && !this.#closed) void this.load();
+        if (this.course?.visibility === 'open' && !this.#closed) void this.load();
         else {
           this.workspace.evictContainer(this.courseId);
           this.openUnit?.close();
@@ -292,7 +292,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
           this.progress.clearMine();
           this.schedule.clearMine();
           this.events.clearMine();
-          if (this.course?.type !== 'O') this.workspace.evictContainer(this.courseId);
+          if (this.course?.visibility !== 'open') this.workspace.evictContainer(this.courseId);
         } else if (removed) void this.events.refreshExams();
         void this.workspace.learnUsers(next.map(memberId), { members: true });
         break;
@@ -403,7 +403,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
 
   async changeCourse(
     looks: CourseLooks,
-    step: 'changeCourse' | 'changeBoardType' | 'changeMinimumRole' = 'changeCourse',
+    step: 'changeCourse' | 'changeVisibility' | 'changeMinimumRole' = 'changeCourse',
   ): Promise<void> {
     const before = this.course;
     if (!before) return;
@@ -411,7 +411,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
       ...(looks.title === undefined ? {} : { title: before.title }),
       ...(looks.description === undefined ? {} : { description: before.description }),
       ...(looks.icon === undefined ? {} : { icon: before.icon ?? '' }),
-      ...(looks.type === undefined ? {} : { type: before.type }),
+      ...(looks.visibility === undefined ? {} : { visibility: before.visibility }),
       ...(looks.minimumRole === undefined ? {} : { minimumRole: before.minimumRole }),
     };
     const write = async (to: CourseLooks, from: CourseLooks): Promise<void> => {
@@ -451,7 +451,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
   }
 
   setOpen(open: boolean): Promise<void> {
-    return this.changeCourse({ type: open ? 'O' : 'P' }, 'changeBoardType');
+    return this.changeCourse({ visibility: open ? 'open' : 'private' }, 'changeVisibility');
   }
 
   setMinimumRole(role: ContainerRole): Promise<void> {

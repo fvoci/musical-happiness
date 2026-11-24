@@ -3,7 +3,7 @@
 //! trash may be named, and a card of a board the writer cannot see is answered as one
 //! that is not there.
 
-use fvoci_model::{Block, Card, Container, ContainerType, new_id};
+use fvoci_model::{Block, Card, Container, ContainerVisibility, new_id};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -30,7 +30,7 @@ async fn related_board(client: &Client, cards: usize) -> Related {
         .post(
             &format!("{TEST_WS}/boards"),
             &json!({
-                "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Related",
+                "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Related",
                 "cardProperties": [
                     {"id": RELATION, "name": "After", "type": "relation", "options": []},
                     {"id": "note", "name": "Note", "type": "text", "options": []},
@@ -108,7 +108,7 @@ async fn hidden_card(th: &TestServer) -> String {
         .client2
         .post(
             &format!("{TEST_WS}/boards"),
-            &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Hidden"}),
+            &json!({"workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Hidden"}),
         )
         .await
         .created_json();
@@ -479,7 +479,7 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
                 "containers": [{
-                    "id": "b", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "new",
+                    "id": "b", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "new",
                     "cardProperties": [{"id": RELATION, "type": "relation"}],
                 }],
                 "blocks": [block],
@@ -543,7 +543,7 @@ async fn new_cards_of_one_request_may_name_each_other() {
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
                 "containers": [{
-                    "id": "nb", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "new",
+                    "id": "nb", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "new",
                     "cardProperties": [{"id": RELATION, "type": "relation"}],
                 }],
                 "blocks": [
@@ -669,7 +669,7 @@ async fn the_board_of_a_relation_is_the_board_of_the_card() {
     let th = Setup::native().start().await.init_basic().await;
     let Related { cards, .. } = related_board(&th.client, 1).await;
     let other = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     th.client
         .patch(

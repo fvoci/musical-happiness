@@ -54,8 +54,8 @@ struct Shared {
 
 async fn shared_board(th: &TestServer) -> Shared {
     let owner = &th.client;
-    let shared = made(owner, TEST_WS, "P", "shared").await;
-    let elsewhere = made(owner, TEST_WS, "P", HIDDEN).await;
+    let shared = made(owner, TEST_WS, "private", "shared").await;
+    let elsewhere = made(owner, TEST_WS, "private", HIDDEN).await;
     let board = shared.board.as_str();
     let beside = card_of(owner, TEST_WS, board, "beside").await;
     let gone = card_of(owner, TEST_WS, board, HIDDEN).await;

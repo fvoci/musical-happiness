@@ -174,7 +174,7 @@ describe('card hierarchy in the memory backend', () => {
           data: {
             id: 'b-bad',
             title: 'Bad',
-            type: 'P',
+            visibility: 'private',
             kind: 'board',
             cardProperties: [],
             properties: {},

@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 
 use fvoci_model::{
-    AmountUnit, Container, ContainerKind, ContainerMember, ContainerType, ContainersAndBlocks,
-    CourseScheduleView, UnitNode, UnitProgress, WorkspaceRole,
+    AmountUnit, Container, ContainerKind, ContainerMember, ContainerVisibility,
+    ContainersAndBlocks, CourseScheduleView, UnitNode, UnitProgress, WorkspaceRole,
 };
 use fvoci_store::{DbType, DuplicateAs};
 use serde_json::{Value, json};
@@ -48,7 +48,7 @@ async fn create_course(client: &Client, ws: &str, course_type: &str, title: &str
     let made = client
         .post(
             &format!("{ws}/courses"),
-            &json!({"type": course_type, "title": title, "description": "Study plan", "icon": "🎓"}),
+            &json!({"visibility": course_type, "title": title, "description": "Study plan", "icon": "🎓"}),
         )
         .await;
     made.check_created();
@@ -144,7 +144,7 @@ async fn seed_rich_course_personal_and_shared_state(ts: &TestServer, course: &st
         .check_created();
     client
         .post(
-            &format!("{TEST_WS}/containers/{course}/sharing"),
+            &format!("{TEST_WS}/containers/{course}/public-link"),
             &json!({"enabled": true}),
         )
         .await
@@ -175,7 +175,7 @@ async fn seed_rich_course_personal_and_shared_state(ts: &TestServer, course: &st
 
 async fn seed_rich_course(ts: &TestServer, external_card: &str) -> RichCourse {
     let client = &ts.client;
-    let course = create_course(client, TEST_WS, "O", "Rust Systems").await;
+    let course = create_course(client, TEST_WS, "open", "Rust Systems").await;
     let ch1 = create_unit(
         client,
         TEST_WS,
@@ -280,7 +280,7 @@ async fn verify_copied_course_personal_excluded(ts: &TestServer, copy_id: &str, 
         .ok_json();
     assert_eq!(comments, Vec::<Value>::new(), "comments excluded");
     let sharing = client
-        .get(&format!("{TEST_WS}/containers/{copy_id}/sharing"))
+        .get(&format!("{TEST_WS}/containers/{copy_id}/public-link"))
         .await
         .value();
     assert_eq!(sharing["enabled"], json!(false), "sharing not copied");
@@ -309,8 +309,8 @@ async fn verify_copied_course(
     let client = &ts.client;
     assert_eq!(copy.kind, ContainerKind::Course, "copy kind");
     assert_eq!(
-        copy.container_type,
-        ContainerType::Private,
+        copy.visibility,
+        ContainerVisibility::Private,
         "copy is private"
     );
     assert_eq!(copy.title, "Rust Systems copy", "copy title");
@@ -372,7 +372,7 @@ async fn verify_copied_course(
 async fn course_duplication_copies_structure_amounts_schedule_files_and_refs_without_personal_data()
 {
     let ts = Setup::local_mode().start().await.init_basic().await;
-    let elsewhere = made(&ts.client, TEST_WS, "O", "elsewhere").await;
+    let elsewhere = made(&ts.client, TEST_WS, "open", "elsewhere").await;
     let src = seed_rich_course(&ts, &elsewhere.card).await;
 
     let copied: ContainersAndBlocks = ts
@@ -481,7 +481,7 @@ async fn verify_builtin_course_template_copy(ts: &TestServer) {
 }
 
 async fn verify_user_course_template_round_trip(client: &Client) {
-    let src = create_course(client, ROOT_WS, "O", "Linear Algebra").await;
+    let src = create_course(client, ROOT_WS, "open", "Linear Algebra").await;
     let u = create_unit(
         client,
         ROOT_WS,
@@ -671,8 +671,8 @@ async fn course_duplication_permissions_own_space_guest_sso_and_cross_org_isolat
     let member_id = member.me().await.id;
 
     // Shared workspace: open course readable by unjoined member (can duplicate), private 404.
-    let open_course = create_course(owner, TEST_WS, "O", "Open Study").await;
-    let priv_course = create_course(owner, TEST_WS, "P", "Private Study").await;
+    let open_course = create_course(owner, TEST_WS, "open", "Open Study").await;
+    let priv_course = create_course(owner, TEST_WS, "private", "Private Study").await;
     member
         .post(
             &format!("{TEST_WS}/containers/{open_course}/duplicate"),
@@ -704,7 +704,7 @@ async fn course_duplication_permissions_own_space_guest_sso_and_cross_org_isolat
         .check_created();
 
     let own_ws = format!("/w/{}", own_workspace(owner).await.id);
-    let own_course = create_course(owner, &own_ws, "P", "My Study").await;
+    let own_course = create_course(owner, &own_ws, "private", "My Study").await;
     owner
         .post(
             &format!("{own_ws}/containers/{own_course}/duplicate"),
@@ -732,7 +732,7 @@ async fn course_duplication_permissions_own_space_guest_sso_and_cross_org_isolat
 }
 
 async fn exercise_course_metric_events(client: &Client) {
-    let course = create_course(client, TEST_WS, "O", "Metrics Course").await;
+    let course = create_course(client, TEST_WS, "open", "Metrics Course").await;
     let unit = create_unit(client, TEST_WS, &course, &json!({"title": "Unit 1"})).await;
 
     let builtin = client
@@ -870,7 +870,7 @@ async fn course_duplication_cross_org_isolation_and_builtin_templates() {
     let alpha_ws = format!("/w/{}", workspaces_and_own(&alpha).await.0[0].id);
     let beta_ws = format!("/w/{}", workspaces_and_own(&beta).await.0[0].id);
 
-    let open_course = create_course(&alpha, &alpha_ws, "O", "Alpha Open Course").await;
+    let open_course = create_course(&alpha, &alpha_ws, "open", "Alpha Open Course").await;
     let user_tpl: ContainersAndBlocks = alpha
         .post(
             &format!("{alpha_ws}/containers/{open_course}/duplicate?asTemplate=true"),

@@ -129,8 +129,8 @@ test('a board is read by its public link without signing in, and not when the li
   });
   expect(table.ok()).toBe(true);
   const shared = (await (
-    await api.post(`${at}/sharing`, { data: { enabled: true } })
-  ).json()) as Schemas['Sharing'];
+    await api.post(`${at}/public-link`, { data: { enabled: true } })
+  ).json()) as Schemas['PublicLink'];
   const token = shared.token ?? '';
   expect(token).not.toBe('');
 
@@ -237,7 +237,7 @@ test('a board is read by its public link without signing in, and not when the li
   await shoot('not-found-wide');
 
   // The link turned off: not found, at the address that worked.
-  expect((await api.post(`${at}/sharing`, { data: { enabled: false } })).ok()).toBe(true);
+  expect((await api.post(`${at}/public-link`, { data: { enabled: false } })).ok()).toBe(true);
   await page.goto(sharedPath(board.boardId, token));
   await expect(page.getByTestId('not-found')).toBeVisible();
   await expect(page.getByText('Sow the beans')).toHaveCount(0);
@@ -263,7 +263,7 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
   const { workspaceId } = await makeBoard(api, { title: 'Beside the wiki' });
   const at = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
-    await api.post(`${at}/wikis`, { data: { title: 'Field notes', type: 'P' } })
+    await api.post(`${at}/wikis`, { data: { title: 'Field notes', visibility: 'private' } })
   ).json()) as Schemas['Container'];
   const pages = `${at}/wikis/${wiki.id}/pages`;
   const made = async (title: string, parentId?: string) =>
@@ -296,8 +296,8 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
     ).ok(),
   ).toBe(true);
   const shared = (await (
-    await api.post(`${at}/containers/${wiki.id}/sharing`, { data: { enabled: true } })
-  ).json()) as Schemas['Sharing'];
+    await api.post(`${at}/containers/${wiki.id}/public-link`, { data: { enabled: true } })
+  ).json()) as Schemas['PublicLink'];
   const token = shared.token ?? '';
 
   // Signed in as nobody: the tree and the first page, in the address of the link.
@@ -379,7 +379,7 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
 
   // The link turned off: the same "not found" as any other.
   expect(
-    (await api.post(`${at}/containers/${wiki.id}/sharing`, { data: { enabled: false } })).ok(),
+    (await api.post(`${at}/containers/${wiki.id}/public-link`, { data: { enabled: false } })).ok(),
   ).toBe(true);
   await page.reload();
   await expect(page.getByTestId('not-found')).toBeVisible();

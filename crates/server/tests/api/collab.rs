@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use fvoci_collab::testing::Editor;
-use fvoci_model::{Card, ContainerType, Session};
+use fvoci_model::{Card, ContainerVisibility, Session};
 use fvoci_server::app::App;
 use fvoci_server::collab::{Collab, DocChange};
 use serde_json::{Value, json};
@@ -31,7 +31,7 @@ pub(crate) struct Editing {
 
 pub(crate) async fn editing(th: &TestServer, body: &Value) -> Editing {
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let card: Card = th
         .client

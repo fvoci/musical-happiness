@@ -54,7 +54,7 @@ async fn create_course(client: &Client, ws: &str, course_type: &str, title: &str
     let made = client
         .post(
             &format!("{ws}/courses"),
-            &json!({"type": course_type, "title": title}),
+            &json!({"visibility": course_type, "title": title}),
         )
         .await;
     made.check_created();
@@ -112,7 +112,7 @@ async fn add_course_viewer(owner: &Client, ws: &str, course_id: &str, user_id: &
 async fn unit_amount_and_scheduled_date_validation_and_chapter_refusal() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let client = &ts.client;
-    let course = create_course(client, TEST_WS, "P", "Algorithms").await;
+    let course = create_course(client, TEST_WS, "private", "Algorithms").await;
     let chapter = create_unit(
         client,
         TEST_WS,
@@ -162,7 +162,7 @@ async fn unit_amount_and_scheduled_date_validation_and_chapter_refusal() {
 async fn unit_amount_and_scheduled_date_patch_clear_and_archive_roundtrip() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let client = &ts.client;
-    let course = create_course(client, TEST_WS, "P", "Algorithms").await;
+    let course = create_course(client, TEST_WS, "private", "Algorithms").await;
     let chapter = create_unit(
         client,
         TEST_WS,
@@ -257,7 +257,7 @@ async fn timezone_controls_today_and_overdue_for_seoul_vs_los_angeles_at_utc_16_
     .await
     .check_ok();
 
-    let course = create_course(seoul, TEST_WS, "O", "Global Physics").await;
+    let course = create_course(seoul, TEST_WS, "open", "Global Physics").await;
     la.post(&format!("{TEST_WS}/containers/{course}/join"), &json!({}))
         .await
         .check_ok();
@@ -359,7 +359,7 @@ async fn overdue_never_auto_shifts_until_manual_redistribute() {
     ts.app
         .set_schedule_now_millis(Some(utc_millis("2026-11-02T09:00:00Z")));
 
-    let course = create_course(client, TEST_WS, "P", "Rust Track").await;
+    let course = create_course(client, TEST_WS, "private", "Rust Track").await;
     let unit_ids = create_numbered_units(client, TEST_WS, &course, 6).await;
 
     let view: CourseScheduleView = client
@@ -501,7 +501,7 @@ async fn non_editors_and_unjoined_readers_permission_matrix() {
     let carol = ts.add_user("carol").await;
     let guest = add_guest(&ts, "guest-learner").await;
 
-    let open_course = create_course(alice, TEST_WS, "O", "Open Biology").await;
+    let open_course = create_course(alice, TEST_WS, "open", "Open Biology").await;
     add_course_viewer(alice, TEST_WS, &open_course, &bob.me().await.id).await;
     add_course_viewer(alice, TEST_WS, &open_course, &guest.me().await.id).await;
     let u1 = create_unit(
@@ -611,7 +611,7 @@ async fn personal_planned_dates_stay_private_across_peers_guests_ws_and_webhooks
     let bob_id = bob.me().await.id;
     let guest = add_guest(&ts, "guest-learner").await;
 
-    let open_course = create_course(alice, TEST_WS, "O", "Open Biology").await;
+    let open_course = create_course(alice, TEST_WS, "open", "Open Biology").await;
     add_course_viewer(alice, TEST_WS, &open_course, &bob_id).await;
     add_course_viewer(alice, TEST_WS, &open_course, &guest.me().await.id).await;
     let u1 = create_unit(
@@ -707,7 +707,7 @@ async fn delete_schedule_is_idempotent_and_shared_auto_assign_broadcasts_updates
     let alice = &ts.client;
     let bob = &ts.client2;
     let bob_id = bob.me().await.id;
-    let course = create_course(alice, TEST_WS, "O", "Broadcast Course").await;
+    let course = create_course(alice, TEST_WS, "open", "Broadcast Course").await;
     add_course_viewer(alice, TEST_WS, &course, &bob_id).await;
     let u1 = create_unit(alice, TEST_WS, &course, &json!({"title": "Lesson 1"})).await;
 
@@ -772,9 +772,9 @@ async fn workspace_learning_today_orders_multi_course_and_excludes_trash() {
         .set_schedule_now_millis(Some(utc_millis("2026-11-24T10:00:00Z")));
     let alice = &ts.client;
 
-    let c1 = create_course(alice, TEST_WS, "P", "Course A").await;
-    let c2 = create_course(alice, TEST_WS, "P", "Course B").await;
-    let trashed_course = create_course(alice, TEST_WS, "P", "Trashed Course").await;
+    let c1 = create_course(alice, TEST_WS, "private", "Course A").await;
+    let c2 = create_course(alice, TEST_WS, "private", "Course B").await;
+    let trashed_course = create_course(alice, TEST_WS, "private", "Trashed Course").await;
 
     let c1_today = create_unit(
         alice,
@@ -858,7 +858,7 @@ async fn public_link_exposes_shared_date_never_personal_planned_date() {
     let alice = &ts.client;
     let bob = &ts.client2;
 
-    let open_course = create_course(alice, TEST_WS, "O", "Public Course").await;
+    let open_course = create_course(alice, TEST_WS, "open", "Public Course").await;
     bob.post(
         &format!("{TEST_WS}/containers/{open_course}/join"),
         &json!({}),
@@ -880,13 +880,13 @@ async fn public_link_exposes_shared_date_never_personal_planned_date() {
     .check_ok();
     alice
         .post(
-            &format!("{TEST_WS}/containers/{open_course}/sharing"),
+            &format!("{TEST_WS}/containers/{open_course}/public-link"),
             &json!({"enabled": true}),
         )
         .await
         .check_ok();
     let token = alice
-        .get(&format!("{TEST_WS}/containers/{open_course}/sharing"))
+        .get(&format!("{TEST_WS}/containers/{open_course}/public-link"))
         .await
         .value()["token"]
         .as_str()
@@ -941,7 +941,7 @@ async fn org_admin_joining_workspace_cannot_read_private_course_schedules() {
         .add_workspace_member(&other_ws_id, &bob_id, WorkspaceRole::Admin)
         .await
         .expect("bob in lab");
-    let bob_course = create_course(bob, &other_ws, "P", "Bob Secret Study").await;
+    let bob_course = create_course(bob, &other_ws, "private", "Bob Secret Study").await;
     let bob_unit = create_unit(
         bob,
         &other_ws,
@@ -1005,7 +1005,7 @@ async fn own_space_and_sso_wall_protect_course_schedule_routes() {
 
     let own = own_workspace(&ts.client).await;
     let own_ws = format!("/w/{}", own.id);
-    let own_course = create_course(&ts.client, &own_ws, "P", "Solo Schedule").await;
+    let own_course = create_course(&ts.client, &own_ws, "private", "Solo Schedule").await;
     let own_unit = create_unit(
         &ts.client,
         &own_ws,
@@ -1049,7 +1049,7 @@ async fn own_space_and_sso_wall_protect_course_schedule_routes() {
         confirmed.get(path).await.check_ok();
     }
 
-    let org_course = create_course(&confirmed, ROOT_WS, "O", "Org Course").await;
+    let org_course = create_course(&confirmed, ROOT_WS, "open", "Org Course").await;
     require_sso(&confirmed, &org_id, &fake, Passwords::Refused)
         .await
         .check_ok();

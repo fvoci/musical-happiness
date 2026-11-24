@@ -9,7 +9,7 @@
 //! nothing, and with text that is no identifier at all. What cannot be an identifier is
 //! not there either, and it gets the same answer again.
 
-use fvoci_model::{Block, BlockType, Category, ContainerType, new_id};
+use fvoci_model::{Block, BlockType, Category, ContainerVisibility, new_id};
 use reqwest::multipart::{Form, Part};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -47,7 +47,7 @@ impl Hidden {
         let owner = th.client.me().await;
         let outsider = th.client2.me().await.id;
         let board = th
-            .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+            .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
             .await;
         let block = |block_type: BlockType, parent_id: &str| Block {
             id: new_id(),
@@ -112,7 +112,7 @@ impl Hidden {
             .check_created();
         th.client
             .post(
-                &format!("{TEST_WS}/containers/{}/sharing", board.id),
+                &format!("{TEST_WS}/containers/{}/public-link", board.id),
                 &json!({"enabled": true}),
             )
             .await
@@ -123,7 +123,7 @@ impl Hidden {
             .client2
             .create_board(&fvoci_model::Container {
                 workspace_id: TEST_WORKSPACE_ID.to_owned(),
-                container_type: ContainerType::Private,
+                visibility: ContainerVisibility::Private,
                 ..fvoci_model::Container::default()
             })
             .await
@@ -306,12 +306,12 @@ fn board_cases() -> Vec<Case> {
         // Its sharing.
         case(
             Method::GET,
-            |h, i| format!("{TEST_WS}/containers/{}/sharing", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/public-link", h.board[i]),
             no_body,
         ),
         case(
             Method::POST,
-            |h, i| format!("{TEST_WS}/containers/{}/sharing", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/public-link", h.board[i]),
             |_, _| json!({"enabled": false}),
         ),
     ]

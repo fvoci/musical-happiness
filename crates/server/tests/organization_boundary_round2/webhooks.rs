@@ -112,7 +112,7 @@ async fn a_second_orgs_read_token_can_subscribe_to_its_card_updates() {
         let board = ts
             .create_board(
                 super::common::ROOT_WORKSPACE_ID,
-                fvoci_model::ContainerType::Private,
+                fvoci_model::ContainerVisibility::Private,
             )
             .await;
         let mut card = Block {
@@ -130,7 +130,7 @@ async fn a_second_orgs_read_token_can_subscribe_to_its_card_updates() {
         (ts, app, user, board, card)
     };
     let token = app
-        .set_sharing(&board.id, fvoci_store::SharingChange::On, &user)
+        .set_public_link(&board.id, fvoci_model::PublicLinkChange::On, &user)
         .await
         .expect("B is shared")
         .token;

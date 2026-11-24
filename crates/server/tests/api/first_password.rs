@@ -3,7 +3,7 @@
 //! its own space and into whatever takes a password.
 
 use fvoci_model::{
-    Block, BlockType, Container, ContainerMember, ContainerType, UserWorkspace, new_id,
+    Block, BlockType, Container, ContainerMember, ContainerVisibility, UserWorkspace, new_id,
 };
 use fvoci_server::app::ChangeNotification;
 use fvoci_store::testing::db_type_of_the_tests;
@@ -38,7 +38,7 @@ pub(crate) async fn board_in_the_space(
     let mut board = Container {
         id: new_id(),
         workspace_id: own.id.clone(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         title: "a board of the space".to_owned(),
         ..Container::default()
     };

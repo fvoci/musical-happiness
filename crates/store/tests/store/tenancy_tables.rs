@@ -7,13 +7,13 @@ use std::path::Path;
 
 use fvoci_model::{
     AttendanceStatus, AuditAction, BlockType, Category, CompletionChange, Container, ContainerKind,
-    ContainerMember, ContainerType, CourseLimits, LastPositionChange, NewCourseExam,
-    NewCourseMeeting, NewUnit, NewUnitNote, NewUnitReview, STUDY_DAYS_WEEKDAYS, StudyDays,
-    Subscription, UnitNoteKind, UnitProgressChange, Upload, UploadPart, ValidatedCourseSchedule,
-    ValidatedMyExamScore, WorkspaceRole, new_id,
+    ContainerMember, ContainerVisibility, CourseLimits, LastPositionChange, NewCourseExam,
+    NewCourseMeeting, NewUnit, NewUnitNote, NewUnitReview, PublicLinkChange, STUDY_DAYS_WEEKDAYS,
+    StudyDays, Subscription, UnitNoteKind, UnitProgressChange, Upload, UploadPart,
+    ValidatedCourseSchedule, ValidatedMyExamScore, WorkspaceRole, new_id,
 };
 use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
-use fvoci_store::{AuditEntry, DbType, SYSTEM_ORG_ID, SharingChange, Store, Tenant};
+use fvoci_store::{AuditEntry, DbType, SYSTEM_ORG_ID, Store, Tenant};
 use sqlx::Connection as _;
 
 use crate::common;
@@ -214,7 +214,7 @@ async fn every_table_is_no_organizations_or_behind_the_wall() {
         }
         assert_eq!(policy, "org_templates", "{table} has the policy {policy}");
         assert!(
-            ["containers", "blocks", "file_info"].contains(&table.as_str()),
+            ["containers", "blocks", "files"].contains(&table.as_str()),
             "{table} lets the templates be read"
         );
         assert_eq!(
@@ -333,7 +333,7 @@ async fn told_and_to_be_told(store: &Store, board_id: &str, user_id: &str) {
 
 /// Stores, through `store`, something in every table of an organization: a workspace, a
 /// board with a member and the record of a change of its roles, a card and a comment
-/// whose text was changed, files, sharing, a subscription, a category with the board in
+/// whose text was changed, files, a public link, a subscription, a category with the board in
 /// it, an upload with a part, an object being written, a notification and one still to
 /// be made, and a board and a card in the trash. The user is made through `store`
 /// too, and so joins its organization. Returns the identifiers of the card that went to
@@ -342,13 +342,13 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
     // As on a server that has a search server: what changes is noted for it.
     store.keep_search_outbox();
     let user_id = common::user(store, username).await;
-    let comment = crate::file_info::posted_comment(store, &user_id).await;
+    let comment = crate::files::posted_comment(store, &user_id).await;
     let board_id = comment.container_id.clone();
     let board = store.get_container(&board_id).await.expect("the board");
     store
         .patch_block(
             &comment.id,
-            &crate::file_info::title_and_body(Some("v2")),
+            &crate::files::title_and_body(Some("v2")),
             &user_id,
         )
         .await
@@ -380,7 +380,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .await
         .expect("a change of roles is recorded");
     store
-        .set_sharing(&board_id, SharingChange::On, &new_id(), &user_id)
+        .set_public_link(&board_id, PublicLinkChange::On, &new_id(), &user_id)
         .await
         .expect("the board is shared");
     store
@@ -639,7 +639,7 @@ async fn a_course_with_progress(store: &Store, workspace_id: &str, user_id: &str
     let mut course = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         kind: ContainerKind::Course,
         title: "a course".to_owned(),
         ..Container::default()
@@ -871,9 +871,9 @@ async fn a_row_is_held_to_the_organization_of_what_it_hangs_on() {
             "category_containers.category_id",
             "container_members.container_id",
             "containers.workspace_id",
-            "file_info.container_id",
+            "files.container_id",
             "organizations.default_workspace_id",
-            "sharing.container_id",
+            "public_links.container_id",
             "subscriptions.block_id",
             "upload_parts.upload_id",
             "workspace_members.workspace_id",
@@ -884,8 +884,8 @@ async fn a_row_is_held_to_the_organization_of_what_it_hangs_on() {
 
 /// The lookups that reach across every organization do not take the keys on trust:
 /// with the keys gone, a member's row that one organization stored under another's
-/// workspace lets nobody into it, and a sharing that one stored under another's board
-/// opens nothing.
+/// workspace lets nobody into it, and a public link that one stored under another's
+/// board opens nothing.
 #[tokio::test]
 async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
     if common::db_type() != DbType::Postgres {
@@ -904,7 +904,7 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
              VALUES ('{their_workspace}', '{user_id}', 'admin', 0)"
         ),
         format!(
-            "INSERT INTO sharing (container_id, enabled, token, update_at) \
+            "INSERT INTO public_links (container_id, enabled, token, update_at) \
              VALUES ('{their_board}', true, 'a-forged-token', 0)"
         ),
     ];
@@ -919,7 +919,7 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
     let mut conn = common::connect_past_the_store(&test.database_connection()).await;
     sqlx::raw_sql(
         "ALTER TABLE workspace_members DROP CONSTRAINT workspace_members_workspace_org_fkey; \
-         ALTER TABLE sharing DROP CONSTRAINT sharing_container_org_fkey",
+         ALTER TABLE public_links DROP CONSTRAINT public_links_container_org_fkey",
     )
     .execute(&mut conn)
     .await
@@ -954,9 +954,9 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
     assert_eq!(
         test.shared_container(&their_board, "a-forged-token")
             .await
-            .expect("the sharing is looked up"),
+            .expect("the public link is looked up"),
         None,
-        "the sharing opens nothing"
+        "the public link opens nothing"
     );
     test.teardown().await;
 }

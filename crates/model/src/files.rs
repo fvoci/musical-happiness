@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// What the server records about an uploaded file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
-pub struct FileInfo {
+pub struct FileRecord {
     /// The record's identifier.
     pub id: String,
     /// The board the file belongs to. Never sent to clients: they ask for a file
@@ -37,7 +37,7 @@ pub struct FileInfo {
     pub created_by: String,
 }
 
-impl Default for FileInfo {
+impl Default for FileRecord {
     /// A record of nothing, at its first version.
     fn default() -> Self {
         Self {
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn json_form_has_no_place_in_the_storage() {
-        let file_info = FileInfo {
+        let record = FileRecord {
             id: "abc".to_owned(),
             container_id: "board".to_owned(),
             stored_name: "random.png".to_owned(),
@@ -158,7 +158,7 @@ mod tests {
             version: 3,
             created_by: "somebody".to_owned(),
         };
-        let encoded = serde_json::to_value(&file_info).expect("a file info serializes");
+        let encoded = serde_json::to_value(&record).expect("a file record serializes");
         assert_eq!(
             encoded,
             json!({

@@ -1,7 +1,7 @@
 //! A guest of a workspace: on the boards they were invited to, one by one, as no more
 //! than an editor, without a public link, and told of the changes of those boards.
 
-use fvoci_model::{ContainerMember, ContainerType, WorkspaceRole};
+use fvoci_model::{ContainerMember, ContainerVisibility, WorkspaceRole};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -38,7 +38,7 @@ pub(crate) async fn guest_of_the_workspace(th: &TestServer) -> String {
 }
 
 /// A board of the test workspace that the first user makes and administers.
-async fn board_of_user1(th: &TestServer, board_type: ContainerType, title: &str) -> String {
+async fn board_of_user1(th: &TestServer, board_type: ContainerVisibility, title: &str) -> String {
     let board: fvoci_model::Container = th
         .client
         .create_board(&new_board(TEST_WORKSPACE_ID, board_type, title))
@@ -58,12 +58,12 @@ fn viewer(board_id: &str, user_id: &str) -> ContainerMember {
 async fn a_guest_opens_only_the_boards_it_was_invited_to() {
     let th = Setup::native().start().await.init_basic().await;
     let guest = guest_of_the_workspace(&th).await;
-    let invited = board_of_user1(&th, ContainerType::Private, "Invited").await;
-    let open = board_of_user1(&th, ContainerType::Open, "Open").await;
-    let private = board_of_user1(&th, ContainerType::Private, "Not invited").await;
+    let invited = board_of_user1(&th, ContainerVisibility::Private, "Invited").await;
+    let open = board_of_user1(&th, ContainerVisibility::Open, "Open").await;
+    let private = board_of_user1(&th, ContainerVisibility::Private, "Not invited").await;
     let mut elsewhere = fvoci_model::Container {
         id: fvoci_model::new_id(),
-        ..new_board(HIDDEN_WORKSPACE_ID, ContainerType::Open, "Elsewhere")
+        ..new_board(HIDDEN_WORKSPACE_ID, ContainerVisibility::Open, "Elsewhere")
     };
     th.app
         .store()
@@ -120,7 +120,7 @@ async fn a_guest_opens_only_the_boards_it_was_invited_to() {
 async fn a_guest_is_given_no_more_than_editor_and_who_left_is_changed_no_more() {
     let th = Setup::native().start().await.init_basic().await;
     let guest = guest_of_the_workspace(&th).await;
-    let board = board_of_user1(&th, ContainerType::Private, "Guest's board").await;
+    let board = board_of_user1(&th, ContainerVisibility::Private, "Guest's board").await;
     let as_admin = ContainerMember {
         scheme_admin: true,
         ..member(&board, &guest)
@@ -144,7 +144,7 @@ async fn a_guest_is_given_no_more_than_editor_and_who_left_is_changed_no_more() 
         .await
         .expect("the guest is a member");
     // Who is no member of the board is not found, before what the request asks for.
-    let elsewhere = board_of_user1(&th, ContainerType::Private, "Not the guest's").await;
+    let elsewhere = board_of_user1(&th, ContainerVisibility::Private, "Not the guest's").await;
     let not_on_board = update_member(
         &th.client,
         &ContainerMember {
@@ -200,7 +200,7 @@ async fn a_guest_is_given_no_more_than_editor_and_who_left_is_changed_no_more() 
 async fn a_guest_makes_no_public_link_and_manages_no_members_whatever_is_stored() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let guest = guest_of_the_workspace(&th).await;
-    let board = board_of_user1(&th, ContainerType::Private, "Guest's board").await;
+    let board = board_of_user1(&th, ContainerVisibility::Private, "Guest's board").await;
     // A role a guest cannot be given, stored past the routes: as a member who was an
     // admin of the board before being made a guest would have it.
     th.app
@@ -215,7 +215,7 @@ async fn a_guest_makes_no_public_link_and_manages_no_members_whatever_is_stored(
     let shared = th
         .client2
         .post(
-            &format!("{TEST_WS}/containers/{board}/sharing"),
+            &format!("{TEST_WS}/containers/{board}/public-link"),
             &json!({"enabled": true}),
         )
         .await;
@@ -239,8 +239,8 @@ async fn a_guest_makes_no_public_link_and_manages_no_members_whatever_is_stored(
 async fn a_guest_is_told_the_changes_of_its_boards_and_of_no_other() {
     let th = Setup::native().start().await.init_basic().await;
     let guest = guest_of_the_workspace(&th).await;
-    let invited = board_of_user1(&th, ContainerType::Private, "Invited").await;
-    let other = board_of_user1(&th, ContainerType::Open, "Other").await;
+    let invited = board_of_user1(&th, ContainerVisibility::Private, "Invited").await;
+    let other = board_of_user1(&th, ContainerVisibility::Open, "Other").await;
     th.client
         .add_member(&viewer(&invited, &guest))
         .await

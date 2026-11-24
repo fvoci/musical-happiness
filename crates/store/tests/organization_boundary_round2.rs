@@ -13,7 +13,7 @@ mod common;
 
 use fvoci_model::{
     Block, BlockPatch, BlockType, Body, BodyChange, Category, Container, ContainerKinds,
-    ContainerType, FileInfo, Upload, UploadPurpose, new_id,
+    ContainerVisibility, FileRecord, Upload, UploadPurpose, new_id,
 };
 use fvoci_store::{DbType, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Store};
 
@@ -310,17 +310,17 @@ async fn one_orgs_file_reference_keeps_no_file_of_another_alive() {
     let ours = common::create_test_boards(&test, &test.workspace_id, &user_id, 1).await;
     let ours = block(&test, &ours[0].id, "", BlockType::Card, &user_id).await;
     let b = other(&test).await;
-    let file = FileInfo {
+    let file = FileRecord {
         id: new_id(),
         container_id: b.board_id.clone(),
         stored_name: "B-file.txt".to_owned(),
         name: "B-file.txt".to_owned(),
         path: "B/B-file.txt".to_owned(),
         create_at: 1,
-        ..FileInfo::default()
+        ..FileRecord::default()
     };
     b.store
-        .save_file_info(&file)
+        .save_file_record(&file)
         .await
         .expect("B's file is recorded, shown by no block");
     test.execute_unchecked(&format!(
@@ -532,7 +532,7 @@ async fn a_category_takes_a_board_of_its_organization_or_a_template() {
     let mut template = Container {
         id: new_id(),
         workspace_id: SYSTEM_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         is_template: true,
         ..Container::default()
     };
@@ -654,8 +654,8 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             ("category_containers", "(id)"),
             ("container_members", "(container_id, user_id)"),
             ("containers", "(id)"),
-            ("file_info", "(container_id, name)"),
-            ("file_info", "(id)"),
+            ("files", "(container_id, name)"),
+            ("files", "(id)"),
             // The digest of a secret the server makes; a link is found by it before its
             // organization is known.
             ("invitations", "(token_hash)"),
@@ -672,9 +672,9 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             ("organizations", "(is_system) WHERE is_system"),
             // One space for an account over them all: an account is the server's.
             ("organizations", "(owner_id) WHERE (owner_id IS NOT NULL)"),
-            ("sharing", "(container_id)"),
+            ("public_links", "(container_id)"),
             // A secret the server makes.
-            ("sharing", "(token)"),
+            ("public_links", "(token)"),
             ("subscriptions", "(block_id, user_id)"),
             // Server-generated identifier for each personal time entry.
             ("time_entries", "(id)"),
@@ -716,7 +716,10 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
                 "organizations_keep_their_kind".to_owned()
             ),
             // Nor that no link leads into a diary (0055).
-            ("sharing".to_owned(), "sharing_of_no_diary".to_owned()),
+            (
+                "public_links".to_owned(),
+                "public_links_of_no_diary".to_owned()
+            ),
             (
                 "uploads".to_owned(),
                 "uploads_target_of_its_organization".to_owned()

@@ -180,7 +180,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       workspaceId: world.workspace.id,
       createdBy: reader.id,
       modifiedBy: reader.id,
-      type: 'P',
+      visibility: 'private',
       minimumRole: 'editor',
       title: template.board.title,
       description: template.board.description,

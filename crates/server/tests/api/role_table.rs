@@ -51,8 +51,8 @@ enum Scope {
 impl Scope {
     const fn wire(self) -> &'static str {
         match self {
-            Self::Invited => "P",
-            Self::Open => "O",
+            Self::Invited => "private",
+            Self::Open => "open",
         }
     }
 }
@@ -146,13 +146,13 @@ fn container_ops() -> Vec<Op> {
             Json(|_, _| json!({"title": "changed"})),
         ),
         op(
-            "container: patch type",
+            "container: patch visibility",
             Method::PATCH,
             "/containers/{c}",
-            Json(|things, _| json!({"type": things.scope.wire()})),
+            Json(|things, _| json!({"visibility": things.scope.wire()})),
         ),
         op(
-            "container: change type",
+            "container: change visibility",
             Method::PATCH,
             "/containers/{c}",
             Json(|things, _| {
@@ -160,7 +160,7 @@ fn container_ops() -> Vec<Op> {
                     Scope::Invited => Scope::Open,
                     Scope::Open => Scope::Invited,
                 };
-                json!({"type": other.wire()})
+                json!({"visibility": other.wire()})
             }),
         ),
         op("container: delete", Method::DELETE, "/containers/{c}", None),
@@ -240,11 +240,16 @@ fn container_ops() -> Vec<Op> {
 fn holding_ops() -> Vec<Op> {
     use Body::{File, Json, None};
     vec![
-        op("sharing: get", Method::GET, "/containers/{c}/sharing", None),
         op(
-            "sharing: set",
+            "public-link: get",
+            Method::GET,
+            "/containers/{c}/public-link",
+            None,
+        ),
+        op(
+            "public-link: set",
             Method::POST,
-            "/containers/{c}/sharing",
+            "/containers/{c}/public-link",
             Json(|_, _| json!({"enabled": true})),
         ),
         op("files: upload", Method::POST, "/containers/{c}/files", File),
@@ -635,7 +640,7 @@ async fn make(people: &People, kind: Kind, scope: Scope) -> Things {
         Kind::Board => format!("{TEST_WS}/boards"),
         Kind::Wiki => format!("{TEST_WS}/wikis"),
     };
-    let made = owner.post(&at, &json!({"type": scope.wire()})).await;
+    let made = owner.post(&at, &json!({"visibility": scope.wire()})).await;
     done(&made);
     let container = text(&made.value(), "id");
     let at = format!("{TEST_WS}/containers/{container}");
@@ -665,7 +670,7 @@ async fn make(people: &People, kind: Kind, scope: Scope) -> Things {
     done(&uploaded);
     done(
         &owner
-            .post(&format!("{at}/sharing"), &json!({"enabled": true}))
+            .post(&format!("{at}/public-link"), &json!({"enabled": true}))
             .await,
     );
     let file = text(&uploaded.value(), "fileId");
@@ -966,7 +971,7 @@ fn column(name: &str) -> usize {
 /// joined an open one: that one reads an open wiki, and writes in neither.
 #[tokio::test]
 async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
-    // Sharing is on, as it is by default on a server: its links are among what is asked.
+    // PublicLink is on, as it is by default on a server: its links are among what is asked.
     let ts = Setup::local_mode().start().await.init_basic().await;
     let people = People::of(&ts).await;
     let board = table(&people, Kind::Board).await;

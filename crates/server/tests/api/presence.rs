@@ -1,6 +1,6 @@
 //! Real sockets: board visits, open cards, deduplication, token readers and boundaries.
 
-use fvoci_model::Sharing;
+use fvoci_model::PublicLink;
 use serde_json::{Value, json};
 
 use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS};
@@ -93,10 +93,10 @@ async fn visits_show_cards_deduplicate_tabs_and_leave_on_disconnect() {
 async fn token_visits_count_anonymously_and_receive_nothing() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let t = table(&th, &paragraphs(&["hello"])).await;
-    let sharing: Sharing = th
+    let sharing: PublicLink = th
         .client
         .post(
-            &format!("{TEST_WS}/containers/{}/sharing", t.board_id),
+            &format!("{TEST_WS}/containers/{}/public-link", t.board_id),
             &json!({"enabled":true}),
         )
         .await
@@ -188,7 +188,7 @@ async fn leaving_and_reentering_within_one_batch_gets_a_new_roster() {
 async fn a_guest_sees_an_unshared_template_reader_only_as_a_count() {
     use crate::common::{PASSWORD, ROOT_WORKSPACE_ID, ROOT_WS};
     use crate::rooms::give_in;
-    use fvoci_model::{Container, ContainerType};
+    use fvoci_model::{Container, ContainerVisibility};
 
     let th = Setup::native().start().await.init_basic().await;
     let third = th
@@ -196,7 +196,8 @@ async fn a_guest_sees_an_unshared_template_reader_only_as_a_count() {
         .await;
     let third_id = third.me().await.id;
     let guest_id = th.client2.me().await.id;
-    let mut template = crate::boards::new_board(ROOT_WORKSPACE_ID, ContainerType::Open, "Template");
+    let mut template =
+        crate::boards::new_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open, "Template");
     template.is_template = true;
     let template: Container = th.client.create_board(&template).await.created_json();
     give_in(&th, ROOT_WORKSPACE_ID, &template.id, &guest_id, "viewer").await;
@@ -231,7 +232,7 @@ async fn a_guest_sees_an_unshared_template_reader_only_as_a_count() {
         "a workspace member sees the reader"
     );
     let private = th
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let mut uninvited = Socket::connect_as(&th.client2).await;
     uninvited
@@ -377,7 +378,7 @@ async fn a_refused_visit_ends_the_one_before_and_a_deleted_card_leaves_the_board
     );
     // A board the reader may not read: the visit asked before ends as well.
     let private = th
-        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerVisibility::Private)
         .await;
     visit(&mut two, &private.id, "").await;
     let alone = people(&mut one, 1).await;

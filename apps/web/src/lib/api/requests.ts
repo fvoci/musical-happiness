@@ -239,10 +239,10 @@ export class ServerRequests extends AccountRequests implements TrashReads {
     return this.inWorkspaceBytes('/containers/{containerId}/files/{fileId}', params, signal);
   }
 
-  /** The name and size of a file (`getFileInfo`). */
+  /** The name and size of a file (`getFileRecord`). */
   async fileDetails(containerId: string, fileId: string): Promise<FileDetails> {
     const params = { containerId, fileId };
-    const info = await this.inWorkspace<Schemas['FileInfo']>(
+    const info = await this.inWorkspace<Schemas['FileRecord']>(
       '/containers/{containerId}/files/{fileId}/info',
       params,
     );

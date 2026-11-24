@@ -3,7 +3,7 @@ route                                 anonymous   outsider     viewer  commenter
 board: get                                  401        200        200        200        200        200
 board: patch title                          401        403        403        403        200        200
 board: patch properties                     401        403        403        403        200        200
-board: patch type                           401        403        403        403        403        200
+board: patch visibility                     401        403        403        403        403        200
 board: patch minimum role                   401        403        403        403        403        200
 board: delete                               401        403        403        403        403        204
 board: undelete                             401        404        403        403        403        200
@@ -37,8 +37,8 @@ cards: create                               401        403        403        403
 cards: list                                 401        403        200        200        200        200
 cards: get                                  401        404        200        200        200        200
 cards: patch                                401        404        403        403        200        200
-sharing: get                                401        403        403        403        403        200
-sharing: post                               401        403        403        403        403        200
+public-link: get                            401        403        403        403        403        200
+public-link: post                           401        403        403        403        403        200
 subscriptions: create                       401        404        201        201        201        201
 subscriptions: delete                       401        404        204        204        204        204
 files: upload                               401        403        403        403        201        201

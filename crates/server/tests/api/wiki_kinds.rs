@@ -70,12 +70,12 @@ const REACHED: &[(&str, Reaches)] = &[
     ("setContainerTeam", Reaches::SHARED),
     ("removeContainerTeam", Reaches::SHARED),
     // Its sharing: a board's link reads its cards, a wiki's its pages.
-    ("getSharing", Reaches::LINKED),
-    ("setSharing", Reaches::LINKED),
+    ("getPublicLink", Reaches::LINKED),
+    ("setPublicLink", Reaches::LINKED),
     // Its files.
     ("uploadFile", Reaches::EVERY),
     ("getFile", Reaches::EVERY),
-    ("getFileInfo", Reaches::EVERY),
+    ("getFileRecord", Reaches::EVERY),
     ("getFileVersions", Reaches::EVERY),
     ("getFileVersion", Reaches::EVERY),
     ("addFileVersion", Reaches::EVERY),
@@ -205,7 +205,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getSharedBlocks", Reaches::BOARDS),
     ("getSharedCards", Reaches::BOARDS),
     ("getSharedFile", Reaches::LINKED),
-    ("getSharedFileInfo", Reaches::LINKED),
+    ("getSharedFileRecord", Reaches::LINKED),
     ("getSharedPageTree", Reaches::WIKIS),
     ("getSharedPage", Reaches::WIKIS),
     ("getSharedUnitTree", Reaches::COURSES),
@@ -329,7 +329,9 @@ impl World {
             ContainerKind::Course => format!("{ROOT_WS}/courses"),
             _ => format!("{ROOT_WS}/boards"),
         };
-        let made = client.post(&made_at, &json!({"type": "P"})).await;
+        let made = client
+            .post(&made_at, &json!({"visibility": "private"}))
+            .await;
         made.check_done();
         let container = text(&made.value(), "id");
         let at = format!("{ROOT_WS}/containers/{container}");
@@ -358,42 +360,16 @@ impl World {
         opened.check_done();
         let token = if ContainerKinds::LINKED.holds(kind) {
             client
-                .post(&format!("{at}/sharing"), &json!({"enabled": true}))
+                .post(&format!("{at}/public-link"), &json!({"enabled": true}))
                 .await
                 .check_done();
-            let sharing = client.get(&format!("{at}/sharing")).await.value();
+            let sharing = client.get(&format!("{at}/public-link")).await.value();
             text(&sharing, "token")
         } else {
             "no-token".to_owned()
         };
         let (block, comment) = match kind {
-            ContainerKind::Wiki => {
-                let pages = format!("{ROOT_WS}/wikis/{container}/pages");
-                let page = client.post(&pages, &json!({"title": "a page"})).await;
-                page.check_done();
-                let page = page.value();
-                // A body written to the page is a version of it, as the card's is: an
-                // operation on a card's versions that reached it would find one.
-                let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
-                    {"type": "text", "text": "written"}
-                ]}]});
-                let page_id = text(&page, "id");
-                client
-                    .patch(
-                        &format!("{pages}/{page_id}"),
-                        &json!({"readAt": page["updateAt"], "body": body}),
-                    )
-                    .await
-                    .check_ok();
-                let comment = client
-                    .post(
-                        &format!("{pages}/{page_id}/comments"),
-                        &json!({ "body": body }),
-                    )
-                    .await;
-                comment.check_done();
-                (page_id, text(&comment.value(), "id"))
-            }
+            ContainerKind::Wiki => self.wiki_page_with_a_comment(&container).await,
             ContainerKind::Course => self.course_unit_with_a_comment(&container).await,
             _ => self.card_with_a_comment(&container).await,
         };
@@ -422,6 +398,35 @@ impl World {
             upload: text(&opened.value(), "uploadId"),
             token,
         }
+    }
+
+    async fn wiki_page_with_a_comment(&self, wiki: &str) -> (String, String) {
+        let client = &self.ts.client;
+        let pages = format!("{ROOT_WS}/wikis/{wiki}/pages");
+        let page = client.post(&pages, &json!({"title": "a page"})).await;
+        page.check_done();
+        let page = page.value();
+        // A body written to the page is a version of it, as the card's is: an
+        // operation on a card's versions that reached it would find one.
+        let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+            {"type": "text", "text": "written"}
+        ]}]});
+        let page_id = text(&page, "id");
+        client
+            .patch(
+                &format!("{pages}/{page_id}"),
+                &json!({"readAt": page["updateAt"], "body": body}),
+            )
+            .await
+            .check_ok();
+        let comment = client
+            .post(
+                &format!("{pages}/{page_id}/comments"),
+                &json!({ "body": body }),
+            )
+            .await;
+        comment.check_done();
+        (page_id, text(&comment.value(), "id"))
     }
 
     async fn course_meeting_and_exam(&self, course: &str) -> (String, String) {
@@ -690,7 +695,7 @@ impl World {
                 json!({"containerId": things.container, "userId": self.other, "schemeViewer": true})
             }
             "setContainerTeam" => json!({"role": "editor"}),
-            "setSharing" => json!({"enabled": false}),
+            "setPublicLink" => json!({"enabled": false}),
             "createUpload" => json!({"name": "more.bin", "size": 4}),
             // The file itself is no version of it: refused as what it is, where the file is.
             "addFileVersion" => json!({"baseVersion": 1, "fileId": things.file}),
@@ -848,7 +853,7 @@ async fn make_in_own_space(world: &World, own: &str) -> [Things; 4] {
         let new = if kind == "diaries" {
             json!({})
         } else {
-            json!({"type": "P"})
+            json!({"visibility": "private"})
         };
         let container = client.post(&format!("{ws}/{kind}"), &new).await;
         container.check_done();
@@ -1016,8 +1021,8 @@ async fn the_lists_of_an_own_space_are_of_their_kinds() {
     }
     let diaries = client.get(&format!("{ws}/diaries")).await.value();
     assert_eq!(
-        (&diaries[0]["kind"], &diaries[0]["type"]),
-        (&json!("diary"), &json!("P"))
+        (&diaries[0]["kind"], &diaries[0]["visibility"]),
+        (&json!("diary"), &json!("private"))
     );
     for things in [&board, &wiki, &diary, &course] {
         let at = format!("{ws}/containers/{}", things.container);
@@ -1052,10 +1057,11 @@ async fn what_names_a_diary_in_a_body_is_refused() {
     let one = client
         .post(
             &format!("{ws}/boards"),
-            &json!({"type": "P", "kind": "diary"}),
+            &json!({"visibility": "private", "kind": "diary"}),
         )
         .await;
-    let as_diary = json!({"id": "made", "type": "P", "kind": "diary", "title": "no board"});
+    let as_diary =
+        json!({"id": "made", "visibility": "private", "kind": "diary", "title": "no board"});
     let many = client
         .post(
             &format!("{ws}/boards-and-blocks"),
@@ -1327,7 +1333,10 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
         client.post(&path, &copied).await
     };
     let other = client
-        .post(&format!("{ROOT_WS}/boards"), &json!({"type": "P"}))
+        .post(
+            &format!("{ROOT_WS}/boards"),
+            &json!({"visibility": "private"}),
+        )
         .await;
     other.check_done();
     from(&text(&other.value(), "id")).await.check_done();
@@ -1427,11 +1436,12 @@ async fn assert_board_creation_refuses_other_kinds(client: &Client, board_id: &s
     let card =
         json!({"id": "card", "containerId": "made", "type": "card", "createAt": 1, "updateAt": 1});
     for non_board in ["wiki", "course"] {
-        let as_other = json!({"id": "made", "type": "P", "kind": non_board, "title": "no board"});
+        let as_other =
+            json!({"id": "made", "visibility": "private", "kind": non_board, "title": "no board"});
         let one = client
             .post(
                 &format!("{ROOT_WS}/boards"),
-                &json!({"type": "P", "kind": non_board}),
+                &json!({"visibility": "private", "kind": non_board}),
             )
             .await;
         let many = client
@@ -1482,7 +1492,7 @@ async fn the_audit_names_a_wiki_as_it_names_a_board() {
         let container = maker
             .post(
                 &format!("{ROOT_WS}/{path}"),
-                &json!({"type": "P", "title": title}),
+                &json!({"visibility": "private", "title": title}),
             )
             .await;
         container.check_done();
@@ -1544,7 +1554,10 @@ async fn a_patch_that_names_a_kind_is_refused() {
     }
     // Who does not see the board is told it is not there, whatever the patch names.
     let unseen = client
-        .post(&format!("{ROOT_WS}/boards"), &json!({"type": "P"}))
+        .post(
+            &format!("{ROOT_WS}/boards"),
+            &json!({"visibility": "private"}),
+        )
         .await;
     unseen.check_done();
     let unseen = format!("{ROOT_WS}/containers/{}", text(&unseen.value(), "id"));

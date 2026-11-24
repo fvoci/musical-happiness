@@ -10,8 +10,8 @@
 //! sentence of what the product promises.
 
 use fvoci_model::{
-    Container, ContainerKind, ContainerMember, ContainerRole, ContainerType, OrgRole, Workspace,
-    WorkspaceRole,
+    Container, ContainerKind, ContainerMember, ContainerRole, ContainerVisibility, OrgRole,
+    Workspace, WorkspaceRole,
 };
 use fvoci_store::{Looking, Reach};
 
@@ -152,19 +152,19 @@ impl ContainerScope {
         match (
             container.is_builtin,
             container.is_template,
-            container.container_type,
+            container.visibility,
         ) {
             (true, _, _) => Self::BuiltIn,
-            (false, false, ContainerType::Open) => match container.kind {
+            (false, false, ContainerVisibility::Open) => match container.kind {
                 ContainerKind::Board => Self::Open,
                 ContainerKind::Wiki | ContainerKind::Course => Self::OpenToRead,
                 // No diary is stored as open (`Container::check_storable`); one that
                 // were would be nobody's but its members' all the same.
                 ContainerKind::Diary => Self::InvitedOnly,
             },
-            (false, false, ContainerType::Private) => Self::InvitedOnly,
-            (false, true, ContainerType::Open) => Self::OpenTemplate,
-            (false, true, ContainerType::Private) => Self::InvitedOnlyTemplate,
+            (false, false, ContainerVisibility::Private) => Self::InvitedOnly,
+            (false, true, ContainerVisibility::Open) => Self::OpenTemplate,
+            (false, true, ContainerVisibility::Private) => Self::InvitedOnlyTemplate,
         }
     }
 

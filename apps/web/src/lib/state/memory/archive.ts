@@ -93,7 +93,7 @@ export function exportableContainers(
     (board) =>
       board.workspaceId === workspaceId &&
       !board.isTemplate &&
-      (board.type === 'O' ||
+      (board.visibility === 'open' ||
         (world.members.get(board.id) ?? []).some((member) => member.userId === userId)),
   );
 }
@@ -209,7 +209,17 @@ export async function readArchive(file: File): Promise<{
   }
   const containers = lines
     .filter((line) => line.type === 'container')
-    .map((line) => line.data as Container);
+    .map((line) => {
+      const raw = line.data as Partial<Container> | null | undefined;
+      if (
+        !raw ||
+        typeof raw !== 'object' ||
+        (raw.visibility !== 'open' && raw.visibility !== 'private')
+      ) {
+        fail(400, 'invalid container in archive');
+      }
+      return raw as Container;
+    });
   const blocks = lines
     .filter((line) => line.type === 'block')
     .map((line) => blockOfLine(line.data));

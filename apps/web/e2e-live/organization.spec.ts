@@ -136,7 +136,7 @@ for (const entry of ['sidebar', 'address'] as const) {
     const title = uniqueName(`Salaries from ${entry}`);
     const board = await makeBoard(await signedIn(base, owner), {
       title,
-      type: 'P',
+      visibility: 'private',
       cards: [{ title: 'Raise for everyone', status: 'To do' }],
     });
     // The sidebar links the board itself; an address a member shares names a view of it.

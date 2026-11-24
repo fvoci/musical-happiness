@@ -172,7 +172,7 @@ export class MemoryDiaries implements Diaries {
       kind: 'diary',
       createdBy: userId,
       modifiedBy: userId,
-      type: 'P',
+      visibility: 'private',
       title: draft.title ?? '',
       cardProperties: [],
       createAt: now,

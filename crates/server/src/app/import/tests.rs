@@ -396,7 +396,7 @@ async fn pass15_rechecks_attachment_field_expansion_before_staging() {
         "data": {
             "id": "b1",
             "workspaceId": "ws1",
-            "type": "P",
+            "visibility": "private",
             "title": "Attachment Bounds",
             "createAt": 1,
             "updateAt": 1

@@ -21,8 +21,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Trash",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -683,8 +683,8 @@
         "showDescription": true,
         "templateVersion": 10,
         "title": "Getting started with fvoci",
-        "type": "P",
         "updateAt": "<ts>",
+        "visibility": "private",
         "workspaceId": "<id:1>"
       }
     ]
@@ -781,8 +781,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Trash",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -808,8 +808,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Trash",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },

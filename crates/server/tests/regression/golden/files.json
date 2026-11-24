@@ -21,8 +21,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Board with files",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },
@@ -344,7 +344,7 @@
   },
   {
     "name": "share",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/sharing as files-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/public-link as files-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {

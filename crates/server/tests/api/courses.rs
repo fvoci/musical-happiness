@@ -18,7 +18,7 @@ async fn create_course(client: &Client, ws: &str, course_type: &str, title: &str
     let made = client
         .post(
             &format!("{ws}/courses"),
-            &json!({"type": course_type, "title": title}),
+            &json!({"visibility": course_type, "title": title}),
         )
         .await;
     made.check_created();
@@ -75,7 +75,7 @@ async fn unit_holds(client: &Client, path: &str, body: &Value) {
 async fn course_outline_crud_move_trash_and_problem_pages() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let client = &th.client;
-    let course = create_course(client, TEST_WS, "P", "Rust 101").await;
+    let course = create_course(client, TEST_WS, "private", "Rust 101").await;
     let listed: Vec<Value> = client.get(&format!("{TEST_WS}/courses")).await.ok_json();
     assert_eq!(listed.len(), 1);
     assert_eq!(
@@ -197,7 +197,7 @@ async fn open_course_and_workspace_roles_control_access_search_and_rooms() {
     let th = Setup::native().start().await.init_basic().await;
 
     // 1) Open course: unjoined member reads, searches, and gets a read-only room.
-    let open = create_course(&th.client, TEST_WS, "O", "Open Course").await;
+    let open = create_course(&th.client, TEST_WS, "open", "Open Course").await;
     let open_unit = create_item(
         &th.client,
         TEST_WS,
@@ -267,7 +267,7 @@ async fn open_course_and_workspace_roles_control_access_search_and_rooms() {
 async fn course_roles_and_guest_isolation_control_rooms_and_lists() {
     let th = Setup::native().start().await.init_basic().await;
     let user2 = th.client2.me().await.id;
-    let open = create_course(&th.client, TEST_WS, "O", "Open Course").await;
+    let open = create_course(&th.client, TEST_WS, "open", "Open Course").await;
     let open_unit = create_item(
         &th.client,
         TEST_WS,
@@ -280,7 +280,7 @@ async fn course_roles_and_guest_isolation_control_rooms_and_lists() {
     let open_unit_path = format!("{TEST_WS}/courses/{open}/units/{}", open_unit.id);
 
     // Private course: viewer gets read-only room; removal kicks from room.
-    let private = create_course(&th.client, TEST_WS, "P", "Private Course").await;
+    let private = create_course(&th.client, TEST_WS, "private", "Private Course").await;
     let p_unit = create_item(&th.client, TEST_WS, &private, "unit", "", "Lesson 1").await;
     let p_path = format!("{TEST_WS}/courses/{private}/units/{}", p_unit.id);
     write_unit_body(
@@ -312,7 +312,7 @@ async fn course_roles_and_guest_isolation_control_rooms_and_lists() {
 
     // 3) Guest sees ONLY the invited course (not the open course, not uninvited private ones).
     let guest_id = crate::guests::guest_of_the_workspace(&th).await;
-    let invited = create_course(&th.client, TEST_WS, "P", "Invited Course").await;
+    let invited = create_course(&th.client, TEST_WS, "private", "Invited Course").await;
     let inv_unit = create_item(&th.client, TEST_WS, &invited, "unit", "", "InvitedUnit").await;
     crate::references::let_read(&th.client, &invited, &guest_id).await;
 
@@ -357,7 +357,7 @@ async fn two_connections_coedit_a_unit_in_workspace_and_in_own_space() {
     let user2 = th.client2.me().await.id;
 
     // (a) Shared workspace: two users co-edit a unit; chapter refuses joinDoc.
-    let course = create_course(&th.client, TEST_WS, "P", "Collab Course").await;
+    let course = create_course(&th.client, TEST_WS, "private", "Collab Course").await;
     let chapter = create_item(&th.client, TEST_WS, &course, "chapter", "", "Chapter 1").await;
     let unit = create_item(&th.client, TEST_WS, &course, "unit", &chapter.id, "Unit 1").await;
     let unit_path = format!("{TEST_WS}/courses/{course}/units/{}", unit.id);
@@ -404,7 +404,7 @@ async fn two_connections_coedit_a_unit_in_workspace_and_in_own_space() {
     // (b) Personal space: two separate sessions of the same user co-edit a unit.
     let own = crate::own_space::own_workspace(&th.client).await.id;
     let own_ws = format!("/w/{own}");
-    let own_course = create_course(&th.client, &own_ws, "P", "Self Study").await;
+    let own_course = create_course(&th.client, &own_ws, "private", "Self Study").await;
     let own_unit = create_item(&th.client, &own_ws, &own_course, "unit", "", "Note 1").await;
     let own_unit_path = format!("{own_ws}/courses/{own_course}/units/{}", own_unit.id);
     write_unit_body(
@@ -459,7 +459,7 @@ fn archive_of(lines: &[Value]) -> Vec<u8> {
 
 fn course_line(id: &str, title: &str) -> Value {
     json!({"type": "container", "data": {
-        "id": id, "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": "course",
+        "id": id, "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": "course",
         "title": title, "createAt": 1, "updateAt": 1,
     }})
 }
@@ -488,7 +488,7 @@ async fn course_export_and_import_roundtrip_and_invalid_archives_refused() {
     let ts = Setup::native().start().await.init_basic().await;
     let client = &ts.client;
 
-    let course = create_course(client, TEST_WS, "P", "Algorithms").await;
+    let course = create_course(client, TEST_WS, "private", "Algorithms").await;
     let ch = create_item(client, TEST_WS, &course, "chapter", "", "Sorting").await;
     let u1 = create_item(client, TEST_WS, &course, "unit", &ch.id, "Quicksort").await;
     let u2 = create_item(client, TEST_WS, &course, "unit", "", "Overview").await;
@@ -674,7 +674,7 @@ async fn deleting_chapter_and_privatizing_open_course_evict_unit_rooms() {
     let user2 = th.client2.me().await.id;
 
     // 1) Deleting a chapter while a writer edits a child unit flushes edits and sends docLeft.
-    let course = create_course(&th.client, TEST_WS, "P", "Flush Course").await;
+    let course = create_course(&th.client, TEST_WS, "private", "Flush Course").await;
     let ch = create_item(&th.client, TEST_WS, &course, "chapter", "", "Ch 1").await;
     let u = create_item(&th.client, TEST_WS, &course, "unit", &ch.id, "U 1").await;
     let u_path = format!("{TEST_WS}/courses/{course}/units/{}", u.id);
@@ -702,7 +702,7 @@ async fn deleting_chapter_and_privatizing_open_course_evict_unit_rooms() {
     );
 
     // 2) Open course broadcasts blockChanged to unjoined worker, and privatizing evicts room.
-    let open = create_course(&th.client, TEST_WS, "O", "Open Room Course").await;
+    let open = create_course(&th.client, TEST_WS, "open", "Open Room Course").await;
     let open_u = create_item(&th.client, TEST_WS, &open, "unit", "", "OpenUnitToken").await;
     let mut listener =
         WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &user2).await;
@@ -723,7 +723,7 @@ async fn deleting_chapter_and_privatizing_open_course_evict_unit_rooms() {
     th.client
         .patch(
             &format!("{TEST_WS}/containers/{open}"),
-            &json!({"type": "P"}),
+            &json!({"visibility": "private"}),
         )
         .await
         .check_ok();

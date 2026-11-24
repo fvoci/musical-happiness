@@ -3,7 +3,7 @@
 
 use fvoci_model::{
     Block, BlockError, BlockType, Body, CHAPTERS_PER_COURSE, Container, ContainerKind,
-    ContainerType, CourseLimits, NewUnit, UNITS_PER_COURSE, UnitKind, UnitMove, new_id,
+    ContainerVisibility, CourseLimits, NewUnit, UNITS_PER_COURSE, UnitKind, UnitMove, new_id,
 };
 use fvoci_store::{DbType, Store, StoreError};
 use serde_json::json;
@@ -15,7 +15,7 @@ async fn a_course(store: &Store, workspace_id: &str, user_id: &str) -> Container
     let mut course = Container {
         kind: ContainerKind::Course,
         title: "Course".to_owned(),
-        ..new_board(&new_id(), workspace_id, ContainerType::Private)
+        ..new_board(&new_id(), workspace_id, ContainerVisibility::Private)
     };
     store
         .insert_container_with_admin(&mut course, user_id)
@@ -188,7 +188,7 @@ async fn course_and_block_type_rules_are_enforced() {
         );
     }
 
-    let mut board = new_board(&new_id(), &workspace_id, ContainerType::Private);
+    let mut board = new_board(&new_id(), &workspace_id, ContainerVisibility::Private);
     test.insert_container_with_admin(&mut board, &user_id)
         .await
         .expect("board");
@@ -285,9 +285,9 @@ async fn course_comments_restore_order_and_sharing_rules_hold() {
 
     // Sharing is allowed on courses (workspace and own space) and still refused on diaries.
     let shared = test
-        .set_sharing(
+        .set_public_link(
             &course.id,
-            fvoci_store::SharingChange::On,
+            fvoci_model::PublicLinkChange::On,
             "course-share-token",
             &user_id,
         )
@@ -305,9 +305,9 @@ async fn course_comments_restore_order_and_sharing_rules_hold() {
         .expect("diary stored in own space")
         .diary;
     let diary_share = own
-        .set_sharing(
+        .set_public_link(
             &diary.id,
-            fvoci_store::SharingChange::On,
+            fvoci_model::PublicLinkChange::On,
             "diary-share-token",
             &user_id,
         )

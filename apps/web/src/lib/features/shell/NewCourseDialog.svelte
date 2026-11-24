@@ -8,7 +8,7 @@
   import { untrack } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { Container, ContainerType } from '$lib/logic/wire.ts';
+  import type { Container, ContainerVisibility } from '$lib/logic/wire.ts';
   import type { CourseDraft, Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
@@ -28,7 +28,7 @@
 
   const uid = $props.id();
   let title = $state('');
-  let type = $state<ContainerType>('O');
+  let visibility = $state<ContainerVisibility>('open');
   let selectedTemplateId = $state('');
   let courseTemplates = $state.raw<Container[]>([]);
   let readings = 0;
@@ -36,7 +36,7 @@
   function opened(): void {
     untrack(() => {
       title = '';
-      type = 'O';
+      visibility = 'open';
       selectedTemplateId = '';
       courseTemplates = [];
       if (!workspace) return;
@@ -59,7 +59,10 @@
 
   function submit(event: SubmitEvent): void {
     event.preventDefault();
-    const draft: CourseDraft = { title: title.trim(), type: alone ? 'P' : type };
+    const draft: CourseDraft = {
+      title: title.trim(),
+      visibility: alone ? 'private' : visibility,
+    };
     const chosen = selectedTemplateId
       ? courseTemplates.find((item) => item.id === selectedTemplateId)
       : undefined;
@@ -144,9 +147,9 @@
             <input
               id="{uid}-open"
               type="radio"
-              name="{uid}-type"
-              value="O"
-              bind:group={type}
+              name="{uid}-visibility"
+              value="open"
+              bind:group={visibility}
               data-testid="new-course-open"
               class="mt-1 size-4 accent-primary"
             />
@@ -156,9 +159,9 @@
             <input
               id="{uid}-private"
               type="radio"
-              name="{uid}-type"
-              value="P"
-              bind:group={type}
+              name="{uid}-visibility"
+              value="private"
+              bind:group={visibility}
               data-testid="new-course-private"
               class="mt-1 size-4 accent-primary"
             />

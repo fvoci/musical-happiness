@@ -14,11 +14,11 @@ import { acceptedRoute } from '../../src/app/accepted-route.ts';
 import { settle, setup } from './support.ts';
 
 /** A wiki of the reader's, with a page, and the other person's workspace beside. */
-async function wikiOf(type: 'O' | 'P') {
+async function wikiOf(visibility: 'open' | 'private') {
   const made = setup();
   await made.workspace.load();
   const workspaceId = made.world.workspace.id;
-  const wiki = await made.backend.wiki.createWiki(workspaceId, { title: 'Handbook', type });
+  const wiki = await made.backend.wiki.createWiki(workspaceId, { title: 'Handbook', visibility });
   const page = await made.backend.wiki.createPage(wiki.id, { title: 'Welcome' });
   const theirs = new Workspace({ backend: made.other, locale: () => 'en' });
   await theirs.load();
@@ -27,7 +27,7 @@ async function wikiOf(type: 'O' | 'P') {
 
 describe('an open wiki, read without joining', () => {
   it('is read as its viewers read it, written only once joined', async () => {
-    const made = await wikiOf('O');
+    const made = await wikiOf('open');
     const store = new WikiStore(made.theirs, made.wikiId);
     await store.load();
     expect([store.status, store.joinable, store.role, store.canEdit]).toEqual([
@@ -53,11 +53,11 @@ describe('an open wiki, read without joining', () => {
   });
 
   it('has its pages named by references and found by their search; a private one’s not', async () => {
-    for (const [type, seen] of [
-      ['O', [true, true]],
-      ['P', [false, false]],
+    for (const [visibility, seen] of [
+      ['open', [true, true]],
+      ['private', [false, false]],
     ] as const) {
-      const made = await wikiOf(type);
+      const made = await wikiOf(visibility);
       const resolved = await made.other.references.resolve(made.workspaceId, [made.pageId]);
       const found = await made.other.references.search(made.workspaceId, 'Welcome');
       expect(
@@ -67,7 +67,7 @@ describe('an open wiki, read without joining', () => {
   });
 
   it('made private, is gone for who read it unjoined, and stays for its members', async () => {
-    const made = await wikiOf('O');
+    const made = await wikiOf('open');
     const store = new WikiStore(made.theirs, made.wikiId);
     await store.load();
     const own = new WikiStore(made.workspace, made.wikiId);
@@ -75,13 +75,13 @@ describe('an open wiki, read without joining', () => {
     await own.setOpen(false);
     await settle();
     expect([store.missing, store.status]).toEqual([true, 'failed']);
-    expect([own.missing, own.wiki?.type]).toEqual([false, 'P']);
+    expect([own.missing, own.wiki?.visibility]).toEqual([false, 'private']);
     store.close();
     own.close();
   });
 
   it('taken off it, a member reads it on as whoever works there', async () => {
-    const made = await wikiOf('O');
+    const made = await wikiOf('open');
     await made.backend.addMember(made.wikiId, made.other.userId, 'editor');
     const store = new WikiStore(made.theirs, made.wikiId);
     await store.load();
@@ -92,13 +92,13 @@ describe('an open wiki, read without joining', () => {
     store.close();
   });
   it('tells who watches it unjoined each change, that it is gone once when made private, and nothing after', async () => {
-    const made = await wikiOf('O');
+    const made = await wikiOf('open');
     const told: string[] = [];
     const stop = made.other.watchContainer(made.wikiId, (change) => told.push(change.kind));
     await made.backend.wiki.patchPage(made.wikiId, made.pageId, { title: 'Once' });
     await settle();
     expect(told).toEqual(['pages']);
-    await made.backend.patchContainer(made.wikiId, { type: 'P' });
+    await made.backend.patchContainer(made.wikiId, { visibility: 'private' });
     await made.backend.wiki.patchPage(made.wikiId, made.pageId, { title: 'Twice' });
     await settle();
     expect(told).toEqual(['pages', 'containerDeleted']);
@@ -108,7 +108,7 @@ describe('an open wiki, read without joining', () => {
 
 describe('the comments of an open wiki read without joining', () => {
   it('are read with what they said before, and none is written or changed', async () => {
-    const made = await wikiOf('O');
+    const made = await wikiOf('open');
     const store = new WikiStore(made.theirs, made.wikiId);
     await store.load();
     const comments = store.showPage(made.pageId)?.comments;
@@ -125,21 +125,21 @@ describe('the comments of an open wiki read without joining', () => {
 
 describe('a wiki shared by its admins', () => {
   it('opens and closes, sets the role of who joins, and is undone', async () => {
-    const made = await wikiOf('P');
+    const made = await wikiOf('private');
     const store = new WikiStore(made.workspace, made.wikiId);
     await store.load();
     await store.setOpen(true);
     await store.setMinimumRole('commenter');
-    expect([store.wiki?.type, store.wiki?.minimumRole]).toEqual(['O', 'commenter']);
+    expect([store.wiki?.visibility, store.wiki?.minimumRole]).toEqual(['open', 'commenter']);
     expect((await made.backend.container(made.wikiId)).minimumRole).toBe('commenter');
     await made.workspace.undoLast();
     await made.workspace.undoLast();
-    expect([store.wiki?.type, store.wiki?.minimumRole]).toEqual(['P', 'editor']);
+    expect([store.wiki?.visibility, store.wiki?.minimumRole]).toEqual(['private', 'editor']);
     store.close();
   });
 
   it('keeps a change told while it was read over the older reading', async () => {
-    const made = await wikiOf('O');
+    const made = await wikiOf('open');
     const read = made.other.container.bind(made.other);
     let release = (): void => undefined;
     const held = new Promise<void>((resolve) => {
@@ -162,7 +162,7 @@ describe('a wiki shared by its admins', () => {
   });
 
   it('adds, changes and takes off its members, a refused change put back and told', async () => {
-    const made = await wikiOf('P');
+    const made = await wikiOf('private');
     const store = new WikiStore(made.workspace, made.wikiId);
     await store.load();
     const otherId = made.other.userId;

@@ -6,7 +6,7 @@
 
 use fvoci_model::{
     Block, BlockType, Category, CategoryContainers, Container, ContainerMember, ContainerPatch,
-    ContainerType, MinimumRole, User, Workspace, is_id, new_id,
+    ContainerVisibility, MinimumRole, User, Workspace, is_id, new_id,
 };
 use fvoci_store::PublicContainers;
 use reqwest::{Method, StatusCode};
@@ -20,15 +20,19 @@ use crate::common::{
 
 // -- helpers --------------------------------------------------------------------------
 
-/// The refusal of a board type outside the set.
-const TYPE_REFUSAL: &str = "the type of a board is `O` (open) or `P` (private)";
+/// The refusal of a board visibility outside the set.
+const TYPE_REFUSAL: &str = "the visibility of a board is `open` or `private`";
 /// The refusal of a minimum role outside the set.
 const ROLE_REFUSAL: &str = "the minimum role of a board is `viewer`, `commenter` or `editor`";
 
-pub(crate) fn new_board(workspace_id: &str, board_type: ContainerType, title: &str) -> Container {
+pub(crate) fn new_board(
+    workspace_id: &str,
+    board_type: ContainerVisibility,
+    title: &str,
+) -> Container {
     Container {
         workspace_id: workspace_id.to_owned(),
-        container_type: board_type,
+        visibility: board_type,
         title: title.to_owned(),
         ..Container::default()
     }
@@ -271,7 +275,7 @@ async fn get_boards_a_non_authenticated_client_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     board_without_members(
         &th,
-        new_board(ROOT_WORKSPACE_ID, ContainerType::Open, ""),
+        new_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open, ""),
         &th.stranger().await,
     )
     .await;
@@ -293,37 +297,37 @@ async fn get_boards_should_only_return_the_boards_that_the_user_is_a_member_of()
 
     let board1 = board_with_admin(
         &th,
-        new_board(workspace_id, ContainerType::Open, "Board 1"),
+        new_board(workspace_id, ContainerVisibility::Open, "Board 1"),
         &user1.id,
     )
     .await;
     let board2 = board_without_members(
         &th,
-        new_board(workspace_id, ContainerType::Open, "Board 2"),
+        new_board(workspace_id, ContainerVisibility::Open, "Board 2"),
         &user2.id,
     )
     .await;
     let board3 = board_with_admin(
         &th,
-        new_board(workspace_id, ContainerType::Private, "Board 3"),
+        new_board(workspace_id, ContainerVisibility::Private, "Board 3"),
         &user1.id,
     )
     .await;
     board_without_members(
         &th,
-        new_board(workspace_id, ContainerType::Private, "Board 4"),
+        new_board(workspace_id, ContainerVisibility::Private, "Board 4"),
         &user1.id,
     )
     .await;
     board_with_admin(
         &th,
-        new_board(workspace_id, ContainerType::Private, "Board 5"),
+        new_board(workspace_id, ContainerVisibility::Private, "Board 5"),
         &user2.id,
     )
     .await;
     let board6 = board_with_admin(
         &th,
-        new_board(other_workspace_id, ContainerType::Open, ""),
+        new_board(other_workspace_id, ContainerVisibility::Open, ""),
         &user1.id,
     )
     .await;
@@ -385,7 +389,7 @@ async fn create_board_a_non_authenticated_user_should_be_rejected() {
         .anonymous()
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Open,
+            ContainerVisibility::Open,
             "board title",
         ))
         .await;
@@ -405,7 +409,11 @@ async fn create_board_create_public_board() {
 
     let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Open, title))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerVisibility::Open,
+            title,
+        ))
         .await
         .created_json();
     assert!(
@@ -415,8 +423,8 @@ async fn create_board_create_public_board() {
     );
     assert_eq!(board.title, title, "the title is kept");
     assert_eq!(
-        board.container_type,
-        ContainerType::Open,
+        board.visibility,
+        ContainerVisibility::Open,
         "the type is kept"
     );
     assert_eq!(
@@ -455,7 +463,7 @@ async fn create_board_create_public_board_and_its_blocks() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Open,
+            ContainerVisibility::Open,
             "board title 1",
         ))
         .await
@@ -486,7 +494,11 @@ async fn create_board_create_private_board() {
 
     let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Private, title))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerVisibility::Private,
+            title,
+        ))
         .await
         .created_json();
     assert!(
@@ -496,8 +508,8 @@ async fn create_board_create_private_board() {
     );
     assert_eq!(board.title, title, "the title is kept");
     assert_eq!(
-        board.container_type,
-        ContainerType::Private,
+        board.visibility,
+        ContainerVisibility::Private,
         "the type is kept"
     );
     assert_eq!(
@@ -535,7 +547,7 @@ async fn create_board_create_private_board_and_its_blocks() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "private",
         ))
         .await
@@ -577,27 +589,31 @@ async fn create_board_create_invalid_board_invalid_board_type() {
         .client
         .post(
             &format!("{TEST_WS}/boards"),
-            &json!({"title": "invalid board title", "workspaceId": TEST_WORKSPACE_ID, "type": "invalid"}),
+            &json!({"title": "invalid board title", "workspaceId": TEST_WORKSPACE_ID, "visibility": "invalid"}),
         )
         .await;
 
     response.check_bad_request();
     assert_eq!(response.error_message(), TYPE_REFUSAL);
-    assert_eq!(response.refused_at(), "/type", "the member, not its value");
+    assert_eq!(
+        response.refused_at(),
+        "/visibility",
+        "the member, not its value"
+    );
     assert_no_boards(&th, &user1.id).await;
     th.teardown().await;
 }
 
-/// Rejects creating a board when `type` is empty, missing, or `null`.
+/// Rejects creating a board when `visibility` is empty, missing, or `null`.
 #[tokio::test]
 async fn create_board_create_invalid_board_no_type() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
 
     for body in [
-        json!({"title": "invalid board title", "workspaceId": TEST_WORKSPACE_ID, "type": ""}),
+        json!({"title": "invalid board title", "workspaceId": TEST_WORKSPACE_ID, "visibility": ""}),
         json!({"title": "invalid board title", "workspaceId": TEST_WORKSPACE_ID}),
-        json!({"title": "invalid board title", "workspaceId": TEST_WORKSPACE_ID, "type": null}),
+        json!({"title": "invalid board title", "workspaceId": TEST_WORKSPACE_ID, "visibility": null}),
     ] {
         let response = th.client.post(&format!("{TEST_WS}/boards"), &body).await;
         response.check_bad_request();
@@ -616,9 +632,9 @@ async fn create_board_create_invalid_board_no_workspace_id() {
     let user1 = th.client.me().await;
 
     for body in [
-        json!({"title": "x", "workspaceId": ROOT_WORKSPACE_ID, "type": "O"}),
-        json!({"title": "x", "workspaceId": UNKNOWN_ID, "type": "O"}),
-        json!({"title": "x", "workspaceId": "nope", "type": "O"}),
+        json!({"title": "x", "workspaceId": ROOT_WORKSPACE_ID, "visibility": "open"}),
+        json!({"title": "x", "workspaceId": UNKNOWN_ID, "visibility": "open"}),
+        json!({"title": "x", "workspaceId": "nope", "visibility": "open"}),
     ] {
         let response = th.client.post(&format!("{TEST_WS}/boards"), &body).await;
         response.check_error(
@@ -637,7 +653,7 @@ async fn create_board_create_invalid_board_no_workspace_id() {
         .client
         .post(
             &format!("{TEST_WS}/boards"),
-            &json!({"title": "x", "type": "O"}),
+            &json!({"title": "x", "visibility": "open"}),
         )
         .await
         .created_json();
@@ -655,7 +671,7 @@ async fn create_board_validates_the_body() {
     for body in [
         "{\"workspaceId\":",
         "",
-        "{\"workspaceId\":\"t\",\"type\":5}",
+        "{\"workspaceId\":\"t\",\"visibility\":5}",
         "[]",
         "5",
         "null",
@@ -673,30 +689,30 @@ async fn create_board_validates_the_body() {
             .client
             .post(
                 &format!("{TEST_WS}/boards"),
-                &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "O", "minimumRole": role}),
+                &json!({"workspaceId": TEST_WORKSPACE_ID, "visibility": "open", "minimumRole": role}),
             )
             .await;
         response.check_bad_request();
         assert_eq!(response.error_message(), ROLE_REFUSAL, "{role:?}");
     }
 
-    // The type is checked before the minimum role.
+    // The visibility is checked before the minimum role.
     let response = th
         .client
         .post(
             &format!("{TEST_WS}/boards"),
-            &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "X", "minimumRole": "boss"}),
+            &json!({"workspaceId": TEST_WORKSPACE_ID, "visibility": "X", "minimumRole": "boss"}),
         )
         .await;
     response.check_bad_request();
-    assert_eq!(response.error_message(), TYPE_REFUSAL, "type first");
+    assert_eq!(response.error_message(), TYPE_REFUSAL, "visibility first");
 
     // A new board cannot specify its own identifier.
     let response = th
         .client
         .post(
             &format!("{TEST_WS}/boards"),
-            &json!({"id": "my-id", "workspaceId": TEST_WORKSPACE_ID, "type": "O"}),
+            &json!({"id": "my-id", "workspaceId": TEST_WORKSPACE_ID, "visibility": "open"}),
         )
         .await;
     response.check_error(StatusCode::BAD_REQUEST, "new board cannot have an ID");
@@ -718,7 +734,7 @@ async fn create_board_wire_format() {
         .client
         .post(
             &format!("{TEST_WS}/boards"),
-            &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "O", "title": "open one"}),
+            &json!({"workspaceId": TEST_WORKSPACE_ID, "visibility": "open", "title": "open one"}),
         )
         .await;
     let value = response.value();
@@ -731,7 +747,7 @@ async fn create_board_wire_format() {
             "workspaceId": TEST_WORKSPACE_ID,
             "createdBy": me.id,
             "modifiedBy": me.id,
-            "type": "O", "kind": "board",
+            "visibility": "open", "kind": "board",
             "minimumRole": "editor",
             "title": "open one",
             "description": "",
@@ -760,14 +776,18 @@ async fn create_board_adds_the_board_to_the_default_category() {
 
     let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Open, "filed"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerVisibility::Open,
+            "filed",
+        ))
         .await
         .created_json();
     let template: Container = th
         .client
         .create_board(&Container {
             is_template: true,
-            ..new_board(TEST_WORKSPACE_ID, ContainerType::Open, "a template")
+            ..new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "a template")
         })
         .await
         .created_json();
@@ -798,7 +818,7 @@ async fn create_board_template_create_public_board_template() {
         .client
         .create_board(&Container {
             is_template: true,
-            ..new_board(TEST_WORKSPACE_ID, ContainerType::Open, title)
+            ..new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, title)
         })
         .await
         .created_json();
@@ -809,8 +829,8 @@ async fn create_board_template_create_public_board_template() {
     );
     assert_eq!(board.title, title, "the title is kept");
     assert_eq!(
-        board.container_type,
-        ContainerType::Open,
+        board.visibility,
+        ContainerVisibility::Open,
         "the type is kept"
     );
     assert_eq!(
@@ -847,7 +867,11 @@ async fn create_board_template_create_public_board_template_and_its_blocks() {
         .client
         .create_board(&Container {
             is_template: true,
-            ..new_board(TEST_WORKSPACE_ID, ContainerType::Open, "board template 1")
+            ..new_board(
+                TEST_WORKSPACE_ID,
+                ContainerVisibility::Open,
+                "board template 1",
+            )
         })
         .await
         .created_json();
@@ -878,7 +902,7 @@ async fn create_board_template_create_private_board_template() {
         .client
         .create_board(&Container {
             is_template: true,
-            ..new_board(TEST_WORKSPACE_ID, ContainerType::Private, title)
+            ..new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, title)
         })
         .await
         .created_json();
@@ -889,8 +913,8 @@ async fn create_board_template_create_private_board_template() {
     );
     assert_eq!(board.title, title, "the title is kept");
     assert_eq!(
-        board.container_type,
-        ContainerType::Private,
+        board.visibility,
+        ContainerVisibility::Private,
         "the type is kept"
     );
     assert_eq!(
@@ -930,7 +954,7 @@ async fn create_board_template_create_private_board_template_and_its_blocks() {
             is_template: true,
             ..new_board(
                 TEST_WORKSPACE_ID,
-                ContainerType::Private,
+                ContainerVisibility::Private,
                 "private template",
             )
         })
@@ -980,7 +1004,7 @@ async fn get_container_valid_read_token_should_be_enough_to_get_the_board() {
         &th,
         new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Open,
+            ContainerVisibility::Open,
             "public board where user1 is admin",
         ),
         &user1.id,
@@ -1053,7 +1077,7 @@ async fn get_container_a_user_without_permissions_to_a_private_board_cannot_retr
     let user1 = th.client.me().await;
     let board = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, ""),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, ""),
         &user1.id,
     )
     .await;
@@ -1081,7 +1105,7 @@ async fn get_container_a_user_with_permissions_to_a_private_board_can_retrieve_i
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, ""),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, ""),
         &user1.id,
     )
     .await;
@@ -1099,7 +1123,7 @@ async fn get_container_a_user_with_permissions_to_the_workspace_can_retrieve_a_p
     let user1 = th.client.me().await;
     let board = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -1145,7 +1169,7 @@ async fn patch_container_a_non_authenticated_user_should_be_rejected() {
     let initial_title = "title 1";
     let board = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, initial_title),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, initial_title),
         &th.stranger().await,
     )
     .await;
@@ -1180,14 +1204,14 @@ async fn patch_container_invalid_patch_on_a_board_with_permissions() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
 
-    let response = patch_board(&th.client, &board.id, &json!({"type": "invalid"})).await;
+    let response = patch_board(&th.client, &board.id, &json!({"visibility": "invalid"})).await;
     response.check_bad_request();
-    assert_eq!(response.error_message(), TYPE_REFUSAL, "the type");
+    assert_eq!(response.error_message(), TYPE_REFUSAL, "the visibility");
 
     // Empty is no minimum role, and neither is admin: nobody becomes an administrator of
     // a board by joining it.
@@ -1203,7 +1227,7 @@ async fn patch_container_invalid_patch_on_a_board_with_permissions() {
     );
 
     // Permission is checked before validating the patch body.
-    let response = patch_board(&th.client2, &board.id, &json!({"type": "invalid"})).await;
+    let response = patch_board(&th.client2, &board.id, &json!({"visibility": "invalid"})).await;
     response.check_error(
         StatusCode::FORBIDDEN,
         "access denied to modifying board properties",
@@ -1224,7 +1248,7 @@ async fn patch_container_valid_patch_on_a_board_with_permissions() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -1251,7 +1275,7 @@ async fn patch_container_valid_patch_on_a_board_without_permissions() {
     let initial_title = "title";
     let board = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, initial_title),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, initial_title),
         &user1.id,
     )
     .await;
@@ -1281,7 +1305,7 @@ async fn patch_container_permissions_by_what_the_patch_touches() {
     let user2 = th.client2.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -1298,7 +1322,7 @@ async fn patch_container_permissions_by_what_the_patch_touches() {
 
     for (patch, message) in [
         (
-            json!({"type": "P"}),
+            json!({"visibility": "private"}),
             "access denied to modifying board type",
         ),
         (
@@ -1315,11 +1339,11 @@ async fn patch_container_permissions_by_what_the_patch_touches() {
     let patched: Container = patch_board(
         &th.client,
         &board.id,
-        &json!({"type": "P", "minimumRole": "viewer", "channelId": "channel"}),
+        &json!({"visibility": "private", "minimumRole": "viewer", "channelId": "channel"}),
     )
     .await
     .ok_json();
-    assert_eq!(patched.container_type, ContainerType::Private, "the type");
+    assert_eq!(patched.visibility, ContainerVisibility::Private, "the type");
     assert_eq!(
         patched.minimum_role,
         MinimumRole::Viewer,
@@ -1339,7 +1363,7 @@ async fn patch_container_permissions_by_what_the_patch_touches() {
     );
 
     // Malformed bodies (including `null`) are rejected as bad requests.
-    for body in ["{bad", "", "[]", "null", "{\"type\":5}"] {
+    for body in ["{bad", "", "[]", "null", "{\"visibility\":5}"] {
         th.client
             .send_raw_body(
                 Method::PATCH,
@@ -1361,7 +1385,7 @@ async fn delete_container_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let board = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &th.stranger().await,
     )
     .await;
@@ -1382,7 +1406,7 @@ async fn delete_container_a_user_without_permissions_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let board = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &th.stranger().await,
     )
     .await;
@@ -1424,7 +1448,7 @@ async fn delete_container_an_existing_board_should_be_correctly_deleted() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -1473,7 +1497,7 @@ async fn undelete_container_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let board = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &th.stranger().await,
     )
     .await;
@@ -1495,7 +1519,7 @@ async fn undelete_container_a_user_without_membership_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let board = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &th.stranger().await,
     )
     .await;
@@ -1520,7 +1544,7 @@ async fn undelete_container_a_user_with_membership_but_without_permissions_shoul
     let stranger = th.stranger().await;
     let board = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &stranger,
     )
     .await;
@@ -1557,7 +1581,7 @@ async fn undelete_container_an_existing_deleted_board_should_be_correctly_undele
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -1592,7 +1616,7 @@ async fn board_with_users(th: &TestServer) -> Container {
     let user2 = th.client2.me().await;
     let board = board_with_admin(
         th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -1747,7 +1771,7 @@ async fn add_member_a_non_authenticated_user_should_be_rejected() {
     let user1 = th.client.me().await;
     let board = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &th.stranger().await,
     )
     .await;
@@ -1768,7 +1792,7 @@ async fn add_member_a_user_without_permissions_should_be_rejected() {
     let user1 = th.client.me().await;
     let board = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "title"),
         &th.stranger().await,
     )
     .await;
@@ -1801,7 +1825,7 @@ async fn add_member_a_private_board_through_an_admin_user() {
     let user2 = th.client2.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "title"),
         &user1.id,
     )
     .await;
@@ -1826,7 +1850,7 @@ async fn add_member_a_public_board_through_a_user_that_is_not_yet_a_member() {
     let user2 = th.client2.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -1855,7 +1879,7 @@ async fn add_member_should_always_add_a_new_member_as_given_board_role() {
     let user2 = th.client2.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "title"),
         &user1.id,
     )
     .await;
@@ -1877,7 +1901,7 @@ async fn add_member_should_do_nothing_if_the_member_already_exists() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "title"),
         &user1.id,
     )
     .await;
@@ -1914,7 +1938,7 @@ async fn add_member_validates_the_body() {
     let user2 = th.client2.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -1993,7 +2017,7 @@ async fn add_member_as_admin_needs_the_permission_to_manage_roles() {
     let user3 = client3.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "victim"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "victim"),
         &user1.id,
     )
     .await;
@@ -2050,7 +2074,7 @@ async fn add_member_by_an_editor_of_an_open_board_and_as_admin_by_an_admin_still
     let user3 = th.add_user("user3").await.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "open"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "open"),
         &user1.id,
     )
     .await;
@@ -2121,7 +2145,7 @@ async fn add_member_without_managing_roles_gives_the_minimum_role_of_the_board()
     for (index, (minimum_role, expected)) in cases.into_iter().enumerate() {
         let board = board_with_admin(
             &th,
-            new_board(TEST_WORKSPACE_ID, ContainerType::Open, "open"),
+            new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "open"),
             &user1.id,
         )
         .await;
@@ -2187,7 +2211,7 @@ async fn add_member_by_a_manager_of_roles_gives_the_roles_of_the_request() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "open"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "open"),
         &user1.id,
     )
     .await;
@@ -2240,13 +2264,13 @@ async fn add_member_permissions_by_board_type_and_role() {
     let user3 = th.add_user("user3").await.me().await;
     let open = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "open"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "open"),
         &user1.id,
     )
     .await;
     let private = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "private"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "private"),
         &user1.id,
     )
     .await;
@@ -2295,7 +2319,7 @@ async fn add_member_to_container_base_case() {
     let user = stored_user(&th, "member").await;
     let board = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, ""),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, ""),
         &creator,
     )
     .await;
@@ -2336,7 +2360,7 @@ async fn add_member_to_container_return_existing_non_synthetic_membership_if_any
     let user = stored_user(&th, "member").await;
     let board = board_without_members(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, ""),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, ""),
         &creator,
     )
     .await;
@@ -2369,7 +2393,7 @@ async fn update_member_a_non_authenticated_user_should_be_rejected() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -2387,7 +2411,7 @@ async fn update_member_a_user_without_permissions_should_be_rejected() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -2424,7 +2448,7 @@ async fn update_member_should_correctly_update_a_member_for_a_valid_board() {
     let user2 = th.client2.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -2458,7 +2482,7 @@ async fn update_member_should_not_leave_a_board_without_any_admin() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -2483,7 +2507,7 @@ async fn update_member_checks() {
     let user2 = th.client2.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "title"),
         &user1.id,
     )
     .await;
@@ -2572,7 +2596,7 @@ async fn delete_member_a_non_authenticated_user_should_be_rejected() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -2590,7 +2614,7 @@ async fn delete_member_a_user_without_permissions_should_be_rejected() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "title"),
         &user1.id,
     )
     .await;
@@ -2625,7 +2649,7 @@ async fn private_board_with_users(th: &TestServer) -> Container {
     let user2 = th.client2.me().await;
     let board = board_with_admin(
         th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "title"),
         &user1.id,
     )
     .await;
@@ -2684,7 +2708,7 @@ async fn delete_member_should_not_leave_a_board_without_any_admin() {
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "title"),
         &user1.id,
     )
     .await;
@@ -2719,7 +2743,7 @@ async fn join_container_create_and_join_public_board() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Open,
+            ContainerVisibility::Open,
             "Test Public board",
         ))
         .await
@@ -2766,7 +2790,7 @@ async fn join_container_should_match_the_minimum_role_in_the_membership() {
                 minimum_role,
                 ..new_board(
                     TEST_WORKSPACE_ID,
-                    ContainerType::Open,
+                    ContainerVisibility::Open,
                     "Public board with a role",
                 )
             })
@@ -2798,7 +2822,7 @@ async fn join_container_should_match_editor_role_when_the_board_names_no_minimum
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Open,
+            ContainerVisibility::Open,
             "Public board for editors",
         ))
         .await
@@ -2827,7 +2851,7 @@ async fn joining_again_raises_to_the_minimum_role_and_never_lowers() {
         &th,
         Container {
             minimum_role: MinimumRole::Commenter,
-            ..new_board(TEST_WORKSPACE_ID, ContainerType::Open, "open")
+            ..new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "open")
         },
         &user1.id,
     )
@@ -2924,7 +2948,7 @@ async fn a_member_below_the_minimum_role_has_the_role_they_were_given() {
     // A private board cannot be joined, so the member cannot raise themself.
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "private"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "private"),
         &user1.id,
     )
     .await;
@@ -2956,7 +2980,11 @@ async fn join_container_refuses_a_template() {
         &th,
         Container {
             is_template: true,
-            ..new_board(TEST_WORKSPACE_ID, ContainerType::Open, "an open template")
+            ..new_board(
+                TEST_WORKSPACE_ID,
+                ContainerVisibility::Open,
+                "an open template",
+            )
         },
         &user1.id,
     )
@@ -2983,7 +3011,7 @@ async fn join_container_create_and_join_private_board_should_not_succeed() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "Private board",
         ))
         .await
@@ -3068,7 +3096,7 @@ async fn app_patch_container_base_case_title_patch() {
     let user = th.stranger_in(TEST_WORKSPACE_ID).await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Title"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "Title"),
         &user,
     )
     .await;
@@ -3108,7 +3136,7 @@ async fn board_category_no_boards_default_category_exists() {
     for title in ["board 1", "board 2", "board 3"] {
         let board = board_with_admin(
             &th,
-            new_board(TEST_WORKSPACE_ID, ContainerType::Open, title),
+            new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, title),
             &user,
         )
         .await;

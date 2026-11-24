@@ -2,7 +2,7 @@
 //! (except the instance's own), unless somebody comes in before or past the mark; and
 //! an organization put out of use for one account goes with that account alone.
 
-use fvoci_model::{FileInfo, OrgRole, WorkspaceRole, new_id};
+use fvoci_model::{FileRecord, OrgRole, WorkspaceRole, new_id};
 use fvoci_store::{DbType, DeletionAsking, Erasing, ErasureEnd, ErasureStart, LeftFrom, Store};
 
 use crate::account_erasure::{
@@ -11,8 +11,8 @@ use crate::account_erasure::{
 };
 use crate::common::{self, TestStore};
 
-fn file_of(board_id: &str) -> FileInfo {
-    FileInfo {
+fn file_of(board_id: &str) -> FileRecord {
+    FileRecord {
         id: new_id(),
         container_id: board_id.to_owned(),
         stored_name: "stored.png".to_owned(),
@@ -34,7 +34,7 @@ const HELD_BY_AN_ORGANIZATION: [&str; 11] = [
     "containers",
     "container_members",
     "deleted_containers",
-    "file_info",
+    "files",
     "invitations",
     "oidc_providers",
     "organization_members",
@@ -186,7 +186,7 @@ async fn fill(alone_store: &Store, alone: &str, alone_workspace: &str, leaver: &
         .await
         .expect("the leaver is in it");
     alone_store
-        .save_file_info(&file_of(&board))
+        .save_file_record(&file_of(&board))
         .await
         .expect("a file");
     let (in_the_trash, _) = board_of(alone_store, alone_workspace, leaver).await;
@@ -237,7 +237,7 @@ async fn fill_the_space_of(test: &TestStore, owner: &str) -> String {
     let space = test.for_org(&org).expect("an organization");
     let (board, card) = board_of(&space, &workspace, owner).await;
     work_on(&space, &board, &card, owner).await;
-    let saved = space.save_file_info(&file_of(&board)).await;
+    let saved = space.save_file_record(&file_of(&board)).await;
     saved.expect("a file of the space");
     // A diary of the space: the entry of a day, one in the trash, and a file.
     let diary = crate::diaries::new_diary(&workspace);
@@ -247,7 +247,7 @@ async fn fill_the_space_of(test: &TestStore, owner: &str) -> String {
     let gone = crate::diaries::written(&space, &diary, "2024-03-01", owner).await;
     let deleted = space.delete_block(&gone.id, owner).await;
     deleted.expect("an entry in the trash");
-    let saved = space.save_file_info(&file_of(&diary)).await;
+    let saved = space.save_file_record(&file_of(&diary)).await;
     saved.expect("a file of the diary");
     org
 }

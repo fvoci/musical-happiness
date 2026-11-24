@@ -14,7 +14,7 @@ use std::path::Path;
 
 use fvoci_model::{
     Block, BlockType, Container, ContainerKind, ContainersAndBlocks, ContainersAndBlocksError,
-    FileInfo, WorkspaceRole, renew_containers_and_blocks_ids,
+    FileRecord, WorkspaceRole, renew_containers_and_blocks_ids,
 };
 use tokio::fs;
 
@@ -25,7 +25,7 @@ use crate::app::App;
 use crate::app::container_copies::counted_as;
 use crate::app::doomed::Doomed;
 use crate::app::file_name::check_file_name;
-use crate::app::files::{FilePlace, file_info, stored_extension};
+use crate::app::files::{FilePlace, file_record, stored_extension};
 use crate::app::loose_objects::{WRITE_TIMEOUT, Written};
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
@@ -62,7 +62,7 @@ pub(crate) struct StagedArchive {
 
 /// File prepared for writing to `FileBackend` before the single DB commit transaction.
 struct PreparedFile {
-    info: FileInfo,
+    record: FileRecord,
     entry: BundleEntry,
 }
 
@@ -136,9 +136,9 @@ impl App {
             .write_staged_files(bundle, &prepared_files, limits.max_file_bytes)
             .await?;
 
-        let records: Vec<FileInfo> = prepared_files
+        let records: Vec<FileRecord> = prepared_files
             .iter()
-            .map(|file| file.info.clone())
+            .map(|file| file.record.clone())
             .collect();
         let commit_result = {
             let _structure = self.collab().changing_structure(self).await;
@@ -236,7 +236,7 @@ impl App {
                 doomed_dir.remove().await;
                 return Err(error);
             }
-            written_paths.push(prepared.info.path.clone());
+            written_paths.push(prepared.record.path.clone());
         }
         doomed_dir.remove().await;
         Ok(written_paths)
@@ -259,7 +259,7 @@ impl App {
             )
             .with_reason(Reason::ArchiveEntryTooLarge));
         }
-        let path = &prepared.info.path;
+        let path = &prepared.record.path;
         self.mark_writing(path).await?;
         let mut reader = match fs::File::open(temp_file).await {
             Ok(file) => file,
@@ -443,15 +443,15 @@ fn bind_staged_files(
             }
             let safe_name = sanitize_upload_name(&staged_file.original_name);
             let place = FilePlace::new(org_id, &container.id, &safe_name);
-            let info = file_info(
+            let record = file_record(
                 &container.id,
                 place,
                 staged_file.entry.unpacked_bytes,
                 &options.modified_by,
             );
-            rename_map.insert(staged_file.placeholder, info.stored_name.clone());
+            rename_map.insert(staged_file.placeholder, record.stored_name.clone());
             prepared_files.push(PreparedFile {
-                info,
+                record,
                 entry: staged_file.entry,
             });
         }

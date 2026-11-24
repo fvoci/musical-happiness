@@ -339,7 +339,7 @@ async fn an_admission_read_before_admin_revocation_is_asked_again() {
         let at = format!("/org/{org}/workspaces/{workspace}");
         ts.client.post_empty(&format!("{at}/join")).await.check_ok();
         let board = ts
-            .create_board(&workspace, fvoci_model::ContainerType::Private)
+            .create_board(&workspace, fvoci_model::ContainerVisibility::Private)
             .await;
         let card: fvoci_model::Card = ts
             .client

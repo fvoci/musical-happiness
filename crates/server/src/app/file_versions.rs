@@ -67,8 +67,8 @@ impl App {
     /// write, so of two versions written close together the later one's is what is
     /// read; the block is still patched outside the write's lock.
     async fn resize_attachments(&self, container_id: &str, file_id: &str, user_id: &str) {
-        let size = match self.file_info(container_id, file_id).await {
-            Ok(Some(info)) => info.size,
+        let size = match self.file_record(container_id, file_id).await {
+            Ok(Some(record)) => record.size,
             // Gone meanwhile, with its board or collected: nothing gives it any more.
             Ok(None) => return,
             Err(error) => {

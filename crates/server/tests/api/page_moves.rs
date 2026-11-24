@@ -11,7 +11,10 @@ use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TEST_WS, Test
 /// A private wiki of the test workspace made by the first user; the path of its pages.
 async fn wiki(client: &Client) -> (String, String) {
     let made = client
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "P"}))
+        .post(
+            &format!("{TEST_WS}/wikis"),
+            &json!({"visibility": "private"}),
+        )
         .await;
     made.check_created();
     let id = made.value()["id"].as_str().expect("an id").to_owned();

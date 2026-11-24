@@ -57,8 +57,8 @@
           "showDescription": false,
           "templateVersion": 0,
           "title": "Board A",
-          "type": "P",
           "updateAt": "<ts>",
+          "visibility": "private",
           "workspaceId": "<id:1>"
         },
         {
@@ -78,8 +78,8 @@
           "showDescription": false,
           "templateVersion": 0,
           "title": "Board B",
-          "type": "O",
           "updateAt": "<ts>",
+          "visibility": "open",
           "workspaceId": "<id:1>"
         }
       ]
@@ -142,16 +142,16 @@
     }
   },
   {
-    "name": "create: board without type",
+    "name": "create: board without visibility",
     "request": "POST /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "the type of a board is `O` (open) or `P` (private)",
+      "detail": "the visibility of a board is `open` or `private`",
       "errors": [
         {
-          "detail": "the type of a board is `O` (open) or `P` (private)",
-          "pointer": "/containers/0/type",
+          "detail": "the visibility of a board is `open` or `private`",
+          "pointer": "/containers/0/visibility",
           "reason": "invalid"
         }
       ],
@@ -250,8 +250,8 @@
           "showDescription": false,
           "templateVersion": 0,
           "title": "Board A2",
-          "type": "P",
           "updateAt": "<ts>",
+          "visibility": "private",
           "workspaceId": "<id:1>"
         },
         {
@@ -271,8 +271,8 @@
           "showDescription": false,
           "templateVersion": 0,
           "title": "Board B",
-          "type": "O",
           "updateAt": "<ts>",
+          "visibility": "open",
           "workspaceId": "<id:1>"
         }
       ]
@@ -370,8 +370,8 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Board A2",
-      "type": "P",
       "updateAt": "<ts>",
+      "visibility": "private",
       "workspaceId": "<id:1>"
     }
   },

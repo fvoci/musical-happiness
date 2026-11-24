@@ -119,12 +119,12 @@ export type ContainerRole = 'admin' | 'editor' | 'commenter' | 'viewer';
  * A board's public link: whether it is on, and the token a reader without
  * an account reads the board with (empty while it is off and was never on).
  */
-export interface Sharing {
+export interface PublicLink {
   enabled: boolean;
   token: string;
 }
 
-export interface SharingChange {
+export interface PublicLinkChange {
   enabled: boolean;
   /** Makes a new token: the old link stops working. */
   regenerate?: boolean;
@@ -216,7 +216,7 @@ export interface BoardDraft {
   title: string;
   description?: string;
   icon?: string;
-  type?: Container['type'];
+  visibility?: Container['visibility'];
   cardProperties?: Container['cardProperties'];
 }
 
@@ -364,9 +364,9 @@ export interface Backend
   /** Takes a member off the board. Not its last admin (409, `last_admin`). */
   removeMember(containerId: string, userId: string): Promise<void>;
   /** The board's public link. For the board's admins. */
-  sharing(containerId: string): Promise<Sharing>;
+  publicLink(containerId: string): Promise<PublicLink>;
   /** Turns the public link on or off, or makes it anew. */
-  setSharing(containerId: string, change: SharingChange): Promise<Sharing>;
+  setPublicLink(containerId: string, change: PublicLinkChange): Promise<PublicLink>;
   /** People of the workspace whose name has `query` in it, whatever the case; ten at most. */
   searchUsers(workspaceId: string, query: string): Promise<User[]>;
   /**

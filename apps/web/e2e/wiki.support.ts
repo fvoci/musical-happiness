@@ -235,19 +235,22 @@ export async function restoreBySomebodyElse(page: Page, wikiId: string, pageId: 
 }
 
 /**
- * Somebody else makes a wiki with a page, open to the workspace (`O`, to be
- * joined) or for the invited (`P`), the reader in it as `readerRole` if given;
+ * Somebody else makes a wiki with a page, open to the workspace (`'open'`, to be
+ * joined) or for the invited (`'private'`), the reader in it as `readerRole` if given;
  * gives the wiki's and the page's identifiers.
  */
 export async function wikiBySomebodyElse(
   page: Page,
-  plan: { title: string; type: 'O' | 'P'; page: string; readerRole?: string },
+  plan: { title: string; visibility: 'open' | 'private'; page: string; readerRole?: string },
 ): Promise<{ wikiId: string; pageId: string }> {
   return page.evaluate(async (made) => {
     const dev = (window as unknown as DevWindow).fvociDev;
     const other = dev.someoneElse();
     const workspaceId = location.pathname.split('/')[2] ?? '';
-    const wiki = await other.wiki.createWiki(workspaceId, { title: made.title, type: made.type });
+    const wiki = await other.wiki.createWiki(workspaceId, {
+      title: made.title,
+      visibility: made.visibility,
+    });
     const first = await other.wiki.createPage(wiki.id, { title: made.page });
     if (made.readerRole) {
       const reader = await dev.backend.me();

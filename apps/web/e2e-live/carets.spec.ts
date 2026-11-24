@@ -375,7 +375,7 @@ test("a wiki's page shows the carets of who write it, by the name the server kno
   const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
-    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } })
+    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', visibility: 'private' } })
   ).json()) as Schemas['Container'];
   const boraApi = await signedIn(base, bora);
   const [adaId, boraId] = [await userId(api), await userId(boraApi)];

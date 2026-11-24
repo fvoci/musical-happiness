@@ -86,7 +86,7 @@ async fn on_their_own(client: &Client, wiki: &str, page: &str) -> ([u16; 3], boo
 async fn each_role_of_the_wiki_does_to_the_comments_of_a_page_what_it_does_to_a_cards() {
     let th = Setup::native().start().await.init_basic().await;
     let member = th.client2.me().await.id;
-    let (wiki, page) = wiki_of(&th.client, "P").await;
+    let (wiki, page) = wiki_of(&th.client, "private").await;
     let theirs = written(&th.client, &wiki, &page, "the admin's").await;
     // Changed once, so that its versions are there to read.
     let at = format!("{}/{}", comments_of(TEST_WS, &wiki, &page), id(&theirs));
@@ -142,7 +142,7 @@ async fn each_role_of_the_wiki_does_to_the_comments_of_a_page_what_it_does_to_a_
 #[tokio::test]
 async fn who_may_not_read_the_wiki_is_answered_of_its_comments_as_of_none() {
     let th = Setup::native().start().await.init_basic().await;
-    let (wiki, page) = wiki_of(&th.client, "P").await;
+    let (wiki, page) = wiki_of(&th.client, "private").await;
     let theirs = written(&th.client, &wiki, &page, "hidden").await;
     let nothing = json!({"id": UNKNOWN_ID, "updateAt": 1});
     let none = on_theirs(&th.client2, TEST_WS, UNKNOWN_ID, UNKNOWN_ID, &nothing).await;
@@ -166,7 +166,7 @@ async fn who_may_not_read_the_wiki_is_answered_of_its_comments_as_of_none() {
 #[tokio::test]
 async fn an_open_wiki_not_joined_has_its_comments_read_as_a_viewer_does() {
     let th = Setup::native().start().await.init_basic().await;
-    let (open, page) = wiki_of(&th.client, "O").await;
+    let (open, page) = wiki_of(&th.client, "open").await;
     let theirs = written(&th.client, &open, &page, "open").await;
     assert_eq!(
         on_theirs(&th.client2, TEST_WS, &open, &page, &theirs).await,
@@ -222,8 +222,8 @@ async fn an_open_wiki_not_joined_has_its_comments_read_as_a_viewer_does() {
 async fn a_comment_is_reached_through_its_own_page_only() {
     let th = Setup::native().start().await.init_basic().await;
     let client = &th.client;
-    let (wiki, page) = wiki_of(client, "P").await;
-    let (other_wiki, other_page) = wiki_of(client, "P").await;
+    let (wiki, page) = wiki_of(client, "private").await;
+    let (other_wiki, other_page) = wiki_of(client, "private").await;
     let sibling = client
         .post(
             &format!("{TEST_WS}/wikis/{wiki}/pages"),
@@ -242,7 +242,10 @@ async fn a_comment_is_reached_through_its_own_page_only() {
     let child = json!({"id": id(&child.value()), "updateAt": 1});
     let comment = written(client, &wiki, &page, "here").await;
     let board = client
-        .post(&format!("{TEST_WS}/boards"), &json!({"type": "P"}))
+        .post(
+            &format!("{TEST_WS}/boards"),
+            &json!({"visibility": "private"}),
+        )
         .await;
     board.check_created();
     let board = id(&board.value());
@@ -320,7 +323,7 @@ async fn a_comment_is_reached_through_its_own_page_only() {
 async fn a_comment_is_a_text_written_over_what_was_read() {
     let th = Setup::native().start().await.init_basic().await;
     let client = &th.client;
-    let (wiki, page) = wiki_of(client, "P").await;
+    let (wiki, page) = wiki_of(client, "private").await;
     let comments = comments_of(TEST_WS, &wiki, &page);
     let empty = json!({"type": "doc", "content": []});
     for (refused, at) in [
@@ -379,7 +382,7 @@ async fn a_comment_is_a_text_written_over_what_was_read() {
 async fn the_members_of_the_wiki_are_told_of_a_comment() {
     let th = Setup::native().start().await.init_basic().await;
     let member = th.client2.me().await.id;
-    let (wiki, page) = wiki_of(&th.client, "P").await;
+    let (wiki, page) = wiki_of(&th.client, "private").await;
     put_on(&th.client, &wiki, &member, "viewer").await;
     let mut listener =
         WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &member).await;
@@ -416,7 +419,7 @@ async fn the_members_of_the_wiki_are_told_of_a_comment() {
 async fn the_comments_of_a_page_in_the_trash_are_not_there() {
     let th = Setup::native().start().await.init_basic().await;
     let client = &th.client;
-    let (wiki, page) = wiki_of(client, "P").await;
+    let (wiki, page) = wiki_of(client, "private").await;
     let comments = comments_of(TEST_WS, &wiki, &page);
     let comment = written(client, &wiki, &page, "first").await;
     let at = format!("{comments}/{}", id(&comment));
@@ -467,7 +470,7 @@ async fn the_comments_of_a_page_in_the_trash_are_not_there() {
 async fn a_comment_deleted_on_its_own_comes_back_onto_its_page() {
     let th = Setup::native().start().await.init_basic().await;
     let member = th.client2.me().await.id;
-    let (wiki, page) = wiki_of(&th.client, "P").await;
+    let (wiki, page) = wiki_of(&th.client, "private").await;
     put_on(&th.client, &wiki, &member, "commenter").await;
     let comments = comments_of(TEST_WS, &wiki, &page);
     let undelete = |id: &str| format!("{comments}/{id}/undelete");
@@ -560,7 +563,7 @@ async fn a_comment_deleted_on_its_own_comes_back_onto_its_page() {
 #[tokio::test]
 async fn a_comment_gone_with_its_page_comes_back_with_the_page() {
     let th = Setup::native().start().await.init_basic().await;
-    let (wiki, page) = wiki_of(&th.client, "P").await;
+    let (wiki, page) = wiki_of(&th.client, "private").await;
     let comments = comments_of(TEST_WS, &wiki, &page);
     let undelete = |id: &str| format!("{comments}/{id}/undelete");
     let own = written(&th.client, &wiki, &page, "deleted on its own").await;
@@ -610,9 +613,12 @@ async fn a_comment_gone_with_its_page_comes_back_with_the_page() {
 async fn a_comment_that_names_a_card_is_its_pages_naming_of_it() {
     let th = Setup::native().start().await.init_basic().await;
     let client = &th.client;
-    let (wiki, page) = wiki_of(client, "P").await;
+    let (wiki, page) = wiki_of(client, "private").await;
     let board = client
-        .post(&format!("{TEST_WS}/boards"), &json!({"type": "P"}))
+        .post(
+            &format!("{TEST_WS}/boards"),
+            &json!({"visibility": "private"}),
+        )
         .await;
     board.check_created();
     let board = id(&board.value());

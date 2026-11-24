@@ -3,7 +3,7 @@
 
 use fvoci_model::{
     Block, BlockPatch, BlockType, Body, BodyChange, BodyVersionCause, Container, ContainerKind,
-    ContainerType, FileInfo, NewPage, new_id,
+    ContainerVisibility, FileRecord, NewPage, new_id,
 };
 use fvoci_store::{BodyBefore, ByHand, DEFAULT_BODY_VERSIONS_KEPT, DbType, Store};
 use serde_json::json;
@@ -30,7 +30,7 @@ pub(crate) async fn board_with_files(store: &Store, user_id: &str, names: &[&str
     let board_id = boards[0].id.clone();
     for name in names {
         store
-            .save_file_info(&FileInfo {
+            .save_file_record(&FileRecord {
                 id: new_id(),
                 container_id: board_id.clone(),
                 stored_name: (*name).to_owned(),
@@ -39,7 +39,7 @@ pub(crate) async fn board_with_files(store: &Store, user_id: &str, names: &[&str
                 name: "upload.png".to_owned(),
                 extension: ".png".to_owned(),
                 size: 7,
-                ..FileInfo::default()
+                ..FileRecord::default()
             })
             .await
             .expect("a file of the board is stored");
@@ -508,7 +508,7 @@ async fn the_body_of_a_page_is_kept_as_that_of_a_card() {
     let workspace_id = common::workspace_of(store, &[&author, &editor]).await;
     let mut wiki = Container {
         kind: ContainerKind::Wiki,
-        ..new_board(&new_id(), &workspace_id, ContainerType::Private)
+        ..new_board(&new_id(), &workspace_id, ContainerVisibility::Private)
     };
     store
         .insert_container_with_admin(&mut wiki, &author)

@@ -25,7 +25,7 @@ use crate::Store;
 use crate::containers;
 use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
 use crate::error::StoreError;
-use crate::file_info::check_new_path;
+use crate::files::check_new_path;
 use crate::loose_objects::{self, LooseState};
 
 /// How many versions of a file the store keeps unless told otherwise.
@@ -186,7 +186,7 @@ impl Store {
             }
             // The upload's record goes, and its object is the version's: one record
             // names the place again once the file's does.
-            let mut sql = scope.sql("DELETE FROM file_info WHERE id = ");
+            let mut sql = scope.sql("DELETE FROM files WHERE id = ");
             sql.bind(Id(&source.id));
             scope.execute(sql).await?;
             let bytes = NewBytes {
@@ -293,7 +293,7 @@ impl Head {
     fn select(scope: &Scope<'_>, container_id: &str, names: &[&str]) -> crate::db::Sql {
         let org = loose_objects::org_column(scope).map_or(String::new(), |org| format!(", {org}"));
         let mut sql = scope.sql(&format!(
-            "SELECT {}{org} FROM file_info WHERE container_id = ",
+            "SELECT {}{org} FROM files WHERE container_id = ",
             Self::COLUMNS
         ));
         sql.bind(Id(container_id))
@@ -519,7 +519,7 @@ async fn write(
         restored_from: bytes.restored_from,
     };
     insert_row(scope, file, row).await?;
-    let mut sql = scope.sql("UPDATE file_info SET version = ");
+    let mut sql = scope.sql("UPDATE files SET version = ");
     sql.bind(version)
         .push_bind(", path = ", bytes.path)
         .push_bind(", size = ", bytes.size)
@@ -581,7 +581,7 @@ pub(crate) async fn forget(scope: &mut Scope<'_>, file_ids: &[&str]) -> Result<(
 /// (`crate::directory`).
 pub(crate) fn or_wrote_file_of_container(scope: &Scope<'_>) -> String {
     [
-        " OR EXISTS (SELECT 1 FROM file_info f WHERE f.container_id = b.id",
+        " OR EXISTS (SELECT 1 FROM files f WHERE f.container_id = b.id",
         &scope.same_organization(&[("f", "b")]),
         " AND (f.created_by = users.id OR EXISTS (SELECT 1 FROM file_versions fv \
          WHERE fv.file_id = f.id AND fv.created_by = users.id",

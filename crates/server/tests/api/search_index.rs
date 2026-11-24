@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use fvoci_model::{Block, BlockType, Container, ContainerType, SearchHit, new_id};
+use fvoci_model::{Block, BlockType, Container, ContainerVisibility, SearchHit, new_id};
 use fvoci_server::search::tend;
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
@@ -20,7 +20,7 @@ use crate::fake_search::{FakeSearch, digest};
 use crate::metrics::{sample, scrape};
 use crate::workspaces::another_organization;
 
-async fn board(th: &TestServer, board_type: ContainerType, title: &str) -> Container {
+async fn board(th: &TestServer, board_type: ContainerVisibility, title: &str) -> Container {
     th.client
         .create_board(&new_board(TEST_WORKSPACE_ID, board_type, title))
         .await
@@ -61,7 +61,7 @@ async fn found(th: &TestServer) -> Vec<String> {
 async fn a_card_is_found_while_it_is_there_as_it_is() {
     let fake = FakeSearch::start().await;
     let th = started(&fake).await;
-    let board = board(&th, ContainerType::Private, "Support").await;
+    let board = board(&th, ContainerVisibility::Private, "Support").await;
     let card = new_card(&th.client, &board.id, "고객 응대", "환불규정을 따른다").await;
     let block = format!("{TEST_WS}/boards/{}/blocks/{}", board.id, card.id);
 
@@ -156,13 +156,13 @@ async fn what_no_search_finds_is_not_sent() {
     let fake = FakeSearch::start().await;
     let th = started(&fake).await;
     let user1 = th.client.me().await.id;
-    let board = board(&th, ContainerType::Private, "Support").await;
+    let board = board(&th, ContainerVisibility::Private, "Support").await;
     let card = new_card(&th.client, &board.id, "카드", "환불").await;
     let template: Container = th
         .client
         .create_board(&Container {
             is_template: true,
-            ..new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Template")
+            ..new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "Template")
         })
         .await
         .created_json();
@@ -197,7 +197,7 @@ async fn what_no_search_finds_is_not_sent() {
 #[tokio::test]
 async fn a_server_without_a_search_server_notes_nothing() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = board(&th, ContainerType::Private, "Support").await;
+    let board = board(&th, ContainerVisibility::Private, "Support").await;
     let card = new_card(&th.client, &board.id, "카드", "환불").await;
     th.client
         .delete(&format!("{TEST_WS}/boards/{}/blocks/{}", board.id, card.id))
@@ -226,7 +226,7 @@ async fn what_was_written_while_the_search_server_was_away_is_sent_when_it_is_ba
         .init_basic()
         .await;
     tend(&th.app).await;
-    let board = board(&th, ContainerType::Private, "Support").await;
+    let board = board(&th, ContainerVisibility::Private, "Support").await;
 
     fake.go_down();
     let card = new_card(&th.client, &board.id, "카드", "환불").await;
@@ -270,7 +270,7 @@ async fn what_was_written_while_the_search_server_was_away_is_sent_when_it_is_ba
 async fn a_document_the_search_server_refuses_is_tried_again_later() {
     let fake = FakeSearch::start().await;
     let th = started(&fake).await;
-    let board = board(&th, ContainerType::Private, "Support").await;
+    let board = board(&th, ContainerVisibility::Private, "Support").await;
     let refused = new_card(&th.client, &board.id, "거절된 카드", "환불").await;
     let taken = new_card(&th.client, &board.id, "받은 카드", "환불").await;
 
@@ -325,7 +325,7 @@ fn index_requests(fake: &FakeSearch) -> Vec<String> {
 async fn a_server_that_gets_a_search_server_sends_everything_and_again_after_it_had_none() {
     let fake = FakeSearch::start().await;
     let mut th = Setup::native().start().await.init_basic().await;
-    let board = board(&th, ContainerType::Private, "Support").await;
+    let board = board(&th, ContainerVisibility::Private, "Support").await;
     let first = new_card(&th.client, &board.id, "먼저 쓴 카드", "환불").await;
 
     // The server is given a search server: what was written before is sent.
@@ -384,7 +384,7 @@ async fn the_operator_has_the_index_made_again() {
         .init_basic()
         .await;
     tend(&th.app).await;
-    let board = board(&th, ContainerType::Private, "Support").await;
+    let board = board(&th, ContainerVisibility::Private, "Support").await;
     let card = new_card(&th.client, &board.id, "카드", "환불").await;
     tend(&th.app).await;
     // The index is another than the one the server made, and holds nothing.
@@ -449,7 +449,7 @@ async fn the_cards_of_two_organizations_are_sent_apart_and_found_apart() {
     }
     let fake = FakeSearch::start().await;
     let th = started(&fake).await;
-    let ours = board(&th, ContainerType::Private, "Ours").await;
+    let ours = board(&th, ContainerVisibility::Private, "Ours").await;
     let our_card = new_card(&th.client, &ours.id, "우리 카드", "환불").await;
     let (theirs, their_workspace, their_board) = another_organization(&th).await;
     let mut their_card = Block {
@@ -496,7 +496,7 @@ async fn the_server_sends_what_changed_by_itself() {
         .await
         .init_basic()
         .await;
-    let board = board(&th, ContainerType::Private, "Support").await;
+    let board = board(&th, ContainerVisibility::Private, "Support").await;
     let card = new_card(&th.client, &board.id, "카드", "환불").await;
 
     // The task runs every second: the index first, then the card.
@@ -519,7 +519,7 @@ async fn the_server_sends_what_changed_by_itself() {
 async fn an_index_that_went_is_not_made_by_a_write() {
     let fake = FakeSearch::start().await;
     let th = started(&fake).await;
-    let board = board(&th, ContainerType::Private, "Support").await;
+    let board = board(&th, ContainerVisibility::Private, "Support").await;
     let before = new_card(&th.client, &board.id, "먼저 쓴 카드", "환불").await;
     tend(&th.app).await;
 
@@ -549,7 +549,7 @@ async fn an_index_that_went_is_not_made_by_a_write() {
 async fn a_board_is_sent_whole_but_for_the_document_that_was_refused() {
     let fake = FakeSearch::start().await;
     let th = started(&fake).await;
-    let board = board(&th, ContainerType::Private, "Support").await;
+    let board = board(&th, ContainerVisibility::Private, "Support").await;
     let mut cards = Vec::new();
     for number in 0..3 {
         cards.push(

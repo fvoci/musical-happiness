@@ -1,8 +1,8 @@
-//! Integration tests for board-scoped file metadata records, retention, and cleanup.
+//! Integration tests for container-scoped file metadata records, retention, and cleanup.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use fvoci_model::{Block, BlockType, FileInfo, new_id};
+use fvoci_model::{Block, BlockType, FileRecord, new_id};
 use fvoci_store::StoreError;
 use serde_json::json;
 
@@ -16,7 +16,7 @@ fn now_millis() -> i64 {
     i64::try_from(millis).expect("the current time fits in 64 bits")
 }
 
-/// `StoreTestFileStore`.
+/// Saving and retrieving a file record through its container and stored name.
 #[tokio::test]
 async fn file_store() {
     let test = common::setup().await;
@@ -26,8 +26,7 @@ async fn file_store() {
     let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
 
-    // "should save and retrieve fileinfo"
-    let file_info = FileInfo {
+    let file = FileRecord {
         id: new_id(),
         container_id: board_id.clone(),
         stored_name: "7salesreport.sales".to_owned(),
@@ -35,26 +34,25 @@ async fn file_store() {
         name: "Dunder Mifflin Sales Report 2022".to_owned(),
         extension: ".sales".to_owned(),
         size: 112_233,
-        ..FileInfo::default()
+        ..FileRecord::default()
     };
 
-    store.save_file_info(&file_info).await.unwrap();
+    store.save_file_record(&file).await.unwrap();
 
     // A file is looked up through its board by its stored name.
-    let retrieved_file_info = store
-        .get_file_info(board_id, "7salesreport.sales")
+    let retrieved = store
+        .get_file_record(board_id, "7salesreport.sales")
         .await
         .unwrap();
-    assert_eq!(retrieved_file_info.id, file_info.id);
-    assert_eq!(retrieved_file_info.container_id, *board_id);
-    assert_eq!(retrieved_file_info.stored_name, "7salesreport.sales");
-    assert_eq!(retrieved_file_info.name, "Dunder Mifflin Sales Report 2022");
-    assert_eq!(retrieved_file_info.extension, ".sales");
-    assert_eq!(retrieved_file_info.size, 112_233);
+    assert_eq!(retrieved.id, file.id);
+    assert_eq!(retrieved.container_id, *board_id);
+    assert_eq!(retrieved.stored_name, "7salesreport.sales");
+    assert_eq!(retrieved.name, "Dunder Mifflin Sales Report 2022");
+    assert_eq!(retrieved.extension, ".sales");
+    assert_eq!(retrieved.size, 112_233);
 
-    // "should return an error on not found"
     let error = store
-        .get_file_info(board_id, "nonexistent")
+        .get_file_record(board_id, "nonexistent")
         .await
         .unwrap_err();
     assert!(matches!(error, StoreError::NotFound(_)), "got {error:?}");
@@ -64,7 +62,7 @@ async fn file_store() {
 
 /// Every member of a file record is stored and read back accurately.
 #[tokio::test]
-async fn file_info_stores_every_member() {
+async fn file_record_stores_every_member() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "pam.beesly").await;
@@ -72,7 +70,7 @@ async fn file_info_stores_every_member() {
     let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
 
-    let file_info = FileInfo {
+    let file = FileRecord {
         id: new_id(),
         container_id: board_id.clone(),
         stored_name: "7abc.png".to_owned(),
@@ -81,68 +79,71 @@ async fn file_info_stores_every_member() {
         name: "picture.png".to_owned(),
         extension: ".png".to_owned(),
         size: 5,
-        ..FileInfo::default()
+        ..FileRecord::default()
     };
-    store.save_file_info(&file_info).await.unwrap();
+    store.save_file_record(&file).await.unwrap();
 
-    let stored = store.get_file_info(board_id, "7abc.png").await.unwrap();
+    let stored = store.get_file_record(board_id, "7abc.png").await.unwrap();
     assert_eq!(
-        stored, file_info,
+        stored, file,
         "every member comes back as it was saved, the given creation time included"
     );
 
     // A board has one file under a stored name, and a record has one identifier.
-    let same_name = FileInfo {
+    let same_name = FileRecord {
         id: new_id(),
-        ..file_info.clone()
+        ..file.clone()
     };
-    let error = store.save_file_info(&same_name).await.unwrap_err();
+    let error = store.save_file_record(&same_name).await.unwrap_err();
     assert!(
         matches!(error, StoreError::Database(_)),
         "a second file of the board under the stored name: got {error:?}"
     );
-    let same_id = FileInfo {
+    let same_id = FileRecord {
         stored_name: "7def.png".to_owned(),
-        ..file_info.clone()
+        ..file.clone()
     };
-    let error = store.save_file_info(&same_id).await.unwrap_err();
+    let error = store.save_file_record(&same_id).await.unwrap_err();
     assert!(
         matches!(error, StoreError::Database(_)),
         "a second record with the identifier: got {error:?}"
     );
-    let stored_again = store.get_file_info(board_id, "7abc.png").await.unwrap();
+    let stored_again = store.get_file_record(board_id, "7abc.png").await.unwrap();
     assert_eq!(stored_again, stored, "the refused records changed nothing");
 
     // The stored name is compared exactly.
-    let missing = store.get_file_info(board_id, "7ABC.PNG").await.unwrap_err();
+    let missing = store
+        .get_file_record(board_id, "7ABC.PNG")
+        .await
+        .unwrap_err();
     assert_eq!(missing.to_string(), "{file} not found");
 
     // Text that is not an identifier names no board: nothing is found under it, and
     // nothing is stored under it.
     let missing = store
-        .get_file_info("not-a-board", "7abc.png")
+        .get_file_record("not-a-board", "7abc.png")
         .await
         .unwrap_err();
     assert!(
         matches!(missing, StoreError::NotFound(_)),
         "got {missing:?}"
     );
-    let no_board = FileInfo {
+    let no_board = FileRecord {
         id: new_id(),
         container_id: "not-a-board".to_owned(),
-        ..file_info.clone()
+        ..file.clone()
     };
-    let error = store.save_file_info(&no_board).await.unwrap_err();
+    let error = store.save_file_record(&no_board).await.unwrap_err();
     assert!(
         matches!(&error, StoreError::InvalidId(refused) if refused == "not-a-board"),
         "got {error:?}"
     );
-    let no_id = FileInfo {
+    let no_id = FileRecord {
         id: "not-an-id".to_owned(),
         stored_name: "7ghi.png".to_owned(),
-        ..file_info.clone()
+        ..file.clone()
     };
-    let error = store.save_file_info(&no_id).await.unwrap_err();
+    let error = store.save_file_record(&no_id).await.unwrap_err();
     assert!(
         matches!(&error, StoreError::InvalidId(refused) if refused == "not-an-id"),
         "got {error:?}"
@@ -164,7 +165,7 @@ async fn a_file_is_found_through_its_own_board_only() {
     let (own, other, third) = (&boards[0].id, &boards[1].id, &boards[2].id);
     let stored_name = "7shared.png";
 
-    let file_of = |board_id: &str, uploaded_as: &str| FileInfo {
+    let file_of = |board_id: &str, uploaded_as: &str| FileRecord {
         id: new_id(),
         container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
@@ -173,17 +174,17 @@ async fn a_file_is_found_through_its_own_board_only() {
         name: uploaded_as.to_owned(),
         extension: ".png".to_owned(),
         size: 7,
-        ..FileInfo::default()
+        ..FileRecord::default()
     };
 
     let own_file = file_of(own, "mine.png");
-    store.save_file_info(&own_file).await.unwrap();
+    store.save_file_record(&own_file).await.unwrap();
 
-    let found = store.get_file_info(own, stored_name).await.unwrap();
+    let found = store.get_file_record(own, stored_name).await.unwrap();
     assert_eq!(found, own_file, "the board finds its file");
     for stranger in [other, third] {
         let error = store
-            .get_file_info(stranger, stored_name)
+            .get_file_record(stranger, stored_name)
             .await
             .unwrap_err();
         assert!(
@@ -195,14 +196,14 @@ async fn a_file_is_found_through_its_own_board_only() {
     // The stored name is taken within a board, not across boards.
     let other_file = file_of(other, "theirs.png");
     store
-        .save_file_info(&other_file)
+        .save_file_record(&other_file)
         .await
         .expect("another board holds a file under the same stored name");
-    let found = store.get_file_info(own, stored_name).await.unwrap();
+    let found = store.get_file_record(own, stored_name).await.unwrap();
     assert_eq!(found, own_file, "each board finds its own file");
-    let found = store.get_file_info(other, stored_name).await.unwrap();
+    let found = store.get_file_record(other, stored_name).await.unwrap();
     assert_eq!(found, other_file, "each board finds its own file");
-    let error = store.get_file_info(third, stored_name).await.unwrap_err();
+    let error = store.get_file_record(third, stored_name).await.unwrap_err();
     assert!(
         matches!(error, StoreError::NotFound(_)),
         "a board without the file still finds none: got {error:?}"
@@ -222,20 +223,20 @@ async fn a_file_is_found_through_its_own_board_only() {
     store.insert_block(&mut image, &user_id).await.unwrap();
     store.delete_block(&image.id, &user_id).await.unwrap();
 
-    let kept = store.get_file_info(other, stored_name).await.unwrap();
+    let kept = store.get_file_record(other, stored_name).await.unwrap();
     assert_eq!(
         kept, other_file,
         "the file record of the block's board outlives the block"
     );
-    let kept = store.get_file_info(own, stored_name).await.unwrap();
+    let kept = store.get_file_record(own, stored_name).await.unwrap();
     assert_eq!(kept, own_file, "the file of the other board is untouched");
 
     test.teardown().await;
 }
 
 /// A file record of the board under the stored name, as an upload makes it.
-fn record_of(board_id: &str, stored_name: &str) -> FileInfo {
-    FileInfo {
+fn record_of(board_id: &str, stored_name: &str) -> FileRecord {
+    FileRecord {
         id: new_id(),
         container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
@@ -244,7 +245,7 @@ fn record_of(board_id: &str, stored_name: &str) -> FileInfo {
         name: "upload.png".to_owned(),
         extension: ".png".to_owned(),
         size: 7,
-        ..FileInfo::default()
+        ..FileRecord::default()
     }
 }
 
@@ -261,7 +262,7 @@ async fn a_file_record_for_a_board_that_does_not_exist_is_refused() {
     let no_board = new_id();
     let record = record_of(&no_board, "7orphan.png");
     let error = store
-        .save_file_info(&record)
+        .save_file_record(&record)
         .await
         .expect_err("a record for a board that does not exist is refused");
     assert!(
@@ -271,7 +272,7 @@ async fn a_file_record_for_a_board_that_does_not_exist_is_refused() {
 
     for board_id in [&no_board, &boards[0].id] {
         let error = store
-            .get_file_info(board_id, "7orphan.png")
+            .get_file_record(board_id, "7orphan.png")
             .await
             .expect_err("the refused record is not stored");
         assert!(
@@ -281,12 +282,12 @@ async fn a_file_record_for_a_board_that_does_not_exist_is_refused() {
     }
 
     // The same record for a board that exists is stored.
-    let record = FileInfo {
+    let record = FileRecord {
         container_id: boards[0].id.clone(),
         ..record
     };
     store
-        .save_file_info(&record)
+        .save_file_record(&record)
         .await
         .expect("a record for a board that exists is stored");
 
@@ -307,17 +308,17 @@ async fn a_stored_name_is_taken_once_per_board() {
 
     let first = record_of(one, stored_name);
     store
-        .save_file_info(&first)
+        .save_file_record(&first)
         .await
         .expect("the board's first file under the name is stored");
 
-    let second = FileInfo {
+    let second = FileRecord {
         name: "another upload.png".to_owned(),
         size: 9,
         ..record_of(one, stored_name)
     };
     let error = store
-        .save_file_info(&second)
+        .save_file_record(&second)
         .await
         .expect_err("a second record of the board under the name is refused");
     assert!(
@@ -328,22 +329,22 @@ async fn a_stored_name_is_taken_once_per_board() {
         "the refusal is the database's, of a duplicate: got {error:?}"
     );
     let found = store
-        .get_file_info(one, stored_name)
+        .get_file_record(one, stored_name)
         .await
         .expect("the board still finds its file");
     assert_eq!(found, first, "the refused record changed nothing");
 
-    let of_other = FileInfo {
+    let of_other = FileRecord {
         name: "theirs.png".to_owned(),
         ..record_of(other, stored_name)
     };
     store
-        .save_file_info(&of_other)
+        .save_file_record(&of_other)
         .await
         .expect("another board has a file of its own under the same name");
     for (board_id, expected) in [(one, &first), (other, &of_other)] {
         let found = store
-            .get_file_info(board_id, stored_name)
+            .get_file_record(board_id, stored_name)
             .await
             .expect("each board finds a file under the name");
         assert_eq!(&found, expected, "board {board_id} finds its own file");
@@ -371,13 +372,13 @@ async fn a_file_record_goes_with_its_board_and_comes_back_with_it() {
     ];
     for record in &records {
         store
-            .save_file_info(record)
+            .save_file_record(record)
             .await
             .expect("a file of the board is stored");
     }
     let of_other = record_of(other, stored_name);
     store
-        .save_file_info(&of_other)
+        .save_file_record(&of_other)
         .await
         .expect("a file of the other board is stored");
 
@@ -387,7 +388,7 @@ async fn a_file_record_goes_with_its_board_and_comes_back_with_it() {
         .expect("the board is deleted");
     for record in &records {
         let error = store
-            .get_file_info(doomed, &record.stored_name)
+            .get_file_record(doomed, &record.stored_name)
             .await
             .expect_err("the files of a deleted board are not found");
         assert!(
@@ -397,7 +398,7 @@ async fn a_file_record_goes_with_its_board_and_comes_back_with_it() {
         );
     }
     let kept = store
-        .get_file_info(other, stored_name)
+        .get_file_record(other, stored_name)
         .await
         .expect("the other board still finds its file");
     assert_eq!(kept, of_other, "the file of the other board is untouched");
@@ -408,13 +409,13 @@ async fn a_file_record_goes_with_its_board_and_comes_back_with_it() {
         .expect("the board is restored");
     for record in &records {
         let back = store
-            .get_file_info(doomed, &record.stored_name)
+            .get_file_record(doomed, &record.stored_name)
             .await
             .expect("the files come back with their board");
         assert_eq!(&back, record, "the record is as it was, its place included");
     }
     let kept = store
-        .get_file_info(other, stored_name)
+        .get_file_record(other, stored_name)
         .await
         .expect("the other board still finds its file");
     assert_eq!(kept, of_other, "the file of the other board is untouched");
@@ -453,9 +454,9 @@ fn card_showing(board_id: &str, names: &[&str]) -> Block {
     }
 }
 
-/// A file referenced by an image block or a card's body stays (`docs/s6-design.md` 5.7);
-/// one that no block shows, live or in the trash, is collected once the grace period has
-/// passed since it became unreferenced, and its record goes.
+/// A file referenced by an image block or a card's body stays; one that no block shows,
+/// live or in the trash, is collected once the grace period has passed since it became
+/// unreferenced, and its record goes.
 #[tokio::test]
 async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
     let test = common::setup().await;
@@ -468,7 +469,7 @@ async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
     let later = started + 3_600_000;
     for name in ["7image.png", "7body.png", "7block.pdf", "7none.png"] {
         store
-            .save_file_info(&record_of(board_id, name))
+            .save_file_record(&record_of(board_id, name))
             .await
             .expect("a file of the board is stored");
     }
@@ -495,7 +496,7 @@ async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
         "the file no block shows, counted from its upload"
     );
     let error = store
-        .get_file_info(board_id, "7none.png")
+        .get_file_record(board_id, "7none.png")
         .await
         .expect_err("the record of a collected file is gone");
     assert!(matches!(error, StoreError::NotFound(_)), "{error:?}");
@@ -548,10 +549,10 @@ async fn a_restored_block_or_board_shows_its_files_again() {
     let board_id = &boards[0].id;
     let mut old = record_of(board_id, "7old.png");
     old.create_at = 1;
-    store.save_file_info(&old).await.expect("an old file");
+    store.save_file_record(&old).await.expect("an old file");
     for name in ["7shown.png", "7shown.pdf"] {
         store
-            .save_file_info(&record_of(board_id, name))
+            .save_file_record(&record_of(board_id, name))
             .await
             .expect("a shown file");
     }
@@ -636,7 +637,7 @@ pub(crate) async fn posted_comment(store: &fvoci_store::Store, author: &str) -> 
     let board_id = &boards[0].id;
     for name in ["7first.png", "7second.png"] {
         store
-            .save_file_info(&record_of(board_id, name))
+            .save_file_record(&record_of(board_id, name))
             .await
             .expect("a file of the board is stored");
     }

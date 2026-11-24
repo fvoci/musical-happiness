@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use fvoci_model::{Block, Container, ContainerType, User, Workspace, new_id};
+use fvoci_model::{Block, Container, ContainerVisibility, User, Workspace, new_id};
 use fvoci_store::testing::TestDatabase;
 use fvoci_store::{DbType, Purged, Store};
 use sqlx::postgres::PgConnection;
@@ -386,7 +386,7 @@ pub(crate) async fn create_test_boards(
         let mut board = Container {
             id: new_id(),
             workspace_id: workspace_id.to_owned(),
-            container_type: ContainerType::Open,
+            visibility: ContainerVisibility::Open,
             created_by: user_id.to_owned(),
             title: format!("board {index}"),
             ..Container::default()

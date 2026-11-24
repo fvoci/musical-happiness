@@ -4,7 +4,7 @@
 //! written quietly (`disableNotify`) is watched by its writer alone; and who watched a
 //! card or a page watches it again once it is back from the trash.
 
-use fvoci_model::{BlockType, Card, ContainerType, Subscription};
+use fvoci_model::{BlockType, Card, ContainerVisibility, Subscription};
 use fvoci_server::app::tend_notifications;
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
@@ -68,9 +68,9 @@ async fn give_card(client: &Client, card: &Card, user_id: &str) {
         .check_no_content();
 }
 
-/// Makes the board open (`O`) or invited-only (`P`), as the first client's user.
-async fn make(th: &TestServer, board_id: &str, board_type: &str) {
-    patch_board(&th.client, board_id, &json!({"type": board_type}))
+/// Makes the board open (`open`) or invited-only (`private`), as the first client's user.
+async fn make(th: &TestServer, board_id: &str, visibility: &str) {
+    patch_board(&th.client, board_id, &json!({"visibility": visibility}))
         .await
         .check_ok();
 }
@@ -84,7 +84,7 @@ async fn make(th: &TestServer, board_id: &str, board_type: &str) {
 #[tokio::test]
 async fn whoever_may_join_an_open_board_is_told_of_it_until_it_is_closed() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = board_with_owner(&th, ContainerType::Open).await;
+    let board = board_with_owner(&th, ContainerVisibility::Open).await;
     let worker = th.add_user("worker").await;
     let worker_id = worker.me().await.id;
     let guest = th.add_user("guest").await;
@@ -115,7 +115,7 @@ async fn whoever_may_join_an_open_board_is_told_of_it_until_it_is_closed() {
     assert_eq!(told(&th, &guest).await, [], "a guest may not join it");
     assert!(!watchers(&th, &card.id).await.contains(&guest_id));
 
-    make(&th, &board.id, "P").await;
+    make(&th, &board.id, "private").await;
     comment_on(&th.client, &card, &mentioning(&[&worker_id])).await;
     comment_on(&th.client, &card, &plain("private comment")).await;
     let closed = told(&th, &worker).await;
@@ -130,7 +130,7 @@ async fn whoever_may_join_an_open_board_is_told_of_it_until_it_is_closed() {
         "though kept, for the board to open again"
     );
 
-    make(&th, &board.id, "O").await;
+    make(&th, &board.id, "open").await;
     assert_eq!(watched(&worker).await, std::slice::from_ref(&card.id));
     assert_eq!(
         kinds(&told(&th, &worker).await),
@@ -148,7 +148,7 @@ async fn whoever_may_join_an_open_board_is_told_of_it_until_it_is_closed() {
 async fn nobody_watches_or_is_listed_what_they_do_not_read() {
     let th = Setup::native().start().await.init_basic().await;
     let a = th.client.me().await;
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     let outsider = th.add_user("outsider").await;
     let outsider_id = outsider.me().await.id;
     let ws_admin = th.add_user("wsadmin").await;
@@ -211,7 +211,7 @@ async fn open_course_unit(client: &Client) -> (String, String, i64) {
     let course = client
         .post(
             &format!("{TEST_WS}/courses"),
-            &json!({"type": "O", "title": "Open course"}),
+            &json!({"visibility": "open", "title": "Open course"}),
         )
         .await;
     course.check_created();
@@ -305,7 +305,7 @@ async fn open_course_unit_respects_worker_guest_and_private_isolation() {
         "guest not listed"
     );
 
-    make(&th, &course_id, "P").await;
+    make(&th, &course_id, "private").await;
     assert_eq!(
         watched(&worker).await,
         Vec::<String>::new(),
@@ -326,7 +326,7 @@ async fn a_quiet_card_tells_nobody_and_its_writer_alone_watches_it() {
     let b = th.client2.me().await;
     let c = th.add_user("third").await;
     let c_id = c.me().await.id;
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
     give(&th, &board.id, &c_id, "viewer").await;
 
@@ -368,7 +368,7 @@ async fn who_watched_a_card_or_a_page_watches_it_again_once_it_is_back() {
     let b = th.client2.me().await;
     let leaver = th.add_user("leaver").await;
     let leaver_id = leaver.me().await.id;
-    let board = board_with_owner(&th, ContainerType::Private).await;
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
     give(&th, &board.id, &b.id, "editor").await;
     give(&th, &board.id, &leaver_id, "editor").await;
     let card = card_with(&th.client, &board.id, &Value::Null).await;

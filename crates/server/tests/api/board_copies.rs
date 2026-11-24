@@ -1,8 +1,8 @@
 //! Copies of boards and templates (`duplicateContainer`).
 
 use fvoci_model::{
-    Block, BlockType, Category, Container, ContainerMember, ContainerType, ContainersAndBlocks,
-    new_id,
+    Block, BlockType, Category, Container, ContainerMember, ContainerVisibility,
+    ContainersAndBlocks, new_id,
 };
 use fvoci_store::{BlockFilter, DuplicateAs};
 use reqwest::StatusCode;
@@ -28,7 +28,7 @@ async fn duplicate_container_create_and_duplicate_public_board() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Open,
+            ContainerVisibility::Open,
             "Public board",
         ))
         .await
@@ -54,8 +54,8 @@ async fn duplicate_container_create_and_duplicate_public_board() {
     assert_eq!(copy.blocks.len(), 1, "one block");
     let duplicate = &copy.containers[0];
     assert_eq!(
-        duplicate.container_type,
-        ContainerType::Private,
+        duplicate.visibility,
+        ContainerVisibility::Private,
         "Duplicated board should be private"
     );
     assert_ne!(duplicate.id, board.id, "under a new identifier");
@@ -100,7 +100,7 @@ async fn duplicate_container_create_and_duplicate_public_board_from_a_custom_cat
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Open,
+            ContainerVisibility::Open,
             "Public board",
         ))
         .await
@@ -136,8 +136,8 @@ async fn duplicate_container_create_and_duplicate_public_board_from_a_custom_cat
     assert_eq!(copy.blocks.len(), 1, "one block");
     let duplicate = &copy.containers[0];
     assert_eq!(
-        duplicate.container_type,
-        ContainerType::Private,
+        duplicate.visibility,
+        ContainerVisibility::Private,
         "Duplicated board should be private"
     );
     assert_eq!(duplicate.title, "Public board copy", "the title says so");
@@ -167,7 +167,7 @@ async fn duplicate_container_base_case_and_as_template() {
     let user = th.stranger_in(TEST_WORKSPACE_ID).await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Source"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "Source"),
         &user,
     )
     .await;
@@ -233,11 +233,8 @@ async fn copy_title(
 async fn a_copy_is_titled_in_the_language_of_whoever_asked() {
     const SETTINGS: &str = "/users/me/settings";
     let th = Setup::native().start().await.init_basic().await;
-    let board: Container = th
-        .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Open, "로드맵"))
-        .await
-        .created_json();
+    let spec = new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "로드맵");
+    let board: Container = th.client.create_board(&spec).await.created_json();
     let wiki = crate::search_pages::new_wiki(&th.client).await;
     let wiki_title: Container = th
         .client
@@ -347,7 +344,7 @@ async fn a_copy_is_titled_in_the_language_of_whoever_asked() {
 async fn board_with_a_commented_card(th: &TestServer, user_id: &str) -> Container {
     let board = board_with_admin(
         th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Public board"),
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "Public board"),
         user_id,
     )
     .await;
@@ -481,7 +478,11 @@ async fn duplicate_container_permissions_and_parameters() {
     // A viewer of a private board may duplicate it, and administers the copy.
     let private = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Private one"),
+        new_board(
+            TEST_WORKSPACE_ID,
+            ContainerVisibility::Private,
+            "Private one",
+        ),
         &user1.id,
     )
     .await;
@@ -518,11 +519,19 @@ async fn duplicate_container_from_a_template() {
     let user2 = th.client2.me().await;
     let mut templates = Vec::new();
     for (workspace_id, board_type, title) in [
-        (TEST_WORKSPACE_ID, ContainerType::Open, "Open template"),
-        (ROOT_WORKSPACE_ID, ContainerType::Open, "Global template"),
+        (
+            TEST_WORKSPACE_ID,
+            ContainerVisibility::Open,
+            "Open template",
+        ),
         (
             ROOT_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Open,
+            "Global template",
+        ),
+        (
+            ROOT_WORKSPACE_ID,
+            ContainerVisibility::Private,
             "Private template",
         ),
     ] {
@@ -551,8 +560,8 @@ async fn duplicate_container_from_a_template() {
     assert_eq!(board.title, "Open template", "the template's title");
     assert!(!board.is_template, "a board, not a template");
     assert_eq!(
-        board.container_type,
-        ContainerType::Private,
+        board.visibility,
+        ContainerVisibility::Private,
         "private to its user"
     );
     assert_eq!(board.created_by, user2.id, "created by the user");
@@ -615,7 +624,7 @@ async fn duplicate_container_from_a_template() {
 async fn duplicate_container_without_blocks() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
     let copy: ContainersAndBlocks = duplicate_board(&th.client, &board.id, "")

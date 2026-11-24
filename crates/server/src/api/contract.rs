@@ -39,7 +39,7 @@ pub(crate) mod tag {
     pub(crate) const DIARIES: &str = "diaries";
     pub(crate) const COURSES: &str = "courses";
     pub(crate) const MEMBERS: &str = "members";
-    pub(crate) const SHARING: &str = "sharing";
+    pub(crate) const PUBLIC_LINKS: &str = "public-links";
     pub(crate) const BLOCKS: &str = "blocks";
     pub(crate) const CARDS: &str = "cards";
     pub(crate) const REFERENCES: &str = "references";
@@ -90,7 +90,7 @@ const TAGS: [(&str, &str); 20] = [
          archive that is imported makes each diary anew, in the user's own space only). \
          Its entries are found by `searchWorkspaceContent`, by their writer. What is about \
          the people of a board answers 404 for a diary, as for an identifier of nothing: \
-         its members, joining and leaving it, its teams, its link (`/sharing`, \
+         its members, joining and leaving it, its teams, its link (`/public-link`, \
          `/shared/{containerId}`), invitations to it, and `duplicateContainer`. So do the \
          operations under `/boards/{boardId}` and `/wikis/{wikiId}`: a diary has no \
          blocks but its entries, no cards, no views, no pages, no comments and no \
@@ -99,13 +99,16 @@ const TAGS: [(&str, &str); 20] = [
     (
         tag::COURSES,
         "Courses and their chapters and units. A course is a container of the kind \
-         `course`: who is on it, its groups, invitations, sharing, files, place in the \
-         sidebar and trash, and export and import work under `/containers/{containerId}` \
-         with the course's identifier. Open courses are read and searched without \
-         joining, as open wikis are.",
+         `course`: who is on it, its groups, invitations, public link, files, place in \
+         the sidebar and trash, and export and import work under \
+         `/containers/{containerId}` with the course's identifier. Open courses are read \
+         and searched without joining, as open wikis are.",
     ),
     (tag::MEMBERS, "Who is on a board, and with which role."),
-    (tag::SHARING, "Sharing a board with whoever has its link."),
+    (
+        tag::PUBLIC_LINKS,
+        "Sharing a board with whoever has its public link.",
+    ),
     (
         tag::BLOCKS,
         "The blocks of a board: cards, views, comments, and what a card is made of.",
@@ -217,7 +220,7 @@ Every account has a space of its own from the moment it is made, however it was 
 an organization of the `kind` `personal` with the account as its only member and one \
 workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace \
 like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, \
-the trash, export and import, and sharing by a public link (`setSharing`) work in it as \
+the trash, export and import, and sharing by a public link (`setPublicLink`) work in it as \
 anywhere. It has no name (a client calls it by the reader's language) and takes none.
 
 What it has not is other people, and anybody to administer it. Its identifier is 404 \
@@ -297,7 +300,7 @@ where the server takes a missing one as empty instead of refusing the request, t
 is that of the empty value (a login without a password is a failed login). A body with \
 members the schema does not list is mostly not refused for them. The exceptions: \
 `patchUserSettings`, `patchMe` and `createSubscription` refuse every member they do not know, `createBoard` and \
-`createCategory` refuse an `id`, and `setSharing` refuses a `token`.";
+`createCategory` refuse an `id`, and `setPublicLink` refuses a `token`.";
 
 /// What an operation's `default` response says.
 const REFUSAL: &str = "The request was refused, or failed. The status says the kind: 400 for a \
@@ -370,7 +373,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("ClientConfig", Members::All),
     ("CommentVersion", Members::All),
     ("DeletedItem", Members::AllBut(&["kind"])),
-    ("FileInfo", Members::All),
+    ("FileRecord", Members::All),
     ("FileLease", Members::All),
     ("FileLeaseRequest", Members::AsWritten),
     ("FileVersion", Members::All),
@@ -425,7 +428,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("SearchHit", Members::AllBut(&["number"])),
     ("SearchKind", Members::AsWritten),
     ("ServerMetadata", Members::AsWritten),
-    ("Sharing", Members::AllBut(&["token", "updateAt"])),
+    ("PublicLink", Members::AllBut(&["token", "updateAt"])),
     ("SnippetPart", Members::All),
     ("Subscription", Members::All),
     ("WelcomeBoard", Members::All),
@@ -591,7 +594,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewOrganization", Members::All),
     ("SetPasswordRequest", Members::All),
     ("SettingsChange", Members::AsWritten),
-    ("SharingRequest", Members::AsWritten),
+    ("PublicLinkRequest", Members::AsWritten),
     (
         "UnlinkRequest",
         Members::Only(&["issuer", "subject", "password"]),
@@ -610,7 +613,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("DeletionProof", Members::AsWritten),
     ("CategoryType", Members::AsWritten),
     ("ContainerKind", Members::AsWritten),
-    ("ContainerType", Members::AsWritten),
+    ("ContainerVisibility", Members::AsWritten),
     ("Credential", Members::AsWritten),
     ("Density", Members::AsWritten),
     ("HourCycle", Members::AsWritten),

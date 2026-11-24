@@ -10,7 +10,10 @@ use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS};
 
 async fn wiki(client: &Client) -> (String, String) {
     let made = client
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "P"}))
+        .post(
+            &format!("{TEST_WS}/wikis"),
+            &json!({"visibility": "private"}),
+        )
         .await;
     made.check_created();
     let id = made.value()["id"].as_str().expect("an id").to_owned();

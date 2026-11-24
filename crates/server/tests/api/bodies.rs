@@ -2,7 +2,7 @@
 //! routes, checked before it is stored, and guarded against overwriting a change the
 //! writer has not seen (`docs/s6-design.md` 3.7, 5.7).
 
-use fvoci_model::{BLOCK_TITLE_MAX_CHARS, Card, ContainerType};
+use fvoci_model::{BLOCK_TITLE_MAX_CHARS, Card, ContainerVisibility};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -83,7 +83,7 @@ async fn listed(client: &Client, board_id: &str, card_id: &str) -> (bool, u64, u
 async fn a_card_is_made_with_its_body_and_listed_without_it() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
 
     let created: Card = new_card(
@@ -136,7 +136,7 @@ async fn a_card_is_made_with_its_body_and_listed_without_it() {
 async fn a_body_is_changed_only_from_the_card_as_it_is() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let created: Card = new_card(&th.client, &board.id, &json!({"title": "Card"}))
         .await
@@ -218,7 +218,7 @@ async fn a_body_is_changed_only_from_the_card_as_it_is() {
 async fn a_body_that_is_no_document_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let created: Card = new_card(&th.client, &board.id, &json!({"title": "Card"}))
         .await
@@ -259,7 +259,7 @@ async fn a_body_that_is_no_document_is_refused() {
 async fn a_read_at_from_before_a_change_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let created: Card = new_card(
         &th.client,
@@ -325,7 +325,7 @@ async fn a_read_at_from_before_a_change_is_refused() {
 async fn a_body_comes_back_from_the_trash_and_is_copied() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let created: Card = new_card(
         &th.client,
@@ -398,7 +398,7 @@ fn with_node(kind: &str, file_id: &str) -> Value {
 async fn the_routes_of_blocks_take_the_body_of_a_card() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
 
@@ -466,7 +466,7 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
         .post(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
+                "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"}],
                 "blocks": [card_block("bd", &document())],
             }),
         )
@@ -497,10 +497,10 @@ async fn the_file_blocks_of_a_body_are_files_of_its_board() {
 async fn files_of_a_body_are_files_of_its_board(kind: &str) {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let other = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
@@ -570,7 +570,7 @@ async fn files_of_a_body_are_files_of_its_board(kind: &str) {
         .post(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "containers": [{"id": board.id, "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
+                "containers": [{"id": board.id, "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"}],
                 "blocks": [card_block(&board.id, &with_node(kind, &file_id))],
             }),
         )
@@ -588,7 +588,7 @@ async fn files_of_a_body_are_files_of_its_board(kind: &str) {
 async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
     let made: Vec<Value> = th
@@ -622,7 +622,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
         .post(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
+                "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"}],
                 "blocks": [card_block("bd", &json!("attachment"))],
             }),
         )
@@ -669,10 +669,10 @@ async fn a_copy_of_a_body_shows_copies_of_its_file_blocks() {
 async fn copies_of_a_body_show_copies_of_its_files(kind: &str) {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let other = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
@@ -794,7 +794,7 @@ async fn a_copy_of_a_card_with_a_file_block_begins_with_one_version() {
 async fn a_copy_of_a_card_with_a_file_begins_with_one_version(kind: &str) {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
@@ -899,7 +899,7 @@ async fn a_copy_of_a_card_with_a_file_begins_with_one_version(kind: &str) {
 async fn a_copy_of_a_card_with_an_attachment_below_it_begins_with_one_version() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "a.pdf", b"pdf").await,
@@ -972,10 +972,10 @@ async fn copied_files_of_file_blocks_are_shown_and_an_unused_upload_is_collected
 async fn copied_files_are_shown_and_unused_ones_collected(kind: &str) {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let other = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
@@ -1063,10 +1063,10 @@ async fn block_of(client: &Client, board_id: &str, block_id: &str) -> Value {
 async fn a_comment_has_a_body() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let other = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
     let file_id = crate::files::uploaded_id(
@@ -1171,7 +1171,7 @@ async fn a_comment_has_a_body() {
 async fn a_comment_body_goes_every_way_a_card_body_does() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
     let file_id = crate::files::uploaded_id(
@@ -1239,7 +1239,7 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
         .post(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
+                "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"}],
                 "blocks": [
                     {"id": "k1", "containerId": "bd", "type": "card", "createAt": 1, "updateAt": 1},
                     {"id": "m1", "containerId": "bd", "parentId": "k1", "type": "comment",
@@ -1267,10 +1267,10 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
 async fn a_commenter_posts_a_body_but_copies_no_files() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let source = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
     let file_id = crate::files::uploaded_id(
@@ -1358,7 +1358,7 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
 async fn a_changed_comment_says_so_and_its_members_read_what_it_said() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
     let me = th.client.me().await;

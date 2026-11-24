@@ -100,7 +100,10 @@ describe('references, in memory', () => {
 
   it('resolves and finds the pages of a wiki the reader is on, and tells nothing of them to the rest', async () => {
     const { backend, other, workspaceId } = world();
-    const wiki = await backend.wiki.createWiki(workspaceId, { title: 'Handbook', type: 'P' });
+    const wiki = await backend.wiki.createWiki(workspaceId, {
+      title: 'Handbook',
+      visibility: 'private',
+    });
     const page = await backend.wiki.createPage(wiki.id, { title: 'Road plan' });
     const told = { id: page.id, kind: 'page', title: 'Road plan', icon: '', containerId: wiki.id };
     expect(await backend.references.resolve(workspaceId, [page.id])).toEqual([

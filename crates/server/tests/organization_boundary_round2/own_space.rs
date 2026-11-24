@@ -13,12 +13,13 @@ use std::time::Duration;
 
 use axum::Router;
 use futures_util::{SinkExt as _, StreamExt as _};
+use fvoci_model::PublicLinkChange;
 use fvoci_model::{
-    Block, BlockType, Category, Container, ContainerMember, ContainerType, OrgKind, UserWorkspace,
-    Workspace, WorkspaceRole, new_id,
+    Block, BlockType, Category, Container, ContainerMember, ContainerVisibility, OrgKind,
+    UserWorkspace, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_server::app::{App, ChangeNotification, FileToUpload};
-use fvoci_store::{DbType, SharingChange, Tenant};
+use fvoci_store::{DbType, Tenant};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
@@ -82,7 +83,7 @@ impl Space {
         let mut board = Container {
             id: new_id(),
             workspace_id: workspace.id.clone(),
-            container_type: ContainerType::Open,
+            visibility: ContainerVisibility::Open,
             title: format!("{SECRET} board"),
             ..Container::default()
         };
@@ -93,7 +94,7 @@ impl Space {
         let mut managed = Container {
             id: new_id(),
             workspace_id: workspace.id.clone(),
-            container_type: ContainerType::Private,
+            visibility: ContainerVisibility::Private,
             title: format!("{SECRET} managed"),
             ..Container::default()
         };
@@ -227,7 +228,7 @@ async fn a_course_of(
     let course = owner
         .post(
             &courses,
-            &json!({"title": format!("{SECRET} course"), "type": "P"}),
+            &json!({"title": format!("{SECRET} course"), "visibility": "private"}),
         )
         .await;
     assert_eq!(course.status, StatusCode::CREATED, "{}", course.text());
@@ -723,7 +724,7 @@ async fn nobody_but_its_owner_reaches_a_space_by_a_route() {
     let guest = a_guest(&ts).await;
     // A board under the root workspace that everybody asked there reads: without one
     // their search of bodies is answered before the search server is asked.
-    let read_by_all = ts.create_board(root, ContainerType::Private).await;
+    let read_by_all = ts.create_board(root, ContainerVisibility::Private).await;
     for client in [&ts.client2, &guest, &space.owner] {
         let member = ContainerMember {
             container_id: read_by_all.id.clone(),
@@ -757,7 +758,7 @@ async fn nobody_but_its_owner_reaches_a_space_by_a_route() {
         violations.push(format!("the owner under another workspace: {violation}"));
     }
 
-    let shared = ts.create_board(root, ContainerType::Private).await;
+    let shared = ts.create_board(root, ContainerVisibility::Private).await;
     let token = ts.share(&shared.id).await;
     violations.extend(compare_without_a_session(&ts, &space, &token).await);
 
@@ -854,7 +855,7 @@ async fn a_change_in_a_space_is_told_to_its_owner_alone() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let space = Space::of_a_new_member(&ts).await;
     let shared = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let token = ts.share(&shared.id).await;
     let workspace = &space.workspace.id;
@@ -1152,7 +1153,7 @@ async fn nothing_of_a_space_is_posted_to_the_operators_webhooks() {
     assert!(in_space.finish_background(Duration::from_secs(5)).await);
 
     let board = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let mut open = Block {
         id: new_id(),
@@ -1191,13 +1192,13 @@ async fn nothing_of_a_space_is_posted_to_the_operators_webhooks() {
 async fn shared_space_paths(space: &Space) -> (String, [String; 5]) {
     let token = space
         .app
-        .set_sharing(&space.board.id, SharingChange::On, &space.owner_id)
+        .set_public_link(&space.board.id, PublicLinkChange::On, &space.owner_id)
         .await
         .expect("the owner shares the board")
         .token;
     let course_token = space
         .app
-        .set_sharing(&space.course.id, SharingChange::On, &space.owner_id)
+        .set_public_link(&space.course.id, PublicLinkChange::On, &space.owner_id)
         .await
         .expect("the owner shares the course")
         .token;
@@ -1364,7 +1365,7 @@ async fn a_server_with_a_space() -> (FakeSearch, TestServer, Space) {
 /// bodies is answered before the search server is asked.
 async fn a_board_read_by(ts: &TestServer, clients: &[&Client]) {
     let board = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     for client in clients {
         let member = ContainerMember {
@@ -1622,7 +1623,7 @@ async fn a_provider_session_opens_nothing_of_a_space_whose_account_has_a_passwor
     let (index, ts, space) = a_server_with_a_space().await;
     let token = space
         .app
-        .set_sharing(&space.board.id, SharingChange::On, &space.owner_id)
+        .set_public_link(&space.board.id, PublicLinkChange::On, &space.owner_id)
         .await
         .expect("the owner shares the board")
         .token;

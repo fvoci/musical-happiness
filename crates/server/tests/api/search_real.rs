@@ -18,7 +18,7 @@
 use std::fmt::Write as _;
 use std::time::Duration;
 
-use fvoci_model::{Container, ContainerKind, ContainerType, SearchHit, SearchKind, new_id};
+use fvoci_model::{Container, ContainerKind, ContainerVisibility, SearchHit, SearchKind, new_id};
 use fvoci_server::config::search::SearchSettings;
 use serde_json::Value;
 
@@ -317,7 +317,7 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerType::Private,
+            ContainerVisibility::Private,
             "한국어",
         ))
         .await

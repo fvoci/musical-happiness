@@ -109,7 +109,7 @@ impl App {
         &self,
         workspace_id: Option<&str>,
     ) -> Result<(), AppError> {
-        for container_id in self.store().shared_container_ids(workspace_id).await? {
+        for container_id in self.store().public_link_container_ids(workspace_id).await? {
             self.ws().end_readers_of_container(&container_id);
         }
         Ok(())

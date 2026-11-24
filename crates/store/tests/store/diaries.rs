@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockType, Container, ContainerError, ContainerKind,
-    ContainerType, DIARIES_PER_SPACE, DiaryDate, DiaryMaking, ENTRIES_PER_DIARY, MonthDay, Mood,
-    NewDiaryEntry, new_id,
+    ContainerVisibility, DIARIES_PER_SPACE, DiaryDate, DiaryMaking, ENTRIES_PER_DIARY, MonthDay,
+    Mood, NewDiaryEntry, PublicLinkChange, new_id,
 };
-use fvoci_store::{DbType, SharingChange, Store, StoreError, Tenant};
+use fvoci_store::{DbType, Store, StoreError, Tenant};
 use serde_json::json;
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
@@ -21,7 +21,7 @@ use crate::common::{self, TestStore};
 pub(crate) fn new_diary(workspace_id: &str) -> Container {
     Container {
         kind: ContainerKind::Diary,
-        ..new_board(&new_id(), workspace_id, ContainerType::Private)
+        ..new_board(&new_id(), workspace_id, ContainerVisibility::Private)
     }
 }
 
@@ -389,7 +389,7 @@ async fn a_diary_holds_entries_and_nothing_else_does() {
     for kind in [ContainerKind::Board, ContainerKind::Wiki] {
         let mut container = Container {
             kind,
-            ..new_board(&new_id(), &workspace_id, ContainerType::Private)
+            ..new_board(&new_id(), &workspace_id, ContainerVisibility::Private)
         };
         own.insert_container_with_admin(&mut container, &user_id)
             .await
@@ -443,7 +443,7 @@ async fn a_diary_is_of_an_own_space() {
         ContainerError::DiaryOffOwnSpace
     );
     let open = Container {
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..new_diary(&own_workspace)
     };
     assert_eq!(
@@ -463,7 +463,7 @@ async fn a_diary_is_of_an_own_space() {
     );
 
     // Past the store: a board of the organization made a diary, and a diary moved there.
-    let mut board = new_board(&new_id(), &test.workspace_id, ContainerType::Private);
+    let mut board = new_board(&new_id(), &test.workspace_id, ContainerVisibility::Private);
     test.insert_container_with_admin(&mut board, &user_id)
         .await
         .expect("stored");
@@ -505,7 +505,7 @@ async fn a_diary_has_no_link() {
     let (user_id, own, _, diary_id) = writer(&test, "writer").await;
     let system = test.system();
     let shared = own
-        .set_sharing(&diary_id, SharingChange::On, "token", &user_id)
+        .set_public_link(&diary_id, PublicLinkChange::On, "token", &user_id)
         .await;
     assert!(matches!(shared, Err(StoreError::NotFound(_))), "{shared:?}");
     let org = if common::db_type() == DbType::Postgres {
@@ -518,7 +518,7 @@ async fn a_diary_has_no_link() {
     };
     let linked = system
         .execute_unchecked(&format!(
-            "INSERT INTO sharing ({}container_id, enabled, token, update_at) \
+            "INSERT INTO public_links ({}container_id, enabled, token, update_at) \
              VALUES ({}'{diary_id}', true, 'token', 1)",
             org.0, org.1
         ))
@@ -526,7 +526,7 @@ async fn a_diary_has_no_link() {
     assert!(linked.is_err(), "a diary is given a link past the store");
     assert_eq!(
         system
-            .texts_unchecked("SELECT token FROM sharing")
+            .texts_unchecked("SELECT token FROM public_links")
             .await
             .expect("read"),
         Vec::<String>::new()
@@ -563,7 +563,7 @@ async fn a_space_has_so_many_diaries() {
         full
     );
     // Boards and wikis are not counted, and are made as ever.
-    let mut board = new_board(&new_id(), &workspace_id, ContainerType::Private);
+    let mut board = new_board(&new_id(), &workspace_id, ContainerVisibility::Private);
     own.insert_container_with_admin(&mut board, &user_id)
         .await
         .expect("a board beside the diaries");

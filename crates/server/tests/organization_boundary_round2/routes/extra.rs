@@ -1,6 +1,8 @@
 //! Query-target hiding, invited-guest read boundaries, and removed pre-workspace paths.
 
-use fvoci_model::{Container, ContainerMember, ContainerType, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{
+    Container, ContainerMember, ContainerVisibility, Workspace, WorkspaceRole, new_id,
+};
 use fvoci_store::DbType;
 use reqwest::StatusCode;
 use serde_json::json;
@@ -88,13 +90,13 @@ pub(super) async fn compare_query_targets(client: &Client, own: &Container, hidd
 async fn query_targets_and_bulk_id_bodies_hide_unjoined_workspaces() {
     let ts = Setup::native().start().await.init_basic().await;
     let own = ts
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let owner = ts.stranger_in(HIDDEN_WORKSPACE_ID).await;
     let mut hidden = Container {
         id: new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         title: "Hidden query board".to_owned(),
         ..Container::default()
     };
@@ -160,7 +162,7 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
     let mut board = Container {
         id: new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Open,
+        visibility: ContainerVisibility::Open,
         ..Container::default()
     };
     ts.app

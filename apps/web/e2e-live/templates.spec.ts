@@ -76,7 +76,7 @@ test('a board is made from a template, and a template from a board is changed on
   expect(copy).toMatchObject({
     title: 'Issue tracker',
     isTemplate: false,
-    type: 'P',
+    visibility: 'private',
     workspaceId: mine.workspaceId,
   });
   expect((await views(api, mine.workspaceId, made)).length).toBe(

@@ -8,7 +8,7 @@
 -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { ContainerType } from '$lib/logic/wire.ts';
+  import type { ContainerVisibility } from '$lib/logic/wire.ts';
   import type { WikiDraft } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
@@ -27,18 +27,18 @@
 
   const uid = $props.id();
   let title = $state('');
-  let type = $state<ContainerType>('O');
+  let visibility = $state<ContainerVisibility>('open');
 
   /** Each opening starts afresh. */
   function opened(): void {
     title = '';
-    type = 'O';
+    visibility = 'open';
   }
 
   function submit(event: SubmitEvent): void {
     event.preventDefault();
     open = false;
-    onCreate({ title: title.trim(), type: alone ? 'P' : type });
+    onCreate({ title: title.trim(), visibility: alone ? 'private' : visibility });
   }
 </script>
 
@@ -66,9 +66,9 @@
             <input
               id="{uid}-open"
               type="radio"
-              name="{uid}-type"
-              value="O"
-              bind:group={type}
+              name="{uid}-visibility"
+              value="open"
+              bind:group={visibility}
               data-testid="new-wiki-open"
               class="mt-1 size-4 accent-primary"
             />
@@ -78,9 +78,9 @@
             <input
               id="{uid}-private"
               type="radio"
-              name="{uid}-type"
-              value="P"
-              bind:group={type}
+              name="{uid}-visibility"
+              value="private"
+              bind:group={visibility}
               data-testid="new-wiki-private"
               class="mt-1 size-4 accent-primary"
             />

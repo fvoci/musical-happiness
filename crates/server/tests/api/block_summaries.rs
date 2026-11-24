@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use fvoci_model::{Block, BlockType, Body, Container, ContainerType, new_id};
+use fvoci_model::{Block, BlockType, Body, Container, ContainerVisibility, new_id};
 use serde_json::{Value, json};
 
 use crate::cards::cards_path;
@@ -103,7 +103,7 @@ async fn card_with(th: &TestServer, user_id: &str, body: Value) -> Block {
     let mut board = Container {
         id: new_id(),
         workspace_id: ROOT_WORKSPACE_ID.to_owned(),
-        container_type: ContainerType::Private,
+        visibility: ContainerVisibility::Private,
         title: "Roadmap".to_owned(),
         ..Container::default()
     };

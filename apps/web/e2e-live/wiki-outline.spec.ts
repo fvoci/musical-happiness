@@ -125,7 +125,7 @@ test('the outline follows the headings another browser writes, writes nothing it
   const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
   const at = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
-    await api.post(`${at}/wikis`, { data: { title: 'Handbook', type: 'P' } })
+    await api.post(`${at}/wikis`, { data: { title: 'Handbook', visibility: 'private' } })
   ).json()) as Schemas['Container'];
   for (const [who, roles] of [
     [colleague, { schemeViewer: true, schemeCommenter: true, schemeEditor: true }],
@@ -238,7 +238,7 @@ test('a reader by the public link has the same outline, wide, beside a narrowed 
   const { workspaceId } = await makeBoard(api, { title: 'Beside the wiki' });
   const at = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
-    await api.post(`${at}/wikis`, { data: { title: 'Field notes', type: 'P' } })
+    await api.post(`${at}/wikis`, { data: { title: 'Field notes', visibility: 'private' } })
   ).json()) as Schemas['Container'];
   const pageWith = async (title: string, body: object): Promise<Schemas['Page']> => {
     const page = (await (
@@ -253,8 +253,8 @@ test('a reader by the public link has the same outline, wide, beside a narrowed 
   const guide = await pageWith('Guide', GUIDE);
   await pageWith('Short', sections([2, 'Only one']));
   const shared = (await (
-    await api.post(`${at}/containers/${wiki.id}/sharing`, { data: { enabled: true } })
-  ).json()) as Schemas['Sharing'];
+    await api.post(`${at}/containers/${wiki.id}/public-link`, { data: { enabled: true } })
+  ).json()) as Schemas['PublicLink'];
   const link = `/shared/${wiki.id}/${guide.id}?r=${encodeURIComponent(shared.token ?? '')}`;
 
   const page = await opened(browser, link);

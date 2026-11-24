@@ -13,7 +13,7 @@
 )]
 
 use fvoci_model::{
-    Body, CardOpen, CategoryType, ContainerType, Credential, Density, HourCycle, JsonMap,
+    Body, CardOpen, CategoryType, ContainerVisibility, Credential, Density, HourCycle, JsonMap,
     MinimumRole, NameShown, Theme, Title, WeekStart,
 };
 use utoipa::ToSchema;
@@ -70,8 +70,7 @@ pub(crate) struct NewBoard {
     #[schema(nullable = false)]
     id: Option<String>,
     /// Whether the board is open or private.
-    #[schema(rename = "type")]
-    container_type: ContainerType,
+    visibility: ContainerVisibility,
     /// The role a user gets who joins the board. Left out, `editor`.
     #[schema(nullable = false)]
     minimum_role: Option<MinimumRole>,
@@ -268,14 +267,14 @@ pub(crate) struct MemberRoles {
     scheme_viewer: Option<bool>,
 }
 
-/// Whether a board is to be shared.
+/// Whether a container's public link is to be enabled.
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]
-pub(crate) struct SharingRequest {
-    /// `true` shares the board, `false` stops sharing it. The read token a board had
-    /// stops working when sharing stops.
+pub(crate) struct PublicLinkRequest {
+    /// `true` enables the public link, `false` turns it off. The read token a container
+    /// had stops working when the link is turned off.
     enabled: bool,
-    /// With `enabled`, `true` gives the board a new read token; the old one stops
+    /// With `enabled`, `true` gives the container a new read token; the old one stops
     /// working.
     regenerate: Option<bool>,
 }

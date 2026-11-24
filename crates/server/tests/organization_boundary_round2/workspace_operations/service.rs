@@ -11,7 +11,11 @@ use super::{Case, Client, PASSWORD, TestServer, identity, shared};
 async fn notifications(case: &mut Case, server: &TestServer) {
     let title = format!("{} told", case.label);
     let board = case
-        .run("createBoard", &[], json!({"title": title, "type": "P"}))
+        .run(
+            "createBoard",
+            &[],
+            json!({"title": title, "visibility": "private"}),
+        )
         .await
         .value();
     let board = case.remember(&board, "id");

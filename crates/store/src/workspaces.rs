@@ -5,8 +5,8 @@
 //! workspaces of the system organization out of an answer.
 
 use fvoci_model::{
-    Block, Container, ContainerKinds, ContainerType, GuestInvitationsChange, OrgKind, Workspace,
-    WorkspaceRole,
+    Block, Container, ContainerKinds, ContainerVisibility, GuestInvitationsChange, OrgKind,
+    Workspace, WorkspaceRole,
 };
 
 use crate::db::{Bound, Id, OptId, Param, Row, Scope, Sql, now_millis};
@@ -355,8 +355,11 @@ async fn search_containers_for_user_in_workspace(
     sql.bind(false)
         .push_bind(" AND b.workspace_id = ", Id(workspace_id));
     container_kinds::push_kinds(&mut sql, "b.kind", kinds);
-    sql.push_bind(" AND (b.type = ", ContainerType::Open.as_str())
-        .push_bind(" OR (b.type = ", ContainerType::Private.as_str())
+    sql.push_bind(" AND (b.visibility = ", ContainerVisibility::Open.as_str())
+        .push_bind(
+            " OR (b.visibility = ",
+            ContainerVisibility::Private.as_str(),
+        )
         .push_bind(" AND bm.user_id = ", Id(user_id))
         .push(members::BM_HAS_A_ROLE)
         .push(") OR ");
@@ -426,8 +429,8 @@ pub(crate) async fn get_template_boards(
         .push_bind(" AND b.is_builtin = ", false)
         .push_bind(" AND b.workspace_id = ", Id(workspace_id))
         .push_bind(
-            " AND ((bm.container_id IS NULL AND b.type = ",
-            ContainerType::Open.as_str(),
+            " AND ((bm.container_id IS NULL AND b.visibility = ",
+            ContainerVisibility::Open.as_str(),
         )
         .push(") OR bm.container_id IS NOT NULL OR ");
     crate::container_team_access::push_has_team_role(&mut sql, scope, user_id);

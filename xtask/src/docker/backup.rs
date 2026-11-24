@@ -512,7 +512,7 @@ impl Kept {
         let board = client.expect(
             "POST",
             &format!("{w}/boards"),
-            Some(&json!({"type": "O", "title": "Kept"})),
+            Some(&json!({"visibility": "open", "title": "Kept"})),
         )?;
         let board = scenario::text(&board, "id")?;
         let card = scenario::write_card(&client, &w, &board)?;

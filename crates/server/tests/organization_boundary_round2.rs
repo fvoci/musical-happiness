@@ -108,7 +108,7 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
         .post(
             &format!("{ROOT_WS}/boards"),
             &json!({
-                "workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Workspace secret"
+                "workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": "Workspace secret"
             }),
         )
         .await
@@ -205,8 +205,8 @@ fn read_paths(board: &Container, card_id: &str, file_id: &str) -> Vec<(String, S
             format!("{ROOT_WS}/containers/{UNKNOWN_ID}/members"),
         ),
         (
-            format!("{ROOT_WS}/containers/{}/sharing", board.id),
-            format!("{ROOT_WS}/containers/{UNKNOWN_ID}/sharing"),
+            format!("{ROOT_WS}/containers/{}/public-link", board.id),
+            format!("{ROOT_WS}/containers/{UNKNOWN_ID}/public-link"),
         ),
         (
             format!("{ROOT_WS}/boards/{}/trash/cards", board.id),
@@ -341,7 +341,7 @@ async fn a_former_workspace_admin_cannot_restore_its_deleted_board() {
         .post(
             &format!("{ROOT_WS}/boards"),
             &json!({
-                "workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Deleted workspace secret"
+                "workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": "Deleted workspace secret"
             }),
         )
         .await

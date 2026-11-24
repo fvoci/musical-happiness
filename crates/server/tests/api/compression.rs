@@ -3,7 +3,7 @@
 
 use std::io::Read as _;
 
-use fvoci_model::ContainerType;
+use fvoci_model::ContainerVisibility;
 use reqwest::header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, VARY};
 use reqwest::{Method, StatusCode};
 
@@ -55,7 +55,7 @@ fn decoded(response: &ApiResponse) -> Vec<u8> {
 async fn json_answers_are_compressed_as_the_client_asks() {
     let ts = Setup::native().start().await.init_basic().await;
     for _ in 0..3 {
-        ts.create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        ts.create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
             .await;
     }
     let path = format!("{TEST_WS}/boards");
@@ -90,7 +90,7 @@ async fn json_answers_are_compressed_as_the_client_asks() {
 async fn an_export_is_not_compressed() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = get_encoded(
         &ts.client,
@@ -117,7 +117,7 @@ async fn compression_can_be_turned_off() {
         .await
         .init_basic()
         .await;
-    ts.create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+    ts.create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let response = get_encoded(&ts.client, &format!("{TEST_WS}/boards"), "gzip, zstd").await;
     response.check_ok();
@@ -157,7 +157,7 @@ async fn refusing_identity_changes_no_status() {
             .client
             .request(Method::POST, &format!("{TEST_WS}/boards"))
             .header(ACCEPT_ENCODING, refusal)
-            .json(&serde_json::json!({"workspaceId": TEST_WORKSPACE_ID, "type": "O", "title": "made"}));
+            .json(&serde_json::json!({"workspaceId": TEST_WORKSPACE_ID, "visibility": "open", "title": "made"}));
         let response = Client::send(request).await;
         assert_eq!(response.status, StatusCode::CREATED, "{refusal}");
         assert_eq!(

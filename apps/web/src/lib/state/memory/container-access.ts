@@ -29,7 +29,7 @@ export function memberRole(
   // Of a workspace the user is not in (somebody else's own space), nothing is there.
   const works = workersOf(world, container.workspaceId).has(userId);
   if (isOpenWiki(container) && works) return 'viewer';
-  if (container.type === 'O' && works) fail(403, 'access denied to board');
+  if (container.visibility === 'open' && works) fail(403, 'access denied to board');
   fail(404, 'no such board');
 }
 
@@ -45,8 +45,10 @@ export function reads(world: World, userId: string, containerId: string): boolea
 }
 
 /** An open wiki or course: read by whoever works in its workspace (`OpenToRead`). */
-export function isOpenToRead(container: { type: string; kind?: string }): boolean {
-  return container.type === 'O' && (container.kind === 'wiki' || container.kind === 'course');
+export function isOpenToRead(container: { visibility: string; kind?: string }): boolean {
+  return (
+    container.visibility === 'open' && (container.kind === 'wiki' || container.kind === 'course')
+  );
 }
 
 /** Alias kept for existing callers: open wikis and courses are read without joining. */

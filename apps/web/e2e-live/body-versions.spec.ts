@@ -227,8 +227,8 @@ test('a viewer reads the versions and restores none; a reader by the public link
   // By the board's public link: the card is read, and its menu has no versions.
   const at = `/api/v1/w/${board.workspaceId}/containers/${board.boardId}`;
   const shared = (await (
-    await api.post(`${at}/sharing`, { data: { enabled: true } })
-  ).json()) as Schemas['Sharing'];
+    await api.post(`${at}/public-link`, { data: { enabled: true } })
+  ).json()) as Schemas['PublicLink'];
   const context = await browser.newContext({ locale: 'en-US', baseURL: base });
   const page = await context.newPage();
   const sharedErrors = watchErrors(page);
@@ -339,7 +339,7 @@ test('the keys keep the body of a wiki page as a version, and not again unchange
   const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
-    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } })
+    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', visibility: 'private' } })
   ).json()) as Schemas['Container'];
   const pages = `${inWorkspace}/wikis/${wiki.id}/pages`;
   const made = (await (

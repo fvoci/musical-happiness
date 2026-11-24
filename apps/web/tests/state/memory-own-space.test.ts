@@ -39,7 +39,7 @@ async function ownSpace(backend: MemoryBackend): Promise<string> {
 async function boardIn(backend: MemoryBackend, workspaceId: string, title: string, open = false) {
   const made = await backend.createBoard(
     workspaceId,
-    { title, ...(open ? { type: 'O' as const } : {}) },
+    { title, ...(open ? { visibility: 'open' as const } : {}) },
     firstKanban([], 'Board'),
   );
   return made.board;
@@ -64,7 +64,7 @@ describe('the own space in memory', () => {
     const told: Change[] = [];
     backend.watchSelf((change) => told.push(change));
     const board = await boardIn(backend, own, 'Mine');
-    const wiki = await backend.wiki.createWiki(own, { title: 'Notes', type: 'P' });
+    const wiki = await backend.wiki.createWiki(own, { title: 'Notes', visibility: 'private' });
     expect((await backend.boards(own)).map((one) => one.id)).toEqual([board.id]);
     expect((await backend.wiki.wikis(own)).map((one) => one.id)).toEqual([wiki.id]);
     expect((await backend.boards(world.workspace.id)).map((one) => one.id)).not.toContain(board.id);
@@ -101,7 +101,7 @@ describe('the own space in memory', () => {
     const { backend, other } = setup();
     const own = await ownSpace(backend);
     const board = await boardIn(backend, own, 'Open', true);
-    const wiki = await backend.wiki.createWiki(own, { title: 'Open notes', type: 'O' });
+    const wiki = await backend.wiki.createWiki(own, { title: 'Open notes', visibility: 'open' });
     for (const asked of [
       other.boards(own),
       other.users(own),
@@ -113,7 +113,7 @@ describe('the own space in memory', () => {
       other.createBoard(own, { title: 'In' }, firstKanban([], 'Board')),
       other.onboard(own),
       other.wiki.wikis(own),
-      other.wiki.createWiki(own, { title: 'In', type: 'P' }),
+      other.wiki.createWiki(own, { title: 'In', visibility: 'private' }),
       other.search.find(own, { query: 'Open' }),
       other.references.resolve(own, [board.id]),
       other.exportWorkspace(own),

@@ -163,7 +163,13 @@ describe('the server backend', () => {
   });
 
   it('asks for a board read before under its own workspace, also after entering another', async () => {
-    const sent = serve({ ...BLOCK, id: 'b9', workspaceId: 'w2', title: 'Elsewhere', type: 'O' });
+    const sent = serve({
+      ...BLOCK,
+      id: 'b9',
+      workspaceId: 'w2',
+      title: 'Elsewhere',
+      visibility: 'open',
+    });
     const backend = serverBackend('');
     await backend.container('b9');
     backend.enter('w3');
@@ -1056,7 +1062,7 @@ describe('boards on the server', () => {
     workspaceId: 't',
     createdBy: 'me',
     modifiedBy: 'me',
-    type: 'P',
+    visibility: 'private',
     minimumRole: 'editor',
     title: 'Plan',
     description: '',
@@ -1096,7 +1102,7 @@ describe('boards on the server', () => {
     expect(body.containers).toEqual([
       {
         id: body.blocks[0]?.containerId,
-        type: 'P',
+        visibility: 'private',
         title: 'Plan',
         description: '',
         icon: '',
@@ -1234,16 +1240,16 @@ describe('sharing a board on the server', () => {
 
   it('reads and sets the public link, asking for a new token only when told', async () => {
     const sent = serveRoutes([
-      ['GET /api/v1/w/w1/containers/b1/sharing', { enabled: false }],
-      ['POST /api/v1/w/w1/containers/b1/sharing', { enabled: true, token: 'tok', updateAt: 3 }],
+      ['GET /api/v1/w/w1/containers/b1/public-link', { enabled: false }],
+      ['POST /api/v1/w/w1/containers/b1/public-link', { enabled: true, token: 'tok', updateAt: 3 }],
     ]);
     const backend = serverBackend('');
-    expect(await backend.sharing('b1')).toEqual({ enabled: false, token: '' });
-    expect(await backend.setSharing('b1', { enabled: true })).toEqual({
+    expect(await backend.publicLink('b1')).toEqual({ enabled: false, token: '' });
+    expect(await backend.setPublicLink('b1', { enabled: true })).toEqual({
       enabled: true,
       token: 'tok',
     });
-    await backend.setSharing('b1', { enabled: true, regenerate: true });
+    await backend.setPublicLink('b1', { enabled: true, regenerate: true });
     expect(sent.slice(1).map((one) => one.body)).toEqual([
       { enabled: true },
       { enabled: true, regenerate: true },
@@ -1285,7 +1291,7 @@ describe('templates on the server', () => {
     workspaceId: 't',
     createdBy: 'me',
     modifiedBy: 'me',
-    type: 'P',
+    visibility: 'private',
     minimumRole: 'editor',
     title: 'Project Tasks',
     description: '',

@@ -172,7 +172,7 @@ export function insertCopy(world: World, userId: string, copied: Copied): Contai
     workspaceId,
     createdBy: userId,
     modifiedBy: userId,
-    type: 'P',
+    visibility: 'private',
     isBuiltin: false,
     createAt: now,
     updateAt: now,

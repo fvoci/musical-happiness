@@ -37,7 +37,7 @@ async fn course_with_chapter_and_unit(
     let course = client
         .post(
             &format!("{at}/courses"),
-            &json!({"type": course_type, "title": "Course"}),
+            &json!({"visibility": course_type, "title": "Course"}),
         )
         .await;
     course.check_created();
@@ -90,7 +90,7 @@ async fn on_theirs(
 async fn roles_versions_and_undelete_ownership_hold_on_unit_comments() {
     let th = Setup::native().start().await.init_basic().await;
     let member = th.client2.me().await.id;
-    let (course, _, unit) = course_with_chapter_and_unit(&th.client, TEST_WS, "P").await;
+    let (course, _, unit) = course_with_chapter_and_unit(&th.client, TEST_WS, "private").await;
     let theirs = written(&th.client, TEST_WS, &course, &unit, "admin first").await;
     let at_theirs = format!("{}/{}", comments_of(TEST_WS, &course, &unit), id(&theirs));
     let theirs = th
@@ -155,7 +155,7 @@ async fn roles_versions_and_undelete_ownership_hold_on_unit_comments() {
 #[tokio::test]
 async fn open_course_unjoined_member_reads_comments_only() {
     let th = Setup::native().start().await.init_basic().await;
-    let (open, _, unit) = course_with_chapter_and_unit(&th.client, TEST_WS, "O").await;
+    let (open, _, unit) = course_with_chapter_and_unit(&th.client, TEST_WS, "open").await;
     let theirs = written(&th.client, TEST_WS, &open, &unit, "instructor").await;
     let at_theirs = format!("{}/{}", comments_of(TEST_WS, &open, &unit), id(&theirs));
     let theirs = th
@@ -242,7 +242,8 @@ async fn open_course_unjoined_member_reads_comments_only() {
 #[tokio::test]
 async fn chapters_file_blocks_trash_broadcasts_and_archive_round_trip() {
     let th = Setup::native().start().await.init_basic().await;
-    let (course, chapter, unit) = course_with_chapter_and_unit(&th.client, TEST_WS, "P").await;
+    let (course, chapter, unit) =
+        course_with_chapter_and_unit(&th.client, TEST_WS, "private").await;
 
     // Chapter returns 404 identical to missing unit across all 6 comment operations.
     let nothing = json!({"id": UNKNOWN_ID, "updateAt": 1});

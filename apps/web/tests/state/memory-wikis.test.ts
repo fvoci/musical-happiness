@@ -24,9 +24,9 @@ const rejection = async (promise: Promise<unknown>): Promise<BackendError> => {
   throw new Error('the call did not reject');
 };
 
-async function aWiki(made = setup(), type: 'O' | 'P' = 'P') {
+async function aWiki(made = setup(), visibility: 'open' | 'private' = 'private') {
   const workspaceId = made.world.workspace.id;
-  const wiki = await made.backend.wiki.createWiki(workspaceId, { title: 'Handbook', type });
+  const wiki = await made.backend.wiki.createWiki(workspaceId, { title: 'Handbook', visibility });
   return { ...made, workspaceId, wiki };
 }
 
@@ -70,7 +70,7 @@ describe('a wiki in memory', () => {
     await made.backend.wiki.createPage(made.wiki.id, { title: 'Below', parentId: top.id });
     await made.backend.wiki.createPage(made.wiki.id, { title: 'After' });
     const copy = await made.backend.duplicateContainer(made.wiki.id, false, made.workspaceId);
-    expect(copy).toMatchObject({ kind: 'wiki', title: 'Handbook copy', type: 'P' });
+    expect(copy).toMatchObject({ kind: 'wiki', title: 'Handbook copy', visibility: 'private' });
     expect(await shape({ ...made, wiki: copy })).toEqual(await shape(made));
     const pages = await made.backend.wiki.pages(copy.id);
     expect(pages.some((page) => page.id === top.id)).toBe(false);
@@ -129,7 +129,7 @@ describe('a wiki in memory', () => {
   });
 
   it('is listed and read by another person when it is open, written once they join', async () => {
-    const made = await aWiki(setup(), 'O');
+    const made = await aWiki(setup(), 'open');
     const listed = await made.other.wiki.wikis(made.workspaceId);
     expect(listed.map((wiki) => wiki.id)).toEqual([made.wiki.id]);
     expect(await made.other.wiki.pages(made.wiki.id)).toEqual([]);
@@ -164,7 +164,7 @@ describe('the pages of a wiki in memory', () => {
     const made = await aWiki();
     const other = await made.backend.wiki.createWiki(made.workspaceId, {
       title: 'Other',
-      type: 'P',
+      visibility: 'private',
     });
     const elsewhere = await made.backend.wiki.createPage(other.id, { title: 'There' });
     const top = await made.backend.wiki.createPage(made.wiki.id, { title: 'Top' });
@@ -285,7 +285,7 @@ describe('the pages of a wiki in memory', () => {
   });
 
   it('are written by the wiki’s editors only', async () => {
-    const made = await aWiki(setup(), 'O');
+    const made = await aWiki(setup(), 'open');
     const page = await made.backend.wiki.createPage(made.wiki.id, { title: 'Page' });
     await made.backend.patchContainer(made.wiki.id, { minimumRole: 'viewer' });
     await made.other.joinContainer(made.wiki.id);

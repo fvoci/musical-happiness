@@ -3,7 +3,7 @@
 
 use std::time::Instant;
 
-use fvoci_model::{Block, Container, ContainerKind, ContainerType};
+use fvoci_model::{Block, Container, ContainerKind, ContainerVisibility};
 use serde_json::{Value, json};
 
 use crate::common::ROOT_WS;
@@ -41,7 +41,7 @@ async fn get_templates_returns_the_built_in_templates() {
     assert!(
         boards
             .iter()
-            .all(|board| board.container_type == ContainerType::Open),
+            .all(|board| board.visibility == ContainerVisibility::Open),
         "all are open"
     );
     assert!(
@@ -631,7 +631,7 @@ async fn the_files_of_the_templates_are_kept(ts: &crate::common::TestServer) {
             for file in block.shown_files() {
                 let record = ts
                     .system_store()
-                    .get_file_info(&board.id, &file)
+                    .get_file_record(&board.id, &file)
                     .await
                     .expect("a file a template shows is recorded");
                 assert!(
@@ -676,7 +676,7 @@ async fn an_organizations_purge_leaves_the_files_of_the_templates() {
         .next()
         .expect("a built-in template");
     // A file of a template that no body shows: what a purge takes, of its own.
-    let unshown = fvoci_model::FileInfo {
+    let unshown = fvoci_model::FileRecord {
         id: fvoci_model::new_id(),
         container_id: template.id.clone(),
         stored_name: "unshown.png".to_owned(),
@@ -684,10 +684,10 @@ async fn an_organizations_purge_leaves_the_files_of_the_templates() {
         size: 3,
         path: format!("{}/unshown.png", template.id),
         create_at: 1,
-        ..fvoci_model::FileInfo::default()
+        ..fvoci_model::FileRecord::default()
     };
     ts.system_store()
-        .save_file_info(&unshown)
+        .save_file_record(&unshown)
         .await
         .expect("the file is recorded");
 
@@ -696,7 +696,7 @@ async fn an_organizations_purge_leaves_the_files_of_the_templates() {
         matches!(ours.tenant(), fvoci_store::Tenant::Org(_)),
         "the store of an organization"
     );
-    ours.get_file_info(&template.id, &unshown.stored_name)
+    ours.get_file_record(&template.id, &unshown.stored_name)
         .await
         .expect("an organization reads the record");
     let purged = ours
@@ -705,7 +705,7 @@ async fn an_organizations_purge_leaves_the_files_of_the_templates() {
         .expect("the purge runs");
     assert!(purged.is_empty(), "nothing of the system's: {purged:?}");
     ts.system_store()
-        .get_file_info(&template.id, &unshown.stored_name)
+        .get_file_record(&template.id, &unshown.stored_name)
         .await
         .expect("the record is still there");
     ts.teardown().await;
@@ -731,7 +731,7 @@ async fn templates_stored_again_remove_the_old_files() {
         .into_iter()
         .find(|board| board.properties.get("onboarding") == Some(&json!(true)))
         .expect("the marked one");
-    let file = fvoci_model::FileInfo {
+    let file = fvoci_model::FileRecord {
         id: fvoci_model::new_id(),
         container_id: old.id.clone(),
         stored_name: "picture.png".to_owned(),
@@ -739,7 +739,7 @@ async fn templates_stored_again_remove_the_old_files() {
         size: 3,
         path: format!("{}/picture.png", old.id),
         create_at: 1,
-        ..fvoci_model::FileInfo::default()
+        ..fvoci_model::FileRecord::default()
     };
     ts.app
         .files()
@@ -747,7 +747,7 @@ async fn templates_stored_again_remove_the_old_files() {
         .await
         .expect("the file is stored");
     ts.system_store()
-        .save_file_info(&file)
+        .save_file_record(&file)
         .await
         .expect("the file is recorded");
     // As a database looks whose templates are of an older version.
@@ -901,7 +901,7 @@ async fn a_guest_uses_templates_in_the_workspace_where_they_are_a_member() {
             &format!("{ROOT_WS}/boards"),
             &json!({
                 "workspaceId": crate::common::ROOT_WORKSPACE_ID,
-                "type": "P",
+                "visibility": "private",
                 "title": "Guest Invited Template",
                 "isTemplate": true,
             }),

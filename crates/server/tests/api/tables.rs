@@ -4,7 +4,7 @@
 //! leave it so, once, also when its log is taken again.
 
 use fvoci_collab::testing::Editor;
-use fvoci_model::{ContainerType, SearchHit};
+use fvoci_model::{ContainerVisibility, SearchHit};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -65,7 +65,7 @@ fn with_table() -> Value {
 async fn a_table_is_found_by_the_words_of_its_cells() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let body = with_table();
     let card: Value = th
@@ -103,7 +103,7 @@ async fn a_public_link_reader_reads_a_table_as_it_is_stored() {
     // Public links are a switch of the organization, on in local mode.
     let ts = Setup::local_mode().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let body = with_table();
     ts.client
@@ -148,7 +148,7 @@ async fn a_public_link_reader_reads_a_table_as_it_is_stored() {
 async fn an_archive_and_every_copy_keep_a_table() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let body = with_table();
     let made: Value = ts
@@ -240,7 +240,7 @@ async fn an_archive_and_every_copy_keep_a_table() {
 async fn a_table_that_does_not_fill_its_grid_or_is_past_a_limit_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
-        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
     let short = table(None, &[&["a", "b"], &["c"]]);
     let wide = table(None, &[&["x"; 21]]);

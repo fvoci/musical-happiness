@@ -7,7 +7,7 @@
 
 use std::time::Duration;
 
-use fvoci_model::ContainerType;
+use fvoci_model::ContainerVisibility;
 use reqwest::{Method, StatusCode};
 use serde_json::Value;
 
@@ -287,7 +287,7 @@ async fn retired_route_paths_are_not_found() {
     let me = th.client.me().await.id;
     let other = th.client2.me().await.id;
     let board = th
-        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await
         .id;
     let workspace = ROOT_WORKSPACE_ID;
@@ -312,6 +312,14 @@ async fn retired_route_paths_are_not_found() {
         (
             Method::GET,
             format!("/files/teams/{workspace}/{board}/{file}/info"),
+        ),
+        (
+            Method::GET,
+            format!("/w/{workspace}/containers/{board}/sharing"),
+        ),
+        (
+            Method::POST,
+            format!("/w/{workspace}/containers/{board}/sharing"),
         ),
     ];
     for (method, path) in requests {

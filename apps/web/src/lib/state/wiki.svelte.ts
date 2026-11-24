@@ -58,8 +58,8 @@ export interface WikiLooks {
   title?: string;
   description?: string;
   icon?: string;
-  /** Open to the workspace (`O`) or for the invited only (`P`): its admins'. */
-  type?: Container['type'];
+  /** Open to the workspace (`open`) or for the invited only (`private`): its admins'. */
+  visibility?: Container['visibility'];
   /** The role of who joins it: its admins'. */
   minimumRole?: Container['minimumRole'];
 }
@@ -110,7 +110,7 @@ export class WikiStore {
    * (`join`) to write in it.
    */
   readonly joinable = $derived(
-    this.status === 'ready' && this.wiki?.type === 'O' && this.role === '',
+    this.status === 'ready' && this.wiki?.visibility === 'open' && this.role === '',
   );
 
   #stopWatching: (() => void) | undefined;
@@ -192,7 +192,7 @@ export class WikiStore {
       this.takeWiki(wiki);
       // Members told meanwhile are newer than this reading.
       if (membersTold === this.#people.told) this.members = members;
-      if (initialPageId && (wiki.type === 'O' || this.role !== '')) this.status = 'ready';
+      if (initialPageId && (wiki.visibility === 'open' || this.role !== '')) this.status = 'ready';
       const pages = await pagesRead;
       if (this.isClosed() || reading !== this.#readings) return;
       const read = this.#writes.admitted(pages, mark);
@@ -284,7 +284,7 @@ export class WikiStore {
         if (change.containerId !== this.wikiId) break;
         this.workspace.evictContainer(this.wikiId);
         // An open wiki may only have been closed to the reader: read again, it may be one to join.
-        if (this.wiki?.type === 'O' && !this.#closed) void this.load();
+        if (this.wiki?.visibility === 'open' && !this.#closed) void this.load();
         else [this.missing, this.status] = [true, 'failed'];
         break;
       case 'pages':
@@ -449,7 +449,7 @@ export class WikiStore {
    */
   changeWiki(
     looks: WikiLooks,
-    step: 'changeWiki' | 'changeBoardType' | 'changeMinimumRole' = 'changeWiki',
+    step: 'changeWiki' | 'changeVisibility' | 'changeMinimumRole' = 'changeWiki',
   ): Promise<void> {
     return performWikiLooks(this, looks, step);
   }
@@ -472,7 +472,7 @@ export class WikiStore {
 
   /** Whether anybody of the workspace reads the wiki, and may join it to write. */
   setOpen(open: boolean): Promise<void> {
-    return this.changeWiki({ type: open ? 'O' : 'P' }, 'changeBoardType');
+    return this.changeWiki({ visibility: open ? 'open' : 'private' }, 'changeVisibility');
   }
 
   /** The role somebody gets by joining the wiki. Members keep theirs. */

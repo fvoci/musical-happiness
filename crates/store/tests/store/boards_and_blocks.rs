@@ -4,8 +4,8 @@
 
 use fvoci_model::{
     BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType, Container, ContainerKinds,
-    ContainerMember, ContainerPatch, ContainerType, ContainersAndBlocks, ContainersAndBlocksError,
-    DeleteContainersAndBlocks, PatchContainersAndBlocks, is_id, new_id,
+    ContainerMember, ContainerPatch, ContainerVisibility, ContainersAndBlocks,
+    ContainersAndBlocksError, DeleteContainersAndBlocks, PatchContainersAndBlocks, is_id, new_id,
 };
 use fvoci_store::{
     BlockFilter, CopyChanges, CopyTitles, DuplicateAs, NewBodyFiles, PublicContainers, Store,
@@ -32,11 +32,11 @@ fn sorted(ids: &[&str]) -> Vec<String> {
     ids
 }
 
-fn new_board(id: &str, workspace_id: &str, board_type: ContainerType) -> Container {
+fn new_board(id: &str, workspace_id: &str, board_type: ContainerVisibility) -> Container {
     Container {
         id: id.to_owned(),
         workspace_id: workspace_id.to_owned(),
-        container_type: board_type,
+        visibility: board_type,
         ..Container::default()
     }
 }
@@ -69,7 +69,7 @@ fn is_title_size_limit_exceeded(error: &StoreError) -> bool {
 /// Inserts a new open board of the workspace on behalf of the user and returns its
 /// identifier.
 async fn insert_new_board(store: &Store, workspace_id: &str, user_id: &str) -> String {
-    let mut board = new_board(&new_id(), workspace_id, ContainerType::Open);
+    let mut board = new_board(&new_id(), workspace_id, ContainerVisibility::Open);
     store
         .insert_container(&mut board, user_id)
         .await
@@ -159,9 +159,9 @@ async fn create_containers_and_blocks() {
         let [block1, block2] = new_ids();
         let mut new_bab = ContainersAndBlocks {
             containers: vec![
-                new_board(&board1, &workspace_id, ContainerType::Open),
-                new_board(&board2, &workspace_id, ContainerType::Private),
-                new_board(&board3, &workspace_id, ContainerType::Open),
+                new_board(&board1, &workspace_id, ContainerVisibility::Open),
+                new_board(&board2, &workspace_id, ContainerVisibility::Private),
+                new_board(&board3, &workspace_id, ContainerVisibility::Open),
             ],
             blocks: vec![new_card(&block1, &board1), new_card(&block2, &board2)],
         };
@@ -190,9 +190,9 @@ async fn create_containers_and_blocks() {
         let [block3, block4] = new_ids();
         let mut new_bab = ContainersAndBlocks {
             containers: vec![
-                new_board(&board4, &workspace_id, ContainerType::Open),
-                new_board(&board5, &workspace_id, ContainerType::Private),
-                new_board(&board6, &workspace_id, ContainerType::Open),
+                new_board(&board4, &workspace_id, ContainerVisibility::Open),
+                new_board(&board5, &workspace_id, ContainerVisibility::Private),
+                new_board(&board6, &workspace_id, ContainerVisibility::Open),
             ],
             blocks: vec![new_card(&block3, &board4), new_card(&block4, &board5)],
         };
@@ -238,9 +238,9 @@ async fn create_containers_and_blocks() {
         // one of the blocks is invalid as it doesn't have BoardID
         let mut new_bab = ContainersAndBlocks {
             containers: vec![
-                new_board(&board7, &workspace_id, ContainerType::Open),
-                new_board(&board8, &workspace_id, ContainerType::Private),
-                new_board(&board9, &workspace_id, ContainerType::Open),
+                new_board(&board7, &workspace_id, ContainerVisibility::Open),
+                new_board(&board8, &workspace_id, ContainerVisibility::Private),
+                new_board(&board9, &workspace_id, ContainerVisibility::Open),
             ],
             blocks: vec![new_card(&block5, &board7), new_card(&block6, "")],
         };
@@ -294,9 +294,9 @@ async fn create_containers_and_blocks() {
         // one of the blocks is invalid as it has a title too large
         let mut new_bab = ContainersAndBlocks {
             containers: vec![
-                new_board(&board7, &workspace_id, ContainerType::Open),
-                new_board(&board8, &workspace_id, ContainerType::Private),
-                new_board(&board9, &workspace_id, ContainerType::Open),
+                new_board(&board7, &workspace_id, ContainerVisibility::Open),
+                new_board(&board8, &workspace_id, ContainerVisibility::Private),
+                new_board(&board9, &workspace_id, ContainerVisibility::Open),
             ],
             blocks: vec![
                 new_card(&block5, &board7),
@@ -344,7 +344,7 @@ async fn patch_containers_and_blocks() {
 
         let mut board = Container {
             title: initial_title.to_owned(),
-            ..new_board(&board1_id, &workspace_id, ContainerType::Open)
+            ..new_board(&board1_id, &workspace_id, ContainerVisibility::Open)
         };
         test.insert_container(&mut board, &user_id)
             .await
@@ -401,12 +401,12 @@ async fn patch_containers_and_blocks() {
             containers: vec![
                 Container {
                     description: "initial description".to_owned(),
-                    ..new_board(&board1_id, &workspace_id, ContainerType::Open)
+                    ..new_board(&board1_id, &workspace_id, ContainerVisibility::Open)
                 },
-                new_board(&board2_id, &workspace_id, ContainerType::Private),
+                new_board(&board2_id, &workspace_id, ContainerVisibility::Private),
                 Container {
                     title: "initial title".to_owned(),
-                    ..new_board(&board3_id, &workspace_id, ContainerType::Open)
+                    ..new_board(&board3_id, &workspace_id, ContainerVisibility::Open)
                 },
             ],
             blocks: vec![
@@ -507,7 +507,7 @@ async fn patch_over_the_block_size_limits(
 
     let mut board = Container {
         title: initial_title.to_owned(),
-        ..new_board(board1_id, workspace_id, ContainerType::Open)
+        ..new_board(board1_id, workspace_id, ContainerVisibility::Open)
     };
     test.insert_container(&mut board, user_id)
         .await
@@ -676,9 +676,9 @@ async fn duplicate_container() {
     let [block1, block1a, block2] = new_ids();
     let mut new_bab = ContainersAndBlocks {
         containers: vec![
-            new_board(&board1, &workspace_id, ContainerType::Open),
-            new_board(&board2, &workspace_id, ContainerType::Private),
-            new_board(&board3, &workspace_id, ContainerType::Open),
+            new_board(&board1, &workspace_id, ContainerVisibility::Open),
+            new_board(&board2, &workspace_id, ContainerVisibility::Private),
+            new_board(&board3, &workspace_id, ContainerVisibility::Open),
         ],
         blocks: vec![
             new_card(&block1, &board1),
@@ -782,7 +782,7 @@ async fn duplicate_container_copies_under_new_ids_as_a_private_board_of_the_user
             title: "Roadmap".to_owned(),
             description: "Plans".to_owned(),
             icon: "🗺".to_owned(),
-            ..new_board(&source_id, &workspace_id, ContainerType::Open)
+            ..new_board(&source_id, &workspace_id, ContainerVisibility::Open)
         }],
         blocks: vec![
             Block {
@@ -826,8 +826,8 @@ async fn duplicate_container_copies_under_new_ids_as_a_private_board_of_the_user
     assert_eq!(board.description, "Plans", "the description is copied");
     assert_eq!(board.icon, "🗺", "the icon is copied");
     assert_eq!(
-        board.container_type,
-        ContainerType::Private,
+        board.visibility,
+        ContainerVisibility::Private,
         "a copy is private"
     );
     assert_eq!(
@@ -1244,7 +1244,11 @@ async fn create_containers_and_blocks_accepts_a_block_listed_before_its_parent()
 
     let [board_id, card_id, text_id, checkbox_id] = new_ids();
     let mut new_bab = ContainersAndBlocks {
-        containers: vec![new_board(&board_id, &workspace_id, ContainerType::Open)],
+        containers: vec![new_board(
+            &board_id,
+            &workspace_id,
+            ContainerVisibility::Open,
+        )],
         blocks: vec![
             Block {
                 parent_id: text_id.clone(),

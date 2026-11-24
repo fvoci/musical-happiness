@@ -105,7 +105,7 @@ async fn private_board(client: &Client, title: &str) -> Container {
     client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
-            &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": title}),
+            &json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": title}),
         )
         .await
         .created_json()
@@ -270,7 +270,7 @@ async fn a_board_made_after_a_removal_listed_the_boards_keeps_an_admin() {
         maker
             .post(
                 &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
-                &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": TITLE}),
+                &json!({"workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": TITLE}),
             )
             .await
     });

@@ -29,7 +29,7 @@ async fn named_board(th: &TestServer) -> Named {
         .post(
             &format!("{TEST_WS}/boards"),
             &json!({
-                "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Named",
+                "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Named",
                 "cardProperties": [{"id": RELATION, "name": "After", "type": "relation"}],
             }),
         )

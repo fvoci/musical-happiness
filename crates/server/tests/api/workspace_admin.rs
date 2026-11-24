@@ -3,7 +3,7 @@
 //! its member: making themselves one is recorded.
 
 use fvoci_model::AuditAction;
-use fvoci_model::{Container, ContainerMember, ContainerType, WorkspaceRole};
+use fvoci_model::{Container, ContainerMember, ContainerVisibility, WorkspaceRole};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
@@ -42,7 +42,7 @@ async fn private_board_with_a_card(th: &TestServer) -> (Container, String) {
         .client
         .create_board(&Container {
             description: "The plan".to_owned(),
-            ..new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Private")
+            ..new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "Private")
         })
         .await
         .created_json();
@@ -79,8 +79,8 @@ fn content(board_id: &str, card_id: &str) -> Vec<(Method, String, String)> {
             format!("{TEST_WS}/boards/{UNKNOWN_ID}/cards/by-number/1"),
         ),
         get(
-            format!("{TEST_WS}/containers/{board_id}/sharing"),
-            format!("{TEST_WS}/containers/{UNKNOWN_ID}/sharing"),
+            format!("{TEST_WS}/containers/{board_id}/public-link"),
+            format!("{TEST_WS}/containers/{UNKNOWN_ID}/public-link"),
         ),
         get(
             format!("{TEST_WS}/containers/{board_id}/archive/export"),
@@ -356,7 +356,11 @@ async fn a_workspace_admin_who_joins_an_open_board_is_not_recorded() {
     let admin = workspace_admin(&th).await;
     let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Open"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerVisibility::Open,
+            "Open",
+        ))
         .await
         .created_json();
 
@@ -392,7 +396,7 @@ async fn a_workspace_admin_lists_a_template_they_only_manage_by_name_and_adding_
         .create_board(&Container {
             is_template: true,
             description: "How we plan".to_owned(),
-            ..new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Template")
+            ..new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "Template")
         })
         .await
         .created_json();
