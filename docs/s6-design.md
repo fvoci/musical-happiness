@@ -106,7 +106,7 @@
 | 429 | `rate-limited` | 로그인·가입 시도가 제한에 걸림. `Retry-After` 머리글과 본문의 `retryAfter`(초). 한꺼번에 지닐 수 있는 양(열린 업로드, 내보내기·가져오기)을 넘은 것도 429이고 `reason`이 따로 있으며 기다릴 시간은 없다 | 5.2에서 더했다 |
 | 500, 503 | `internal`, `service-unavailable` | 서버의 잘못뿐. `detail`은 고정 문구, 원인은 로그에만. 503은 준비 상태(`GET /api/v1/ready`)가 아닐 때 | 위로 옮겨 간 것들이 빠진다 |
 
-쓰지 않는 코드: 422는 쓰지 않는다(검증 실패도 400이다. GroundZero와 같다). 501은 1.6에 따라 없어졌다.
+쓰지 않는 코드: 422는 쓰지 않는다(검증 실패도 400이다). 501은 1.6에 따라 없어졌다.
 
 **검사 순서는 모든 라우트에서 같다:** 세션(401) → 경로의 대상이 보이는가(404) → 그 일을 할 권한(403) → 본문 디코드와 검증(400) → 상태 충돌(409). 결정 전에는 라우트마다 달라서 비멤버가 400을 먼저 보는 곳이 있었다. 예외는 둘이다: 필요한 권한이 본문에 달린 블록 넣기와, 대상이 본문에 있는 `boards-and-blocks`는 본문을 먼저 읽는다. 블록 넣기에서도 보드를 볼 수 없는 사람은 본문이 어떻든 404를 먼저 본다.
 
@@ -145,7 +145,7 @@
 | 안 | 내용 | 장단점 |
 |---|---|---|
 | A. 200 + `{}`로 통일 | 모양만 맞춘다 | 바뀌는 것이 적다. 빈 객체를 읽는 의미 없는 디코드가 남는다 |
-| **B. 204와 201** | 결과가 없으면 204(본문 없음), 새로 만든 것은 201과 그 객체, 그 밖은 200 | GroundZero와 같다. OpenAPI에서 응답이 분명해진다. 클라이언트가 204를 따로 다뤄야 한다 |
+| **B. 204와 201** | 결과가 없으면 204(본문 없음), 새로 만든 것은 201과 그 객체, 그 밖은 200 | OpenAPI에서 응답이 분명해진다. 클라이언트가 204를 따로 다뤄야 한다 |
 
 ### 1.6 거절만 하던 라우트
 
@@ -159,7 +159,7 @@
 
 ### 2.2 API의 끝 슬래시
 
-**결정: A(404).** 정식 경로는 끝 슬래시 없는 형태 하나다. 클라이언트는 OpenAPI에서 생성하므로 틀릴 일이 없다. GroundZero의 API 경로 172개에도 끝 슬래시가 없다.
+**결정: A(404).** 정식 경로는 끝 슬래시 없는 형태 하나다. 클라이언트는 OpenAPI에서 생성하므로 틀릴 일이 없다.
 
 | 안 | 내용 | 장점 | 단점 |
 |---|---|---|---|
@@ -449,11 +449,11 @@ JSON 본문, 세션 없는 요청, WebSocket 메시지의 한도는 구현됐다
 
 이 절의 "결정 전의 동작"은 이 절을 쓴 때(2026-11-10 19:02 KST)의 서버의 것이다. 구현된 뒤의 동작은 계약(`contracts/openapi.json`)이 말한다.
 
-바깥 문서에서 가져온 사실은 `curl`로 받은 원문, 크레이트 소스, `gh api`로 읽은 형제 저장소 파일을 **직접 읽은 것**이다. 요약 도구를 거친 것은 이 절에 없다. 받은 원문과 인용문은 저장소에 없고 이 기기의 보관 폴더에 있다(`target/s6/research/raw/`, `target/s6/research/facts.md`. 자리는 `docs/handoff.md` 5절). 확인하지 못한 것은 5.9에 모았다. 수치 가운데 문서에 근거가 없는 것은 "제안값"이라고 적었다.
+바깥 문서에서 가져온 사실은 `curl`로 받은 원문과 크레이트 소스를 **직접 읽은 것**이다. 요약 도구를 거친 것은 이 절에 없다. 받은 원문과 인용문은 저장소에 없고 이 기기의 보관 폴더에 있다(`target/s6/research/raw/`, `target/s6/research/facts.md`. 자리는 `docs/handoff.md` 5절). 확인하지 못한 것은 5.9에 모았다. 수치 가운데 문서에 근거가 없는 것은 "제안값"이라고 적었다.
 
 ### 5.1 인증 전달: 쿠키 (보완 a)
 
-**결정: 표의 1–8번 모두 권고대로. 6번은 (a).** 세션은 `HttpOnly` 쿠키로 전달한다. `SameSite=Lax`, HTTPS에서는 `Secure`와 `__Host-` 접두사. 로그인이 설정하고 로그아웃이 지운다. 형제 저장소 GroundZero의 `securitySchemes`와 같다(쿠키 이름 `fvoci_session`, HTTPS에서 `__Host-fvoci_session`).
+**결정: 표의 1–8번 모두 권고대로. 6번은 (a).** 세션은 `HttpOnly` 쿠키로 전달한다. `SameSite=Lax`, HTTPS에서는 `Secure`와 `__Host-` 접두사. 로그인이 설정하고 로그아웃이 지운다(쿠키 이름 `fvoci_session`, HTTPS에서 `__Host-fvoci_session`).
 
 **구현하며 달라진 것 (2026-11-10 23:04 KST).**
 
@@ -668,13 +668,12 @@ C의 세부:
 
 - TypeScript 타입의 생성은 웹앱 쪽이 한다. 서버 쪽은 계약 파일(`contracts/openapi.json`)과 낡았는지의 검사까지 낸다.
 - 계약을 낼 때 곧 바뀔 부분(본문 저장, 날짜 값, 업로드, 템플릿)은 `docs/contract-pending.md`에 적어 웹앱이 그 부분을 나중에 쓰게 한다.
-- 도구는 GroundZero와 같게 하되 `utoipa`는 6으로 올린다(사용자 결정, 2026-11-10 23:59 KST. GroundZero는 5다).
+- 도구는 `utoipa` 6과 `utoipa-axum` 0.3 조합으로 정했다(사용자 결정, 2026-11-10 23:59 KST):
   - `utoipa` 6과 `utoipa-axum` 0.3으로 문서를 만든다.
   - 서버 바이너리의 `--print-openapi`가 낸 것을 `contracts/openapi.json`으로 커밋한다.
   - `cargo xtask openapi`가 낡았으면 실패한다.
   - TypeScript 쪽은 `openapi-typescript`로 타입만 만든다.
-- GroundZero에서 확인한 것은 `Cargo.toml`·`Cargo.lock`·`xtask/src/openapi.rs`·`package.json`이다. utoipa 문서를 만드는 Rust 코드는 읽지 않았다.
-- 6으로 올리는 근거는 crates.io의 `utoipa` 6.0.0과 `utoipa-axum` 0.3.0의 `Cargo.toml`·`CHANGELOG.md`·소스를 직접 읽어 확인했다.
+- `utoipa` 6의 채택 근거는 crates.io의 `utoipa` 6.0.0과 `utoipa-axum` 0.3.0의 `Cargo.toml`·`CHANGELOG.md`·소스를 직접 읽어 확인했다.
   - 6.0.0은 2026-09-23에 나왔고 MSRV가 1.88이다.
   - `utoipa-axum` 0.3.0은 `utoipa` 6.0.0과 `axum` 0.8.4에 맞는다. 0.2가 쓰던 관리되지 않는 `paste` 대신 `pastey`를 쓴다(라우터 코드는 0.2와 같다).
   - 6은 OpenAPI 3.2 출력을 더했지만 기본은 3.1.0이고 3.2는 골라야 켜진다. 계약은 3.1.0으로 낸다(도구들이 3.2를 읽는지 확인하지 않았다).
@@ -962,7 +961,6 @@ B로 정한 까닭과 딸린 규칙:
 - OWASP가 권하는 잠금 임계값과 시간(문서에 수치가 없다). 5.2의 수는 제안값이다.
 - R2가 크기가 다른 부분을 언제 어떤 오류로 거절하는지, `Content-MD5` 밖의 부분별 체크섬을 검증하는지. Cloudflare의 "MB"가 10^6인지 2^20인지, Enterprise의 기본값.
 - `104` 중간 응답을 hyper·axum과 흔한 프록시가 지나가게 하는지(IETF 초안을 고르지 않은 이유의 하나인데 확인한 것은 아니다).
-- GroundZero가 utoipa에 라우트를 어떻게 등록하는지(의존성과 xtask의 명령만 읽었다).
 
 - (답이 났다) Argon2id 해시 한 번이 걸리는 시간. 구현할 때 쟀다: 이 기기에서 혼자일 때 중앙값 13.8 ms, 동시 4에서 24.3 ms다. 5.2의 대기열 수치는 그대로 뒀다.
 
@@ -1018,11 +1016,9 @@ B로 정한 까닭과 딸린 규칙:
 | axum이 끝 슬래시 리다이렉트를 없앴고 그런 요청이 fallback으로 간다는 것, 경로를 고쳐 쓰는 미들웨어는 라우터 전체를 감싸야 한다는 것, 405와 `Allow` | `axum` 0.8.9의 `CHANGELOG.md`, `src/docs/middleware.md`, `src/routing/method_routing.rs` |
 | 끝 슬래시를 잘라 내는 계층 | `tower-http` 0.7.1의 `normalize_path` 문서 |
 | sqlx migrator의 기록 테이블, 체크섬 불일치·미완료 오류, PostgreSQL의 advisory lock | `sqlx-core` 0.9.0의 `src/migrate/`, `sqlx-postgres` 0.9.0의 `src/migrate.rs` |
-| GroundZero의 오류 본문과 상태 코드, 끝 슬래시 없는 경로 | `fvoci/groundzero`의 `contracts/openapi.json` |
 | 결정 전의 동작 | 회귀 테스트의 스냅샷 |
 | 5절의 바깥 사실(쿠키 초안 6265bis -22, RFC 6455, WHATWG WebSockets·Fetch, OWASP의 CSRF·Authentication·Session Management·WebSocket 문서와 ASVS 5.0.0 V7, NIST SP 800-63B 3판·4판, MDN의 X-Forwarded-For, RFC 7239, SQLite와 PostgreSQL 18의 외래 키·부분 색인 문서, S3와 R2의 멀티파트 문서, Cloudflare의 413 문서, CloudFront의 한도, tus 1.0.0, IETF 재개 업로드 초안 -15) | 2026-11-10 17:41–17:49 KST에 `curl`로 받은 원문을 직접 읽었다. 요약 도구나 검색 결과의 발췌를 거친 것은 없다. 하위 에이전트(Fable 5.2)가 받아 인용문을 `target/s6/research/facts.md`에 모았고, 받은 원문은 `target/s6/research/raw/`에 있다(둘 다 보관 폴더, `docs/handoff.md` 5절) |
 | `sqlx-sqlite` 0.9.0의 외래 키 기본값, `object_store` 0.14.2의 멀티파트 API, `axum`·`axum-core`·`tower-http`의 본문 한도와 WebSocket 크기 | 크레이트 소스를 직접 읽었다 |
-| GroundZero의 OpenAPI 도구와 쿠키 이름 | `gh api`로 `Cargo.toml`, `Cargo.lock`, `xtask/src/openapi.rs`, `package.json`, `contracts/openapi.json`을 직접 읽었다 |
 | 시간대 이름의 조회(`chrono-tz` 0.10.4의 `Tz: FromStr`, `jiff` 0.2.38의 `TimeZone::get`과 `tzdb-bundle-always`·`tzdb-zoneinfo` 기능의 설명) | 로컬 레지스트리의 크레이트 소스를 직접 읽었다. 두 크레이트의 최신 판(`chrono-tz` 0.10.4, `jiff` 0.2.42)은 crates.io API로 확인했다 |
 | 편집기 스파이크의 결과, 날짜 값의 와이어 안 | 웹앱의 문서 `apps/web/docs/spike-editor.md`와 `apps/web/docs/notes.md`를 직접 읽었다(2026-11-10 18:41 KST의 판) |
 | 413을 바로 답했을 때의 broken pipe(9번 중 1번)와 본문을 버린 뒤의 결과(54번 모두 413) | `tests/api/limits.rs`를 돌린 결과(2026-11-10) |

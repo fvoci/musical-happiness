@@ -1,6 +1,4 @@
-//! Port of `server/model/boards_and_blocks_test.go`. Each test maps to one subtest of the
-//! original. `TestIsValidDeleteBoardsAndBlocks` is commented out there; its three cases
-//! are covered at the end against the behavior the code has.
+//! Validation and ID regeneration for combined container-and-block payloads.
 
 use fvoci_model::{
     Block, BlockPatch, BlockType, Container, ContainerPatch, ContainerType, ContainersAndBlocks,
@@ -319,9 +317,7 @@ fn patch_containers_and_blocks_validate_valid() {
     assert_eq!(pbab.validate(), Ok(()));
 }
 
-/// The original `TestIsValidDeleteBoardsAndBlocks` is disabled with a "TODO fix this". Its
-/// "no block ids" case expects an error the code never returns, so the three cases below
-/// pin what the code does instead.
+/// Validates delete payloads: requires at least one container ID while allowing empty block IDs.
 #[test]
 fn delete_containers_and_blocks_validate_requires_only_containers() {
     let no_boards = DeleteContainersAndBlocks {
@@ -346,8 +342,7 @@ fn delete_containers_and_blocks_validate_requires_only_containers() {
     assert_eq!(both.validate(), Ok(()));
 }
 
-/// Not in the original suite: the delete request built from created boards and blocks
-/// lists their identifiers in order.
+/// A delete request built from created boards and blocks lists their identifiers in order.
 #[test]
 fn delete_containers_and_blocks_from_containers_and_blocks() {
     let bab = ContainersAndBlocks {

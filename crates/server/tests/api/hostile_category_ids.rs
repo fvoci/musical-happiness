@@ -45,11 +45,8 @@ async fn stored_categories(th: &TestServer, user_id: &str) -> Vec<Category> {
         .expect("the categories are read")
 }
 
-/// Security fix of the store, checked through the route. The original builds the reorder
-/// statement by pasting the identifiers into it, and a category's identifier is the
-/// client's to choose (`server/services/store/sqlstore/category.go:221`): with the first
-/// identifier below, the original answers 200 and lists the categories in another order
-/// than the one asked for.
+/// Category reorder endpoints bind identifiers as SQL parameters and reject non-UUID
+/// strings so SQL-injection payloads cannot alter the reorder statement.
 ///
 /// Here the server makes the identifiers, and text that is not one reaches a statement
 /// as a bound value only: no category can be stored under it, an order that names it is
@@ -83,8 +80,8 @@ async fn reorder_categories_treats_a_hostile_identifier_as_data() {
         "x'; DROP TABLE categories; --",
         "zz' OR '1'='1",
     ] {
-        // The API makes its own identifiers. Past it, where the original took any text
-        // (as it could from an import or an older database), the category is refused.
+        // The API generates UUID identifiers; passing non-UUID text directly to the store
+        // is also refused.
         let hostile = Category {
             id: hostile_id.to_owned(),
             ..category(ROOT_WORKSPACE_ID, &user.id, "hostile")
@@ -151,10 +148,8 @@ async fn reorder_categories_treats_a_hostile_identifier_as_data() {
     th.teardown().await;
 }
 
-/// Security fix of the store, checked through the route. The original pastes the board
-/// identifiers into the statement too (`server/services/store/sqlstore/category_boards.go:144`),
-/// and the identifier comes from the path of the request that files the board: with
-/// `q'q` filed, the original answers the reorder request with 500 (a syntax error).
+/// Category-board reorder endpoints bind container identifiers as SQL parameters and
+/// reject non-UUID strings so SQL-injection payloads cannot break or alter the statement.
 ///
 /// Here only a board that exists is filed, and no board has text that is no identifier
 /// for its identifier: the request that would file it finds no such board, an order

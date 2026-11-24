@@ -1,12 +1,6 @@
-//! Port of `server/services/store/storetests/category.go`.
-//!
-//! One test per test function of the original; its subtests are the commented sections.
-//! The original names its categories, users, workspaces and boards with fixed strings. Here
-//! every identifier is generated, and the user and workspace of a category and the boards
-//! put into one are stored first.
-//!
-//! The tests after [`reorder_category_containers`] are not in the original: they pin behavior
-//! the original's tests leave open.
+//! Integration tests for sidebar category storage, ordering, updates, and deletion.
+//! Every identifier is generated, and the user, workspace, and boards referenced by a
+//! category are stored first.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -76,7 +70,7 @@ async fn execute_raw(test: &TestStore, sql: &str) {
     common::execute_raw(&test.database_connection(), sql).await;
 }
 
-/// `testGetCreateCategory`.
+/// Creating, fetching, and looking up missing sidebar categories.
 #[tokio::test]
 async fn get_create_category() {
     let test = common::setup().await;
@@ -146,8 +140,7 @@ async fn get_create_category() {
 
     // "get nonexistent category"
     {
-        // The original also asserts that the returned category is nil; a `Result` cannot
-        // hold both a category and an error.
+        // A missing category ID returns a not-found error.
         let nonexistent = new_id();
         let error = store
             .get_category(&nonexistent)
@@ -161,8 +154,7 @@ async fn get_create_category() {
             "the error names the category"
         );
 
-        // Added: the original asks for "nonexistent". Text that is not an identifier
-        // names no category either.
+        // Text that is not a UUID identifier names no category either.
         let error = store
             .get_category("nonexistent")
             .await
@@ -279,8 +271,7 @@ async fn delete_category() {
         .await
         .expect("the category is deleted");
 
-    // The original finds the deleted category again, marked as deleted. Here a deleted
-    // category is gone.
+    // A deleted category is removed and no longer found.
     let error = store
         .get_category(&category.id)
         .await
@@ -290,7 +281,7 @@ async fn delete_category() {
     test.teardown().await;
 }
 
-/// `testGetUserCategories`.
+/// Listing a user's categories in a workspace, excluding deleted ones.
 #[tokio::test]
 async fn get_user_categories() {
     let test = common::setup().await;
@@ -331,7 +322,7 @@ async fn get_user_categories() {
         .await
         .expect("category 2 is created");
 
-    // The original gives the third category the second one's name, "Category 2".
+    // Duplicate category names are allowed; this third category shares "Category 2".
     let category3 = Category {
         id: new_id(),
         name: "Category 2".to_owned(),
@@ -452,9 +443,7 @@ async fn reorder_category_containers() {
     let workspace_id = common::workspace(store).await;
 
     // setup
-    //
-    // The original adds boards that were never created. A board in a category exists
-    // here.
+    // Boards filed in a category must exist first.
     let category_id = new_id();
     store
         .create_category(&Category {
@@ -519,8 +508,8 @@ async fn reorder_category_containers() {
     test.teardown().await;
 }
 
-/// Not in the original. The sort-order arithmetic of creating and reordering, and which
-/// rows each statement reaches.
+/// The sort-order arithmetic of creating and reordering, and which rows each statement
+/// reaches.
 #[tokio::test]
 async fn sort_orders_of_created_and_reordered_categories() {
     let test = common::setup().await;
@@ -614,9 +603,8 @@ async fn sort_orders_of_created_and_reordered_categories() {
     test.teardown().await;
 }
 
-/// Not in the original, whose reorder statements splice the identifiers into the SQL
-/// text (`server/services/store/sqlstore/category.go:221`). Here they are data, and
-/// text that is not an identifier is refused before the statement runs.
+/// Category reorder statements bind identifiers as data parameters, and non-UUID text is
+/// refused before the statement runs.
 #[tokio::test]
 async fn reorder_categories_treats_identifiers_as_data() {
     let test = common::setup().await;
@@ -699,8 +687,8 @@ fn boards_category(user_id: &str, workspace_id: &str) -> Category {
     }
 }
 
-/// Not in the original. An update writes the name, the modification time and the
-/// collapsed state, and nothing else.
+/// An update writes the name, the modification time and the collapsed state, and nothing
+/// else.
 #[tokio::test]
 async fn update_category_leaves_other_members_and_rows_alone() {
     let test = common::setup().await;
@@ -765,9 +753,9 @@ async fn update_category_leaves_other_members_and_rows_alone() {
     test.teardown().await;
 }
 
-/// Not in the original. A deletion needs the owner and the workspace to match. A deleted
-/// category is gone: it is not found and not listed, and updating or deleting it again
-/// succeeds and brings nothing back.
+/// A deletion needs the owner and the workspace to match. A deleted category is gone: it
+/// is not found and not listed, and updating or deleting it again succeeds and brings
+/// nothing back.
 #[tokio::test]
 async fn delete_category_matches_owner_and_workspace_and_happens_once() {
     let test = common::setup().await;
@@ -852,8 +840,8 @@ async fn delete_category_matches_owner_and_workspace_and_happens_once() {
     test.teardown().await;
 }
 
-/// Not in the original, whose categories name users and workspaces that need not exist. A
-/// category is its user's in its workspace: without either, it is not stored.
+/// A category belongs to an existing user in an existing workspace: without either, it is
+/// not stored.
 #[tokio::test]
 async fn a_category_of_a_user_or_a_workspace_that_does_not_exist_is_refused() {
     let test = common::setup().await;
@@ -901,10 +889,9 @@ async fn a_category_of_a_user_or_a_workspace_that_does_not_exist_is_refused() {
     test.teardown().await;
 }
 
-/// Not in the original. Rows the store does not write itself, with columns left to
-/// their defaults: such a category is not collapsed and has the sort order zero, and a
-/// board filed under it is visible. (A type is not among what may be left out, and is
-/// one of the two the schema knows: the schema tests have the refusals.)
+/// Rows inserted with column defaults read back uncollapsed with sort order zero, and
+/// boards filed under them default to visible. (A type is not among what may be left out,
+/// and is one of the two the schema knows: the schema tests have the refusals.)
 #[tokio::test]
 async fn categories_written_by_others() {
     let test = common::setup().await;

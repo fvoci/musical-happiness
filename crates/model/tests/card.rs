@@ -1,5 +1,4 @@
-//! Port of `TestBlock2Card` from `server/model/card_test.go`, plus tests for the card
-//! conversions and patches the original leaves untested.
+//! Tests for converting between `Block` and `Card` and applying `CardPatch`.
 
 use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, JsonMap, new_id};
 use serde_json::{Value, json};

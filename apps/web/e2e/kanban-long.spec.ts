@@ -39,8 +39,8 @@ import {
 // Fewer than the spike's 1,600: enough for the column to be many times higher than the
 // view, and quick to make in every project.
 const MANY = 400;
-/** The four cards of the seed in the long column, and the cards made for it. */
-const ALL = MANY + 4;
+/** The one card of the seed in the long column, and the cards made for it. */
+const ALL = MANY + 1;
 
 /** Opens the long column; `wordy`: every third title of two lines, higher than guessed. */
 async function openLong(page: Page, info: TestInfo, wordy = false): Promise<void> {
@@ -154,7 +154,7 @@ test.describe('a column of 400 cards', () => {
     await page.keyboard.press('Space');
     await expect(kanban(page)).toHaveAttribute('data-dragging', 'keyboard');
     await expect(announcer(page)).toHaveText(
-      `Picked up ${longTitle(goal)}. ${LONG_COLUMN}, position ${String(goal + 4)} of ${String(ALL)}.`,
+      `Picked up ${longTitle(goal)}. ${LONG_COLUMN}, position ${String(goal + 1)} of ${String(ALL)}.`,
     );
     await page.keyboard.press('End');
     await expect(page.locator('[data-drag-carried]')).toBeFocused();

@@ -6,9 +6,9 @@ use fvoci_model::{Container, ContainerMember, ContainerType};
 use serde_json::{Value, json};
 use std::time::Duration;
 
-/// Not in the original (user decision 2026-11-11 14:25 KST). The deleted boards of a workspace
-/// are listed for whoever was an admin of each when it was deleted, who may bring it back;
-/// a member who was no admin does not see it. The last deleted first.
+/// The deleted boards of a workspace are listed for whoever was an admin of each when it
+/// was deleted, who may bring it back; a member who was no admin does not see it. The
+/// last deleted first.
 #[tokio::test]
 async fn the_deleted_boards_are_listed_for_their_former_admins() {
     let th = Setup::native().start().await.init_basic().await;

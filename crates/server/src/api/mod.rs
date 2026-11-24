@@ -1,7 +1,7 @@
 //! The HTTP API, all of it under `/api/v1`.
 //!
-//! One module per area, mirroring the original's `server/api` package. Each module has a
-//! `routes()` function, and [`router`] puts them together.
+//! One module per area. Each module exposes a `routes()` function, and [`router`] puts
+//! them together.
 
 mod access;
 mod account_deletion;
@@ -328,9 +328,9 @@ pub(crate) fn foreign_origin() -> AppError {
 /// Runs the rest of the request as a task of its own, so that it finishes even if the
 /// client disconnects.
 ///
-/// The framework drops a handler when its connection closes. A handler that has stored a
-/// board but not yet filed it under a category, or stored blocks but not yet told the
-/// listeners, would stop half-way; the original's handlers always run to their end.
+/// The framework drops a handler when its connection closes. Spawning the handler ensures
+/// multi-step operations (such as storing a board and filing it under a category, or
+/// storing blocks and broadcasting to listeners) run to completion.
 pub(crate) async fn run_to_completion(
     State(app): State<App>,
     request: Request,

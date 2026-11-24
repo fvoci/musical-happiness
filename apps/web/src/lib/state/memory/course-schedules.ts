@@ -353,6 +353,7 @@ export function memoryGetWorkspaceLearningToday(
       (container) =>
         container.kind === 'course' &&
         container.workspaceId === workspaceId &&
+        !container.isTemplate &&
         hasMembership(world, userId, container.id),
     )
     .sort((a, b) => a.createAt - b.createAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

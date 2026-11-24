@@ -64,8 +64,7 @@ pub(crate) async fn system(s: &mut Session) {
         &format!("{API}/client-config"),
     )
     .await;
-    // The prefix of the original server's API names nothing: a client written for it
-    // is told so, with or without a session, and is not handed the web app's page.
+    // Retired API paths return 404 (with or without a session) rather than serving the SPA shell.
     s.get("old path: client config", &format!("{API}/clientConfig"))
         .await;
     s.get("old prefix: client config", "/api/v2/clientConfig")

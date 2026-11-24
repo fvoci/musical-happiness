@@ -1,4 +1,4 @@
-//! The step of migration 42: the blocks of the original's type `board` go with what is
+//! The step of migration 42: retired blocks of type `board` go with what is
 //! below them, live and in the trash, of every organization, and what they leave behind
 //! with them; the other blocks stay.
 

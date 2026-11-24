@@ -33,58 +33,15 @@ crates/store/tests/store/tenancy_before.rs | (id, team_id,
 crates/store/tests/store/tenancy_before.rs | user_id, team_id,
 crates/store/tests/organization_boundary_round2.rs | (id, team_id,
 
-# An archive written before the rename names a board's workspace teamId; the import
-# reads it as workspaceId.
-crates/server/src/app/import.rs | `teamId`
-crates/server/src/app/import.rs | "teamId"
-crates/server/tests/api/imports.rs | `teamId`
-crates/server/tests/api/imports.rs | "teamId"
-crates/server/tests/api/imports.rs | _teamid_is_imported
-
 # Routes under the former name, which are not routes here: tests pin that they are not found.
 crates/server/tests/api/admin.rs | /teams/
 crates/server/tests/api/paths.rs | /teams/
 crates/server/tests/api/search.rs | /teams/
-crates/server/tests/api/sidebar.rs | `POST /teams/{team}/
 crates/server/tests/regression/content.rs | /teams/
 crates/server/tests/regression/sidebar.rs | /teams/
 crates/server/tests/regression/harness/tests.rs | /files/teams/
 crates/server/tests/regression/golden/files.json | /teams/
 crates/server/tests/regression/golden/search.json | /teams/
-
-# Tests, subtests, files and functions under the former name, which a test names to
-# say what it covers, and the former spelling of a member, which tests send as one the
-# server does not know.
-crates/server/tests/api/sidebar.rs | "teamID"
-crates/server/src/ws/tests.rs | `TestTeamSubscription
-crates/server/src/ws/tests.rs | "Should correctly subscribe to a team"
-crates/server/src/ws/tests.rs | "Should correctly unsubscribe to a team"
-crates/server/src/ws/tests.rs | "Subscribe users to team retrieve by user"
-crates/server/tests/api/boards.rs | "no team ID"
-crates/server/tests/api/boards.rs | "-team check false"
-crates/server/tests/api/boards_and_blocks.rs | "boards from different teams"
-crates/server/tests/api/boards_and_blocks.rs | "boards belonging to different teams should be rejected"
-crates/server/tests/api/files.rs | `TestTeamUploadFile
-crates/server/tests/api/search.rs | `SearchBoardsForTeam`
-crates/server/tests/api/sidebar.rs | "trying to update some other team's category"
-crates/server/tests/api/users.rs | `TestTeamUploadFile`
-crates/server/tests/api/users.rs | `TestGetRootTeam` in `server/app/teams_test.go`
-crates/store/tests/store/boards.rs | "should return only the boards of the team that the user is a member of"
-crates/store/tests/store/boards.rs | for team 1"
-crates/store/tests/store/boards.rs | for team 2"
-crates/store/tests/store/boards.rs | `testGetBoardsInTeamByIds`
-crates/store/tests/store/category_boards.rs | in team "team_id"
-crates/store/tests/store/users.rs | `testGetUsersByTeam`
-crates/store/tests/store/users.rs | "GetTeamUsers"
-crates/store/tests/store/workspaces.rs | storetests/teams.go
-crates/store/tests/store/workspaces.rs | `testGetTeam`
-crates/store/tests/store/workspaces.rs | `testUpsertTeamSignupToken`
-crates/store/tests/store/workspaces.rs | `testUpsertTeamSettings`
-crates/store/tests/store/workspaces.rs | `testGetAllTeams`
-crates/store/tests/store/workspaces.rs | "Nonexistent team"
-crates/store/tests/store/workspaces.rs | "Valid team"
-crates/store/tests/store/workspaces.rs | "No teams response"
-crates/store/tests/store/workspaces.rs | "Insert multiple team and get all teams"
 
 # The design record of the sixth step names the routes as they were when it was
 # written.

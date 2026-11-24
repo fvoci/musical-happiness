@@ -196,4 +196,34 @@ describe('the list of the versions of a file', () => {
       expect(screen.getByTestId('file-versions-list').querySelectorAll('li')).toHaveLength(1);
     });
   });
+
+  it('reactively updates formatted timestamps when the regional prop changes', async () => {
+    const source = sourceOf({
+      list: () => Promise.resolve([version(1, { createAt: Date.UTC(2026, 0, 1, 20, 15, 0) })]),
+    });
+    const list = new VersionsList(source);
+    const { rerender } = render(FileVersions, {
+      list,
+      source,
+      shown: 1,
+      accept: '.txt',
+      regional: { timeZone: 'UTC', weekStart: 1, hourCycle: 'h23' },
+      onView: vi.fn(),
+      onDownload: vi.fn(),
+      onWritten: vi.fn(),
+      onClose: vi.fn(),
+    });
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('file-versions-list')).toBeTruthy();
+    });
+    const row = screen.getByTestId('file-versions-list').querySelector('li');
+    expect(row?.textContent).toContain('January 01 at 20:15');
+
+    await rerender({
+      regional: { timeZone: 'Asia/Seoul', weekStart: 7, hourCycle: 'h12' },
+    });
+    await vi.waitFor(() => {
+      expect(row?.textContent).toContain('January 02 at 5:15 AM');
+    });
+  });
 });

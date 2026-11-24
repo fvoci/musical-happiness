@@ -39,15 +39,14 @@ async function cardsOfTheWorld(
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
     const [workspace] = await backend.workspaces();
     const boards = await backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title === 'Customer contacts');
+    const board = boards.find((each) => each.title === 'Issue tracker');
     if (!board) throw new Error('no board');
-    const cards = (await backend.cards(board.id)).filter(
-      (card, at, all) =>
-        !card.fields.isTemplate &&
-        card.title.length > 6 &&
-        all.findIndex((other) => other.title === card.title) === at,
-    );
-    const [source, target] = cards;
+    const cards = await backend.cards(board.id);
+    // Pick two cards that have unique titles and no seeded references pointing to or from them.
+    const byTitle = (title: string): StoredCard | undefined =>
+      cards.find((card) => !card.fields.isTemplate && card.title === title);
+    const source = byTitle('The exported total differs from the screen');
+    const target = byTitle('Search misses a word with an ending attached');
     if (!source || !target) throw new Error('too few cards');
     return { boardId: board.id, source, target };
   });

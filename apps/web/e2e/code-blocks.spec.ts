@@ -13,7 +13,7 @@ import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { boardPath } from './address.ts';
+import { boardPath, placeOf } from './address.ts';
 import { openCardWithBody, type Dev } from './embeds.support.ts';
 import { clipboardPermissions, engineOf, tabKey } from './keyboard.support.ts';
 import { screensDir } from './screens.ts';
@@ -311,25 +311,25 @@ test('a card the reader may only look at names the language and still copies', a
 });
 
 /**
- * Has somebody write the Welcome card's body anew, and opens the version
+ * Has somebody write the open card's body anew, and opens the version
  * before in the dialog of versions: the body as it was, only shown.
  */
 async function openVersionBefore(page: Page, body: Locator): Promise<Locator> {
-  await page.evaluate(async () => {
-    const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const [workspace] = await dev.backend.workspaces();
-    const boards = await dev.backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title.startsWith('Customer contacts'));
-    const [card] = await dev.backend.cards(board?.id ?? '');
-    const { updateAt } = await dev.backend.card(board?.id ?? '', card?.id ?? '');
-    await dev.someoneElse().writeCardBody(board?.id ?? '', card?.id ?? '', {
-      body: {
-        type: 'doc',
-        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'New' }] }],
-      },
-      readAt: updateAt,
-    });
-  });
+  const { boardId, cardId } = placeOf(page.url());
+  await page.evaluate(
+    async ([atBoard, atCard]) => {
+      const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
+      const { updateAt } = await dev.backend.card(atBoard, atCard);
+      await dev.someoneElse().writeCardBody(atBoard, atCard, {
+        body: {
+          type: 'doc',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'New' }] }],
+        },
+        readAt: updateAt,
+      });
+    },
+    [boardId, cardId] as const,
+  );
   await expect(body).toContainText('New');
   await page.getByTestId('card-menu').click();
   await page.locator('[data-action="versions"]').click();
@@ -428,7 +428,8 @@ test('two readers write in one block, and each sees the other’s words coloured
     const boards = await backend.boards(workspace?.id ?? '');
     const board = boards.find((each) => each.title.startsWith('Customer contacts'));
     const views = await backend.views(board?.id ?? '');
-    const [card] = await backend.cards(board?.id ?? '');
+    const cards = await backend.cards(board?.id ?? '');
+    const [card] = [...cards].sort((one, other) => one.title.localeCompare(other.title));
     return { boardId: board?.id ?? '', viewId: views[0]?.id ?? '', cardId: card?.id ?? '' };
   });
   await page.goto(boardPath(place.boardId, place.viewId, place.cardId));

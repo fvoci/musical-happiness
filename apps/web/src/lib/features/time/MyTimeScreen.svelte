@@ -12,7 +12,8 @@
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
+  import type { CalendarDate } from '$lib/logic/dates.ts';
+  import type { Regional } from '$lib/logic/regional.ts';
   import {
     formatDayHeading,
     formatPeriodHeading,
@@ -24,13 +25,15 @@
     type TimeEntryKind,
     type TimePeriod,
   } from '$lib/logic/time.ts';
-  import { regional } from '$lib/regional.ts';
-  import type {
-    CreateTimeEntryRequest,
-    TimeEntry,
-    TimeEntryPatch,
-    TimeEntrySummary,
-    TimeTracker,
+  import { regional as deviceRegional } from '$lib/regional.ts';
+  import {
+    DeviceToday,
+    isSignedOut,
+    type CreateTimeEntryRequest,
+    type TimeEntry,
+    type TimeEntryPatch,
+    type TimeEntrySummary,
+    type TimeTracker,
   } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
@@ -42,11 +45,12 @@
   interface Props {
     tracker: TimeTracker;
     locale: string;
+    regional?: Regional | undefined;
     targetHref: (entry: TimeEntry) => string | undefined;
     onOpenTarget: (entry: TimeEntry) => void;
   }
 
-  let { tracker, locale, targetHref, onOpenTarget }: Props = $props();
+  let { tracker, locale, regional: regionalProp, targetHref, onOpenTarget }: Props = $props();
 
   const PAGE_SIZE = 50;
   const EMPTY_SUMMARY: TimeEntrySummary = {
@@ -55,11 +59,12 @@
     count: 0,
   };
 
-  const reg = $derived(regional(locale));
+  const reg = $derived(regionalProp ?? deviceRegional(locale));
+  const today = new DeviceToday(() => reg.timeZone);
 
   let period = $state<TimePeriod>('day');
   let selectedAnchor = $state<CalendarDate | undefined>(undefined);
-  const anchor = $derived(selectedAnchor ?? dateOfInstant(Date.now(), reg.timeZone));
+  const anchor = $derived(selectedAnchor ?? today.date);
 
   let filterKind = $state<TimeEntryKind | 'all'>('all');
   let entries = $state.raw<TimeEntry[]>([]);
@@ -101,8 +106,8 @@
       summary = result.summary;
       pageIndex = 0;
       status = 'ready';
-    } catch {
-      if (seq === fetchSeq) status = 'failed';
+    } catch (error) {
+      if (seq === fetchSeq && !isSignedOut(error)) status = 'failed';
     }
   }
 
@@ -240,7 +245,7 @@
           data-testid="time-period-today"
           class="h-8 px-2.5 text-xs roomy:min-h-touch"
           onclick={() => {
-            selectedAnchor = dateOfInstant(Date.now(), reg.timeZone);
+            selectedAnchor = undefined;
           }}
         >
           {m.time_period_today()}

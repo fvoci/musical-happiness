@@ -1,7 +1,4 @@
-//! File upload and download.
-//!
-//! Ports `server/api/files.go`. Downloads reproduce the headers and the range and
-//! conditional handling of Go's `http.ServeContent`.
+//! File upload and download, including byte-range and conditional request handling.
 
 use axum::body::Body;
 use std::io;
@@ -603,8 +600,7 @@ enum RangeResult {
 }
 
 /// Parses a `Range` header for a file of `size` bytes. Only a single byte range is
-/// served; more than one range serves the whole file (the original answers with a
-/// multipart body, which no board client requests).
+/// served; requests naming more than one range receive the whole file.
 fn parse_range(header: &str, size: u64) -> RangeResult {
     let Some(set) = header.strip_prefix("bytes=") else {
         return RangeResult::Invalid;
@@ -620,9 +616,8 @@ fn parse_range(header: &str, size: u64) -> RangeResult {
     if specs.len() > 1 {
         return RangeResult::Full;
     }
-    // An empty file has no byte a range could name. The original answers such a request
-    // with the whole (empty) file rather than a 416, because some clients add a range to
-    // every request.
+    // An empty file has no byte a range could name; serve the whole (empty) file rather
+    // than 416 because some clients send a Range header on every download request.
     if size == 0 {
         return RangeResult::Full;
     }

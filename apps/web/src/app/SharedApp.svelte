@@ -165,7 +165,7 @@
     {/if}
   </main>
 </div>
-<FileViewerHost />
+<FileViewerHost regional={workspace?.regional} />
 {#if workspace}
   <Problems {workspace} />
 {/if}

@@ -65,16 +65,16 @@ async function find(page: Page): Promise<Place> {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
     const [workspace] = await backend.workspaces();
     const boards = await backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title === 'Customer contacts');
+    const board = boards.find((each) => each.title === 'Issue tracker');
     if (!board) throw new Error('no board');
     const views = await backend.views(board.id);
-    const cards = (await backend.cards(board.id)).filter(
-      (card, at, all) =>
-        !card.fields.isTemplate &&
-        card.title.length > 6 &&
-        all.findIndex((other) => other.title === card.title) === at,
-    );
-    const [source, target, spare] = cards;
+    const cards = await backend.cards(board.id);
+    // Pick three cards that have unique titles and no seeded references pointing to or from them.
+    const byTitle = (title: string): StoredCard | undefined =>
+      cards.find((card) => !card.fields.isTemplate && card.title === title);
+    const source = byTitle('The exported total differs from the screen');
+    const target = byTitle('Search misses a word with an ending attached');
+    const spare = byTitle('Remove the settings nobody uses');
     if (!source || !target || !spare) throw new Error('too few cards');
     const first = [...views].sort((a, b) => a.title.localeCompare(b.title))[0];
     return { boardId: board.id, viewId: first?.id ?? '', source, target, spare };

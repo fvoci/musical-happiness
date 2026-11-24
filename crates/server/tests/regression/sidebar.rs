@@ -184,7 +184,7 @@ pub(crate) async fn categories(s: &mut Session) {
         .await;
     s.get("list at the end", &path).user(&alice).await;
 
-    // Last, because in the original these requests changed state while being refused.
+    // Refused cross-user mutations: pinned last to confirm they leave state unchanged.
     s.post(
         "file a board: other user's category",
         &format!("{path}/{archive}/containers/{other}"),

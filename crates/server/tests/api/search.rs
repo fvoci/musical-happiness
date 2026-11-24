@@ -1,7 +1,4 @@
-//! Tests of the search routes. The original's only test of them at this level is
-//! `TestSearchBoards` in `server/integrationtests/board_test.go`, ported here with boards
-//! that are put into the store directly; the rest checks the routes' answers against the
-//! original server.
+//! Integration tests for board search routes and visibility rules.
 
 use fvoci_model::{Container, ContainerType, JsonMap, new_id};
 use reqwest::StatusCode;
@@ -12,15 +9,14 @@ use crate::common::{
     ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID,
 };
 
-/// Whether the creator of a board becomes a member of it; the last argument of the
-/// original's `App.CreateBoard`.
+/// Whether the creator of a board becomes an admin member of it.
 #[derive(Clone, Copy)]
 enum Membership {
     Admin,
     None,
 }
 
-/// The counterpart of the original's `App.CreateBoard`: puts a board into the store.
+/// Inserts a board directly into the store, optionally adding the creator as admin.
 async fn create_board(
     th: &TestServer,
     board: Container,
@@ -58,7 +54,7 @@ fn titled(title: &str, board_type: ContainerType, workspace_id: &str) -> Contain
     }
 }
 
-/// `SearchBoardsForTeam`
+/// Searches boards within one workspace by query term.
 async fn search_workspace(client: &Client, workspace_id: &str, term: &str) -> ApiResponse {
     client
         .get(&format!("/w/{workspace_id}/boards/search?q={term}"))
@@ -95,10 +91,7 @@ fn check_nothing_found(response: &ApiResponse) {
     assert_eq!(response.text(), "[]", "an empty list");
 }
 
-// ---------------------------------------------------------------------------------------
-// server/integrationtests/board_test.go
-
-/// `TestSearchBoards/"a non authenticated user should be rejected"`
+/// Unauthenticated callers are rejected by the board search route.
 #[tokio::test]
 async fn search_boards_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
@@ -109,8 +102,8 @@ async fn search_boards_a_non_authenticated_user_should_be_rejected() {
     th.teardown().await;
 }
 
-/// `TestSearchBoards/"all the matching private boards that the user is a member of and
-/// all matching public boards should be returned"`, with its five cases.
+/// Search returns all matching open boards plus matching private boards the user is a
+/// member of, across five search cases.
 #[tokio::test]
 async fn search_boards_all_the_matching_private_boards_that_the_user_is_a_member_of_and_all_matching_public_boards_should_be_returned()
  {
@@ -213,7 +206,7 @@ async fn search_boards_all_the_matching_private_boards_that_the_user_is_a_member
 }
 
 // ---------------------------------------------------------------------------------------
-// Not in the original: the routes' answers, checked against the original server.
+// Additional route-level search behaviors and retired endpoints.
 
 /// A server with two users and two boards of the first: an open one titled "b one" and a
 /// private one titled "b two", both in workspace `0`.
@@ -462,9 +455,7 @@ async fn search_all_boards() {
     th.teardown().await;
 }
 
-/// The original has routes that search the channels of its host application and the
-/// boards that can be linked to one; a standalone server answered them with 501. They
-/// are gone: for every caller they are paths that do not exist.
+/// Retired channel-search and linkable-board routes do not exist and return 404.
 #[tokio::test]
 async fn search_routes_of_the_host_application_do_not_exist() {
     let th = Setup::native().start().await.init_basic().await;
@@ -483,8 +474,8 @@ async fn search_routes_of_the_host_application_do_not_exist() {
     th.teardown().await;
 }
 
-/// The search within one workspace, which no route of a standalone server reaches (its caller
-/// in the original is the linkable-boards route).
+/// App-level search within a single workspace returns open boards and the user's own
+/// private boards.
 #[tokio::test]
 async fn search_containers_for_user_in_workspace() {
     let (th, open, private) = two_boards().await;

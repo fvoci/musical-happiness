@@ -177,14 +177,14 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
     ts.teardown().await;
 }
 
-/// An archive written before the workspaces were named so names a board's workspace
-/// `teamId`: it is read as `workspaceId` is, imported into the workspace it is imported
-/// into whatever it names, and refused if it is no identifier.
+/// A board in an archive names its workspace with `workspaceId`: it is imported into the
+/// target workspace whatever `workspaceId` the archive names, refused when `workspaceId`
+/// is not a string, and unknown keys are ignored rather than mapped to `workspaceId`.
 #[tokio::test]
-async fn an_archive_that_names_the_workspace_teamid_is_imported() {
+async fn an_archive_board_validates_workspace_id_and_ignores_unknown_keys() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = json!({"type": "board", "data": {
-        "id": "b1", "teamId": ROOT_WORKSPACE_ID, "type": "P", "title": "From before",
+        "id": "b1", "workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Imported board",
         "createAt": 1, "updateAt": 1,
     }});
     let archive = archive_of(&board, &[], zip::CompressionMethod::Deflated);
@@ -194,23 +194,39 @@ async fn an_archive_that_names_the_workspace_teamid_is_imported() {
     let imported: Vec<_> = boards_of(&ts)
         .await
         .into_iter()
-        .filter(|board| board.title == "From before")
+        .filter(|board| board.title == "Imported board")
         .collect();
     assert_eq!(imported.len(), 1, "{imported:?}");
     assert_eq!(imported[0].workspace_id, TEST_WORKSPACE_ID);
-    for workspace in ["teamId", "workspaceId"] {
-        let board = json!({"type": "board", "data": {
-            "id": "b2", workspace: 5, "type": "P", "title": "Numbered", "createAt": 1, "updateAt": 1,
-        }});
-        let archive = archive_of(&board, &[], zip::CompressionMethod::Deflated);
-        let refused = import(&ts.client, TEST_WORKSPACE_ID, &archive).await;
-        refused.check_bad_request();
-        let detail = refused.value()["detail"].as_str().unwrap_or("").to_owned();
-        assert!(
-            detail.starts_with("invalid board in archive line 1"),
-            "{workspace}: {detail}"
-        );
-    }
+
+    let invalid = json!({"type": "board", "data": {
+        "id": "b2", "workspaceId": 5, "type": "P", "title": "Numbered", "createAt": 1, "updateAt": 1,
+    }});
+    let archive = archive_of(&invalid, &[], zip::CompressionMethod::Deflated);
+    let refused = import(&ts.client, TEST_WORKSPACE_ID, &archive).await;
+    refused.check_bad_request();
+    let detail = refused.value()["detail"].as_str().unwrap_or("").to_owned();
+    assert!(
+        detail.starts_with("invalid board in archive line 1"),
+        "workspaceId: {detail}"
+    );
+
+    // An unknown workspace-like key is ignored rather than aliased to `workspaceId`.
+    let unknown_key = json!({"type": "board", "data": {
+        "id": "b3", "legacyWorkspaceId": 5, "type": "P", "title": "Unknown key ignored",
+        "createAt": 1, "updateAt": 1,
+    }});
+    let archive = archive_of(&unknown_key, &[], zip::CompressionMethod::Deflated);
+    import(&ts.client, TEST_WORKSPACE_ID, &archive)
+        .await
+        .check_ok();
+    let imported: Vec<_> = boards_of(&ts)
+        .await
+        .into_iter()
+        .filter(|board| board.title == "Unknown key ignored")
+        .collect();
+    assert_eq!(imported.len(), 1, "{imported:?}");
+    assert_eq!(imported[0].workspace_id, TEST_WORKSPACE_ID);
     ts.teardown().await;
 }
 
@@ -569,9 +585,8 @@ async fn a_large_version_json_is_no_archive() {
     ts.teardown().await;
 }
 
-/// Not in the original (user decision 2026-11-11 14:25 KST). A user runs one import at a
-/// time and the server `max_concurrent_imports` (2): over either, the import is 429 with
-/// a reason, and the upload stays to be imported again.
+/// A user runs one import at a time and the server `max_concurrent_imports` (2): over
+/// either, the import is 429 with a reason, and the upload stays to be imported again.
 #[tokio::test]
 async fn imports_run_one_per_user_and_two_on_the_server() {
     let ts = Setup::native().start().await.init_basic().await;

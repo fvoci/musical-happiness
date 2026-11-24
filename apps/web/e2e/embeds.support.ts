@@ -37,7 +37,10 @@ export async function openCardWithBody(page: Page, board: string, doc: object): 
     const boards = await reader.boards(workspace?.id ?? '');
     const found = boards.find((each) => each.title.startsWith(boardTitle));
     if (!found) throw new Error(`no board ${boardTitle}`);
-    const [card] = await reader.cards(found.id);
+    const cards = await reader.cards(found.id);
+    // Pick deterministically by title so boards with code/math showcase cards (such as
+    // "Write in the body") do not race the replacement body written below.
+    const [card] = [...cards].sort((one, other) => one.title.localeCompare(other.title));
     const [view] = await reader.views(found.id);
     if (!card || !view) throw new Error('the board has no card or no view');
     return { boardId: found.id, viewId: view.id, cardId: card.id };
@@ -46,6 +49,10 @@ export async function openCardWithBody(page: Page, board: string, doc: object): 
   const body = page.getByTestId('card-body');
   await expect(body).toBeVisible();
   await expect(page.getByTestId('card-comments')).toBeVisible();
+  await expect
+    .poll(async () => ((await body.textContent()) ?? '').trim().length)
+    .toBeGreaterThan(0);
+  const seedSnippet = ((await body.textContent()) ?? '').trim().slice(0, 40);
   await page.evaluate(
     async ([at, written]) => {
       const handle = (window as unknown as { fvociDev: Dev }).fvociDev;
@@ -56,6 +63,9 @@ export async function openCardWithBody(page: Page, board: string, doc: object): 
     },
     [place, doc] as const,
   );
+  if (seedSnippet.length > 0 && !JSON.stringify(doc).includes(seedSnippet)) {
+    await expect(body).not.toContainText(seedSnippet);
+  }
   return body;
 }
 

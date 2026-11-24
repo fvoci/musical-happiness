@@ -371,8 +371,7 @@ pub(crate) async fn cards(s: &mut Session) {
         .user(&alice)
         .unrecorded()
         .await;
-    // The original wrote the error and then, lacking a return, the list after it. The
-    // observation pins that the answer is the error alone.
+    // Pins that an invalid pagination parameter returns the error alone with no trailing body.
     let bad_page = s
         .get("list: bad page", &format!("{path}?page=x"))
         .user(&alice)

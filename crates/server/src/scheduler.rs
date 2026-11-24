@@ -1,7 +1,4 @@
 //! Work that repeats at a fixed interval until it is cancelled.
-//!
-//! The counterpart of the original's `server/services/scheduler`. Only recurring tasks
-//! exist here; the original's one-shot tasks have no user on a standalone server.
 
 use std::time::Duration;
 
@@ -133,8 +130,7 @@ mod tests {
         (task, count)
     }
 
-    /// `TestCreateRecurringTask`, extended by what the original leaves unchecked: no run
-    /// follows the cancellation.
+    /// A recurring task runs at each interval and stops running once cancelled.
     #[tokio::test(start_paused = true)]
     async fn create_recurring_task() {
         let interval = Duration::from_millis(500);

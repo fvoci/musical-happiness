@@ -1,8 +1,5 @@
-//! API tests: a server in this process on a port of its own, driven over HTTP.
-//!
-//! Ports of the original's `server/integrationtests` (the cases for native
-//! authentication and local permissions) and of the `server/app` tests
-//! that need a store. One module per original test file.
+//! API integration tests: an in-process server on an ephemeral port driven over HTTP
+//! and WebSocket, organized by feature area.
 
 mod block_types;
 mod common;

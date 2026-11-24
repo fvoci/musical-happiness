@@ -1,10 +1,5 @@
-//! The plumbing around the API: the administration socket (`server/api/admin.go`,
-//! `server/server/server.go`), TLS (`server/web/webserver.go`), and the routes a
-//! standalone server refuses (`server/api/{channels,statistics,compliance}.go`).
-//!
-//! The original has no tests of the socket and of TLS; these pin what its server was seen
-//! to do. `server/integrationtests/compliance_test.go` runs in the host-application mode
-//! only; the tests here are of what a standalone server answers on the same routes.
+//! Integration tests for server infrastructure around the API: the local Unix
+//! administration socket, TLS serving, and retired non-standalone routes.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -170,8 +165,8 @@ pub(crate) mod socket {
         }
     }
 
-    /// `handleAdminSetPassword` (`server/api/admin.go`): the password is replaced without
-    /// asking for the old one, and the answer has no body.
+    /// Replacing a user's password via the admin socket requires no old password and
+    /// returns an empty body.
     #[tokio::test]
     async fn admin_set_password_changes_the_password() {
         let (th, socket) = start_with_admin_socket().await;
@@ -233,9 +228,8 @@ pub(crate) mod socket {
         th.teardown().await;
     }
 
-    /// Not in the original, whose sessions outlive a password an administrator sets.
-    /// Whoever asks for a new password may have lost the old one to someone else, so
-    /// every session opened with it ends.
+    /// Setting a user's password via the admin socket invalidates every existing session
+    /// of that user, since the old password may have been compromised.
     #[tokio::test]
     async fn admin_set_password_ends_every_session_of_the_user() {
         let (th, socket) = start_with_admin_socket().await;
@@ -324,8 +318,7 @@ pub(crate) mod socket {
         th.teardown().await;
     }
 
-    /// The refusal the original intends at `server/api/admin.go:41` but never gives: its
-    /// check cannot fail, and it stores the hash of the empty password instead.
+    /// An empty or missing password is rejected as a bad request rather than hashed.
     #[tokio::test]
     async fn admin_set_password_refuses_an_empty_password() {
         let (th, socket) = start_with_admin_socket().await;
@@ -339,9 +332,8 @@ pub(crate) mod socket {
         th.teardown().await;
     }
 
-    /// The rules for a password are the same whoever sets it: at least eight characters,
-    /// at most 1024 bytes. (The original has no rule here, and its hashing stops at 72
-    /// bytes; with that limit gone, a long password is hashed whole.)
+    /// Admin password resets enforce the same password rules as self-service resets: at
+    /// least eight characters and at most 1024 bytes, hashed in full.
     #[tokio::test]
     async fn admin_set_password_applies_the_password_rules() {
         let (th, socket) = start_with_admin_socket().await;
@@ -377,7 +369,7 @@ pub(crate) mod socket {
         th.teardown().await;
     }
 
-    /// A name no user has is not found. (The original answers 500.)
+    /// A username that no account has returns 404.
     #[tokio::test]
     async fn admin_set_password_of_an_unknown_user_is_not_found() {
         let (th, socket) = start_with_admin_socket().await;
@@ -389,8 +381,7 @@ pub(crate) mod socket {
         th.teardown().await;
     }
 
-    /// A body that is no JSON object with a text password is the sender's mistake.
-    /// (The original answers 500.)
+    /// A body that is not a JSON object with a string password returns 400.
     #[tokio::test]
     async fn admin_set_password_with_a_malformed_body_is_a_bad_request() {
         let (th, socket) = start_with_admin_socket().await;
@@ -536,8 +527,7 @@ pub(crate) mod socket {
         th.teardown().await;
     }
 
-    /// `startLocalModeServer` and `stopLocalModeServer` (`server/server/server.go`): the
-    /// socket file is for the server's user only, and is gone after shutdown.
+    /// The admin Unix socket file is mode 0600 (server user only) and removed on shutdown.
     #[tokio::test]
     async fn admin_socket_is_private_and_removed_on_shutdown() {
         let (th, socket) = start_with_admin_socket().await;
@@ -621,8 +611,8 @@ fn port_of(th: &TestServer) -> u16 {
         .expect("the address ends with a port")
 }
 
-/// `serve_https` with `cert.pem` and `key.pem` (`server/web/webserver.go:113-121`): the server
-/// speaks TLS, and only TLS.
+/// With `serve_https` and valid `cert.pem`/`key.pem`, the server speaks TLS and rejects
+/// plain HTTP on the TLS port.
 #[tokio::test]
 async fn serve_https_serves_over_tls() {
     let directory = certificate_directory();
@@ -716,9 +706,8 @@ async fn serve_https_failed_handshakes_do_not_disturb_the_server() {
     let _ = std::fs::remove_dir_all(&directory);
 }
 
-/// Not in the original, which serves plain HTTP when `serve_https` is set and the files are
-/// missing (`server/web/webserver.go:113`). An operator who asked for TLS must not end up
-/// serving sessions and passwords in the clear: the server refuses to serve.
+/// When `serve_https` is enabled and certificate or key files are missing, startup fails
+/// rather than falling back to plain HTTP.
 #[tokio::test]
 async fn serve_https_without_certificate_files_refuses_to_serve() {
     let directory = certificate_directory();
@@ -798,9 +787,8 @@ async fn without_serve_https_missing_certificate_files_do_not_matter() {
     th.teardown().await;
 }
 
-/// The original has routes for the channels, the statistics and the compliance exports
-/// of its host application; a standalone server refused them with 501 or 401. They are
-/// gone: with or without a session, in either mode, they are paths that do not exist.
+/// Retired host-integration paths (channels, statistics, compliance exports) do not exist
+/// and return 404 with or without a session.
 #[tokio::test]
 async fn routes_of_the_host_application_do_not_exist() {
     let paths = [

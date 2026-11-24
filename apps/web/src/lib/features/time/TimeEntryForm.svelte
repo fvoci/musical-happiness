@@ -17,6 +17,7 @@
   import {
     isBackendError,
     isPasswordSignInRequired,
+    isSignedOut,
     ssoOrgOf,
     type CreateTimeEntryRequest,
     type TimeEntry,
@@ -139,7 +140,7 @@
       }
       onSaved();
     } catch (error) {
-      if (isPasswordSignInRequired(error) || ssoOrgOf(error) !== undefined) {
+      if (isPasswordSignInRequired(error) || ssoOrgOf(error) !== undefined || isSignedOut(error)) {
         onCancel();
         return;
       }

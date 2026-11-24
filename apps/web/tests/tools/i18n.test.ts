@@ -195,7 +195,6 @@ describe('the message files', () => {
   it('name the product where the English text named it "Boards", and only there', () => {
     for (const id of [
       'BoardPage.newVersion',
-      'OnboardingTour.OpenACard.Body',
       'error.invalid-read-only-board',
       'error.not-logged-in',
     ]) {
@@ -252,12 +251,11 @@ describe('the message files', () => {
     expect(found).toEqual([]);
   });
 
-  it('leave the two rewritten English messages untranslated but in Korean', () => {
-    for (const id of ['ShareBoard.searchPlaceholder', 'OnboardingTour.CopyLink.Body']) {
-      expect(messages('ko')[id]).toBeDefined();
-      for (const locale of settings.locales.filter((one) => one !== 'en' && one !== 'ko')) {
-        expect(messages(locale)[id], `${locale} ${id}`).toBeUndefined();
-      }
+  it('leave the rewritten English message untranslated except in Korean', () => {
+    const id = 'ShareBoard.searchPlaceholder';
+    expect(messages('ko')[id]).toBeDefined();
+    for (const locale of settings.locales.filter((one) => one !== 'en' && one !== 'ko')) {
+      expect(messages(locale)[id], `${locale} ${id}`).toBeUndefined();
     }
   });
 

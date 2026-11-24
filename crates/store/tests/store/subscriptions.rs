@@ -1,5 +1,4 @@
-//! Port of `server/services/store/storetests/subscriptions.go`, followed by tests of what
-//! the original suite does not cover.
+//! Integration tests for block subscriptions, subscriber queries, and cascade cleanup.
 
 use std::time::Duration;
 
@@ -11,9 +10,7 @@ use fvoci_store::{BlockFilter, MemberChange, Store, StoreError};
 
 use crate::common;
 
-/// `createTestUsers` of the original suite's `util.go`. The original names every batch
-/// of users alike; a name and an address are one user's here, so each carries the
-/// user's identifier.
+/// Creates `num` test users with unique usernames and email addresses.
 async fn create_test_users(store: &Store, num: usize) -> Vec<User> {
     let mut users = Vec::with_capacity(num);
     for index in 0..num {
@@ -33,11 +30,8 @@ async fn create_test_users(store: &Store, num: usize) -> Vec<User> {
     users
 }
 
-/// `createTestBlocks` of the original suite's `util.go`: each block is on a board of
-/// its own. The original only makes up the boards' identifiers; here the boards exist,
-/// in a workspace of this batch. The blocks are written quietly
-/// ([`Store::telling_nobody`]): their writer would watch them otherwise, and these
-/// tests make every subscription themselves.
+/// Creates `num` test blocks, each on its own board in a fresh workspace, written quietly
+/// ([`Store::telling_nobody`]) so tests control subscriptions explicitly.
 async fn create_test_blocks(store: &Store, user_id: &str, num: usize) -> Vec<Block> {
     let workspace_id = common::workspace(store).await;
     let boards = common::create_test_boards(store, &workspace_id, user_id, num).await;
@@ -73,7 +67,7 @@ async fn subscribed_blocks(store: &Store, user: &User) -> Vec<String> {
     ids
 }
 
-/// The subscription of `user` to `block` as the original suite builds it.
+/// Builds a user subscription to `block`.
 fn subscription(block: &Block, user: &User) -> Subscription {
     Subscription {
         block_type: block.block_type.clone(),
@@ -164,10 +158,7 @@ async fn create_subscription() {
         let user = first_user(store).await;
         let block = first_block(store, &admin.id).await;
 
-        // The original starts from a subscription whose subscriber type is the empty
-        // string and sets it to "user" in its fourth step. `SubscriberType` has no such
-        // state, so the type is "user" from the start and the fourth step repeats the
-        // third.
+        // Creating a subscription with `SubscriberType::User` is idempotent.
         let mut sub = Subscription {
             block_type: BlockType::default(),
             block_id: String::new(),
@@ -204,8 +195,7 @@ async fn create_subscription() {
         let valid: Result<(), SubscriptionError> = sub_new.validate();
         assert_eq!(valid, Ok(()), "created subscription should be valid");
 
-        // Not in the original: a subscription that is valid as far as the model can
-        // tell, to a block or of a subscriber named by text that is not an identifier.
+        // Non-UUID block or subscriber IDs are rejected.
         for (block_id, subscriber_id, invalid) in [
             ("bogus-block", user.id.as_str(), "bogus-block"),
             (block.id.as_str(), "bogus-user", "bogus-user"),
@@ -279,8 +269,7 @@ async fn delete_subscription() {
             "Should be ErrNotFound compatible error: got {error:?}"
         );
 
-        // The original's "bogus" is not an identifier, which a statement that writes
-        // refuses as such.
+        // Non-UUID text is rejected when deleting a subscription.
         let error = store
             .delete_subscription("bogus", "bogus")
             .await
@@ -349,7 +338,7 @@ async fn undelete_subscription() {
     test.teardown().await;
 }
 
-/// `testGetSubscription`.
+/// Reading a single subscription by block and subscriber.
 #[tokio::test]
 async fn get_subscription() {
     let test = common::setup().await;
@@ -374,8 +363,7 @@ async fn get_subscription() {
         assert_eq!(sub_new, sub);
     }
 
-    // "get non-existent subscription"
-    // Text that is not an identifier, as in the original, and identifiers of nothing.
+    // Non-UUID text and unknown UUIDs both return not-found.
     let nothing = new_id();
     for (block_id, subscriber_id) in [("bogus", "bogus"), (nothing.as_str(), nothing.as_str())] {
         let error = store
@@ -391,7 +379,7 @@ async fn get_subscription() {
     test.teardown().await;
 }
 
-/// `testGetSubscriptions`.
+/// Listing all active subscriptions for a user.
 #[tokio::test]
 async fn get_subscriptions() {
     let test = common::setup().await;
@@ -426,8 +414,7 @@ async fn get_subscriptions() {
         assert!(subs.is_empty(), "got {subs:?}");
     }
 
-    // "get subscriptions for invalid user"
-    // Text that is not an identifier, as in the original, and the identifier of nobody.
+    // Non-UUID text and unknown user IDs both return an empty list.
     let nobody = new_id();
     for user_id in ["bogus", nobody.as_str()] {
         let subs = store
@@ -440,7 +427,7 @@ async fn get_subscriptions() {
     test.teardown().await;
 }
 
-/// `testGetSubscribersForBlock`.
+/// Listing subscribers for a block.
 #[tokio::test]
 async fn get_subscribers_for_block() {
     let test = common::setup().await;
@@ -486,8 +473,7 @@ async fn get_subscribers_for_block() {
         assert_eq!(count, 0);
     }
 
-    // "get subscribers for invalid block"
-    // Text that is not an identifier, as in the original, and the identifier of nothing.
+    // Non-UUID text and unknown block IDs both return an empty list.
     let nothing = new_id();
     for block_id in ["bogus", nothing.as_str()] {
         let subs = store
@@ -506,10 +492,8 @@ async fn get_subscribers_for_block() {
     test.teardown().await;
 }
 
-// The tests below are not in the original suite. They pin what its suite leaves
-// untested, and what this store does on purpose where the original does otherwise: a
-// subscription is a row while it lasts, and it lasts no longer than its block, its
-// subscriber and the subscriber's membership of the block's board.
+// Subscription lifecycle invariants: a subscription is a live row while active and ends
+// when its block, its subscriber, or the subscriber's board membership ends.
 
 /// Subscribing to what one is subscribed to keeps the subscription: its creation time
 /// and its types stay, whatever the second request gives, and the notification time is
@@ -642,9 +626,8 @@ async fn subscriptions_of_a_subscriber_are_listed_oldest_first() {
 }
 
 /// Unsubscribing deletes the subscription: it is not found, not listed with its
-/// subscriber or its block and not counted, and there is nothing to unsubscribe from a
-/// second time. The original keeps the row, marked, and unsubscribes again without
-/// complaint.
+/// subscriber or its block and not counted, and unsubscribing a second time returns
+/// not-found.
 #[tokio::test]
 async fn unsubscribing_deletes_the_subscription() {
     let test = common::setup().await;
@@ -776,9 +759,8 @@ async fn subscribing_again_after_unsubscribing_starts_a_new_subscription() {
     test.teardown().await;
 }
 
-/// A subscription is to a block that exists, by a user who exists. Either missing, it
-/// is not found, on SQLite as on PostgreSQL, and nothing is stored. The original stores
-/// both.
+/// A subscription requires an existing block and an existing user. If either is missing,
+/// creating it returns not-found on both SQLite and PostgreSQL and stores nothing.
 #[tokio::test]
 async fn a_subscription_to_no_block_or_by_no_user_is_refused() {
     let test = common::setup().await;
@@ -1077,9 +1059,8 @@ async fn subscribers_are_ordered_by_notification_time() {
     test.teardown().await;
 }
 
-/// Not in the original, where the subscriptions of a user outlive their membership of
-/// the board: removing a member ends that user's subscriptions to the board's blocks,
-/// and nobody else's and nothing on another board.
+/// Removing a member ends that user's subscriptions to the board's blocks, and nobody
+/// else's and nothing on another board.
 #[tokio::test]
 async fn delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that_board() {
     let test = common::setup().await;
@@ -1171,10 +1152,9 @@ async fn delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that
     test.teardown().await;
 }
 
-/// Not in the original. A member who is removed with the check for the last
-/// administrator loses their subscriptions to the board's blocks as with
-/// `delete_member`; a removal that is refused, or of a user who is no member, ends
-/// nothing.
+/// A member who is removed with the check for the last administrator loses their
+/// subscriptions to the board's blocks as with `delete_member`; a removal that is
+/// refused, or of a user who is no member, ends nothing.
 #[tokio::test]
 async fn remove_member_ends_subscriptions_only_when_it_removes() {
     let test = common::setup().await;

@@ -1426,6 +1426,7 @@ test.describe('while the window changes size', () => {
     await open(page);
     await showView(page, 'Status board');
     await resize(page, 900, 720);
+    await expect(header(page)).toHaveAttribute('data-layout', 'folded');
     await openTool(page, 'sort');
     await expect(sortEditor(page)).toBeVisible();
     const anchored = (name: string): Promise<{ below: number; across: number } | undefined> =>

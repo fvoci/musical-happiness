@@ -11,13 +11,6 @@
 # The names and keywords of the emoji, as CLDR gives them: steam.
 src/lib/editor/emoji/en.json
 
-# The documents of the messages name them by their ids and their English texts.
-docs/i18n-conversion.md
-docs/ko-review.md
-
-# Historical spike notes still list an old sample board title; docs/ is cleaned separately.
-docs/spike-editor.md | Team Retrospective
-
 # A comment on the course page refers to other members as teammates.
 src/app/CoursePage.svelte | teammates'
 

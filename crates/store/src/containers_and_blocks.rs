@@ -419,8 +419,8 @@ impl Store {
     /// copies and the membership that makes `user_id` an administrator of the new board.
     ///
     /// The copy is a private board created by `user_id`, in `to_workspace`
-    /// or else in the workspace of the original. A copy of the same kind as the original is
-    /// titled by `titles.copy_of` from the original's title, as it stands when it is
+    /// or else in the workspace of the source board. A copy of the same kind as the source
+    /// is titled by `titles.copy_of` from the source title, as it stands when it is
     /// copied; a template made from a board is titled `titles.new_template`, and a board
     /// made from a template keeps the title. The copy is made without the properties
     /// of the board that `changes` names, its days as many days later as it says.
@@ -655,8 +655,7 @@ pub(crate) async fn patch_containers_and_blocks(
     patches: &PatchContainersAndBlocks,
     user_id: &str,
 ) -> Result<ContainersAndBlocks, StoreError> {
-    // The original indexes the patches by the position of the identifier and crashes when
-    // there are fewer patches than identifiers; that is an error here.
+    // Return a mismatch error below if there are fewer patches than identifiers instead of panicking.
     // The boards that are patched and the boards of the blocks that are patched are
     // locked in one order, before any of them is written. A block that does not exist
     // is reported where it is patched, below.
@@ -766,10 +765,7 @@ pub(crate) async fn duplicate_container(
         fvoci_model::move_dates(&mut block.fields, &dates, changes.days_later);
     }
 
-    // A board without blocks, or with comments only, is copied as a board without
-    // blocks. The original refuses it, because it regenerates the identifiers with the
-    // function for requests, which insists on at least one block
-    // (`server/services/store/sqlstore/boards_and_blocks.go:177`).
+    // A board without blocks, or with comments only, is copied as a board without blocks.
     let mut copies = renew_containers_and_blocks_ids(ContainersAndBlocks {
         containers: vec![container],
         blocks,

@@ -32,8 +32,7 @@ pub(crate) async fn users_by_ids(
     if users.is_empty() {
         return Err(user_not_found());
     }
-    // Preserved quirk: the counts are compared, so naming a user twice fails even
-    // though that user exists (`server/services/store/sqlstore/user.go:111`).
+    // Comparing counts ensures duplicate requested IDs fail rather than silently collapsing.
     if users.len() != user_ids.len() {
         return Err(StoreError::NotAllFound {
             entity: "user",

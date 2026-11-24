@@ -1,7 +1,7 @@
 /**
  * A board with one long column, on the in-memory backend: the view "Long
  * column" of the seeded board "Project schedule", grouped by its status, with
- * `LONG` more cards in "Planned". Every card has a person, a date, two
+ * `LONG` more cards in "In progress". Every card has a person, a date, two
  * selects and the badges of a body with tasks, as a busy board's cards do.
  *
  * The cards are made on a board the page is not showing, and the view is
@@ -12,9 +12,9 @@ import { expect, type Page } from '@playwright/test';
 
 import { boardPath } from './address.ts';
 
-/** How many cards the long column gets, besides the four the seed has there. */
+/** How many cards the long column gets, besides the one the seed has there. */
 export const LONG = 1600;
-export const LONG_COLUMN = 'Planned';
+export const LONG_COLUMN = 'In progress';
 export const LONG_VIEW = 'Long column';
 
 /** The title of the long column's `n`th card of those made here, from 1. */
@@ -118,7 +118,10 @@ export async function makeLongColumn(
           groupById: status.id,
           sortOptions: [],
           visiblePropertyIds: [phase.id, status.id, owner.id, period.id],
-          visibleOptionIds: [],
+          visibleOptionIds: [
+            columnId,
+            ...status.options.map((option) => option.id).filter((id) => id !== columnId),
+          ],
           // The column of cards without a status is hidden: the long one is the first.
           hiddenOptionIds: [''],
           collapsedOptionIds: [],

@@ -185,7 +185,7 @@ fn unescaped(part: &str) -> Vec<u8> {
 }
 
 /// Answers with the standard 500 when a handler panics, instead of dropping the
-/// connection; the original's `panicHandler` (`server/api/api.go:117-132`).
+/// connection.
 pub(crate) async fn contain_panics(request: Request, next: Next) -> Response {
     let path = logged_path(request.uri().path());
     match AssertUnwindSafe(next.run(request)).catch_unwind().await {
@@ -426,8 +426,7 @@ mod tests {
         assert!(log.contains("client=\"203.0.113.7\""), "{log}");
     }
 
-    /// `panicHandler` of `server/api/api.go`: a panic becomes the standard 500, and
-    /// the request is still logged.
+    /// A handler panic becomes the standard 500 response, and the request is still logged.
     #[tokio::test]
     async fn handler_panic_becomes_the_internal_server_error_response() {
         let request = Request::get("/api/v1/boom?readToken=SECRET-READ")

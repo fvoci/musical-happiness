@@ -328,4 +328,26 @@ describe('in-memory course schedule contract & store integration', () => {
     todayStore.close();
     store.close();
   });
+
+  it('excludes template courses from workspace learningToday', async () => {
+    const made = setup();
+    const wsId = made.world.workspace.id;
+    made.world.useClock(() => Date.UTC(2026, 10, 10, 12, 0, 0));
+    await made.workspace.load();
+
+    const live = await made.backend.course.createCourse(wsId, { title: 'Live Course', type: 'P' });
+    await made.backend.course.createUnit(live.id, {
+      kind: 'unit',
+      title: 'Live Unit',
+      scheduledDate: '2026-11-10',
+    });
+
+    // Duplicate as a template course — its units must never leak into learningToday.
+    const tpl = await made.backend.duplicateContainer(live.id, true, wsId);
+    expect(tpl.isTemplate).toBe(true);
+
+    const feed = await made.backend.course.learningToday(wsId);
+    expect(feed.todayUnits.map((item) => item.courseId)).toEqual([live.id]);
+    expect(feed.overdueUnits).toEqual([]);
+  });
 });

@@ -119,8 +119,7 @@ impl App {
     /// for any patched block.
     ///
     /// The property values are merged into the stored ones in the store's transaction
-    /// ([`fvoci_model::BlockPatch::property_changes`]). (The original replaces them all,
-    /// server/model/card.go:306-308.)
+    /// ([`fvoci_model::BlockPatch::property_changes`]).
     ///
     /// # Errors
     ///
@@ -135,8 +134,7 @@ impl App {
         user_id: &str,
         notification: ChangeNotification,
     ) -> Result<Card, AppError> {
-        // An invalid icon is the client's mistake, as for a new card. (In the original
-        // it is a server error here, `server/app/cards.go:66-69`.)
+        // An invalid icon is a bad request, matching new card validation.
         let block_patch = patch.to_block_patch()?;
         let block = self
             .patch_block(card_id, &block_patch, user_id, notification)
@@ -196,9 +194,8 @@ impl App {
 ///
 /// A card cannot be stored with `properties` that are no object, or an `icon` or
 /// `isTemplate` of another kind, any more, but one stored before, or written straight to
-/// the database, may still hold such a field. The original fails to read such a card,
-/// and with it the whole card list of its board. Here the card is given out without the
-/// field ([`Block::drop_malformed_fields`]), and a warning is logged.
+/// the database, may still hold such a field. Instead of failing the entire card list,
+/// malformed fields are dropped ([`Block::drop_malformed_fields`]) and a warning is logged.
 fn card_from_stored_block(block: &Block, now: i64) -> Result<Card, CardError> {
     let mut readable = block.clone();
     let malformed = readable.drop_malformed_fields();

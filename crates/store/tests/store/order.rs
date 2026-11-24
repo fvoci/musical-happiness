@@ -1,5 +1,4 @@
-//! The order of what the store returns as a list. Not in the original, whose lists come
-//! in whatever order the database reads them.
+//! Deterministic ordering of every list returned by the store.
 //!
 //! The rule is the oldest first, and the identifier where the ages are the same. A list
 //! with an order of its own (the categories of a sidebar, the boards of a category)

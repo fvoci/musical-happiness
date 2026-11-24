@@ -391,7 +391,7 @@
       icon={CalendarCheckIcon}
     />
   {/if}
-  {#if learningToday && workspace.info}
+  {#if learningToday && workspace.backend.course && workspace.info && workspace.me?.id}
     <SidebarNavButton
       testId="open-learning-today"
       active={learningToday.active}

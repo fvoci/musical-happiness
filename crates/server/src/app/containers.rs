@@ -110,8 +110,6 @@ impl App {
         membership: CreatorMembership,
     ) -> Result<Container, AppError> {
         if !container.id.is_empty() {
-            // The original does not classify this error and answers 500
-            // (`server/app/boards.go:234-236`).
             return Err(AppError::bad_request("new board cannot have an ID").with_field("id"));
         }
         self.require_makes(&container)?;
@@ -519,10 +517,7 @@ impl App {
         }
     }
 
-    /// Returns the members of a board.
-    ///
-    /// The original also reports the workspace's administrators as admins of the board; a
-    /// standalone server has none.
+    /// Returns the explicit members of a board.
     ///
     /// # Errors
     ///
@@ -854,8 +849,6 @@ impl App {
         self.collab()
             .recheck_access(self, AccessScope::container(container_id).of_user(user_id))
             .await;
-        // The original announces a membership through a channel in place of the removed
-        // one, if the user has one; a standalone server has no such memberships.
         let app = self.clone();
         let user_id = user_id.to_owned();
         self.spawn_background(async move {

@@ -1,20 +1,8 @@
-//! Ports of `server/integrationtests/blocks_test.go` and `server/app/blocks_test.go`,
-//! plus tests of what `server/api/blocks.go` decides and the original leaves untested:
-//! who may do what, the refusals and their messages, and who is told about a change.
+//! Integration and application-layer tests for block routes: permissions, validation,
+//! error messages, batch mutations, undeletion, and websocket change broadcasts.
 //!
-//! The subtests of the original share one server and build on each other; here every
-//! subtest is a test of its own that first repeats the steps before it.
-//!
-//! Boards are created through the store by [`create_board_in_store`], because the board
-//! routes belong to another area.
-//!
-//! Not ported from `server/app/blocks_test.go`:
-//! - `TestPatchBlocks/"cloud limit error scenario"`, `TestInsertBlocks/"create view
-//!   within limits"`, `/"create view exceeding limits"` and `/"creating multiple views,
-//!   reaching limit in the process"`: the card and view limits of the hosted edition,
-//!   which a standalone server never applies (the original skips these cases too).
-//! - `TestUndeleteBlock/"error scenario"`: a failure injected into the store's undelete
-//!   through a mock; the real store's undelete has no failure to provoke.
+//! Each test sets up its own isolated server instance and creates prerequisite boards
+//! through the store via [`create_board_in_store`].
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -57,8 +45,7 @@ enum Role {
     Viewer,
 }
 
-/// Stores `board` with the first client's user as its administrator. The stand-in for
-/// the original's `th.CreateBoard`, which goes through the board routes.
+/// Stores `board` directly with the first client's user as its administrator.
 async fn store_board(th: &TestServer, mut board: Container) -> Container {
     let admin = th.client.me().await;
     board.id = new_id();
@@ -158,8 +145,7 @@ pub(crate) async fn card_with_content(th: &TestServer, boards: &Boards) -> Conte
     }
 }
 
-/// A block as the original's tests send it: an identifier of the client's own and both
-/// times set to 1.
+/// Builds a test block with a freshly generated identifier and both timestamps set to 1.
 pub(crate) fn new_block(board_id: &str, block_type: BlockType, title: &str) -> Block {
     Block {
         id: new_id(),
@@ -359,9 +345,9 @@ impl Socket {
     }
 }
 
-// -- server/integrationtests/blocks_test.go ---------------------------------------------
+// -- Block HTTP route tests -------------------------------------------------------------
 
-/// `TestGetBlocks`
+/// Fetching blocks on a board returns the inserted blocks.
 #[tokio::test]
 async fn get_blocks() {
     let th = Setup::one_user().start().await;
@@ -383,7 +369,7 @@ async fn get_blocks() {
     th.teardown().await;
 }
 
-/// `TestPostBlock/"Create a single block"`
+/// Creating a single block via `POST /blocks`.
 #[tokio::test]
 async fn post_block_create_a_single_block() {
     let th = Setup::one_user().start().await;
@@ -400,7 +386,7 @@ async fn post_block_create_a_single_block() {
     th.teardown().await;
 }
 
-/// `TestPostBlock/"Create a couple of blocks in the same call"`
+/// Creating multiple blocks in a single `POST /blocks` call.
 #[tokio::test]
 async fn post_block_create_a_couple_of_blocks_in_the_same_call() {
     let th = Setup::one_user().start().await;
@@ -433,7 +419,7 @@ async fn post_block_create_a_couple_of_blocks_in_the_same_call() {
     th.teardown().await;
 }
 
-/// `TestPostBlock/"Update a block should not be possible through the insert endpoint"`
+/// Updating an existing block through `POST /blocks` is not allowed.
 #[tokio::test]
 async fn post_block_update_a_block_should_not_be_possible_through_the_insert_endpoint() {
     let th = Setup::one_user().start().await;
@@ -469,7 +455,7 @@ async fn post_block_update_a_block_should_not_be_possible_through_the_insert_end
     th.teardown().await;
 }
 
-/// The block the subtests of `TestPatchBlock` patch.
+/// Fixture block used by the single-block patch tests.
 async fn patch_block_fixture(th: &TestServer) -> Block {
     let board = create_board_in_store(th, ContainerType::Open).await;
     let block = Block {
@@ -479,7 +465,7 @@ async fn patch_block_fixture(th: &TestServer) -> Block {
     insert_one(&th.client, &block).await
 }
 
-/// `TestPatchBlock/"Patch a block basic field"`
+/// Patching a block's basic fields updates them.
 #[tokio::test]
 async fn patch_block_patch_a_block_basic_field() {
     let th = Setup::one_user().start().await;
@@ -501,7 +487,7 @@ fn custom_fields_patch() -> BlockPatch {
     }
 }
 
-/// `TestPatchBlock/"Patch a block custom fields"`
+/// Patching a block's custom `fields` updates them.
 #[tokio::test]
 async fn patch_block_patch_a_block_custom_fields() {
     let th = Setup::one_user().start().await;
@@ -520,7 +506,7 @@ async fn patch_block_patch_a_block_custom_fields() {
     th.teardown().await;
 }
 
-/// `TestPatchBlock/"Patch a block to remove custom fields"`
+/// Patching a block with `deletedFields` removes custom fields.
 #[tokio::test]
 async fn patch_block_patch_a_block_to_remove_custom_fields() {
     let th = Setup::one_user().start().await;
@@ -543,7 +529,7 @@ async fn patch_block_patch_a_block_to_remove_custom_fields() {
     th.teardown().await;
 }
 
-/// `TestDeleteBlock/"Create a block"`
+/// Creating a block before testing deletion.
 #[tokio::test]
 async fn delete_block_create_a_block() {
     let th = Setup::one_user().start().await;
@@ -565,7 +551,7 @@ async fn delete_block_create_a_block() {
     th.teardown().await;
 }
 
-/// `TestDeleteBlock/"Delete a block"`
+/// Deleting a block removes it from the board's active block list.
 #[tokio::test]
 async fn delete_block_delete_a_block() {
     let th = Setup::one_user().start().await;
@@ -589,9 +575,7 @@ async fn delete_block_delete_a_block() {
     th.teardown().await;
 }
 
-/// The block the subtests of `TestUndeleteBlock` delete and undelete: a view on an open
-/// board of the first user. The original's tests use a legacy board block, a type that
-/// no new block has any more.
+/// Fixture block for undelete tests: a view on an open board of the first user.
 async fn undelete_block_fixture(th: &TestServer) -> Block {
     let board = create_board_in_store(th, ContainerType::Open).await;
     assert!(
@@ -605,7 +589,7 @@ async fn undelete_block_fixture(th: &TestServer) -> Block {
     .await
 }
 
-/// `TestUndeleteBlock/"Create a block"`
+/// Creating the fixture block used by undelete tests.
 #[tokio::test]
 async fn undelete_block_create_a_block() {
     let th = Setup::native().start().await.init_basic().await;
@@ -627,7 +611,7 @@ async fn undelete_block_create_a_block() {
     th.teardown().await;
 }
 
-/// `TestUndeleteBlock/"Delete a block"`
+/// Deleting the fixture block hides it from active blocks.
 #[tokio::test]
 async fn undelete_block_delete_a_block() {
     let th = Setup::native().start().await.init_basic().await;
@@ -641,7 +625,7 @@ async fn undelete_block_delete_a_block() {
     th.teardown().await;
 }
 
-/// `TestUndeleteBlock/"Undelete a block"`
+/// Undeleting a deleted block restores it to the board.
 #[tokio::test]
 async fn undelete_block_undelete_a_block() {
     let th = Setup::native().start().await.init_basic().await;
@@ -663,7 +647,7 @@ async fn undelete_block_undelete_a_block() {
     th.teardown().await;
 }
 
-/// `TestUndeleteBlock/"Try to undelete a block without permissions"`
+/// Rejects undeleting a block without write permission on the board.
 #[tokio::test]
 async fn undelete_block_try_to_undelete_a_block_without_permissions() {
     let th = Setup::native().start().await.init_basic().await;
@@ -673,7 +657,6 @@ async fn undelete_block_try_to_undelete_a_block_without_permissions() {
     th.client.post_empty(&path).await.check_ok();
     delete(&th.client, &block).await;
 
-    // (The original's message speaks of members.)
     let response = th.client2.post_empty(&path).await;
     response.check_error(StatusCode::FORBIDDEN, NO_CHANGES);
 
@@ -683,9 +666,9 @@ async fn undelete_block_try_to_undelete_a_block_without_permissions() {
     th.teardown().await;
 }
 
-// -- server/app/blocks_test.go, through the real store ------------------------------------
+// -- Application-layer block tests, through the real store --------------------------------
 
-/// `TestInsertBlock/"success scenario"` (app)
+/// Inserting a single block via the application layer succeeds.
 #[tokio::test]
 async fn app_insert_block_success_scenario() {
     let th = Setup::one_user().start().await;
@@ -713,9 +696,7 @@ async fn app_insert_block_success_scenario() {
     th.teardown().await;
 }
 
-/// `TestInsertBlock/"error scenario"` (app). The original injects a store failure
-/// through a mock; the failures the real store has are a block it refuses and a board
-/// that does not exist.
+/// Application-layer `insert_block` fails when the block is rejected or the board does not exist.
 #[tokio::test]
 async fn app_insert_block_error_scenario() {
     let th = Setup::one_user().start().await;
@@ -756,7 +737,7 @@ async fn app_insert_block_error_scenario() {
     th.teardown().await;
 }
 
-/// `TestPatchBlocks/"patchBlocks success scenario"` (app)
+/// Application-layer `patch_blocks` applies a batch of patches.
 #[tokio::test]
 async fn app_patch_blocks_success_scenario() {
     let th = Setup::one_user().start().await;
@@ -780,9 +761,7 @@ async fn app_patch_blocks_success_scenario() {
     th.teardown().await;
 }
 
-/// `TestPatchBlocks/"patchBlocks error scenario"` (app). The original has the mocked
-/// lookup of the blocks fail; with the real store it fails for an unknown identifier,
-/// and then nothing is patched.
+/// Application-layer `patch_blocks` fails atomically for an unknown identifier, patching nothing.
 #[tokio::test]
 async fn app_patch_blocks_error_scenario() {
     let th = Setup::one_user().start().await;
@@ -808,7 +787,7 @@ async fn app_patch_blocks_error_scenario() {
     th.teardown().await;
 }
 
-/// `TestDeleteBlock/"success scenario"` (app)
+/// Application-layer `delete_block` deletes an existing block.
 #[tokio::test]
 async fn app_delete_block_success_scenario() {
     let th = Setup::one_user().start().await;
@@ -838,8 +817,7 @@ async fn app_delete_block_success_scenario() {
     th.teardown().await;
 }
 
-/// `TestDeleteBlock/"error scenario"` (app). The original injects a store failure
-/// through a mock; the failure the real store has is a block that does not exist.
+/// Application-layer `delete_block` fails when the block does not exist.
 #[tokio::test]
 async fn app_delete_block_error_scenario() {
     let th = Setup::one_user().start().await;
@@ -859,7 +837,7 @@ async fn app_delete_block_error_scenario() {
     th.teardown().await;
 }
 
-/// `TestUndeleteBlock/"success scenario"` (app)
+/// Application-layer `undelete_block` restores a deleted block.
 #[tokio::test]
 async fn app_undelete_block_success_scenario() {
     let th = Setup::one_user().start().await;
@@ -906,7 +884,7 @@ async fn app_undelete_block_that_is_not_in_the_trash() {
     th.teardown().await;
 }
 
-/// `TestInsertBlocks/"success scenario"` (app)
+/// Application-layer `insert_blocks` inserts multiple blocks at once.
 #[tokio::test]
 async fn app_insert_blocks_success_scenario() {
     let th = Setup::one_user().start().await;
@@ -938,9 +916,8 @@ async fn app_insert_blocks_success_scenario() {
     th.teardown().await;
 }
 
-/// `TestInsertBlocks/"error scenario"` (app). The original injects a store failure
-/// through a mock; the real store refuses a block that is too large. Blocks of several
-/// boards are refused before anything is stored.
+/// Application-layer `insert_blocks` rejects oversized blocks and blocks spanning multiple
+/// boards before storing anything.
 #[tokio::test]
 async fn app_insert_blocks_error_scenario() {
     let th = Setup::one_user().start().await;
@@ -1318,7 +1295,7 @@ async fn post_blocks_answer_and_stored_block() {
         );
         assert!(block.update_at >= before, "the modification time is now");
     }
-    // A block sent without fields has an empty object, where the original says null.
+    // A block sent without fields is stored and returned with an empty object.
     assert_eq!(response.value()[0]["fields"], json!({}), "no null fields");
 
     let stored = blocks_of(&th.client, &board.id).await;
@@ -1417,8 +1394,7 @@ async fn post_blocks_validation() {
         response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
     }
 
-    // A body that is no list of blocks is a bad request. (The original answers 500, and
-    // reads `null` as an empty list.)
+    // A body that is not a JSON list of blocks (including `null`) is a bad request.
     for body in [
         "not json",
         "null",
@@ -1438,9 +1414,7 @@ async fn post_blocks_validation() {
     th.teardown().await;
 }
 
-/// A request without blocks creates nothing and needs no more than to see the board.
-/// (The original checks such a request for nothing: anyone signed in gets an empty list,
-/// for any board, existing or not.)
+/// A request with an empty block list creates nothing and still requires access to the board.
 #[tokio::test]
 async fn post_blocks_without_blocks() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1609,8 +1583,7 @@ async fn post_blocks_size_limits() {
         "{message}"
     );
 
-    // A request is stored whole or not at all. (The original stores blocks one by one
-    // and keeps those before the refused one.)
+    // A request is stored atomically: whole or not at all.
     let blocks = [
         new_block(&board.id, BlockType::Card, "before"),
         too_long,
@@ -1632,7 +1605,7 @@ async fn post_blocks_size_limits() {
 
 // -- PATCH /boards/{board_id}/blocks/{block_id} -----------------------------------------
 
-/// The refusals of a patch, in the order the original checks: permission, block, body.
+/// Patch refusals are evaluated in order: permission, block existence, then body validation.
 #[tokio::test]
 async fn patch_block_refusals() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1681,8 +1654,7 @@ async fn patch_block_refusals() {
     // A block of another board answers as one that does not exist.
     response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
-    // A body that is no patch is a bad request. (The original answers 500.) A list is
-    // no patch either, not even an empty one.
+    // A body that is not a patch object (including lists and `null`) is a bad request.
     for body in ["not json", "null", "{\"title\":5}", "[]", "[\"x\"]"] {
         let response = th
             .client
@@ -1787,9 +1759,8 @@ async fn patch_blocks_batch_refusals() {
     let path = blocks_path(&boards.board.id);
     let missing = new_block(&boards.board.id, BlockType::Card, "never stored");
 
-    // A block that does not exist, and one of another board, are not found: the batch
-    // is for the blocks of the board in the path. (The original answers 403 for the
-    // first and does not look at the path's board at all.)
+    // A nonexistent block or a block from another board is not found: the batch only
+    // operates on blocks of the board named in the path.
     for patches in [
         batch(&[(card, "card 2"), (&missing, "x")]),
         batch(&[(card, "card 2"), (&content.other_card, "other 2")]),
@@ -1800,9 +1771,8 @@ async fn patch_blocks_batch_refusals() {
         }
     }
 
-    // Who may not change the board's cards is refused; for who is no member of the
-    // private board it does not exist. (The original's refusal has a stray letter at
-    // its end.)
+    // Users without card-change permission are refused; non-members of a private board
+    // receive 404.
     let response = boards
         .commenter
         .patch(&path, &batch(&[(card, "card 2")]))
@@ -1819,7 +1789,7 @@ async fn patch_blocks_batch_refusals() {
         .await;
     response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
 
-    // An identifier listed twice. (The original counts it as a block that is missing.)
+    // A duplicate block identifier in the same batch is rejected.
     let response = th
         .client
         .patch(&path, &batch(&[(card, "card 2"), (card, "card 3")]))
@@ -1827,8 +1797,7 @@ async fn patch_blocks_batch_refusals() {
     response.check_error(StatusCode::BAD_REQUEST, "a block is listed twice");
     assert_eq!(response.refused_at(), "/blockIds/1");
 
-    // As many patches as identifiers. (The original crashes on fewer patches and
-    // ignores the extra ones.)
+    // The batch must contain exactly as many patches as block identifiers.
     let mut short = batch(&[(card, "card 2"), (text, "text 2")]);
     short.block_patches.pop();
     let mut long = batch(&[(card, "card 2")]);
@@ -1856,7 +1825,7 @@ async fn patch_blocks_batch_refusals() {
         "the title limit"
     );
 
-    // A body that is no batch is a bad request. (The original answers 500.)
+    // A body that is not a valid patch batch is a bad request.
     for body in ["not json", "null", "{\"blockIds\":5}", "[]", "[[], []]"] {
         let response = th.client.send_raw_body(Method::PATCH, &path, body).await;
         response.check_bad_request();
@@ -2036,8 +2005,7 @@ async fn delete_block_takes_the_children_along() {
         "the comment is gone"
     );
 
-    // The card goes with all that is under it. The original cannot delete a card that
-    // holds an image; that is a known difference of the store.
+    // Deleting a card also deletes all of its descendants (including image blocks).
     let response = boards
         .editor
         .delete(&format!(
@@ -2059,8 +2027,8 @@ async fn delete_block_takes_the_children_along() {
 
 // -- POST /boards/{board_id}/blocks/{block_id}/undelete ---------------------------------
 
-/// The refusals of an undeletion in the original's order (board, block, permission),
-/// and what it restores.
+/// Undelete refusals are checked in order (board, block, permission), and undeleting
+/// restores the block.
 #[tokio::test]
 async fn undelete_block_refusals_and_children() {
     let th = Setup::native().start().await.init_basic().await;
@@ -2075,8 +2043,7 @@ async fn undelete_block_refusals_and_children() {
         .await;
     response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
 
-    // A block that never existed: the original crashes on it and answers 500; here it
-    // is not there. For a user who is no member the board is not there either.
+    // A block that never existed is not found; for a non-member the board is not found either.
     let response = th
         .client
         .post_empty(&undelete_path(board_id, "no-such-block"))
@@ -2095,7 +2062,6 @@ async fn undelete_block_refusals_and_children() {
     // A block of another board answers as one that does not exist.
     response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
-    // (The original's refusal speaks of members.)
     for client in [&boards.commenter, &boards.viewer] {
         let response = client.post_empty(&undelete_path(board_id, &card.id)).await;
         response.check_error(StatusCode::FORBIDDEN, NO_CHANGES);
@@ -2185,8 +2151,7 @@ async fn duplicate_block_refusals() {
         "a viewer and a comment"
     );
 
-    // A commenter may comment, but comments are never copied. (The original crashes on
-    // this and answers 500.)
+    // A commenter may comment, but comments cannot be duplicated.
     let response = boards.commenter.post_empty(&comment_path).await;
     response.check_error(StatusCode::BAD_REQUEST, "a comment cannot be duplicated");
 
@@ -2198,9 +2163,8 @@ async fn duplicate_block_refusals() {
     th.teardown().await;
 }
 
-/// The original reads a request body of any size. Three blocks that are each within the
-/// fields limit make a body of more than 2 MB, which the framework would refuse by
-/// default.
+/// Block insert requests can exceed Axum's default 2 MB body limit: three blocks that
+/// are each within the fields limit produce a payload larger than 2 MB and are accepted.
 #[tokio::test]
 async fn post_blocks_larger_than_two_megabytes() {
     let th = Setup::one_user().start().await;
@@ -2292,8 +2256,8 @@ async fn duplicate_block_copies() {
 
 // -- who is told about a change -----------------------------------------------------------
 
-/// Every change of a block is broadcast to the board's members who listen to its workspace,
-/// with or without `disableNotify`; except, as in the original, a batch patch.
+/// Every change of a block—including batch patches—is broadcast to the board's members
+/// who listen to its workspace, with or without `disableNotify`.
 #[tokio::test]
 async fn block_changes_are_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
@@ -2337,8 +2301,7 @@ async fn block_changes_are_broadcast() {
     let announced = member.next_block().await;
     assert_eq!(announced["title"], json!("patched quietly"), "{announced}");
 
-    // A batch patch is announced block by block, like single patches. (The original
-    // broadcasts it to the workspace with the empty identifier, which nobody listens to.)
+    // A batch patch is announced block by block, like single patches.
     th.client
         .patch(&path, &batch(&[(card, "batch 1"), (text, "batch 2")]))
         .await
@@ -2508,11 +2471,9 @@ async fn block_changes_call_the_webhook() {
     serving.abort();
 }
 
-/// Security fix: `sourceBoardId` makes the server copy the files the inserted blocks
-/// name from that board. The original does not check that the user may read it
-/// (`server/api/blocks.go:297-303`): on the original, a user who is on neither board of
-/// another user got the file copied in storage. The port refuses before anything is
-/// copied or inserted.
+/// `sourceBoardId` triggers copying files referenced by inserted blocks from that board;
+/// the caller must have read access to the source board, otherwise the request is refused
+/// before anything is copied or inserted.
 #[tokio::test]
 async fn post_blocks_with_a_source_board_the_user_cannot_read_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
