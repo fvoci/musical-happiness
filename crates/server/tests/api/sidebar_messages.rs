@@ -224,10 +224,8 @@ async fn category_container_changes_are_sent_to_the_users_connection() {
     th.teardown().await;
 }
 
-/// Requests of a new user that arrive together create one default category between
-/// them. The original looks for the category and creates it without holding anything in
-/// between (`server/app/category_boards.go:16-51`); with it, each of the requests would
-/// create a category of its own, and boards would be filed under none.
+/// Concurrent first-time requests from a new user create a single default category
+/// between them rather than racing to create duplicates.
 #[tokio::test]
 async fn the_default_category_is_created_once_by_concurrent_requests() {
     let th = Setup::native().start().await.init_basic().await;
@@ -255,7 +253,7 @@ async fn the_default_category_is_created_once_by_concurrent_requests() {
     assert_eq!(
         categories[0]["name"],
         json!("Boards"),
-        "named as the original names it"
+        "default category name"
     );
     assert_eq!(
         categories[0]["containerMetadata"].as_array().map(Vec::len),
@@ -275,9 +273,9 @@ async fn message_of(stream: &mut Stream, action: &str) -> Value {
     }
 }
 
-/// Not in the original (user decision 2026-11-11 14:25 KST). A deleted board that comes
-/// back is where each user had filed it, hidden as it was, or in the user's default
-/// category if that one went meanwhile; each such user's connection is told the board's
+/// A deleted board that comes back is where each user had filed it, hidden as it was, or
+/// in the user's default category if that one went meanwhile; each such user's connection
+/// is told the board's
 /// entry and the category's order, and a user who had not filed it is told nothing.
 #[tokio::test]
 async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {

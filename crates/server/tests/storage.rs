@@ -1,6 +1,5 @@
-//! Behavior of the file backends. The original has no tests for its file storage (it
-//! mocks the host application's); these pin what the server relies on, and run the same
-//! checks against the local backend and an S3-compatible server.
+//! Behavior of the file backends: shared checks run against both the local filesystem
+//! backend and an S3-compatible server.
 //!
 //! The S3 test is ignored by default. To run it, start an S3-compatible server, create a
 //! bucket, set `FVOCI_S3_TEST_ENDPOINT` (host:port), `FVOCI_S3_TEST_BUCKET` and, if the

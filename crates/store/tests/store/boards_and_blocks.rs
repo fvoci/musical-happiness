@@ -1,15 +1,6 @@
-//! Port of `server/services/store/storetests/boards_and_blocks.go`.
-//!
-//! One test per test function of the original; its subtests are the commented sections,
-//! in the original order, on one store. The original skips the "nothing should be saved"
-//! subtests on SQLite, where it has no transactions; the port is atomic on both
-//! databases and runs them everywhere.
-//!
-//! The original names its boards, blocks, workspace and user with fixed strings. Here every
-//! identifier is generated, and the workspace and the users a board or block refers to are
-//! stored first.
-//!
-//! The tests after [`duplicate_container`] have no counterpart in the original.
+//! Integration tests for atomic multi-board and block creation, patching, deletion, and
+//! duplication. Every identifier is generated, referenced workspaces and users are stored
+//! first, and atomic rollback assertions run on both SQLite and PostgreSQL.
 
 use fvoci_model::{
     BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType, Container, ContainerKinds,
@@ -101,8 +92,7 @@ async fn insert_new_block(store: &Store, board_id: &str, user_id: &str) -> Strin
     block.id
 }
 
-/// Two boards with two blocks each, as the subtests of the original's
-/// `testDeleteBoardsAndBlocks` set up.
+/// Two boards with two blocks each, used by the batch-deletion test cases.
 struct TwoBoards {
     board_ids: [String; 2],
     block_ids: [String; 4],
@@ -145,7 +135,7 @@ impl TwoBoards {
 #[tokio::test]
 #[expect(
     clippy::too_many_lines,
-    reason = "one test per test function of the original, whose subtests share a store"
+    reason = "sequential batch-creation cases share one store fixture"
 )]
 async fn create_containers_and_blocks() {
     let test = common::setup().await;
@@ -279,8 +269,7 @@ async fn create_containers_and_blocks() {
             "got {error:?}"
         );
 
-        // Added: the original only checks the errors, and on SQLite it does save the
-        // boards and the first block. Here nothing is saved on either database.
+        // Verify rollback on both databases: neither the boards nor the blocks are saved.
         for board_id in [&board7, &board8, &board9] {
             let error = test
                 .get_container(board_id)
@@ -337,15 +326,14 @@ async fn create_containers_and_blocks() {
 #[tokio::test]
 #[expect(
     clippy::too_many_lines,
-    reason = "one test per test function of the original, whose subtests share a store"
+    reason = "sequential batch-creation cases share one store fixture"
 )]
 async fn patch_containers_and_blocks() {
     let test = common::setup().await;
     let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
 
-    // The subtests share their boards and blocks, as the original's do by naming them
-    // alike: a later subtest stores the first board and the first block again.
+    // Cases share their board and block identifiers across sequential steps.
     let [board1_id, board2_id, board3_id] = new_ids();
     let [block1_id, block2_id] = new_ids();
 
@@ -564,8 +552,7 @@ async fn delete_containers_and_blocks() {
 
     // "should not delete anything if a block doesn't belong to any of the boards"
     {
-        // The original puts the fourth block on a board that does not exist. A block's
-        // board exists here, so it is a third board, which the request leaves out.
+        // Place the fourth block on an existing third board not included in the delete request.
         let different_board_id = insert_new_board(&test, &workspace_id, &user_id).await;
         let entities =
             TwoBoards::insert(&test, &workspace_id, &user_id, Some(&different_board_id)).await;
@@ -659,8 +646,7 @@ async fn delete_containers_and_blocks() {
             assert!(error.is_not_found(), "block {block_id}: {error:?}");
         }
 
-        // Added: what was deleted is in the trash, the original's place for it being
-        // its history.
+        // Verify the deleted boards landed in the trash.
         for board_id in &entities.board_ids {
             let deleted = test
                 .get_deleted_container(board_id)
@@ -686,8 +672,6 @@ async fn duplicate_container() {
     let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
 
-    // The original gives the first board a channel and checks that the copies have
-    // none; a board has no channel here.
     let [board1, board2, board3] = new_ids();
     let [block1, block1a, block2] = new_ids();
     let mut new_bab = ContainersAndBlocks {
@@ -775,9 +759,10 @@ async fn duplicate_container() {
     test.teardown().await;
 }
 
-// Characterization tests: behavior of the original that its test suite does not cover.
+// Additional batch-operation and duplication invariants.
 
-/// `server/services/store/sqlstore/boards_and_blocks.go:136-183`.
+/// Duplicating a board copies its blocks, rewrites internal references, omits comments,
+/// and applies template/title options.
 #[tokio::test]
 #[expect(
     clippy::too_many_lines,
@@ -981,8 +966,6 @@ async fn duplicate_container_copies_under_new_ids_as_a_private_board_of_the_user
 }
 
 /// A board without blocks, or with comments only, is copied as a board without blocks.
-/// The original refuses it (`server/services/store/sqlstore/boards_and_blocks.go:177`:
-/// the identifiers are regenerated by a function that insists on at least one block).
 #[tokio::test]
 async fn duplicate_container_copies_a_board_without_blocks() {
     let test = common::setup().await;
@@ -1045,8 +1028,7 @@ async fn duplicate_container_copies_a_board_without_blocks() {
     test.teardown().await;
 }
 
-/// `server/services/store/sqlstore/boards_and_blocks.go:76-98`: the original indexes the
-/// patches by the position of the identifier and crashes when there are too few.
+/// Patching returns an error instead of panicking when fewer patches than IDs are given.
 #[tokio::test]
 async fn patch_containers_and_blocks_rejects_fewer_patches_than_ids() {
     let test = common::setup().await;
@@ -1105,10 +1087,8 @@ async fn patch_containers_and_blocks_rejects_fewer_patches_than_ids() {
     test.teardown().await;
 }
 
-/// The original deletes the listed blocks one by one, each with its direct children, so
-/// that a block listed after its parent is no longer found and the request fails
-/// (`server/services/store/sqlstore/boards_and_blocks.go:110-123`). Here the listed
-/// blocks are only checked, before anything is deleted: the order does not matter.
+/// Listed blocks are validated before deletion begins, so listing a child block after its
+/// parent succeeds regardless of order.
 #[tokio::test]
 async fn delete_containers_and_blocks_accepts_a_block_listed_after_its_parent() {
     let test = common::setup().await;
@@ -1254,9 +1234,8 @@ async fn delete_containers_and_blocks_refuses_a_block_that_is_in_the_trash() {
     test.teardown().await;
 }
 
-/// The blocks of one request are stored parents first, wherever in the list each is.
-/// The original stores them in the order given, and a database that checked the parent
-/// would refuse a child listed first.
+/// The blocks of one request are stored parents first, wherever in the list each appears,
+/// so foreign-key parent checks accept a child listed before its parent.
 #[tokio::test]
 async fn create_containers_and_blocks_accepts_a_block_listed_before_its_parent() {
     let test = common::setup().await;

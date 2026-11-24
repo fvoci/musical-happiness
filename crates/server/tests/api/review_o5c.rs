@@ -185,10 +185,8 @@ async fn trashing_one_workspace_leaves_a_members_other_subscription_open() {
     ts.teardown().await;
 }
 
-/// `user_is_guest` asked the account, which no member of a workspace is a guest of;
-/// its replacement asks the role in the path's workspace. So a guest of the workspace
-/// who was made a member of one of its template boards, and opens that board, is now
-/// refused its blocks (403), as only a guest of the instance was before.
+/// A workspace guest who is explicitly added as a member of a private template board can
+/// read both the template's metadata and its blocks (200).
 #[tokio::test]
 async fn a_guest_member_of_a_template_board_reads_its_blocks() {
     use crate::common::{TEST_WORKSPACE_ID, TEST_WS};

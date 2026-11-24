@@ -1,5 +1,4 @@
-//! The test server and the client that talks to it; the counterpart of the original's
-//! `server/integrationtests/clienttestlib.go` and `server/client/client.go`.
+//! The in-process test server and HTTP/WebSocket client harness for API tests.
 #![allow(
     dead_code,
     reason = "a shared helper module; each test module uses a different part of it"
@@ -179,7 +178,7 @@ pub(crate) struct Setup {
     database_role: DatabaseRole,
     database: Database,
     /// Whether the built-in templates are imported at startup. Off by default so a
-    /// server starts quickly; the counterpart of the original's `SkipTemplateInit`.
+    /// server starts quickly.
     with_templates: bool,
     /// `metrics_address`.
     metrics_at: Option<String>,
@@ -306,7 +305,7 @@ impl Setup {
         self
     }
 
-    /// Starts the server. The counterpart of `SetupTestHelper(t).Start()`.
+    /// Starts the test server and waits until it is listening.
     pub(crate) async fn start(self) -> TestServer {
         self.try_start().await.expect("the test server starts")
     }
@@ -786,8 +785,7 @@ impl TestServer {
         }
     }
 
-    /// Stops the server and removes its database and files. The counterpart of
-    /// `TearDown`.
+    /// Stops the server and removes its temporary database and files.
     pub(crate) async fn teardown(self) {
         let _ = self.shutdown.send(());
         self.serving
@@ -813,8 +811,7 @@ impl KeptData {
     }
 }
 
-/// An HTTP client for the API that carries one session token; the counterpart of the
-/// original's `client.Client`.
+/// An HTTP client for the API that carries one session token.
 #[derive(Debug, Clone)]
 pub(crate) struct Client {
     http: reqwest::Client,

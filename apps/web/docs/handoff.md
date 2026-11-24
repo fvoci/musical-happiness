@@ -38,7 +38,6 @@
 | 조립된 화면의 그림                               | 저장소에 든 것은 `docs/screens/<화면>/`. 새로 찍으면 `target/screens/<화면>/`(커밋하지 않는다, `e2e/screens.ts`) |
 | 글꼴의 결정과 수치                               | `docs/notes.md`의 "글꼴"                                                                                         |
 | 날짜 값의 와이어, 지역 설정의 값                 | `docs/notes.md`의 "날짜 속성 값의 와이어 모양", "보는 사람의 시간대: 계정 설정"                                  |
-| 번역 결정, 한국어 검수 표                        | `docs/i18n-conversion.md`, `docs/ko-review.md`                                                                   |
 | 내장 템플릿                                      | 저장소 루트의 `crates/server/assets/templates/`의 `README.md`                                                    |
 | 편집기, 읽기 전용 표시기, 번들 크기              | `docs/spike-editor.md`(표시기는 9절, 창 크기는 6.5절, 수식과 다이어그램은 10절)                                  |
 | 드래그의 결정 1–11, 공개 형태, 창 크기가 바뀔 때 | `docs/spike-drag.md`                                                                                             |

@@ -91,9 +91,7 @@ impl Store {
             }
             let mut sql =
                 scope.sql("UPDATE category_containers SET sort_order = CASE container_id");
-            // Preserved quirk: consecutive boards are one apart, starting at the gap. The
-            // original adds the gap to the position where it means to multiply by it
-            // (server/services/store/sqlstore/category_boards.go:144).
+            // Consecutive boards are spaced by 1 starting from the sort-order gap offset.
             for (sort_order, container_id) in (CATEGORY_CONTAINERS_SORT_ORDER_GAP..).zip(&new_order)
             {
                 sql.push_bind(" WHEN ", Id(container_id))
@@ -172,9 +170,7 @@ async fn category_container_metadata(
 ) -> Result<Vec<CategoryContainerMetadata>, StoreError> {
     let mut sql =
         scope.sql("SELECT container_id, hidden FROM category_containers WHERE category_id = ");
-    // Preserved quirk: the rows are not narrowed to the user the category belongs to, so
-    // a board that another user put into this category is listed with it
-    // (server/services/store/sqlstore/category_boards.go:42).
+    // Filters only by `category_id`; category ownership is enforced on writes in the app layer.
     sql.bind(Id(category_id))
         .push(" ORDER BY sort_order, container_id");
     scope
@@ -197,9 +193,7 @@ pub(crate) async fn add_update_category_container(
     container_ids: &[String],
 ) -> Result<(), StoreError> {
     // One statement must not name a board twice: PostgreSQL refuses an upsert that would
-    // touch the same row a second time. The rows are written in the order the boards are
-    // first named; the original writes them in the random order of a hash map, and no
-    // reader depends on either.
+    // touch the same row a second time. Deduplicate while preserving the first-seen order.
     let mut seen = HashSet::with_capacity(container_ids.len());
     let container_ids: Vec<&str> = container_ids
         .iter()
@@ -223,8 +217,7 @@ pub(crate) async fn add_update_category_container(
             .push_bind(", ", now)
             .push(", 0, false)");
     }
-    // Preserved quirk: a board that changes category keeps the sort order it had in the
-    // old one, and its hidden flag (server/services/store/sqlstore/category_boards.go:105).
+    // Moving a board to another category keeps its previous sort order and hidden flag.
     sql.push(" ON CONFLICT ")
         .push(filed_once(scope))
         .push(" DO UPDATE SET category_id = EXCLUDED.category_id, update_at = EXCLUDED.update_at");

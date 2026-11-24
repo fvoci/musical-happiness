@@ -259,10 +259,9 @@ pub(super) fn decompress(
     Ok(read)
 }
 
-/// Splits an archive entry name into its cleaned directory and its base file name, as
-/// the original does with `filepath.Split` and `path.Clean`. The directory is only ever
-/// a map key, and the file name never has a path separator, so a `..` in the name cannot
-/// escape the storage root.
+/// Splits an archive entry name into its normalized directory and its base file name.
+/// The directory is only ever a map key, and the file name never has a path separator,
+/// so a `..` segment in the name cannot escape the storage root.
 pub(super) fn split_entry_name(name: &str) -> (String, String) {
     match name.rsplit_once('/') {
         Some((dir, filename)) => (clean_dir(dir), filename.to_owned()),

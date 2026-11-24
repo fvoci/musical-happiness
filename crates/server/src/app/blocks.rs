@@ -177,8 +177,7 @@ impl App {
     /// websocket listeners about each right after it is stored and webhooks in the
     /// background. No blocks are no error.
     ///
-    /// The blocks are stored all or none. The original stores them one by one and keeps
-    /// those before a refused one (server/app/blocks.go:182-191).
+    /// The blocks are stored atomically (all or none).
     ///
     /// # Errors
     ///
@@ -205,8 +204,7 @@ impl App {
         }
         let container = self.store().get_container(&container_id).await?;
 
-        // All or none: the original stores the blocks one by one, and answers with an
-        // error for the third while the first two stay.
+        // Store all blocks atomically so a failure leaves none persisted.
         let card_ids: Vec<String> = blocks
             .iter()
             .filter(|block| block.block_type.has_room())
@@ -323,8 +321,7 @@ impl App {
         modified_by: &str,
         notification: ChangeNotification,
     ) -> Result<(), AppError> {
-        // Only whether all of them exist matters here; the original hands the old blocks
-        // to its notification service.
+        // Verify that every referenced block exists before writing patches.
         let blocks = self.store().get_blocks_by_ids(&batch.block_ids).await?;
         // Whole bodies are written around the documents of bodies edited together.
         let card_ids =
@@ -592,9 +589,9 @@ impl App {
     }
 
     /// Keeps the body of each copied card, as it was copied and pointed at its own files,
-    /// as the copy's one version: a copy begins with the body it was made with to go back
-    /// to, and none of the original's versions. A version that cannot be kept is logged:
-    /// the copy is stored and told of already, as a card that has none yet.
+    /// as the copy's initial version: a copy begins with the body it was made with to go
+    /// back to, without carrying over the source card's history. A version that cannot be
+    /// kept is logged: the copy is stored and told of already, as a card that has none yet.
     async fn keep_bodies_as_copied(&self, copies: &[Block]) {
         let with_bodies = copies
             .iter()
@@ -631,8 +628,7 @@ pub(super) fn hide_inactive_numbers(blocks: &mut [Block]) {
     }
 }
 
-/// The whole of a notification on a standalone server: the log line the original's
-/// notification service writes for a block change.
+/// Logs a debug notification line for a block change event when enabled.
 pub(super) fn log_notification(
     notification: ChangeNotification,
     action: ChangeAction,

@@ -1,10 +1,8 @@
 //! What card property definitions and values must look like to be stored.
 //!
-//! Not in the original, which stores whatever it is sent: a definition without an
-//! identifier, a number as a property value, a string where the properties of a card
-//! should be (all answered 200 by the original and, until S6, by this server). Clients
-//! render these values as they are, so one member could break a board for the others,
-//! and a card with malformed properties broke the board's card list. Every way of
+//! Validation rejects malformed property definitions and card property values (missing
+//! definition IDs, non-string property values, or non-object card property maps) so one
+//! member cannot break rendering or card listing for the rest of a board. Every way of
 //! writing them now answers 400 and stores nothing.
 
 use std::io::{Cursor, Write as _};

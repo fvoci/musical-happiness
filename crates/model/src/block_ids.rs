@@ -237,8 +237,8 @@ fn referenced_ids<'b>(blocks: &'b [Block], relations: &RelationProperties) -> Ha
 
         if let Some(content_order) = block.fields.get("contentOrder") {
             let Some(items) = content_order.as_array() else {
-                // The original skips the rest of this block, including its
-                // `defaultTemplateId`, when `contentOrder` is not an array.
+                // Non-array `contentOrder` stops scanning the rest of this block, including
+                // `defaultTemplateId`.
                 continue;
             };
             referenced.extend(order_ids(items));

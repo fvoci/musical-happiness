@@ -149,20 +149,20 @@ pub enum DuplicateAs {
 /// for it. The store has no words of its own: the caller brings them.
 #[derive(Debug, Clone, Copy)]
 pub struct CopyTitles {
-    /// The title of a copy of the same kind as the original, made of the original's.
+    /// The title of a copy of the same kind as the source, built from the source title.
     pub copy_of: fn(&str) -> String,
     /// The title of a template made from a board.
     pub new_template: &'static str,
 }
 
-/// What a copy of a board does not take from the original as it stands. The store
+/// What a copy of a board changes relative to the source board. The store
 /// knows neither what a caller keeps among a board's properties nor what day it is: the
 /// caller brings both. The default changes nothing.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CopyChanges<'c> {
     /// The names of the board's own properties that the copy is made without.
     pub without_properties: &'c [&'c str],
-    /// How many days later than the original's the copy's days are: the date values of
+    /// How many days later than the source dates the copy's dates are: the date values of
     /// its cards and the days its views filter dates by. Earlier for a negative number.
     pub days_later: i64,
 }

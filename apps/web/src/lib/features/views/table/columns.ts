@@ -15,7 +15,7 @@ import {
 } from '$lib/logic/wire.ts';
 
 export const TABLE_SETTINGS = {
-  /** No column gets narrower than this, in pixels. The original's minimum. */
+  /** Minimum column width in pixels. */
   minColumnWidth: 100,
   /** Nor wider than this. */
   maxColumnWidth: 800,

@@ -77,13 +77,13 @@ fn block_listeners<'a>(listeners: &'a Listeners, block_id: &str) -> &'a [Listene
     listeners.by_block.get(block_id).map_or(&[], Vec::as_slice)
 }
 
-/// `TestTeamSubscription`
+/// Subscribing, unsubscribing, and disconnecting listeners on workspaces.
 #[test]
 fn workspace_subscription() {
     let mut listeners = Listeners::default();
     let workspace_id = "fake-workspace-id";
 
-    // "Should correctly add a session"
+    // Adding a listener registers it with no workspace subscriptions.
     let session = add_listener(&mut listeners, "");
     assert_eq!(listeners.by_id.len(), 1, "one listener");
     assert!(
@@ -95,8 +95,7 @@ fn workspace_subscription() {
         "the session has no workspaces"
     );
 
-    // "Should correctly subscribe to a team" and "Subscribing again to a subscribed
-    // workspace would have no effect"
+    // Subscribing to a workspace is idempotent.
     for round in ["first", "again"] {
         subscribe_to_workspace(&mut listeners, session, workspace_id);
         assert_eq!(
@@ -111,8 +110,7 @@ fn workspace_subscription() {
         );
     }
 
-    // "Should correctly unsubscribe to a team" and "Unsubscribing again to an
-    // unsubscribed workspace would have no effect"
+    // Unsubscribing from a workspace is idempotent.
     for round in ["first", "again"] {
         unsubscribe_from_workspace(&mut listeners, session, workspace_id);
         assert!(
@@ -122,12 +120,11 @@ fn workspace_subscription() {
         assert!(workspaces_of(&listeners, session).is_empty(), "{round}");
     }
 
-    // "Should correctly be removed from the server"
+    // Removing the listener clears it from the table.
     listeners.remove(session);
     assert!(listeners.by_id.is_empty(), "no listener is left");
 
-    // "If subscribed to workspaces and removed, should be removed from the workspaces
-    // subscription list"
+    // Removing a listener clears all of its workspace subscriptions.
     let workspace_id2 = "other-fake-workspace-id";
     let session = add_listener(&mut listeners, "");
     subscribe_to_workspace(&mut listeners, session, workspace_id);
@@ -197,9 +194,8 @@ fn a_workspace_in_the_trash_is_followed_by_nobody() {
     }
 }
 
-/// `TestTeamSubscription/"Subscribe users to team retrieve by user"`: the listeners of
-/// a user in the workspace are the ones that are told about their categories, every tab of
-/// the user and no other user's.
+/// Looking up listeners by user in a workspace returns every tab of that user and none of
+/// any other user.
 #[test]
 fn workspace_subscription_subscribe_users_to_workspace_retrieve_by_user() {
     let mut listeners = Listeners::default();
@@ -244,7 +240,7 @@ fn workspace_subscription_subscribe_users_to_workspace_retrieve_by_user() {
     );
 }
 
-/// `TestBlocksSubscription`
+/// Subscribing, unsubscribing, and disconnecting listeners on blocks.
 #[test]
 fn blocks_subscription() {
     let mut listeners = Listeners::default();
@@ -410,4 +406,30 @@ fn an_ending_checked_against_one_role_leaves_a_later_subscription() {
         "it follows it no more"
     );
     assert!(hears.try_recv().is_ok(), "told it ended");
+}
+
+/// `Command.blockIds` defaults to an empty list when omitted, accepts a list of strings,
+/// and rejects an explicit `null`.
+#[test]
+fn command_block_ids_defaults_when_omitted_and_rejects_null() {
+    let omitted: Command =
+        serde_json::from_str(r#"{"action":"SUBSCRIBE_BLOCKS"}"#).expect("omitted blockIds");
+    assert_eq!(
+        omitted.block_ids,
+        Vec::<String>::new(),
+        "omitted blockIds defaults to empty"
+    );
+
+    let listed: Command =
+        serde_json::from_str(r#"{"action":"SUBSCRIBE_BLOCKS","blockIds":["b1","b2"]}"#)
+            .expect("listed blockIds");
+    assert_eq!(
+        listed.block_ids,
+        ["b1", "b2"],
+        "listed blockIds are preserved"
+    );
+
+    let null_err =
+        serde_json::from_str::<Command>(r#"{"action":"SUBSCRIBE_BLOCKS","blockIds":null}"#);
+    assert!(null_err.is_err(), "explicit null blockIds must be rejected");
 }

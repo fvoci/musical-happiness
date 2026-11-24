@@ -668,9 +668,8 @@ impl ContainerPatch {
                 by_id.insert(id, property.clone());
             }
         }
-        // An identifier can be in `order` twice: the patch deletes it and adds it back.
-        // The definition is emitted once, at its first place. (The original emits it once
-        // per occurrence, which leaves a board with two definitions of one identifier.)
+        // An identifier can be in `order` twice if the patch deletes it and adds it back.
+        // Emit each definition once, at its first position, to avoid duplicate property IDs.
         let mut emitted = HashSet::new();
         container.card_properties = order
             .iter()

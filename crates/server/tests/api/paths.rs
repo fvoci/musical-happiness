@@ -131,7 +131,7 @@ async fn check_path_rules(origin: &str, base: &str) {
         "/api/v1/",
         "/api",
         "/api/",
-        // The prefix of the original server's API.
+        // Retired API prefix.
         "/api/v2",
         "/api/v2/boards",
         "/api/v2/clientConfig",
@@ -278,11 +278,10 @@ async fn path_rules_under_a_base_path() {
     th.teardown().await;
 }
 
-/// The paths the original server had for what now has another path are no routes: a
-/// JSON 404 like any path the API does not have, with a session and without one, and
-/// whether or not what they name is there.
+/// Retired paths that have moved return a JSON 404 like any unknown API route, with or
+/// without a session and regardless of whether the referenced resource exists.
 #[tokio::test]
-async fn the_original_paths_of_routes_that_have_another_path_are_not_found() {
+async fn retired_route_paths_are_not_found() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
     let other = th.client2.me().await.id;

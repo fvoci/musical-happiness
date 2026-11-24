@@ -10,9 +10,9 @@ use crate::blocks::{
 use crate::common::TEST_WS;
 use crate::common::{Setup, TEST_WORKSPACE_ID};
 
-/// Not in the original (user decision 2026-11-11 14:25 KST). The deleted cards of a board
-/// are listed for its editors, the last deleted first, with what it takes to decide on
-/// bringing one back; a viewer is refused, and for anybody else the board is not there.
+/// The deleted cards of a board are listed for its editors, the last deleted first, with
+/// what it takes to decide on bringing one back; a viewer is refused, and for anybody
+/// else the board is not there.
 #[tokio::test]
 async fn the_deleted_cards_of_a_board_are_listed_for_its_editors() {
     let th = Setup::native().start().await.init_basic().await;
@@ -81,9 +81,9 @@ async fn a_moment() {
     tokio::time::sleep(std::time::Duration::from_millis(3)).await;
 }
 
-/// Not in the original (user decision 2026-11-11 14:25 KST). The list of a board's deleted
-/// cards has each card that `undeleteBlock` brings back by itself: a card on another one
-/// deleted alone is there, a card that went with the card it was on comes back with that
+/// The list of a board's deleted cards has each card that `undeleteBlock` brings back by
+/// itself: a card on another one deleted alone is there, a card that went with the card
+/// it was on comes back with that
 /// one and is not; no comment is a card. Paging as `getCards`; no list for a board in the
 /// trash.
 #[tokio::test]

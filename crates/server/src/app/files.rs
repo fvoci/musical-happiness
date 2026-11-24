@@ -570,7 +570,7 @@ impl App {
             ..source.clone()
         };
         if let Err(error) = self.mark_writing(&copy.path).await {
-            tracing::error!(%error, "CopyCardFiles could not mark a copy");
+            tracing::error!(%error, "card file copy could not mark destination");
             return None;
         }
         let copied = self.files().copy(&source.path, &copy.path);
@@ -582,13 +582,13 @@ impl App {
                 %error,
                 source_path = source.path,
                 destination_path = copy.path,
-                "CopyCardFiles failed to copy file"
+                "card file copy failed to copy file"
             );
             self.give_up_writing(&copy.path, Written::Unsettled).await;
             return None;
         }
         if let Err(error) = self.record_written(&copy).await {
-            tracing::error!(%error, "CopyCardFiles could not record a copy");
+            tracing::error!(%error, "card file copy could not record destination");
             return None;
         }
         Some(copy.stored_name)

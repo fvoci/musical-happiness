@@ -209,7 +209,6 @@ cargo xtask docker   # 이미지 둘(서버+웹앱, 검색 서버)을 빌드해 
 |---|---|---|
 | `research/facts.md` | 설계의 보완 a–f의 근거가 된 바깥 문서의 인용문. 출처 주소와 받은 시각이 있다 | 설계 5.1–5.6을 구현할 때. 설계 문서는 요약만 싣는다 |
 | `research/raw/` | 받은 원문. 목록은 표 아래 | 인용문의 앞뒤를 볼 때. 다시 받으면 판이 달라졌을 수 있다(초안 둘은 RFC가 아니다) |
-| `gz/` | 형제 저장소 GroundZero의 `contracts/openapi.json`과 xtask 일부 | OpenAPI 도구의 구성을 다시 볼 때(설계 5.5). 코드를 복사하지 않고 구성만 참고한다 |
 | `golden_diff.py` | 스냅샷 두 벌을 단계별로 비교해 상태 코드의 전이를 센다 | 스냅샷을 갱신한 뒤의 요약(1절) |
 | `hashtime/` | Argon2id 한 번의 시간을 잰 작은 프로그램 | 해시 대기열의 수치를 다시 볼 때 |
 | `xtask-test-*.log` 등 단계마다의 출력 | 전체 테스트와 검사의 출력 | 그때의 수를 대조할 때 |
@@ -227,7 +226,7 @@ cargo xtask docker   # 이미지 둘(서버+웹앱, 검색 서버)을 빌드해 
 2. **(끝났다)** **템플릿 받기**(설계 3.10, 5.7). 내장 템플릿은 저장소의 파일이다(`crates/server/assets/templates/`). 새 클론에서 서버가 그대로 컴파일된다.
 3. **(끝났다)** **청크 업로드, 스트리밍, 파일 한도**(설계 4.3, 5.6).
 4. **(끝났다, tracer-bullet 10)** **응답 압축에 zstd를 더한다.** 결정된 것은 gzip, brotli, zstd 셋이다. 정적 파일은 웹앱의 빌드가 `.zst`를 이미 만든다. 서버는 지금 미리 압축된 brotli와 gzip 파일만 골라 보낸다(`crates/server/src/web.rs`). `.zst`를 골라 보내는 일이 남았다.
-5. **(끝났다, tracer-bullet 11)** **`cargo xtask test`가 스스로 띄운 컨테이너를 끝날 때 멈추게 한다.** 함께 컨테이너 이름에서 옛 워크트리 이름(`hafgufa-`)을 뗀다. 이름의 기본값은 `xtask/src/containers.rs`에 있다.
+5. **(끝났다, tracer-bullet 11)** **`cargo xtask test`가 스스로 띄운 컨테이너를 끝날 때 멈추게 한다.** 컨테이너 이름 기본값은 `xtask/src/containers.rs`에 있다.
 
 **웹앱 쪽에 전할 것.**
 

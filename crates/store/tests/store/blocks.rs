@@ -1,23 +1,9 @@
-//! Port of `server/services/store/storetests/blocks.go`.
+//! Integration tests for block storage, patching, deletion, trash restoration, subtree
+//! queries, pagination, concurrent writers, and property validation.
 //!
-//! There is one test per test function of the original, because the subtests of one
-//! function share a store and run in order. Each subtest is a section headed by its name
-//! in quotes. The original keeps a history of every block and sleeps a millisecond between
-//! writes so that two history rows of one block cannot collide. This store keeps no
-//! history: its tables hold what exists and a deleted block is in the trash. So the test
-//! of the history (`testGetBlockMetadata`), the test of the subtree read that goes
-//! through it (`testGetSubTree2`) and those sleeps are not ported.
-//!
-//! The original names its users, boards and blocks with made-up text such as `user-id-1`,
-//! `board-id` and `block1`, and none of them has to exist. Here an identifier is a UUID,
-//! and what a block refers to (its board, the users who write it) is stored before the
-//! block. So every test first stores its users, its workspace and its boards, and the sample
-//! blocks carry the names the original gives them as their titles.
-//!
-//! After the ported suite come tests the original does not have: concurrent writers,
-//! behavior of the block operations that its suite leaves uncovered, what this store
-//! does differently (the trash, parents that must be blocks of the same board, the order
-//! of lists), and callers that delete and restore the same blocks at the same time.
+//! Every user, workspace, board, and block uses a generated UUID identifier, and
+//! referenced parents and boards are stored first. Deleted blocks move to the trash
+//! tables rather than keeping a full per-edit history.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -37,8 +23,7 @@ use tokio::task::JoinSet;
 
 use crate::common;
 
-/// `subtreeSampleBlocks` (`server/services/store/storetests/blocks.go:529`), the children
-/// cards to hold comments: the name of each block, the name of its parent and its type.
+/// Sample block tree (name, parent name, block type) for subtree and cascade-delete tests.
 const SUBTREE_SAMPLE: [(&str, &str, &str); 6] = [
     ("parent", "", "card"),
     ("child1", "parent", "card"),
@@ -48,8 +33,7 @@ const SUBTREE_SAMPLE: [(&str, &str, &str); 6] = [
     ("greatgrandchild1", "grandchild1", ""),
 ];
 
-/// The five blocks that `testGetBlocks` and `testGetBlockMetadata` insert: the name of
-/// each block, the name of its parent and its type.
+/// Five sample blocks of varying types used by pagination and filter tests.
 const TYPED_SAMPLE: [(&str, &str, &str); 5] = [
     ("block1", "", "test"),
     ("block2", "block1", "test"),
@@ -65,10 +49,8 @@ const TYPED_SAMPLE: [(&str, &str, &str); 5] = [
     reason = "the members are identifiers, named like the variables that hold them"
 )]
 pub(crate) struct Fixture {
-    /// Takes the place of `testUserID` of the original suite.
     pub(crate) user_id: String,
     pub(crate) workspace_id: String,
-    /// Takes the place of `testBoardID` of the original suite.
     pub(crate) board_id: String,
 }
 
@@ -107,9 +89,7 @@ async fn users<const N: usize>(store: &Store) -> [String; N] {
 }
 
 /// A block with the given identifier and board and nothing else.
-///
-/// Many block literals of the original also preset `ModifiedBy`. Every insert overwrites
-/// it before anything reads it, so it is only carried over where a test is about it.
+/// Every insert overwrites `modified_by`, so it is only set when a test checks it.
 pub(crate) fn block(id: &str, board_id: &str) -> Block {
     Block {
         id: id.to_owned(),
@@ -270,8 +250,7 @@ pub(crate) async fn assert_no_block(store: &Store, block_id: &str) {
     }
 }
 
-/// `createTestCards` (`server/services/store/storetests/util.go:76`): cards directly on
-/// the board.
+/// Inserts `count` top-level cards on `board_id`.
 async fn create_test_cards(
     store: &Store,
     user_id: &str,
@@ -296,7 +275,7 @@ async fn create_test_cards(
     cards
 }
 
-/// `createTestBlocksForCard` (`server/services/store/storetests/util.go:52`).
+/// Inserts `count` child blocks under `card_id`.
 async fn create_test_blocks_for_card(store: &Store, card_id: &str, count: usize) -> Vec<Block> {
     let card = existing_block(store, card_id).await;
     assert_eq!(
@@ -399,7 +378,7 @@ async fn assert_undelete_finds_nothing(store: &Store, block_id: &str, user_id: &
 #[tokio::test]
 #[expect(
     clippy::too_many_lines,
-    reason = "one test per test function of the original, whose subtests share a store"
+    reason = "sequential block-insertion cases share one store fixture"
 )]
 async fn insert_block() {
     let test = common::setup().await;
@@ -410,7 +389,6 @@ async fn insert_block() {
         board_id,
     } = fixture(store).await;
     let board_id = board_id.as_str();
-    // `board-id-1` of the original.
     let other_board_id = another_board(store, &workspace_id, &owner_id).await;
     let [user1, user2, user3, user4, user5, user6] = users(store).await;
 
@@ -444,10 +422,7 @@ async fn insert_block() {
         "the rejected block changed nothing: {blocks:?}"
     );
 
-    // "invalid fields data"
-    // Not expressible: the original stores a function value in the fields, which cannot
-    // be serialized to JSON. The fields of a block here are a JSON object by type, so
-    // there is no value to pass that fails to serialize.
+    // Unserializable field values are prevented by type (`JsonMap`).
 
     // "block with title too large"
     let mut long_title = Block {
@@ -471,10 +446,7 @@ async fn insert_block() {
         .expect_err("fields over the limit are rejected");
     assert_invalid_block(&error, &BlockError::FieldsSizeLimitExceeded);
 
-    // "insert new block"
-    // The block of the original has no identifier, and the original stores it under the
-    // empty one. Here the empty string is no identifier, so that block is refused, and
-    // the subtest goes on with a block that has one.
+    // An empty ID is rejected; then insert a valid block with a generated ID.
     let mut without_id = block("", board_id);
     let error = store
         .insert_block(&mut without_id, &user2)
@@ -527,7 +499,7 @@ async fn insert_block() {
         "the creator given for an existing block is not altered"
     );
     assert_eq!(new.title, "New Title", "the title is as given");
-    // Not in the original: the stored block keeps the creator it has.
+    // Updating an existing block preserves its original `created_by`.
     let stored = existing_block(store, &id2).await;
     assert_eq!(
         (stored.created_by.as_str(), stored.title.as_str()),
@@ -600,8 +572,7 @@ async fn insert_a_block_with_tampered_data(
     other_board_id: &str,
     [user1, user5, user6]: [String; 3],
 ) {
-    // `01 Jan 90 01:00` and `02 Jan 90 01:00`; the original parses them with a zone
-    // abbreviation that its parser reads as UTC.
+    // Fixed UTC timestamps: `1990-01-01T01:00:00Z` and `1990-01-02T01:00:00Z`.
     let created_at = 631_155_600_000;
     let updated_at = 631_242_000_000;
     let id10 = new_id();
@@ -634,7 +605,7 @@ async fn insert_a_block_with_tampered_data(
     );
     assert_within_a_second(expected_time, retrieved.create_at, "create time");
     assert_within_a_second(expected_time, retrieved.update_at, "update time");
-    // Not in the original: the argument says what was stored.
+    // Caller-supplied block timestamps are overwritten with what was stored.
     assert_eq!(
         (tampered.create_at, tampered.update_at),
         (retrieved.create_at, retrieved.update_at),
@@ -694,8 +665,7 @@ async fn patch_block() {
 
     let initial_count = board_blocks(store, board_id).await.len();
 
-    // "not existing block id"
-    // An identifier that no block has, and the original's text, which is not even one.
+    // Unknown UUID and non-UUID text both return not-found.
     for missing in [new_id().as_str(), "invalid-block-id"] {
         let error = store
             .patch_block(missing, &BlockPatch::default(), &user1)
@@ -714,10 +684,7 @@ async fn patch_block() {
         "the failed patch changed nothing: {blocks:?}"
     );
 
-    // "invalid fields data"
-    // Not expressible: the original puts a function value into the updated fields, which
-    // cannot be serialized to JSON. The updated fields of a patch here are a JSON object
-    // by type.
+    // Patch field values are typed as `JsonMap` and always serialize to JSON.
 
     // "update block fields"
     store
@@ -890,9 +857,9 @@ async fn a_body_is_stored_with_its_version_and_text() {
     test.teardown().await;
 }
 
-/// Not in the original (user decision 2026-11-11 14:25 KST). A list asked for previews
-/// reads the beginning of a card's plain text, 201 characters of it, so that a letter
-/// and its accent that the 200 units of a preview would split are left out together.
+/// A list asked for previews reads the beginning of a card's plain text, 201 characters
+/// of it, so that a letter and its accent that the 200 units of a preview would split are
+/// left out together.
 #[tokio::test]
 async fn a_preview_reads_one_character_past_its_length() {
     let test = common::setup().await;
@@ -945,7 +912,7 @@ async fn patch_blocks() {
         workspace_id,
         board_id,
     } = fixture(store).await;
-    // The two blocks are on a board each, as in the original.
+    // Place the two blocks on separate boards.
     let second_board_id = another_board(store, &workspace_id, &user_id).await;
 
     let first_id = new_id();
@@ -983,9 +950,7 @@ async fn patch_blocks() {
         "the second block has the new title"
     );
 
-    // "invalid block id, nothing updated existing blocks"
-    // The original skips this on SQLite, where it has no transactions. This store has
-    // them on both databases, so it runs on both.
+    // Invalid block ID rolls back the entire batch on both SQLite and PostgreSQL.
     let title = "Another Title";
     let batch = BlockPatchBatch {
         block_ids: strings([&first_id, &new_id()]),
@@ -1034,7 +999,7 @@ async fn delete_block() {
         .delete_block(block1_id, user_id)
         .await
         .expect("an existing block is deleted");
-    // Not in the original: the block is in the trash now, and the other two are not.
+    // The deleted block moves to the trash while the other two stay live.
     assert_no_block(store, block1_id).await;
     let deleted = block_in_trash(store, block1_id).await;
     assert_eq!(
@@ -1074,10 +1039,8 @@ async fn delete_block() {
 }
 
 /// `testUndeleteBlock`.
-///
-/// The original succeeds without doing anything when it is asked to undelete a block
-/// that is not deleted or that never existed. Here that is a not-found error: there is
-/// no such block in the trash.
+/// Undeleting a block that is not deleted or never existed returns not-found because no
+/// such block exists in the trash.
 #[tokio::test]
 async fn undelete_block() {
     let test = common::setup().await;
@@ -1139,7 +1102,7 @@ async fn undelete_block() {
     test.teardown().await;
 }
 
-/// `testGetBlocks`.
+/// Querying blocks with parent, type, and pagination options.
 #[tokio::test]
 async fn get_blocks() {
     let test = common::setup().await;
@@ -1215,8 +1178,7 @@ async fn get_blocks() {
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert_eq!(blocks.len(), 4, "four blocks have the type: {blocks:?}");
 
-    // "not existing board"
-    // An identifier that no board has, and the original's text, which is not even one.
+    // Unknown UUID and non-UUID board IDs both return an empty block list.
     for missing_board in [missing.as_str(), "not-exists"] {
         let blocks = board_blocks(store, missing_board).await;
         assert!(
@@ -1236,11 +1198,7 @@ async fn get_blocks() {
         .expect("both blocks exist");
     assert_eq!(blocks.len(), 2, "both blocks are returned: {blocks:?}");
 
-    // "blocks by ids where some are not found"
-    // The original also hands back the one block it found next to the error
-    // (`require.Len(t, blocks, 1)`). A `Result` carries the error alone; neither caller
-    // of the original (`server/app/blocks.go:106`, `server/app/boards_and_blocks.go:59`)
-    // looks at the blocks when there is an error.
+    // Asking for a batch where any block ID is missing returns an error.
     let error = store
         .get_blocks_by_ids(&strings([block2_id, &missing]))
         .await
@@ -1272,7 +1230,7 @@ async fn get_blocks() {
     test.teardown().await;
 }
 
-/// `testGetBlock`.
+/// Fetching a single block by ID.
 #[tokio::test]
 async fn get_block() {
     let test = common::setup().await;
@@ -1305,9 +1263,7 @@ async fn get_block() {
     assert_within_a_second(now_millis(), fetched.create_at, "create time");
     assert_within_a_second(now_millis(), fetched.update_at, "update time");
 
-    // "get a non-existing block"
-    // An identifier that no block has, the original's text, which is not even one, and
-    // no text at all.
+    // Unknown UUID, non-UUID text, and empty string all return not-found.
     for missing in [new_id().as_str(), "non-existing-id", ""] {
         assert_no_block(store, missing).await;
     }
@@ -1387,9 +1343,7 @@ async fn duplicate_block() {
         .expect_err("a block of a missing board cannot be duplicated");
     assert_not_found(&error);
 
-    // "not matching board/block"
-    // The other board of the original does not exist. Here it does, which is the case
-    // that matters: a board that exists does not hand out the blocks of another.
+    // A board does not return blocks belonging to a different existing or missing board.
     let other_board_id = another_board(store, &workspace_id, user_id).await;
     for other in [other_board_id, new_id()] {
         let error = store
@@ -1399,7 +1353,7 @@ async fn duplicate_block() {
         assert_not_found(&error);
     }
 
-    // Like the original, this deletes the six sample blocks and leaves the comments.
+    // Delete the six sample blocks while leaving the comments.
     common::delete_blocks(store, &blocks_to_insert[..SUBTREE_SAMPLE.len()], user_id).await;
     test.teardown().await;
 }
@@ -1408,7 +1362,7 @@ async fn duplicate_block() {
 #[tokio::test]
 #[expect(
     clippy::too_many_lines,
-    reason = "one test function of the original, whose subtests share their state"
+    reason = "sequential delete/undelete subtree cases share fixture state"
 )]
 async fn undelete_block_children() {
     let test = common::setup().await;
@@ -1550,9 +1504,6 @@ async fn undelete_block_children() {
 
     test.teardown().await;
 }
-
-// `testGetBlockHistoryNewestChildren` has no counterpart: no code of the standalone server
-// calls `GetBlockHistoryNewestChildren`, so the store does not have it.
 
 /// One task of [`concurrent_writers_on_one_board_all_succeed`].
 struct Writer {
@@ -1873,8 +1824,7 @@ async fn get_blocks_pages_the_result() {
         "a page larger than the result holds all of it: {blocks:?}"
     );
 
-    // Like the original, which limits only if the page size is positive
-    // (`server/services/store/sqlstore/blocks.go:77`).
+    // A zero page size applies no limit.
     for number in [0, 3] {
         let blocks = store
             .get_blocks(&page(number, 0))
@@ -1993,7 +1943,7 @@ async fn patch_blocks_with_more_ids_than_patches_changes_nothing() {
         "the rejected batch left both blocks as they were, modifier and time included"
     );
 
-    // More patches than identifiers is fine: the surplus is ignored, as in the original.
+    // Extra patches beyond the listed block IDs are ignored.
     let batch = BlockPatchBatch {
         block_ids: strings([&first_id]),
         block_patches: vec![title_patch("patched"), title_patch("ignored")],
@@ -2045,7 +1995,7 @@ async fn delete_block_of_a_missing_block_writes_nothing() {
 }
 
 /// Undeleting a block that is not deleted finds nothing in the trash under its
-/// identifier and writes nothing. (The original succeeds, and writes nothing either.)
+/// identifier and writes nothing.
 #[tokio::test]
 async fn undelete_block_of_a_block_that_is_not_deleted_writes_nothing() {
     let test = common::setup().await;
@@ -2083,11 +2033,8 @@ async fn undelete_block_of_a_block_that_is_not_deleted_writes_nothing() {
     test.teardown().await;
 }
 
-/// The original lets a block have the empty identifier, and deleting or undeleting that
-/// block takes every block of its board along, not only its children
-/// (`server/services/store/sqlstore/blocks.go:450`, `:522`, `:929`, `:1017`). Here the
-/// empty string is no identifier: no block is stored under it, deleting it touches
-/// nothing, and undeleting it finds nothing in the trash.
+/// The empty string is not a valid block identifier: no block is stored under it,
+/// deleting it touches nothing, and undeleting it finds nothing in the trash.
 #[tokio::test]
 async fn the_empty_id_names_no_block_and_deleting_it_leaves_its_board_alone() {
     let test = common::setup().await;
@@ -2148,9 +2095,7 @@ async fn the_empty_id_names_no_block_and_deleting_it_leaves_its_board_alone() {
 
 /// Deleting an image or an attachment, or a card that holds one, succeeds and leaves the
 /// record of the file alone: a file is its board's, and its record goes and comes back
-/// with the board. The original fails to delete such blocks when it runs standalone,
-/// because it updates a table that only its host application has
-/// (`server/services/store/sqlstore/blocks.go:429`, `:986`).
+/// with the board.
 #[tokio::test]
 async fn deleting_blocks_that_hold_files_leaves_the_file_records() {
     let test = common::setup().await;
@@ -2301,9 +2246,8 @@ async fn rewrite_as_blobs(test: &common::TestStore, table: &str, column: &str) {
         .expect("the second connection closes cleanly");
 }
 
-/// This store writes JSON to SQLite as text, and SQLite keeps JSON that was bound as
-/// bytes as a blob, as the original's driver binds it. The fields of a block and a block
-/// in the trash are read from either.
+/// This store writes JSON to SQLite as text, and also reads JSON fields stored as SQLite
+/// BLOBs in both live and trashed blocks.
 #[tokio::test]
 async fn sqlite_fields_stored_as_a_blob_are_read() {
     if common::db_type() != DbType::Sqlite {
@@ -2360,9 +2304,8 @@ async fn sqlite_fields_stored_as_a_blob_are_read() {
     test.teardown().await;
 }
 
-/// Not in the original: a block is not stored with `properties` that are no well-formed
-/// card property values, whether it is inserted or patched, and the stored block stays
-/// as it was.
+/// A block is not stored with `properties` that are not well-formed card property values,
+/// whether inserted or patched, and the stored block stays unchanged.
 #[tokio::test]
 async fn blocks_with_malformed_properties_are_not_stored() {
     let test = common::setup().await;
@@ -3366,8 +3309,7 @@ async fn purge_trash_removes_what_was_deleted_before_the_cutoff() {
 }
 
 /// A block stays on its board: writing a block under an identifier that a block of
-/// another board has is a not-found error and changes neither board. (The original
-/// leaves the block alone as well, but reports success.)
+/// another board has is a not-found error and changes neither board.
 #[tokio::test]
 async fn insert_block_of_an_identifier_on_another_board_is_not_found() {
     let test = common::setup().await;

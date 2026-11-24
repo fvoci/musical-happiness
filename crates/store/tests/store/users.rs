@@ -1,5 +1,4 @@
-//! Port of `server/services/store/storetests/users.go`, followed by tests of the user
-//! operations that the original suite does not cover.
+//! Integration tests for user storage, lookup, password updates, and user search.
 
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -16,7 +15,7 @@ use serde_json::{Value, json};
 
 use crate::common;
 
-/// The count the original derives from the clock: `time.Now().Unix() % 10`.
+/// A small clock-derived count (`0..10`) for varying test user batch sizes.
 fn clock_count() -> usize {
     let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -48,15 +47,12 @@ fn value_of<'p>(preferences: &'p [Preference], name: &str) -> Option<&'p str> {
         .map(|preference| preference.value.as_str())
 }
 
-/// `testGetUsersByTeam`.
+/// Listing users returns all stored users, growing as new users are created.
 #[tokio::test]
 async fn get_users_by_workspace() {
     let test = common::setup().await;
     let store = &test.store;
 
-    // "GetTeamUsers"
-    // The original passes a workspace, a guest and two visibility flags, all of which its
-    // standalone store ignores; this store does not take them.
     let users = store.get_users_by_workspace().await.unwrap();
     assert_eq!(users.len(), 0);
 
@@ -74,9 +70,6 @@ async fn get_users_by_workspace() {
     let users = store.get_users_by_workspace().await.unwrap();
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].username, "darth.vader");
-
-    // The original ends with a deferred update of the user, whose result it ignores.
-    // This store has no such update.
 
     test.teardown().await;
 }
@@ -113,10 +106,7 @@ async fn create_and_get_user() {
     assert_eq!(got.username, user.username);
     assert_eq!(got.email, user.email);
 
-    // "GetUserByUsername nonexistent"
-    // The original looks the name up as an identifier here; kept as written. It is text
-    // that is not an identifier, under which nothing is found. The lookup by name, which
-    // the original meant, follows.
+    // Non-UUID text passed to lookup-by-ID returns not-found, followed by lookup-by-username.
     let error = store
         .get_user_by_id("nonexistent-username")
         .await
@@ -134,9 +124,7 @@ async fn create_and_get_user() {
     assert_eq!(got.username, user.username);
     assert_eq!(got.email, user.email);
 
-    // "GetUserByEmail nonexistent"
-    // The original looks the address up as an identifier here; kept as written, and
-    // followed by the lookup by address.
+    // Non-UUID text passed to lookup-by-ID returns not-found, followed by lookup-by-email.
     let error = store.get_user_by_id("nonexistent-email").await.unwrap_err();
     assert!(matches!(error, StoreError::NotFound(_)), "got {error:?}");
     let error = store
@@ -148,7 +136,7 @@ async fn create_and_get_user() {
     test.teardown().await;
 }
 
-/// One case of `testGetUsersList`.
+/// One table-driven case for `get_users_list`.
 struct UsersListCase<'a> {
     name: &'static str,
     user_ids: [&'a str; 2],
@@ -156,13 +144,12 @@ struct UsersListCase<'a> {
     expected_ids: &'a [&'a str],
 }
 
-/// `testGetUsersList`.
+/// Looking up users by a list of IDs, including missing and non-UUID entries.
 #[tokio::test]
 async fn get_users_list() {
     let test = common::setup().await;
     let store = &test.store;
 
-    // The original's "user1" and "user2", and its identifiers of nobody.
     let user1 = common::user(store, "user1-username").await;
     let user2 = common::user(store, "user2-username").await;
     let (nobody1, nobody2) = (new_id(), new_id());
@@ -186,8 +173,7 @@ async fn get_users_list() {
             expected_error: true,
             expected_ids: &[],
         },
-        // Not in the original, whose "non-existent" is this: text that is not an
-        // identifier names nobody.
+        // Text that is not a UUID identifier matches nobody.
         UsersListCase {
             name: "text that is not an identifier is not found",
             user_ids: [&user1, "non-existent"],
@@ -211,10 +197,7 @@ async fn get_users_list() {
         let mut found: Vec<String> = if let Ok(users) = result {
             users.into_iter().map(|user| user.id).collect()
         } else {
-            // The original hands back the users it did find together with the error, and
-            // the suite compares them with the expected identifiers. A `Result` carries
-            // one or the other, so the same expectation is checked by asking for each
-            // identifier on its own: exactly the expected ones are found.
+            // Verify individually that exactly the expected IDs exist in the store.
             let mut found = Vec::new();
             for id in &user_ids {
                 if let Ok(users) = store.get_users_list(std::slice::from_ref(id)).await {
@@ -238,9 +221,7 @@ async fn create_and_update_user() {
     let test = common::setup().await;
     let store = &test.store;
 
-    // The original creates a user without a name and gives it one in an "UpdateUser"
-    // step. This store never rewrites a name or an address, so the user is created with
-    // both, and the password updates follow.
+    // Create a user with username and email, then verify password updates.
     let mut user = User {
         id: new_id(),
         username: "damao".to_owned(),
@@ -294,7 +275,7 @@ async fn create_and_get_registered_user_count() {
     let test = common::setup().await;
     let store = &test.store;
 
-    // The original's users have no names; here a name and an address are one user's.
+    // Each user needs a unique username and email.
     let random_n = clock_count();
     for index in 0..random_n {
         let mut user = User {
@@ -407,8 +388,7 @@ async fn patch_user_props() {
     test.teardown().await;
 }
 
-// The tests below are not in the original suite. They pin behavior of the original's
-// standalone store that its suite leaves untested, and what this store does differently.
+// Additional user store invariants: timestamps, uniqueness, deactivation, and search.
 
 /// What a created user gets stamped with, which members a read fills in, and what is
 /// one user's alone.

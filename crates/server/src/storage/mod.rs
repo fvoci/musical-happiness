@@ -1,8 +1,8 @@
 //! File storage: where uploaded images and attachments live.
 //!
 //! Two backends exist, selected by the `file_storage` setting: a directory on the local
-//! disk and an S3-compatible object store. Both store a file under the same relative path
-//! the original server uses, so an existing files directory or bucket keeps working.
+//! disk and an S3-compatible object store. Both use the same relative key layout so data
+//! can be migrated between a local directory and an object bucket.
 //!
 //! A backend given the metrics (`FileBackend::measured`) measures every operation, by
 //! the backend and the operation, at this boundary; but the listing, which is no

@@ -1,8 +1,5 @@
-//! Ports of `server/integrationtests/user_test.go` and of the user and login cases of
-//! `server/app/auth_test.go`, plus tests of what the port changes on purpose.
-//!
-//! Not ported here: `TestGetUserList` (runs in the host-application mode this server does
-//! not have) and `TestTeamUploadFile` (in the `files` module).
+//! Integration tests for user registration, login, lookup, password changes, profiles,
+//! and workspace metadata.
 
 use fvoci_model::{ChangePasswordRequest, LoginRequest, RegisterRequest, Session, User, new_id};
 use fvoci_server::auth::secret::new_secret;
@@ -48,7 +45,7 @@ fn login_request(username: &str, email: &str, password: &str) -> LoginRequest {
     }
 }
 
-/// `TestUserRegister`
+/// Registering a new user succeeds and rejects duplicate usernames or emails.
 #[tokio::test]
 async fn user_register() {
     let th = Setup::native().start().await;
@@ -90,7 +87,7 @@ async fn user_register() {
     th.teardown().await;
 }
 
-/// `TestUserLogin/"with nonexist user"`
+/// Logging in with a non-existent user fails with 401.
 #[tokio::test]
 async fn user_login_with_nonexist_user() {
     let th = Setup::native().start().await;
@@ -107,7 +104,7 @@ async fn user_login_with_nonexist_user() {
     th.teardown().await;
 }
 
-/// `TestUserLogin/"with registered user"`
+/// Logging in with a registered user succeeds and issues a session cookie.
 #[tokio::test]
 async fn user_login_with_registered_user() {
     let th = Setup::native().start().await;
@@ -142,8 +139,8 @@ async fn user_login_with_registered_user() {
     th.teardown().await;
 }
 
-/// `TestLogin` in `server/app/auth_test.go`, through the API: the failures all look the
-/// same to the client, and a user signs in by name or by email address.
+/// Login error cases return uniform authentication failures, and a user can sign in by
+/// username or email address.
 #[tokio::test]
 async fn login_cases() {
     let th = Setup::native().start().await;
@@ -247,7 +244,7 @@ async fn login_cases() {
     th.teardown().await;
 }
 
-/// `TestRegisterUser` in `server/app/auth_test.go`, through the API.
+/// Registration validation cases through the API.
 #[tokio::test]
 async fn register_user_cases() {
     let th = Setup::native().start().await;
@@ -426,7 +423,7 @@ async fn a_registration_answers_the_user_that_was_made() {
     th.teardown().await;
 }
 
-/// `TestGetMe/"not login yet"`
+/// `GET /users/me` rejects unauthenticated requests.
 #[tokio::test]
 async fn get_me_not_login_yet() {
     let th = Setup::native().start().await;
@@ -442,7 +439,7 @@ async fn get_me_not_login_yet() {
     th.teardown().await;
 }
 
-/// `TestGetMe/"logged in"`
+/// `GET /users/me` returns the signed-in user's profile.
 #[tokio::test]
 async fn get_me_logged_in() {
     let th = Setup::native().start().await;
@@ -485,15 +482,14 @@ async fn get_me_logged_in() {
     );
     assert!(me.create_at > 0, "a creation time: {raw}");
 
-    // The original reports a permission of its host application for a channel named in
-    // the query. There are no channels; the parameter means nothing.
+    // Unknown query parameters such as `channelID` are ignored on `/users/me`.
     let with_channel = client.get("/users/me?channelID=any-channel").await.value();
     assert_eq!(with_channel, raw, "the same answer");
 
     th.teardown().await;
 }
 
-/// `TestGetUser/"me's id"` and `"nonexist user"`
+/// `GET /users/{id}` returns an existing user and 404 for a non-existent user.
 #[tokio::test]
 async fn get_user() {
     let th = Setup::native().start().await;
@@ -517,7 +513,7 @@ async fn get_user() {
     th.teardown().await;
 }
 
-/// `TestGetUser` in `server/app/auth_test.go`.
+/// App-level user lookup cases.
 #[tokio::test]
 async fn app_get_user_cases() {
     let th = Setup::native().start().await.init_basic().await;
@@ -631,7 +627,7 @@ async fn users_list_and_profiles() {
     th.teardown().await;
 }
 
-/// `TestUserChangePassword`
+/// Changing a user's password updates the credential used for subsequent logins.
 #[tokio::test]
 async fn user_change_password() {
     let th = Setup::native().start().await;
@@ -660,7 +656,7 @@ async fn user_change_password() {
     th.teardown().await;
 }
 
-/// `TestChangePassword` in `server/app/auth_test.go`.
+/// App-level password change validation cases.
 #[tokio::test]
 async fn app_change_password_cases() {
     let th = Setup::native().start().await.init_basic().await;
@@ -702,7 +698,7 @@ async fn app_change_password_cases() {
     th.teardown().await;
 }
 
-/// `TestUpdateUserPassword` in `server/app/auth_test.go`.
+/// App-level administrative password update cases.
 #[tokio::test]
 async fn app_update_user_password_cases() {
     let th = Setup::native().start().await.init_basic().await;
@@ -724,10 +720,8 @@ async fn app_update_user_password_cases() {
     th.teardown().await;
 }
 
-/// Security fix: the original lets any signed-in user set another user's password if
-/// they know that user's current one (`server/api/auth.go:247`). Here the route for
-/// changing a password names no user: it is the session's. The path that names one is
-/// no route, for one's own identifier as for another's.
+/// Password changes always operate on the signed-in session's own account; paths naming
+/// an arbitrary user ID do not exist, preventing one user from changing another's password.
 #[tokio::test]
 async fn a_password_is_changed_for_the_session_and_for_no_user_named_in_the_path() {
     let th = Setup::native().start().await.init_basic().await;
@@ -751,7 +745,7 @@ async fn a_password_is_changed_for_the_session_and_for_no_user_named_in_the_path
     th.login("user1", PASSWORD).await;
     th.login("user2", PASSWORD).await;
 
-    // A wrong old password on one's own account is a bad request, as in the original.
+    // A wrong old password on one's own account is rejected with 400.
     let wrong = ChangePasswordRequest {
         old_password: "not-the-password".to_owned(),
         new_password: "another-password".to_owned(),
@@ -1134,8 +1128,7 @@ async fn workspaces() {
         "the oldest workspace, the root workspace, comes first: {workspaces}"
     );
 
-    // A workspace is asked for by its identifier. Any other identifier, well-formed or
-    // not, names no workspace; the original answered the root workspace to whatever was asked.
+    // A workspace is looked up strictly by its identifier; unknown or invalid IDs return 404.
     for no_workspace in [UNKNOWN_ID, "some-other-workspace", "0"] {
         let response = th.client.get(&format!("/w/{no_workspace}")).await;
         response.check_error(StatusCode::NOT_FOUND, "workspace not found");
@@ -1171,8 +1164,8 @@ async fn workspaces() {
     th.teardown().await;
 }
 
-/// `TestGetRootTeam` in `server/app/teams_test.go`: the root workspace, the oldest of the
-/// organization, is made once and then read as it is.
+/// The root workspace (the oldest workspace of the organization) is created once and
+/// returned consistently on subsequent lookups.
 #[tokio::test]
 async fn app_get_root_workspace() {
     let th = Setup::native().start().await;
@@ -1563,9 +1556,8 @@ async fn passwords_are_bounded_by_characters_below_and_by_bytes_above() {
     th.teardown().await;
 }
 
-/// Not in the original (user decision 2026-11-11 14:25 KST). A user may have a name to be
-/// shown by: given at registration or not, changed by the user (`patchMe`), cleared with
-/// an empty name or `null`, and found by the search as the login name is. At most 64
+/// A user may set a display name at registration or via `patchMe`, clear it with an empty
+/// name or `null`, and be found by search via display name as well as login name. At most 64
 /// UTF-16 code units and no control characters.
 #[tokio::test]
 async fn a_user_has_a_display_name_of_their_choosing() {

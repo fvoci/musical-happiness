@@ -5,8 +5,7 @@ use std::time::Duration;
 
 use fvoci_model::Block;
 
-/// How long one webhook request may take. The original sets no limit; without one a
-/// receiver that never answers would hold up shutdown.
+/// How long one webhook request may take, so an unresponsive receiver cannot stall shutdown.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Posts block changes to the configured addresses.
@@ -39,7 +38,7 @@ impl Webhook {
     }
 
     /// Posts the block to every address, one after the other. A request that fails is
-    /// logged and does not stop the others; the original crashes in that case.
+    /// logged and does not stop delivery to the remaining addresses.
     pub async fn notify_update(&self, block: &Block) {
         let Some(http) = &self.http else {
             return;

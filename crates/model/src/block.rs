@@ -40,10 +40,9 @@ pub const CARD_FIELDS_MAX_CHARS: usize = 64_000;
 /// The type of a block.
 ///
 /// A new block of a board has one of four types ([`BlockType::is_current`]), a wiki
-/// has pages ([`crate::Page`]) and a diary entries ([`crate::DiaryEntry`]). Blocks stored before a
-/// card's content became its body have others, among them type strings the server knows
-/// nothing about (the original's web app had `h1` and `list-item`); those are read and
-/// returned verbatim, kept in [`BlockType::Other`].
+/// has pages ([`crate::Page`]) and a diary entries ([`crate::DiaryEntry`]). Earlier blocks
+/// stored before rich card bodies may carry legacy type strings (such as `h1` or
+/// `list-item`); those are read and returned verbatim in [`BlockType::Other`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(from = "String", into = "String")]
 pub enum BlockType {
@@ -64,7 +63,7 @@ pub enum BlockType {
     /// A chapter of a course ([`crate::Unit`]): a title-only heading at the top of the
     /// course with no body and no room.
     Chapter,
-    /// Any other type string, kept as sent, such as a content block type of the original
+    /// Any other type string, kept as sent, such as pre-body content block types
     /// (`text`, `image`, ...): no block is written with one any more, and the data steps
     /// of migrations 8 and 42 delete those stored before. The empty string means "no
     /// type".

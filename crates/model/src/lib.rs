@@ -1,8 +1,7 @@
 //! Wire types shared by the fvoci server and web client.
 //!
-//! The types here are what the server and its clients exchange as JSON. Most began as
-//! the original server's and keep its key spelling (a mix of camelCase and
-//! `snake_case`); what this server added or changed says so at the type. The crate does
+//! The types here are what the server and its clients exchange as JSON (using camelCase
+//! and `snake_case` wire spellings as documented on each type). The crate does
 //! no I/O. Functions that stamp a time take the current time in milliseconds since the
 //! Unix epoch as an argument; the one place that reads a clock is [`new_id`], whose
 //! identifiers begin with the time they were made.

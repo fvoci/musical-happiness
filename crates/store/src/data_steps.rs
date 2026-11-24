@@ -20,15 +20,15 @@ const CONTENT_BLOCKS: &str = "content_blocks";
 
 /// The block types that stay, by their type strings, as migration 8 brought the step:
 /// those a block may be given ([`BlockType::is_current`]), the page, which its own
-/// operations make, and `board`, the type of the original's board block, which is no
-/// content block (and which a block of a database of before the step may have).
+/// operations make, and `board`, a legacy board-block type (not a content block) that an
+/// older database may still hold.
 const KEPT_TYPES: [&str; 6] = ["card", "view", "comment", "attachment", "page", "board"];
 
-/// The step of migration 42: the blocks of the type `board`, the original's board block,
-/// which the step of migration 8 kept, are deleted with every block below them.
+/// The step of migration 42: legacy blocks of type `board`, kept by migration 8, are
+/// deleted together with every block below them.
 const BOARD_BLOCKS: &str = "board_blocks";
 
-/// The type string of the original's board block.
+/// The type string of the retired `board` block type.
 const BOARD_TYPE: &str = "board";
 
 /// Does the steps that are still to be done.
@@ -62,10 +62,7 @@ pub(crate) async fn run(store: &Store) -> Result<(), StoreError> {
             }
             if claim(scope, BOARD_BLOCKS).await? {
                 let deleted = board_blocks(scope).await?;
-                tracing::info!(
-                    deleted,
-                    "the blocks of the original's board block type were deleted"
-                );
+                tracing::info!(deleted, "retired board-type blocks were deleted");
             }
             Ok(())
         })
@@ -310,8 +307,8 @@ fn definitions(list: &serde_json::Value) -> impl Iterator<Item = &fvoci_model::J
 mod tests {
     use super::*;
 
-    /// The step keeps what a block may be given, and the page and the type of the
-    /// original's board block besides: a type that becomes current is kept too.
+    /// The step keeps every current block type plus `page` and the retired `board` block
+    /// type, so newly added current types are kept as well.
     #[test]
     fn the_kept_types_are_the_current_ones_and_the_page_and_the_board() {
         let current = [

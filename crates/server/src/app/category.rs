@@ -224,9 +224,8 @@ impl App {
 
     /// Checks that a new order names the user's categories and nothing else.
     ///
-    /// As in the original, only the count and the membership are compared, so an order
-    /// that names one category twice and leaves another out passes; the category left
-    /// out keeps its place (server/app/category.go:210-246).
+    /// Only the count and membership are compared, so an order that names one category
+    /// twice and omits another still passes, leaving the omitted category in place.
     async fn verify_new_categories_match_existing(
         &self,
         user_id: &str,

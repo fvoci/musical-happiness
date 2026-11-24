@@ -1,6 +1,6 @@
-//! The websocket endpoint over a real connection: authentication, subscriptions, who is
-//! told about which change, and pings. The original has no tests at this level; its unit
-//! tests of the listener table (`server/ws/server_test.go`) are ported next to the hub.
+//! Integration tests for the WebSocket endpoint over a real connection: authentication,
+//! subscriptions, event fan-out, and keepalive pings. Unit tests of the listener table
+//! live next to the hub in `ws::tests`.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -519,8 +519,8 @@ async fn block_subscription_needs_the_read_token() {
     th.teardown().await;
 }
 
-/// The server pings every connection at the configured interval, so that proxies in
-/// between do not close it as idle. A deliberate difference: the original never pings.
+/// The server pings every connection at the configured interval so intermediate proxies
+/// do not close idle sockets.
 #[tokio::test]
 async fn the_server_pings_at_the_configured_interval() {
     let th = Setup::native()
@@ -549,7 +549,7 @@ async fn the_server_pings_at_the_configured_interval() {
     th.teardown().await;
 }
 
-/// Without a ping interval nothing is sent to an idle connection, as in the original.
+/// Without a ping interval configured, nothing is sent to an idle connection.
 #[tokio::test]
 async fn no_pings_when_turned_off() {
     let th = Setup::native().start().await;
@@ -563,10 +563,8 @@ async fn no_pings_when_turned_off() {
     th.teardown().await;
 }
 
-/// Commands whose members have the wrong JSON type are dropped and the connection goes
-/// on. The plugin repository that descends from the original had a crash of this kind in
-/// its own adapter (its PR #211); the standalone server decodes commands into a typed
-/// structure, as the port does, so a mismatch is a decoding error and nothing more.
+/// Commands whose fields have the wrong JSON type fail typed deserialization, are
+/// dropped, and leave the WebSocket connection open.
 #[tokio::test]
 async fn commands_with_members_of_the_wrong_type_are_ignored() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1408,9 +1406,9 @@ async fn board_with_three_properties(th: &TestServer, admin: &str) -> Container 
     board
 }
 
-/// Not in the original (user decision 2026-11-11 14:25 KST). The card properties of a
-/// board are put in a new order by naming all of them: the answer is the order, the
-/// board has it, and the listeners hear `UPDATE_CONTAINER`. An order that leaves one out,
+/// The card properties of a board are put in a new order by naming all of them: the
+/// answer is the order, the board has it, and the listeners hear `UPDATE_CONTAINER`. An
+/// order that leaves one out,
 /// names one twice or names one the board does not have is 400 and changes nothing; a
 /// commenter may not, nor a stranger.
 #[tokio::test]

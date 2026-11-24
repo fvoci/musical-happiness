@@ -1,10 +1,7 @@
-//! Subscriptions of users to the changes of a block.
+//! Subscriptions of users to changes on a block.
 //!
-//! A standalone server only keeps them. The original hands every change of a
-//! subscription to its websocket adapter, and the adapter of the standalone server does
-//! nothing with it (server/ws/server.go:785-787), so nothing is broadcast here. Nothing
-//! reads the subscriptions to notify anyone either: the notification service of a
-//! standalone server only writes a log line per block change.
+//! Subscriptions are stored and queried directly; subscription mutations do not emit
+//! websocket broadcasts.
 
 use std::collections::HashMap;
 
@@ -66,10 +63,6 @@ impl App {
             .delete_subscription(block_id, subscriber_id)
             .await?;
         subscription.delete_at = now_millis();
-        // The original looks up the block's board here to name a workspace for a broadcast
-        // that its standalone websocket server does not send, and crashes if the block
-        // is gone by now (server/app/subscriptions.go:43-51). There is nothing to look
-        // up for nothing to send.
         Ok(subscription)
     }
 
