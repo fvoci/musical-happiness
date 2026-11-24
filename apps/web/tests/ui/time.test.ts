@@ -1,10 +1,13 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import ActiveTimerPill from '$lib/features/time/ActiveTimerPill.svelte';
 import MyTimeScreen from '$lib/features/time/MyTimeScreen.svelte';
 import TargetTimerButton from '$lib/features/time/TargetTimerButton.svelte';
-import { timeTracker, Workspace, type TimeEntry } from '$lib/state/index.ts';
+import { dateOfInstant, startOfDay } from '$lib/logic/dates.ts';
+import type { Regional } from '$lib/logic/regional.ts';
+import { regional as deviceRegional } from '$lib/regional.ts';
+import { BackendError, timeTracker, Workspace, type TimeEntry } from '$lib/state/index.ts';
 import { MemoryBackend } from '$lib/state/memory/backend.ts';
 import { seedWorld } from '$lib/state/memory/seed.ts';
 
@@ -24,6 +27,8 @@ const SAMPLE_ENTRY: TimeEntry = {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
+  cleanup();
   document.body.replaceChildren();
 });
 
@@ -89,15 +94,17 @@ describe('TargetTimerButton', () => {
 
 describe('MyTimeScreen', () => {
   it('renders entries, switches periods, filters by kind, and validates manual entry end < start', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.UTC(2026, 10, 24, 14, 0, 0) });
     const { world, readerId } = seedWorld([]);
     const backend = new MemoryBackend(world, readerId);
     const workspace = new Workspace({ backend, locale: () => 'en' });
     await workspace.load(world.workspace.id);
-    const now = Date.now();
+    const tz = deviceRegional('en').timeZone;
+    const dayStart = startOfDay(dateOfInstant(Date.now(), tz), tz);
     await backend.time.createTimeEntry({
       kind: 'study',
-      startedAt: now - 3_600_000,
-      endedAt: now - 1_800_000,
+      startedAt: dayStart + 3_600_000,
+      endedAt: dayStart + 5_400_000,
       note: 'Review notes',
     });
     const tracker = timeTracker(workspace);
@@ -144,8 +151,8 @@ describe('MyTimeScreen', () => {
 
     // Editing only note on a sub-minute entry with non-zero seconds omits unchanged timestamps
     await fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
-    const preciseStart = now - 45_678;
-    const preciseEnd = now - 12_345;
+    const preciseStart = dayStart + 7_200_000 + 12_345;
+    const preciseEnd = dayStart + 7_200_000 + 45_678;
     const precise = await backend.time.createTimeEntry({
       kind: 'work',
       startedAt: preciseStart,
@@ -153,7 +160,11 @@ describe('MyTimeScreen', () => {
       note: 'Original',
     });
     await tracker.refreshAfterUnlock();
-    const editButtons = await screen.findAllByTestId('time-entry-edit');
+    let editButtons: HTMLElement[] = [];
+    await waitFor(() => {
+      editButtons = screen.getAllByTestId('time-entry-edit');
+      expect(editButtons).toHaveLength(2);
+    });
     const firstEdit = editButtons[0];
     if (!firstEdit) throw new Error('expected edit button');
     await fireEvent.click(firstEdit);
@@ -166,6 +177,156 @@ describe('MyTimeScreen', () => {
       expect(updated?.note).toBe('Updated note only');
       expect(updated?.startedAt).toBe(preciseStart);
       expect(updated?.endedAt).toBe(preciseEnd);
+    });
+
+    workspace.close();
+  });
+
+  it('reacts immediately when regional timeZone or hourCycle changes', async () => {
+    // 2026-11-24T16:30:00Z is 2026-11-24 in UTC and 2026-11-25 in Asia/Seoul.
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.UTC(2026, 10, 24, 16, 30, 0) });
+    const { world, readerId } = seedWorld([]);
+    const backend = new MemoryBackend(world, readerId);
+    const workspace = new Workspace({ backend, locale: () => 'en' });
+    await workspace.load(world.workspace.id);
+
+    // Entry at 2026-11-24T10:00..10:30Z (Nov 24 in UTC, Nov 24 19:00 in Seoul — NOT Nov 25 in Seoul).
+    await backend.time.createTimeEntry({
+      kind: 'study',
+      startedAt: Date.UTC(2026, 10, 24, 10, 0, 0),
+      endedAt: Date.UTC(2026, 10, 24, 10, 30, 0),
+      note: 'UTC morning',
+    });
+    // Entry at 2026-11-25T01:00..02:00Z (Nov 25 in UTC, Nov 25 10:00 in Seoul).
+    await backend.time.createTimeEntry({
+      kind: 'lecture',
+      startedAt: Date.UTC(2026, 10, 25, 1, 0, 0),
+      endedAt: Date.UTC(2026, 10, 25, 2, 0, 0),
+      note: 'Seoul next day',
+    });
+
+    const tracker = timeTracker(workspace);
+    if (!tracker) throw new Error('expected tracker');
+
+    const utcRegional: Regional = { timeZone: 'UTC', weekStart: 1, hourCycle: 'h23' };
+    const seoulRegional: Regional = { timeZone: 'Asia/Seoul', weekStart: 7, hourCycle: 'h12' };
+
+    const { rerender } = render(MyTimeScreen, {
+      props: {
+        tracker,
+        locale: 'en',
+        regional: utcRegional,
+        targetHref: () => undefined,
+        onOpenTarget: () => undefined,
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('time-entry-note').textContent).toBe('UTC morning');
+    });
+    expect(screen.getByTestId('time-period-label').textContent).toContain('24');
+
+    await rerender({
+      tracker,
+      locale: 'en',
+      regional: seoulRegional,
+      targetHref: () => undefined,
+      onOpenTarget: () => undefined,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('time-entry-note').textContent).toBe('Seoul next day');
+    });
+    expect(screen.getByTestId('time-period-label').textContent).toContain('25');
+
+    workspace.close();
+  });
+
+  it('auto-advances today anchor across midnight rollover', async () => {
+    vi.useFakeTimers({ now: Date.UTC(2026, 10, 24, 23, 59, 55) });
+    const { world, readerId } = seedWorld([]);
+    const backend = new MemoryBackend(world, readerId);
+    const workspace = new Workspace({ backend, locale: () => 'en' });
+    await workspace.load(world.workspace.id);
+    const tracker = timeTracker(workspace);
+    if (!tracker) throw new Error('expected tracker');
+
+    render(MyTimeScreen, {
+      props: {
+        tracker,
+        locale: 'en',
+        regional: { timeZone: 'UTC', weekStart: 1, hourCycle: 'h23' },
+        targetHref: () => undefined,
+        onOpenTarget: () => undefined,
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('time-period-label').textContent).toContain('24');
+    });
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('time-period-label').textContent).toContain('25');
+    });
+
+    workspace.close();
+  });
+
+  it('reports signed-out 401 on list and manual create without getting stuck in error UI', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.UTC(2026, 10, 24, 14, 0, 0) });
+    const { world, readerId } = seedWorld([]);
+    const backend = new MemoryBackend(world, readerId);
+    const workspace = new Workspace({ backend, locale: () => 'en' });
+    await workspace.load(world.workspace.id);
+    const tracker = timeTracker(workspace);
+    if (!tracker) throw new Error('expected tracker');
+
+    // Signed-out 401 on initial list transitions workspace to signedOut without flashing retry alert.
+    vi.spyOn(backend.time, 'listTimeEntries').mockRejectedValueOnce(
+      new BackendError(401, { detail: 'session expired' }),
+    );
+    const first = render(MyTimeScreen, {
+      props: {
+        tracker,
+        locale: 'en',
+        regional: { timeZone: 'UTC', weekStart: 1, hourCycle: 'h23' },
+        targetHref: () => undefined,
+        onOpenTarget: () => undefined,
+      },
+    });
+    await waitFor(() => {
+      expect(workspace.status).toBe('signedOut');
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    first.unmount();
+
+    // Re-load session; signed-out 401 on manual create transitions workspace to signedOut and closes dialog.
+    await workspace.load(world.workspace.id);
+    vi.spyOn(backend.time, 'createTimeEntry').mockRejectedValueOnce(
+      new BackendError(401, { detail: 'session expired' }),
+    );
+
+    render(MyTimeScreen, {
+      props: {
+        tracker,
+        locale: 'en',
+        regional: { timeZone: 'UTC', weekStart: 1, hourCycle: 'h23' },
+        targetHref: () => undefined,
+        onOpenTarget: () => undefined,
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('time-empty-state')).toBeTruthy();
+    });
+
+    await fireEvent.click(screen.getByTestId('time-add-button'));
+    await screen.findByTestId('time-form-started-at');
+    await fireEvent.click(screen.getByTestId('time-form-submit'));
+    await waitFor(() => {
+      expect(workspace.status).toBe('signedOut');
+      expect(screen.queryByTestId('time-entry-dialog')).toBeNull();
     });
 
     workspace.close();

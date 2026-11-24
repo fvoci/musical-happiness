@@ -9,7 +9,7 @@ import { expect, test } from '@playwright/test';
 
 import { openApp, showSidebar, sidebar } from './shell.support.ts';
 
-test.use({ locale: 'en-US' });
+test.use({ locale: 'en-US', timezoneId: 'UTC' });
 
 test('card timer, single-active auto-switch, and My time CRUD', async ({ page }) => {
   await openApp(page);
@@ -66,18 +66,15 @@ test('card timer, single-active auto-switch, and My time CRUD', async ({ page })
   // Manual entry: first verify endedAt < startedAt inline validation
   await page.getByTestId('time-add-button').click();
   await expect(page.getByTestId('time-entry-dialog')).toBeVisible();
-  const today = new Date();
-  const y = today.getFullYear();
-  const mo = String(today.getMonth() + 1).padStart(2, '0');
-  const d = String(today.getDate()).padStart(2, '0');
+  const day = (await page.getByTestId('time-form-ended-at').inputValue()).slice(0, 10);
   await page.getByTestId('time-form-kind-study').click();
-  await page.getByTestId('time-form-started-at').fill(`${y}-${mo}-${d}T10:30`);
-  await page.getByTestId('time-form-ended-at').fill(`${y}-${mo}-${d}T09:30`);
+  await page.getByTestId('time-form-started-at').fill(`${day}T10:30`);
+  await page.getByTestId('time-form-ended-at').fill(`${day}T09:30`);
   await page.getByTestId('time-form-submit').click();
   await expect(page.getByTestId('time-form-error')).toBeVisible();
 
   // Fix end time and submit manual entry (1h 30m)
-  await page.getByTestId('time-form-ended-at').fill(`${y}-${mo}-${d}T12:00`);
+  await page.getByTestId('time-form-ended-at').fill(`${day}T12:00`);
   await page.getByTestId('time-form-note').fill('Algorithms practice');
   await page.getByTestId('time-form-submit').click();
   await expect(page.getByTestId('time-entry-dialog')).toBeHidden();

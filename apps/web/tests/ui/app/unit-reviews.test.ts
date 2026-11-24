@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import NotificationsHost from '../../../src/app/NotificationsHost.svelte';
 import { Router } from '../../../src/app/router.svelte.ts';
+import TodayReviewsPage from '../../../src/app/TodayReviewsPage.svelte';
 import TodayReviewsView from '$lib/features/course/TodayReviewsView.svelte';
 import UnitNotesPanel from '$lib/features/course/UnitNotesPanel.svelte';
 import UnitProgressControls from '$lib/features/course/UnitProgressControls.svelte';
@@ -23,7 +24,10 @@ import { noteReviewDue } from '$lib/state/memory/notifications.ts';
 
 import { setup } from '../../state/support.ts';
 
-afterEach(cleanup);
+afterEach(() => {
+  vi.useRealTimers();
+  cleanup();
+});
 
 describe('course unit reviews & notes UI', () => {
   it('shows interval suggestion bar on unit completion with suggested interval highlighted and schedules on confirm', async () => {
@@ -324,6 +328,81 @@ describe('course unit reviews & notes UI', () => {
       'true',
     );
     expect(screen.getByTestId('today-review-complete-picker-option-12')).toBeVisible();
+
+    store.close();
+  });
+
+  it('syncs device timeZone on TodayReviewsPage and reloads when settings.timeZone changes', async () => {
+    // 2026-11-24T16:30:00Z is 2026-11-24 in UTC and 2026-11-25 in Asia/Seoul.
+    const made = setup();
+    made.world.useClock(() => Date.UTC(2026, 10, 24, 16, 30, 0));
+    await made.workspace.load();
+    const wsId = made.world.workspace.id;
+    const course = await made.backend.course.createCourse(wsId, { title: 'TZ Course', type: 'P' });
+    const u1 = await made.backend.course.createUnit(course.id, {
+      kind: 'unit',
+      title: 'Seoul Due',
+    });
+    // Schedule for 2026-11-25: NOT due yet in UTC, DUE TODAY in Asia/Seoul.
+    await made.backend.course.reviews.scheduleUnitReview(course.id, u1.id, {
+      scheduledDate: '2026-11-25',
+      intervalDays: 1,
+    });
+
+    // Start with explicit 'auto' so TodayReviewsPage triggers syncDeviceTimeZone on mount.
+    const patchSpy = vi.spyOn(made.backend, 'patchSettings');
+    const router = new Router('');
+    router.go({ workspaceId: wsId, reviewsToday: true });
+
+    render(TodayReviewsPage, { workspace: made.workspace, router });
+    await waitFor(() => {
+      expect(patchSpy).toHaveBeenCalledTimes(1);
+      expect(typeof patchSpy.mock.calls[0]?.[0]?.timeZone).toBe('string');
+    });
+
+    // Explicitly switch to UTC -> 2026-11-25 review is in the future (empty).
+    await made.workspace.changeSettings({ timeZone: 'UTC' });
+    await waitFor(() => {
+      expect(screen.getByTestId('today-reviews-empty')).toBeVisible();
+    });
+
+    // Switch to Asia/Seoul -> TodayReviewsPage automatically reloads and shows the due-today item.
+    await made.workspace.changeSettings({ timeZone: 'Asia/Seoul' });
+    await waitFor(() => {
+      expect(screen.getByTestId('today-reviews-list')).toBeVisible();
+      expect(screen.getByTestId('today-review-open')).toHaveTextContent('Seoul Due');
+      expect(screen.getByTestId('today-review-due-today')).toBeVisible();
+    });
+  });
+
+  it('updates due-today badge to overdue automatically across midnight in UnitReviewsPanel', async () => {
+    vi.useFakeTimers({ now: Date.UTC(2026, 10, 24, 23, 59, 55) });
+    const made = setup();
+    made.world.useClock(() => Date.now());
+    await made.workspace.load();
+    await made.workspace.changeSettings({ timeZone: 'UTC' });
+    const course = await made.backend.course.createCourse(made.world.workspace.id, {
+      title: 'Midnight Course',
+      type: 'P',
+    });
+    const u1 = await made.backend.course.createUnit(course.id, { kind: 'unit', title: 'Rollover' });
+    await made.backend.course.reviews.scheduleUnitReview(course.id, u1.id, {
+      scheduledDate: '2026-11-24',
+      intervalDays: 1,
+    });
+
+    const store = new CourseStore(made.workspace, course.id);
+    await store.load();
+
+    render(UnitReviewsPanel, { course: store, unitId: u1.id });
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('unit-review-due-today')).toBeVisible();
+    });
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('unit-review-overdue')).toHaveTextContent('1d overdue');
+    });
 
     store.close();
   });

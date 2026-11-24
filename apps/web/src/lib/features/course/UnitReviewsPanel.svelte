@@ -16,11 +16,12 @@
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { dateOfInstant, daysBetween, parseCalendarDate } from '$lib/logic/dates.ts';
+  import { daysBetween, parseCalendarDate } from '$lib/logic/dates.ts';
   import { isTimeZone } from '$lib/logic/regional.ts';
   import {
     courseReviewIntervals,
     courseReviews,
+    DeviceToday,
     suggestedNextIntervalDays,
     type CourseStore,
     type ScheduleUnitReview,
@@ -46,7 +47,8 @@
     const configured = course.workspace.settings.timeZone;
     return configured !== 'auto' && isTimeZone(configured) ? configured : 'UTC';
   });
-  const today = $derived(dateOfInstant(Date.now(), timeZone));
+  const todayClock = new DeviceToday(() => timeZone);
+  const today = $derived(todayClock.date);
 
   const unitReviews = $derived(store.reviewsForUnit(unitId));
   const pendingReviews = $derived(unitReviews.filter((review) => review.completedAt === null));

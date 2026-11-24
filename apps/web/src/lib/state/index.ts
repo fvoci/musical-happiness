@@ -95,6 +95,7 @@ export type { PageDraft, PageMove, WikiDraft, WikiPage, WikiPageDetail } from '.
 export { CourseStore, type CourseLooks } from './course.svelte.ts';
 export { CourseMeetingsState, type CourseEventWriteResult } from './course-meetings.svelte.ts';
 export { CourseScheduleState, type ScheduleWriteResult } from './course-schedule.svelte.ts';
+export { DeviceToday } from './device-today.svelte.ts';
 export { LearningTodayStore } from './learning-today.svelte.ts';
 export { syncDeviceTimeZone } from './time-zone-sync.ts';
 export { UnitStore } from './unit.svelte.ts';

@@ -51,7 +51,7 @@ async function signedInPage(
   address: string,
   who: Person,
 ): Promise<{ page: Page; errors: string[] }> {
-  const context = await browser.newContext({ locale: 'en-US' });
+  const context = await browser.newContext({ locale: 'en-US', timezoneId: 'UTC' });
   const page = await context.newPage();
   const errors = watchErrors(page);
   await page.goto(address);
