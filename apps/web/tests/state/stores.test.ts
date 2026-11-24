@@ -22,19 +22,17 @@ describe('the workspace', () => {
     expect(workspace.status).toBe('ready');
     expect(workspace.me?.username).toBe('hana');
     expect(workspace.userName(workspace.me?.id ?? '')).toBe('김하나 (@hana)');
-    expect(workspace.containers).toHaveLength(14);
+    expect(workspace.containers).toHaveLength(8);
     expect(workspace.sidebar.map((entry) => entry.category.name)).toEqual([
-      'Team',
-      'Research',
+      'Projects',
+      'Operations',
       'Personal',
       'Boards',
     ]);
     expect(workspace.sidebar[0]?.containers.map((board) => board.title)).toEqual([
-      'Project Tasks',
-      'Sprint Planner',
-      'Roadmap',
-      'Meeting Agenda',
-      'Team Retrospective',
+      'Project schedule',
+      'Issue tracker',
+      'Meeting notes',
     ]);
   });
 
@@ -168,12 +166,14 @@ describe('the workspace', () => {
   it('files a board under another category and keeps the order the reader gave', async () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
-    const [first, research] = workspace.sidebar;
+    const [first, operations] = workspace.sidebar;
     const moved = first?.containers[0];
-    if (!moved || !research) throw new Error('unexpected seed');
-    await workspace.moveContainer(moved.id, research.category.id, 1);
-    expect(workspace.sidebar[1]?.containers.map((board) => board.title)[1]).toBe('Project Tasks');
-    expect(workspace.sidebar[0]?.containers).toHaveLength(4);
+    if (!moved || !operations) throw new Error('unexpected seed');
+    await workspace.moveContainer(moved.id, operations.category.id, 1);
+    expect(workspace.sidebar[1]?.containers.map((board) => board.title)[1]).toBe(
+      'Project schedule',
+    );
+    expect(workspace.sidebar[0]?.containers).toHaveLength(2);
   });
 
   it('hides a board from the sidebar, and undo shows it again in its place', async () => {
@@ -239,7 +239,7 @@ describe('the workspace', () => {
     backend.failNext('patchCategory', refused());
     await workspace.renameCategory(workspace.sidebar[0]?.category.id ?? '', 'Renamed');
     await settle();
-    expect(workspace.sidebar[0]?.category.name).toBe('Team');
+    expect(workspace.sidebar[0]?.category.name).toBe('Projects');
     expect(reading).toHaveBeenCalled();
   });
 
@@ -337,10 +337,8 @@ describe('a board', () => {
   it('knows a board the reader may only look at', async () => {
     const made = setup(await loadTemplates());
     await made.workspace.load();
-    const goals = made.workspace.containers.find((board) =>
-      board.title.startsWith('Company Goals'),
-    );
-    const board = await made.workspace.openBoard(goals?.id ?? '');
+    const readOnly = made.workspace.containers.find((board) => board.title === 'Study notes');
+    const board = await made.workspace.openBoard(readOnly?.id ?? '');
     expect(board.role).toBe('viewer');
     expect(board.canEdit).toBe(false);
     expect(board.canComment).toBe(false);

@@ -29,7 +29,7 @@ const newCard = (page: Page): Locator => page.locator('[data-testid="new-card"]:
 async function dues(page: Page): Promise<Map<string, unknown>> {
   const pairs = await page.evaluate(() => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const due = store.board.cardProperties.find((each) => each.name === 'Due Date')?.id ?? '';
+    const due = store.board.cardProperties.find((each) => each.name === 'Day')?.id ?? '';
     return (
       store.cards as unknown as { id: string; fields: { properties: Record<string, unknown> } }[]
     ).map((card) => [card.id, card.fields.properties[due]] as const);
@@ -87,19 +87,19 @@ test('a card cannot be made to come after a card that comes after it, and it say
   page,
 }, info) => {
   await openRelated(page, info);
-  // "Filter and sort cards" and "Create a new view" come after "Drag cards".
-  await bar(page, 'Drag cards').click();
+  // "Keep your documents in a wiki" and "Attach files and open them right here" come after "Open a card".
+  await bar(page, 'Open a card').click();
   await expect(dialog(page)).toBeVisible();
   const after = dialog(page)
     .locator('[data-property]')
     .filter({ has: page.locator('dt', { hasText: /^\s*After\s*$/ }) });
   await after.locator('[data-slot="relation-edit"]').click();
   const search = page.getByRole('combobox', { name: 'After' });
-  await search.fill('Filter and sort');
+  await search.fill('Keep your documents');
   await expect(page.getByRole('listbox', { name: 'After' }).getByRole('option')).toHaveCount(0);
   await expect(page.getByText('Not offered: 1. Picking them would make a loop.')).toBeVisible();
   // A card that closes no loop is offered.
-  await search.fill('Share a board');
+  await search.fill('Filter, sort and group');
   await expect(page.getByRole('listbox', { name: 'After' }).getByRole('option')).toHaveCount(1);
 });
 
@@ -107,21 +107,26 @@ test('a loop of cards without a date is counted, and they are marked in their li
   page,
 }, info) => {
   await openRelated(page, info);
-  // Two cards without a date, the one that came after "Drag cards" among them, after each other.
+  // Two cards without a date, the one that came after "Open a card" among them, after each other.
   const titles = await page.evaluate(() => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const due = store.board.cardProperties.find((each) => each.name === 'Due Date')?.id ?? '';
+    const due = store.board.cardProperties.find((each) => each.name === 'Day')?.id ?? '';
     const cards = store.cards as unknown as {
       title: string;
       fields: { isTemplate: boolean; properties: Record<string, unknown> };
     }[];
     return cards
-      .filter((card) => !card.fields.isTemplate && card.title !== 'Create a new view')
+      .filter(
+        (card) => !card.fields.isTemplate && card.title !== 'Attach files and open them right here',
+      )
       .filter((card) => card.fields.properties[due] === undefined && card.title !== '')
       .map((card) => card.title);
   });
   const other = titles[0] ?? '';
-  await setAfter(page, { 'Create a new view': [other], [other]: ['Create a new view'] });
+  await setAfter(page, {
+    'Attach files and open them right here': [other],
+    [other]: ['Attach files and open them right here'],
+  });
   const loops = page.getByTestId('gantt-loops');
   // No card with a bar is on a loop: the two without a date are counted, and shown.
   await expect(loops).toHaveAccessibleName('On a loop without a date: 2. Show them.');
@@ -135,7 +140,7 @@ test('a loop of cards without a date is counted, and they are marked in their li
       .first()
       .locator('a'),
   ).toBeFocused();
-  for (const title of ['Create a new view', other]) {
+  for (const title of ['Attach files and open them right here', other]) {
     await expect(
       list.locator('[data-card]').filter({ hasText: title }).locator('[data-mark="loop"]'),
     ).toHaveText('On a loop');
@@ -149,22 +154,28 @@ test('cards without a date on a loop are told on "No date" while cards with a ba
   await openRelated(page, info);
   const other = await page.evaluate(() => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const due = store.board.cardProperties.find((each) => each.name === 'Due Date')?.id ?? '';
+    const due = store.board.cardProperties.find((each) => each.name === 'Day')?.id ?? '';
     const cards = store.cards as unknown as {
       title: string;
       fields: { isTemplate: boolean; properties: Record<string, unknown> };
     }[];
     return (
       cards
-        .filter((card) => !card.fields.isTemplate && card.title !== 'Create a new view')
+        .filter(
+          (card) =>
+            !card.fields.isTemplate && card.title !== 'Attach files and open them right here',
+        )
         .find((card) => card.fields.properties[due] === undefined && card.title !== '')?.title ?? ''
     );
   });
   const undated = page.getByTestId('gantt-undated');
-  await setAfter(page, { 'Create a new view': [other], [other]: ['Create a new view'] });
+  await setAfter(page, {
+    'Attach files and open them right here': [other],
+    [other]: ['Attach files and open them right here'],
+  });
   await expect(undated.locator('[data-mark="loop"]')).toHaveCount(0);
   // A loop of two cards with a bar as well: those are counted, and "No date" tells of its own.
-  await setAfter(page, { 'Create a new card': ['Filter and sort cards'] });
+  await setAfter(page, { 'Write in the body': ['Keep your documents in a wiki'] });
   await expect(page.getByTestId('gantt-loops')).toHaveAccessibleName(
     /^On a loop: \d+\. Show the next\.$/,
   );
@@ -176,12 +187,12 @@ test('the counts above the chart say what they count in words, on a narrow page 
   page,
 }, info) => {
   await openRelated(page, info);
-  // "Drag cards" (the 12th) after "Share a board" (to the 23rd): out of order.
-  await setAfter(page, { 'Drag cards': ['Share a board'] });
+  // "Open a card" (the 12th) after "Filter, sort and group" (to the 23rd): out of order.
+  await setAfter(page, { 'Open a card': ['Filter, sort and group'] });
   const late = page.getByTestId('gantt-late');
   await expect(late).toHaveAccessibleName('Out of order: 1. Show the next.');
   await expect(late.getByText('Out of order', { exact: true })).toBeVisible();
-  await setAfter(page, { 'Create a new card': ['Filter and sort cards'] });
+  await setAfter(page, { 'Write in the body': ['Keep your documents in a wiki'] });
   await expect(
     page.getByTestId('gantt-loops').getByText('On a loop', { exact: true }),
   ).toBeVisible();
@@ -198,10 +209,10 @@ test('a bar of a grouped chart says its group', async ({ page }, info) => {
   const heading = gantt(page).locator('[data-group]').first();
   await expect(heading).toBeVisible();
   // Each bar ends by naming the heading it is under.
-  const name = (await bar(page, 'Drag cards').getAttribute('aria-label')) ?? '';
+  const name = (await bar(page, 'Open a card').getAttribute('aria-label')) ?? '';
   const groups = await gantt(page)
     .locator('[data-group] [data-slot="group-name"]')
     .allTextContents();
   expect(groups.some((group) => name.endsWith(`Group: ${group.trim()}.`))).toBe(true);
-  expect(name.startsWith('number 1, Drag cards, November 12. ')).toBe(true);
+  expect(name.startsWith('number 1, Open a card, November 12. ')).toBe(true);
 });

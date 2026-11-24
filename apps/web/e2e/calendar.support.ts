@@ -12,7 +12,7 @@ import { tabKey } from './keyboard.support.ts';
 /** The page's time zone and language: Seoul, and English, whose weeks start on Sunday. */
 export const CALENDAR_PAGE = { timezoneId: 'Asia/Seoul', locale: 'en-US' } as const;
 
-export const WELCOME = ['Welcome to fvoci!', 'Preview: Calendar View'] as const;
+export const WELCOME = ['Getting started with fvoci', 'Calendar'] as const;
 export const NOW = new Date('2026-11-09T16:00:00Z'); // 01:00 on the 10th in Seoul
 
 export const calendar = (page: Page): Locator => page.getByTestId('calendar');
@@ -35,20 +35,19 @@ export async function crowdable(page: Page, info: TestInfo): Promise<void> {
  * project's cells have rows (a tablet held upright has seven).
  */
 export const CROWD = [
-  'Manage tasks with cards',
-  'Create your own board',
-  'Share cards on Channels',
-  'Create a new view',
-  'Add new properties',
-  '@mention teammates',
-  'Filter and sort cards',
-  'Create a new card',
+  'See the same cards five ways',
+  'Describe cards with properties',
+  'Write in the body',
+  'Attach files and open them right here',
+  'Keep your documents in a wiki',
+  'Start a board from a template',
+  'Work on it together',
 ] as const;
 
 /** A date value as the wire has it: a day as text, a moment as milliseconds. */
 export type Stored = { from: string | number; to?: string | number } | undefined;
 
-/** Gives cards of the open board a value of "Due Date", through the board store. */
+/** Gives cards of the open board a value of "Day", through the board store. */
 export async function setDates(page: Page, values: Record<string, Stored>): Promise<void> {
   await page.evaluate(async (wanted) => {
     interface Store {
@@ -59,26 +58,67 @@ export async function setDates(page: Page, values: Record<string, Stored>): Prom
     const { workspace } = (window as unknown as { fvociDev: { workspace: { board: Store } } })
       .fvociDev;
     const store = workspace.board;
-    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
+    const due = store.board.cardProperties.find((property) => property.name === 'Day');
     for (const [title, value] of Object.entries(wanted)) {
       const card = store.cards.find((each) => each.title === title);
-      if (!card || !due) throw new Error(`no card "${title}" or no Due Date`);
+      if (!card || !due) throw new Error(`no card "${title}" or no Day`);
       await store.setCardProperty(card.id, due.id, value);
     }
   }, values);
+}
+
+/** Clears "Day" on every card of the open board, through the board store. */
+export async function clearDates(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    interface Store {
+      board: { cardProperties: { id: string; name: string }[] };
+      cards: { id: string; fields: { properties: Record<string, unknown> } }[];
+      setCardProperty(cardId: string, propertyId: string, value: unknown): Promise<void>;
+    }
+    const store = (window as unknown as { fvociDev: { workspace: { board: Store } } }).fvociDev
+      .workspace.board;
+    const due = store.board.cardProperties.find((property) => property.name === 'Day');
+    if (!due) throw new Error('no Day');
+    for (const card of store.cards) {
+      if (card.fields.properties[due.id] !== undefined) {
+        await store.setCardProperty(card.id, due.id, undefined);
+      }
+    }
+  });
+}
+
+/** Adds an updatedTime property named "Last updated time" to the open board for display-by tests. */
+export async function addUpdatedTimeProperty(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    interface Dev {
+      backend: {
+        patchContainer(containerId: string, patch: object): Promise<unknown>;
+      };
+      workspace: {
+        board: { board: { id: string } };
+      };
+    }
+    const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
+    await dev.backend.patchContainer(dev.workspace.board.board.id, {
+      updatedCardProperties: [
+        { id: 'last-updated', name: 'Last updated time', type: 'updatedTime', options: [] },
+      ],
+    });
+  });
 }
 
 /** Opens the calendar of the welcome board with a few dated cards. */
 export async function openCalendar(page: Page, info: TestInfo): Promise<void> {
   await page.clock.setFixedTime(NOW);
   await openView(page, info, ...WELCOME);
+  await clearDates(page);
   await setDates(page, {
-    'Drag cards': { from: '2026-11-12' },
+    'Open a card': { from: '2026-11-12' },
     // Three weeks: 12 to 24 November.
-    'Share a board': { from: '2026-11-12', to: '2026-11-24' },
+    'Filter, sort and group': { from: '2026-11-12', to: '2026-11-24' },
     // 08:00 on the 10th in Seoul.
-    'Create a new card': { from: Date.parse('2026-11-09T23:00:00Z') },
-    'Filter and sort cards': { from: '2026-12-03' },
+    'Write in the body': { from: Date.parse('2026-11-09T23:00:00Z') },
+    'Keep your documents in a wiki': { from: '2026-12-03' },
   });
   await expect(calendar(page)).toHaveAttribute('data-layout', wide(info) ? 'bars' : 'mini');
 }
@@ -91,7 +131,7 @@ export const dayButton = (page: Page, date: string): Locator =>
     `[data-day="${date}"][data-day-button], [data-day="${date}"] [data-day-button]`,
   );
 
-/** The value of "Due Date" of a card, as the board store has it. */
+/** The value of "Day" of a card, as the board store has it. */
 export async function dueOf(page: Page, title: string): Promise<unknown> {
   return page.evaluate((wanted) => {
     interface Store {
@@ -100,7 +140,7 @@ export async function dueOf(page: Page, title: string): Promise<unknown> {
     }
     const store = (window as unknown as { fvociDev: { workspace: { board: Store } } }).fvociDev
       .workspace.board;
-    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
+    const due = store.board.cardProperties.find((property) => property.name === 'Day');
     const card = store.cards.find((each) => each.title === wanted);
     return due && card ? (card.fields.properties[due.id] ?? null) : 'missing';
   }, title);

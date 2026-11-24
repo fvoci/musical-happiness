@@ -63,7 +63,7 @@ test.describe.configure({ timeout: 90_000 });
 
 test('the editor of a card draws a formula and a diagram, under the policy', async ({ page }) => {
   const seen = refusals(page);
-  const body = await openCardWithEmbeds(page, 'Welcome');
+  const body = await openCardWithEmbeds(page, 'Getting started');
   await expect(body).toHaveAttribute('data-editor', 'ready');
   await drawn(body);
   expect(seen).toEqual([]);
@@ -73,7 +73,7 @@ test('a card the reader may only look at draws them too, in an editor that only 
   page,
 }) => {
   const seen = refusals(page);
-  const body = await openCardWithEmbeds(page, 'Company Goals');
+  const body = await openCardWithEmbeds(page, 'Study notes');
   await expect(body).toHaveAttribute('data-editor', 'reading');
   await expect(body.locator('[contenteditable="true"]')).toHaveCount(0);
   await drawn(body);
@@ -85,14 +85,14 @@ test('a reader who asked for less motion gets the whole diagram too', async ({ p
   // measured while it is drawn, and a shortened transition once hid from the
   // measuring where the nodes had just been put.
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  const body = await openCardWithEmbeds(page, 'Welcome');
+  const body = await openCardWithEmbeds(page, 'Getting started');
   await drawn(body);
 });
 
 test('on the dark screen the diagram is drawn again with the colours of the dark screen', async ({
   page,
 }) => {
-  const body = await openCardWithEmbeds(page, 'Company Goals');
+  const body = await openCardWithEmbeds(page, 'Study notes');
   await drawn(body);
   const fillOf = (): Promise<string> =>
     body
@@ -128,7 +128,7 @@ test.describe('pictures of a formula and a diagram', () => {
       const stage = STAGE_OF_PROJECT[testInfo.project.name] ?? 'expanded';
       // Nothing fades or slides: a picture is not taken halfway through.
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
-      const body = await openCardWithEmbeds(page, 'Welcome');
+      const body = await openCardWithEmbeds(page, 'Getting started');
       await drawn(body);
       await page.waitForLoadState('networkidle');
       await page.evaluate(() => document.fonts.ready);

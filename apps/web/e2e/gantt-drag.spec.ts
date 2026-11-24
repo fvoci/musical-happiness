@@ -37,7 +37,7 @@ const dragged = (page: Page): Locator => gantt(page).locator('[data-bar][data-dr
 async function due(page: Page, title: string): Promise<unknown> {
   return page.evaluate((wanted) => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const property = store.board.cardProperties.find((each) => each.name === 'Due Date');
+    const property = store.board.cardProperties.find((each) => each.name === 'Day');
     const card = store.cards.find((each) => each.title === wanted) as
       { fields: { properties: Record<string, unknown> } } | undefined;
     return property ? card?.fields.properties[property.id] : undefined;
@@ -113,7 +113,7 @@ test.describe('a mouse', () => {
     page,
   }, info) => {
     await openGantt(page, info);
-    const share = bar(page, 'Share a board');
+    const share = bar(page, 'Filter, sort and group');
     const { x } = await dayScale(page);
     await dragBy(page, share, 3, async () => {
       // While it is dragged it is drawn on the days it would go to, which are said over it.
@@ -126,19 +126,25 @@ test.describe('a mouse', () => {
     await shoot(page, 'dropped');
     await expect(dragged(page)).toHaveCount(0);
     await expect(dialog(page)).toHaveCount(0);
-    expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-15', to: '2026-11-26' });
+    expect(await due(page, 'Filter, sort and group')).toEqual({
+      from: '2026-11-15',
+      to: '2026-11-26',
+    });
     expect((await share.boundingBox())?.x).toBeCloseTo(x('2026-11-15'), 0);
 
     await undo(page);
-    expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-12', to: '2026-11-23' });
+    expect(await due(page, 'Filter, sort and group')).toEqual({
+      from: '2026-11-12',
+      to: '2026-11-23',
+    });
     expect((await share.boundingBox())?.x).toBeCloseTo(x('2026-11-12'), 0);
   });
 
   test('a moment keeps its time of day on the reader’s clock', async ({ page }, info) => {
     await openGantt(page, info);
-    await dragBy(page, bar(page, 'Create a new card'), -2);
+    await dragBy(page, bar(page, 'Write in the body'), -2);
     // 08:00 on the 10th in Seoul, now 08:00 on the 8th.
-    expect(await due(page, 'Create a new card')).toEqual({
+    expect(await due(page, 'Write in the body')).toEqual({
       from: Date.parse('2026-11-07T23:00:00Z'),
     });
   });
@@ -147,24 +153,24 @@ test.describe('a mouse', () => {
     page,
   }, info) => {
     await openGantt(page, info);
-    await bar(page, 'Drag cards').click();
+    await bar(page, 'Open a card').click();
     await expect(dialog(page)).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog(page)).toHaveCount(0);
-    expect(await due(page, 'Drag cards')).toEqual({ from: '2026-11-12' });
+    expect(await due(page, 'Open a card')).toEqual({ from: '2026-11-12' });
 
-    await dragBy(page, bar(page, 'Drag cards'), 2, async () => {
+    await dragBy(page, bar(page, 'Open a card'), 2, async () => {
       await page.keyboard.press('Escape');
       await expect(dragged(page)).toHaveCount(1);
     });
-    expect(await due(page, 'Drag cards')).toEqual({ from: '2026-11-14' });
+    expect(await due(page, 'Open a card')).toEqual({ from: '2026-11-14' });
     await expect(dialog(page)).toHaveCount(0);
   });
 
   test('a bar put back where it was changes nothing', async ({ page }, info) => {
     await openGantt(page, info);
     const { width } = await dayScale(page);
-    const from = await pointOn(bar(page, 'Share a board'));
+    const from = await pointOn(bar(page, 'Filter, sort and group'));
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
     await page.mouse.move(from.x + 5 * width, from.y, { steps: 8 });
@@ -172,30 +178,33 @@ test.describe('a mouse', () => {
     await page.mouse.up();
     await expect(dragged(page)).toHaveCount(0);
     await expect(dialog(page)).toHaveCount(0);
-    expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-12', to: '2026-11-23' });
+    expect(await due(page, 'Filter, sort and group')).toEqual({
+      from: '2026-11-12',
+      to: '2026-11-23',
+    });
   });
 
   test('the ends are dragged: a day becomes a range, and a start stops at the end', async ({
     page,
   }, info) => {
     await openGantt(page, info);
-    await row(page, 'Drag cards').hover();
+    await row(page, 'Open a card').hover();
     await shoot(page, 'grips');
-    await dragBy(page, grip(page, 'Drag cards', 'end'), 2, async () => {
+    await dragBy(page, grip(page, 'Open a card', 'end'), 2, async () => {
       await shoot(page, 'resizing');
     });
-    expect(await due(page, 'Drag cards')).toEqual({ from: '2026-11-12', to: '2026-11-14' });
+    expect(await due(page, 'Open a card')).toEqual({ from: '2026-11-12', to: '2026-11-14' });
 
-    await dragBy(page, grip(page, 'Share a board', 'start'), 20);
-    expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-23' });
+    await dragBy(page, grip(page, 'Filter, sort and group', 'start'), 20);
+    expect(await due(page, 'Filter, sort and group')).toEqual({ from: '2026-11-23' });
 
-    await dragBy(page, grip(page, 'Filter and sort cards', 'start'), -3);
-    expect(await due(page, 'Filter and sort cards')).toEqual({
+    await dragBy(page, grip(page, 'Keep your documents in a wiki', 'start'), -3);
+    expect(await due(page, 'Keep your documents in a wiki')).toEqual({
       from: '2026-11-30',
       to: '2026-12-04',
     });
     await undo(page);
-    expect(await due(page, 'Filter and sort cards')).toEqual({
+    expect(await due(page, 'Keep your documents in a wiki')).toEqual({
       from: '2026-12-03',
       to: '2026-12-04',
     });
@@ -206,25 +215,31 @@ test.describe('a mouse', () => {
     // After opening: the page is opened at the width of the project's pane.
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(scroller(page)).toBeVisible();
-    await centre(page, bar(page, 'Share a board'));
-    await dragBy(page, bar(page, 'Share a board'), 2, async () => {
+    await centre(page, bar(page, 'Filter, sort and group'));
+    await dragBy(page, bar(page, 'Filter, sort and group'), 2, async () => {
       await expect(dragged(page)).toHaveCount(1);
       await shoot(page, '390-dragging');
     });
-    expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-14', to: '2026-11-25' });
+    expect(await due(page, 'Filter, sort and group')).toEqual({
+      from: '2026-11-14',
+      to: '2026-11-25',
+    });
     // Away from the right edge, where a held end scrolls the days.
-    await centre(page, grip(page, 'Share a board', 'end'));
-    await row(page, 'Share a board').hover();
-    await dragBy(page, grip(page, 'Share a board', 'end'), 2, async () => {
+    await centre(page, grip(page, 'Filter, sort and group', 'end'));
+    await row(page, 'Filter, sort and group').hover();
+    await dragBy(page, grip(page, 'Filter, sort and group', 'end'), 2, async () => {
       await shoot(page, '390-resizing');
     });
-    expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-14', to: '2026-11-27' });
+    expect(await due(page, 'Filter, sort and group')).toEqual({
+      from: '2026-11-14',
+      to: '2026-11-27',
+    });
     await shoot(page, '390-dropped');
   });
 
   test('a change the backend refuses puts the bar back', async ({ page }, info) => {
     await openGantt(page, info);
-    const share = bar(page, 'Share a board');
+    const share = bar(page, 'Filter, sort and group');
     const before = (await share.boundingBox())?.x ?? 0;
     // The next change of a card is refused; the calls of the backend are counted.
     await page.evaluate(() => {
@@ -250,7 +265,10 @@ test.describe('a mouse', () => {
     // The drop was written, and refused.
     await expect.poll(() => page.evaluate(() => Number(Reflect.get(window, 'patches')))).toBe(1);
     await expect.poll(async () => (await share.boundingBox())?.x).toBeCloseTo(before, 0);
-    expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-12', to: '2026-11-23' });
+    expect(await due(page, 'Filter, sort and group')).toEqual({
+      from: '2026-11-12',
+      to: '2026-11-23',
+    });
   });
 
   test('near the right edge the days scroll and the axis grows', async ({ page }, info) => {
@@ -259,8 +277,8 @@ test.describe('a mouse', () => {
     const box = await scroller(page).boundingBox();
     if (!box) throw new Error('no chart');
     // Hover waits for a stable, hittable bar before the coordinate-driven gesture.
-    await bar(page, 'Drag cards').hover();
-    const from = await pointOn(bar(page, 'Drag cards'));
+    await bar(page, 'Open a card').hover();
+    const from = await pointOn(bar(page, 'Open a card'));
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
     await page.mouse.move(box.x + box.width - 4, from.y, { steps: 10 });
@@ -278,7 +296,7 @@ test.describe('a mouse', () => {
       )
       .toBe(true);
     await page.mouse.up();
-    const moved = (await due(page, 'Drag cards')) as { from: string };
+    const moved = (await due(page, 'Open a card')) as { from: string };
     expect(moved.from > lastBefore).toBe(true);
     expect(await scroller(page).evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
   });
@@ -293,11 +311,11 @@ test.describe('a finger', () => {
     const { width } = await dayScale(page);
 
     // Start in the visible days: the initial bar can extend past a phone's right edge.
-    await centre(page, bar(page, 'Share a board'));
+    await centre(page, bar(page, 'Filter, sort and group'));
     // A swipe across a bar scrolls the chart and moves nothing.
     const left = await scroller(page).evaluate((element) => element.scrollLeft);
     const ended = await scrollEnd(page);
-    const start = await pointOn(bar(page, 'Share a board'));
+    const start = await pointOn(bar(page, 'Filter, sort and group'));
     await finger.down(start);
     await finger.move({ x: start.x - 120, y: start.y });
     await finger.up();
@@ -306,34 +324,46 @@ test.describe('a finger', () => {
     await expect
       .poll(() => scroller(page).evaluate((element) => element.scrollLeft))
       .toBeGreaterThan(left + 40);
-    expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-12', to: '2026-11-23' });
+    expect(await due(page, 'Filter, sort and group')).toEqual({
+      from: '2026-11-12',
+      to: '2026-11-23',
+    });
     // Away from the edges of the days, where a held bar scrolls them.
-    await centre(page, bar(page, 'Share a board'));
+    await centre(page, bar(page, 'Filter, sort and group'));
 
     // Resting on it takes it.
-    const on = await pointOn(bar(page, 'Share a board'));
+    const on = await pointOn(bar(page, 'Filter, sort and group'));
     await finger.down(on);
     await expect(dragged(page)).toHaveCount(1);
     await finger.move({ x: on.x + 2 * width, y: on.y });
     await finger.up();
     await expect(dragged(page)).toHaveCount(0);
-    expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-14', to: '2026-11-25' });
+    expect(await due(page, 'Filter, sort and group')).toEqual({
+      from: '2026-11-14',
+      to: '2026-11-25',
+    });
 
     // So does resting on its grip, which makes it longer.
-    await centre(page, grip(page, 'Share a board', 'end'));
-    const end = await pointOn(grip(page, 'Share a board', 'end'));
+    await centre(page, grip(page, 'Filter, sort and group', 'end'));
+    const end = await pointOn(grip(page, 'Filter, sort and group', 'end'));
     await finger.down(end);
     await expect(dragged(page)).toHaveCount(1);
     await finger.move({ x: end.x + 3 * width, y: end.y });
     await finger.up();
-    expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-14', to: '2026-11-28' });
+    expect(await due(page, 'Filter, sort and group')).toEqual({
+      from: '2026-11-14',
+      to: '2026-11-28',
+    });
     await undo(page);
-    expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-14', to: '2026-11-25' });
+    expect(await due(page, 'Filter, sort and group')).toEqual({
+      from: '2026-11-14',
+      to: '2026-11-25',
+    });
   });
 
   test('a tap opens the card', async ({ page }, info) => {
     await openGantt(page, info);
-    await bar(page, 'Drag cards').tap();
+    await bar(page, 'Open a card').tap();
     await expect(dialog(page)).toBeVisible();
   });
 });
@@ -342,7 +372,7 @@ test('nothing is dragged by a reader, nor where the bars are placed by when card
   page,
 }, info) => {
   await openGantt(page, info);
-  await expect(grip(page, 'Drag cards', 'end')).toHaveCount(1);
+  await expect(grip(page, 'Open a card', 'end')).toHaveCount(1);
   // Placed by when the cards were made: no grips. Then by the date again.
   const placeBy = (propertyId: string | undefined): Promise<void> =>
     page.evaluate(
@@ -358,7 +388,7 @@ test('nothing is dragged by a reader, nor where the bars are placed by when card
           }));
         }
         const id =
-          wanted ?? board.board.cardProperties.find((each) => each.name === 'Due Date')?.id ?? '';
+          wanted ?? board.board.cardProperties.find((each) => each.name === 'Day')?.id ?? '';
         await board.setViewFields(viewId, { dateDisplayPropertyId: id });
       },
       [propertyId, viewIdOf(page.url())] as const,
@@ -376,7 +406,7 @@ test('nothing is dragged by a reader, nor where the bars are placed by when card
     await page.mouse.up();
   }
   await placeBy(undefined);
-  await expect(grip(page, 'Drag cards', 'end')).toHaveCount(1);
+  await expect(grip(page, 'Open a card', 'end')).toHaveCount(1);
 
   // A reader: the board as a viewer sees it.
   await page.evaluate(() => {
@@ -392,7 +422,7 @@ test('nothing is dragged by a reader, nor where the bars are placed by when card
     }));
   });
   await expect(gantt(page).locator('[data-grip]')).toHaveCount(0);
-  const share = bar(page, 'Share a board');
+  const share = bar(page, 'Filter, sort and group');
   const at = await pointOn(share);
   const before = await share.boundingBox();
   if (touch(info)) {
@@ -409,7 +439,10 @@ test('nothing is dragged by a reader, nor where the bars are placed by when card
     await page.mouse.up();
   }
   await expect(dragged(page)).toHaveCount(0);
-  expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-12', to: '2026-11-23' });
+  expect(await due(page, 'Filter, sort and group')).toEqual({
+    from: '2026-11-12',
+    to: '2026-11-23',
+  });
   expect(before).not.toBeNull();
 });
 
@@ -417,11 +450,11 @@ test('with the keys: Shift+F10 on a bar opens the card’s “…”, whose “C
   page,
 }, info) => {
   await openGantt(page, info);
-  const share = bar(page, 'Share a board');
+  const share = bar(page, 'Filter, sort and group');
   await share.focus();
   // The "…" is shown with the focus in its row, and is no stop of Tab: the bars are one stop.
-  const menu = row(page, 'Share a board').locator('[data-card-menu]');
-  await expect(menu).toHaveAccessibleName('Card menu: Share a board');
+  const menu = row(page, 'Filter, sort and group').locator('[data-card-menu]');
+  await expect(menu).toHaveAccessibleName('Card menu: Filter, sort and group');
   await expect(menu).toHaveAttribute('tabindex', '-1');
   await expect(share).toHaveAttribute('aria-keyshortcuts', 'Shift+F10');
   await page.keyboard.press('Shift+F10');
@@ -439,7 +472,7 @@ test('with the keys: Shift+F10 on a bar opens the card’s “…”, whose “C
   await page.keyboard.press('Enter');
   await expect(picker).toBeHidden();
   await expect
-    .poll(() => due(page, 'Share a board'))
+    .poll(() => due(page, 'Filter, sort and group'))
     .toEqual({
       from: '2026-11-19',
       to: '2026-11-30',
@@ -447,7 +480,10 @@ test('with the keys: Shift+F10 on a bar opens the card’s “…”, whose “C
   // The focus is back on the bar.
   await expect(share).toBeFocused();
   await undo(page);
-  expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-12', to: '2026-11-23' });
+  expect(await due(page, 'Filter, sort and group')).toEqual({
+    from: '2026-11-12',
+    to: '2026-11-23',
+  });
 
   // The menu key opens it too.
   await page.keyboard.press('ContextMenu');

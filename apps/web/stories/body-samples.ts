@@ -129,24 +129,22 @@ export const MIXED: DocNode = {
 };
 
 /**
- * One document of the built-in templates, as the template archive held
- * it: the template "Project Tasks", the card "Identify dependencies" (copied
- * at commit 17d04ad6).
+ * One document from the built-in templates: the template "Project schedule",
+ * the card "Agree on the scope".
  */
 export const FROM_TEMPLATE: DocNode = {
   type: 'doc',
   content: [
-    heading(2, 'Description'),
-    paragraph(text('[Brief description of this task]', 'italic')),
+    heading(2, 'Goals'),
+    paragraph(text('Write down what must be delivered and what can wait for the next phase.')),
     { type: 'horizontalRule' },
     heading(2, 'Checklist'),
     {
       type: 'taskList',
       content: [
-        task(false, paragraph(text('[Subtask 1]'))),
-        task(false, paragraph(text('[Subtask 2]'))),
-        task(false, paragraph(text('[Subtask 3]'))),
-        task(false, paragraph(text('...'))),
+        task(true, paragraph(text('Confirm deliverables and deadline'))),
+        task(false, paragraph(text('Assign owners for each phase'))),
+        task(false, paragraph(text('Share the schedule with everyone involved'))),
       ],
     },
   ],

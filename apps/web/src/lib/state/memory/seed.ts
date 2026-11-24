@@ -1,72 +1,76 @@
 /**
- * The data the in-memory backend starts with: the boards of `./seed/`, as
- * boards a small team is working on. The tests are written against them.
+ * The data the in-memory backend starts with: the fvoci built-in templates of
+ * `./seed/`, seeded both as live workspace boards (English) and as built-in
+ * templates (English and Korean). The tests are written against them.
  *
- * The boards, views, cards and bodies are the files of `./seed/`, read as
- * they are. What a file does not have is added here so that the screens have
- * something to show: six people, who made and was last on each card, the
- * people a person property points at, a few comments, one attachment, a
- * sidebar, and the numbers of the cards (`card-numbers.ts`).
+ * What a template file does not carry is added here for the live boards so
+ * that the screens have something to show: six people, who made and was last
+ * on each card, the people a person property points at, a few comments, one
+ * attachment, a sidebar, and the numbers of the cards (`card-numbers.ts`).
  *
  * The result is the same on every run: identifiers and times come from a
  * counter, not from the clock.
  */
-import type { DocNode } from '../../editor/schema.ts';
 import { DEFAULT_ACCOUNT_SETTINGS } from '../../logic/account-settings.ts';
-import {
-  createBoard,
-  type Container,
-  type PropertyTemplate,
-  type PropertyType,
-  type PropertyValue,
-} from '../../logic/wire.ts';
+import { createBoard, type Container } from '../../logic/wire.ts';
 import type { Category, User } from '../backend.ts';
 
 import { seedUsers } from './users.ts';
 import { memberOf } from './backend.ts';
 import { numberedWorld } from './card-numbers.ts';
 import { seedCourse } from './seed-course.ts';
-import { World, type StoredBlock } from './world.ts';
+import {
+  boardCardProperties,
+  placeSeedFiles,
+  seedBoardBlocks,
+  seedBuiltinTemplate,
+  type SeedTemplate,
+} from './seed-templates.ts';
+import { World } from './world.ts';
 
-/** One board of `./seed/`, in the shape it is written in. */
-export interface SeedTemplate {
-  key: string;
-  onboarding: boolean;
-  board: {
-    id: string;
-    title: string;
-    description: string;
-    icon: string;
-    showDescription: boolean;
-    cardProperties: {
-      id: string;
-      name: string;
-      type: string;
-      options: PropertyTemplate['options'];
-    }[];
+export type {
+  LegacySeedFile,
+  SeedAsset,
+  SeedCourseChapter,
+  SeedCourseSchedule,
+  SeedCourseUnit,
+  SeedFile,
+  SeedTemplate,
+} from './seed-templates.ts';
+
+type RawSeedTemplate = Omit<SeedTemplate, 'board' | 'views' | 'cards' | 'files'> & {
+  board: Omit<SeedTemplate['board'], 'cardProperties'> & {
+    cardProperties?: SeedTemplate['board']['cardProperties'];
   };
-  views: { id: string; title: string; fields: Record<string, unknown> }[];
-  cards: {
-    id: string;
-    title: string;
-    fields: { icon: string; isTemplate: boolean; properties: Record<string, PropertyValue> };
-    body: DocNode | null;
-  }[];
-  files: { fileId: string; archiveMember: string; bytes: number }[];
-}
+  views?: SeedTemplate['views'];
+  cards?: SeedTemplate['cards'];
+  files?: SeedTemplate['files'];
+};
 
-const templateFiles = import.meta.glob<SeedTemplate>('./seed/[0-9]*.json', { import: 'default' });
+const templateFiles = import.meta.glob<RawSeedTemplate>('./seed/[0-9]*.json', {
+  import: 'default',
+});
 
-/** The boards of `./seed/`, in the order of their file names. */
+/** The boards and courses of `./seed/`, in the order of their file names. */
 export async function loadTemplates(): Promise<SeedTemplate[]> {
   const names = Object.keys(templateFiles).sort();
-  return Promise.all(
+  const loaded = await Promise.all(
     names.map((name) => {
       const load = templateFiles[name];
       if (!load) throw new Error(`no loader for ${name}`);
       return load();
     }),
   );
+  return loaded.map((raw) => ({
+    ...raw,
+    board: {
+      ...raw.board,
+      cardProperties: raw.board.cardProperties ?? [],
+    },
+    views: raw.views ?? [],
+    cards: raw.cards ?? [],
+    files: raw.files ?? [],
+  }));
 }
 
 /** When the seeded world begins: 2026-10-01 00:00 UTC. Everything is made after it, a minute apart. */
@@ -109,52 +113,22 @@ const PEOPLE: readonly Omit<User, 'id' | 'createAt' | 'updateAt' | 'deleteAt'>[]
 /** The sidebar of the reader: which templates are filed under which category. */
 const SIDEBAR: readonly { name: string; type: Category['type']; keys: readonly string[] }[] = [
   {
-    name: 'Team',
+    name: 'Projects',
     type: 'custom',
-    keys: ['project-tasks', 'sprint-planner', 'roadmap', 'meeting-agenda', 'team-retrospective'],
+    keys: ['project-schedule', 'issue-tracker', 'meeting-notes'],
   },
   {
-    name: 'Research',
+    name: 'Operations',
     type: 'custom',
-    keys: ['user-research-sessions', 'competitive-analysis', 'content-calendar'],
+    keys: ['content-calendar', 'customer-contacts'],
   },
-  { name: 'Personal', type: 'custom', keys: ['personal-tasks', 'personal-goals'] },
+  { name: 'Personal', type: 'custom', keys: ['study-notes'] },
   // Everything else lands here; an empty list of keys means "the rest".
   { name: 'Boards', type: 'system', keys: [] },
 ];
 
 /** The board on which the reader may only look. It shows what a screen does without the right to edit. */
-const VIEW_ONLY_KEY = 'company-goals-okrs';
-
-const KNOWN_TYPES: readonly PropertyType[] = [
-  'text',
-  'number',
-  'select',
-  'multiSelect',
-  'date',
-  'person',
-  'multiPerson',
-  'file',
-  'checkbox',
-  'url',
-  'email',
-  'phone',
-  'createdTime',
-  'createdBy',
-  'updatedTime',
-  'updatedBy',
-];
-
-const paragraph = (text: string): DocNode => ({
-  type: 'doc',
-  content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
-});
-
-const COMMENTS = [
-  'I can take this one.',
-  '다음 주 화요일까지 초안을 올릴게요.',
-  'Is this still blocked on the review?',
-];
+export const VIEW_ONLY_KEY = 'study-notes';
 
 export interface SeededWorld {
   world: World;
@@ -162,7 +136,7 @@ export interface SeededWorld {
   readerId: string;
 }
 
-/** A world holding the given templates as boards. */
+/** A world holding the given templates as live workspace boards and built-in templates. */
 export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
   let tick = 0;
   const clock = (): number => SEED_EPOCH + (tick += 1) * MINUTE;
@@ -186,8 +160,14 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
   if (!reader) throw new Error('the seed has no people');
   world.settings.set(reader.id, { ...DEFAULT_ACCOUNT_SETTINGS });
 
+  const hasLocalized = templates.some((template) => template.language !== undefined);
+  const liveTemplates = templates.filter(
+    (template) => template.board.kind !== 'course' && (!hasLocalized || template.language === 'en'),
+  );
+  const builtinTemplates = templates.filter((template) => template.language !== undefined);
+
   const boardIdOf = new Map<string, string>();
-  templates.forEach((template, templateIndex) => {
+  liveTemplates.forEach((template, templateIndex) => {
     const boardId = world.newId();
     boardIdOf.set(template.key, boardId);
     const at = world.now();
@@ -206,14 +186,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       description: template.board.description,
       icon: template.board.icon,
       showDescription: template.board.showDescription,
-      cardProperties: template.board.cardProperties.map((property) => ({
-        id: property.id,
-        name: property.name,
-        type: KNOWN_TYPES.includes(property.type as PropertyType)
-          ? (property.type as PropertyType)
-          : 'unknown',
-        options: property.options.map((option) => ({ ...option })),
-      })),
+      cardProperties: boardCardProperties(template.board.cardProperties),
       createAt: at,
       updateAt: at,
     };
@@ -234,100 +207,16 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
         ),
       ),
     );
-
-    // The files the bodies name. Their bytes are not in this repository.
-    for (const file of template.files) {
-      world.files.set(file.fileId, {
-        fileId: file.fileId,
-        containerId: boardId,
-        name: file.archiveMember.split('/').pop() ?? file.fileId,
-        size: file.bytes,
-        contentType: 'image/png',
-      });
-    }
-
-    // Cards first: the views name them in their card order.
-    const cardIdOf = new Map<string, string>();
-    template.cards.forEach((card, cardIndex) => {
-      const id = world.newId();
-      cardIdOf.set(card.id, id);
-      const made = world.now();
-      const author = people[cardIndex % people.length] ?? reader;
-      const properties: Record<string, PropertyValue> = structuredClone(card.fields.properties);
-      // A person property of a template points at nobody we have: give it one of the people.
-      board.cardProperties.forEach((property, propertyIndex) => {
-        const person = people[(cardIndex + propertyIndex + 1) % people.length] ?? reader;
-        if (property.type === 'person') properties[property.id] = person.id;
-        if (property.type === 'multiPerson') properties[property.id] = [person.id, author.id];
-      });
-      const block: StoredBlock = {
-        id,
-        containerId: boardId,
-        parentId: '',
-        createdBy: author.id,
-        modifiedBy: author.id,
-        schema: 1,
-        type: 'card',
-        title: card.title,
-        fields: { icon: card.fields.icon, isTemplate: card.fields.isTemplate, properties },
-        createAt: made,
-        updateAt: made,
-        deleteAt: 0,
-        body: card.body,
-      };
-      world.blocks.set(id, block);
-
-      // Two comments on the first card of every board, one on the second.
-      const comments = card.fields.isTemplate ? 0 : cardIndex === 0 ? 2 : cardIndex === 1 ? 1 : 0;
-      for (let index = 0; index < comments; index += 1) {
-        const commenter = people[(cardIndex + index + 1) % people.length] ?? reader;
-        const written = world.now();
-        const commentId = world.newId();
-        world.blocks.set(commentId, {
-          id: commentId,
-          containerId: boardId,
-          parentId: id,
-          createdBy: commenter.id,
-          modifiedBy: commenter.id,
-          schema: 1,
-          type: 'comment',
-          title: '',
-          fields: {},
-          createAt: written,
-          updateAt: written,
-          deleteAt: 0,
-          body: paragraph(COMMENTS[(templateIndex + index) % COMMENTS.length] ?? ''),
-        });
-      }
+    const assetIdOf = placeSeedFiles(world, boardId, template.files);
+    seedBoardBlocks(world, board, template, assetIdOf, {
+      reader,
+      people,
+      live: true,
+      templateIndex,
     });
-    for (const view of template.views) {
-      const made = world.now();
-      const fields = structuredClone(view.fields);
-      if (Array.isArray(fields.cardOrder)) {
-        fields.cardOrder = (fields.cardOrder as string[]).map((id) => cardIdOf.get(id) ?? id);
-      }
-      if (typeof fields.defaultTemplateId === 'string' && fields.defaultTemplateId !== '') {
-        fields.defaultTemplateId = cardIdOf.get(fields.defaultTemplateId) ?? '';
-      }
-      const id = world.newId();
-      world.blocks.set(id, {
-        id,
-        containerId: boardId,
-        parentId: '',
-        createdBy: reader.id,
-        modifiedBy: reader.id,
-        schema: 1,
-        type: 'view',
-        title: view.title,
-        fields,
-        createAt: made,
-        updateAt: made,
-        deleteAt: 0,
-      });
-    }
   });
 
-  // One attachment, on the first card of the first board.
+  // One attachment, on the first card of the first live board.
   seedAttachment(world, reader);
 
   const filed = new Set(SIDEBAR.flatMap((category) => category.keys));
@@ -336,7 +225,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
     const keys =
       category.keys.length > 0
         ? category.keys
-        : templates.map((template) => template.key).filter((key) => !filed.has(key));
+        : liveTemplates.map((template) => template.key).filter((key) => !filed.has(key));
     return {
       id: world.newId(),
       name: category.name,
@@ -351,17 +240,28 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       updateAt: at,
     };
   });
-  if (templates.length > 1) seedCourse(world, reader, users, categories);
+
+  const hasBuiltinCourse = builtinTemplates.some((template) => template.board.kind === 'course');
+  if (liveTemplates.length > 1 || hasBuiltinCourse) {
+    seedCourse(world, reader, users, categories, !hasBuiltinCourse);
+  }
   world.categories.set(reader.id, categories);
+
+  for (const template of builtinTemplates) seedBuiltinTemplate(world, template, reader);
 
   // From here on the world lives in real time.
   world.useClock(Date.now);
   return { world: numberedWorld(world), readerId: reader.id };
 }
 
-/** Seeds one sample attachment on the first card of the first board. */
+/** Seeds one sample attachment on the first non-template card of the first live board. */
 function seedAttachment(world: World, reader: User): void {
-  const firstCard = [...world.blocks.values()].find((block) => block.type === 'card');
+  const firstCard = [...world.blocks.values()].find(
+    (block) =>
+      block.type === 'card' &&
+      block.fields.isTemplate !== true &&
+      world.containers.get(block.containerId)?.isTemplate !== true,
+  );
   if (!firstCard) return;
   const notes = new Blob(['Notes from the kick-off.\n'], { type: 'text/plain' });
   const fileId = world.newId();

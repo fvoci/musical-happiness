@@ -7,6 +7,10 @@
  * every reference inside a template leads somewhere, and between them they
  * show every kind of view, property and node there is.
  */
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import { MARK_SPECS, NODE_SPECS, validateDoc, type DocNode } from '$lib/editor/schema.ts';
@@ -197,6 +201,23 @@ describe('the built-in templates', () => {
       const korean = byLanguage('ko').find((other) => other.key === template.key);
       if (!korean) throw new Error(`${template.key} is not written in Korean`);
       expect(shape(korean), template.key).toEqual(shape(template));
+    }
+  });
+
+  it('are mirrored in the web memory seed directory', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const serverDir = resolve(here, '../../../../crates/server/assets/templates');
+    const webSeedDir = resolve(here, '../../src/lib/state/memory/seed');
+    const jsonFiles = (dir: string): string[] =>
+      readdirSync(dir)
+        .filter((name) => /^[0-9].*\.json$/.test(name))
+        .sort();
+    const expected = jsonFiles(serverDir);
+    expect(jsonFiles(webSeedDir)).toEqual(expected);
+    for (const name of expected) {
+      expect(JSON.parse(readFileSync(resolve(webSeedDir, name), 'utf8')), name).toEqual(
+        JSON.parse(readFileSync(resolve(serverDir, name), 'utf8')),
+      );
     }
   });
 

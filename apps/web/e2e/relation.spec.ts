@@ -32,7 +32,7 @@ interface Place {
   cards: StoredCard[];
 }
 
-/** The table "Task Overview" of the board "Project Tasks", and three of its cards. */
+/** The table "Task table" of the board "Project schedule", and three of its cards. */
 async function openTable(page: Page): Promise<Place> {
   await page.goto('/');
   await expect(page.getByTestId('app-shell')).toBeVisible();
@@ -40,7 +40,7 @@ async function openTable(page: Page): Promise<Place> {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
     const [workspace] = await backend.workspaces();
     const boards = await backend.boards(workspace?.id ?? '');
-    const boardId = boards.find((each) => each.title === 'Project Tasks')?.id ?? '';
+    const boardId = boards.find((each) => each.title === 'Project schedule')?.id ?? '';
     const views = await backend.views(boardId);
     const cards = (await backend.cards(boardId)).filter((card) => !card.fields.isTemplate);
     const titled = cards.filter(
@@ -48,7 +48,7 @@ async function openTable(page: Page): Promise<Place> {
     );
     return {
       boardId,
-      viewId: views.find((each) => each.title === 'Task Overview')?.id ?? '',
+      viewId: views.find((each) => each.title === 'Task table')?.id ?? '',
       cards: titled.slice(0, 3),
     };
   });

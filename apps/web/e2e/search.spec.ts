@@ -51,7 +51,7 @@ async function cardWith(
   page: Page,
   title: string,
   body: string,
-  boardTitle = 'Project Tasks',
+  boardTitle = 'Project schedule',
 ): Promise<string> {
   return page.evaluate(
     async ({ title, body, boardTitle }) => {
@@ -157,7 +157,7 @@ test.describe('the search of cards and pages', () => {
     const hit = hits(page).first();
     await expect(hit).toHaveAttribute('aria-selected', 'true');
     await expect(hit.locator('[data-hit-title]')).toHaveText('Quarterly review');
-    await expect(hit.locator('[data-hit-container]')).toHaveText(/Project Tasks/);
+    await expect(hit.locator('[data-hit-container]')).toHaveText(/Project schedule/);
     await expect(hit.locator('mark')).toHaveText('zephyrquokka');
     await expect(field(page)).toHaveAttribute(
       'aria-activedescendant',
@@ -262,7 +262,7 @@ test.describe('the search of cards and pages', () => {
   }) => {
     await openWithSearch(page);
     await cardWith(page, 'Lemur here', 'tamarin near');
-    const there = await cardWith(page, 'Lemur there', 'tamarin far', 'Roadmap');
+    const there = await cardWith(page, 'Lemur there', 'tamarin far', 'Issue tracker');
     await goTo(page, 'tamarin near', 'Lemur here');
     const before = placeOf(page.url());
     await goTo(page, 'tamarin far', 'Lemur there');
@@ -411,7 +411,7 @@ test.describe('the search of cards and pages', () => {
   test('the keys open nothing over a confirmation', async ({ page }) => {
     await openWithSearch(page);
     test.skip((await stageOf(page)) !== 'expanded', 'a sidebar beside the board, no drawer');
-    await chooseFromMenu(page, boardMenu(page, 'Meeting Agenda'), 'delete');
+    await chooseFromMenu(page, boardMenu(page, 'Meeting notes'), 'delete');
     await expect(page.getByTestId('confirm-dialog')).toBeVisible();
     await page.keyboard.press(await primaryKey(page, 'k'));
     await expect(dialog(page)).toHaveCount(0);

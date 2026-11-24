@@ -17,6 +17,7 @@ export function seedCourse(
   reader: User,
   users: readonly User[],
   categories: Category[],
+  withBuiltinTemplate = true,
 ): void {
   const courseId = world.newId();
   const at = world.now();
@@ -93,7 +94,7 @@ export function seedCourse(
     'Edit unit bodies together and see live presence.',
   );
   categories.find((category) => category.type === 'system')?.containerIds.push(courseId);
-  seedBuiltinCourseTemplate(world, reader);
+  if (withBuiltinTemplate) seedBuiltinCourseTemplate(world, reader);
 }
 
 const textNode = (text: string): DocNode => ({ type: 'text', text });

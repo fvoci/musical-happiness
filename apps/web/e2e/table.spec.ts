@@ -40,9 +40,16 @@ interface Dev {
     latency: number;
     workspaces(): Promise<{ id: string }[]>;
     boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
+    container(containerId: string): Promise<{
+      cardProperties: { id: string; name: string; options: { id: string; value: string }[] }[];
+    }>;
     views(boardId: string): Promise<StoredView[]>;
     cards(boardId: string): Promise<StoredCard[]>;
     createCard(boardId: string, draft: { title: string }): Promise<StoredCard>;
+    patchView(boardId: string, viewId: string, patch: object): Promise<unknown>;
+  };
+  someoneElse(): {
+    patchView(boardId: string, viewId: string, patch: object): Promise<unknown>;
   };
 }
 
@@ -80,6 +87,21 @@ async function openView(page: Page, boardTitle: string, viewTitle: string): Prom
   await page.goto(boardPath(found.boardId, found.viewId));
   await expect(page.getByTestId('table')).toBeVisible();
   return found;
+}
+
+/** Opens a table view with its sort cleared, so rows stand in manual order and can be dragged. */
+async function openUnsortedView(
+  page: Page,
+  boardTitle: string,
+  viewTitle: string,
+): Promise<Opened> {
+  const opened = await openView(page, boardTitle, viewTitle);
+  await page.evaluate(async ({ boardId, viewId }) => {
+    const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
+    await backend.patchView(boardId, viewId, { updatedFields: { sortOptions: [] } });
+  }, opened);
+  await expect.poll(async () => (await storedView(page, opened)).sortOptions).toEqual([]);
+  return opened;
 }
 
 /** The view as the backend has it now. */
@@ -241,7 +263,7 @@ test.describe('what the table shows', () => {
   test('the columns of the view in its order, a row per card, and their values', async ({
     page,
   }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openUnsortedView(page, 'Project schedule', 'Task table');
     const fields = await storedView(page, opened);
 
     await expect(table(page)).toHaveAttribute('role', 'grid');
@@ -250,7 +272,7 @@ test.describe('what the table shows', () => {
       .evaluateAll((cells) => cells.map((cell) => cell.getAttribute('data-col')));
     expect(shown).toEqual([TITLE, ...fields.visiblePropertyIds]);
     await expect(header(page, 'Name')).toBeVisible();
-    for (const name of ['Status', 'Priority', 'Estimated Hours']) {
+    for (const name of ['Status', 'Phase', 'Estimated hours']) {
       await expect(header(page, name)).toHaveCount(1);
     }
 
@@ -259,15 +281,15 @@ test.describe('what the table shows', () => {
     const byId = new Map(cards.map((card) => [card.id, card.title]));
     expect(await rowTitles(page)).toEqual(fields.cardOrder.map((id) => byId.get(id)));
 
-    const id = await rowId(page, 'Identify dependencies');
-    await expect(cellOf(page, id, await columnId(page, 'Status'))).toHaveText('Not Started');
-    await expect(cellOf(page, id, await columnId(page, 'Priority'))).toContainText('3. Low');
+    const id = await rowId(page, 'Design the screens');
+    await expect(cellOf(page, id, await columnId(page, 'Status'))).toHaveText('In progress');
+    await expect(cellOf(page, id, await columnId(page, 'Phase'))).toContainText('Planning');
   });
 
   test('the title column, the heading row and the summary row stay put while the rest scrolls', async ({
     page,
   }) => {
-    const opened = await openView(page, 'Sales Pipeline CRM', 'All Contacts');
+    const opened = await openView(page, 'Customer contacts', 'All customers');
     await addCards(page, opened, 40);
     await expect(cardRows(page)).toHaveCount(45);
 
@@ -321,18 +343,22 @@ test.describe('what the table shows', () => {
       .toBe('1');
 
     // The other columns pass under the title column: the first of them starts left of its right edge.
-    const status = await header(page, 'Status').evaluate(
-      (cell) => cell.getBoundingClientRect().left,
-    );
-    expect(status).toBeLessThan(places.headingTitle?.right ?? 0);
+    const stage = await header(page, 'Stage').evaluate((cell) => cell.getBoundingClientRect().left);
+    expect(stage).toBeLessThan(places.headingTitle?.right ?? 0);
   });
 
   test('the title column is as wide as the reader made it, but never more than half of the pane', async ({
     page,
   }) => {
-    const opened = await openView(page, 'Company Goals & OKRs', 'By Quarter');
+    const opened = await openView(page, 'Project schedule', 'Task table');
+    await page.evaluate(async ({ boardId, viewId }) => {
+      const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
+      await backend.patchView(boardId, viewId, {
+        updatedFields: { columnWidths: { __title: 452 } },
+      });
+    }, opened);
+    await expect.poll(async () => (await storedView(page, opened)).columnWidths[TITLE]).toBe(452);
     const stored = (await storedView(page, opened)).columnWidths[TITLE] ?? 0;
-    expect(stored).toBe(452);
     const sizes = await table(page).evaluate((element) => ({
       pane: element.clientWidth,
       title: element.querySelector('[data-sticky="top"] [data-pinned]')?.getBoundingClientRect()
@@ -344,7 +370,7 @@ test.describe('what the table shows', () => {
   test('without a width of its own the title column follows the pane: 160, 224 or 352 pixels', async ({
     page,
   }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openView(page, 'Project schedule', 'Task table');
     // Take the reader's width away, as a view that never had one.
     await page.evaluate(async ({ boardId, viewId }) => {
       const dev = (window as unknown as { fvociDev: { backend: Record<string, unknown> } })
@@ -390,72 +416,72 @@ test.describe('editing a cell', () => {
   test('a text: pressing the cell gives a field, Enter stores it, and undo takes it back', async ({
     page,
   }) => {
-    const opened = await openView(page, 'Sales Pipeline CRM', 'All Contacts');
-    const id = await rowId(page, 'Richard Guzman');
-    const company = cellOf(page, id, await columnId(page, 'Company'));
-    await expect(company).toHaveText('Afformance Ltd.');
+    const opened = await openView(page, 'Customer contacts', 'All customers');
+    const id = await rowId(page, 'Customer A');
+    const contact = cellOf(page, id, await columnId(page, 'Contact name'));
+    await expect(contact).toHaveText('Purchasing');
     // Nothing is an editor until a cell is pressed.
     await expect(table(page).locator('input')).toHaveCount(0);
 
-    await press(company);
-    const field = company.locator('input');
+    await press(contact);
+    const field = contact.locator('input');
     await expect(field).toBeFocused();
     await expect(table(page).locator('input')).toHaveCount(1);
     await field.fill('Northwind');
     await page.keyboard.press('Enter');
 
-    await expect(company).toHaveText('Northwind');
+    await expect(contact).toHaveText('Northwind');
     await expect(table(page).locator('input')).toHaveCount(0);
-    await expect(company).toBeFocused();
+    await expect(contact).toBeFocused();
     await expect
       .poll(async () => (await storedCards(page, opened)).find((card) => card.id === id)?.fields)
-      .toMatchObject({ properties: { [await columnId(page, 'Company')]: 'Northwind' } });
+      .toMatchObject({ properties: { [await columnId(page, 'Contact name')]: 'Northwind' } });
 
     await page.keyboard.press(await primaryKey(page, 'z'));
-    await expect(company).toHaveText('Afformance Ltd.');
+    await expect(contact).toHaveText('Purchasing');
   });
 
   test('a text: Escape gives up what was typed', async ({ page }) => {
-    await openView(page, 'Sales Pipeline CRM', 'All Contacts');
-    const id = await rowId(page, 'Richard Guzman');
-    const company = cellOf(page, id, await columnId(page, 'Company'));
-    await press(company);
-    await company.locator('input').fill('Never stored');
+    await openView(page, 'Customer contacts', 'All customers');
+    const id = await rowId(page, 'Customer A');
+    const contact = cellOf(page, id, await columnId(page, 'Contact name'));
+    await press(contact);
+    await contact.locator('input').fill('Never stored');
     await page.keyboard.press('Escape');
-    await expect(company).toHaveText('Afformance Ltd.');
-    await expect(company).toBeFocused();
+    await expect(contact).toHaveText('Purchasing');
+    await expect(contact).toBeFocused();
   });
 
   test('a select: pressing the cell opens the options, choosing one stores it, and undo takes it back', async ({
     page,
   }, testInfo) => {
-    await openView(page, 'Project Tasks', 'Task Overview');
-    const id = await rowId(page, 'Identify dependencies');
-    const priority = cellOf(page, id, await columnId(page, 'Priority'));
-    await expect(priority).toContainText('3. Low');
+    await openView(page, 'Project schedule', 'Task table');
+    const id = await rowId(page, 'Design the screens');
+    const phase = cellOf(page, id, await columnId(page, 'Phase'));
+    await expect(phase).toContainText('Planning');
 
-    await press(priority);
+    await press(phase);
     // A sheet on a compact page, a popover elsewhere: lib/layout/presentation.ts.
     const expected = testInfo.project.name === 'mobile' ? 'sheet' : 'popover';
     const picker = page.locator(`[data-presentation="${expected}"]`);
     await expect(picker).toBeVisible();
-    await picker.getByText('2. Medium').click();
+    await picker.getByText('Building').click();
 
     await expect(picker).toBeHidden();
-    await expect(priority).toContainText('2. Medium');
+    await expect(phase).toContainText('Building');
     // The cell is back to showing: no trigger of a picker is left in it.
-    await expect(priority.locator('button')).toHaveCount(0);
+    await expect(phase.locator('button')).toHaveCount(0);
 
     await undo(page);
-    await expect(priority).toContainText('3. Low');
+    await expect(phase).toContainText('Planning');
   });
 
   test('a checkbox: pressing the cell ticks it at once, and undo takes it back', async ({
     page,
   }) => {
-    await openView(page, 'Personal Tasks', 'List View');
-    const id = await rowId(page, 'Buy groceries');
-    const done = cellOf(page, id, await columnId(page, 'Completed'));
+    await openView(page, 'Meeting notes', 'All meetings');
+    const id = await rowId(page, 'Design review');
+    const done = cellOf(page, id, await columnId(page, 'Decisions made'));
     const box = done.getByRole('checkbox');
     const before = await box.isChecked();
 
@@ -466,12 +492,12 @@ test.describe('editing a cell', () => {
   });
 
   test('the title: edited in place', async ({ page }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
-    const id = await rowId(page, 'Define project scope');
+    const opened = await openView(page, 'Project schedule', 'Task table');
+    const id = await rowId(page, 'Agree on the scope');
     await titleCell(page, id).click({ position: { x: 6, y: 12 } });
     const field = titleCell(page, id).locator('input');
     await expect(field).toBeFocused();
-    await expect(field).toHaveValue('Define project scope');
+    await expect(field).toHaveValue('Agree on the scope');
     await field.fill('Define the scope');
     await page.keyboard.press('Enter');
 
@@ -483,15 +509,15 @@ test.describe('editing a cell', () => {
       .toBe('Define the scope');
     await page.keyboard.press(await primaryKey(page, 'z'));
     await expect(titleCell(page, id).locator('[data-slot="row-title"]')).toHaveText(
-      'Define project scope',
+      'Agree on the scope',
     );
   });
 
   test('a value that comes from the card itself is not edited', async ({ page }) => {
-    await openView(page, 'Project Tasks', 'Task Overview');
-    const id = await rowId(page, 'Define project scope');
-    const created = cellOf(page, id, await columnId(page, 'Date Created'));
-    await press(created);
+    await openView(page, 'Customer contacts', 'All customers');
+    const id = await rowId(page, 'Customer A');
+    const changed = cellOf(page, id, await columnId(page, 'Last changed at'));
+    await press(changed);
     await expect(table(page).locator('input')).toHaveCount(0);
     await expect(page.locator('[data-presentation]')).toHaveCount(0);
   });
@@ -501,11 +527,11 @@ test.describe('editing a cell', () => {
 
 test.describe('rows', () => {
   test('"+ New" makes a row and puts the caret in its title', async ({ page }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
-    await expect(cardRows(page)).toHaveCount(5);
+    const opened = await openUnsortedView(page, 'Project schedule', 'Task table');
+    await expect(cardRows(page)).toHaveCount(6);
     await table(page).getByRole('button', { name: '+ New' }).click();
 
-    await expect(cardRows(page)).toHaveCount(6);
+    await expect(cardRows(page)).toHaveCount(7);
     const field = cardRows(page).last().locator('[data-kind="title"] input');
     await expect(field).toBeFocused();
     await field.fill('Write the report');
@@ -517,35 +543,35 @@ test.describe('rows', () => {
     // The summary row counts it.
     await expect(
       table(page).locator(`[data-kind="calculation"][data-col="${TITLE}"]`),
-    ).toContainText('6');
+    ).toContainText('7');
   });
 
   test('the menu of a row deletes it, and undo brings it back', async ({ page }) => {
-    await openView(page, 'Project Tasks', 'Task Overview');
-    const id = await rowId(page, 'Conduct market analysis');
+    await openView(page, 'Project schedule', 'Task table');
+    const id = await rowId(page, 'Design the screens');
     await openRowMenu(page, id);
     await menuItem(page, 'delete').click();
     await expect(rowOf(page, id)).toHaveCount(0);
-    await expect(cardRows(page)).toHaveCount(4);
+    await expect(cardRows(page)).toHaveCount(5);
 
     await undo(page);
     await expect(rowOf(page, id)).toHaveCount(1);
-    await expect(cardRows(page)).toHaveCount(5);
+    await expect(cardRows(page)).toHaveCount(6);
   });
 
   test('the menu of a row makes a copy of it', async ({ page }) => {
-    await openView(page, 'Project Tasks', 'Task Overview');
-    const id = await rowId(page, 'Conduct market analysis');
+    await openView(page, 'Project schedule', 'Task table');
+    const id = await rowId(page, 'Design the screens');
     await openRowMenu(page, id);
     await menuItem(page, 'duplicate').click();
-    await expect(cardRows(page)).toHaveCount(6);
+    await expect(cardRows(page)).toHaveCount(7);
     const titles = await rowTitles(page);
-    expect(titles.filter((title) => title === 'Conduct market analysis')).toHaveLength(2);
+    expect(titles.filter((title) => title === 'Design the screens')).toHaveLength(2);
   });
 
   test('the menu of a row copies the address of its card', async ({ page }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
-    const id = await rowId(page, 'Conduct market analysis');
+    const opened = await openView(page, 'Project schedule', 'Task table');
+    const id = await rowId(page, 'Design the screens');
     await openRowMenu(page, id);
     await menuItem(page, 'copyLink').click();
     await expect(page.getByTestId('table-status')).toHaveText('Copied!');
@@ -556,8 +582,8 @@ test.describe('rows', () => {
   test('a row opens its card: by "Open" where the device hovers, and from its menu', async ({
     page,
   }, testInfo) => {
-    await openView(page, 'Project Tasks', 'Task Overview');
-    const id = await rowId(page, 'Conduct market analysis');
+    await openView(page, 'Project schedule', 'Task table');
+    const id = await rowId(page, 'Design the screens');
     const open = rowOf(page, id).locator('a[data-open-card]');
 
     if (testInfo.project.name === 'desktop') {
@@ -587,8 +613,8 @@ test.describe('rows', () => {
   test('a finger gets room: rows and their buttons are 44 pixels where the pointer is coarse', async ({
     page,
   }, testInfo) => {
-    await openView(page, 'Project Tasks', 'Task Overview');
-    const id = await rowId(page, 'Conduct market analysis');
+    await openView(page, 'Project schedule', 'Task table');
+    const id = await rowId(page, 'Design the screens');
     const row = await rowOf(page, id).evaluate((element) => element.getBoundingClientRect().height);
     if (testInfo.project.name === 'desktop') {
       expect(row).toBeGreaterThanOrEqual(36);
@@ -609,17 +635,19 @@ test.describe('columns', () => {
   test('the menu of a heading makes the column wider and narrower, and the view keeps it', async ({
     page,
   }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openView(page, 'Project schedule', 'Task table');
     const status = await columnId(page, 'Status');
     const width = (): Promise<number> =>
       header(page, 'Status').evaluate((cell) => cell.getBoundingClientRect().width);
-    expect(await width()).toBe(141);
+    expect(await width()).toBe(150);
 
     await openHeaderMenu(page, 'Status');
     await menuItem(page, 'wider').click();
-    await expect.poll(width).toBe(189);
-    await expect.poll(async () => (await storedView(page, opened)).columnWidths[status]).toBe(189);
+    await expect.poll(width).toBe(198);
+    await expect.poll(async () => (await storedView(page, opened)).columnWidths[status]).toBe(198);
 
+    await openHeaderMenu(page, 'Status');
+    await menuItem(page, 'narrower').click();
     await openHeaderMenu(page, 'Status');
     await menuItem(page, 'narrower').click();
     await openHeaderMenu(page, 'Status');
@@ -628,28 +656,28 @@ test.describe('columns', () => {
     await expect.poll(width).toBe(100);
     await expect.poll(async () => (await storedView(page, opened)).columnWidths[status]).toBe(100);
     // Every row follows.
-    const id = await rowId(page, 'Define project scope');
+    const id = await rowId(page, 'Agree on the scope');
     expect(
       await cellOf(page, id, status).evaluate((cell) => cell.getBoundingClientRect().width),
     ).toBe(100);
 
     await undo(page);
-    await expect.poll(width).toBe(141);
+    await expect.poll(width).toBe(102);
   });
 
   test('the handle at the edge of a heading is moved with the arrow keys', async ({ page }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openView(page, 'Project schedule', 'Task table');
     const status = await columnId(page, 'Status');
     const handle = table(page).locator(`[data-resize="${status}"]`);
     await expect(handle).toHaveAttribute('role', 'separator');
-    await expect(handle).toHaveAttribute('aria-valuenow', '141');
+    await expect(handle).toHaveAttribute('aria-valuenow', '150');
     await handle.focus();
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('ArrowRight');
-    await expect(handle).toHaveAttribute('aria-valuenow', '173');
+    await expect(handle).toHaveAttribute('aria-valuenow', '182');
     await page.keyboard.press('ArrowLeft');
-    await expect(handle).toHaveAttribute('aria-valuenow', '157');
-    await expect.poll(async () => (await storedView(page, opened)).columnWidths[status]).toBe(157);
+    await expect(handle).toHaveAttribute('aria-valuenow', '166');
+    await expect.poll(async () => (await storedView(page, opened)).columnWidths[status]).toBe(166);
     // The arrows were the handle's: the focus did not move to another cell.
     await expect(handle).toBeFocused();
   });
@@ -658,7 +686,7 @@ test.describe('columns', () => {
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'dragging the handle needs a mouse');
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openView(page, 'Project schedule', 'Task table');
     const status = await columnId(page, 'Status');
     const grip = await centre(table(page).locator(`[data-resize="${status}"]`));
     const width = (): Promise<number> =>
@@ -669,27 +697,27 @@ test.describe('columns', () => {
     await page.mouse.move(grip.x + 30, grip.y, { steps: 3 });
     await page.mouse.move(grip.x + 60, grip.y, { steps: 3 });
     // The table follows while it is dragged, and nothing is stored yet.
-    await expect.poll(width).toBe(201);
-    expect((await storedView(page, opened)).columnWidths[status]).toBe(141);
+    await expect.poll(width).toBe(210);
+    expect((await storedView(page, opened)).columnWidths[status]).toBeUndefined();
     await page.mouse.up();
-    await expect.poll(async () => (await storedView(page, opened)).columnWidths[status]).toBe(201);
-    await expect.poll(width).toBe(201);
+    await expect.poll(async () => (await storedView(page, opened)).columnWidths[status]).toBe(210);
+    await expect.poll(width).toBe(210);
     // Letting go of the handle did not open the menu of the heading.
     await expect(surface(page)).toHaveCount(0);
 
     // One change, one undo.
     await undo(page);
-    await expect.poll(width).toBe(141);
+    await expect.poll(width).toBe(150);
   });
 
   test('the width of the title column changes from its menu too', async ({ page }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openView(page, 'Project schedule', 'Task table');
     const shown = (): Promise<number> =>
       header(page, 'Name').evaluate((cell) => Math.round(cell.getBoundingClientRect().width));
     const before = await shown();
     await openHeaderMenu(page, 'Name');
     await menuItem(page, 'narrower').click();
-    // From the width it shows (half of the pane where that is less than the 280 pixels stored),
+    // From the width it shows (half of the pane where that is less than the default),
     // and what it shows is again never more than half of the pane.
     const half = await table(page).evaluate((element) => element.clientWidth / 2);
     await expect.poll(shown).toBe(Math.round(Math.min(Math.max(100, before - 48), half)));
@@ -699,7 +727,7 @@ test.describe('columns', () => {
   });
 
   test('the menu of a heading moves the column a step, and hides it', async ({ page }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openView(page, 'Project schedule', 'Task table');
     const before = (await storedView(page, opened)).visiblePropertyIds;
     const status = await columnId(page, 'Status');
     expect(before[0]).toBe(status);
@@ -716,7 +744,7 @@ test.describe('columns', () => {
       .evaluateAll((cells) => cells.map((cell) => cell.getAttribute('data-col')));
     expect(shown).toEqual([TITLE, ...moved]);
     // The cells of every row moved with the heading.
-    const id = await rowId(page, 'Define project scope');
+    const id = await rowId(page, 'Agree on the scope');
     const cells = await rowOf(page, id)
       .locator('[data-cell]')
       .evaluateAll((all) => all.map((cell) => cell.getAttribute('data-col')));
@@ -735,18 +763,18 @@ test.describe('columns', () => {
 
   test('a heading is dragged to another place with the mouse', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'dragging a heading needs a mouse');
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openView(page, 'Project schedule', 'Task table');
     const before = (await storedView(page, opened)).visiblePropertyIds;
     const from = await centre(header(page, 'Status'));
-    const to = await centre(header(page, 'Date Created'));
+    const to = await centre(header(page, 'Owner'));
 
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
     await page.mouse.move(from.x + 8, from.y, { steps: 2 });
     await page.mouse.move(to.x + 20, to.y, { steps: 10 });
     await expect(table(page)).toHaveAttribute('data-dragging', 'pointer');
-    // A line shows where it would land: between "Date Created" and "Due Date".
-    await expect(header(page, 'Due Date')).toHaveAttribute('data-drop', 'before');
+    // A line shows where it would land: between "Owner" and "Period".
+    await expect(header(page, 'Period')).toHaveAttribute('data-drop', 'before');
     await expect(page.locator('[data-drag-overlay]')).toBeVisible();
     await page.mouse.up();
 
@@ -759,7 +787,7 @@ test.describe('columns', () => {
   });
 
   test('a heading is moved with the keyboard: Space, arrows, Space', async ({ page }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openView(page, 'Project schedule', 'Task table');
     const before = (await storedView(page, opened)).visiblePropertyIds;
     await header(page, 'Status').focus();
     await page.keyboard.press('Space');
@@ -788,7 +816,7 @@ test.describe('columns', () => {
   });
 
   test('the menu of a heading sorts the view by its column', async ({ page }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openView(page, 'Project schedule', 'Task table');
     await openHeaderMenu(page, 'Name');
     await menuItem(page, 'sortDescending').click();
     await expect(header(page, 'Name')).toHaveAttribute('aria-sort', 'descending');
@@ -811,7 +839,7 @@ test.describe('groups', () => {
   test('a heading per group with its count; folding hides its rows and the view keeps that', async ({
     page,
   }) => {
-    const opened = await openView(page, 'Sprint Planner', 'By Sprint');
+    const opened = await openView(page, 'Issue tracker', 'All issues');
     const groups = table(page).locator('[data-group-header]');
     await expect(groups).not.toHaveCount(0);
     const counts = await groups.evaluateAll((all) =>
@@ -845,7 +873,7 @@ test.describe('groups', () => {
   });
 
   test('"+" on a group makes a card with the value of the group', async ({ page }) => {
-    const opened = await openView(page, 'Sprint Planner', 'By Sprint');
+    const opened = await openUnsortedView(page, 'Issue tracker', 'All issues');
     const fields = await storedView(page, opened);
     const group = table(page).locator('[data-group-header]').nth(1);
     const optionId = ((await group.getAttribute('data-row')) ?? '').replace('group:', '');
@@ -875,7 +903,7 @@ test.describe('groups', () => {
   });
 
   test('"+ New" at the foot of a group does the same', async ({ page }) => {
-    const opened = await openView(page, 'Sprint Planner', 'By Sprint');
+    const opened = await openView(page, 'Issue tracker', 'All issues');
     const fields = await storedView(page, opened);
     const group = table(page).locator('[data-group-header]').first();
     const optionId = ((await group.getAttribute('data-row')) ?? '').replace('group:', '');
@@ -900,8 +928,8 @@ test.describe('groups', () => {
 
 test.describe('the summary row', () => {
   test('shows the calculation the view has for a column', async ({ page }) => {
-    await openView(page, 'Project Tasks', 'Task Overview');
-    const hours = await columnId(page, 'Estimated Hours');
+    await openView(page, 'Project schedule', 'Task table');
+    const hours = await columnId(page, 'Estimated hours');
     const cell = table(page).locator(`[data-kind="calculation"][data-col="${hours}"]`);
     await expect(cell).toHaveAttribute('data-calculation', 'sum');
     await expect(cell.locator('[data-slot="calculation-name"]')).toHaveText('Sum');
@@ -912,15 +940,15 @@ test.describe('the summary row', () => {
     await expect(cell.locator('[data-slot="calculation-result"]')).toHaveText(String(sum));
     // The title column counts the cards unless the view says otherwise.
     await expect(table(page).locator(`[data-kind="calculation"][data-col="${TITLE}"]`)).toHaveText(
-      /Count\s*5/,
+      /Count\s*6/,
     );
   });
 
   test('pressing a cell of it offers the calculations of the kind, and choosing one shows its result', async ({
     page,
   }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
-    const hours = await columnId(page, 'Estimated Hours');
+    const opened = await openView(page, 'Project schedule', 'Task table');
+    const hours = await columnId(page, 'Estimated hours');
     const status = await columnId(page, 'Status');
 
     const statusCell = table(page).locator(`[data-kind="calculation"][data-col="${status}"]`);
@@ -929,7 +957,7 @@ test.describe('the summary row', () => {
     // A select has no sum.
     await expect(menuItem(page, 'sum')).toHaveCount(0);
     await menuItem(page, 'countUniqueValue').click();
-    await expect(statusCell).toHaveText(/Unique\s*2/);
+    await expect(statusCell).toHaveText(/Unique\s*3/);
     await expect
       .poll(async () => (await storedView(page, opened)).columnCalculations[status])
       .toBe('countUniqueValue');
@@ -950,13 +978,15 @@ test.describe('the summary row', () => {
   });
 
   test('a checkbox column can count its ticks', async ({ page }) => {
-    await openView(page, 'Personal Tasks', 'List View');
-    const done = await columnId(page, 'Completed');
-    const cell = table(page).locator(`[data-kind="calculation"][data-col="${done}"]`);
+    await openView(page, 'Project schedule', 'Task table');
+    const milestone = await columnId(page, 'Milestone');
+    const cell = table(page).locator(`[data-kind="calculation"][data-col="${milestone}"]`);
     await press(cell);
     await menuItem(page, 'countChecked').click();
     const ticked = await table(page)
-      .locator(`[data-kind="checkbox"][data-col="${done}"] [role="checkbox"][aria-checked="true"]`)
+      .locator(
+        `[data-kind="checkbox"][data-col="${milestone}"] [role="checkbox"][aria-checked="true"]`,
+      )
       .count();
     await expect(cell).toHaveText(new RegExp(`Checked\\s*${ticked}`));
   });
@@ -969,7 +999,7 @@ test.describe('moving rows', () => {
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'dragging a row needs a mouse');
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openUnsortedView(page, 'Project schedule', 'Task table');
     const titles = await rowTitles(page);
     const ids = await Promise.all(titles.map((title) => rowId(page, title)));
     const [first, , third, fourth] = ids;
@@ -1003,7 +1033,7 @@ test.describe('moving rows', () => {
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name === 'desktop', 'a finger: the projects with a touch screen');
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openUnsortedView(page, 'Project schedule', 'Task table');
     const titles = await rowTitles(page);
     const ids = await Promise.all(titles.map((title) => rowId(page, title)));
     const [first, , third, fourth] = ids;
@@ -1064,7 +1094,7 @@ test.describe('moving rows', () => {
 
   test('a row let go outside the table goes back', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'dragging a row needs a mouse');
-    await openView(page, 'Project Tasks', 'Task Overview');
+    await openUnsortedView(page, 'Project schedule', 'Task table');
     const titles = await rowTitles(page);
     const first = await rowId(page, titles[0] ?? '');
     const from = await centre(titleCell(page, first));
@@ -1080,7 +1110,7 @@ test.describe('moving rows', () => {
   });
 
   test('a row is moved with the keyboard: Space on its title, arrows, Space', async ({ page }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openUnsortedView(page, 'Project schedule', 'Task table');
     const titles = await rowTitles(page);
     const first = await rowId(page, titles[0] ?? '');
 
@@ -1090,7 +1120,7 @@ test.describe('moving rows', () => {
     await expect(page.getByTestId('table-row-announcer')).toContainText(`Picked up ${titles[0]}`);
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('ArrowDown');
-    await expect(page.getByTestId('table-row-announcer')).toContainText('row 3 of 5');
+    await expect(page.getByTestId('table-row-announcer')).toContainText('row 3 of 6');
     // The row stands where it would land while it is carried.
     expect(await rowTitles(page)).toEqual([titles[1], titles[2], titles[0], ...titles.slice(3)]);
     await page.keyboard.press('Space');
@@ -1109,7 +1139,7 @@ test.describe('moving rows', () => {
   });
 
   test('a row carried into another group takes the value of that group', async ({ page }) => {
-    const opened = await openView(page, 'Sprint Planner', 'By Sprint');
+    const opened = await openUnsortedView(page, 'Issue tracker', 'All issues');
     const fields = await storedView(page, opened);
     const groups = await table(page)
       .locator('[data-group-header]')
@@ -1143,7 +1173,7 @@ test.describe('moving rows', () => {
   });
 
   test('in a sorted view rows are not moved by hand', async ({ page }) => {
-    await openView(page, 'User Research Sessions', 'All Users');
+    await openView(page, 'Project schedule', 'Task table');
     await expect(cardRows(page)).not.toHaveCount(0);
     await expect(table(page).locator('[data-nav-row][data-drag-item]')).toHaveCount(0);
     const first = cardRows(page).first().locator('[data-kind="title"]');
@@ -1157,7 +1187,22 @@ test.describe('moving rows', () => {
 
 test.describe('a board the reader may only look at', () => {
   test('nothing that changes it is offered', async ({ page }) => {
-    const opened = await openView(page, 'Company Goals & OKRs', 'By Quarter');
+    const opened = await openView(page, 'Study notes', 'Still to review');
+    // Group the view as an editor of the board so folding a group can be checked without edit rights.
+    await page.evaluate(async ({ boardId, viewId }) => {
+      const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
+      const board = await dev.backend.container(boardId);
+      const subject = board.cardProperties.find((property) => property.name === 'Subject');
+      if (!subject) throw new Error('no Subject property');
+      await dev.someoneElse().patchView(boardId, viewId, {
+        updatedFields: {
+          groupById: subject.id,
+          visibleOptionIds: subject.options.map((option) => option.id),
+          hiddenOptionIds: [''],
+        },
+      });
+    }, opened);
+    await expect(table(page).locator('[data-group-header]').first()).toBeVisible();
     await expect(table(page)).toHaveAttribute('aria-readonly', 'true');
     await expect(cardRows(page)).not.toHaveCount(0);
 
@@ -1172,7 +1217,7 @@ test.describe('a board the reader may only look at', () => {
     // A cell does not turn into an editor.
     const first = cardRows(page).first();
     const id = (await first.getAttribute('data-row')) ?? '';
-    await press(cellOf(page, id, await columnId(page, 'Status')));
+    await press(cellOf(page, id, await columnId(page, 'Subject')));
     await expect(page.locator('[data-presentation]')).toHaveCount(0);
     await titleCell(page, id).click({ position: { x: 6, y: 12 } });
     await expect(table(page).locator('input')).toHaveCount(0);
@@ -1205,7 +1250,7 @@ test.describe('when the window changes size', () => {
   test('the place the table is scrolled to stays, across the three stages and back', async ({
     page,
   }) => {
-    const opened = await openView(page, 'Sales Pipeline CRM', 'All Contacts');
+    const opened = await openView(page, 'Customer contacts', 'All customers');
     await addCards(page, opened, 60);
     await expect(cardRows(page)).toHaveCount(65);
     const start = page.viewportSize() ?? { width: 1280, height: 720 };
@@ -1240,10 +1285,10 @@ test.describe('when the window changes size', () => {
   test('a place the wider window cannot hold comes back when the window narrows again', async ({
     page,
   }) => {
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openView(page, 'Project schedule', 'Task table');
     await addCards(page, opened, 30);
     await page.setViewportSize({ width: 900, height: 500 });
-    await expect(cardRows(page)).toHaveCount(35);
+    await expect(cardRows(page)).toHaveCount(36);
     const room = await table(page).evaluate((element) => ({
       x: element.scrollWidth - element.clientWidth,
       y: element.scrollHeight - element.clientHeight,
@@ -1278,7 +1323,7 @@ test.describe('when the window changes size', () => {
   test('a window turned on its side and back keeps the sideways place', async ({ page }) => {
     // The sizes of docs/mobile-proposal.md, "잃는 경우", with the page's own observers in their
     // own order: the stage changes with the turn, and the table's pane with it.
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openView(page, 'Project schedule', 'Task table');
     await addCards(page, opened, 5);
     await page.setViewportSize({ width: 626, height: 890 });
     await expect(page.locator('[data-stage]').first()).toHaveAttribute('data-stage', 'medium');
@@ -1299,7 +1344,7 @@ test.describe('when the window changes size', () => {
     page,
     browserName,
   }) => {
-    await openView(page, 'Project Tasks', 'Task Overview');
+    await openView(page, 'Project schedule', 'Task table');
     // Its scroll anchoring moves the table a pixel and back after a resize (styles/app.css,
     // `webkit:`); the other engines keep theirs, and with it what is read in place.
     expect(await table(page).evaluate((element) => getComputedStyle(element).overflowAnchor)).toBe(
@@ -1311,7 +1356,7 @@ test.describe('when the window changes size', () => {
     // What docs/mobile-proposal.md found: the window widens, the pane is laid
     // out once at the width the old stage gives it (wide enough to cut the
     // scroll position), and only then a script narrows it to its real width.
-    const opened = await openView(page, 'Project Tasks', 'Task Overview');
+    const opened = await openView(page, 'Project schedule', 'Task table');
     await addCards(page, opened, 5);
     await page.setViewportSize({ width: 900, height: 600 });
     const room = await table(page).evaluate((element) => element.scrollWidth - element.clientWidth);
@@ -1346,12 +1391,12 @@ test.describe('when the window changes size', () => {
   });
 
   test('a field being typed in keeps its text and the caret', async ({ page }) => {
-    await openView(page, 'Sales Pipeline CRM', 'All Contacts');
+    await openView(page, 'Customer contacts', 'All customers');
     const start = page.viewportSize() ?? { width: 1280, height: 720 };
-    const id = await rowId(page, 'Richard Guzman');
-    const company = cellOf(page, id, await columnId(page, 'Company'));
-    await press(company);
-    const field = company.locator('input');
+    const id = await rowId(page, 'Customer A');
+    const contact = cellOf(page, id, await columnId(page, 'Contact name'));
+    await press(contact);
+    const field = contact.locator('input');
     await field.fill('Half typ');
     for (const size of [{ width: 412, height: 839 }, { width: 890, height: 626 }, start]) {
       await page.setViewportSize(size);
@@ -1366,9 +1411,9 @@ test.describe('when the window changes size', () => {
 
 test.describe('with the keyboard alone', () => {
   test('the table is one stop of the Tab key', async ({ page }) => {
-    await openView(page, 'Project Tasks', 'Task Overview');
+    await openView(page, 'Project schedule', 'Task table');
     await expect(table(page).locator('[data-cell][tabindex="0"]')).toHaveCount(1);
-    const id = await rowId(page, 'Identify dependencies');
+    const id = await rowId(page, 'Design the screens');
     await cellOf(page, id, await columnId(page, 'Status')).focus();
     await expect(table(page).locator('[data-cell][tabindex="0"]')).toHaveCount(1);
     await expect(cellOf(page, id, await columnId(page, 'Status'))).toHaveAttribute('tabindex', '0');
@@ -1377,19 +1422,19 @@ test.describe('with the keyboard alone', () => {
   test('arrows move from cell to cell, Enter edits, Escape leaves, Space ticks', async ({
     page,
   }) => {
-    const opened = await openView(page, 'Sales Pipeline CRM', 'All Contacts');
+    const opened = await openView(page, 'Customer contacts', 'All customers');
     const fields = await storedView(page, opened);
     const titles = await rowTitles(page);
     const ids = await Promise.all(titles.map((title) => rowId(page, title)));
-    const company = await columnId(page, 'Company');
-    const companyAt = fields.visiblePropertyIds.indexOf(company) + 1;
+    const contact = await columnId(page, 'Contact name');
+    const contactAt = fields.visiblePropertyIds.indexOf(contact) + 1;
 
     // From the heading of the title column, down to the first card and along its row.
     await header(page, 'Name').focus();
     await page.keyboard.press('ArrowDown');
     await expect(titleCell(page, ids[0] ?? '')).toBeFocused();
-    for (let step = 0; step < companyAt; step += 1) await page.keyboard.press('ArrowRight');
-    const cell = cellOf(page, ids[0] ?? '', company);
+    for (let step = 0; step < contactAt; step += 1) await page.keyboard.press('ArrowRight');
+    const cell = cellOf(page, ids[0] ?? '', contact);
     await expect(cell).toBeFocused();
     // The focused cell is in view, not under the title column.
     const clear = await cell.evaluate((element) => {
@@ -1418,7 +1463,7 @@ test.describe('with the keyboard alone', () => {
 
     // Down the column, and to the ends of the row.
     await page.keyboard.press('ArrowDown');
-    await expect(cellOf(page, ids[1] ?? '', company)).toBeFocused();
+    await expect(cellOf(page, ids[1] ?? '', contact)).toBeFocused();
     await page.keyboard.press('Home');
     await expect(titleCell(page, ids[1] ?? '')).toBeFocused();
     // Enter on the title edits it.
@@ -1446,9 +1491,9 @@ test.describe('with the keyboard alone', () => {
   });
 
   test('Space ticks a checkbox, and Enter on "+ New" makes a row', async ({ page }) => {
-    await openView(page, 'Personal Tasks', 'List View');
-    const id = await rowId(page, 'Buy groceries');
-    const done = cellOf(page, id, await columnId(page, 'Completed'));
+    await openView(page, 'Meeting notes', 'All meetings');
+    const id = await rowId(page, 'Design review');
+    const done = cellOf(page, id, await columnId(page, 'Decisions made'));
     const before = await done.getByRole('checkbox').isChecked();
     await done.focus();
     await page.keyboard.press('Space');
@@ -1463,8 +1508,8 @@ test.describe('with the keyboard alone', () => {
   });
 
   test('the buttons of a row are reached with Tab from its title', async ({ page }, testInfo) => {
-    await openView(page, 'Project Tasks', 'Task Overview');
-    const id = await rowId(page, 'Identify dependencies');
+    await openView(page, 'Project schedule', 'Task table');
+    const id = await rowId(page, 'Design the screens');
     await titleCell(page, id).focus();
     if (testInfo.project.name === 'desktop') {
       await page.keyboard.press(await tabKey(page));
@@ -1499,7 +1544,7 @@ test.describe('screenshots', () => {
         page.screenshot({ path: `${screensDir('table')}/${name}-${stage}-${scheme}.png` });
       await page.emulateMedia({ colorScheme: scheme });
 
-      await openView(page, 'Project Tasks', 'Task Overview');
+      await openView(page, 'Project schedule', 'Task table');
       await page.waitForLoadState('networkidle');
       await page.evaluate(() => document.fonts.ready);
       await shot('table');
@@ -1516,8 +1561,8 @@ test.describe('screenshots', () => {
       await table(page).evaluate((element) => {
         element.scrollLeft = 0;
       });
-      const id = await rowId(page, 'Identify dependencies');
-      await press(cellOf(page, id, await columnId(page, 'Priority')));
+      const id = await rowId(page, 'Design the screens');
+      await press(cellOf(page, id, await columnId(page, 'Phase')));
       await expect(page.locator('[data-presentation]')).toBeVisible();
       await page.waitForTimeout(350);
       await shot('table-select');
@@ -1529,11 +1574,11 @@ test.describe('screenshots', () => {
       await shot('table-column-menu');
       await page.keyboard.press('Escape');
 
-      await openView(page, 'Sprint Planner', 'By Sprint');
+      await openView(page, 'Issue tracker', 'All issues');
       await page.waitForLoadState('networkidle');
       await shot('table-grouped');
 
-      await openView(page, 'Company Goals & OKRs', 'By Quarter');
+      await openView(page, 'Study notes', 'Still to review');
       await page.waitForLoadState('networkidle');
       await shot('table-read-only');
     });
@@ -1556,11 +1601,11 @@ test.describe('five hundred rows', () => {
       const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
       const [workspace] = await backend.workspaces();
       const boards = await backend.boards(workspace?.id ?? '');
-      const board = boards.find((each) => each.title === 'Sales Pipeline CRM');
-      const other = boards.find((each) => each.title === 'Personal Tasks');
+      const board = boards.find((each) => each.title === 'Customer contacts');
+      const other = boards.find((each) => each.title === 'Meeting notes');
       if (!board || !other) throw new Error('the seed has no such boards');
-      const view = (await backend.views(board.id)).find((each) => each.title === 'All Contacts');
-      const start = (await backend.views(other.id)).find((each) => each.title === 'List View');
+      const view = (await backend.views(board.id)).find((each) => each.title === 'All customers');
+      const start = (await backend.views(other.id)).find((each) => each.title === 'All meetings');
       if (!view || !start) throw new Error('the seed has no such views');
       backend.latency = 0;
       for (let at = 0; at < 495; at += 1) {
@@ -1574,7 +1619,7 @@ test.describe('five hundred rows', () => {
         window.dispatchEvent(new PopStateEvent('popstate'));
       }, path);
     await go(boardPath(target.other, target.start));
-    await expect(cardRows(page)).toHaveCount(5);
+    await expect(cardRows(page)).toHaveCount(4);
 
     const firstDraw = await page.evaluate(
       async (to) => {

@@ -83,7 +83,7 @@ if (process.env.FVOCI_SCREENS) {
         test.skip(testInfo.project.name !== 'desktop', 'once, at the sizes it sets');
         await page.setViewportSize(width.viewport);
         await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
-        const body = await openCardWithBody(page, 'Welcome', kind.body);
+        const body = await openCardWithBody(page, 'Getting started', kind.body);
         await expect(body).toHaveAttribute('data-editor', 'ready');
         const block = body.locator(kind.block);
         const picture = block.locator(kind.picture);

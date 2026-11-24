@@ -17,7 +17,7 @@ export interface DevBackend {
   cards(boardId: string): Promise<{ id: string; title: string }[]>;
   card(boardId: string, cardId: string): Promise<{ updateAt: number }>;
   addMember(boardId: string, userId: string, role: 'admin'): Promise<unknown>;
-  setMemberRole(boardId: string, userId: string, role: 'viewer'): Promise<unknown>;
+  setMemberRole(boardId: string, userId: string, role: 'viewer' | 'admin'): Promise<unknown>;
   writeCardBody(boardId: string, cardId: string, write: object): Promise<unknown>;
   failNext(method: string, error: unknown): void;
 }
@@ -45,11 +45,11 @@ export async function openTaskCard(page: Page): Promise<Place> {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
     const [workspace] = await backend.workspaces();
     const boards = await backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title.startsWith('Project Tasks'));
+    const board = boards.find((each) => each.title.startsWith('Project schedule'));
     if (!board) throw new Error('no board of tasks');
     const views = await backend.views(board.id);
     const cards = await backend.cards(board.id);
-    const card = cards.find((each) => each.title === 'Identify dependencies');
+    const card = cards.find((each) => each.title === 'Agree on the scope');
     if (!card) throw new Error('no card');
     const first = [...views].sort((a, b) => a.title.localeCompare(b.title))[0];
     return { boardId: board.id, viewId: first?.id ?? '', cardId: card.id };
@@ -92,7 +92,9 @@ export async function writtenWholeElsewhere(
     async ({ at, body }) => {
       const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
       const other = dev.someoneElse();
-      await dev.backend.addMember(at.boardId, (await other.me()).id, 'admin');
+      const otherId = (await other.me()).id;
+      await dev.backend.addMember(at.boardId, otherId, 'admin');
+      await dev.backend.setMemberRole(at.boardId, otherId, 'admin');
       const card = await other.card(at.boardId, at.cardId);
       await other.writeCardBody(at.boardId, at.cardId, { body, readAt: card.updateAt });
     },

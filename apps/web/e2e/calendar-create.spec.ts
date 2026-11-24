@@ -136,7 +136,7 @@ test('the header’s “New” makes the card on the day picked (question C13)',
         };
       }
     ).fvociDev.workspace.board;
-    const due = store.board.cardProperties.find((each) => each.name === 'Due Date')?.id ?? '';
+    const due = store.board.cardProperties.find((each) => each.name === 'Day')?.id ?? '';
     const last = [...store.cards].sort((a, b) => b.createAt - a.createAt)[0];
     return last?.fields.properties[due];
   });

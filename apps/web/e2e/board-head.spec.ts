@@ -7,9 +7,8 @@
  * cut, and the list it opens has every view in its order, each name whole:
  * on its line in a sheet, which wraps it, or in the tooltip of a dropdown's.
  *
- * The first board of the seed has four views of long names: "Progress
- * Tracker" (shown first), "Project Priorities", "Task Calendar", "Task
- * Overview".
+ * The first board of the seed has five views: "Gantt" (shown first),
+ * "Milestones", "Month calendar", "Status board", "Task table".
  *
  * With `FVOCI_SCREENS=1` it also takes pictures of each, light and dark
  * (`target/screens/board-head/`).
@@ -22,7 +21,7 @@ import { placeOf } from './address.ts';
 import { screensDir } from './screens.ts';
 import { headCuts as cuts, openApp, shell, sidebar, topBar } from './shell.support.ts';
 
-const SEED_VIEWS = ['Progress Tracker', 'Project Priorities', 'Task Calendar', 'Task Overview'];
+const SEED_VIEWS = ['Gantt', 'Milestones', 'Month calendar', 'Status board', 'Task table'];
 
 interface Dev {
   backend: {
@@ -121,7 +120,7 @@ for (const scheme of ['light', 'dark'] as const) {
       // No tabs: one button in the landmark of the views, at the start of the row.
       const views = page.getByRole('navigation', { name: 'Views' });
       await expect(views.getByRole('link')).toHaveCount(0);
-      await expect(views.locator('[data-tool="views"]')).toHaveText('Progress Tracker');
+      await expect(views.locator('[data-tool="views"]')).toHaveText('Gantt');
       // One row, as high as the tools: the button stands where the tabs did.
       expect(await headerHeight(page)).toBe(48);
       expect(await cuts(page)).toEqual({ cut: [], scroll: 0 });
@@ -138,14 +137,14 @@ for (const scheme of ['light', 'dark'] as const) {
 
       // Searching, the button stays as it was.
       await openSearch(page);
-      await expect(tool(page, 'views')).toHaveText('Progress Tracker');
+      await expect(tool(page, 'views')).toHaveText('Gantt');
       expect(await cuts(page)).toEqual({ cut: [], scroll: 0 });
       await picture(page, `1000-sidebar-search-${scheme}`);
       await closeSearch(page);
 
       await collapseSidebar(page);
       expect(await paneWidth(page)).toBe(944);
-      await expect(tool(page, 'views')).toHaveText('Progress Tracker');
+      await expect(tool(page, 'views')).toHaveText('Gantt');
       expect(await cuts(page)).toEqual({ cut: [], scroll: 0 });
       await picture(page, `1000-strip-${scheme}`);
       await openSearch(page);
@@ -170,16 +169,16 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(listed(page).first()).toBeFocused();
       // Letters go to the first view whose name starts with them, the arrows on from there.
       // (A space is the key that chooses: it is not one of the letters.)
-      await page.keyboard.type('task');
-      await expect(listed(page).filter({ hasText: 'Task Calendar' })).toBeFocused();
+      await page.keyboard.type('m');
+      await expect(listed(page).filter({ hasText: 'Milestones' })).toBeFocused();
       await page.keyboard.press('ArrowDown');
-      await expect(listed(page).filter({ hasText: 'Task Overview' })).toBeFocused();
+      await expect(listed(page).filter({ hasText: 'Month calendar' })).toBeFocused();
       await page.keyboard.press('Enter');
-      await expect(views).toHaveText('Task Overview');
+      await expect(views).toHaveText('Month calendar');
       await expect(views).toBeFocused();
       await expect(page).not.toHaveURL(first);
       // Said to a screen reader: the view shown is another.
-      await expect(page.getByTestId('view-shown')).toHaveText('Now showing: Task Overview');
+      await expect(page.getByTestId('view-shown')).toHaveText('Now showing: Month calendar');
 
       // Arrows go down the list; Enter on the kind of view to add shows the new one.
       await page.keyboard.press('ArrowDown');
@@ -207,16 +206,16 @@ for (const scheme of ['light', 'dark'] as const) {
       const sheet = page.getByRole('dialog', { name: 'Views' });
       await expect(sheet).toBeVisible();
       await expect(sheet.locator('a[role="menuitem"]')).toHaveText(SEED_VIEWS);
-      await sheet.getByRole('menuitem', { name: 'Task Overview', exact: true }).click();
+      await sheet.getByRole('menuitem', { name: 'Task table', exact: true }).click();
       await expect(sheet).toHaveCount(0);
-      await expect(tool(page, 'views')).toHaveText('Task Overview');
+      await expect(tool(page, 'views')).toHaveText('Task table');
     });
 
     test('a window of 1,280 names the view, searching or not', async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 800 });
       await openApp(page);
       await expect(header(page)).toHaveAttribute('data-layout', 'row');
-      await expect(tool(page, 'views')).toHaveText('Progress Tracker');
+      await expect(tool(page, 'views')).toHaveText('Gantt');
       expect(await headerHeight(page)).toBe(48);
       expect(await cuts(page)).toEqual({ cut: [], scroll: 0 });
       await picture(page, `1280-${scheme}`);
@@ -232,7 +231,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width: 626, height: 890 });
       await openApp(page);
       await expect(header(page)).toHaveAttribute('data-layout', 'folded');
-      await expect(tool(page, 'views')).toHaveText('Progress Tracker');
+      await expect(tool(page, 'views')).toHaveText('Gantt');
       expect(await cuts(page)).toEqual({ cut: [], scroll: 0 });
       await picture(page, `626-${scheme}`);
       await openList(page);
@@ -244,7 +243,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width: 390, height: 844 });
       await openApp(page);
       await expect(header(page)).toHaveAttribute('data-layout', 'folded');
-      await expect(tool(page, 'views')).toHaveText('Progress Tracker');
+      await expect(tool(page, 'views')).toHaveText('Gantt');
       await expect(topBar(page).getByTestId('container-description')).toBeHidden();
       expect(await cuts(page)).toEqual({ cut: [], scroll: 0 });
       await picture(page, `390-${scheme}`);

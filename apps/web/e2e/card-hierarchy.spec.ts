@@ -10,7 +10,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { boardPath } from './address.ts';
-import { addGantt, bars, gantt, NOW, setDates, WELCOME } from './gantt.support.ts';
+import { addGantt, bars, clearDates, gantt, NOW, setDates, WELCOME } from './gantt.support.ts';
 import { openView } from './kanban.support.ts';
 import { pressInBar } from './shell.support.ts';
 
@@ -82,9 +82,9 @@ async function closeCardDialog(page: Page): Promise<void> {
 test('creates, links, detaches sub-cards, enforces depth 3, updates progress and Kanban face badges', async ({
   page,
 }) => {
-  const place = await seedPlace(page, 'Welcome');
-  const root = place.cards.find((c) => c.title === 'Drag cards');
-  const existingDone = place.cards.find((c) => c.title === 'Share a board');
+  const place = await seedPlace(page, 'Getting started');
+  const root = place.cards.find((c) => c.title === 'Open a card');
+  const existingDone = place.cards.find((c) => c.title === 'Filter, sort and group');
   if (!root || !existingDone) throw new Error('expected seed cards missing');
 
   // Navigate to root card first (each `page.goto` starts a fresh in-memory backend).
@@ -98,8 +98,8 @@ test('creates, links, detaches sub-cards, enforces depth 3, updates progress and
     async ({ boardId, cardId }) => {
       const { backend } = (window as unknown as { fvociDev: { backend: DevBackend } }).fvociDev;
       const board = await backend.container(boardId);
-      const status = board.cardProperties.find((p) => p.name === 'Status');
-      const done = status?.options.find((o) => o.value.includes('Completed'));
+      const status = board.cardProperties.find((p) => p.name === 'Progress');
+      const done = status?.options.find((o) => o.value === 'Done it');
       if (status && done) {
         await backend.patchCard(boardId, cardId, { updatedProperties: { [status.id]: done.id } });
       }
@@ -116,8 +116,8 @@ test('creates, links, detaches sub-cards, enforces depth 3, updates progress and
 
   // 2. Attach an existing completed card as a sub-card via picker.
   await dialog.getByTestId('subcard-link-trigger').click();
-  await page.getByRole('option', { name: /Share a board/ }).click();
-  await expect(dialog.getByTestId('subcards-list')).toContainText('Share a board');
+  await page.getByRole('option', { name: /Filter, sort and group/ }).click();
+  await expect(dialog.getByTestId('subcards-list')).toContainText('Filter, sort and group');
   await expect(dialog.getByTestId('subcards-progress')).toContainText('1/2 (50%)');
   await expect(dialog.getByTestId('subcards-progress-bar')).toHaveAttribute('aria-valuenow', '50');
 
@@ -126,7 +126,7 @@ test('creates, links, detaches sub-cards, enforces depth 3, updates progress and
     .getByTestId('subcards-list')
     .getByRole('button', { name: /Open sub-card.*Subtask One/ })
     .click();
-  await expect(dialog.getByTestId('card-parent-breadcrumb')).toContainText('Drag cards');
+  await expect(dialog.getByTestId('card-parent-breadcrumb')).toContainText('Open a card');
   await dialog.getByTestId('subcard-new-input').fill('Grandchild Leaf');
   await dialog.getByTestId('subcard-new-input').press('Enter');
   await expect(dialog.getByTestId('subcards-list')).toContainText('Grandchild Leaf');
@@ -137,7 +137,7 @@ test('creates, links, detaches sub-cards, enforces depth 3, updates progress and
     .getByRole('button', { name: /Open sub-card.*Grandchild Leaf/ })
     .click();
   const crumb = dialog.getByTestId('card-parent-breadcrumb');
-  await expect(crumb).toContainText('Drag cards');
+  await expect(crumb).toContainText('Open a card');
   await expect(crumb).toContainText('Subtask One');
   await expect(dialog.getByTestId('card-subcards')).toHaveCount(0);
 
@@ -145,7 +145,7 @@ test('creates, links, detaches sub-cards, enforces depth 3, updates progress and
   await crumb.locator(`[data-parent-crumb="${root.id}"]`).click();
   await expect(dialog.getByTestId('subcards-progress')).toContainText('1/2 (50%)');
 
-  // Detach `Share a board` and verify progress drops back to 0/1, then undo via card menu.
+  // Detach `Filter, sort and group` and verify progress drops back to 0/1, then undo via card menu.
   await dialog.locator(`[data-subcard-detach="${existingDone.id}"]`).click();
   await expect(dialog.getByTestId('subcards-progress')).toContainText('0/1 (0%)');
 
@@ -159,13 +159,13 @@ test('creates, links, detaches sub-cards, enforces depth 3, updates progress and
   const rootFace = page.locator(`[data-card="${root.id}"]`);
   await expect(rootFace.locator('[data-slot="card-subcards"]')).toContainText('1/2');
   const childFace = page.locator(`[data-card="${existingDone.id}"]`);
-  await expect(childFace.locator('[data-slot="card-parent-hint"]')).toContainText('Drag cards');
+  await expect(childFace.locator('[data-slot="card-parent-hint"]')).toContainText('Open a card');
 });
 
 test('groups sub-cards under parents in Table view with expand/collapse and filtered-parent safety', async ({
   page,
 }) => {
-  const place = await seedPlace(page, 'Project Tasks');
+  const place = await seedPlace(page, 'Project schedule');
   const [parent, child, grand] = place.cards;
   if (!parent || !child || !grand) throw new Error('expected 3 seed cards');
 
@@ -217,11 +217,12 @@ test('groups sub-cards under parents in Gantt view with expand/collapse', async 
 }, info) => {
   await page.clock.setFixedTime(NOW);
   await openView(page, info, ...WELCOME);
+  await clearDates(page);
   await addGantt(page);
   await setDates(page, {
-    'Drag cards': { from: '2026-11-10', to: '2026-11-18' },
-    'Share a board': { from: '2026-11-11', to: '2026-11-13' },
-    'Create a new card': { from: '2026-11-14', to: '2026-11-16' },
+    'Open a card': { from: '2026-11-10', to: '2026-11-18' },
+    'Filter, sort and group': { from: '2026-11-11', to: '2026-11-13' },
+    'Write in the body': { from: '2026-11-14', to: '2026-11-16' },
   });
 
   const ids = await page.evaluate(async () => {
@@ -238,9 +239,9 @@ test('groups sub-cards under parents in Gantt view with expand/collapse', async 
       }
     ).fvociDev.workspace.board;
     const byTitle = (t: string) => store.cards.find((c) => c.title === t)?.id ?? '';
-    const parentId = byTitle('Drag cards');
-    const childId = byTitle('Share a board');
-    const grandId = byTitle('Create a new card');
+    const parentId = byTitle('Open a card');
+    const childId = byTitle('Filter, sort and group');
+    const grandId = byTitle('Write in the body');
     await store.changeCard(childId, (c) => ({ ...c, parentId }));
     await store.changeCard(grandId, (c) => ({ ...c, parentId: childId }));
     return { parentId, childId, grandId };
@@ -281,8 +282,8 @@ test('groups sub-cards under parents in Gantt view with expand/collapse', async 
 test('deleting and restoring a parent card cascades to its sub-cards in the UI', async ({
   page,
 }) => {
-  const place = await seedPlace(page, 'Welcome');
-  const root = place.cards.find((c) => c.title === 'Drag cards');
+  const place = await seedPlace(page, 'Getting started');
+  const root = place.cards.find((c) => c.title === 'Open a card');
   if (!root) throw new Error('missing root');
 
   // Create a sub-card under root.
@@ -297,16 +298,16 @@ test('deleting and restoring a parent card cascades to its sub-cards in the UI',
   await dialog.getByTestId('card-menu').click();
   await page.getByRole('menuitem', { name: 'Delete' }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByText('Drag cards')).toHaveCount(0);
+  await expect(page.getByText('Open a card')).toHaveCount(0);
   await expect(page.getByText('Cascade Child')).toHaveCount(0);
 
   // Restore parent from card trash -> both parent and child return with hierarchy intact!
   await pressInBar(page, 'card-trash');
   const trash = page.getByTestId('card-trash');
   await expect(trash).toBeVisible();
-  const row = trash.locator('[data-trash-item="Drag cards"]');
+  const row = trash.locator('[data-trash-item="Open a card"]');
   await expect(row).toBeVisible();
-  await row.getByRole('button', { name: 'Restore Drag cards' }).click();
+  await row.getByRole('button', { name: 'Restore Open a card' }).click();
   await expect(row).toHaveCount(0);
   await page.keyboard.press('Escape');
 

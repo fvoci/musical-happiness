@@ -49,70 +49,76 @@ test.describe('a mouse', () => {
 
   test('moves a card to another day; one undo takes it back', async ({ page }, info) => {
     await openCalendar(page, info);
-    await dragTo(page, bars(page, 'Drag cards'), '2026-11-19', async () => {
+    await dragTo(page, bars(page, 'Open a card'), '2026-11-19', async () => {
       // While it is dragged the day it would go to is marked, and a chip names it.
       await expect(marked(page)).toHaveCount(1);
       await expect(day(page, '2026-11-19')).toHaveAttribute('data-drop', '');
-      await expect(chip(page)).toContainText('Drag cards');
+      await expect(chip(page)).toContainText('Open a card');
       await shoot(page, 'dragging');
     });
     await shoot(page, 'dropped');
     await expect(chip(page)).toHaveCount(0);
     await expect(marked(page)).toHaveCount(0);
     await expect(dialog(page)).toHaveCount(0);
-    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-19' });
-    await expect(day(page, '2026-11-19').getByText('Drag cards')).toHaveCount(0);
-    await expect(bars(page, 'Drag cards')).toHaveCount(1);
+    expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-19' });
+    await expect(day(page, '2026-11-19').getByText('Open a card')).toHaveCount(0);
+    await expect(bars(page, 'Open a card')).toHaveCount(1);
 
     await undo(page);
-    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-12' });
+    expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-12' });
   });
 
   test('a moment keeps its time of day, and a range its days', async ({ page }, info) => {
     await openCalendar(page, info);
-    await dragTo(page, bars(page, 'Create a new card'), '2026-11-13');
-    expect(await dueOf(page, 'Create a new card')).toEqual({
+    await dragTo(page, bars(page, 'Write in the body'), '2026-11-13');
+    expect(await dueOf(page, 'Write in the body')).toEqual({
       from: Date.parse('2026-11-12T23:00:00Z'),
     });
     // Taken by the middle of its first week (12 to 14), the 13th, and let go on the 19th:
     // the range of 13 days moves by six.
-    await dragTo(page, bars(page, 'Share a board').first(), '2026-11-19');
-    expect(await dueOf(page, 'Share a board')).toEqual({ from: '2026-11-18', to: '2026-11-30' });
+    await dragTo(page, bars(page, 'Filter, sort and group').first(), '2026-11-19');
+    expect(await dueOf(page, 'Filter, sort and group')).toEqual({
+      from: '2026-11-18',
+      to: '2026-11-30',
+    });
   });
 
   test('the ends of a bar are dragged by their grips', async ({ page }, info) => {
     await openCalendar(page, info);
     // A day becomes a range.
-    await dragGrip(page, bars(page, 'Drag cards'), 'end', '2026-11-14');
-    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-12', to: '2026-11-14' });
+    await dragGrip(page, bars(page, 'Open a card'), 'end', '2026-11-14');
+    expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-12', to: '2026-11-14' });
     // The last day, from the last week the range is in.
-    await dragGrip(page, bars(page, 'Share a board').last(), 'end', '2026-11-26');
-    expect(await dueOf(page, 'Share a board')).toEqual({ from: '2026-11-12', to: '2026-11-26' });
+    await dragGrip(page, bars(page, 'Filter, sort and group').last(), 'end', '2026-11-26');
+    expect(await dueOf(page, 'Filter, sort and group')).toEqual({
+      from: '2026-11-12',
+      to: '2026-11-26',
+    });
     // The first day stops at the last.
-    await dragGrip(page, bars(page, 'Drag cards'), 'start', '2026-11-20');
-    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-14' });
+    await dragGrip(page, bars(page, 'Open a card'), 'start', '2026-11-20');
+    expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-14' });
     await undo(page);
-    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-12', to: '2026-11-14' });
+    expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-12', to: '2026-11-14' });
   });
 
   test('a press without a drag opens the card, and Escape does not cancel a drag', async ({
     page,
   }, info) => {
     await openCalendar(page, info);
-    await bars(page, 'Drag cards').click();
+    await bars(page, 'Open a card').click();
     await expect(dialog(page)).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog(page)).toHaveCount(0);
 
-    await dragTo(page, bars(page, 'Drag cards'), '2026-11-18', async () => {
+    await dragTo(page, bars(page, 'Open a card'), '2026-11-18', async () => {
       await page.keyboard.press('Escape');
       await expect(chip(page)).toBeVisible();
     });
-    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-18' });
+    expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-18' });
 
     // Let go where it came from, or off the days: nothing changes.
-    await dragTo(page, bars(page, 'Drag cards'), '2026-11-18');
-    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-18' });
+    await dragTo(page, bars(page, 'Open a card'), '2026-11-18');
+    expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-18' });
     await expect(dialog(page)).toHaveCount(0);
   });
 
@@ -140,17 +146,17 @@ test.describe('a mouse', () => {
     await page.getByTestId('calendar-scale').locator('[data-scale="week"]').click();
     await expect(calendar(page)).toHaveAttribute('data-scale', 'week');
     // The week of the 10th: Sunday the 8th to Saturday the 14th.
-    await dragTo(page, bars(page, 'Drag cards'), '2026-11-13');
-    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-13' });
-    await dragGrip(page, bars(page, 'Drag cards'), 'end', '2026-11-14');
-    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-13', to: '2026-11-14' });
+    await dragTo(page, bars(page, 'Open a card'), '2026-11-13');
+    expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-13' });
+    await dragGrip(page, bars(page, 'Open a card'), 'end', '2026-11-14');
+    expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-13', to: '2026-11-14' });
     await undo(page);
-    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-13' });
+    expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-13' });
   });
 
   test('a reader drags nothing', async ({ page }, info) => {
     await openCalendar(page, info);
-    await expect(bars(page, 'Drag cards').locator('[data-grip]')).toHaveCount(2);
+    await expect(bars(page, 'Open a card').locator('[data-grip]')).toHaveCount(2);
     await page.evaluate(() => {
       const board = (
         window as unknown as {
@@ -165,11 +171,11 @@ test.describe('a mouse', () => {
         schemeViewer: true,
       }));
     });
-    await expect(bars(page, 'Drag cards').locator('[data-grip]')).toHaveCount(0);
-    await dragTo(page, bars(page, 'Drag cards'), '2026-11-19', async () => {
+    await expect(bars(page, 'Open a card').locator('[data-grip]')).toHaveCount(0);
+    await dragTo(page, bars(page, 'Open a card'), '2026-11-19', async () => {
       await expect(chip(page)).toHaveCount(0);
     });
-    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-12' });
+    expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-12' });
   });
 });
 
@@ -182,19 +188,19 @@ test.describe('a finger', () => {
   test('rests on a bar to drag it; a tap is still the day’s', async ({ page }, info) => {
     await openCalendar(page, info);
     const finger = await Finger.on(page);
-    const start = await pointOn(bars(page, 'Drag cards'));
+    const start = await pointOn(bars(page, 'Open a card'));
     await finger.down(start);
     await expect(chip(page)).toBeVisible();
     await finger.move(await pointOn(day(page, '2026-11-19'), 0.75));
     await shoot(page, 'finger-dragging');
     await finger.up();
     await expect(chip(page)).toHaveCount(0);
-    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-19' });
+    expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-19' });
     await undo(page);
-    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-12' });
+    expect(await dueOf(page, 'Open a card')).toEqual({ from: '2026-11-12' });
 
     // A tap on a bar opens the cards of its day, as before.
-    const on = await pointOn(bars(page, 'Drag cards'));
+    const on = await pointOn(bars(page, 'Open a card'));
     await page.touchscreen.tap(on.x, on.y);
     await expect(page.getByTestId('day-popover')).toBeVisible();
   });

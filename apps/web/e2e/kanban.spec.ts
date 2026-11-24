@@ -42,9 +42,9 @@ import {
 } from './kanban.support.ts';
 import { screensDir } from './screens.ts';
 
-const TASKS = ['Project Tasks', 'Progress Tracker'] as const;
-const NOT_STARTED = ['Project budget approval', 'Requirements sign-off', 'Identify dependencies'];
-const IN_PROGRESS = ['Conduct market analysis', 'Define project scope'];
+const TASKS = ['Project schedule', 'Status board'] as const;
+const PLANNED = ['Build', 'Write the help pages', 'Test', 'Launch'];
+const IN_PROGRESS = ['Design the screens'];
 
 /** Opens the menu of a card and chooses a line. */
 async function cardMenu(page: Page, title: string, action: string): Promise<void> {
@@ -70,45 +70,53 @@ test.describe('columns and cards', () => {
     page,
   }, info) => {
     await openView(page, info, ...TASKS);
-    expect(await columnNames(page)).toEqual([
-      'Not Started',
-      'In Progress',
-      'Blocked',
-      'Completed 🙌',
-      'Archived',
-      'No Status',
-    ]);
-    expect(await titlesIn(page, 'Not Started')).toEqual(NOT_STARTED);
-    expect(await titlesIn(page, 'In Progress')).toEqual(IN_PROGRESS);
+    expect(await columnNames(page)).toEqual(['Planned', 'In progress', 'Blocked', 'Done']);
+    expect(await titlesIn(page, 'Planned')).toEqual(PLANNED);
+    expect(await titlesIn(page, 'In progress')).toEqual(IN_PROGRESS);
     expect(await titlesIn(page, 'Blocked')).toEqual([]);
-    await expect(column(page, 'Not Started').locator('[data-column-count]')).toContainText('3');
+    await expect(column(page, 'Planned').locator('[data-column-count]')).toContainText('4');
 
     // A card shows the properties the view turned on, and that it has a body.
-    const face = card(page, 'Identify dependencies');
-    await expect(face.locator('[data-slot="option-chip"]')).toHaveText(/Low/);
+    const face = card(page, 'Design the screens');
+    await expect(face).toContainText('December 04');
     await expect(face.locator('[data-slot="card-has-body"]')).toBeAttached();
   });
 
   test('a board view that names no property is grouped by the first that can group', async ({
     page,
   }, info) => {
-    await openView(page, info, 'Sales Pipeline CRM', 'Pipeline Tracker');
-    expect((await columnNames(page)).slice(0, 3)).toEqual(['Lead', 'Qualified', 'Meeting']);
-    await expect(page.getByTestId('hidden-columns')).toContainText('No Status');
+    await openView(page, info, 'Customer contacts', 'By stage');
+    await page.evaluate(
+      async ({ boardId, viewId }) => {
+        const { backend } = (
+          window as unknown as {
+            fvociDev: {
+              backend: {
+                patchView(boardId: string, viewId: string, patch: object): Promise<unknown>;
+              };
+            };
+          }
+        ).fvociDev;
+        await backend.patchView(boardId, viewId, { updatedFields: { groupById: '' } });
+      },
+      { boardId: placeOf(page.url()).boardId, viewId: viewIdOf(page.url()) },
+    );
+    expect((await columnNames(page)).slice(0, 3)).toEqual(['Lead', 'Talking', 'Proposal sent']);
+    await expect(page.getByTestId('hidden-columns')).toContainText('No Stage');
   });
 
   test('a press on a card opens it, and so does Enter', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    await card(page, 'Define project scope').click();
+    await card(page, 'Design the screens').click();
     await expect(dialog(page)).toBeVisible();
-    await expect(dialog(page)).toContainText('Define project scope');
+    await expect(dialog(page)).toContainText('Design the screens');
     await expect(page).toHaveURL(ON_A_CARD);
     await page.goBack();
     await expect(dialog(page)).toBeHidden();
 
-    await card(page, 'Conduct market analysis').focus();
+    await card(page, 'Build').focus();
     await page.keyboard.press('Enter');
-    await expect(dialog(page)).toContainText('Conduct market analysis');
+    await expect(dialog(page)).toContainText('Build');
   });
 
   test('"+" in the heading of a column makes a card there and opens it', async ({ page }, info) => {
@@ -132,64 +140,64 @@ test.describe('dragging cards with a mouse', () => {
     page,
   }, info) => {
     await openView(page, info, ...TASKS);
-    await grab(page, card(page, 'Identify dependencies'));
-    await hover(page, card(page, 'Define project scope'), 0.25);
+    await grab(page, card(page, 'Design the screens'));
+    await hover(page, card(page, 'Write the help pages'), 0.25);
     await expect(page.locator('[data-drag-gap]')).toHaveCount(1);
     await page.mouse.up();
     await expectNoDrag(page);
 
     await expect
-      .poll(() => titlesIn(page, 'In Progress'))
-      .toEqual(['Conduct market analysis', 'Identify dependencies', 'Define project scope']);
-    expect(await titlesIn(page, 'Not Started')).toEqual(NOT_STARTED.slice(0, 2));
+      .poll(() => titlesIn(page, 'Planned'))
+      .toEqual(['Build', 'Design the screens', 'Write the help pages', 'Test', 'Launch']);
+    expect(await titlesIn(page, 'In progress')).toEqual([]);
     // The drop did not open the card.
     await expect(dialog(page)).toBeHidden();
 
     // One undo takes back both the column and the place.
     await undo(page);
-    await expect.poll(() => titlesIn(page, 'Not Started')).toEqual(NOT_STARTED);
-    expect(await titlesIn(page, 'In Progress')).toEqual(IN_PROGRESS);
+    await expect.poll(() => titlesIn(page, 'Planned')).toEqual(PLANNED);
+    expect(await titlesIn(page, 'In progress')).toEqual(IN_PROGRESS);
   });
 
   test('a card is moved within its column, and into an empty one', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    await grab(page, card(page, 'Identify dependencies'));
-    await hover(page, card(page, 'Project budget approval'), 0.25);
+    await grab(page, card(page, 'Test'));
+    await hover(page, card(page, 'Build'), 0.25);
     await page.mouse.up();
     await expect
-      .poll(() => titlesIn(page, 'Not Started'))
-      .toEqual(['Identify dependencies', 'Project budget approval', 'Requirements sign-off']);
+      .poll(() => titlesIn(page, 'Planned'))
+      .toEqual(['Test', 'Build', 'Write the help pages', 'Launch']);
 
-    await grab(page, card(page, 'Requirements sign-off'));
+    await grab(page, card(page, 'Write the help pages'));
     await hover(page, cardsBox(page, 'Blocked'), 0.5);
     await page.mouse.up();
-    await expect.poll(() => titlesIn(page, 'Blocked')).toEqual(['Requirements sign-off']);
+    await expect.poll(() => titlesIn(page, 'Blocked')).toEqual(['Write the help pages']);
   });
 
   test('letting go outside the board cancels, and says so while there', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    await grab(page, card(page, 'Identify dependencies'));
+    await grab(page, card(page, 'Test'));
     const header = await pointOn(page.getByTestId('view-header'));
     await page.mouse.move(header.x, header.y, { steps: 8 });
     await expect(notice(page)).toHaveText('Let go to cancel.');
     await expect(kanban(page)).toHaveAttribute('data-outside', '');
     await page.mouse.up();
     await expectNoDrag(page);
-    expect(await titlesIn(page, 'Not Started')).toEqual(NOT_STARTED);
+    expect(await titlesIn(page, 'Planned')).toEqual(PLANNED);
   });
 
   test('a window that changes width under a drag cancels it', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    await grab(page, card(page, 'Identify dependencies'));
-    await hover(page, card(page, 'Define project scope'), 0.25);
+    await grab(page, card(page, 'Test'));
+    await hover(page, card(page, 'Design the screens'), 0.25);
     const size = page.viewportSize();
     if (!size) throw new Error('no viewport');
     await page.setViewportSize({ width: size.width - 200, height: size.height });
     await expectNoDrag(page);
     await expect(announcer(page)).toContainText('Cancelled.');
     await page.mouse.up();
-    expect(await titlesIn(page, 'Not Started')).toEqual(NOT_STARTED);
-    expect(await titlesIn(page, 'In Progress')).toEqual(IN_PROGRESS);
+    expect(await titlesIn(page, 'Planned')).toEqual(PLANNED);
+    expect(await titlesIn(page, 'In progress')).toEqual(IN_PROGRESS);
     await expect(dialog(page)).toBeHidden();
   });
 
@@ -200,7 +208,7 @@ test.describe('dragging cards with a mouse', () => {
     const modifier = await primaryName(page);
     // The other platform's modifier neither opens nor selects: pressed before the right one,
     // the card is selected once and nothing opened.
-    await card(page, 'Requirements sign-off').focus();
+    await card(page, 'Write the help pages').focus();
     await page.keyboard.press(`${modifier === 'Meta' ? 'Control' : 'Meta'}+Enter`);
     await page.keyboard.press(`${modifier}+Enter`);
     await expect(page.getByTestId('selection-bar')).toContainText('1 selected');
@@ -208,41 +216,41 @@ test.describe('dragging cards with a mouse', () => {
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('selection-bar')).toHaveCount(0);
 
-    await card(page, 'Project budget approval').click({ modifiers: [modifier] });
-    await card(page, 'Identify dependencies').click({ modifiers: ['Shift'] });
+    await card(page, 'Build').click({ modifiers: [modifier] });
+    await card(page, 'Test').click({ modifiers: ['Shift'] });
     await expect(page.getByTestId('selection-bar')).toContainText('3 selected');
-    await card(page, 'Requirements sign-off').click({ modifiers: [modifier] });
+    await card(page, 'Write the help pages').click({ modifiers: [modifier] });
     await expect(page.getByTestId('selection-bar')).toContainText('2 selected');
     await expect(page.locator('[data-card][data-selected]')).toHaveCount(2);
     // Selecting opened nothing.
     await expect(dialog(page)).toBeHidden();
 
-    await grab(page, card(page, 'Identify dependencies'));
+    await grab(page, card(page, 'Test'));
     await expect(overlay(page).locator('[data-slot="card-count"]')).toHaveText('2');
-    await hover(page, card(page, 'Conduct market analysis'), 0.25);
+    await hover(page, card(page, 'Design the screens'), 0.25);
     await page.mouse.up();
     await expect
-      .poll(() => titlesIn(page, 'In Progress'))
-      .toEqual(['Project budget approval', 'Identify dependencies', ...IN_PROGRESS]);
-    expect(await titlesIn(page, 'Not Started')).toEqual(['Requirements sign-off']);
+      .poll(() => titlesIn(page, 'In progress'))
+      .toEqual(['Build', 'Test', ...IN_PROGRESS]);
+    expect(await titlesIn(page, 'Planned')).toEqual(['Write the help pages', 'Launch']);
     // A selection that was dropped has done its work.
     await expect(page.getByTestId('selection-bar')).toHaveCount(0);
 
-    await card(page, 'Requirements sign-off').click({ modifiers: [modifier] });
+    await card(page, 'Write the help pages').click({ modifiers: [modifier] });
     await expect(page.getByTestId('selection-bar')).toBeVisible();
-    await card(page, 'Requirements sign-off').focus();
+    await card(page, 'Write the help pages').focus();
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('selection-bar')).toHaveCount(0);
 
     // One undo takes the two cards back.
     await undo(page);
-    await expect.poll(() => titlesIn(page, 'Not Started')).toEqual(NOT_STARTED);
+    await expect.poll(() => titlesIn(page, 'Planned')).toEqual(PLANNED);
   });
 
   test('a column is dragged by its heading, and its cards stay in it', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    await grab(page, heading(page, 'In Progress'));
-    const first = await pointOn(column(page, 'Not Started'), 0.2);
+    await grab(page, heading(page, 'In progress'));
+    const first = await pointOn(column(page, 'Planned'), 0.2);
     await page.mouse.move(first.x - 40, first.y, { steps: 8 });
     await nextFrame(page);
     await expect(page.locator('[data-column-gap]')).toHaveCount(1);
@@ -250,11 +258,11 @@ test.describe('dragging cards with a mouse', () => {
     await expectNoDrag(page);
     await expect
       .poll(() => columnNames(page))
-      .toEqual(['In Progress', 'Not Started', 'Blocked', 'Completed 🙌', 'Archived', 'No Status']);
-    expect(await titlesIn(page, 'In Progress')).toEqual(IN_PROGRESS);
+      .toEqual(['In progress', 'Planned', 'Blocked', 'Done']);
+    expect(await titlesIn(page, 'In progress')).toEqual(IN_PROGRESS);
 
     // Pressing a card drags the card, not its column.
-    await grab(page, card(page, 'Define project scope'));
+    await grab(page, card(page, 'Design the screens'));
     await expect(page.locator('[data-drag-gap]')).toHaveCount(1);
     await expect(page.locator('[data-column-gap]')).toHaveCount(0);
     await page.keyboard.press('Escape');
@@ -262,7 +270,7 @@ test.describe('dragging cards with a mouse', () => {
     await expectNoDrag(page);
 
     await undo(page);
-    await expect.poll(async () => (await columnNames(page))[0]).toBe('Not Started');
+    await expect.poll(async () => (await columnNames(page))[0]).toBe('Planned');
   });
 
   test('a card dropped on a hidden column takes its value and leaves the board', async ({
@@ -273,7 +281,7 @@ test.describe('dragging cards with a mouse', () => {
     const hidden = page.locator('[data-hidden-column]').filter({ hasText: 'Blocked' });
     await expect(hidden.locator('[data-hidden-count]')).toContainText('0');
 
-    await grab(page, card(page, 'Identify dependencies'));
+    await grab(page, card(page, 'Test'));
     // The hidden columns stand after the last column, out of view: the right edge of the board brings them in.
     const box = await kanban(page).boundingBox();
     if (!box) throw new Error('no board');
@@ -289,12 +297,12 @@ test.describe('dragging cards with a mouse', () => {
     await expect(page.locator('[data-drag-gap]')).toHaveCount(0);
     await page.mouse.up();
     await expectNoDrag(page);
-    await expect(card(page, 'Identify dependencies')).toHaveCount(0);
+    await expect(card(page, 'Test')).toHaveCount(0);
     await expect(hidden.locator('[data-hidden-count]')).toContainText('1');
 
     await page.getByRole('button', { name: 'Show Blocked' }).click();
     expect((await columnNames(page)).at(-1)).toBe('Blocked');
-    expect(await titlesIn(page, 'Blocked')).toEqual(['Identify dependencies']);
+    expect(await titlesIn(page, 'Blocked')).toEqual(['Test']);
   });
 });
 
@@ -304,14 +312,14 @@ test.describe('dragging with a finger', () => {
   test('a card is picked up by resting on it and dropped at a place', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
     const finger = await Finger.on(page);
-    await finger.rest(card(page, 'Identify dependencies'));
+    await finger.rest(card(page, 'Test'));
     await expect(kanban(page)).toHaveAttribute('data-dragging', 'pointer');
-    await finger.hover(card(page, 'Project budget approval'), 0.25);
+    await finger.hover(card(page, 'Build'), 0.25);
     await finger.up();
     await expectNoDrag(page);
     await expect
-      .poll(() => titlesIn(page, 'Not Started'))
-      .toEqual(['Identify dependencies', 'Project budget approval', 'Requirements sign-off']);
+      .poll(() => titlesIn(page, 'Planned'))
+      .toEqual(['Test', 'Build', 'Write the help pages', 'Launch']);
     await expect(dialog(page)).toBeHidden();
   });
 
@@ -320,7 +328,7 @@ test.describe('dragging with a finger', () => {
   }, info) => {
     await openView(page, info, ...TASKS);
     const finger = await Finger.on(page);
-    const from = await pointOn(card(page, 'Requirements sign-off'));
+    const from = await pointOn(card(page, 'Write the help pages'));
     await finger.down(from);
     await finger.move({ x: from.x - 260, y: from.y }, 8);
     await finger.up();
@@ -328,7 +336,7 @@ test.describe('dragging with a finger', () => {
     await expect
       .poll(() => kanban(page).evaluate((element) => element.scrollLeft))
       .toBeGreaterThan(0);
-    expect(await titlesIn(page, 'Not Started')).toEqual(NOT_STARTED);
+    expect(await titlesIn(page, 'Planned')).toEqual(PLANNED);
   });
 
   test('at the edge of the screen the board goes on to the next column, and the card lands there', async ({
@@ -336,7 +344,7 @@ test.describe('dragging with a finger', () => {
   }, info) => {
     await openView(page, info, ...TASKS);
     const finger = await Finger.on(page);
-    await finger.rest(card(page, 'Identify dependencies'));
+    await finger.rest(card(page, 'Test'));
     // While a card is dragged the board does not come to rest on a column.
     const snap = (): Promise<string> =>
       kanban(page).evaluate((element) => getComputedStyle(element).scrollSnapType);
@@ -374,13 +382,13 @@ test.describe('dragging with a finger', () => {
       },
       box.x + box.width / 2,
     );
-    expect(under).not.toBe('Not Started');
+    expect(under).not.toBe('Planned');
     const before = await titlesIn(page, under);
     await finger.hover(cardsBox(page, under), 0.9);
     await finger.up();
     await expectNoDrag(page);
-    await expect.poll(() => titlesIn(page, under)).toEqual([...before, 'Identify dependencies']);
-    expect(await titlesIn(page, 'Not Started')).toEqual(NOT_STARTED.slice(0, 2));
+    await expect.poll(() => titlesIn(page, under)).toEqual([...before, 'Test']);
+    expect(await titlesIn(page, 'Planned')).toEqual(['Build', 'Write the help pages', 'Launch']);
     // Where one column shows at a time, the board rests on a column again.
     expect(await snap()).toBe(oneColumn(info) ? 'x mandatory' : 'none');
   });
@@ -389,16 +397,16 @@ test.describe('dragging with a finger', () => {
     test.skip(oneColumn(info), 'where columns stand side by side');
     await openView(page, info, ...TASKS);
     const finger = await Finger.on(page);
-    await finger.rest(heading(page, 'Not Started'));
-    const second = await pointOn(column(page, 'In Progress'), 0.2);
+    await finger.rest(heading(page, 'Planned'));
+    const second = await pointOn(column(page, 'In progress'), 0.2);
     await finger.move({ x: second.x + 60, y: second.y });
     await expect(page.locator('[data-column-gap]')).toHaveCount(1);
     await finger.up();
     await expectNoDrag(page);
     await expect
       .poll(async () => (await columnNames(page)).slice(0, 2))
-      .toEqual(['In Progress', 'Not Started']);
-    expect(await titlesIn(page, 'Not Started')).toEqual(NOT_STARTED);
+      .toEqual(['In progress', 'Planned']);
+    expect(await titlesIn(page, 'Planned')).toEqual(PLANNED);
   });
 
   test('the device buzzes when a card is picked up, unless the reader turned that off', async ({
@@ -419,7 +427,7 @@ test.describe('dragging with a finger', () => {
     const buzzes = (): Promise<number[]> =>
       page.evaluate(() => (window as unknown as { buzzes: number[] }).buzzes);
     const finger = await Finger.on(page);
-    await finger.rest(card(page, 'Identify dependencies'));
+    await finger.rest(card(page, 'Test'));
     await finger.up();
     await expectNoDrag(page);
     expect(await buzzes()).toEqual([15]);
@@ -432,7 +440,7 @@ test.describe('dragging with a finger', () => {
       ).fvociDev.workspace.changeSettings({ haptics: false }),
     );
     await expect(kanban(page)).toHaveAttribute('data-haptics', 'false');
-    await finger.rest(card(page, 'Identify dependencies'));
+    await finger.rest(card(page, 'Test'));
     await finger.up();
     await expectNoDrag(page);
     expect(await buzzes()).toEqual([15]);
@@ -444,95 +452,90 @@ test.describe('the keyboard', () => {
     page,
   }, info) => {
     await openView(page, info, ...TASKS);
-    await card(page, 'Identify dependencies').focus();
+    await card(page, 'Design the screens').focus();
     await page.keyboard.press('Space');
     await expect(kanban(page)).toHaveAttribute('data-dragging', 'keyboard');
     await expect(announcer(page)).toHaveText(
-      'Picked up Identify dependencies. Not Started, position 3 of 3.',
+      'Picked up Design the screens. In progress, position 1 of 1.',
     );
-    await page.keyboard.press('ArrowRight');
-    await expect(announcer(page)).toHaveText(
-      'Identify dependencies: In Progress, position 3 of 3.',
-    );
-    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowLeft');
+    await expect(announcer(page)).toHaveText('Design the screens: Planned, position 1 of 5.');
+    await page.keyboard.press('ArrowDown');
     await expect(page.locator('[data-drag-carried]')).toBeFocused();
     await page.keyboard.press('Space');
     await expect(announcer(page)).toHaveText(
-      'Dropped Identify dependencies in In Progress, position 2 of 3.',
+      'Dropped Design the screens in Planned, position 2 of 5.',
     );
-    expect(await titlesIn(page, 'In Progress')).toEqual([
-      'Conduct market analysis',
-      'Identify dependencies',
-      'Define project scope',
+    expect(await titlesIn(page, 'Planned')).toEqual([
+      'Build',
+      'Design the screens',
+      'Write the help pages',
+      'Test',
+      'Launch',
     ]);
     // The focus is on the card where it now is.
-    await expect(card(page, 'Identify dependencies')).toBeFocused();
+    await expect(card(page, 'Design the screens')).toBeFocused();
 
     await undo(page);
-    await expect.poll(() => titlesIn(page, 'Not Started')).toEqual(NOT_STARTED);
+    await expect.poll(() => titlesIn(page, 'Planned')).toEqual(PLANNED);
   });
 
   test('Escape puts a carried card back', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    await card(page, 'Project budget approval').focus();
+    await card(page, 'Build').focus();
     await page.keyboard.press('Space');
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Escape');
     await expectNoDrag(page);
     await expect(announcer(page)).toContainText('Cancelled.');
-    expect(await titlesIn(page, 'Not Started')).toEqual(NOT_STARTED);
-    await expect(card(page, 'Project budget approval')).toBeFocused();
+    expect(await titlesIn(page, 'Planned')).toEqual(PLANNED);
+    await expect(card(page, 'Build')).toBeFocused();
   });
 
   test('carries a column along the row', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    await heading(page, 'Not Started').focus();
+    await heading(page, 'Planned').focus();
     await page.keyboard.press('Space');
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('ArrowRight');
     await expect(page.getByTestId('column-announcer')).toHaveText(
-      'Column Not Started: position 3 of 6.',
+      'Column Planned: position 3 of 4.',
     );
     await page.keyboard.press('Enter');
-    expect((await columnNames(page)).slice(0, 3)).toEqual([
-      'In Progress',
-      'Blocked',
-      'Not Started',
-    ]);
-    await expect(heading(page, 'Not Started')).toBeFocused();
-    expect(await titlesIn(page, 'Not Started')).toEqual(NOT_STARTED);
+    expect((await columnNames(page)).slice(0, 3)).toEqual(['In progress', 'Blocked', 'Planned']);
+    await expect(heading(page, 'Planned')).toBeFocused();
+    expect(await titlesIn(page, 'Planned')).toEqual(PLANNED);
   });
 
   test('carries a card onto a hidden column', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    await columnMenu(page, 'No Status', 'hide');
-    await columnMenu(page, 'Archived', 'hide');
-    await card(page, 'Define project scope').focus();
+    await columnMenu(page, 'Done', 'hide');
+    await card(page, 'Design the screens').focus();
     await page.keyboard.press('Space');
-    // Past Blocked and Completed, the last columns, to the first hidden one.
-    for (let step = 0; step < 3; step += 1) await page.keyboard.press('ArrowRight');
-    await expect(announcer(page)).toHaveText('Define project scope: hidden column No Status.');
+    // Past Blocked, the last visible column, to the hidden columns (No Status, then Done).
+    for (let step = 0; step < 2; step += 1) await page.keyboard.press('ArrowRight');
+    await expect(announcer(page)).toHaveText('Design the screens: hidden column No Status.');
     await page.keyboard.press('ArrowRight');
-    await expect(announcer(page)).toHaveText('Define project scope: hidden column Archived.');
+    await expect(announcer(page)).toHaveText('Design the screens: hidden column Done.');
     await expect(page.locator('[data-drag-carried]')).toBeFocused();
     await page.keyboard.press('Space');
-    await expect(card(page, 'Define project scope')).toHaveCount(0);
-    await expect(
-      page.locator('[data-hidden-column]').filter({ hasText: 'Archived' }),
-    ).toContainText('1');
+    await expect(card(page, 'Design the screens')).toHaveCount(0);
+    await expect(page.locator('[data-hidden-column]').filter({ hasText: 'Done' })).toContainText(
+      '2',
+    );
   });
 });
 
 test.describe('a sorted view', () => {
-  const ROADMAP = ['Roadmap', 'Board: Status'] as const;
+  const MEETINGS = ['Meeting notes', 'By kind'] as const;
 
   test('the keyboard chooses the column only, and the sort places the card', async ({
     page,
   }, info) => {
-    await openView(page, info, ...ROADMAP);
-    const before = await titlesIn(page, 'In Progress');
-    expect(before).toHaveLength(3);
-    await card(page, 'Review API design').focus();
+    await openView(page, info, ...MEETINGS);
+    const before = await titlesIn(page, 'Weekly');
+    expect(before).toHaveLength(2);
+    await card(page, 'Design review').focus();
     await page.keyboard.press('Space');
     await expect(announcer(page)).toContainText('This view is sorted');
     await expect(notice(page)).toHaveText(
@@ -541,14 +544,14 @@ test.describe('a sorted view', () => {
     // Within a column there is nowhere to go.
     await page.keyboard.press('ArrowDown');
     await expect(announcer(page)).toContainText('This view is sorted');
-    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowLeft');
     await page.keyboard.press('Space');
     await expectNoDrag(page);
     await expect(notice(page)).toHaveCount(0);
 
-    const after = await titlesIn(page, 'In Progress');
-    expect(after).toHaveLength(4);
-    expect(after.filter((title) => title !== 'Review API design')).toEqual(before);
+    const after = await titlesIn(page, 'Weekly');
+    expect(after).toHaveLength(3);
+    expect(after.filter((title) => title !== 'Design review')).toEqual(before);
     // Where the card stands is where the board store's order of the view puts it.
     const expected = await page.evaluate((id) => {
       const { workspace } = (
@@ -573,16 +576,16 @@ test.describe('a sorted view', () => {
     page,
   }, info) => {
     test.skip(touch(info), 'a mouse');
-    await openView(page, info, ...ROADMAP);
-    await grab(page, card(page, 'Review API design'));
+    await openView(page, info, ...MEETINGS);
+    await grab(page, card(page, 'Design review'));
     await expect(notice(page)).toContainText('This view is sorted');
-    await hover(page, cardsBox(page, 'In Progress'), 0.1);
+    await hover(page, cardsBox(page, 'Weekly'), 0.1);
     const high = await kanban(page).getAttribute('data-drop-index');
-    await hover(page, cardsBox(page, 'In Progress'), 0.95);
+    await hover(page, cardsBox(page, 'Weekly'), 0.95);
     await expect(kanban(page)).toHaveAttribute('data-drop-index', high ?? '');
     await page.mouse.up();
-    await expect.poll(async () => (await titlesIn(page, 'In Progress')).length).toBe(4);
-    expect(await titlesIn(page, 'Not Started')).toEqual(["Icons don't display"]);
+    await expect.poll(async () => (await titlesIn(page, 'Weekly')).length).toBe(3);
+    expect(await titlesIn(page, 'Review')).toEqual([]);
   });
 });
 
@@ -591,49 +594,45 @@ test.describe('the menu of a card', () => {
     page,
   }, info) => {
     await openView(page, info, ...TASKS);
-    await cardMenu(page, 'Project budget approval', 'move');
-    await page.locator('[data-action^="to-"]').filter({ hasText: 'In Progress' }).click();
-    await expect
-      .poll(() => titlesIn(page, 'In Progress'))
-      .toEqual([...IN_PROGRESS, 'Project budget approval']);
+    await cardMenu(page, 'Build', 'move');
+    await page.locator('[data-action^="to-"]').filter({ hasText: 'In progress' }).click();
+    await expect.poll(() => titlesIn(page, 'In progress')).toEqual([...IN_PROGRESS, 'Build']);
     await undo(page);
-    await expect.poll(() => titlesIn(page, 'Not Started')).toEqual(NOT_STARTED);
+    await expect.poll(() => titlesIn(page, 'Planned')).toEqual(PLANNED);
   });
 
   test('"Select" takes cards into a selection that moves together', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    await cardMenu(page, 'Project budget approval', 'select');
+    await cardMenu(page, 'Build', 'select');
     await expect(page.getByTestId('selection-bar')).toContainText('1 selected');
     // From now on a plain press selects.
-    await card(page, 'Identify dependencies').click();
+    await card(page, 'Test').click();
     await expect(page.getByTestId('selection-bar')).toContainText('2 selected');
     await expect(dialog(page)).toBeHidden();
 
-    await cardMenu(page, 'Identify dependencies', 'move');
+    await cardMenu(page, 'Test', 'move');
     await page.locator('[data-action^="to-"]').filter({ hasText: 'Blocked' }).click();
-    await expect
-      .poll(() => titlesIn(page, 'Blocked'))
-      .toEqual(['Project budget approval', 'Identify dependencies']);
+    await expect.poll(() => titlesIn(page, 'Blocked')).toEqual(['Build', 'Test']);
     await expect(page.getByTestId('selection-bar')).toHaveCount(0);
     // A plain press opens again.
-    await card(page, 'Requirements sign-off').click();
+    await card(page, 'Write the help pages').click();
     await expect(dialog(page)).toBeVisible();
   });
 
   test('deletes without asking, and undo brings the card back', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    await cardMenu(page, 'Requirements sign-off', 'delete');
-    await expect(card(page, 'Requirements sign-off')).toHaveCount(0);
+    await cardMenu(page, 'Write the help pages', 'delete');
+    await expect(card(page, 'Write the help pages')).toHaveCount(0);
     await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
     await undo(page);
-    await expect.poll(() => titlesIn(page, 'Not Started')).toEqual(NOT_STARTED);
+    await expect.poll(() => titlesIn(page, 'Planned')).toEqual(PLANNED);
   });
 
   test('duplicates the card into the same column', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    await cardMenu(page, 'Define project scope', 'duplicate');
-    await expect(card(page, 'Define project scope')).toHaveCount(2);
-    expect(await titlesIn(page, 'In Progress')).toEqual([...IN_PROGRESS, 'Define project scope']);
+    await cardMenu(page, 'Design the screens', 'duplicate');
+    await expect(card(page, 'Design the screens')).toHaveCount(2);
+    expect(await titlesIn(page, 'In progress')).toEqual([...IN_PROGRESS, 'Design the screens']);
   });
 
   test('copies the address of the card', async ({ page }, info) => {
@@ -649,36 +648,36 @@ test.describe('the menu of a card', () => {
         configurable: true,
       });
     });
-    await cardMenu(page, 'Define project scope', 'copy-link');
+    await cardMenu(page, 'Design the screens', 'copy-link');
     await expect(page.getByTestId('link-copied').filter({ hasText: 'Copied!' })).toHaveCount(1);
     const copied = await page.evaluate(() => document.body.dataset.copied ?? '');
     expect(copied).toMatch(/^http/);
     expect(copied).toMatch(ON_A_CARD);
     // The address opens the card.
     await page.goto(copied);
-    await expect(dialog(page)).toContainText('Define project scope');
+    await expect(dialog(page)).toContainText('Design the screens');
   });
 });
 
 test.describe('the menu of a column', () => {
   test('hides a column and shows it again', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    await columnMenu(page, 'In Progress', 'hide');
-    expect(await columnNames(page)).not.toContain('In Progress');
-    const hidden = page.locator('[data-hidden-column]').filter({ hasText: 'In Progress' });
-    await expect(hidden.locator('[data-hidden-count]')).toContainText('2');
-    await page.getByRole('button', { name: 'Show In Progress' }).click();
-    expect((await columnNames(page)).at(-1)).toBe('In Progress');
-    expect(await titlesIn(page, 'In Progress')).toEqual(IN_PROGRESS);
+    await columnMenu(page, 'In progress', 'hide');
+    expect(await columnNames(page)).not.toContain('In progress');
+    const hidden = page.locator('[data-hidden-column]').filter({ hasText: 'In progress' });
+    await expect(hidden.locator('[data-hidden-count]')).toContainText('1');
+    await page.getByRole('button', { name: 'Show In progress' }).click();
+    expect((await columnNames(page)).at(-1)).toBe('In progress');
+    expect(await titlesIn(page, 'In progress')).toEqual(IN_PROGRESS);
   });
 
   test('moves a column a place to the right and back', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    await columnMenu(page, 'Not Started', 'right');
-    expect((await columnNames(page)).slice(0, 2)).toEqual(['In Progress', 'Not Started']);
-    await columnMenu(page, 'Not Started', 'left');
-    expect((await columnNames(page)).slice(0, 2)).toEqual(['Not Started', 'In Progress']);
-    await page.getByRole('button', { name: 'Column menu: Not Started' }).click();
+    await columnMenu(page, 'Planned', 'right');
+    expect((await columnNames(page)).slice(0, 2)).toEqual(['In progress', 'Planned']);
+    await columnMenu(page, 'Planned', 'left');
+    expect((await columnNames(page)).slice(0, 2)).toEqual(['Planned', 'In progress']);
+    await page.getByRole('button', { name: 'Column menu: Planned' }).click();
     await expect(page.locator('[data-action="left"]')).toBeDisabled();
   });
 
@@ -700,16 +699,17 @@ test.describe('the menu of a column', () => {
       'propColorPurple',
     );
 
-    await columnMenu(page, 'In Progress', 'delete');
+    await page.getByRole('button', { name: 'Show No Status' }).click();
+    await columnMenu(page, 'In progress', 'delete');
     await expect(page.getByTestId('confirm-dialog')).toContainText(
-      'Delete the group “In Progress”?',
+      'Delete the group “In progress”?',
     );
     await page.getByTestId('confirm-dialog').getByRole('button', { name: 'Delete' }).click();
-    expect(await columnNames(page)).not.toContain('In Progress');
+    expect(await columnNames(page)).not.toContain('In progress');
     // Its cards have a value that names nothing now: they show without one.
     expect(await titlesIn(page, 'No Status')).toEqual(IN_PROGRESS);
     await undo(page);
-    await expect.poll(() => titlesIn(page, 'In Progress')).toEqual(IN_PROGRESS);
+    await expect.poll(() => titlesIn(page, 'In progress')).toEqual(IN_PROGRESS);
   });
 
   test('"+ Add a group" adds a column and asks for its name', async ({ page }, info) => {
@@ -735,15 +735,15 @@ test.describe('a pane that fits one column', () => {
     await fitPane(page, NARROW);
     const tabs = page.getByTestId('column-tabs');
     await expect(tabs).toBeVisible();
-    await expect(tabs.getByRole('tab')).toHaveCount(7);
-    await expect(tabs.getByRole('tab', { selected: true })).toContainText('Not Started');
-    await expect(tabs.getByRole('tab', { selected: true })).toContainText('3');
+    await expect(tabs.getByRole('tab')).toHaveCount(5);
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('Planned');
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('4');
 
     // A column is as wide as the pane less a sliver of its neighbours at either side.
-    const box = await column(page, 'Not Started').boundingBox();
+    const box = await column(page, 'Planned').boundingBox();
     expect(box?.width).toBe(Math.min(NARROW - 56, 384));
-    expect(await inView(page, 'Not Started')).toBe(true);
-    expect(await inView(page, 'In Progress')).toBe(false);
+    expect(await inView(page, 'Planned')).toBe(true);
+    expect(await inView(page, 'In progress')).toBe(false);
 
     // A tab goes to its column.
     await tabs.getByRole('tab', { name: /Blocked/ }).click();
@@ -756,7 +756,7 @@ test.describe('a pane that fits one column', () => {
     });
     await expect
       .poll(async () => {
-        const names = ['Blocked', 'Completed 🙌'];
+        const names = ['Blocked', 'Done'];
         const resting = await Promise.all(names.map((name) => inView(page, name)));
         return resting.filter(Boolean).length;
       })
@@ -771,14 +771,14 @@ test.describe('a pane that fits one column', () => {
     await fitPane(page, 480);
     await fitPane(page, 520);
     const tabs = page.getByTestId('column-tabs');
-    await expect(tabs.getByRole('tab', { selected: true })).toContainText('Not Started');
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('Planned');
 
     // Scrolled on by a column, as a finger or the wheel does: the tab follows.
     await kanban(page).evaluate((element) => {
       element.scrollBy({ left: 384 });
     });
-    await expect(tabs.getByRole('tab', { selected: true })).toContainText('In Progress');
-    await expect.poll(() => inView(page, 'In Progress')).toBe(true);
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('In progress');
+    await expect.poll(() => inView(page, 'In progress')).toBe(true);
   });
 
   test('a column picked up by its heading leaves the board on the column looked at', async ({
@@ -825,7 +825,7 @@ test.describe('a pane that fits one column', () => {
         }
       ).fvociDev;
       const model = (await backend.cards(boardId)).find(
-        (shown) => shown.title === 'Define project scope',
+        (shown) => shown.title === 'Design the screens',
       );
       for (let count = 1; count <= 14; count += 1) {
         await backend.createCard(boardId, {
@@ -834,13 +834,13 @@ test.describe('a pane that fits one column', () => {
         });
       }
     }, placeOf(page.url()).boardId);
-    await expect(column(page, 'In Progress').locator('[data-card]')).toHaveCount(16);
+    await expect(column(page, 'In progress').locator('[data-card]')).toHaveCount(15);
 
     const tabs = page.getByTestId('column-tabs');
-    await tabs.getByRole('tab', { name: /In Progress/ }).click();
-    await expect.poll(() => inView(page, 'In Progress')).toBe(true);
+    await tabs.getByRole('tab', { name: /In progress/ }).click();
+    await expect.poll(() => inView(page, 'In progress')).toBe(true);
     // Scrolled down in the column, with the focus on a card there.
-    const list = cardsBox(page, 'In Progress');
+    const list = cardsBox(page, 'In progress');
     const looked = card(page, 'Filler 9');
     await looked.focus();
     expect(await list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
@@ -855,18 +855,18 @@ test.describe('a pane that fits one column', () => {
 
     await fitPane(page, 900);
     await expect(tabs).toBeHidden();
-    expect((await column(page, 'In Progress').boundingBox())?.width).toBe(256);
-    expect(await inView(page, 'In Progress')).toBe(true);
+    expect((await column(page, 'In progress').boundingBox())?.width).toBe(256);
+    expect(await inView(page, 'In progress')).toBe(true);
     expect(await list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     expect(await stillThere()).toBe(true);
     await expect(looked).toBeFocused();
 
     await fitPane(page, 1040);
-    expect((await column(page, 'In Progress').boundingBox())?.width).toBe(272);
+    expect((await column(page, 'In progress').boundingBox())?.width).toBe(272);
 
     await fitPane(page, NARROW);
-    await expect(tabs.getByRole('tab', { selected: true })).toContainText('In Progress');
-    const box = await column(page, 'In Progress').boundingBox();
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText('In progress');
+    const box = await column(page, 'In progress').boundingBox();
     const within = await kanban(page).boundingBox();
     if (!box || !within) throw new Error('no column');
     expect(Math.abs(box.x + box.width / 2 - (within.x + within.width / 2))).toBeLessThan(2);
@@ -900,7 +900,7 @@ test.describe('what a pointer decides', () => {
     hasTouch,
   }, info) => {
     await openView(page, info, ...TASKS);
-    const button = page.getByRole('button', { name: 'Card menu: Define project scope' });
+    const button = page.getByRole('button', { name: 'Card menu: Design the screens' });
     const opacity = (): Promise<string> =>
       button.evaluate((element) => getComputedStyle(element).opacity);
     if (hasTouch) {
@@ -909,12 +909,12 @@ test.describe('what a pointer decides', () => {
       // The button fades in and out: each state is waited for.
       await page.mouse.move(0, 0);
       await expect.poll(opacity).toBe('0');
-      await card(page, 'Define project scope').hover();
+      await card(page, 'Design the screens').hover();
       await expect.poll(opacity).toBe('1');
       // The keyboard gets to it too: it shows while the card or the button has the focus.
       await page.mouse.move(0, 0);
       await expect.poll(opacity).toBe('0');
-      await card(page, 'Define project scope').focus();
+      await card(page, 'Design the screens').focus();
       await expect.poll(opacity).toBe('1');
     }
   });
@@ -923,15 +923,15 @@ test.describe('what a pointer decides', () => {
     test.skip(!hasTouch, 'a finger');
     await openView(page, info, ...TASKS);
     for (const name of [
-      'Card menu: Define project scope',
-      'Column menu: In Progress',
-      'New card in In Progress',
+      'Card menu: Design the screens',
+      'Column menu: In progress',
+      'New card in In progress',
     ]) {
       const box = await page.getByRole('button', { name }).boundingBox();
       expect(box?.width, name).toBeGreaterThanOrEqual(44);
       expect(box?.height, name).toBeGreaterThanOrEqual(44);
     }
-    const bottom = await column(page, 'In Progress').locator('[data-column-new]').boundingBox();
+    const bottom = await column(page, 'In progress').locator('[data-column-new]').boundingBox();
     expect(bottom?.height).toBeGreaterThanOrEqual(44);
   });
 });
@@ -941,16 +941,14 @@ test.describe('in Korean', () => {
 
   test('the words of the board are Korean', async ({ page }, info) => {
     await openView(page, info, ...TASKS);
-    expect((await columnNames(page)).at(-1)).toBe('Status 속성 없음');
-    await page.getByRole('button', { name: '카드 메뉴: Define project scope' }).click();
+    await expect(page.getByTestId('hidden-columns')).toContainText('Status 속성 없음');
+    await page.getByRole('button', { name: '카드 메뉴: Design the screens' }).click();
     await expect(page.locator('[data-action="move"]')).toHaveText(/다른 열로 이동/);
     await expect(page.locator('[data-action="duplicate"]')).toHaveText(/복제/);
     await page.keyboard.press('Escape');
-    await card(page, 'Identify dependencies').focus();
+    await card(page, 'Test').focus();
     await page.keyboard.press('Space');
-    await expect(announcer(page)).toHaveText(
-      '집었습니다: Identify dependencies. Not Started, 3개 중 3번째.',
-    );
+    await expect(announcer(page)).toHaveText('집었습니다: Test. Planned, 4개 중 3번째.');
     await page.keyboard.press('Escape');
   });
 });
@@ -959,8 +957,8 @@ test.describe('a board the reader may only look at', () => {
   test('shows its columns and opens its cards, and offers nothing that changes it', async ({
     page,
   }, info) => {
-    await openView(page, info, 'Company Goals & OKRs', 'Departments');
-    expect((await columnNames(page)).slice(0, 2)).toEqual(['Engineering', 'Product']);
+    await openView(page, info, 'Study notes', 'By subject');
+    expect((await columnNames(page)).slice(0, 2)).toEqual(['Algorithms', 'Statistics']);
     await expect(page.getByRole('button', { name: /^New card in/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /^Column menu/ })).toHaveCount(0);
     await expect(page.locator('[data-column-new]')).toHaveCount(0);
@@ -968,13 +966,13 @@ test.describe('a board the reader may only look at', () => {
     await expect(page.locator('[data-drag-handle]')).toHaveCount(0);
 
     // The menu of a card only copies its link.
-    await page.getByRole('button', { name: 'Card menu: Launch 3 key features' }).click();
+    await page.getByRole('button', { name: 'Card menu: Big O notation' }).click();
     await expect(page.locator('[data-action]')).toHaveCount(1);
     await expect(page.locator('[data-action="copy-link"]')).toBeVisible();
     await page.keyboard.press('Escape');
 
     // Space picks nothing up, and neither does the pointer.
-    const first = card(page, 'Launch 3 key features');
+    const first = card(page, 'Big O notation');
     await first.focus();
     await page.keyboard.press('Space');
     await expect(kanban(page)).not.toHaveAttribute('data-dragging');
@@ -982,7 +980,8 @@ test.describe('a board the reader may only look at', () => {
       const from = await pointOn(first);
       await page.mouse.move(from.x, from.y);
       await page.mouse.down();
-      await page.mouse.move(from.x + 40, from.y + 40, { steps: 4 });
+      // Move well outside the card so releasing the button does not fire a click that opens it.
+      await page.mouse.move(from.x + 160, from.y + 160, { steps: 4 });
       await expect(overlay(page)).toHaveCount(0);
       await page.mouse.up();
     }
@@ -1006,17 +1005,17 @@ test.describe('screens', () => {
       const stage = STAGE[info.project.name] ?? 'expanded';
       await page.emulateMedia({ colorScheme: scheme });
       await openView(page, info, ...TASKS);
-      await columnMenu(page, 'Archived', 'hide');
+      await columnMenu(page, 'Done', 'hide');
       // Back to the first column: the menu of the hidden one was at the far end.
       await kanban(page).evaluate((element) => {
         element.scrollLeft = 0;
       });
       await expect(boardPage(page)).toBeVisible();
-      await expect.poll(() => inView(page, 'Not Started')).toBe(true);
+      await expect.poll(() => inView(page, 'Planned')).toBe(true);
       await page.screenshot({ path: `${screensDir('kanban')}/board-${stage}-${scheme}.png` });
 
-      await cardMenu(page, 'Requirements sign-off', 'select');
-      await page.getByRole('button', { name: 'Card menu: Project budget approval' }).click();
+      await cardMenu(page, 'Write the help pages', 'select');
+      await page.getByRole('button', { name: 'Card menu: Build' }).click();
       await expect(page.locator('[data-action="move"]')).toBeVisible();
       // The menu fades in: the picture waits for it.
       await page.evaluate(() =>
@@ -1026,10 +1025,10 @@ test.describe('screens', () => {
       await page.keyboard.press('Escape');
 
       if (oneColumn(info)) return;
-      await openView(page, info, 'Roadmap', 'Board: Status');
-      await card(page, 'Review API design').focus();
+      await openView(page, info, 'Meeting notes', 'By kind');
+      await card(page, 'Design review').focus();
       await page.keyboard.press('Space');
-      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press('ArrowLeft');
       await expect(notice(page)).toBeVisible();
       await page.screenshot({ path: `${screensDir('kanban')}/sorted-drag-${stage}-${scheme}.png` });
     });

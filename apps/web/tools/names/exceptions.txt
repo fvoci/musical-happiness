@@ -8,29 +8,11 @@
 #
 # `*` stands for any part of a name, `**` for any number of folders.
 
-# A person one works with: a template's card says "@mention teammates".
-** | teammate
-
 # The names and keywords of the emoji, as CLDR gives them: steam.
 src/lib/editor/emoji/en.json
 
-# The boards the in-memory backend starts with, which the tests are written against.
-# Their texts are rewritten together with those tests.
-src/lib/state/memory/seed/*.json
-
-# One of those boards is "Team Retrospective", by its title and its key.
-** | Team Retrospective
-src/lib/state/memory/seed.ts | team-retrospective
-
-# The demonstration's boards are those of a small team of people, filed in a category
-# called "Team"; the tests find them there.
-src/lib/state/memory/seed.ts | a small team
-src/lib/state/memory/seed.ts | 'Team'
-tests/state/stores.test.ts | 'Team'
-tests/ui/shell/components.test.ts | 'Team'
-e2e/shell.spec.ts | 'Move to Team'
-e2e/sidebar.spec.ts | 'Team'
-e2e/sidebar.spec.ts | in Team.
+# A comment on the course page refers to other members as teammates.
+src/app/CoursePage.svelte | teammates'
 
 # The notices of the HWP renderer's crates name where each crate lives; BLAKE3's
 # project is "BLAKE3-team" on GitHub.

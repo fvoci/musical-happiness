@@ -36,14 +36,8 @@ import {
   topBar,
 } from './shell.support.ts';
 
-const WORKSPACE = [
-  'Project Tasks',
-  'Sprint Planner',
-  'Roadmap',
-  'Meeting Agenda',
-  'Team Retrospective',
-];
-const RESEARCH = ['User Research Sessions', 'Competitive Analysis', 'Content Calendar'];
+const PROJECTS = ['Project schedule', 'Issue tracker', 'Meeting notes'];
+const OPERATIONS = ['Content calendar', 'Customer contacts'];
 
 test.describe('the shapes of the sidebar', () => {
   test('the list of boards is where the stage puts it', async ({ page }) => {
@@ -66,7 +60,7 @@ test.describe('the shapes of the sidebar', () => {
       expect((await strip(page).boundingBox())?.width).toBe(56);
       expect(board?.x).toBe(56);
       // One button a board, and the board on the page is marked.
-      await expect(strip(page).getByRole('link')).toHaveCount(14);
+      await expect(strip(page).getByRole('link')).toHaveCount(8);
       await expect(strip(page).getByRole('link', { name: FIRST_BOARD })).toHaveAttribute(
         'aria-current',
         'page',
@@ -191,9 +185,9 @@ test.describe('the shapes of the sidebar', () => {
     const first = page.url();
 
     await showSidebar(page);
-    await boardLink(page, 'Roadmap').click();
+    await boardLink(page, 'Issue tracker').click();
     await expect(shell(page)).toHaveAttribute('data-sidebar', 'closed');
-    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Roadmap');
+    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Issue tracker');
     await expect(page).not.toHaveURL(first);
     await expect(page).toHaveURL(ON_A_VIEW);
     const second = page.url();
@@ -206,7 +200,7 @@ test.describe('the shapes of the sidebar', () => {
 
     await page.goForward();
     await expect(page).toHaveURL(second);
-    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Roadmap');
+    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Issue tracker');
   });
 
   test('the strip goes to another board in one tap', async ({ page }) => {
@@ -214,9 +208,9 @@ test.describe('the shapes of the sidebar', () => {
     test.skip((await stageOf(page)) !== 'medium', 'only a medium page starts with the strip');
     const first = page.url();
 
-    await strip(page).getByRole('link', { name: 'Roadmap' }).click();
-    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Roadmap');
-    await expect(strip(page).getByRole('link', { name: 'Roadmap' })).toHaveAttribute(
+    await strip(page).getByRole('link', { name: 'Issue tracker' }).click();
+    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Issue tracker');
+    await expect(strip(page).getByRole('link', { name: 'Issue tracker' })).toHaveAttribute(
       'aria-current',
       'page',
     );
@@ -311,15 +305,15 @@ test.describe('boards in the sidebar', () => {
     await showSidebar(page);
     await expect(boardLink(page, FIRST_BOARD)).toHaveAttribute('aria-current', 'page');
     // The links are real addresses: a new tab can be opened from them.
-    await expect(boardLink(page, 'Roadmap')).toHaveAttribute('href', ON_A_BOARD);
+    await expect(boardLink(page, 'Issue tracker')).toHaveAttribute('href', ON_A_BOARD);
 
-    await boardLink(page, 'Roadmap').click();
-    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Roadmap');
+    await boardLink(page, 'Issue tracker').click();
+    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Issue tracker');
     await expect(page).not.toHaveURL(first);
     await expect(page.getByTestId('board-page')).toBeVisible();
 
     await showSidebar(page);
-    await expect(boardLink(page, 'Roadmap')).toHaveAttribute('aria-current', 'page');
+    await expect(boardLink(page, 'Issue tracker')).toHaveAttribute('aria-current', 'page');
     await expect(boardLink(page, FIRST_BOARD)).not.toHaveAttribute('aria-current');
   });
 
@@ -327,13 +321,13 @@ test.describe('boards in the sidebar', () => {
     await openApp(page);
     await showSidebar(page);
     const search = sidebar(page).getByTestId('sidebar-search');
-    await expect(sidebar(page).getByRole('link')).toHaveCount(14);
+    await expect(sidebar(page).getByRole('link')).toHaveCount(8);
 
-    await search.fill('GOAL');
+    await search.fill('NOTES');
     await expect(sidebar(page).getByRole('link')).toHaveCount(2);
-    await expect(boardLink(page, 'Personal Goals')).toBeVisible();
-    await expect(boardLink(page, 'Company Goals & OKRs')).toBeVisible();
-    expect(await categories(page)).toEqual(['Personal', 'General']);
+    await expect(boardLink(page, 'Meeting notes')).toBeVisible();
+    await expect(boardLink(page, 'Study notes')).toBeVisible();
+    expect(await categories(page)).toEqual(['Projects', 'Personal']);
 
     await search.fill('no such board');
     await expect(sidebar(page).getByRole('link')).toHaveCount(0);
@@ -342,17 +336,19 @@ test.describe('boards in the sidebar', () => {
     // The first Escape empties the field and leaves the drawer, if it is one, open.
     await search.press('Escape');
     await expect(search).toHaveValue('');
-    await expect(sidebar(page).getByRole('link')).toHaveCount(14);
+    await expect(sidebar(page).getByRole('link')).toHaveCount(8);
     await expect(shell(page)).not.toHaveAttribute('data-sidebar', 'closed');
   });
 
   test('a board moves to another category from its menu', async ({ page }) => {
     await openApp(page);
     await showSidebar(page);
-    await boardMenu(page, 'Roadmap').click();
-    await page.getByRole('menuitem', { name: 'Move to Research' }).click();
-    await expect.poll(() => boardsIn(page, 'Research')).toEqual([...RESEARCH, 'Roadmap']);
-    expect(await boardsIn(page, 'Team')).toEqual(WORKSPACE.filter((title) => title !== 'Roadmap'));
+    await boardMenu(page, 'Issue tracker').click();
+    await page.getByRole('menuitem', { name: 'Move to Operations' }).click();
+    await expect.poll(() => boardsIn(page, 'Operations')).toEqual([...OPERATIONS, 'Issue tracker']);
+    expect(await boardsIn(page, 'Projects')).toEqual(
+      PROJECTS.filter((title) => title !== 'Issue tracker'),
+    );
   });
 
   test('a board is dragged with the mouse: to another place, into another category, onto a folded one', async ({
@@ -375,7 +371,7 @@ test.describe('boards in the sidebar', () => {
       for (let pass = 0; pass < 2; pass += 1) {
         const target =
           onto === ''
-            ? await pointOn(categoryToggle(page, 'Research'))
+            ? await pointOn(categoryToggle(page, 'Operations'))
             : await pointOn(boardLink(page, onto), down);
         await page.mouse.move(target.x, target.y, { steps: 8 });
         await nextFrame(page);
@@ -384,48 +380,31 @@ test.describe('boards in the sidebar', () => {
       await expect(overlay).toHaveCount(0);
     };
 
-    // Within its category: under "Roadmap".
-    await drag('Project Tasks', 'Roadmap', 0.8);
+    // Within its category: under "Meeting notes".
+    await drag('Project schedule', 'Meeting notes', 0.8);
     await expect
-      .poll(() => boardsIn(page, 'Team'))
-      .toEqual([
-        'Sprint Planner',
-        'Roadmap',
-        'Project Tasks',
-        'Meeting Agenda',
-        'Team Retrospective',
-      ]);
+      .poll(() => boardsIn(page, 'Projects'))
+      .toEqual(['Issue tracker', 'Meeting notes', 'Project schedule']);
     // The release that ended the drag was not a click on a link.
     expect(page.url()).toBe(address);
 
-    // Into another category: above "Competitive Analysis".
-    await drag('Meeting Agenda', 'Competitive Analysis', 0.2);
+    // Into another category: above "Customer contacts".
+    await drag('Meeting notes', 'Customer contacts', 0.2);
     await expect
-      .poll(() => boardsIn(page, 'Research'))
-      .toEqual([
-        'User Research Sessions',
-        'Meeting Agenda',
-        'Competitive Analysis',
-        'Content Calendar',
-      ]);
+      .poll(() => boardsIn(page, 'Operations'))
+      .toEqual(['Content calendar', 'Meeting notes', 'Customer contacts']);
 
     // Onto the heading of a folded category: it is filed last there.
-    await categoryToggle(page, 'Research').click();
-    await expect(categoryToggle(page, 'Research')).toHaveAttribute('aria-expanded', 'false');
-    await drag('Team Retrospective', '', 0.5);
-    await categoryToggle(page, 'Research').click();
+    await categoryToggle(page, 'Operations').click();
+    await expect(categoryToggle(page, 'Operations')).toHaveAttribute('aria-expanded', 'false');
+    await drag('Project schedule', '', 0.5);
+    await categoryToggle(page, 'Operations').click();
     await expect
-      .poll(() => boardsIn(page, 'Research'))
-      .toEqual([
-        'User Research Sessions',
-        'Meeting Agenda',
-        'Competitive Analysis',
-        'Content Calendar',
-        'Team Retrospective',
-      ]);
+      .poll(() => boardsIn(page, 'Operations'))
+      .toEqual(['Content calendar', 'Meeting notes', 'Customer contacts', 'Project schedule']);
 
     // Let go outside the list: nothing moves.
-    const from = await pointOn(boardLink(page, 'Sprint Planner'));
+    const from = await pointOn(boardLink(page, 'Issue tracker'));
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
     await page.mouse.move(from.x + 6, from.y + 6, { steps: 3 });
@@ -435,7 +414,7 @@ test.describe('boards in the sidebar', () => {
     await expect(sidebar(page).getByText('Let go to cancel.')).toBeVisible();
     await page.mouse.up();
     await expect(overlay).toHaveCount(0);
-    expect(await boardsIn(page, 'Team')).toEqual(['Sprint Planner', 'Roadmap', 'Project Tasks']);
+    expect(await boardsIn(page, 'Projects')).toEqual(['Issue tracker']);
   });
 
   test('a finger that rests on a board picks it up; a finger that moves at once scrolls', async ({
@@ -448,33 +427,27 @@ test.describe('boards in the sidebar', () => {
     const overlay = page.locator('[data-drag-overlay]');
     const finger = await Finger.on(page);
 
-    await finger.down(await pointOn(boardLink(page, 'Project Tasks')));
+    await finger.down(await pointOn(boardLink(page, 'Project schedule')));
     await expect(overlay).toBeVisible();
     for (let pass = 0; pass < 2; pass += 1) {
-      await finger.move(await pointOn(boardLink(page, 'Roadmap'), 0.8));
+      await finger.move(await pointOn(boardLink(page, 'Meeting notes'), 0.8));
     }
     await finger.up();
     await expect(overlay).toHaveCount(0);
     await expect
-      .poll(() => boardsIn(page, 'Team'))
-      .toEqual([
-        'Sprint Planner',
-        'Roadmap',
-        'Project Tasks',
-        'Meeting Agenda',
-        'Team Retrospective',
-      ]);
+      .poll(() => boardsIn(page, 'Projects'))
+      .toEqual(['Issue tracker', 'Meeting notes', 'Project schedule']);
     // The lift of the finger opened nothing, and the list is still there.
     await expect(topBar(page).getByTestId('board-title')).toHaveValue(FIRST_BOARD);
     await expect(shell(page)).not.toHaveAttribute('data-sidebar', 'closed');
 
     // A finger that moves before it has rested is scrolling: nothing is picked up.
-    const start = await pointOn(boardLink(page, 'Meeting Agenda'));
+    const start = await pointOn(boardLink(page, 'Meeting notes'));
     await finger.down(start);
     await finger.move({ x: start.x, y: start.y - 60 }, 4);
     await expect(overlay).toHaveCount(0);
     await finger.up();
-    expect(await boardsIn(page, 'Team')).toHaveLength(5);
+    expect(await boardsIn(page, 'Projects')).toHaveLength(3);
   });
 
   test('a board is moved with the keyboard, and every step is announced', async ({ page }) => {
@@ -482,44 +455,35 @@ test.describe('boards in the sidebar', () => {
     await showSidebar(page);
     const announcer = sidebar(page).getByTestId('sidebar-announcer');
 
-    await boardLink(page, 'Project Tasks').focus();
+    await boardLink(page, 'Project schedule').focus();
     await page.keyboard.press('Space');
-    await expect(announcer).toHaveText('Picked up Project Tasks, position 1 of 5 in Team.');
+    await expect(announcer).toHaveText('Picked up Project schedule, position 1 of 3 in Projects.');
     await page.keyboard.press('ArrowDown');
-    await expect(announcer).toHaveText('Project Tasks, position 2 of 5 in Team.');
+    await expect(announcer).toHaveText('Project schedule, position 2 of 3 in Projects.');
     await page.keyboard.press('Space');
-    await expect(announcer).toHaveText('Dropped Project Tasks, position 2 of 5 in Team.');
+    await expect(announcer).toHaveText('Dropped Project schedule, position 2 of 3 in Projects.');
     await expect
-      .poll(() => boardsIn(page, 'Team'))
-      .toEqual([
-        'Sprint Planner',
-        'Project Tasks',
-        'Roadmap',
-        'Meeting Agenda',
-        'Team Retrospective',
-      ]);
-    await expect(boardLink(page, 'Project Tasks')).toBeFocused();
+      .poll(() => boardsIn(page, 'Projects'))
+      .toEqual(['Issue tracker', 'Project schedule', 'Meeting notes']);
+    await expect(boardLink(page, 'Project schedule')).toBeFocused();
 
     // Into the next category.
     await page.keyboard.press('Space');
     await page.keyboard.press('ArrowRight');
-    await expect(announcer).toContainText('in Research.');
+    await expect(announcer).toContainText('in Operations.');
     await page.keyboard.press('Enter');
-    await expect.poll(() => boardsIn(page, 'Research')).toContain('Project Tasks');
-    expect(await boardsIn(page, 'Team')).not.toContain('Project Tasks');
+    await expect.poll(() => boardsIn(page, 'Operations')).toContain('Project schedule');
+    expect(await boardsIn(page, 'Projects')).not.toContain('Project schedule');
 
     // Escape puts the board back, and is the drag's alone: a drawer stays open.
-    await boardLink(page, 'Roadmap').focus();
+    await boardLink(page, 'Issue tracker').focus();
     await page.keyboard.press('Space');
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Escape');
-    await expect(announcer).toContainText('Cancelled. Roadmap is back at position 2 of 4 in Team.');
-    expect(await boardsIn(page, 'Team')).toEqual([
-      'Sprint Planner',
-      'Roadmap',
-      'Meeting Agenda',
-      'Team Retrospective',
-    ]);
+    await expect(announcer).toContainText(
+      'Cancelled. Issue tracker is back at position 1 of 2 in Projects.',
+    );
+    expect(await boardsIn(page, 'Projects')).toEqual(['Issue tracker', 'Meeting notes']);
     await expect(shell(page)).not.toHaveAttribute('data-sidebar', 'closed');
   });
 
@@ -528,16 +492,16 @@ test.describe('boards in the sidebar', () => {
   }) => {
     await openApp(page);
     await showSidebar(page);
-    const menu = boardMenu(page, 'Roadmap');
+    const menu = boardMenu(page, 'Issue tracker');
     const canHover = await page.evaluate(() => matchMedia('(hover: hover)').matches);
     if (canHover) {
       await sidebar(page).getByTestId('sidebar-search').hover();
       await expect(menu).toHaveCSS('opacity', '0');
-      await boardLink(page, 'Roadmap').hover();
+      await boardLink(page, 'Issue tracker').hover();
       await expect(menu).toHaveCSS('opacity', '1');
       // And for the keyboard: it shows when the row holds the focus.
       await sidebar(page).getByTestId('sidebar-search').hover();
-      await boardLink(page, 'Roadmap').focus();
+      await boardLink(page, 'Issue tracker').focus();
       await expect(menu).toHaveCSS('opacity', '1');
     } else {
       await expect(menu).toHaveCSS('opacity', '1');
@@ -547,23 +511,23 @@ test.describe('boards in the sidebar', () => {
   test('a deleted board is gone, and undo brings it back', async ({ page }) => {
     await openApp(page);
     await showSidebar(page);
-    await chooseFromMenu(page, boardMenu(page, 'Meeting Agenda'), 'delete');
+    await chooseFromMenu(page, boardMenu(page, 'Meeting notes'), 'delete');
     const confirm = page.getByTestId('confirm-dialog');
-    await expect(confirm).toContainText('Meeting Agenda');
+    await expect(confirm).toContainText('Meeting notes');
     // Asked first: nothing is gone yet, and "Cancel" keeps it.
     await confirm.getByRole('button', { name: 'Cancel' }).click();
-    await expect(boardLink(page, 'Meeting Agenda')).toBeVisible();
+    await expect(boardLink(page, 'Meeting notes')).toBeVisible();
 
-    await chooseFromMenu(page, boardMenu(page, 'Meeting Agenda'), 'delete');
+    await chooseFromMenu(page, boardMenu(page, 'Meeting notes'), 'delete');
     await confirm.getByRole('button', { name: 'Delete' }).click();
-    await expect(boardLink(page, 'Meeting Agenda')).toHaveCount(0);
-    await expect(sidebar(page).getByRole('link')).toHaveCount(13);
+    await expect(boardLink(page, 'Meeting notes')).toHaveCount(0);
+    await expect(sidebar(page).getByRole('link')).toHaveCount(7);
 
     await hideSidebar(page);
     await pressInBar(page, 'undo');
     await showSidebar(page);
-    await expect(boardLink(page, 'Meeting Agenda')).toBeVisible();
-    await expect(sidebar(page).getByRole('link')).toHaveCount(14);
+    await expect(boardLink(page, 'Meeting notes')).toBeVisible();
+    await expect(sidebar(page).getByRole('link')).toHaveCount(8);
   });
 
   test('deleting the board on the page goes to the first board that is left', async ({ page }) => {
@@ -571,11 +535,11 @@ test.describe('boards in the sidebar', () => {
     await showSidebar(page);
     await chooseFromMenu(page, boardMenu(page, FIRST_BOARD), 'delete');
     await page.getByTestId('confirm-dialog').getByRole('button', { name: 'Delete' }).click();
-    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Sprint Planner');
+    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Issue tracker');
     await expect(page.getByTestId('board-page')).toBeVisible();
     await showSidebar(page);
     await expect(boardLink(page, FIRST_BOARD)).toHaveCount(0);
-    await expect(boardLink(page, 'Sprint Planner')).toHaveAttribute('aria-current', 'page');
+    await expect(boardLink(page, 'Issue tracker')).toHaveAttribute('aria-current', 'page');
   });
 
   test('"Add board" makes an empty board with a view and opens it', async ({ page }) => {
@@ -594,7 +558,7 @@ test.describe('boards in the sidebar', () => {
     await expect(title).toHaveAttribute('placeholder', 'Untitled board');
 
     await showSidebar(page);
-    await expect(sidebar(page).getByRole('link')).toHaveCount(15);
+    await expect(sidebar(page).getByRole('link')).toHaveCount(9);
     await expect(boardLink(page, '(Untitled Board)')).toHaveAttribute('aria-current', 'page');
     // A board nobody filed is shown in the default category.
     expect(await boardsIn(page, 'General')).toContain('(Untitled Board)');
@@ -605,28 +569,28 @@ test.describe('categories', () => {
   test('a category folds and unfolds', async ({ page }) => {
     await openApp(page);
     await showSidebar(page);
-    const toggle = categoryToggle(page, 'Research');
+    const toggle = categoryToggle(page, 'Operations');
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(boardLink(page, 'Content Calendar')).toBeVisible();
+    await expect(boardLink(page, 'Content calendar')).toBeVisible();
 
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(boardLink(page, 'Content Calendar')).toHaveCount(0);
-    await expect(sidebar(page).getByRole('link')).toHaveCount(11);
+    await expect(boardLink(page, 'Content calendar')).toHaveCount(0);
+    await expect(sidebar(page).getByRole('link')).toHaveCount(6);
     // The search still finds a board of a folded category.
     await sidebar(page).getByTestId('sidebar-search').fill('calendar');
-    await expect(boardLink(page, 'Content Calendar')).toBeVisible();
+    await expect(boardLink(page, 'Content calendar')).toBeVisible();
     await sidebar(page).getByTestId('sidebar-search').fill('');
 
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(boardLink(page, 'Content Calendar')).toBeVisible();
+    await expect(boardLink(page, 'Content calendar')).toBeVisible();
   });
 
   test('a category is made, renamed, moved, filled and deleted', async ({ page }) => {
     await openApp(page);
     await showSidebar(page);
-    expect(await categories(page)).toEqual(['Team', 'Research', 'Personal', 'General']);
+    expect(await categories(page)).toEqual(['Projects', 'Operations', 'Personal', 'General']);
     const dialog = page.getByTestId('category-dialog');
     const name = dialog.getByRole('textbox', { name: 'Category name' });
 
@@ -638,7 +602,7 @@ test.describe('categories', () => {
     await expect(dialog).toBeHidden();
     await expect
       .poll(() => categories(page))
-      .toEqual(['Ideas', 'Team', 'Research', 'Personal', 'General']);
+      .toEqual(['Ideas', 'Projects', 'Operations', 'Personal', 'General']);
     await expect(category(page, 'Ideas').getByText('No boards or wikis inside')).toBeVisible();
 
     // Renamed: the field starts with the name as it is.
@@ -648,26 +612,26 @@ test.describe('categories', () => {
     await dialog.getByRole('button', { name: 'Update' }).click();
     await expect
       .poll(() => categories(page))
-      .toEqual(['Later', 'Team', 'Research', 'Personal', 'General']);
+      .toEqual(['Later', 'Projects', 'Operations', 'Personal', 'General']);
 
     // Moved down and up again; the first one cannot go further up.
     await chooseFromMenu(page, categoryMenu(page, 'Later'), 'move-down');
     await expect
       .poll(() => categories(page))
-      .toEqual(['Team', 'Later', 'Research', 'Personal', 'General']);
+      .toEqual(['Projects', 'Later', 'Operations', 'Personal', 'General']);
     await chooseFromMenu(page, categoryMenu(page, 'Later'), 'move-up');
     await expect
       .poll(() => categories(page))
-      .toEqual(['Later', 'Team', 'Research', 'Personal', 'General']);
+      .toEqual(['Later', 'Projects', 'Operations', 'Personal', 'General']);
     await categoryMenu(page, 'Later').click();
     await expect(page.locator('[data-action="move-up"]')).toBeDisabled();
     await page.keyboard.press('Escape');
     await expect(page.locator('[data-action="move-up"]')).toHaveCount(0);
 
     // Filled from the menu of a board.
-    await boardMenu(page, 'Roadmap').click();
+    await boardMenu(page, 'Issue tracker').click();
     await page.getByRole('menuitem', { name: 'Move to Later' }).click();
-    await expect.poll(() => boardsIn(page, 'Later')).toEqual(['Roadmap']);
+    await expect.poll(() => boardsIn(page, 'Later')).toEqual(['Issue tracker']);
 
     // Deleted, after a question: its board goes back to the default category.
     await chooseFromMenu(page, categoryMenu(page, 'Later'), 'delete');
@@ -675,8 +639,10 @@ test.describe('categories', () => {
     await expect(confirm).toContainText('Delete this category?');
     await expect(confirm).toContainText('Later');
     await confirm.getByRole('button', { name: 'Delete' }).click();
-    await expect.poll(() => categories(page)).toEqual(['Team', 'Research', 'Personal', 'General']);
-    await expect.poll(() => boardsIn(page, 'General')).toContain('Roadmap');
+    await expect
+      .poll(() => categories(page))
+      .toEqual(['Projects', 'Operations', 'Personal', 'General']);
+    await expect.poll(() => boardsIn(page, 'General')).toContain('Issue tracker');
   });
 
   test('the default category cannot be deleted or renamed', async ({ page }) => {
@@ -689,7 +655,7 @@ test.describe('categories', () => {
     await expect(page.locator('[data-action="rename"]')).toHaveCount(0);
     await page.keyboard.press('Escape');
 
-    await categoryMenu(page, 'Team').click();
+    await categoryMenu(page, 'Projects').click();
     await expect(page.locator('[data-action="delete"]')).toBeVisible();
     await expect(page.locator('[data-action="rename"]')).toBeVisible();
   });

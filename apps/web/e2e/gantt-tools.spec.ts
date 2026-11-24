@@ -82,7 +82,12 @@ test('grouped as a table is: a heading before the cards of each group, the arrow
   // One heading for the cards without a value and one for each option, as in a table.
   const headings = gantt(page).locator('[data-group]');
   await expect(headings).toHaveCount(select.options.length + 1);
-  const dated = ['Drag cards', 'Share a board', 'Create a new card', 'Filter and sort cards'];
+  const dated = [
+    'Open a card',
+    'Filter, sort and group',
+    'Write in the body',
+    'Keep your documents in a wiki',
+  ];
   const groups = [{ id: '', value: `No ${select.name}` }, ...select.options];
   // In the order of a table: the cards without a value first, then the options as the board has them.
   expect(
@@ -169,7 +174,7 @@ test('the zoom steps through days, weeks and months, and the view keeps it', asy
   const days = Math.round((Date.parse(last) - Date.parse(first)) / 86_400_000) + 1;
   await expect(gantt(page).locator('[data-tick]')).toHaveCount(days);
   await expect(gantt(page).locator('[data-upper="2026-11-01"]')).toHaveText('November 2026');
-  await onDays('Share a board', '2026-11-12', 12);
+  await onDays('Filter, sort and group', '2026-11-12', 12);
   // The closest step: the button stays and does nothing.
   await expect(zoomIn).toHaveAttribute('aria-disabled', 'true');
   // Pressed all the same (the test's own click would wait for the button to be enabled).
@@ -188,7 +193,7 @@ test('the zoom steps through days, weeks and months, and the view keeps it', asy
   await expect(gantt(page).locator('[data-upper]').first()).toHaveText('2026');
   await expect(gantt(page).locator('[data-tick="2026-11-01"]')).toHaveText('Nov');
   // A day is a fifth of a rem wide: the bar of one day is widened to be seen.
-  const narrow = await bar(page, 'Drag cards').boundingBox();
+  const narrow = await bar(page, 'Open a card').boundingBox();
   expect(Math.round(narrow?.width ?? 0)).toBe(8);
   // One undo takes one step back, once the step is written.
   await page.evaluate(() => (window as unknown as { fvociDev: Dev }).fvociDev.workspace.undoLast());
@@ -201,7 +206,7 @@ test('zooming out and back in comes back to the days the reader was at, until "T
 }, info) => {
   await openGantt(page, info);
   // A card the summer after next: there is a long way to scroll.
-  await setDates(page, { 'Filter and sort cards': { from: '2028-06-01' } });
+  await setDates(page, { 'Keep your documents in a wiki': { from: '2028-06-01' } });
   const line = page.getByTestId('gantt-today-line');
   const left = (): Promise<number> => scroller(page).evaluate((element) => element.scrollLeft);
   const zoomed = async (press: 'gantt-zoom-in' | 'gantt-zoom-out', zoom: string): Promise<void> => {
@@ -252,14 +257,16 @@ test('the cards without a date are counted above the chart and listed on asking'
   await button.click();
   const list = page.getByTestId('undated-list');
   await expect(list.locator('[data-card]')).toHaveCount(total - 4);
-  await expect(list).toContainText('Create a new view');
-  await expect(list).not.toContainText('Share a board');
-  await expect(list).toContainText('These cards have no Due Date');
+  await expect(list).toContainText('Attach files and open them right here');
+  await expect(list).not.toContainText('Filter, sort and group');
+  await expect(list).toContainText('These cards have no Day');
 
   // A card opened from the list gives the focus back to "No date" when it closes.
-  await list.getByRole('link', { name: 'Create a new view' }).click();
+  await list.getByRole('link', { name: 'Attach files and open them right here' }).click();
   await expect(dialog(page)).toBeVisible();
-  await expect(dialog(page).locator('[data-card-title]')).toHaveValue('Create a new view');
+  await expect(dialog(page).locator('[data-card-title]')).toHaveValue(
+    'Attach files and open them right here',
+  );
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toHaveCount(0);
   await expect(button).toBeFocused();
@@ -288,7 +295,7 @@ test('a reader who may not change the view zooms for the visit, and the view sta
     ).fvociDev;
     const workspaces = await dev.backend.workspaces();
     const boards = await dev.backend.boards(workspaces[0]?.id ?? '');
-    const boardId = boards.find((board) => board.title === 'Company Goals & OKRs')?.id ?? '';
+    const boardId = boards.find((board) => board.title === 'Study notes')?.id ?? '';
     const fields = {
       viewType: 'gantt',
       ganttZoom: 'week',
@@ -307,8 +314,8 @@ test('a reader who may not change the view zooms for the visit, and the view sta
     const author = dev.someoneElse?.() ?? dev.backend;
     // Two dated cards, the second after the first and starting before it ends.
     const board = await author.container(boardId);
-    const due = board.cardProperties.find((property) => property.name === 'Due Date');
-    if (!due) throw new Error('the board has no Due Date');
+    const due = board.cardProperties.find((property) => property.name === 'Review on');
+    if (!due) throw new Error('the board has no Review on');
     await author.patchContainer(boardId, {
       updatedCardProperties: [{ id: 'after', name: 'After', type: 'relation', options: [] }],
     });
@@ -331,8 +338,8 @@ test('a reader who may not change the view zooms for the visit, and the view sta
   });
   await goTo(page, boardPath(made.boardId, made.viewId));
   await expect(gantt(page)).toHaveAttribute('data-zoom', 'week');
-  // The reader sees the chart whole: bars, the arrow, what is out of order; and opens a card.
-  await expect(bars(page)).toHaveCount(2);
+  // The reader sees the chart whole: 5 seeded dated cards + 2 added, the arrow, what is out of order; and opens a card.
+  await expect(bars(page)).toHaveCount(7);
   await expect(arrows(page)).toHaveCount(1);
   await expect(page.getByTestId('gantt-late')).toHaveAccessibleName(
     'Out of order: 1. Show the next.',

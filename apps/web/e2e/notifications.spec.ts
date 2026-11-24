@@ -181,8 +181,8 @@ test.describe('the notifications sheet of a narrow pane', () => {
     const firstUrl = page.url();
     // Navigate to a second board first so an unhandled back would leave the current page.
     await showSidebar(page);
-    await sidebar(page).getByRole('link', { name: 'Roadmap' }).click();
-    await expect(page.getByTestId('board-title')).toHaveValue('Roadmap');
+    await sidebar(page).getByRole('link', { name: 'Issue tracker' }).click();
+    await expect(page.getByTestId('board-title')).toHaveValue('Issue tracker');
     const secondUrl = page.url();
     expect(secondUrl).not.toBe(firstUrl);
 
@@ -208,7 +208,7 @@ test.describe('the notifications sheet of a narrow pane', () => {
     await page.goBack();
     await expect(inbox(page)).toBeHidden();
     expect(page.url()).toBe(secondUrl);
-    await expect(page.getByTestId('board-title')).toHaveValue('Roadmap');
+    await expect(page.getByTestId('board-title')).toHaveValue('Issue tracker');
     await expect(barMenu(page)).toBeFocused();
 
     // Escape closes the sheet and returns focus to the bar's menu button.

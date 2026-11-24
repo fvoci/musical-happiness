@@ -89,6 +89,7 @@ import { MemoryContentSearch } from './content-search.ts';
 import { MemoryNotifications, noteComment } from './notifications.ts';
 import { MemoryTime } from './time.ts';
 import { searchBoardsOf } from './search.ts';
+import { visibleTemplates, welcomeTemplate } from './seed-templates.ts';
 import { fail } from './refuse.ts';
 import { nextScreenState } from './screen-state.ts';
 import {
@@ -429,19 +430,10 @@ export class MemoryBackend implements Backend {
     return searchBoardsOf(this.world, this.userId, workspaceId, query);
   }
 
-  /** The workspace's templates, then the built-in ones, each the oldest first: of one language, as the world holds them. */
+  /** The workspace's templates, then the built-in ones in the reader's language, each oldest first. */
   async templates(workspaceId: string): Promise<Container[]> {
     await this.#enterWorkspace('templates', workspaceId);
-    const all = [...this.world.containers.values()]
-      .filter(
-        (board) =>
-          board.isTemplate && (board.isBuiltin === true || board.workspaceId === workspaceId),
-      )
-      .sort((first, second) => first.createAt - second.createAt);
-    return [
-      ...all.filter((board) => board.isBuiltin !== true),
-      ...all.filter((board) => board.isBuiltin === true),
-    ].map(copy);
+    return visibleTemplates(this.world, this.userId, workspaceId).map(copy);
   }
 
   /** Into `to`, as the server's `toWorkspace`; no diary, nor across spaces but by export. */
@@ -454,18 +446,12 @@ export class MemoryBackend implements Backend {
     return this.#copyContainer(source, asTemplate, to);
   }
 
-  /** A copy of the marked built-in template, without its mark, where the world holds one. */
+  /** A copy of the marked built-in template in the reader's language, without its template marks. */
   async onboard(workspaceId: string): Promise<string> {
     await this.#enterWorkspace('onboard', workspaceId);
-    const welcome =
-      [...this.world.containers.values()].find(
-        (board) =>
-          board.isTemplate && board.isBuiltin === true && board.properties.onboarding !== undefined,
-      ) ?? fail(404, 'no welcome board');
-    const { onboarding: _onboarding, ...properties } = welcome.properties;
+    const welcome = welcomeTemplate(this.world, this.userId) ?? fail(404, 'no welcome board');
     const blocks = copiedBlocks(this.world, welcome);
-    return this.#insertContainer({ ...welcome, isTemplate: false, properties }, blocks, workspaceId)
-      .id;
+    return this.#insertContainer({ ...welcome, isTemplate: false }, blocks, workspaceId).id;
   }
 
   /** A copy of a board or a wiki with its blocks but the comments, every identifier new. */

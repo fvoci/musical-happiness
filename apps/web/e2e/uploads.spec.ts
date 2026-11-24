@@ -37,11 +37,11 @@ async function openTaskCard(page: Page): Promise<string> {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
     const [workspace] = await backend.workspaces();
     const boards = await backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title.startsWith('Project Tasks'));
+    const board = boards.find((each) => each.title.startsWith('Project schedule'));
     if (!board) throw new Error('no board of tasks');
     const views = await backend.views(board.id);
     const cards = await backend.cards(board.id);
-    const card = cards.find((each) => each.title === 'Identify dependencies');
+    const card = cards.find((each) => each.title === 'Design the screens');
     if (!card) throw new Error('no card');
     const first = [...views].sort((a, b) => a.title.localeCompare(b.title))[0];
     return { boardId: board.id, viewId: first?.id ?? '', cardId: card.id };

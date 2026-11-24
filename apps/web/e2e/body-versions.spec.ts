@@ -321,7 +321,9 @@ test.describe('a version kept by hand', () => {
     await page.evaluate(async ({ boardId }) => {
       const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
       const other = dev.someoneElse();
-      await dev.backend.addMember(boardId, (await other.me()).id, 'admin');
+      const otherId = (await other.me()).id;
+      await dev.backend.addMember(boardId, otherId, 'admin');
+      await dev.backend.setMemberRole(boardId, otherId, 'admin');
       await other.setMemberRole(boardId, (await dev.backend.me()).id, 'viewer');
     }, place);
     await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'reading');

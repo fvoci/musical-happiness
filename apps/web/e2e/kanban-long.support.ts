@@ -1,7 +1,7 @@
 /**
  * A board with one long column, on the in-memory backend: the view "Long
- * column" of the seeded board "Project Tasks", grouped by its status, with
- * `LONG` more cards in "Not Started". Every card has a person, a date, two
+ * column" of the seeded board "Project schedule", grouped by its status, with
+ * `LONG` more cards in "In progress". Every card has a person, a date, two
  * selects and the badges of a body with tasks, as a busy board's cards do.
  *
  * The cards are made on a board the page is not showing, and the view is
@@ -12,9 +12,9 @@ import { expect, type Page } from '@playwright/test';
 
 import { boardPath } from './address.ts';
 
-/** How many cards the long column gets, besides the three the seed has there. */
+/** How many cards the long column gets, besides the one the seed has there. */
 export const LONG = 1600;
-export const LONG_COLUMN = 'Not Started';
+export const LONG_COLUMN = 'In progress';
 export const LONG_VIEW = 'Long column';
 
 /** The title of the long column's `n`th card of those made here, from 1. */
@@ -36,7 +36,7 @@ interface Backend {
 /**
  * Makes the long column on the page that is open, without showing it, and
  * answers the address of its view. The page must have the app open. The app
- * opens on "Project Tasks": it is left for another board first.
+ * opens on "Project schedule": it is left for another board first.
  */
 export async function makeLongColumn(
   page: Page,
@@ -48,7 +48,7 @@ export async function makeLongColumn(
     const backend = (window as unknown as { fvociDev: { backend: Backend } }).fvociDev.backend;
     const workspaces = await backend.workspaces();
     const boards = await backend.boards(workspaces[0]?.id ?? '');
-    return boards.find((board) => board.title === 'Sprint Planner')?.id ?? '';
+    return boards.find((board) => board.title === 'Issue tracker')?.id ?? '';
   });
   await page.evaluate((address) => {
     history.pushState(null, '', address);
@@ -67,7 +67,7 @@ export async function makeLongColumn(
       const workspaces = await backend.workspaces();
       const workspaceId = workspaces[0]?.id ?? '';
       const boards = await backend.boards(workspaceId);
-      const boardId = boards.find((board) => board.title === 'Project Tasks')?.id ?? '';
+      const boardId = boards.find((board) => board.title === 'Project schedule')?.id ?? '';
       const people = await backend.users(workspaceId);
       const properties = (await backend.container(boardId)).cardProperties;
       const named = (name: string) => {
@@ -76,9 +76,9 @@ export async function makeLongColumn(
         return found;
       };
       const status = named('Status');
-      const priority = named('Priority');
-      const assignee = named('Assignee');
-      const due = named('Due Date');
+      const phase = named('Phase');
+      const owner = named('Owner');
+      const period = named('Period');
       const columnId = status.options.find((option) => option.value === columnName)?.id;
       if (!columnId) throw new Error(`no status "${columnName}"`);
       const day = (offset: number): string =>
@@ -96,9 +96,9 @@ export async function makeLongColumn(
               : `Long ${String(at + 1)}`,
           properties: {
             [status.id]: columnId,
-            [priority.id]: priority.options[at % priority.options.length]?.id ?? '',
-            [assignee.id]: people[at % people.length]?.id ?? '',
-            [due.id]: { from: day(at % 60) },
+            [phase.id]: phase.options[at % phase.options.length]?.id ?? '',
+            [owner.id]: people[at % people.length]?.id ?? '',
+            [period.id]: { from: day(at % 60) },
           },
           body: {
             type: 'doc',
@@ -117,8 +117,11 @@ export async function makeLongColumn(
           viewType: 'board',
           groupById: status.id,
           sortOptions: [],
-          visiblePropertyIds: [priority.id, status.id, assignee.id, due.id],
-          visibleOptionIds: [],
+          visiblePropertyIds: [phase.id, status.id, owner.id, period.id],
+          visibleOptionIds: [
+            columnId,
+            ...status.options.map((option) => option.id).filter((id) => id !== columnId),
+          ],
           // The column of cards without a status is hidden: the long one is the first.
           hiddenOptionIds: [''],
           collapsedOptionIds: [],
@@ -172,13 +175,13 @@ export async function showView(page: Page, path: string, count: number): Promise
   return drawn;
 }
 
-/** The id of a card of "Project Tasks" by its title, whether the column draws it or not. */
+/** The id of a card of "Project schedule" by its title, whether the column draws it or not. */
 export async function cardIdOf(page: Page, title: string): Promise<string> {
   return page.evaluate(async (wanted) => {
     const backend = (window as unknown as { fvociDev: { backend: Backend } }).fvociDev.backend;
     const workspaces = await backend.workspaces();
     const boards = await backend.boards(workspaces[0]?.id ?? '');
-    const boardId = boards.find((board) => board.title === 'Project Tasks')?.id ?? '';
+    const boardId = boards.find((board) => board.title === 'Project schedule')?.id ?? '';
     return (await backend.cards(boardId)).find((card) => card.title === wanted)?.id ?? '';
   }, title);
 }
