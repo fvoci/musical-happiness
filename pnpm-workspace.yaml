@@ -27,3 +27,9 @@ allowBuilds:
 peerDependencyRules:
   allowedVersions:
     openapi-typescript>typescript: '6'
+
+# typescript-eslint 8.72.2 pulls minimatch <11.0.1 through @typescript-eslint/typescript-estree
+# (GHSA-g3hv-75wg-m249 affects >=7.0.0 <11.0.1): upgrade only that vulnerable range so older
+# CJS/default-export consumers on minimatch 3 and 5 stay compatible.
+overrides:
+  minimatch@>=7.0.0 <11.0.1: '>=11.0.1'
