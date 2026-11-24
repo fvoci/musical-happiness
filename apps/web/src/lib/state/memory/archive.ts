@@ -133,8 +133,8 @@ export function parseIsoDateDays(value: string): number | undefined {
   const month = Number(match[2]);
   const day = Number(match[3]);
   if (year < 1 || month < 1 || month > 12 || day < 1 || day > 31) return undefined;
-  const ms = Date.UTC(year, month - 1, day);
-  const check = new Date(ms);
+  const check = new Date(0);
+  check.setUTCFullYear(year, month - 1, day);
   if (
     check.getUTCFullYear() !== year ||
     check.getUTCMonth() + 1 !== month ||
@@ -142,7 +142,7 @@ export function parseIsoDateDays(value: string): number | undefined {
   ) {
     return undefined;
   }
-  return Math.floor(ms / DAY_MS);
+  return Math.floor(check.getTime() / DAY_MS);
 }
 
 function hasMatchingStudyDay(startDay: number, targetDay: number, studyDays: number): boolean {

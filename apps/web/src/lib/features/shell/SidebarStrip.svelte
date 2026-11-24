@@ -128,7 +128,7 @@
       <CalendarCheckIcon />
     </IconButton>
   {/if}
-  {#if learningToday && workspace.info}
+  {#if learningToday && workspace.backend.course && workspace.info && workspace.me?.id}
     <IconButton
       label={m.learning_today_title()}
       aria-current={learningToday.active ? 'page' : undefined}

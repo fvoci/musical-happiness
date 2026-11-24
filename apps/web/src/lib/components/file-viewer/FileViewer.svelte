@@ -63,6 +63,7 @@
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { page } from '$lib/layout/room.svelte.ts';
+  import type { Regional } from '$lib/logic/regional.ts';
   import { saveBlob } from '$lib/save.ts';
   import * as Dialog from '$lib/ui/dialog/index.js';
 
@@ -73,6 +74,7 @@
     file: ViewedFile;
     /** The file's versions, where the reader may see them. */
     versions?: VersionsSource | undefined;
+    regional?: Regional | undefined;
     onClose: () => void;
     /** Opens the editor on the version shown, with the file's lease; without it the viewer offers no editing. */
     onEdit?: ((edited: EditedFile, lease: EditLease) => void) | undefined;
@@ -85,7 +87,7 @@
     returnFocus?: () => void;
   }
 
-  let { file, versions, onClose, onEdit, released, returnFocus }: Props = $props();
+  let { file, versions, regional, onClose, onEdit, released, returnFocus }: Props = $props();
 
   const uid = $props.id();
 
@@ -459,6 +461,7 @@
             source={versions}
             shown={shownVersion}
             accept={extension}
+            {regional}
             onView={view}
             onDownload={downloadVersion}
             onWritten={view}

@@ -42,11 +42,12 @@
 
   const uid = $props.id();
   const compact = $derived(page.stage === 'compact');
+  const viewReady = $derived(course.schedule.view !== null);
   const saved = $derived(course.schedule.schedule);
   const today = $derived(course.schedule.today);
   const todayCount = $derived(course.schedule.todayCount);
   const overdueCount = $derived(course.schedule.overdueCount);
-  const busy = $derived(course.schedule.busy);
+  const busy = $derived(course.schedule.busy || !viewReady);
   const serverTimeZone = $derived(
     course.workspace.settings.timeZone === 'auto' ? 'UTC' : course.workspace.settings.timeZone,
   );
@@ -65,9 +66,9 @@
   let confirmSharedOpen = $state(false);
   let snapshotKey = '';
 
-  // Snapshot store values only on open transition or course switch so background refreshes never wipe edits.
+  // Snapshot store values on open, course switch, or initial view arrival so background refreshes never wipe edits.
   $effect(() => {
-    const key = open ? course.courseId : '';
+    const key = open ? `${course.courseId}:${viewReady}` : '';
     if (key === snapshotKey) return;
     snapshotKey = key;
     if (!open) {

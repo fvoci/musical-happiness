@@ -26,11 +26,12 @@
   interface Props {
     store: TodayReviewsStore;
     workspaceId: string;
+    autoLoad?: boolean;
     unitHref: (item: TodayReviewItem) => string;
     onOpenUnit: (item: TodayReviewItem) => void;
   }
 
-  let { store, workspaceId, unitHref, onOpenUnit }: Props = $props();
+  let { store, workspaceId, autoLoad = true, unitHref, onOpenUnit }: Props = $props();
 
   let completing = $state<{ workspaceId: string; id: string } | undefined>(undefined);
   let feedbackState = $state<{ workspaceId: string; text: string } | undefined>(undefined);
@@ -42,6 +43,7 @@
   const overdueCount = $derived(store.items.filter((item) => item.overdueDays > 0).length);
 
   $effect(() => {
+    if (!autoLoad) return;
     const ws = workspaceId;
     const _version = store.version;
     untrack(() => {
@@ -128,7 +130,7 @@
       </div>
     {/if}
 
-    {#if store.status === 'loading' && store.items.length === 0}
+    {#if (store.status === 'idle' || store.status === 'loading') && store.items.length === 0}
       <p class="py-10 text-center text-sm text-muted-foreground" role="status">
         {m.app_loading()}
       </p>

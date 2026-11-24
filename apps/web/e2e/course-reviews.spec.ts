@@ -9,6 +9,7 @@ import { openApp, showSidebar, sidebar } from './shell.support.ts';
 import { goInside } from './wiki.support.ts';
 
 test.describe.configure({ mode: 'parallel', timeout: 90_000 });
+test.use({ timezoneId: 'UTC' });
 
 interface DevReviews {
   scheduleUnitReview(

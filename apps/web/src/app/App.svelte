@@ -486,5 +486,5 @@
     {/snippet}
   </AppShell>
   <Problems {workspace} />
-  <FileViewerHost />
+  <FileViewerHost regional={workspace.regional} />
 {/if}

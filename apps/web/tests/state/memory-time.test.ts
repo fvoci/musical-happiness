@@ -260,4 +260,60 @@ describe('TimeTracker store', () => {
     stopSync();
     workspace.close();
   });
+
+  it('reports signed-out 401 in listEntries, createEntry, and patchEntry while keeping 400 validation errors local', async () => {
+    const { backend, workspace, world } = makeEnv();
+    await workspace.load(world.workspace.id);
+    const tracker = timeTracker(workspace);
+    if (!tracker) throw new Error('expected tracker');
+
+    // Validation 400 re-throws without reporting a workspace problem or signing out.
+    await expect(
+      tracker.createEntry({ kind: 'study', startedAt: 5000, endedAt: 4000 }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(workspace.status).toBe('ready');
+    expect(workspace.problems).toEqual([]);
+
+    // Signed-out 401 on listEntries reports load error and transitions workspace to signedOut.
+    const reportSpy = vi.spyOn(workspace, 'report');
+    vi.spyOn(backend.time, 'listTimeEntries').mockRejectedValueOnce(
+      new BackendError(401, { detail: 'expired' }),
+    );
+    await expect(tracker.listEntries()).rejects.toMatchObject({ status: 401 });
+    expect(reportSpy).toHaveBeenCalledWith('load', expect.objectContaining({ status: 401 }));
+    expect(workspace.status).toBe('signedOut');
+
+    // Signed-out 401 on createEntry reports save error.
+    reportSpy.mockClear();
+    vi.spyOn(backend.time, 'createTimeEntry').mockRejectedValueOnce(
+      new BackendError(401, { detail: 'expired' }),
+    );
+    await expect(
+      tracker.createEntry({ kind: 'study', startedAt: 1000, endedAt: 2000 }),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(reportSpy).toHaveBeenCalledWith('save', expect.objectContaining({ status: 401 }));
+
+    // Signed-out 401 on patchEntry reports save error.
+    reportSpy.mockClear();
+    vi.spyOn(backend.time, 'patchTimeEntry').mockRejectedValueOnce(
+      new BackendError(401, { detail: 'expired' }),
+    );
+    await expect(tracker.patchEntry('entry-1', { note: 'x' })).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(reportSpy).toHaveBeenCalledWith('save', expect.objectContaining({ status: 401 }));
+
+    // Password wall 401 on createEntry/patchEntry captures wall instead of reporting signed-out.
+    reportSpy.mockClear();
+    vi.spyOn(backend.time, 'createTimeEntry').mockRejectedValueOnce(
+      new BackendError(401, { reason: 'password_sign_in_required', detail: 'pw required' }),
+    );
+    await expect(
+      tracker.createEntry({ kind: 'study', startedAt: 1000, endedAt: 2000 }),
+    ).rejects.toMatchObject({ status: 401, reason: 'password_sign_in_required' });
+    expect(reportSpy).not.toHaveBeenCalled();
+    expect(tracker.wall).toEqual({ kind: 'password' });
+
+    workspace.close();
+  });
 });

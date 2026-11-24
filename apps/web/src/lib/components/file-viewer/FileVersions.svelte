@@ -27,7 +27,8 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
   import { displayDateTime, humanFileSize, relativeTime } from '$lib/logic/format.ts';
-  import { regional } from '$lib/regional.ts';
+  import type { Regional } from '$lib/logic/regional.ts';
+  import { regional as deviceRegional } from '$lib/regional.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   interface Props {
@@ -37,6 +38,7 @@
     shown: number | undefined;
     /** The kind of file a new version is picked from: the file's extension, with its dot, or none. */
     accept: string;
+    regional?: Regional | undefined;
     /** Shows a version in the viewer. */
     onView: (version: FileVersion) => void;
     onDownload: (version: FileVersion) => void;
@@ -45,7 +47,17 @@
     onClose: () => void;
   }
 
-  let { list, source, shown, accept, onView, onDownload, onWritten, onClose }: Props = $props();
+  let {
+    list,
+    source,
+    shown,
+    accept,
+    regional: regionalProp,
+    onView,
+    onDownload,
+    onWritten,
+    onClose,
+  }: Props = $props();
 
   const uid = $props.id();
 
@@ -56,7 +68,7 @@
 
   const context = $derived.by(() => {
     const locale = getLocale();
-    const { timeZone, hourCycle } = regional(locale);
+    const { timeZone, hourCycle } = regionalProp ?? deviceRegional(locale);
     return { locale, timeZone, hourCycle };
   });
   const busy = $derived(list.writing !== undefined);
