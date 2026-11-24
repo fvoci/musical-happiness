@@ -202,6 +202,8 @@
                     average: formatScore(exam.averageScore, locale),
                     max: maxLabel,
                   })}
+                {:else if exam.scoreCount > 0}
+                  {m.course_exams_average_hidden()}
                 {:else}
                   {m.course_exams_average_empty()}
                 {/if}

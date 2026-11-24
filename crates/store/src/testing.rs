@@ -478,7 +478,7 @@ pub async fn forget_migration(db_type: DbType, database_connection: &str, versio
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     store
-        .with_conn(async |scope| {
+        .with_write_conn(async |scope| {
             let mut sql = scope.sql("DELETE FROM _sqlx_migrations WHERE version = ");
             sql.bind(version);
             scope.execute(sql).await
@@ -924,7 +924,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn execute_unchecked(&self, statement: &str) -> Result<u64, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let sql = scope.sql(statement);
             scope.execute(sql).await
         })

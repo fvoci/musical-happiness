@@ -239,6 +239,14 @@ async fn change_role(
         .push_bind(" WHERE workspace_id = ", Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
     scope.execute(sql).await?;
+    if to == WorkspaceRole::Guest {
+        crate::unit_progress::forget_user_in_workspace_unjoined(scope, workspace_id, user_id)
+            .await?;
+        crate::course_exams::forget_user_in_workspace_unjoined(scope, workspace_id, user_id)
+            .await?;
+        crate::unit_reviews::forget_user_in_workspace_unjoined(scope, workspace_id, user_id)
+            .await?;
+    }
     Ok(Some(MembershipChange::Done { taken_over }))
 }
 

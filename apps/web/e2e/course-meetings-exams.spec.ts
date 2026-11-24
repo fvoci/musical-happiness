@@ -59,7 +59,7 @@ interface Dev {
     addMember(containerId: string, userId: string, role: string): Promise<unknown>;
     course: DevCourse;
   };
-  someoneElse(): { userId: string; course: DevCourse };
+  someoneElse(index?: number): { userId: string; course: DevCourse };
   notifyUpcomingMeeting(courseId: string, meetingId: string): void;
   eraseUser(userId: string): void;
 }
@@ -71,13 +71,15 @@ test('manages study meetings, shared attendance, exams, personal scores, tombsto
 
   const ids = await page.evaluate(async (wsId) => {
     const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const other = dev.someoneElse();
+    const other = dev.someoneElse(0);
+    const third = dev.someoneElse(1);
     const course = await dev.backend.course.createCourse(wsId, {
       title: 'Operating Systems',
       type: 'O',
       minimumRole: 'viewer',
     });
     await dev.backend.addMember(course.id, other.userId, 'viewer');
+    await dev.backend.addMember(course.id, third.userId, 'viewer');
     const unit = await dev.backend.course.createUnit(course.id, {
       kind: 'unit',
       title: 'Virtual Memory',
@@ -170,12 +172,12 @@ test('manages study meetings, shared attendance, exams, personal scores, tombsto
   await examCard.getByTestId('exam-my-score-save').click();
   await expect(examCard.getByTestId('exam-my-score-error')).toBeVisible();
 
-  // Save valid score + other member records a score behind the scenes -> average updates without leaking other's score.
+  // k-anonymity: with 1 other score + own score (2 total, only 1 other), average stays hidden!
   const examId = (await examCard.getAttribute('data-exam-id')) ?? '';
   await page.evaluate(
     async ({ courseId, eid }) => {
       const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
-      await dev.someoneElse().course.exams.putMyScore(courseId, eid, {
+      await dev.someoneElse(0).course.exams.putMyScore(courseId, eid, {
         score: 95,
         note: 'OTHER_SECRET_NOTE',
       });
@@ -186,9 +188,27 @@ test('manages study meetings, shared attendance, exams, personal scores, tombsto
   await examCard.getByTestId('exam-my-note-input').fill('Need more practice on TLBs');
   await examCard.getByTestId('exam-my-score-save').click();
   await expect(examCard.getByTestId('exam-my-score-saved')).toContainText('85 / 100');
-  await expect(examCard.getByTestId('exam-average')).toContainText('90 / 100');
+  await expect(examCard.getByTestId('exam-average')).toContainText('Requires 2+ other scores');
   await expect(examCard.getByTestId('exam-score-count')).toContainText('2 submitted');
   await expect(examCard).not.toContainText('OTHER_SECRET_NOTE');
+
+  // 3rd member submits score (90) -> now 2 other scores exist, so average (90 / 100) is shown!
+  await page.evaluate(
+    async ({ courseId, eid }) => {
+      const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
+      await dev.someoneElse(1).course.exams.putMyScore(courseId, eid, {
+        score: 90,
+        note: 'THIRD_SECRET_NOTE',
+      });
+    },
+    { courseId: ids.courseId, eid: examId },
+  );
+  await page.getByTestId('course-tab-meetings').click();
+  await page.getByTestId('course-tab-exams').click();
+  const refreshedCard = page.getByTestId('exam-card').first();
+  await expect(refreshedCard.getByTestId('exam-average')).toContainText('90 / 100');
+  await expect(refreshedCard.getByTestId('exam-score-count')).toContainText('3 submitted');
+  await expect(refreshedCard).not.toContainText('THIRD_SECRET_NOTE');
 
   // Trigger `meeting_upcoming` notification and click it from the bell -> opens Meetings tab & focuses meeting!
   await page.evaluate(
@@ -272,7 +292,9 @@ test('isolates unjoined open-course readers and strips all meetings/exams UI & r
   await page.getByTestId('course-tab-exams').click();
   await expect(page.getByTestId('exams-join-hint')).toBeVisible();
   await expect(page.getByTestId('exam-my-score-panel')).toHaveCount(0);
-  await expect(page.getByTestId('exam-average')).toContainText('18 / 20');
+  await expect(page.getByTestId('exam-average')).toContainText('No scores yet');
+  await expect(page.getByTestId('exam-score-count')).toContainText('0 submitted');
+  await expect(page.getByTestId('course-exams-tab')).not.toContainText('18 / 20');
   await expect(page.getByTestId('course-exams-tab')).not.toContainText('PRIVATE_CREATOR_NOTE');
 
   // Public shared link makes zero /meetings or /exams requests and shows zero tabs.

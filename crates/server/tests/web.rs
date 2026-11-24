@@ -5,12 +5,14 @@ use std::path::PathBuf;
 use axum::body::{Body, to_bytes};
 use axum::http::header::{
     ACCEPT_ENCODING, ACCESS_CONTROL_ALLOW_ORIGIN, CACHE_CONTROL, CONTENT_ENCODING, CONTENT_RANGE,
-    CONTENT_SECURITY_POLICY, CONTENT_TYPE, ETAG, IF_NONE_MATCH, RANGE, VARY,
+    CONTENT_SECURITY_POLICY, CONTENT_TYPE, ETAG, IF_NONE_MATCH, RANGE, REFERRER_POLICY,
+    STRICT_TRANSPORT_SECURITY, VARY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
 };
 use axum::http::{Request, StatusCode};
 use axum::response::Response;
 use fvoci_model::new_id;
 use fvoci_server::web::WebRoot;
+use tower::ServiceExt as _;
 
 struct Fixture {
     dir: PathBuf,
@@ -272,6 +274,12 @@ async fn index_gets_the_base_url_and_must_be_revalidated() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(header(&response, &CONTENT_TYPE), "text/html; charset=utf-8");
     assert_eq!(header(&response, &CACHE_CONTROL), "no-cache");
+    assert_eq!(header(&response, &X_CONTENT_TYPE_OPTIONS), "nosniff");
+    assert_eq!(header(&response, &X_FRAME_OPTIONS), "DENY");
+    assert_eq!(
+        header(&response, &CONTENT_SECURITY_POLICY),
+        "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+    );
     assert_eq!(
         body_text(response).await,
         "<script>window.baseURL = '/boards'</script><script src=\"/boards/static/main.js\"></script>"
@@ -287,4 +295,76 @@ async fn missing_index_is_a_server_error() {
 
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(body_text(response).await, "");
+}
+
+#[tokio::test]
+async fn router_sets_nosniff_clickjacking_headers_and_conditional_hsts_without_duplicates() {
+    let fixture = Fixture::new("http://localhost:8000");
+    for (server_url, expect_hsts) in [
+        ("http://localhost:8000", false),
+        ("https://boards.example.com", true),
+    ] {
+        let data_dir = fixture.dir.join(new_id());
+        std::fs::create_dir_all(&data_dir).expect("data dir");
+        let db_path = data_dir.join("test.db");
+        let mut cfg = fvoci_server::config::Configuration::default();
+        server_url.clone_into(&mut cfg.server_url);
+        cfg.web_app_path = fixture.dir.display().to_string();
+        cfg.database_kind = "sqlite".to_owned();
+        cfg.database_connection = db_path.display().to_string();
+        cfg.file_storage_path = data_dir.join("files").display().to_string();
+        cfg.skip_template_init = true;
+        if expect_hsts {
+            cfg.trusted_proxies = vec!["127.0.0.1/32".to_owned()];
+        }
+        let server = fvoci_server::Server::new(cfg, "")
+            .await
+            .expect("server built");
+        let router = server.router();
+
+        for path in [
+            "/",
+            "/api/v1/clientConfig",
+            "/static/main.js",
+            "/api/v1/missing",
+        ] {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::get(path)
+                        .body(Body::empty())
+                        .expect("valid request"),
+                )
+                .await
+                .expect("infallible router");
+            let nosniff: Vec<_> = response
+                .headers()
+                .get_all(X_CONTENT_TYPE_OPTIONS)
+                .iter()
+                .collect();
+            assert_eq!(nosniff.len(), 1, "single nosniff header on {path}");
+            assert_eq!(nosniff[0], "nosniff", "{path}");
+            assert_eq!(header(&response, &REFERRER_POLICY), "no-referrer", "{path}");
+            if expect_hsts {
+                assert_eq!(
+                    header(&response, &STRICT_TRANSPORT_SECURITY),
+                    "max-age=31536000; includeSubDomains",
+                    "HSTS on {path}"
+                );
+            } else {
+                assert!(
+                    response.headers().get(STRICT_TRANSPORT_SECURITY).is_none(),
+                    "plain HTTP must not send HSTS on {path}"
+                );
+            }
+            if path == "/" {
+                assert_eq!(header(&response, &X_FRAME_OPTIONS), "DENY");
+                assert_eq!(
+                    header(&response, &CONTENT_SECURITY_POLICY),
+                    "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+                );
+            }
+        }
+        server.shutdown().await;
+    }
 }

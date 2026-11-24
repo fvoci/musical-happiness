@@ -91,8 +91,10 @@ impl BlockType {
     ///
     /// # Errors
     ///
-    /// Returns [`BlockError::BodyNotAllowed`] for a body of a type without one, and
-    /// [`BlockError::FileBlockInComment`] for a comment's body with a file block.
+    /// Returns [`BlockError::BodyNotAllowed`] for a body of a type without one,
+    /// [`BlockError::FileBlockInComment`] for a comment's body with a file block, and
+    /// [`BlockError::BodyTooLarge`] if the serialized body exceeds
+    /// [`crate::BODY_MAX_BYTES`].
     pub fn check_body(&self, body: Option<&Body>) -> Result<(), BlockError> {
         let Some(body) = body else {
             return Ok(());
@@ -103,7 +105,7 @@ impl BlockType {
         if *self == Self::Comment && body.has_file_blocks() {
             return Err(BlockError::FileBlockInComment);
         }
-        Ok(())
+        body.check_size().map_err(|_| BlockError::BodyTooLarge)
     }
 
     /// Returns `true` for the types a comment may be on: a card of a board, a page of
@@ -294,6 +296,9 @@ pub enum BlockError {
     /// A comment's body has a file block: files go in the body of a card or a page.
     #[error("a comment's body has no file block")]
     FileBlockInComment,
+    /// The serialized body exceeds [`crate::BODY_MAX_BYTES`].
+    #[error("{}", crate::BodyError::TooLarge)]
+    BodyTooLarge,
     /// The title holds U+0000, which PostgreSQL cannot store in text.
     #[error("the title holds the character U+0000")]
     NulInTitle,

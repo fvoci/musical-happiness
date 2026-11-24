@@ -172,7 +172,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn touch_session(&self, session_id: &str, now: i64) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE sessions SET last_used_at = ");
             sql.bind(now)
                 .push_bind(" WHERE id = ", Id(session_id))
@@ -195,7 +195,7 @@ impl Store {
         session_id: &str,
         last_used_at: i64,
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE sessions SET last_used_at = ");
             sql.bind(last_used_at)
                 .push_bind(" WHERE id = ", Id(session_id));
@@ -212,7 +212,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn delete_session(&self, session_id: &str) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("DELETE FROM sessions WHERE id = ");
             sql.bind(Id(session_id));
             scope.execute(sql).await?;

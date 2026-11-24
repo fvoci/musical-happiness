@@ -31,7 +31,7 @@ use axum::Router;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::ws::rejection::WebSocketUpgradeRejection;
 use axum::extract::{Request, State};
-use axum::http::header::{ACCEPT_ENCODING, ALLOW, CONTENT_TYPE, ORIGIN, REFERRER_POLICY};
+use axum::http::header::{ACCEPT_ENCODING, ALLOW, CONTENT_TYPE, ORIGIN};
 use axum::http::{Extensions, HeaderMap, HeaderValue, StatusCode, Version};
 use axum::middleware;
 use axum::response::{IntoResponse, Response};
@@ -274,13 +274,18 @@ impl Server {
     }
 
     /// Wraps `router` in the layers every listener has: outermost the request log, then
-    /// the containment of handler panics, so that a contained panic is logged as a 500.
+    /// security headers, then the containment of handler panics, so that even a
+    /// contained 500 carries baseline security headers and is logged.
     fn with_request_layers(&self, router: Router, base_path: &str) -> Router {
         // The configuration was checked when the application was put together.
         let proxies = TrustedProxies::parse(&self.app.config().trusted_proxies).unwrap_or_default();
+        let transport = self.app.web().transport_security();
         router
-            .layer(middleware::from_fn(send_no_referrer))
             .layer(middleware::from_fn(request_log::contain_panics))
+            .layer(middleware::from_fn_with_state(
+                transport,
+                web::send_security_headers,
+            ))
             .layer(middleware::from_fn_with_state(
                 Arc::new(request_log::Served {
                     proxies,
@@ -492,17 +497,6 @@ fn spawn_metrics_server(
             tracing::error!(%error, "the metrics server stopped");
         }
     })
-}
-
-/// Tells browsers not to say where a request comes from when a page of this server
-/// leads elsewhere: the address of a shared board carries its read token.
-async fn send_no_referrer(request: Request, next: middleware::Next) -> Response {
-    let mut response = next.run(request).await;
-    response
-        .headers_mut()
-        .entry(REFERRER_POLICY)
-        .or_insert(HeaderValue::from_static("no-referrer"));
-    response
 }
 
 /// Does the server's housekeeping once, now: what its periodic tasks do, each with the

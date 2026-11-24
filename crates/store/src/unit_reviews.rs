@@ -272,7 +272,7 @@ impl Store {
         if !is_id(review_id) {
             return Err(StoreError::not_found("unit review"));
         }
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let org = scope.org()?;
             let mut sql = scope.sql("DELETE FROM unit_reviews WHERE id = ");
             sql.changing_no_access()

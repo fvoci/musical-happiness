@@ -96,7 +96,7 @@ impl Store {
         if !fvoci_model::is_storage_path(path) {
             return Err(StoreError::InvalidPath(path.to_owned()));
         }
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql =
                 scope.sql("INSERT INTO loose_objects (path, state, create_at, retry_at) VALUES (");
             sql.bind(path)
@@ -139,7 +139,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn doom_writing(&self, path: &str, remove_at: i64) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE loose_objects SET state = ");
             sql.bind(LooseState::Doomed.as_str())
                 .push_bind(", retry_at = ", remove_at)
@@ -156,7 +156,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn doom_stale_writing(&self, now: i64) -> Result<u64, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE loose_objects SET state = ");
             sql.bind(LooseState::Doomed.as_str())
                 .push_bind(" WHERE state = ", LooseState::Writing.as_str())
@@ -223,7 +223,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn forget_doomed_object(&self, path: &str, due_by: i64) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("DELETE FROM loose_objects WHERE path = ");
             sql.bind(path)
                 .push_bind(" AND state = ", LooseState::Doomed.as_str())
@@ -247,7 +247,7 @@ impl Store {
         error_kind: &str,
         retry_at: i64,
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE loose_objects SET attempts = attempts + 1, ");
             sql.push_bind("last_attempt_at = ", now)
                 .push_bind(", last_error = ", error_kind)

@@ -26,7 +26,7 @@ impl Store {
     /// [`StoreError::Database`] if the statement fails, as it does when a workspace with the
     /// identifier exists.
     pub async fn create_workspace(&self, workspace: &Workspace) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let org = scope.org()?;
             insert_workspace(scope, workspace, org).await
         })

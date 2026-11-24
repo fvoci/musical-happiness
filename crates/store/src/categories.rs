@@ -70,7 +70,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn update_category(&self, category: &Category) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE categories SET ");
             sql.push_bind("name = ", &category.name)
                 .push_bind(", update_at = ", category.update_at)
@@ -97,7 +97,7 @@ impl Store {
         user_id: &str,
         workspace_id: &str,
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("DELETE FROM categories WHERE id = ");
             sql.bind(Id(category_id))
                 .push_bind(" AND user_id = ", Id(user_id))
@@ -123,7 +123,7 @@ impl Store {
         workspace_id: &str,
         new_order: Vec<String>,
     ) -> Result<Vec<String>, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             if new_order.is_empty() {
                 return Ok(());
             }

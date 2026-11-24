@@ -110,7 +110,7 @@ impl Store {
     /// one of the organization's.
     pub async fn create_upload(&self, upload: &Upload) -> Result<(), StoreError> {
         check_new_path(&upload.path)?;
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             // An upload goes to a board or a workspace, which `container_id` names.
             let target = match upload.purpose {
                 UploadPurpose::File => &upload.container_id,
@@ -246,7 +246,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn close_upload(&self, upload_id: &str, now: i64) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE uploads SET closed_at = ");
             sql.bind(now)
                 .push_bind(" WHERE closed_at = 0 AND id = ", upload_id);
@@ -262,7 +262,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn delete_upload_part(&self, upload_id: &str, number: i64) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("DELETE FROM upload_parts WHERE upload_id = ");
             sql.bind(upload_id).push_bind(" AND number = ", number);
             scope.execute(sql).await?;
@@ -282,7 +282,7 @@ impl Store {
         upload_id: &str,
         multipart_id: &str,
     ) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE uploads SET multipart_id = ");
             sql.bind(multipart_id).push_bind(" WHERE id = ", upload_id);
             Ok(scope.execute(sql).await? == 1)

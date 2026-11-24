@@ -15,7 +15,8 @@ impl From<BlockError> for AppError {
             | BlockError::InvalidCardProperties(_) => Self::bad_request(error),
             BlockError::BodyNotAllowed
             | BlockError::BodyFileNotOfContainer
-            | BlockError::FileBlockInComment => Self::bad_request(error).with_field("body"),
+            | BlockError::FileBlockInComment
+            | BlockError::BodyTooLarge => Self::bad_request(error).with_field("body"),
             BlockError::NulInTitle => Self::bad_request(error).with_field("title"),
             BlockError::InvalidCardField { .. }
             | BlockError::InvalidPageField { .. }

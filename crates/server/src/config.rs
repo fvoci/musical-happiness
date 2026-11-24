@@ -839,6 +839,26 @@ impl Configuration {
                     .to_owned(),
             );
         }
+        let is_plain_http = self
+            .server_url
+            .trim()
+            .get(..7)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("http://"));
+        if is_plain_http
+            && self.allowed_origins.iter().any(|origin| {
+                origin
+                    .trim()
+                    .get(..8)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://"))
+            })
+        {
+            warnings.push(
+                "server_url is http:// while allowed_origins includes an https:// origin: \
+                 session cookies will be issued without the Secure attribute or __Host- prefix; \
+                 set server_url to https:// when browsers reach the server over HTTPS"
+                    .to_owned(),
+            );
+        }
         warnings
     }
 

@@ -2511,9 +2511,8 @@ export interface paths {
         };
         /**
          * The blocks of a board
-         * @description For the board's members, and for an open template everyone who works in its workspace.
-         *     A guest of the path's workspace reads a template's blocks only as a member of that
-         *     template (403 otherwise).
+         * @description For the board's members, and for an open or built-in template everyone who works in
+         *     its workspace.
          *
          *     `all` asks for every block and `blockId` for one, which is 404 if the board has no
          *     such block. Otherwise `parentId` and `type` narrow the list, and without either the
@@ -3725,10 +3724,12 @@ export interface paths {
         /**
          * Exams of a course
          * @description Returns every exam of the course ordered by `examDate` ascending (exams without a date
-         *     last), then by `createAt` and `id`. Each exam includes `averageScore` and `scoreCount`
-         *     computed solely over active enrolled course members, plus `myScore` containing only the
-         *     caller's own score (or `null` for unjoined readers and callers without a score).
-         *     Another member's individual score or note is never returned under any role.
+         *     last), then by `createAt` and `id`. Enrolled members receive `scoreCount` across active
+         *     enrolled course members, `averageScore` when at least two other active members have
+         *     submitted a score (`scoreCount >= 3` if the caller submitted, `scoreCount >= 2` if not;
+         *     `null` otherwise), and `myScore` containing only the caller's own score. Unjoined readers
+         *     receive `myScore: null`, `averageScore: null`, and `scoreCount: 0`. Another member's
+         *     individual score or note is never returned under any role.
          */
         get: operations["listCourseExams"];
         put?: never;
@@ -6981,8 +6982,9 @@ export interface components {
         CourseExam: {
             /**
              * Format: double
-             * @description Mean score across active enrolled course members who recorded a score; `null` when
-             *     `scoreCount` is 0.
+             * @description Mean score across active enrolled course members who recorded a score when at least
+             *     two other active members have scored (`scoreCount >= 3` when the caller scored,
+             *     `scoreCount >= 2` when the caller has not); `null` otherwise or for unjoined readers.
              */
             averageScore: number | null;
             /** @description Identifier of the course container. */
@@ -7006,7 +7008,8 @@ export interface components {
             myScore: components["schemas"]["MyExamScore"] | null;
             /**
              * Format: int32
-             * @description Number of active enrolled course members who recorded a score.
+             * @description Number of active enrolled course members who recorded a score (`0` for unjoined
+             *     readers).
              */
             scoreCount: number;
             /** @description Exam title, at most 200 characters. */

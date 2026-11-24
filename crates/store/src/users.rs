@@ -314,6 +314,9 @@ impl Store {
                     }
                 }
                 if current.is_admin != is_admin {
+                    if follows {
+                        crate::org_admin::lock_organization(scope).await?;
+                    }
                     let mut sql = scope.sql("UPDATE users SET is_admin = ");
                     sql.bind(is_admin)
                         .push_bind(", update_at = ", now_millis())
@@ -396,7 +399,7 @@ impl Store {
         old_hash: &str,
         new_hash: &str,
     ) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE users SET ");
             sql.push_bind("password_hash = ", new_hash)
                 .push_bind(" WHERE id = ", Id(user_id))

@@ -692,3 +692,89 @@ async fn duplicate_block_preserves_subcards_and_strips_for_template() {
 
     test.teardown().await;
 }
+
+/// `Store::duplicate_block` remaps intra-subtree Gantt relation IDs between copied parent
+/// and sub-cards to the newly generated copy IDs while keeping relations pointing to
+/// external cards on the same board.
+#[tokio::test]
+async fn duplicate_block_remaps_subcard_gantt_relations_and_keeps_external_cards() {
+    use fvoci_model::ContainerPatch;
+
+    let (test, user_id, _workspace_id, board_id) = board_fixture().await;
+    let store = &test.store;
+
+    let prop_id = "dep_rel";
+    let def: fvoci_model::JsonMap = serde_json::from_value(json!({
+        "id": prop_id,
+        "name": "Depends On",
+        "type": "relation",
+        "options": []
+    }))
+    .expect("relation definition");
+    store
+        .patch_container(
+            &board_id,
+            &ContainerPatch {
+                updated_card_properties: vec![def],
+                ..ContainerPatch::default()
+            },
+            &user_id,
+        )
+        .await
+        .expect("relation property added");
+
+    let external = save(store, card(&board_id, "", "external"), &user_id).await;
+    let parent = save(store, card(&board_id, "", "parent"), &user_id).await;
+    let c1 = save(store, card(&board_id, &parent.id, "c1"), &user_id).await;
+    let c2 = save(store, card(&board_id, &parent.id, "c2"), &user_id).await;
+
+    let set_rel = |targets: &[&str]| {
+        let links: Vec<serde_json::Value> = targets
+            .iter()
+            .map(|target| json!({ "card": target }))
+            .collect();
+        BlockPatch {
+            updated_fields: serde_json::from_value(json!({
+                "properties": { prop_id: links }
+            }))
+            .expect("patch fields"),
+            ..BlockPatch::default()
+        }
+    };
+    store
+        .patch_block(&c1.id, &set_rel(&[&c2.id, &external.id]), &user_id)
+        .await
+        .expect("c1 relates to sibling c2 and external");
+    store
+        .patch_block(&c2.id, &set_rel(&[&parent.id]), &user_id)
+        .await
+        .expect("c2 relates to parent");
+
+    let copies = store
+        .duplicate_block(&board_id, &parent.id, &user_id, DuplicateAs::Copy)
+        .await
+        .expect("duplicated subtree");
+    let by_title: HashMap<&str, &Block> = copies
+        .iter()
+        .map(|block| (block.title.as_str(), block))
+        .collect();
+    let dup_parent = by_title["parent"];
+    let dup_c1 = by_title["c1"];
+    let dup_c2 = by_title["c2"];
+
+    assert_eq!(
+        dup_c1.fields["properties"][prop_id],
+        json!([
+            {"card": dup_c2.id, "kind": "fs", "lagDays": 0},
+            {"card": external.id, "kind": "fs", "lagDays": 0}
+        ]),
+        "c1 copy points to copied sibling c2 and preserves external card"
+    );
+    assert_eq!(
+        dup_c2.fields["properties"][prop_id],
+        json!([{"card": dup_parent.id, "kind": "fs", "lagDays": 0}]),
+        "c2 copy points to copied parent"
+    );
+
+    test.teardown().await;
+}

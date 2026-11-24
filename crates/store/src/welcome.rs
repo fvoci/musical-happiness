@@ -57,7 +57,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn record_welcome(&self, user_id: &str, now: i64) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE users SET ");
             sql.push_bind("welcomed_at = ", now)
                 .push_bind(" WHERE id = ", Id(user_id));
@@ -83,8 +83,9 @@ impl Store {
         recorded_at: i64,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
-            // The boards before the account, as every change that holds the
-            // organization's row and then writes an account goes.
+            // Lock order: `organizations -> containers` (inside
+            // `delete_containers_and_blocks`) before `users`, matching every role and
+            // membership change (`change_instance_role`, `org_admin::set_org_role`).
             delete_containers_and_blocks(scope, copies, user_id).await?;
             let mut sql = scope.sql("UPDATE users SET welcomed_at = NULL");
             sql.push_bind(" WHERE id = ", Id(user_id))

@@ -236,7 +236,7 @@ impl Store {
         digest: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE signups SET token_hash = ");
             sql.bind(digest)
                 .push_bind(
@@ -388,7 +388,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn remove_founding_signups(&self) -> Result<u64, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let sql = scope.sql("DELETE FROM signups WHERE organization_name IS NOT NULL");
             scope.execute(sql).await
         })

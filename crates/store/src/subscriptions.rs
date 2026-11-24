@@ -55,7 +55,7 @@ impl Store {
         block_id: &str,
         subscriber_id: &str,
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("DELETE FROM subscriptions WHERE block_id = ");
             sql.bind(Id(block_id))
                 .push_bind(" AND subscriber_id = ", Id(subscriber_id));

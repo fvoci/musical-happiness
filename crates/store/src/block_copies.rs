@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use fvoci_model::{Block, BlockType, generate_block_ids};
+use fvoci_model::{Block, BlockType};
 use serde_json::Value;
 
 use crate::blocks::{DuplicateAs, OLDEST_FIRST, block_read_columns, fetch_blocks, insert_blocks};
@@ -73,6 +73,14 @@ impl Store {
         duplicate_as: DuplicateAs,
     ) -> Result<Vec<Block>, StoreError> {
         self.transaction(async |scope| {
+            let not_found = || {
+                StoreError::not_found(format_args!(
+                    "block subtree BoardID={container_id} BlockID={block_id}"
+                ))
+            };
+            if !containers::lock_container(scope, container_id).await? {
+                return Err(not_found());
+            }
             let mut sql = with_tree_of(scope, block_id);
             sql.push(&format!(
                 "SELECT {} FROM blocks WHERE id IN (SELECT id FROM tree) AND container_id = ",
@@ -81,11 +89,6 @@ impl Store {
             .bind(Id(container_id))
             .push(OLDEST_FIRST);
             let family = fetch_blocks(scope, sql).await?;
-            let not_found = || {
-                StoreError::not_found(format_args!(
-                    "block subtree BoardID={container_id} BlockID={block_id}"
-                ))
-            };
 
             let (roots, others): (Vec<Block>, Vec<Block>) = family
                 .into_iter()
@@ -107,16 +110,21 @@ impl Store {
             copies.push(root);
             copies.extend(children);
             // What the source holds is settled before the copies are named, so that a
-            // value that named its own card names no card; a copy on the same board then
-            // names the cards its source named.
+            // value that named its own card or a card gone from the board is dropped
+            // first; `renew_block_ids` then remaps relations within the copied subtree
+            // while keeping live external cards on the board.
             let definitions = containers::find_container(scope, container_id)
                 .await?
                 .map(|container| container.card_properties)
                 .unwrap_or_default();
             card_values::clear_copied_values(&mut copies, &definitions);
-            generate_block_ids(&mut copies);
             card_values::keep_cards_of_board(scope, &mut copies, container_id, &definitions)
                 .await?;
+            fvoci_model::renew_block_ids(
+                &mut copies,
+                &fvoci_model::RelationProperties::of_board(container_id, &definitions),
+                fvoci_model::UnmatchedRelation::Kept,
+            );
             // A copy names whom its original named: nobody is told again.
             let nobody = Telling::Nobody;
             insert_blocks(scope, &mut copies, user_id, NewBodyFiles::Unchecked, nobody).await?;

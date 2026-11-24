@@ -167,7 +167,7 @@ pub(crate) async fn require_live_unit(
         .push_bind(" AND b.container_id = ", Id(course_id))
         .push_bind(" AND b.type = ", BlockType::Unit.as_str())
         .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
-        .push_bind(" AND w.org_id = ", org)
+        .push_bind(" AND w.org_id = ", org.clone())
         .push_bind(" AND w.delete_at = ", 0_i64)
         .push_bind(" AND o.delete_at = ", 0_i64)
         .push(&scope.same_organization(&[("b", "c"), ("c", "w")]));
@@ -200,7 +200,15 @@ pub(crate) async fn require_live_unit(
     if scope.fetch_optional(user).await?.is_none() {
         return Err(StoreError::not_found("unit"));
     }
-    Ok(())
+    crate::course_meetings::require_active_course_member(scope, course_id, user_id, org)
+        .await
+        .map_err(|error| {
+            if error.is_not_found() {
+                StoreError::not_found("unit")
+            } else {
+                error
+            }
+        })
 }
 
 /// Atomically inserts or updates one learner's `unit_progress` row and returns it.

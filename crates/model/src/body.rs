@@ -259,6 +259,17 @@ impl Body {
         (!is_empty_document(&self.document)).then_some(self)
     }
 
+    /// Checks that the serialized document still fits within [`BODY_MAX_BYTES`], such as
+    /// after [`Body::rename_references`] or [`Body::with_files_renamed`] expanded short
+    /// placeholders into full identifiers or stored file names.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BodyError::TooLarge`] if the serialized JSON exceeds [`BODY_MAX_BYTES`].
+    pub fn check_size(&self) -> Result<(), BodyError> {
+        check_size(&self.document)
+    }
+
     /// Appends the top-level blocks of `extra` after those of `existing` (or returns
     /// `extra` when `existing` is `None`) and checks the combined document against the
     /// body limits ([`BODY_MAX_BYTES`], [`BODY_MAX_DEPTH`], [`BODY_MAX_NODES`]) and

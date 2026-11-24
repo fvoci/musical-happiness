@@ -212,7 +212,7 @@ impl Store {
         block_id: &str,
         fields: &fvoci_model::JsonMap,
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE blocks SET fields = ");
             sql.bind(Param::json(fields)?)
                 .push_bind(" WHERE id = ", Id(block_id));
@@ -416,6 +416,13 @@ impl Store {
                 )));
             }
             for (block_id, body) in bodies {
+                if let Some(body) = &body {
+                    body.check_size()
+                        .map_err(|source| StoreError::InvalidBody {
+                            field: "body",
+                            source,
+                        })?;
+                }
                 let mut sql = scope.sql("UPDATE blocks SET update_at = update_at");
                 push_body(&mut sql, body.as_ref(), BodyColumns::Assign)?;
                 sql.push_bind(" WHERE id = ", Id(&block_id))

@@ -608,3 +608,91 @@ async fn postgres_org_isolation_and_cross_org_key_safety() {
     assert_eq!(store_b.count_rows("unit_progress").await.expect("org b"), 1);
     test.teardown().await;
 }
+
+/// `require_live_unit` and `lock_active_learner` re-verify active course enrollment
+/// inside the database transaction so an unjoined workspace member cannot write
+/// `unit_progress`, `planned_date`, `unit_notes`, `unit_reviews`, or redistribute
+/// personal schedules even if called concurrently with course departure.
+#[tokio::test]
+async fn unjoined_workspace_member_is_refused_inside_unit_and_schedule_transactions() {
+    use fvoci_model::{
+        DiaryDate, NewUnitNote, NewUnitReview, RedistributeScheduleRequest, UnitNoteKind,
+    };
+
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let unjoined = common::user(&test, "unjoined").await;
+    common::works_in(&test, &test.workspace_id, &admin).await;
+    common::works_in(&test, &test.workspace_id, &unjoined).await;
+
+    let course = create_course(&test, &test.workspace_id, &admin).await;
+    let unit = create_item(&test, &course.id, UnitKind::Unit, "", "U1", &admin).await;
+    let today: DiaryDate = "2026-11-24".parse().expect("date");
+    let planned: DiaryDate = "2026-11-25".parse().expect("planned date");
+
+    assert!(
+        test.upsert_unit_progress(
+            &course.id,
+            &unit.id,
+            &unjoined,
+            &change(CompletionChange::Complete, LastPositionChange::Keep),
+        )
+        .await
+        .is_err_and(|error| error.is_not_found()),
+        "unjoined member refused by upsert_unit_progress"
+    );
+
+    assert!(
+        test.set_unit_planned_date(&course.id, &unit.id, &unjoined, Some(planned))
+            .await
+            .is_err_and(|error| error.is_not_found()),
+        "unjoined member refused by set_unit_planned_date"
+    );
+
+    assert!(
+        test.create_unit_note(
+            &course.id,
+            &unit.id,
+            &unjoined,
+            &NewUnitNote {
+                kind: UnitNoteKind::Review,
+                content: "unjoined".to_owned(),
+            },
+        )
+        .await
+        .is_err_and(|error| error.is_not_found()),
+        "unjoined member refused by create_unit_note"
+    );
+
+    assert!(
+        test.schedule_unit_review(
+            &course.id,
+            &unit.id,
+            &unjoined,
+            &NewUnitReview {
+                scheduled_date: "2026-11-25".to_owned(),
+                interval_days: 1,
+            },
+        )
+        .await
+        .is_err_and(|error| error.is_not_found()),
+        "unjoined member refused by schedule_unit_review"
+    );
+
+    let redist = RedistributeScheduleRequest {
+        from_date: Some("2026-11-24".to_owned()),
+        target_date: Some("2026-11-30".to_owned()),
+        study_days: Some(0b111_1111),
+    };
+    assert!(
+        test.redistribute_personal_schedule(&course.id, &unjoined, &redist, today)
+            .await
+            .is_err_and(|error| error.is_not_found()),
+        "unjoined member refused by redistribute_personal_schedule"
+    );
+
+    assert_eq!(test.count_rows("unit_progress").await.expect("count"), 0);
+    assert_eq!(test.count_rows("unit_notes").await.expect("count"), 0);
+    assert_eq!(test.count_rows("unit_reviews").await.expect("count"), 0);
+    test.teardown().await;
+}

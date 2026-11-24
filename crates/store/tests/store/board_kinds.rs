@@ -468,3 +468,245 @@ async fn the_trash_is_listed_by_kind_and_what_went_before_kinds_is_a_board() {
     }
     test.teardown().await;
 }
+
+/// Demoting a workspace member to `Guest` removes personal learning rows (`unit_progress`,
+/// `exam_scores`, `unit_reviews`, `unit_notes`) on team-shared courses they lose
+/// membership on while preserving rows on courses where they hold a direct role.
+#[tokio::test]
+async fn demoting_workspace_member_to_guest_cleans_unjoined_personal_learning_rows() {
+    use fvoci_model::{ContainerType, WorkspaceRole};
+
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let learner = common::user(&test, "learner").await;
+    common::works_in(&test, &test.workspace_id, &admin).await;
+    common::works_in(&test, &test.workspace_id, &learner).await;
+    test.execute_unchecked(&format!(
+        "UPDATE workspace_members SET role = 'admin' WHERE workspace_id = '{}' AND user_id = '{admin}'",
+        test.workspace_id
+    ))
+    .await
+    .expect("admin role");
+
+    let (team_course, team_unit) = seed_course_learning_rows(
+        &test,
+        &test.workspace_id,
+        ContainerType::Open,
+        "Team Course",
+        &admin,
+        &learner,
+    )
+    .await;
+    let (direct_course, direct_unit) = seed_course_learning_rows(
+        &test,
+        &test.workspace_id,
+        ContainerType::Private,
+        "Direct Course",
+        &admin,
+        &learner,
+    )
+    .await;
+
+    test.change_workspace_role(
+        &test.workspace_id,
+        &learner,
+        (WorkspaceRole::Member, WorkspaceRole::Guest),
+        &admin,
+    )
+    .await
+    .expect("demoted to guest");
+
+    assert_course_learning_counts(&test, &team_course, &team_unit, &learner, &admin, 0).await;
+    assert_course_learning_counts(&test, &direct_course, &direct_unit, &learner, &learner, 1).await;
+
+    test.teardown().await;
+}
+
+async fn seed_course_learning_rows(
+    test: &fvoci_store::Store,
+    workspace_id: &str,
+    ctype: fvoci_model::ContainerType,
+    title: &str,
+    admin: &str,
+    learner: &str,
+) -> (String, String) {
+    use fvoci_model::{
+        Container, ContainerKind, ContainerMember, ContainerRole, ContainerType, CourseLimits,
+        MinimumRole, NewCourseExam, NewUnit, UnitKind, new_id,
+    };
+
+    let mut c = Container {
+        id: new_id(),
+        workspace_id: workspace_id.to_owned(),
+        container_type: ctype,
+        kind: ContainerKind::Course,
+        title: title.to_owned(),
+        ..Container::default()
+    };
+    test.insert_container_with_admin(&mut c, admin)
+        .await
+        .expect("course");
+    if ctype == ContainerType::Private {
+        test.save_member(
+            &ContainerMember {
+                container_id: c.id.clone(),
+                user_id: learner.to_owned(),
+                ..ContainerMember::default()
+            }
+            .with_role(Some(ContainerRole::Viewer)),
+        )
+        .await
+        .expect("direct course viewer");
+    } else {
+        let team_id = test
+            .create_team(workspace_id, "Course Learners", admin)
+            .await
+            .expect("team created");
+        test.add_team_member(workspace_id, &team_id, learner, admin)
+            .await
+            .expect("learner in team");
+        test.set_container_team(
+            workspace_id,
+            &c.id,
+            &team_id,
+            Some(MinimumRole::Viewer),
+            admin,
+        )
+        .await
+        .expect("team assigned to course");
+    }
+    let u = test
+        .create_unit(
+            &c.id,
+            &NewUnit {
+                kind: UnitKind::Unit,
+                title: "Unit 1".to_owned(),
+                ..NewUnit::default()
+            },
+            CourseLimits::DEFAULT,
+            admin,
+        )
+        .await
+        .expect("unit");
+    let e = test
+        .create_course_exam(
+            &c.id,
+            &NewCourseExam {
+                title: "Quiz".to_owned(),
+                exam_date: None,
+                max_score: 100.0,
+                description: String::new(),
+            }
+            .check_request()
+            .expect("exam"),
+        )
+        .await
+        .expect("exam created");
+    populate_learner_activity(test, &c.id, &u.unit.id, &e.id, learner).await;
+    (c.id, u.unit.id)
+}
+
+async fn populate_learner_activity(
+    test: &fvoci_store::Store,
+    course_id: &str,
+    unit_id: &str,
+    exam_id: &str,
+    learner: &str,
+) {
+    use fvoci_model::{
+        CompletionChange, LastPositionChange, NewUnitNote, NewUnitReview, UnitNoteKind,
+        UnitProgressChange, ValidatedMyExamScore,
+    };
+
+    test.upsert_unit_progress(
+        course_id,
+        unit_id,
+        learner,
+        &UnitProgressChange {
+            completion: CompletionChange::Complete,
+            last_position: LastPositionChange::Keep,
+        },
+    )
+    .await
+    .expect("progress");
+    test.upsert_my_exam_score(
+        course_id,
+        exam_id,
+        learner,
+        &ValidatedMyExamScore {
+            score: 92.0,
+            note: "personal".to_owned(),
+        },
+    )
+    .await
+    .expect("score");
+    test.schedule_unit_review(
+        course_id,
+        unit_id,
+        learner,
+        &NewUnitReview {
+            scheduled_date: "2026-11-25".to_owned(),
+            interval_days: 1,
+        },
+    )
+    .await
+    .expect("review");
+    test.create_unit_note(
+        course_id,
+        unit_id,
+        learner,
+        &NewUnitNote {
+            kind: UnitNoteKind::Review,
+            content: "memo".to_owned(),
+        },
+    )
+    .await
+    .expect("note");
+}
+
+async fn assert_course_learning_counts(
+    test: &fvoci_store::Store,
+    course_id: &str,
+    unit_id: &str,
+    learner: &str,
+    exam_viewer: &str,
+    expected: usize,
+) {
+    use fvoci_model::ReviewStatusFilter;
+
+    assert_eq!(
+        test.get_my_course_progress(course_id, learner)
+            .await
+            .expect("progress")
+            .len(),
+        expected,
+        "unexpected unit_progress count"
+    );
+    assert_eq!(
+        usize::try_from(
+            test.list_course_exams(course_id, Some(exam_viewer))
+                .await
+                .expect("exams")[0]
+                .score_count
+        )
+        .expect("count"),
+        expected,
+        "unexpected exam_scores count"
+    );
+    assert_eq!(
+        test.list_my_course_reviews(course_id, learner, ReviewStatusFilter::All, None)
+            .await
+            .expect("reviews")
+            .len(),
+        expected,
+        "unexpected unit_reviews count"
+    );
+    assert_eq!(
+        test.list_my_unit_notes(course_id, unit_id, learner, None)
+            .await
+            .expect("notes")
+            .len(),
+        expected,
+        "unexpected unit_notes count"
+    );
+}

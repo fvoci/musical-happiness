@@ -161,15 +161,23 @@ impl App {
         let largest_file = u64::try_from(self.limits().largest_file).unwrap_or(0);
 
         verify_native_header(&zip).await?;
-        check_native_unpacked_budget(&zip, largest_file).await?;
 
+        let mut seen_entries: HashSet<(String, String)> = HashSet::with_capacity(zip.len());
         let mut container_entries = Vec::new();
         for index in 0..zip.len() {
             let (dir, filename) = entry_name(&zip, index)?;
             if filename == "board.jsonl" {
-                container_entries.push((index, dir));
+                container_entries.push((index, dir.clone()));
+            }
+            if !filename.is_empty() && !seen_entries.insert((dir, filename)) {
+                let (dir, filename) = entry_name(&zip, index)?;
+                return Err(AppError::bad_request(format_args!(
+                    "duplicate archive entry: {dir}/{filename}"
+                )));
             }
         }
+
+        check_native_unpacked_budget(&zip, largest_file).await?;
 
         // Pass 1: stream every `board.jsonl` line by line for validation & cross-board refs.
         let mut scanned_boards = Vec::with_capacity(container_entries.len());

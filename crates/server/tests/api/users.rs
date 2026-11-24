@@ -1650,4 +1650,106 @@ async fn a_user_has_a_display_name_of_their_choosing() {
             .ok_json();
         assert_eq!(user.display_name, "");
     }
+    th.teardown().await;
+}
+
+/// Usernames containing `@`, ASCII/Unicode control characters, or more than 64 characters
+/// are refused on registration and invitation acceptance so a username can never shadow
+/// another user's email login.
+#[tokio::test]
+async fn username_rejects_at_sign_control_characters_and_overlong_names() {
+    let th = Setup::native().start().await;
+    for (bad_username, expected_reason) in [
+        ("alice@example.com", "invalid_characters"),
+        ("bob\0null", "invalid_characters"),
+        (&"x".repeat(65), "too_long"),
+    ] {
+        let reg = th
+            .anonymous()
+            .post(
+                "/register",
+                &json!({
+                    "username": bad_username,
+                    "email": "founder@example.com",
+                    "password": PASSWORD,
+                    "organizationName": ORG_NAME,
+                }),
+            )
+            .await;
+        reg.check_bad_request();
+        assert_eq!(reg.refused_at(), "/username", "{bad_username:?}");
+        assert_eq!(reg.value()["errors"][0]["reason"], json!(expected_reason));
+    }
+
+    th.anonymous()
+        .post(
+            "/register",
+            &json!({
+                "username": "alice",
+                "email": "alice@example.com",
+                "password": PASSWORD,
+                "organizationName": ORG_NAME,
+            }),
+        )
+        .await
+        .check_created();
+    let link = th.member_link().await;
+
+    for (bad_username, expected_reason) in [
+        ("alice@example.com", "invalid_characters"),
+        ("bob@corp.org", "invalid_characters"),
+        ("bob\0null", "invalid_characters"),
+        ("bob\nline", "invalid_characters"),
+        ("\nalice\u{0085}", "invalid_characters"),
+        ("\u{200B}spoof", "invalid_characters"),
+        (&"x".repeat(65), "too_long"),
+    ] {
+        let resp = accept(
+            &th,
+            &link,
+            &json!({
+                "username": bad_username,
+                "email": "attacker@example.com",
+                "password": PASSWORD,
+            }),
+        )
+        .await;
+        resp.check_bad_request();
+        assert_eq!(resp.refused_at(), "/account/username", "{bad_username:?}");
+        assert_eq!(
+            resp.value()["errors"][0]["reason"],
+            json!(expected_reason),
+            "{bad_username:?}: {}",
+            resp.text()
+        );
+    }
+
+    // Boundary 64-character username without `@` or control chars succeeds.
+    let max_ok = "u".repeat(64);
+    accept(
+        &th,
+        &link,
+        &json!({
+            "username": max_ok,
+            "email": "valid64@example.com",
+            "password": PASSWORD,
+        }),
+    )
+    .await
+    .check_ok();
+
+    // Alice's email login (sending both username and email as the login input, matching
+    // the web sign-in payload) remains completely unshadowed.
+    let login_resp = th
+        .anonymous()
+        .post(
+            "/login",
+            &login_request("alice@example.com", "alice@example.com", PASSWORD),
+        )
+        .await;
+    login_resp.check_no_content();
+    let token = login_resp.session_cookie().expect("session cookie");
+    let signed_in = crate::common::Client::new(&th.base_url, &token);
+    assert_eq!(signed_in.me().await.username, "alice");
+    th.teardown().await;
 }

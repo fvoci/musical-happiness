@@ -214,7 +214,7 @@ impl Store {
             let org = scope.org()?;
             let workspace_id = lock_live_course_for_learner(scope, course_id, org.clone()).await?;
             let nodes = fetch_course_nodes_locked(scope, course_id).await?;
-            lock_active_learner(scope, &workspace_id, user_id).await?;
+            lock_active_learner(scope, course_id, &workspace_id, user_id, org.clone()).await?;
 
             let saved = fetch_course_schedule(scope, course_id, org.clone()).await?;
             let plan = request.resolve(today, saved.as_ref())?;
@@ -388,11 +388,13 @@ async fn lock_live_course_for_learner(
 }
 
 /// Locks `workspace_members` (`FOR SHARE`) and `users` (`FOR KEY SHARE`) in global lock
-/// order, ensuring `user_id` is an active non-deleted member of `workspace_id`.
+/// order, ensuring `user_id` is an active enrolled member of `course_id` in `workspace_id`.
 async fn lock_active_learner(
     scope: &mut Scope<'_>,
+    course_id: &str,
     workspace_id: &str,
     user_id: &str,
+    org: Param,
 ) -> Result<(), StoreError> {
     let mut member = scope.sql("SELECT 1 FROM workspace_members WHERE workspace_id = ");
     member
@@ -415,7 +417,15 @@ async fn lock_active_learner(
     if scope.fetch_optional(user).await?.is_none() {
         return Err(StoreError::not_found("course"));
     }
-    Ok(())
+    crate::course_meetings::require_active_course_member(scope, course_id, user_id, org)
+        .await
+        .map_err(|error| {
+            if error.is_not_found() {
+                StoreError::not_found("course")
+            } else {
+                error
+            }
+        })
 }
 
 pub(crate) async fn upsert_schedule_row(

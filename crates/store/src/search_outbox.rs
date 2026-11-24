@@ -171,7 +171,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn settle_search_change(&self, change: &SearchChange) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("DELETE FROM search_outbox");
             push_row(&mut sql, change);
             Ok(scope.execute(sql).await? > 0)
@@ -190,7 +190,7 @@ impl Store {
         change: &SearchChange,
         retry_at: i64,
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE search_outbox SET attempts = attempts + 1, due_at = ");
             sql.bind(retry_at);
             push_row(&mut sql, change);
@@ -253,7 +253,7 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn forget_search_index(&self) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let sql = scope.sql("DELETE FROM search_index_state");
             scope.execute(sql).await?;
             Ok(())

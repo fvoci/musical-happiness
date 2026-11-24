@@ -241,10 +241,12 @@ async fn handle_put_meeting_attendance(
 /// Exams of a course
 ///
 /// Returns every exam of the course ordered by `examDate` ascending (exams without a date
-/// last), then by `createAt` and `id`. Each exam includes `averageScore` and `scoreCount`
-/// computed solely over active enrolled course members, plus `myScore` containing only the
-/// caller's own score (or `null` for unjoined readers and callers without a score).
-/// Another member's individual score or note is never returned under any role.
+/// last), then by `createAt` and `id`. Enrolled members receive `scoreCount` across active
+/// enrolled course members, `averageScore` when at least two other active members have
+/// submitted a score (`scoreCount >= 3` if the caller submitted, `scoreCount >= 2` if not;
+/// `null` otherwise), and `myScore` containing only the caller's own score. Unjoined readers
+/// receive `myScore: null`, `averageScore: null`, and `scoreCount: 0`. Another member's
+/// individual score or note is never returned under any role.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/courses/{courseId}/exams",

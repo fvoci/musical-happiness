@@ -57,7 +57,10 @@ impl App {
     /// The board and what the user may do on it; `None` if there is no such board, and
     /// for a handle of one workspace ([`App::in_workspace`]) if the board is of another:
     /// this is where a request's workspace and the workspace of what it names are
-    /// compared. A user without an identifier may do nothing.
+    /// compared. Built-in templates (`is_builtin`) carry an empty `workspace_id` and
+    /// resolve the caller's role against `self.workspace` (granting nothing when the
+    /// handle has no workspace or the caller is a guest). A user without an identifier
+    /// may do nothing.
     ///
     /// The same fact reads are made whether the board is there or not, so that a
     /// board that is not there for the user takes as long to refuse as one that does
@@ -93,9 +96,11 @@ impl App {
         };
         let team_role = team_role
             .map_err(|error| AppError::from(error).context("reading the team roles on a board"))?;
-        let workspace_id = container
-            .as_ref()
-            .map_or("", |container| &container.workspace_id);
+        let workspace_id = match container.as_ref() {
+            Some(container) if container.is_builtin => self.workspace.as_deref().unwrap_or(""),
+            Some(container) => &container.workspace_id,
+            None => "",
+        };
         let actor = self.actor(user_id, workspace_id).await?;
         let Some(container) = container else {
             return Ok(None);
@@ -192,29 +197,6 @@ impl App {
             .container_access(user_id, container_id)
             .await?
             .map_or(Grant::NONE, |access| access.grant))
-    }
-
-    /// Whether the user holds a role on the board as its member, directly: what a
-    /// guest needs to read a template (a template is a board, and a guest reads the
-    /// boards they were invited to).
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the membership cannot be read.
-    pub async fn invited_to_container(
-        &self,
-        user_id: &str,
-        container_id: &str,
-    ) -> Result<bool, AppError> {
-        match self
-            .store()
-            .get_member_for_container(container_id, user_id)
-            .await
-        {
-            Ok(member) => Ok(permissions::role_of(&member).is_some()),
-            Err(error) if error.is_not_found() => Ok(false),
-            Err(error) => Err(error.into()),
-        }
     }
 
     /// A board in the trash and what the user may do with it; `None` if no board of

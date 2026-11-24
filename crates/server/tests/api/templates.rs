@@ -867,10 +867,21 @@ async fn a_guest_uses_templates_in_the_workspace_where_they_are_a_member() {
         "a member can still use templates elsewhere"
     );
     let board = &templates[0].id;
+    for path in [
+        format!("{ROOT_WS}/containers/{board}"),
+        format!("{ROOT_WS}/boards/{board}/blocks"),
+        format!("{ROOT_WS}/boards/{board}/cards"),
+        format!("{ROOT_WS}/containers/{board}/members"),
+    ] {
+        ts.client2.get(&path).await.check_not_found();
+    }
     ts.client2
-        .get(&format!("{ROOT_WS}/boards/{board}/blocks"))
+        .post(
+            &format!("{ROOT_WS}/containers/{board}/duplicate"),
+            &json!({}),
+        )
         .await
-        .check_forbidden();
+        .check_not_found();
     ts.client2
         .get(&format!("{elsewhere}/boards/{board}/blocks"))
         .await
@@ -882,6 +893,32 @@ async fn a_guest_uses_templates_in_the_workspace_where_they_are_a_member() {
         )
         .await
         .check_created();
+
+    // An invited guest on a workspace-owned template still reads its blocks (200).
+    let invited_template: Container = ts
+        .client
+        .post(
+            &format!("{ROOT_WS}/boards"),
+            &json!({
+                "workspaceId": crate::common::ROOT_WORKSPACE_ID,
+                "type": "P",
+                "title": "Guest Invited Template",
+                "isTemplate": true,
+            }),
+        )
+        .await
+        .created_json();
+    ts.client
+        .post(
+            &format!("{ROOT_WS}/containers/{}/members", invited_template.id),
+            &json!({"userId": user.id, "schemeViewer": true}),
+        )
+        .await
+        .check_ok();
+    ts.client2
+        .get(&format!("{ROOT_WS}/boards/{}/blocks", invited_template.id))
+        .await
+        .check_ok();
     ts.teardown().await;
 }
 

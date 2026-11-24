@@ -45,7 +45,7 @@ impl Store {
     ) -> Result<bool, StoreError> {
         // As a reset credential: what ended goes first, in its own statement, before
         // the user's row is taken.
-        self.with_conn(async |scope| delete_expired(scope, now).await)
+        self.with_write_conn(async |scope| delete_expired(scope, now).await)
             .await?;
         self.transaction(async |scope| {
             if hold_account(scope, user_id, Some(seen_password_hash))
@@ -98,7 +98,7 @@ impl Store {
     ///
     /// Returns the database error.
     pub async fn cancel_email_change(&self, user_id: &str) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| discard_of_user(scope, user_id).await)
+        self.with_write_conn(async |scope| discard_of_user(scope, user_id).await)
             .await
     }
 
@@ -136,7 +136,7 @@ impl Store {
         digest: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
+        self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE email_changes SET token_hash = ");
             sql.bind(digest)
                 .push_bind(

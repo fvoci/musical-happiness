@@ -316,15 +316,47 @@ describe('in-memory course meetings, attendance, exams, privacy & tombstones', (
     expect(events).toEqual([]);
     stop();
 
-    // Strict privacy: each learner sees ONLY their own myScore, both see average 90 / count 2.
+    // Strict k-anonymity (`others >= 2`) & unjoined-reader privacy:
+    // With 2 scorers (admin=80, viewer=100), neither scorer sees averageScore yet (only 1 other),
+    // unjoined reader sees 0 / null, and enrolled unsubmitted 3rd member sees 90 / 2!
+    const extraIds = [...made.world.users.keys()].filter(
+      (id) => id !== made.backend.userId && id !== made.other.userId,
+    );
+    const thirdId = extraIds[0] ?? '';
+    const unjoinedId = extraIds[1] ?? '';
+    const third = made.backend.as(thirdId);
+    const unjoinedReader = made.backend.as(unjoinedId);
+    await made.backend.addMember(course.id, thirdId, 'viewer');
+
+    const unjoinedExams = await unjoinedReader.course.exams.list(course.id);
+    expect(unjoinedExams[0]?.myScore).toBeNull();
+    expect(unjoinedExams[0]?.averageScore).toBeNull();
+    expect(unjoinedExams[0]?.scoreCount).toBe(0);
+
+    const adminTwo = await made.backend.course.exams.list(course.id);
+    const viewerTwo = await made.other.course.exams.list(course.id);
+    const thirdUnsubmitted = await third.course.exams.list(course.id);
+    expect(adminTwo[0]?.myScore).toMatchObject({ score: 80, note: 'admin private' });
+    expect(adminTwo[0]?.averageScore).toBeNull();
+    expect(adminTwo[0]?.scoreCount).toBe(2);
+    expect(viewerTwo[0]?.myScore).toMatchObject({ score: 100, note: 'viewer private' });
+    expect(viewerTwo[0]?.averageScore).toBeNull();
+    expect(viewerTwo[0]?.scoreCount).toBe(2);
+    expect(thirdUnsubmitted[0]?.myScore).toBeNull();
+    expect(thirdUnsubmitted[0]?.averageScore).toBe(90);
+    expect(thirdUnsubmitted[0]?.scoreCount).toBe(2);
+
+    // 3rd scorer submits 90 -> all three scorers now have 2 other scorers and see average 90 / count 3!
+    await third.course.exams.putMyScore(course.id, midterm.id, {
+      score: 90,
+      note: 'third private',
+    });
     const adminExams = await made.backend.course.exams.list(course.id);
     const viewerExams = await made.other.course.exams.list(course.id);
-    expect(adminExams[0]?.myScore).toMatchObject({ score: 80, note: 'admin private' });
     expect(adminExams[0]?.averageScore).toBe(90);
-    expect(adminExams[0]?.scoreCount).toBe(2);
-    expect(viewerExams[0]?.myScore).toMatchObject({ score: 100, note: 'viewer private' });
+    expect(adminExams[0]?.scoreCount).toBe(3);
     expect(viewerExams[0]?.averageScore).toBe(90);
-    expect(viewerExams[0]?.scoreCount).toBe(2);
+    expect(viewerExams[0]?.scoreCount).toBe(3);
 
     // CourseStore + CourseMeetingsState refreshes aggregates immediately after save/delete.
     const store = new CourseStore(made.workspace, course.id);
@@ -332,10 +364,10 @@ describe('in-memory course meetings, attendance, exams, privacy & tombstones', (
     await store.events.refreshAll();
     expect(store.events.exams[0]?.averageScore).toBe(90);
     expect(
-      await store.events.saveMyScore(midterm.id, { score: 60, note: 'updated' }),
+      await store.events.saveMyScore(midterm.id, { score: 50, note: 'updated' }),
     ).toMatchObject({ ok: true });
     expect(store.events.exams[0]?.averageScore).toBe(80);
-    expect(store.events.exams[0]?.scoreCount).toBe(2);
+    expect(store.events.exams[0]?.scoreCount).toBe(3);
 
     // Trigger meeting_upcoming notification in shared workspace -> delivered with meeting subject.
     noteUpcomingMeeting(made.world, course.id, earlyMeeting.id);
@@ -348,12 +380,12 @@ describe('in-memory course meetings, attendance, exams, privacy & tombstones', (
       title: 'Week 1 Kickoff',
     });
 
-    // Erasing other user removes their exam score from averages immediately,
-    // while keeping hostId and attendance row as tombstones.
+    // Erasing other user removes their exam score from averages immediately (leaving only 1 other
+    // scorer for admin, so averageScore hides again), while keeping hostId and attendance row as tombstones.
     eraseUser(made.world, made.other.userId);
     const afterEraseExams = await made.backend.course.exams.list(course.id);
-    expect(afterEraseExams[0]?.scoreCount).toBe(1);
-    expect(afterEraseExams[0]?.averageScore).toBe(60);
+    expect(afterEraseExams[0]?.scoreCount).toBe(2);
+    expect(afterEraseExams[0]?.averageScore).toBeNull();
 
     const afterEraseMeetings = await made.backend.course.meetings.list(course.id);
     expect(afterEraseMeetings[0]?.hostId).toBe(made.other.userId);
@@ -363,9 +395,13 @@ describe('in-memory course meetings, attendance, exams, privacy & tombstones', (
     const resolved = await made.backend.usersById(wsId, [made.other.userId]);
     expect(resolved[0] && isGone(resolved[0])).toBe(true);
 
-    // Delete my score via store -> average becomes null, count 0.
+    // Delete my score + third's score -> average stays null, count drops to 1 then 0.
     expect(await store.events.deleteMyScore(midterm.id)).toBe(true);
     expect(store.events.exams[0]?.myScore).toBeNull();
+    expect(store.events.exams[0]?.averageScore).toBeNull();
+    expect(store.events.exams[0]?.scoreCount).toBe(1);
+    await third.course.exams.deleteMyScore(course.id, midterm.id);
+    await store.events.refreshExams();
     expect(store.events.exams[0]?.averageScore).toBeNull();
     expect(store.events.exams[0]?.scoreCount).toBe(0);
 
