@@ -29,8 +29,8 @@ use fvoci_collab::testing::{
     CacheProbe, CacheValidation, changes_of, charged, placing_steps, to_body, with_update,
 };
 use fvoci_collab::{
-    BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, UpdateLimits,
-    from_body, from_state, new_doc, state_of, take_update,
+    BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, MAX_TOTAL_CHANGES, PLACING_STEPS, READING_STEPS,
+    UpdateLimits, from_body, from_state, new_doc, state_of, take_update,
 };
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_NODES, Body};
 use serde_json::json;
@@ -47,11 +47,12 @@ use yrs::{Doc, ReadTxn as _, Transact as _, XmlElementPrelim, XmlFragment as _};
 /// The limits the server holds an update to with its settings as they come.
 const LIMITS: UpdateLimits = UpdateLimits {
     update_bytes: 64 * 1024,
-    state_bytes: 8 * 1024 * 1024,
+    state_bytes: 16 * 1024 * 1024,
     body_bytes: BODY_MAX_BYTES,
     placing_steps: Some(PLACING_STEPS),
     clients: Some(MAX_CLIENTS),
     client_changes: Some(MAX_CLIENT_CHANGES),
+    total_changes: Some(MAX_TOTAL_CHANGES),
     reading_steps: Some(READING_STEPS),
 };
 
@@ -490,6 +491,7 @@ fn typed_in_order(children: usize) -> Doc {
         placing_steps: None,
         clients: None,
         client_changes: None,
+        total_changes: None,
         reading_steps: None,
         ..LIMITS
     };

@@ -157,13 +157,13 @@ async fn a_document_made_again_for_its_size_is_sent_to_the_room() {
         .init_basic()
         .await;
     let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["kept"])).await;
-    // Each round leaves 480 KiB deleted in the state: three quarters of the 8 MiB a
-    // state may be is reached in the thirteenth.
+    // Each round leaves 480 KiB deleted in the state: three quarters of the 16 MiB a
+    // state may be is reached around the 25th round (50 updates).
     let line = "z".repeat(480 * 1024);
     let mut updates = 0;
     while one.epoch == 1 {
         assert!(
-            updates < 60,
+            updates < 100,
             "made again before the state reached its limit"
         );
         let update = if updates % 2 == 0 {
@@ -182,7 +182,7 @@ async fn a_document_made_again_for_its_size_is_sent_to_the_room() {
         }
     }
     assert!(
-        updates >= 24,
+        updates >= 48,
         "only once it was near the limit: {updates} updates"
     );
     for peer in [&mut one, &mut two] {

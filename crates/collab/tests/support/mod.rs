@@ -31,6 +31,7 @@ pub(crate) const ROOMY: UpdateLimits = UpdateLimits {
     placing_steps: Some(fvoci_collab::PLACING_STEPS),
     clients: Some(fvoci_collab::MAX_CLIENTS),
     client_changes: Some(fvoci_collab::MAX_CLIENT_CHANGES),
+    total_changes: Some(fvoci_collab::MAX_TOTAL_CHANGES),
     reading_steps: Some(fvoci_collab::READING_STEPS),
 };
 

@@ -15,7 +15,7 @@ use crate::common::TEST_WS;
 use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer};
 
 /// The default of `max_request_bytes`.
-const DEFAULT_JSON_LIMIT: usize = 8 * 1024 * 1024;
+const DEFAULT_JSON_LIMIT: usize = 12 * 1024 * 1024;
 /// The limit of the routes that need no session.
 const UNAUTHENTICATED_LIMIT: usize = 64 * 1024;
 /// The limit of a websocket message.

@@ -339,13 +339,13 @@ async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
 /// told, for the card's organization.
 #[tokio::test]
 async fn a_document_past_a_lowered_state_limit_is_written_before_it_is_made_again() {
-    const LOWER: u64 = 8 * 1024 * 1024;
+    const LOWER: u64 = 16 * 1024 * 1024;
     let th = Setup::native()
         .configure(|config| {
             // Four times the limit it is lowered to, and a worker's memory with room
-            // for it (256 MiB and 32 times the state).
+            // for it (512 MiB and 32 times the state = 2.5 GiB).
             config.collab.collab_state_bytes = 4 * LOWER;
-            config.collab.collab_worker_memory_bytes = 2 * 1024 * 1024 * 1024;
+            config.collab.collab_worker_memory_bytes = 3 * 1024 * 1024 * 1024;
             // Large updates, so that few of them bring the document past the lower
             // limit: every update is paid for by the size of the document.
             config.collab.collab_update_bytes = 1024 * 1024;
@@ -366,11 +366,11 @@ async fn a_document_past_a_lowered_state_limit_is_written_before_it_is_made_agai
             .await
             .expect("taken")
     };
-    // What is deleted stays in the state: past the lower limit, under the 24 MiB of a
-    // remake, and folded into the stored state at the two hundredth update.
+    // What is deleted stays in the state: past the lower limit (16 MiB), under the 32 MiB
+    // fold threshold and 48 MiB remake mark, and folded into the stored state at the 200th update.
     let line = "d".repeat(960 * 1024);
     for round in 0..100 {
-        take(editor.append_paragraph(if round < 91 { "d" } else { &line })).await;
+        take(editor.append_paragraph(if round < 82 { "d" } else { &line })).await;
         take(editor.delete_last()).await;
     }
     take(editor.append_paragraph("the last word")).await;

@@ -20,9 +20,9 @@ import { gridProblem, MAX_TABLE_COLUMNS, MAX_TABLE_ROWS, type GridProblem } from
 export const BODY_VERSION = 5;
 
 /** The largest body, as the bytes of its JSON in UTF-8 (`storedSize`). */
-export const MAX_BODY_BYTES = 4 * 1024 * 1024;
+export const MAX_BODY_BYTES = 8 * 1024 * 1024;
 export const MAX_DEPTH = 60;
-export const MAX_NODES = 50_000;
+export const MAX_NODES = 100_000;
 /**
  * The longest source of a formula, in UTF-16 code units like every other
  * limit on text here. A formula is drawn on the main thread of whoever opens

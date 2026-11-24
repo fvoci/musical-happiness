@@ -249,10 +249,11 @@ pub(crate) fn from_state_cached(
 }
 
 /// Opens the document of a stored state ([`crate::state_of`]), with the same checks
-/// and repair as [`take_update`], and the update's own limits left out, as a state may
-/// be as large as [`UpdateLimits::state_bytes`] and its changes were placed when they
-/// were taken. The steps its reading takes are counted once
-/// ([`UpdateLimits::reading_steps`]): the library does not read a state past them.
+/// and repair as [`take_update`], leaving out per-update limits (`update_bytes`,
+/// `placing_steps`, `clients`, `client_changes`) while keeping `state_bytes`,
+/// `body_bytes`, `total_changes`, and `reading_steps`: a stored state past
+/// [`UpdateLimits::total_changes`] or [`UpdateLimits::reading_steps`] is refused before
+/// the library decodes it.
 ///
 /// # Errors
 ///
@@ -446,6 +447,9 @@ fn recount_after_repair(
                     }
                     Ok(FastApply::TooManyChanges { changes, limit }) => {
                         return Err(UpdateError::TooManyChanges { changes, limit }.into());
+                    }
+                    Ok(FastApply::TooManyTotalChanges { changes, limit }) => {
+                        return Err(UpdateError::TooManyTotalChanges { changes, limit }.into());
                     }
                     Ok(FastApply::Fallback) | Err(_) => {}
                 }

@@ -71,6 +71,7 @@ impl Collab {
             repair,
             state_bytes,
             clients,
+            changes,
             client_changes,
             steps_ahead,
             files,
@@ -103,6 +104,7 @@ impl Collab {
         open.log_end = seqs.last().copied().unwrap_or(open.log_end);
         open.state_bytes = state_bytes;
         open.clients = clients;
+        open.changes = changes;
         open.client_changes = client_changes;
         open.steps_ahead = steps_ahead;
         open.must_remake |= remake;
@@ -210,11 +212,7 @@ impl Collab {
             return false;
         };
         let limit = self.inner.limits.state_bytes;
-        let near_limit = open.state_bytes.saturating_mul(4) >= limit.saturating_mul(3);
-        // A document made from a body that is near the limit itself is not made again
-        // at every update: only once it grew by a quarter of the limit since.
-        let grown = open.state_bytes >= open.made_bytes.saturating_add(limit / 4);
-        if (near_limit && grown || open.crowded())
+        if (open.grown_near_limit(limit) || open.crowded())
             && self
                 .remake_and_tell(app, card_id, slot, OnForget::TellClosed)
                 .await
@@ -273,10 +271,7 @@ impl Collab {
         let wanted = slot.open.as_ref().is_some_and(|open| match refused {
             Unanswered::TooManySteps(_) => open.state_bytes > open.made_bytes,
             Unanswered::Refused(error) => {
-                error.reason() == Some(Reason::DocumentTooLarge)
-                    && (open.state_bytes > open.made_bytes
-                        && open.state_bytes.saturating_mul(4) >= limit.saturating_mul(3)
-                        || open.crowded())
+                error.reason() == Some(Reason::DocumentTooLarge) && open.remake_on_too_large(limit)
             }
             Unanswered::Died(_) => false,
         });
@@ -584,6 +579,8 @@ impl Collab {
             generation,
             state,
             state_bytes,
+            clients,
+            changes,
             client_changes,
             steps_ahead,
         } = self
@@ -601,8 +598,9 @@ impl Collab {
         open.body_digest = digest;
         open.state_bytes = state_bytes;
         open.made_bytes = state_bytes;
-        // The writer of the body.
-        open.clients = 1;
+        open.clients = clients;
+        open.changes = changes;
+        open.made_changes = changes;
         open.client_changes = client_changes;
         open.steps_ahead = steps_ahead;
         open.must_remake = false;

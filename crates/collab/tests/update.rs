@@ -6,7 +6,10 @@ mod support;
 use std::time::{Duration, Instant};
 
 use fvoci_collab::testing::{changes_of, copy_of, to_body, with_update};
-use fvoci_collab::{FIELD, MAX_CLIENTS, UpdateError, UpdateLimits, from_body, new_doc, state_of};
+use fvoci_collab::{
+    BodyDoc, FIELD, MAX_CLIENTS, TakeError, UpdateError, UpdateLimits, from_body, from_state,
+    new_doc, state_of, take_update,
+};
 use serde_json::json;
 use support::wire::{Change, Content, Parent, Run};
 use support::{ROOMY, body_of, json_of};
@@ -428,5 +431,106 @@ fn an_update_of_many_clients_is_refused_before_the_document_is_read() {
     assert!(
         took < Duration::from_secs(3),
         "walked and refused in {took:?}"
+    );
+}
+
+/// Whole-document `total_changes` counts changes across all clients together (deleted ones
+/// too) and is enforced identically by `with_update`, `take_update`, `from_state`,
+/// `BodyDoc::from_state`, and `BodyDoc::settle`, both with and without `reading_steps`.
+#[test]
+fn an_update_is_refused_past_the_total_changes_a_document_may_have() {
+    let limits = UpdateLimits {
+        client_changes: Some(100),
+        total_changes: Some(100),
+        ..ROOMY
+    };
+    let uncounted = UpdateLimits {
+        reading_steps: None,
+        ..limits
+    };
+    let of_client = |client: u64, count: usize| {
+        support::wire::Update::of(
+            client,
+            0,
+            vec![Change::under(Parent::body(), Content::Deleted(1)); count],
+        )
+        .bytes()
+    };
+
+    // Two clients each stay well under `client_changes` (60 and 40 <= 100), reaching
+    // exactly 100 total changes.
+    let sixty = with_update(&new_doc(), &of_client(1, 60), &limits).expect("60 total");
+    let hundred = with_update(&sixty, &of_client(2, 40), &limits).expect("100 total at exact cap");
+    let one_more = of_client(3, 1);
+
+    // Client 3 has only 1 change (< client_changes), yet total reaches 101 (> 100).
+    assert_eq!(
+        with_update(&hundred, &one_more, &limits).err(),
+        Some(UpdateError::TooManyTotalChanges {
+            changes: 101,
+            limit: 100,
+        })
+    );
+    assert_eq!(
+        with_update(&hundred, &one_more, &uncounted).err(),
+        Some(UpdateError::TooManyTotalChanges {
+            changes: 101,
+            limit: 100,
+        }),
+        "reading_steps: None settle path also enforces total_changes"
+    );
+    assert_eq!(
+        take_update(&hundred, &one_more, &limits).err(),
+        Some(TakeError::Update(UpdateError::TooManyTotalChanges {
+            changes: 101,
+            limit: 100,
+        }))
+    );
+
+    // `from_state` and `BodyDoc::from_state` enforce `total_changes` both with and without
+    // `reading_steps`.
+    let state_100 = state_of(&hundred);
+    assert!(from_state(&state_100, &limits).is_ok(), "100 fits cap 100");
+    assert!(
+        BodyDoc::from_state(&state_100, &limits).is_ok(),
+        "BodyDoc::from_state fits cap 100"
+    );
+    let tight = UpdateLimits {
+        total_changes: Some(99),
+        ..limits
+    };
+    let tight_uncounted = UpdateLimits {
+        reading_steps: None,
+        ..tight
+    };
+    for check_limits in [tight, tight_uncounted] {
+        assert_eq!(
+            from_state(&state_100, &check_limits).err(),
+            Some(TakeError::Update(UpdateError::TooManyTotalChanges {
+                changes: 100,
+                limit: 99,
+            }))
+        );
+        assert_eq!(
+            BodyDoc::from_state(&state_100, &check_limits).err(),
+            Some(TakeError::Update(UpdateError::TooManyTotalChanges {
+                changes: 100,
+                limit: 99,
+            }))
+        );
+    }
+
+    // `BodyDoc::settle` enforces `total_changes` and returns the intact document on failure.
+    let opened = BodyDoc::from_state(&state_100, &limits).expect("open at 100");
+    let settle_err = opened
+        .doc
+        .settle(state_100, &tight)
+        .expect_err("settle over total_changes refused");
+    assert_eq!(
+        settle_err.error,
+        UpdateError::TooManyTotalChanges {
+            changes: 100,
+            limit: 99,
+        }
     );
 }

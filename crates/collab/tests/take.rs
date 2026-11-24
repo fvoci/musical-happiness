@@ -472,11 +472,12 @@ fn table_mend_past_reading_steps_is_taken_in_place_and_marked_for_remake() {
     const CHILDREN: u64 = 20_000;
     let served = UpdateLimits {
         update_bytes: 64 * 1024,
-        state_bytes: 8 * 1024 * 1024,
+        state_bytes: 16 * 1024 * 1024,
         body_bytes: fvoci_model::BODY_MAX_BYTES,
         placing_steps: Some(fvoci_collab::PLACING_STEPS),
         clients: Some(fvoci_collab::MAX_CLIENTS),
         client_changes: Some(fvoci_collab::MAX_CLIENT_CHANGES),
+        total_changes: Some(fvoci_collab::MAX_TOTAL_CHANGES),
         reading_steps: Some(READING_STEPS),
     };
     let uncounted = UpdateLimits {
@@ -485,6 +486,7 @@ fn table_mend_past_reading_steps_is_taken_in_place_and_marked_for_remake() {
         placing_steps: None,
         clients: None,
         client_changes: None,
+        total_changes: None,
         reading_steps: None,
         ..served
     };

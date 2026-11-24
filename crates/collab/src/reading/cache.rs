@@ -460,6 +460,8 @@ pub(crate) enum FastApply {
     TooLarge { size: usize, limit: usize },
     /// Resulting max changes of one client exceeds `limits.client_changes`.
     TooManyChanges { changes: u64, limit: u64 },
+    /// Resulting total changes across all clients exceeds `limits.total_changes`.
+    TooManyTotalChanges { changes: u64, limit: u64 },
     /// Could not take the fast path; cache consumed and caller must fall back to full scan.
     Fallback,
 }

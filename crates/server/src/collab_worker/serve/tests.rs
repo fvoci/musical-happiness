@@ -1132,6 +1132,7 @@ fn open_source_body_returns_counted_state_and_takes_immediately() {
         state: Some(state),
         state_bytes,
         clients,
+        changes,
         client_changes,
         steps_ahead,
     }) = ask(
@@ -1148,6 +1149,7 @@ fn open_source_body_returns_counted_state_and_takes_immediately() {
     assert_eq!(state_bytes, u64::try_from(state.len()).expect("len"));
     assert_eq!(clients, 1);
     let expected = fvoci_collab::state_counts(&state).expect("counts");
+    assert_eq!(changes, expected.changes);
     assert_eq!(client_changes, expected.client_changes);
     assert_eq!(steps_ahead, expected.steps_ahead);
     assert_eq!(worker.held_bytes, state_bytes);
@@ -1291,5 +1293,226 @@ fn oversized_table_update_returns_table_too_large_and_preserves_document() {
     }
     assert_eq!(ask(&mut worker, Request::Close(1)), Ok(Answer::Done));
     assert_eq!(ask(&mut worker, Request::Close(2)), Ok(Answer::Done));
+    assert_eq!(worker.held_bytes, 0);
+}
+
+/// Whole-document `total_changes` cap is enforced consistently across `Source::Body`
+/// (`DocumentTooLarge`) and `Source::State` (`Unappliable` so the server remakes cleanly).
+#[test]
+fn total_changes_limit_refuses_source_body_and_source_state() {
+    let mut worker = Worker::new(Limits {
+        update_bytes: 64 * 1024,
+        state_bytes: 2 * 1024 * 1024,
+        body_bytes: 2 * 1024 * 1024,
+        documents: 4,
+        held_bytes: 8 * 1024 * 1024,
+    });
+    assert_eq!(
+        worker.update_limits.total_changes,
+        Some(MAX_TOTAL_CHANGES),
+        "default worker enables MAX_TOTAL_CHANGES"
+    );
+    let two_paras = serde_json::to_vec(&serde_json::json!({
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "one"}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "two"}]},
+        ],
+    }))
+    .expect("json");
+    let baseline = BodyDoc::from_body_counted(Some(&Body::from_stored(
+        serde_json::from_slice(&two_paras).expect("value"),
+    )))
+    .expect("baseline counts");
+    worker.update_limits.total_changes = Some(baseline.counts.changes - 1);
+
+    let body_err = ask(
+        &mut worker,
+        Request::Open {
+            doc: 1,
+            source: Source::Body(Some(two_paras)),
+            share: Share::Kept,
+        },
+    )
+    .expect_err("Source::Body over total_changes refused");
+    assert_eq!(body_err.refusal, Refusal::DocumentTooLarge);
+    assert_eq!(worker.held_bytes, 0);
+
+    let state_err = ask(
+        &mut worker,
+        Request::Open {
+            doc: 2,
+            source: Source::State(baseline.state),
+            share: Share::Kept,
+        },
+    )
+    .expect_err("Source::State over total_changes refused");
+    assert_eq!(state_err.refusal, Refusal::Unappliable);
+    assert_eq!(worker.held_bytes, 0);
+}
+
+/// Live `Request::Take` accepts up to `total_changes`, refuses past it with
+/// `DocumentTooLarge`, and rolls back cleanly preserving body and `held_bytes`.
+#[test]
+fn total_changes_limit_refuses_live_take_and_preserves_document() {
+    let mut worker = Worker::new(Limits {
+        update_bytes: 64 * 1024,
+        state_bytes: 2 * 1024 * 1024,
+        body_bytes: 2 * 1024 * 1024,
+        documents: 4,
+        held_bytes: 8 * 1024 * 1024,
+    });
+    let two_paras = serde_json::to_vec(&serde_json::json!({
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "one"}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "two"}]},
+        ],
+    }))
+    .expect("json");
+    let baseline = BodyDoc::from_body_counted(Some(&Body::from_stored(
+        serde_json::from_slice(&two_paras).expect("value"),
+    )))
+    .expect("baseline counts");
+    let no_total = UpdateLimits {
+        total_changes: None,
+        ..worker.settle_limits()
+    };
+    let probe_update =
+        fvoci_collab::testing::Editor::join(901, &baseline.state).append_paragraph("added");
+    let probe_after = fvoci_collab::take_update(
+        &fvoci_collab::from_state(&baseline.state, &no_total)
+            .expect("open")
+            .doc,
+        &probe_update,
+        &no_total,
+    )
+    .expect("probe");
+    worker.update_limits.total_changes = Some(probe_after.changes);
+
+    let Ok(Answer::Opened {
+        state: Some(initial),
+        changes: opened_changes,
+        ..
+    }) = ask(
+        &mut worker,
+        Request::Open {
+            doc: 3,
+            source: Source::Body(Some(two_paras)),
+            share: Share::Kept,
+        },
+    )
+    else {
+        panic!("opened doc 3");
+    };
+    assert_eq!(opened_changes, baseline.counts.changes);
+
+    let ok_update = fvoci_collab::testing::Editor::join(901, &initial).append_paragraph("fits");
+    let Ok(Answer::Taken {
+        changes: after_first,
+        ..
+    }) = ask(
+        &mut worker,
+        Request::Take {
+            doc: 3,
+            update: ok_update.clone(),
+        },
+    )
+    else {
+        panic!("update reaching exact total_changes succeeds");
+    };
+    assert_eq!(after_first, probe_after.changes);
+
+    // Keep doc 3 unsettled (with non-empty `since`) so the refused `Take` exercises
+    // `install_settled_restore` (`restore_limits.total_changes == None`).
+    assert!(
+        !worker.docs[&3].settled && !worker.docs[&3].since.is_empty(),
+        "doc 3 is unsettled before rollback"
+    );
+    let body_at_cap = ask(&mut worker, Request::Body(3)).expect("body at cap");
+    let ed2 = fvoci_collab::testing::Editor::join(902, &initial);
+    ed2.receive(&ok_update);
+    let over_update = ed2.append_paragraph("overflows");
+    let take_err = ask(
+        &mut worker,
+        Request::Take {
+            doc: 3,
+            update: over_update,
+        },
+    )
+    .expect_err("update past total_changes refused");
+    assert_eq!(take_err.refusal, Refusal::DocumentTooLarge);
+    assert_eq!(
+        ask(&mut worker, Request::Body(3)).expect("body preserved"),
+        body_at_cap
+    );
+    assert_eq!(ask(&mut worker, Request::Close(3)), Ok(Answer::Done));
+    assert_eq!(worker.held_bytes, 0);
+}
+
+/// Logged updates replayed via `Request::Retake` are not discarded when crossing a
+/// lowered `total_changes` cap, and `Request::State` transitions such a document cleanly
+/// to `Answer::Remake` while keeping `Request::Body` intact for lossless projection.
+#[test]
+fn retake_and_state_settle_preserve_logged_updates_past_total_changes() {
+    let mut worker = Worker::new(Limits {
+        update_bytes: 64 * 1024,
+        state_bytes: 2 * 1024 * 1024,
+        body_bytes: 2 * 1024 * 1024,
+        documents: 4,
+        held_bytes: 8 * 1024 * 1024,
+    });
+    let body = serde_json::to_vec(&serde_json::json!({
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "one"}]}
+        ],
+    }))
+    .expect("json");
+    let baseline = BodyDoc::from_body_counted(Some(&Body::from_stored(
+        serde_json::from_slice(&body).expect("value"),
+    )))
+    .expect("baseline counts");
+    worker.update_limits.total_changes = Some(baseline.counts.changes);
+
+    let Ok(Answer::Opened { .. }) = ask(
+        &mut worker,
+        Request::Open {
+            doc: 1,
+            source: Source::State(baseline.state.clone()),
+            share: Share::Kept,
+        },
+    ) else {
+        panic!("stored state at cap opens");
+    };
+    let logged = fvoci_collab::testing::Editor::join(905, &baseline.state)
+        .append_paragraph("logged after cap");
+    let Ok(Answer::Taken {
+        changes: after_retake,
+        ..
+    }) = ask(
+        &mut worker,
+        Request::Retake {
+            doc: 1,
+            update: logged,
+        },
+    )
+    else {
+        panic!("Retake accepts logged update past total_changes");
+    };
+    assert!(after_retake > baseline.counts.changes);
+
+    // Settling via `Request::State` hits `settle_limits().total_changes` and asks for
+    // lossless `Answer::Remake` while keeping `Request::Body` readable.
+    assert_eq!(ask(&mut worker, Request::State(1)), Ok(Answer::Remake));
+    let Ok(Answer::Body(Some(projected))) = ask(&mut worker, Request::Body(1)) else {
+        panic!("body remains readable for lossless remake");
+    };
+    let projected_text = String::from_utf8(projected).expect("utf8");
+    assert!(
+        projected_text.contains("logged after cap"),
+        "replayed update preserved in body: {projected_text}"
+    );
+    assert_eq!(ask(&mut worker, Request::Close(1)), Ok(Answer::Done));
     assert_eq!(worker.held_bytes, 0);
 }

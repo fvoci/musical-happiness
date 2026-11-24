@@ -9,8 +9,8 @@ mod support;
 use std::time::{Duration, Instant};
 
 use fvoci_collab::{
-    BodyDoc, MAX_CLIENT_CHANGES, READING_STEPS, client_changes, reading_steps, steps_ahead,
-    take_update,
+    BodyDoc, MAX_CLIENT_CHANGES, MAX_TOTAL_CHANGES, READING_STEPS, client_changes, reading_steps,
+    state_counts, steps_ahead, take_update,
 };
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_NODES};
 use support::body_of;
@@ -27,10 +27,16 @@ fn the_bodies_of_the_most_changes_fit_a_document() {
     for between in Between::ALL {
         let body = body_of(&marked(between, BODY_MAX_NODES, BODY_MAX_BYTES));
         let state = BodyDoc::from_body(Some(&body)).state();
+        let counts = state_counts(&state).expect("a state made here");
         let changes = client_changes(&state).expect("a state made here");
         assert!(
             changes * 4 < MAX_CLIENT_CHANGES * 3,
             "{between:?}: {changes} changes of one client"
+        );
+        assert!(
+            counts.changes <= MAX_TOTAL_CHANGES,
+            "{between:?}: {} total changes > {MAX_TOTAL_CHANGES}",
+            counts.changes
         );
         let bytes = state.len();
         assert!(
@@ -117,4 +123,80 @@ fn what_editors_send_to_the_largest_documents_is_taken() {
             );
         }
     }
+}
+
+/// Regression test for the worst-case allowlist-valid 100,000-node / 8 MiB body:
+/// 1 doc + 1 heading + 49,999 5-mark texts interleaved with `inlineMath` and `hardBreak`
+/// nodes (~660.3k changes). Verifies `Body::parse` accepts it, `BodyDoc::from_body_counted`
+/// fits within `MAX_TOTAL_CHANGES` (`768 * 1024`) and `16 MiB state_bytes` with >120k
+/// changes of editing headroom, `reading_steps == 0`, and a live edit succeeds fast.
+#[test]
+fn worst_case_valid_marked_math_body_opens_and_edits_within_total_changes() {
+    use serde_json::json;
+
+    let marked_text = json!({
+        "type": "text",
+        "text": "a",
+        "marks": [
+            {"type": "bold"},
+            {"type": "italic"},
+            {"type": "strike"},
+            {"type": "code"},
+            {"type": "link", "attrs": {"href": "/"}},
+        ]
+    });
+    let inline_math = json!({"type": "inlineMath", "attrs": {"latex": "x"}});
+    let hard_break = json!({"type": "hardBreak"});
+    let math_count = 10_350_usize;
+    let total_pairs = 49_996_usize;
+    let mut inline = Vec::with_capacity(BODY_MAX_NODES - 4);
+    for idx in 0..total_pairs {
+        inline.push(marked_text.clone());
+        if idx < math_count {
+            inline.push(inline_math.clone());
+        } else {
+            inline.push(hard_break.clone());
+        }
+    }
+    inline.push(marked_text);
+    // Nodes: 1 doc + 1 heading + 49,996*2 + 1 = 99,995 (room for append_paragraph = +2).
+    let doc_json = json!({
+        "type": "doc",
+        "content": [{"type": "heading", "attrs": {"level": 1}, "content": inline}]
+    });
+    let body = body_of(&doc_json);
+    let made = BodyDoc::from_body_counted(Some(&body)).expect("worst-case valid body builds");
+    assert!(
+        made.counts.changes > 660_000,
+        "constructed body exceeds 660k changes: {}",
+        made.counts.changes
+    );
+    assert!(
+        made.counts.changes + 120_000 <= MAX_TOTAL_CHANGES,
+        "leaves >120k changes headroom under MAX_TOTAL_CHANGES ({}): {}",
+        MAX_TOTAL_CHANGES,
+        made.counts.changes
+    );
+    assert!(
+        made.state.len() <= SERVED.state_bytes,
+        "state fits 16 MiB: {} bytes",
+        made.state.len()
+    );
+    assert_eq!(reading_steps(&made.state, READING_STEPS), Ok(0));
+    assert!(
+        made.counts.steps_ahead * 16 < READING_STEPS,
+        "steps_ahead {} well below READING_STEPS/16",
+        made.counts.steps_ahead
+    );
+
+    let editor = fvoci_collab::testing::Editor::join(999, &made.state);
+    let edit = editor.append_paragraph("tail");
+    let taken = made
+        .doc
+        .take_in_place(None, made.counts.changes, &edit, &SERVED)
+        .expect("live edit succeeds on worst-case valid body");
+    assert!(
+        taken.state.is_none(),
+        "live edit stays on incremental fast path"
+    );
 }

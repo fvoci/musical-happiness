@@ -780,8 +780,8 @@ async fn the_documents_that_take_the_most_memory_are_edited_by_a_worker_that_hol
         assert!(held < 40, "the worker counts room for {held} and more");
     }
     assert!(
-        held >= 10,
-        "the worker holds {held} documents of 50,000 nodes"
+        held >= 5,
+        "the worker holds {held} documents of 100,000 nodes"
     );
     let pid = worker_pid(&marked).await;
     let typed = collab

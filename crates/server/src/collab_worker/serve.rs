@@ -8,8 +8,8 @@ use std::io::{Read, Write};
 use std::time::Duration;
 
 use fvoci_collab::{
-    BodyDoc, BodyTakeError, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS,
-    SettleError, TakeError, UpdateLimits, same_state,
+    BodyDoc, BodyTakeError, MAX_CLIENT_CHANGES, MAX_CLIENTS, MAX_TOTAL_CHANGES, PLACING_STEPS,
+    READING_STEPS, SettleError, TakeError, UpdateLimits, same_state,
 };
 use fvoci_model::{BODY_MAX_BYTES, Body};
 
@@ -94,6 +94,7 @@ impl Worker {
                 placing_steps: Some(PLACING_STEPS),
                 clients: Some(MAX_CLIENTS),
                 client_changes: Some(MAX_CLIENT_CHANGES),
+                total_changes: Some(MAX_TOTAL_CHANGES),
                 reading_steps: Some(READING_STEPS),
             },
             docs: HashMap::new(),
@@ -129,7 +130,10 @@ impl Worker {
             Request::Retake { doc, update } => self.take(
                 doc,
                 &update,
-                self.logged_limits(),
+                UpdateLimits {
+                    total_changes: None,
+                    ..self.logged_limits()
+                },
                 logged_refused,
                 Refusal::Unappliable,
                 TakeMode::Retake,
@@ -488,6 +492,7 @@ impl Worker {
             repair,
             state_bytes,
             clients,
+            changes: changed.changes,
             client_changes: changed.client_changes,
             steps_ahead: changed.steps_ahead,
             files,
@@ -530,6 +535,7 @@ impl Worker {
             repair,
             state_bytes,
             clients,
+            changes: changed.changes,
             client_changes: changed.client_changes,
             steps_ahead: changed.steps_ahead,
             files,
@@ -578,6 +584,7 @@ impl Worker {
             repair: changed.repair.update,
             state_bytes,
             clients,
+            changes: changed.changes,
             client_changes: changed.client_changes,
             steps_ahead: changed.steps_ahead,
             files,
@@ -651,6 +658,7 @@ impl Worker {
             placing_steps: None,
             clients: None,
             client_changes: None,
+            total_changes: None,
             reading_steps: self.update_limits.reading_steps,
         };
         let settled = BodyDoc::from_state(rebuilt_state, &restore_limits).map_err(|error| {
@@ -704,13 +712,13 @@ impl Worker {
         Ok(())
     }
 
-    /// The limits of what the server stored and logged before: an update and a state
-    /// as large as the worker's memory for documents, a body as large as a body may
-    /// be, and its changes placed past as many as they are. Its reading is counted
-    /// all the same, before the library reads it, and held to what an update may
-    /// leave ([`READING_STEPS`]): a stored state past it is refused unread, while a
-    /// logged update past it (repaired in place if needed) comes back with `remake` set
-    /// so the server writes its body and makes the document again without losing it.
+    /// The limits of what the server stored before: a state as large as the worker's
+    /// memory for documents, a body as large as a body may be, and its changes placed
+    /// past as many as they are. Its total changes ([`MAX_TOTAL_CHANGES`]) and reading
+    /// steps ([`READING_STEPS`]) are still checked before the library decodes a stored
+    /// state: one past either is refused unread, while logged updates replayed via
+    /// `Request::Retake` relax `total_changes` (and return `remake` past
+    /// [`READING_STEPS`]) so the server projects their body before remaking losslessly.
     fn logged_limits(&self) -> UpdateLimits {
         let held = usize::try_from(self.limits.held_bytes).unwrap_or(usize::MAX);
         UpdateLimits {
@@ -720,6 +728,7 @@ impl Worker {
             placing_steps: None,
             clients: None,
             client_changes: None,
+            total_changes: self.update_limits.total_changes,
             reading_steps: Some(READING_STEPS),
         }
     }
@@ -769,6 +778,37 @@ impl Worker {
         Ok(())
     }
 
+    fn open_body(&self, json: Option<Vec<u8>>) -> Result<fvoci_collab::MadeBody, Refused> {
+        let body = json
+            .map(|json| serde_json::from_slice(&json).map(Body::from_stored))
+            .transpose()
+            .map_err(|error| refused(Refusal::NoBody, &error.to_string()))?;
+        let made = BodyDoc::from_body_counted(body.as_ref())
+            .map_err(|error| take_refused(&TakeError::Update(error)))?;
+        let state_bytes = size_of(&made.state);
+        if state_bytes > self.limits.state_bytes {
+            return Err(refused(
+                Refusal::DocumentTooLarge,
+                &format!(
+                    "the document of the body is {state_bytes} bytes, more than the {} allowed",
+                    self.limits.state_bytes
+                ),
+            ));
+        }
+        if let Some(limit) = self.update_limits.total_changes
+            && made.counts.changes > limit
+        {
+            return Err(refused(
+                Refusal::DocumentTooLarge,
+                &format!(
+                    "the document of the body has {} changes, more than the {limit} allowed",
+                    made.counts.changes
+                ),
+            ));
+        }
+        Ok(made)
+    }
+
     fn open(&mut self, doc: DocNumber, source: Source, share: Share) -> Response {
         if self.docs.contains_key(&doc) {
             return Err(refused(
@@ -793,7 +833,8 @@ impl Worker {
         }
         let (opened, base, reply_state, counts) = match source {
             Source::State(stored) => {
-                // What the server stored is opened whatever the limits are now.
+                // Stored states are checked against `total_changes` and `reading_steps`
+                // pre-decode; other lowered limits are remade after replay.
                 let changed = BodyDoc::from_state(&stored, &self.logged_limits())
                     .map_err(|error| logged_refused(&error))?;
                 let state = changed.state.unwrap_or_else(|| changed.doc.state());
@@ -802,19 +843,7 @@ impl Worker {
                 (changed.doc, state, repaired, counts)
             }
             Source::Body(json) => {
-                let body = json
-                    .map(|json| serde_json::from_slice(&json).map(Body::from_stored))
-                    .transpose()
-                    .map_err(|error| refused(Refusal::NoBody, &error.to_string()))?;
-                let made = BodyDoc::from_body_counted(body.as_ref())
-                    .map_err(|error| take_refused(&TakeError::Update(error)))?;
-                let state_bytes = size_of(&made.state);
-                if state_bytes > self.limits.state_bytes {
-                    return Err(refused(
-                        Refusal::DocumentTooLarge,
-                        "the document of the body is larger than the limit",
-                    ));
-                }
+                let made = self.open_body(json)?;
                 let base = made.state.clone();
                 (
                     made.doc,
@@ -854,6 +883,7 @@ impl Worker {
             state: reply_state,
             state_bytes,
             clients,
+            changes,
             client_changes,
             steps_ahead,
         })

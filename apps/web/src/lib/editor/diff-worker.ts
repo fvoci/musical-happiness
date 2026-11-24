@@ -3,7 +3,7 @@
  * given two bodies, it answers with what changed from the one to the other.
  *
  * It runs apart from the page because the largest bodies take a moment:
- * half a second for two bodies of 50,000 nodes that differ all through
+ * two bodies of 100,000 nodes that differ all through
  * (tests/logic/body-diff-size.test.ts), during which a page would not move.
  * Built as a file of the app's own (`?worker`), as the highlighter's is.
  */

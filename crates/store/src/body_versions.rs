@@ -36,7 +36,7 @@ use crate::{blocks, containers};
 pub const DEFAULT_BODY_VERSIONS_KEPT: u32 = 50;
 
 /// Maximum total uncompressed serialized JSON bytes of kept body versions per card
-/// unless told otherwise: 64 MiB (16 versions at the 4 MiB [`fvoci_model::BODY_MAX_BYTES`]
+/// unless told otherwise: 64 MiB (8 versions at the 8 MiB [`fvoci_model::BODY_MAX_BYTES`]
 /// limit; bounds per-card disk growth even if the per-body limit increases later).
 pub const DEFAULT_BODY_VERSIONS_MAX_BYTES: u64 = 64 * 1024 * 1024;
 

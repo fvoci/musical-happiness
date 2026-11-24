@@ -254,12 +254,12 @@ async fn large_updates_trigger_fold_before_fold_after_count() {
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
     let (editor, epoch) = joined(collab, &e.app, &e.card_id, 101).await;
-    // Default `collab_state_bytes` is 8 MiB, so `fold_since_bytes` is 4 MiB.
-    // Sending ~55 KiB updates crosses 4 MiB in ~75 updates, well below FOLD_AFTER (200),
-    // while deleting the previous paragraph keeps the live body small.
-    let payload = "a".repeat(55 * 1024);
+    // Default `collab_state_bytes` is 16 MiB, so `fold_since_bytes` is 8 MiB.
+    // Sending ~60 KiB updates crosses 8 MiB in ~137 updates, well below FOLD_AFTER (200),
+    // while deleting periodically keeps the live body well under 8 MiB.
+    let payload = "a".repeat(60 * 1024);
     let mut folded_early = false;
-    for n in 1..150_usize {
+    for n in 1..180_usize {
         let update = editor.append_paragraph(&payload);
         collab
             .take(&e.app, &e.card_id, epoch, &e.user1, &update)
@@ -272,12 +272,14 @@ async fn large_updates_trigger_fold_before_fold_after_count() {
             folded_early = true;
             break;
         }
-        // Keep the live body small so body_bytes (4 MiB) is not hit before since_bytes (4 MiB).
-        let del = editor.delete_last();
-        collab
-            .take(&e.app, &e.card_id, epoch, &e.user1, &del)
-            .await
-            .expect("deleted");
+        // Keep the live body small so body_bytes (8 MiB) is not hit before since_bytes (8 MiB).
+        if n % 4 == 0 {
+            let del = editor.delete_last();
+            collab
+                .take(&e.app, &e.card_id, epoch, &e.user1, &del)
+                .await
+                .expect("deleted");
+        }
     }
     assert!(
         folded_early,

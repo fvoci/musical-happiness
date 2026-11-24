@@ -3,7 +3,7 @@
  *
  * `@tiptap/extension-collaboration` with `enableContentCheck: true` runs
  * `transaction.doc.check()` over the entire document on every remote Yjs
- * transaction, which walks all 50,000+ nodes for every incoming character.
+ * transaction, which walks all 100,000+ nodes for every incoming character.
  *
  * `CheckedCollaboration` keeps the exact same safety invariant:
  * - `ySyncPlugin` receives `onInvalidContent`, so unknown nodes or marks

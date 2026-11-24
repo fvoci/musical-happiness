@@ -141,6 +141,8 @@ pub enum Answer {
         state_bytes: u64,
         /// How many clients it names.
         clients: u64,
+        /// How many changes it holds across all clients, deleted ones too.
+        changes: u64,
         /// The most changes one of its clients has, deleted ones too.
         client_changes: u64,
         /// The most steps the Y library may take to read it once one more client has
@@ -155,6 +157,8 @@ pub enum Answer {
         state_bytes: u64,
         /// How many clients it names now.
         clients: u64,
+        /// How many changes it holds across all clients now, deleted ones too.
+        changes: u64,
         /// The most changes one of its clients has now, deleted ones too.
         client_changes: u64,
         /// The most steps the Y library may take to read it once one more client has
@@ -423,6 +427,7 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
             state,
             state_bytes,
             clients,
+            changes,
             client_changes,
             steps_ahead,
         }) => {
@@ -430,6 +435,7 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
                 .optional(state.as_deref())
                 .number(*state_bytes)
                 .number(*clients)
+                .number(*changes)
                 .number(*client_changes)
                 .number(*steps_ahead);
         }
@@ -437,6 +443,7 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
             repair,
             state_bytes,
             clients,
+            changes,
             client_changes,
             steps_ahead,
             files,
@@ -447,6 +454,7 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
                 .optional(repair.as_deref())
                 .number(*state_bytes)
                 .number(*clients)
+                .number(*changes)
                 .number(*client_changes)
                 .number(*steps_ahead)
                 .names(files)
@@ -484,6 +492,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, Malformed> {
             state: input.optional()?,
             state_bytes: input.number()?,
             clients: input.number()?,
+            changes: input.number()?,
             client_changes: input.number()?,
             steps_ahead: input.number()?,
         }),
@@ -491,6 +500,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, Malformed> {
             repair: input.optional()?,
             state_bytes: input.number()?,
             clients: input.number()?,
+            changes: input.number()?,
             client_changes: input.number()?,
             steps_ahead: input.number()?,
             files: input.names()?,
@@ -693,6 +703,7 @@ mod tests {
                 state: Some(vec![1]),
                 state_bytes: 1,
                 clients: 1,
+                changes: 8,
                 client_changes: 5,
                 steps_ahead: 9,
             }),
@@ -700,6 +711,7 @@ mod tests {
                 state: None,
                 state_bytes: 2,
                 clients: 0,
+                changes: 0,
                 client_changes: 0,
                 steps_ahead: 0,
             }),
@@ -707,6 +719,7 @@ mod tests {
                 repair: None,
                 state_bytes: 3,
                 clients: 2,
+                changes: 650_000,
                 client_changes: 600_000,
                 steps_ahead: 800_000,
                 files: Vec::new(),
@@ -717,6 +730,7 @@ mod tests {
                 repair: Some(vec![6]),
                 state_bytes: 4,
                 clients: 70_000,
+                changes: 70_000,
                 client_changes: 1,
                 steps_ahead: 0,
                 files: vec!["7a.png".to_owned(), "7b.png".to_owned()],
@@ -763,6 +777,7 @@ mod tests {
             repair: None,
             state_bytes: 1,
             clients: 1,
+            changes: 1,
             client_changes: 1,
             steps_ahead: 0,
             files: Vec::new(),

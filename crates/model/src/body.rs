@@ -18,13 +18,13 @@ use crate::allowlist;
 pub const BODY_VERSION: i64 = 5;
 
 /// The largest body, as serialized JSON, in bytes.
-pub const BODY_MAX_BYTES: usize = 4 * 1024 * 1024;
+pub const BODY_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 /// How deep a body may nest; the document itself is at depth one.
 pub const BODY_MAX_DEPTH: usize = 60;
 
 /// How many nodes a body may have, the document itself included.
-pub const BODY_MAX_NODES: usize = 50_000;
+pub const BODY_MAX_NODES: usize = 100_000;
 
 /// Why a body is refused.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -400,8 +400,8 @@ impl utoipa::PartialSchema for Body {
             .description(Some(
                 "A document of the editor: a node of type `doc` whose `content` is its \
                  blocks. Which nodes, marks and attributes it may have, and how they \
-                 nest, is the allowlist of `docs/s6-design.md` 5.7. At most 4 MiB as \
-                 JSON, 60 levels deep and 50,000 nodes.",
+                 nest, is the allowlist of `docs/s6-design.md` 5.7. At most 8 MiB as \
+                 JSON, 60 levels deep and 100,000 nodes.",
             ))
             .into()
     }

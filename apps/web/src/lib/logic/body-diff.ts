@@ -17,7 +17,7 @@
  * another file are matched whole or not at all.
  *
  * The comparison spends a budget of steps (sequence-diff.ts) over the whole
- * body, so that the largest bodies there can be (4 MiB, 50,000 nodes) are
+ * body, so that the largest bodies there can be (8 MiB, 100,000 nodes) are
  * compared in a moment: where it runs out, a stretch is removed and added
  * whole (`coarse`). See `DIFF_BUDGET`.
  */
