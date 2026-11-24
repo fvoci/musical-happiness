@@ -460,9 +460,7 @@ impl Worker {
             checkpoint.since_bytes = next_since_bytes;
             checkpoint.settled = false;
             if let Some(encoded) = changed.state {
-                checkpoint.last_state = Some(encoded);
-                checkpoint.snapshot_since_start = checkpoint.since.len();
-                checkpoint.since_replay_steps = 0;
+                checkpoint.take_snapshot(encoded);
             } else {
                 checkpoint.since_replay_steps = checkpoint
                     .since_replay_steps
@@ -474,9 +472,7 @@ impl Worker {
                 if gap >= SNAPSHOT_SINCE_GAP
                     || checkpoint.since_replay_steps > SNAPSHOT_REPLAY_STEPS
                 {
-                    checkpoint.last_state = Some(changed.doc.state());
-                    checkpoint.snapshot_since_start = checkpoint.since.len();
-                    checkpoint.since_replay_steps = 0;
+                    checkpoint.take_snapshot(changed.doc.state());
                 }
             }
         }
@@ -595,7 +591,9 @@ impl Worker {
 
     /// Rebuilds a document from `checkpoint.snapshot_state()` + at most
     /// `SNAPSHOT_SINCE_GAP - 1` trailing entries of `since` after a post-mutation refusal,
-    /// caching the rebuilt state into `last_state` so subsequent `Dirty` refusals stay O(1).
+    /// settling and rebasing onto `base` (reclaiming `since_bytes` and leaving `settled`
+    /// true so subsequent `Dirty` refusals stay O(1)) when a non-empty tail or
+    /// non-canonical unsettled snapshot had to be replayed.
     ///
     /// When `checkpoint` was unsettled and `yrs` squashes adjacent blocks on read-back
     /// (`!same_state` on pass 1), settles to its canonical state while staying within
@@ -629,7 +627,7 @@ impl Worker {
                 )));
             }
             drop(rebuilt);
-            return self.install_settled_restore(doc, base_held, checkpoint, &rebuilt_state);
+            return self.install_settled_restore(doc, base_held, &checkpoint, &rebuilt_state);
         }
         let replayed =
             BodyDoc::replay_checkpoint(checkpoint.snapshot_state(), tail).map_err(|error| {
@@ -640,14 +638,14 @@ impl Worker {
             })?;
         let replayed_state = replayed.state();
         drop(replayed);
-        self.install_settled_restore(doc, base_held, checkpoint, &replayed_state)
+        self.install_settled_restore(doc, base_held, &checkpoint, &replayed_state)
     }
 
     fn install_settled_restore(
         &mut self,
         doc: DocNumber,
         base_held: u64,
-        mut checkpoint: Checkpoint,
+        checkpoint: &Checkpoint,
         rebuilt_state: &[u8],
     ) -> Result<(), FrameError> {
         let held = usize::try_from(self.limits.held_bytes).unwrap_or(usize::MAX);
@@ -675,14 +673,6 @@ impl Worker {
         }
         let new_state_bytes = count(settled.state_bytes);
         let settled_state = settled.state.unwrap_or_else(|| settled.doc.state());
-        if new_state_bytes == checkpoint.state_bytes {
-            checkpoint.last_state = Some(settled_state);
-            checkpoint.snapshot_since_start = checkpoint.since.len();
-            checkpoint.since_replay_steps = 0;
-            checkpoint.changes = settled.changes;
-            self.docs.insert(doc, checkpoint.into_held(settled.doc));
-            return Ok(());
-        }
         if base_held.saturating_add(new_state_bytes) > self.limits.held_bytes {
             self.held_bytes = base_held;
             return Err(FrameError::Io(std::io::Error::other(

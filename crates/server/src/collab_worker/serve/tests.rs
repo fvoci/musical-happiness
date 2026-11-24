@@ -369,7 +369,7 @@ fn refused_in_place_take_preserves_state_and_held_bytes() {
     assert_eq!(worker.held_bytes, held_before);
 
     // Post-apply refusal (Dirty: body_bytes exceeded) rebuilds byte-for-byte from the
-    // settled checkpoint and preserves held_bytes.
+    // checkpoint, rebasing onto `base` and reclaiming `since_bytes`.
     let huge = editor.append_paragraph(&"x".repeat(3000));
     worker.update_limits.body_bytes = 10;
     let refused = ask(
@@ -383,12 +383,18 @@ fn refused_in_place_take_preserves_state_and_held_bytes() {
         refused.err().map(|r| r.refusal),
         Some(Refusal::BodyTooLarge)
     );
+    let held = worker.docs.get(&1).expect("held");
     assert_eq!(
-        worker.docs.get(&1).expect("held").doc.state(),
+        held.doc.state(),
         state_before,
         "rebuilt byte-for-byte identical after Dirty refusal"
     );
-    assert_eq!(worker.held_bytes, held_before);
+    assert!(
+        held.settled && held.since.is_empty() && held.last_state.is_none(),
+        "settled Dirty restore rebases checkpoint and reclaims since"
+    );
+    assert_eq!(worker.held_bytes, held.state_bytes);
+    assert!(worker.held_bytes < held_before);
 }
 
 /// `since` triggers `fold: true` at `state_bytes / 2` and hard-caps with
@@ -438,15 +444,18 @@ fn since_fold_signal_and_hard_cap_enforce_bounds_without_corrupting_state() {
             }
             Err(refused) => {
                 assert_eq!(refused.refusal, Refusal::TooManyDocuments);
+                let held = worker.docs.get(&1).expect("held");
                 assert_eq!(
-                    worker.docs.get(&1).expect("held").doc.state(),
+                    held.doc.state(),
                     last_good_state,
                     "state rolled back byte-for-byte on since hard cap"
                 );
+                assert!(held.settled && held.since.is_empty());
                 assert_eq!(
-                    worker.held_bytes, last_held_bytes,
-                    "held_bytes unchanged on since hard cap refusal"
+                    worker.held_bytes, held.state_bytes,
+                    "settled rollback reclaims since_bytes cleanly"
                 );
+                assert!(worker.held_bytes < last_held_bytes);
                 refused_cap = true;
                 break;
             }
@@ -529,12 +538,15 @@ fn held_bytes_budget_enforces_state_plus_since_and_rolls_back_on_overflow() {
     )
     .expect_err("over held_bytes");
     assert_eq!(err.refusal, Refusal::TooManyDocuments);
+    let held = worker.docs.get(&1).expect("held");
     assert_eq!(
-        worker.docs.get(&1).expect("held").doc.state(),
+        held.doc.state(),
         before_state,
         "exact rollback on held_bytes overflow"
     );
-    assert_eq!(worker.held_bytes, before_held);
+    assert!(held.settled && held.since.is_empty());
+    assert_eq!(worker.held_bytes, held.state_bytes);
+    assert!(worker.held_bytes < before_held);
     assert_eq!(ask(&mut worker, Request::Close(1)), Ok(Answer::Done));
     assert_eq!(worker.held_bytes, 0);
 }
@@ -682,9 +694,10 @@ fn remake_take_reclaims_since_bytes_and_rolls_back_on_held_bytes_overflow() {
     let before_state = worker.docs.get(&1).expect("held").doc.state();
     let before_held = worker.held_bytes;
 
-    // Force `remake: true` via `reading_steps: Some(0)`, with `held_bytes` too tight.
+    // Force `remake: true` via `reading_steps: Some(0)`, with `held_bytes` tight enough to
+    // hold `before_state` after rollback rebase while refusing `step_update`'s larger state.
     worker.update_limits.reading_steps = Some(0);
-    worker.limits.held_bytes = 20;
+    worker.limits.held_bytes = worker.docs[&1].state_bytes;
     let step_update = one_step_update();
     let err = ask(
         &mut worker,
@@ -698,7 +711,8 @@ fn remake_take_reclaims_since_bytes_and_rolls_back_on_held_bytes_overflow() {
     let held = worker.docs.get(&1).expect("held");
     assert!(!held.must_remake, "must_remake stays false on rollback");
     assert_eq!(held.doc.state(), before_state, "exact rollback");
-    assert_eq!(worker.held_bytes, before_held);
+    assert_eq!(worker.held_bytes, held.state_bytes);
+    assert!(worker.held_bytes < before_held);
 
     // With room for `state_bytes`, `remake: true` commits and reclaims `since_bytes`.
     worker.limits.held_bytes = 16 * 1024;
@@ -1035,8 +1049,9 @@ fn lazy_snapshot_and_repeated_dirty_refusals_preserve_exact_state_and_held_bytes
     let expected_state = held.doc.state();
     let expected_held_bytes = worker.held_bytes;
 
-    // Two consecutive Dirty refusals: 1st replays only the 5-entry tail and pins `last_state`;
-    // 2nd restores from the pinned snapshot in O(1).
+    // Two consecutive Dirty refusals: 1st replays only the 5-entry tail and rebases onto
+    // `base: settled_state` (`since` cleared, `settled == true`); 2nd restores from `base`
+    // in O(1).
     let saved_body_limit = worker.update_limits.body_bytes;
     worker.update_limits.body_bytes = 5;
     for attempt in 0..2 {
@@ -1053,10 +1068,11 @@ fn lazy_snapshot_and_repeated_dirty_refusals_preserve_exact_state_and_held_bytes
         assert_eq!(err.refusal, Refusal::BodyTooLarge);
         let held = worker.docs.get(&1).expect("held");
         assert_eq!(held.doc.state(), expected_state);
-        assert_eq!(held.snapshot_since_start, held.since.len());
-        assert!(held.last_state.is_some());
-        assert_eq!(worker.held_bytes, expected_held_bytes);
+        assert!(held.settled && held.since.is_empty() && held.last_state.is_none());
+        assert_eq!(held.base, expected_state);
+        assert_eq!(worker.held_bytes, held.state_bytes);
     }
+    assert!(worker.held_bytes < expected_held_bytes);
     worker.update_limits.body_bytes = saved_body_limit;
 
     // Apply `SNAPSHOT_SINCE_GAP` more fast edits: lazy snapshot defers and advances automatically.
@@ -1513,6 +1529,189 @@ fn retake_and_state_settle_preserve_logged_updates_past_total_changes() {
         projected_text.contains("logged after cap"),
         "replayed update preserved in body: {projected_text}"
     );
+    assert_eq!(ask(&mut worker, Request::Close(1)), Ok(Answer::Done));
+    assert_eq!(worker.held_bytes, 0);
+}
+
+/// Verifies `Held::base` is released (`capacity == 0`) as soon as `last_state` is taken,
+/// and O(1) rollback + re-snapshotting work with an empty `base`.
+#[test]
+fn snapshot_releases_base_and_rollback_works_without_base() {
+    let mut worker = Worker::new(Limits {
+        update_bytes: 16 * 1024,
+        state_bytes: 8 * 1024 * 1024,
+        body_bytes: 8 * 1024 * 1024,
+        documents: 2,
+        held_bytes: 16 * 1024 * 1024,
+    });
+    let initial_body = serde_json::to_vec(&serde_json::json!({
+        "type": "doc",
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "seed-base"}]}],
+    }))
+    .expect("json");
+    let Ok(Answer::Opened {
+        state: Some(mut state),
+        ..
+    }) = ask(
+        &mut worker,
+        Request::Open {
+            doc: 1,
+            source: Source::Body(Some(initial_body)),
+            share: Share::Kept,
+        },
+    )
+    else {
+        panic!("opened");
+    };
+    assert_ne!(worker.docs[&1].base, Vec::<u8>::new());
+    assert!(worker.docs[&1].last_state.is_none());
+
+    // 1. Advance edits until `take_snapshot` populates `last_state` and frees `Held::base`
+    //    (`capacity() == 0`) with an empty tail (`snapshot_since_start == since.len()`).
+    for i in 0..checkpoint::SNAPSHOT_SINCE_GAP {
+        let client = 1_100 + u64::try_from(i).expect("idx");
+        let u = fvoci_collab::testing::Editor::join(client, &state)
+            .append_paragraph(&format!("snap1-{i}"));
+        assert!(ask(&mut worker, Request::Take { doc: 1, update: u }).is_ok());
+        state = worker.docs[&1].doc.state();
+        if worker.docs[&1].last_state.is_some() {
+            break;
+        }
+    }
+    let held = &worker.docs[&1];
+    assert!(
+        held.base.is_empty() && held.base.capacity() == 0,
+        "base freed once last_state is populated"
+    );
+    assert!(held.last_state.is_some());
+    assert_eq!(held.snapshot_since_start, held.since.len());
+
+    // 2. O(1) rollback (`tail.is_empty()`) when `base` is empty preserves `last_state` and
+    //    keeps `base` empty.
+    let saved_body = worker.update_limits.body_bytes;
+    worker.update_limits.body_bytes = 5;
+    let refused = fvoci_collab::testing::Editor::join(1_300, &state).append_paragraph("refused");
+    assert_eq!(
+        ask(
+            &mut worker,
+            Request::Take {
+                doc: 1,
+                update: refused,
+            }
+        )
+        .err()
+        .map(|r| r.refusal),
+        Some(Refusal::BodyTooLarge)
+    );
+    worker.update_limits.body_bytes = saved_body;
+    let held = &worker.docs[&1];
+    assert!(held.base.is_empty() && held.base.capacity() == 0 && held.last_state.is_some());
+    assert_eq!(held.doc.state(), state);
+    assert_eq!(ask(&mut worker, Request::Close(1)), Ok(Answer::Done));
+    assert_eq!(worker.held_bytes, 0);
+}
+
+/// Equal-size `Dirty` restores after re-snapshotting (`new_state_bytes == checkpoint.state_bytes`
+/// with non-empty tail and empty `base`) always rebase cleanly (`base: settled_state,
+/// since: empty, last_state: None, settled: true`).
+#[test]
+fn equal_size_dirty_restore_always_rebases_onto_settled_state() {
+    let mut worker = Worker::new(Limits {
+        update_bytes: 16 * 1024,
+        state_bytes: 8 * 1024 * 1024,
+        body_bytes: 8 * 1024 * 1024,
+        documents: 1,
+        held_bytes: 16 * 1024 * 1024,
+    });
+    let Ok(Answer::Opened {
+        state: Some(mut state),
+        ..
+    }) = ask(
+        &mut worker,
+        Request::Open {
+            doc: 1,
+            source: Source::Body(None),
+            share: Share::Kept,
+        },
+    )
+    else {
+        panic!("opened");
+    };
+    let editor = fvoci_collab::testing::Editor::join(1_400, &state);
+    for i in 0..=(2 * checkpoint::SNAPSHOT_SINCE_GAP) {
+        let u = editor.append_paragraph(&format!("snap-{i}"));
+        assert!(ask(&mut worker, Request::Take { doc: 1, update: u }).is_ok());
+    }
+    state = worker.docs[&1].doc.state();
+    let held = &worker.docs[&1];
+    assert!(held.base.is_empty() && held.last_state.is_some());
+    assert!(
+        held.since.len() > held.snapshot_since_start,
+        "non-empty tail after re-snapshot"
+    );
+    let expected_state_bytes = held.state_bytes;
+
+    let saved_body = worker.update_limits.body_bytes;
+    worker.update_limits.body_bytes = 5;
+    let refused_tail =
+        fvoci_collab::testing::Editor::join(1_900, &state).append_paragraph("refused-tail");
+    assert_eq!(
+        ask(
+            &mut worker,
+            Request::Take {
+                doc: 1,
+                update: refused_tail,
+            }
+        )
+        .err()
+        .map(|r| r.refusal),
+        Some(Refusal::BodyTooLarge)
+    );
+    worker.update_limits.body_bytes = saved_body;
+    let held = &worker.docs[&1];
+    assert_eq!(held.state_bytes, expected_state_bytes, "equal-size restore");
+    assert_eq!(held.base, state, "rebased onto settled_state");
+    assert!(held.since.is_empty() && held.since_bytes == 0);
+    assert!(held.last_state.is_none() && held.settled);
+    assert_eq!(worker.held_bytes, held.state_bytes);
+    assert_eq!(ask(&mut worker, Request::Close(1)), Ok(Answer::Done));
+    assert_eq!(worker.held_bytes, 0);
+}
+
+/// Multi-client `Source::Body` (`> MAX_CLIENT_CHANGES / 4` changes) reports its actual
+/// split `clients > 1` count in `Answer::Opened`.
+#[test]
+fn multi_client_source_body_reports_actual_client_count() {
+    let mut worker = Worker::new(Limits {
+        update_bytes: 16 * 1024,
+        state_bytes: 8 * 1024 * 1024,
+        body_bytes: 8 * 1024 * 1024,
+        documents: 1,
+        held_bytes: 16 * 1024 * 1024,
+    });
+    let marked_para = serde_json::json!({
+        "type": "paragraph",
+        "content": [
+            {"type": "text", "text": "a", "marks": [{"type": "bold"}]},
+            {"type": "text", "text": "b", "marks": [{"type": "italic"}]},
+        ],
+    });
+    let split_body = serde_json::to_vec(&serde_json::json!({
+        "type": "doc",
+        "content": vec![marked_para; 22_000],
+    }))
+    .expect("json");
+    let Ok(Answer::Opened { clients, .. }) = ask(
+        &mut worker,
+        Request::Open {
+            doc: 1,
+            source: Source::Body(Some(split_body)),
+            share: Share::Kept,
+        },
+    ) else {
+        panic!("opened multi-client body");
+    };
+    assert_eq!(clients, 2, "split body reports actual client count");
     assert_eq!(ask(&mut worker, Request::Close(1)), Ok(Answer::Done));
     assert_eq!(worker.held_bytes, 0);
 }

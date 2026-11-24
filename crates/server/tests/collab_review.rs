@@ -328,3 +328,69 @@ async fn document_shutdown_does_not_wait_for_the_worker_request_timeout() {
         "document shutdown exceeded even an eight-second allowance"
     );
 }
+
+/// Opening and remaking a large body that splits across multiple clients
+/// (`> MAX_CLIENT_CHANGES / 4` changes) must record the worker's actual `clients` count
+/// (`>= 2`) on `OpenDoc` rather than hardcoding `1`.
+#[tokio::test]
+async fn multi_client_body_open_and_remake_record_actual_client_count() {
+    let marked_para = json!({
+        "type": "paragraph",
+        "content": [
+            {"type": "text", "text": "a", "marks": [{"type": "bold"}]},
+            {"type": "text", "text": "b", "marks": [{"type": "italic"}]},
+        ],
+    });
+    let split_body = json!({
+        "type": "doc",
+        "content": vec![marked_para; 22_000],
+    });
+    let th = Setup::native().start().await.init_basic().await;
+    let (app, card, _, _) = editing(&th, split_body).await;
+    let collab = app.collab();
+
+    // 1. Initial `make` (`open.rs`) from card body records actual `clients == 2`.
+    let _loaded = joined(collab, &app, &card.id, 701).await;
+    let open_clients = collab.held_clients(&app, &card.id).await;
+    assert_eq!(open_clients, Some(2), "initial open records split clients");
+
+    // 2. Replacing over HTTP (`Collab::replaced` -> `upkeep.rs::remake_from`) with a
+    //    1-client body records `1`, then with a split 2-client body records `2`.
+    let updated: Card = th
+        .client
+        .patch(
+            &format!("{TEST_WS}/cards/{}", card.id),
+            &json!({"body": paragraph("single-client"), "readAt": card.update_at}),
+        )
+        .await
+        .ok_json();
+    assert_eq!(collab.held_clients(&app, &card.id).await, Some(1));
+
+    let replacement = json!({
+        "type": "doc",
+        "content": vec![
+            json!({
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": "c", "marks": [{"type": "bold"}]},
+                    {"type": "text", "text": "d", "marks": [{"type": "italic"}]},
+                ],
+            });
+            22_000
+        ],
+    });
+    th.client
+        .patch(
+            &format!("{TEST_WS}/cards/{}", card.id),
+            &json!({"body": replacement, "readAt": updated.update_at}),
+        )
+        .await
+        .check_ok();
+    let remade_clients = collab.held_clients(&app, &card.id).await;
+    th.teardown().await;
+    assert_eq!(
+        remade_clients,
+        Some(2),
+        "remake_from records actual split client count instead of 1"
+    );
+}

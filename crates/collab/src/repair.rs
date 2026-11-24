@@ -411,6 +411,9 @@ fn refresh_cache_after_repair<T: ReadTxn>(
         cache.upsert(block.id, entry);
     }
     let root_len = usize::try_from(root.len(txn)).unwrap_or(usize::MAX);
+    if cache.len() > root_len {
+        cache.retain_live_root_elements(txn, root);
+    }
     if cache.len() != root_len || (root_len > 0 && root.first_child().is_none()) {
         return Err(BodyError::InvalidNode {
             path: String::new(),

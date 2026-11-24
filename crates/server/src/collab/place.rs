@@ -125,8 +125,8 @@ impl OpenDoc {
     /// changes one may have ([`fvoci_collab::MAX_CLIENT_CHANGES`]), or one more client
     /// may leave it with three quarters of the steps to read that an update may leave
     /// it with ([`fvoci_collab::READING_STEPS`]): it is made again from its body,
-    /// which names one client, of fewer changes than that, and is read in no such
-    /// steps, before updates are refused.
+    /// which names one client (or a handful for the largest bodies), of fewer changes
+    /// than that, and is read in no such steps, before updates are refused.
     ///
     /// The steps are those one more client may leave it with
     /// ([`fvoci_collab::steps_ahead`]), not those it takes: a document that sessions
@@ -307,6 +307,15 @@ impl Collab {
     pub async fn held_state_bytes(&self, app: &App, card_id: &str) -> Option<u64> {
         let slot = self.existing_slot(app, card_id).await?;
         slot.open.as_ref().map(|open| open.state_bytes)
+    }
+
+    /// How many clients a card's open document names, as recorded on [`OpenDoc`]; `None`
+    /// if it is not open.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub async fn held_clients(&self, app: &App, card_id: &str) -> Option<u64> {
+        let slot = self.existing_slot(app, card_id).await?;
+        slot.open.as_ref().map(|open| open.clients)
     }
 
     /// How many worker processes ended, of every worker: for the tests of how many an
