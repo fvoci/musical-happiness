@@ -38,6 +38,8 @@ export interface Route {
   courseTab?: Exclude<CourseTab, 'units'> | undefined;
   /** Optional meeting to highlight on the Meetings tab (`?tab=meetings&meeting=<id>`). */
   meetingId?: string | undefined;
+  /** The workspace's personal "Today's reviews" screen (`/w/<workspace>/learning/reviews/today`). */
+  reviewsToday?: true;
   /** The workspace "Today's learning" screen (`/w/<workspace>/learning/today`). */
   learningToday?: true;
   /**
@@ -183,6 +185,16 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
     return { ...NOWHERE, workspaceId, learningToday: true };
   }
   if (
+    w === 'w' &&
+    workspaceId !== undefined &&
+    section === 'learning' &&
+    boardId === 'reviews' &&
+    viewId === 'today' &&
+    cardId === undefined
+  ) {
+    return { ...NOWHERE, workspaceId, reviewsToday: true };
+  }
+  if (
     w !== 'w' ||
     workspaceId === undefined ||
     (section !== undefined && section !== 'boards') ||
@@ -225,6 +237,7 @@ export function settled(route: Partial<Route>): Route {
       ...(meetingId ? { meetingId } : {}),
     };
   }
+  if (workspaceId && route.reviewsToday) return { ...NOWHERE, workspaceId, reviewsToday: true };
   if (workspaceId && route.learningToday) return { ...NOWHERE, workspaceId, learningToday: true };
   const boardId = ((workspaceId || readToken) && route.boardId) || undefined;
   const viewId = (boardId && route.viewId) || undefined;
@@ -269,6 +282,7 @@ export function routePath(route: Partial<Route>, basePath: string): string {
     unitId,
     courseTab,
     meetingId,
+    reviewsToday,
     learningToday,
   } = settled(route);
   if (readToken && boardId) {
@@ -277,6 +291,8 @@ export function routePath(route: Partial<Route>, basePath: string): string {
     return `${buildUrl(`/${path}`, basePath)}?r=${encodeURIComponent(readToken)}`;
   }
   if (!workspaceId) return buildUrl('/', basePath);
+  if (reviewsToday)
+    return buildUrl(`/w/${encodeURIComponent(workspaceId)}/learning/reviews/today`, basePath);
   if (learningToday)
     return buildUrl(`/w/${encodeURIComponent(workspaceId)}/learning/today`, basePath);
   const named = (

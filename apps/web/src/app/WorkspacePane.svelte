@@ -32,6 +32,7 @@
   import MyTimePage from './MyTimePage.svelte';
   import NotFound from './NotFound.svelte';
   import { placeRoute, shownContainerId, type Router } from './router.svelte.ts';
+  import TodayReviewsPage from './TodayReviewsPage.svelte';
   import WikiPage from './WikiPage.svelte';
 
   interface Props {
@@ -71,7 +72,7 @@
 
   // Without a board or a wiki in the address: the last one the reader was on, or the first.
   $effect(() => {
-    if (!shown || placeId || router.route.learningToday) return;
+    if (!shown || placeId || router.route.reviewsToday || router.route.learningToday) return;
     const listed = workspace.sidebar.flatMap((entry) => entry.containers);
     const last = workspace.me && lastPlace(workspace.me.id, shown.id);
     const chosen = listed.find((container) => container.id === last) ?? listed[0];
@@ -136,6 +137,8 @@
   <WikiPage {workspace} {router} />
 {:else if router.route.courseId}
   <CoursePage {workspace} {router} />
+{:else if router.route.reviewsToday}
+  <TodayReviewsPage {workspace} {router} />
 {:else if router.route.learningToday}
   <LearningTodayPage {workspace} {router} />
 {:else if router.route.diaryId}

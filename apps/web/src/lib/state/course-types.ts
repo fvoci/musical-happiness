@@ -16,6 +16,9 @@ import type { BodyWrite, Comment, CommentVersion } from './backend.ts';
 import type { BodyVersions } from './body-versions.ts';
 import type { CourseExamsApi, CourseMeetingsApi } from './course-meeting-types.ts';
 import type { DeletedItem, Paging } from './trash-reads.ts';
+import type { CourseReviews } from './unit-review-types.ts';
+
+export * from './unit-review-types.ts';
 
 /** What the reader can change of the course itself. */
 export interface CourseLooks {
@@ -175,6 +178,8 @@ export interface UnitProgress {
   plannedDate: string | null;
   /** Optional last read or watched position string, at most 256 Unicode scalar values. */
   lastPosition: string | null;
+  /** Suggested next spaced-repetition review interval in days when completed. */
+  suggestedNextIntervalDays?: number;
   /** Last modification time in milliseconds since Unix epoch. */
   updateAt: number;
 }
@@ -335,6 +340,9 @@ export interface Courses {
   ): Promise<UnitProgress>;
   /** Aggregate completion counts for active course members, ordered by `userId`. */
   progressSummary(courseId: string, workspaceId?: string): Promise<CourseProgressSummary>;
+
+  // Personal spaced-repetition reviews, workspace today reviews, and personal study notes.
+  readonly reviews: CourseReviews;
 
   // Study schedule, manual redistribution, personal planned dates & today's learning (never on public links).
   /** Course schedule view in outline tree order for the caller (unjoined gets `myPlannedDate: null`). */

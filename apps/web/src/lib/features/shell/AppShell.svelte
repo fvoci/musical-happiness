@@ -85,6 +85,8 @@
     /** The address of the personal "My time" screen, when time tracking is available. */
     timeHref?: string | undefined;
     onOpenTime?: (() => void) | undefined;
+    /** Workspace "Today's reviews" entry, when courses are available. */
+    reviewsToday?: { active: boolean; onOpen: () => void } | undefined;
     /** Workspace "Today's learning" entry, when courses are available. */
     learningToday?: { active: boolean; onOpen: () => void } | undefined;
     /** The address of a board or a wiki, for a link to it. */
@@ -128,6 +130,7 @@
     meTime = false,
     timeHref,
     onOpenTime,
+    reviewsToday,
     learningToday,
     containerHref,
     sharedHref,
@@ -231,20 +234,15 @@
     sidebar.drawerOpen = false;
   }
 
-  function openTime(): void {
-    onOpenTime?.();
-    sidebar.drawerOpen = false;
-  }
-
-  const todayEntry = $derived(
-    learningToday && {
-      active: learningToday.active,
-      onOpen: () => {
-        learningToday.onOpen();
-        sidebar.drawerOpen = false;
-      },
-    },
-  );
+  const closeDrawerThen = (action?: () => void) =>
+    action ? () => (action(), (sidebar.drawerOpen = false), undefined) : undefined;
+  const drawerEntry = (entry?: { active: boolean; onOpen: () => void }) =>
+    entry && {
+      active: entry.active,
+      onOpen: () => void (entry.onOpen(), (sidebar.drawerOpen = false)),
+    };
+  const reviewsEntry = $derived(drawerEntry(reviewsToday));
+  const todayEntry = $derived(drawerEntry(learningToday));
 
   /**
    * Opens the settings; a drawer they were asked for from closes first.
@@ -332,7 +330,8 @@
     {containerId}
     {meTime}
     {timeHref}
-    onOpenTime={onOpenTime ? openTime : undefined}
+    onOpenTime={closeDrawerThen(onOpenTime)}
+    reviewsToday={reviewsEntry}
     learningToday={todayEntry}
     {containerHref}
     hidden={!layout.strip}
@@ -350,9 +349,7 @@
       data-testid="sidebar-scrim"
       aria-label={m.shell_close_sidebar()}
       class="fixed inset-0 z-40 animate-in cursor-default scrim duration-200 fade-in-0"
-      onclick={() => {
-        sidebar.drawerOpen = false;
-      }}
+      onclick={() => (sidebar.drawerOpen = false)}
     ></button>
   {/if}
 
@@ -388,7 +385,8 @@
       {containerId}
       {meTime}
       {timeHref}
-      onOpenTime={onOpenTime ? openTime : undefined}
+      onOpenTime={closeDrawerThen(onOpenTime)}
+      reviewsToday={reviewsEntry}
       learningToday={todayEntry}
       {containerHref}
       beside={layout.list === 'beside'}
@@ -413,6 +411,7 @@
       {workspace}
       {containerId}
       {meTime}
+      reviewsToday={reviewsToday?.active === true}
       learningToday={learningToday?.active === true}
       {sharedHref}
       menuButton={layout.menuButton}
@@ -443,9 +442,7 @@
     : undefined}
   onEmptyBoard={() => void addEmptyBoard()}
   onFromTemplate={(template: Container) => void addBoardFromTemplate(template)}
-  onEditTemplate={(template: Container) => {
-    openContainer(template);
-  }}
+  onEditTemplate={openContainer}
 />
 
 <NewWikiDialog

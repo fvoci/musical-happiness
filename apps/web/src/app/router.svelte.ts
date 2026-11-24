@@ -53,6 +53,7 @@ function sameRoute(a: Route, b: Route): boolean {
     a.unitId === b.unitId &&
     a.courseTab === b.courseTab &&
     a.meetingId === b.meetingId &&
+    a.reviewsToday === b.reviewsToday &&
     a.learningToday === b.learningToday &&
     a.invitation === b.invitation &&
     a.readToken === b.readToken &&

@@ -32,6 +32,7 @@
     meTime?: boolean;
     timeHref?: string | undefined;
     onOpenTime?: (() => void) | undefined;
+    reviewsToday?: { active: boolean; onOpen: () => void } | undefined;
     learningToday?: { active: boolean; onOpen: () => void } | undefined;
     containerHref: (container: ContainerPlace) => string;
     /** Out of the layout: the list stands beside the board, or the page is compact. */
@@ -50,6 +51,7 @@
     meTime = false,
     timeHref,
     onOpenTime,
+    reviewsToday,
     learningToday,
     containerHref,
     hidden,
@@ -115,6 +117,17 @@
     {/each}
   </ul>
   <div class="my-1 w-8 shrink-0 border-t"></div>
+  {#if reviewsToday && workspace.backend.course && workspace.info && workspace.me?.id}
+    <IconButton
+      label={m.today_reviews_title()}
+      aria-current={reviewsToday.active ? 'page' : undefined}
+      data-testid="strip-open-today-reviews"
+      class={reviewsToday.active ? 'bg-sidebar-accent ring-1 ring-input-border' : undefined}
+      onclick={reviewsToday.onOpen}
+    >
+      <CalendarCheckIcon />
+    </IconButton>
+  {/if}
   {#if learningToday && workspace.info}
     <IconButton
       label={m.learning_today_title()}

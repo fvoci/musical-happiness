@@ -12,6 +12,8 @@
   import CardBody from '$lib/features/card/CardBody.svelte';
   import CardComments from '$lib/features/card/CardComments.svelte';
   import CommentComposer from '$lib/features/card/CommentComposer.svelte';
+  import UnitNotesPanel from '$lib/features/course/UnitNotesPanel.svelte';
+  import UnitReviewsPanel from '$lib/features/course/UnitReviewsPanel.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { CourseStore, UnitStore, Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -36,6 +38,10 @@
     keep={() => keepVersion(unitVersions(unit))}
   />
 </div>
+{#if unit.status === 'ready'}
+  <UnitReviewsPanel course={store} unitId={unit.unitId} />
+  <UnitNotesPanel course={store} unitId={unit.unitId} />
+{/if}
 <CardBacklinks {workspace} blockId={unit.unitId} of="unit" heading="h2" />
 {#if unit.status === 'ready' && unit.comments.status === 'ready'}
   <CardComments

@@ -12,7 +12,7 @@
  */
 import { notifies } from '../../logic/notify-settings.ts';
 import type { Paging } from '../trash-reads.ts';
-import type { Notification, Notifications } from '../notification-types.ts';
+import type { Notification, NotificationKind, Notifications } from '../notification-types.ts';
 
 import { settingsOf } from './account.ts';
 import { reads } from './container-access.ts';
@@ -26,8 +26,8 @@ const HOUR = 60 * 60 * 1000;
 export interface StoredNotification {
   id: string;
   recipientId: string;
-  /** Notification kind (`comment` by default, or `meeting_upcoming` for study meeting reminders). */
-  kind?: 'comment' | 'meeting_upcoming';
+  /** Defaults to `'comment'` when omitted. */
+  kind?: NotificationKind;
   /** The card, page, unit, or meeting, and where it is. */
   blockId: string;
   containerId: string;
@@ -150,6 +150,43 @@ function watchersOf(world: World, block: StoredBlock): Set<string> {
   return watchers;
 }
 
+/**
+ * Adds a personal `review_due` reminder notification for a unit, matching
+ * `Store::notify_due_review` on the server.
+ */
+export function noteReviewDue(
+  world: World,
+  recipientId: string,
+  courseId: string,
+  unitId: string,
+): StoredNotification | undefined {
+  const block = world.blocks.get(unitId);
+  const container = world.containers.get(courseId);
+  if (block?.type !== 'unit' || block.containerId !== courseId || container?.kind !== 'course') {
+    return undefined;
+  }
+  const now = world.now();
+  const theirs = world.notifications.get(recipientId) ?? [];
+  const created: StoredNotification = {
+    id: world.newId(),
+    recipientId,
+    kind: 'review_due',
+    blockId: unitId,
+    containerId: courseId,
+    commentId: '',
+    actorId: '',
+    doers: [],
+    times: 1,
+    createAt: now,
+    updateAt: now,
+    readAt: 0,
+  };
+  theirs.push(created);
+  world.notifications.set(recipientId, theirs);
+  world.tellUsers([recipientId], { kind: 'notifications' });
+  return created;
+}
+
 /** The reader's notifications in the world, as the server answers them. */
 export class MemoryNotifications implements Notifications {
   readonly #of: { readonly world: World; readonly userId: string };
@@ -243,9 +280,10 @@ export class MemoryNotifications implements Notifications {
     if (!block || !container || !reads(world, this.#userId, container.id)) {
       return { id, createAt, updateAt, readAt, subject: null };
     }
-    const comment = world.blocks.get(one.commentId);
+    const comment = one.commentId ? world.blocks.get(one.commentId) : undefined;
+    const kind = one.kind ?? 'comment';
     const subject = {
-      kind: 'comment' as const,
+      kind,
       actorId: one.actorId,
       times: one.times,
       people: one.doers.length,
@@ -260,7 +298,7 @@ export class MemoryNotifications implements Notifications {
             ? ('unit' as const)
             : ('card' as const),
       title: block.title,
-      commentId: comment?.parentId === block.id ? comment.id : '',
+      commentId: kind === 'review_due' ? '' : comment?.parentId === block.id ? comment.id : '',
     };
     return { id, createAt, updateAt, readAt, subject };
   }
