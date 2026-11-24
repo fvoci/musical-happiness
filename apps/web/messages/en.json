@@ -43,6 +43,8 @@
   "account_register_title": "Create an account",
   "account_login": "User name or email address",
   "account_username": "User name",
+  "account_username_too_long": "A user name has at most 64 characters.",
+  "account_username_invalid_characters": "A user name cannot be an email address or include invisible characters, line breaks or characters that change the direction of text.",
   "account_display_name": "Display name",
   "account_display_name_hint": "The name others see you by, beside your user name. It may be left empty.",
   "account_display_name_too_long": "A display name has at most 64 characters.",

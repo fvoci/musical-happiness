@@ -156,7 +156,7 @@ test('a link that lets nobody in says so, to whoever opens it', async ({ page, b
   await expect(page.getByTestId('sign-in-form')).toBeVisible();
 });
 
-test('the email address signs in as well as the name, and a name may have an @ in it', async ({
+test('the email address signs in as well as the name, and a name with an @ in it is refused', async ({
   page,
   baseURL,
 }) => {
@@ -166,15 +166,32 @@ test('the email address signs in as well as the name, and a name may have an @ i
   await signInOnPage(page, { ...byEmail, username: byEmail.email });
   await expect(boardLink(page, WELCOME_TITLE)).toBeVisible();
 
-  // A second person, on a page of their own, whose name looks like an address.
+  // A second person, on an invitation page of their own, cannot choose a user name
+  // containing `@` (including another person's email address).
+  const token = await invitation(baseURL ?? '');
   const context = await page.context().browser()?.newContext({ locale: 'en-US' });
   if (!context) throw new Error('no browser');
   const other = await context.newPage();
   const odd = person('at');
-  await register(baseURL ?? '', { ...odd, username: `${odd.username}@home` });
-  await other.goto(page.url());
-  await signInOnPage(other, { ...odd, username: `${odd.username}@home` });
-  await expect(boardLink(other, WELCOME_TITLE)).toBeVisible();
+  await other.goto(`/invite/${token}`);
+  const form = other.getByTestId('invite-register-form');
+  const name = form.getByLabel(/^user name$/i);
+  const refused = other.waitForResponse(
+    (res) => res.url().endsWith('/api/v1/invitations/accept') && res.request().method() === 'POST',
+  );
+  await name.fill(byEmail.email);
+  await form.getByLabel(/email/i).fill(odd.email);
+  await form.getByLabel(/^password$/i).fill(odd.password);
+  await form.getByRole('button', { name: /^create account and join$/i }).click();
+  expect((await refused).status()).toBe(400);
+  await expect(form.getByTestId('problem-username')).toHaveText(
+    'A user name cannot be an email address or include invisible characters, line breaks or characters that change the direction of text.',
+  );
+  await expect(other.getByTestId('app-shell')).toHaveCount(0);
+
+  await name.fill(odd.username);
+  await form.getByRole('button', { name: /^create account and join$/i }).click();
+  await expect(other.getByTestId('app-shell')).toBeVisible();
   await context.close();
 });
 

@@ -33,11 +33,13 @@ function fieldProblemOf(entry: InvalidInput, field: AccountField): string {
     case 'too_short':
       return field === 'password' ? m.account_password_too_short() : m.account_field_invalid();
     case 'too_long':
+      if (field === 'username') return m.account_username_too_long();
       if (field === 'displayName') return m.account_display_name_too_long();
       return field === 'organizationName'
         ? m.account_organization_name_too_long()
         : m.account_field_too_long();
     case 'invalid_characters':
+      if (field === 'username') return m.account_username_invalid_characters();
       return field === 'organizationName'
         ? m.account_organization_name_invalid_characters()
         : m.account_display_name_invalid_characters();
