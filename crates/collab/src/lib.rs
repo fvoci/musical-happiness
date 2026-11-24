@@ -46,7 +46,7 @@ mod update;
 
 pub use build::{from_body, from_body_by, new_doc};
 pub use doc::{
-    BodyDoc, BodyTakeError, Changed, SettleError, SettledDoc, StateCounts, TakenInPlace,
+    BodyDoc, BodyTakeError, Changed, MadeBody, SettleError, SettledDoc, StateCounts, TakenInPlace,
     client_changes, reading_steps, state_counts, steps_ahead,
 };
 pub use repair::{InPlaceRepair, Repair};

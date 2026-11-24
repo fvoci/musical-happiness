@@ -1102,6 +1102,112 @@ fn lazy_snapshot_and_repeated_dirty_refusals_preserve_exact_state_and_held_bytes
     assert_eq!(worker.held_bytes, 0);
 }
 
+/// Opening a `Source::Body` with rich marked content populates exact counted state via
+/// `BodyDoc::from_body_counted`, serves the first `Take` on the prefilled incremental
+/// cache without re-encoding, and rejects bodies whose encoded state exceeds `state_bytes`.
+#[test]
+fn open_source_body_returns_counted_state_and_takes_immediately() {
+    let body_json = serde_json::to_vec(&serde_json::json!({
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [
+                {"type": "text", "text": "hello ", "marks": [{"type": "bold"}]},
+                {"type": "text", "text": "world", "marks": [
+                    {"type": "link", "attrs": {"href": "https://example.com"}}
+                ]}
+            ]},
+            {"type": "image", "attrs": {"fileId": "file-1", "alt": "pic"}}
+        ]
+    }))
+    .expect("json");
+
+    let mut worker = Worker::new(Limits {
+        update_bytes: 4096,
+        state_bytes: 64 * 1024,
+        body_bytes: 64 * 1024,
+        documents: 2,
+        held_bytes: 128 * 1024,
+    });
+    let Ok(Answer::Opened {
+        state: Some(state),
+        state_bytes,
+        clients,
+        client_changes,
+        steps_ahead,
+    }) = ask(
+        &mut worker,
+        Request::Open {
+            doc: 1,
+            source: Source::Body(Some(body_json.clone())),
+            share: Share::Kept,
+        },
+    )
+    else {
+        panic!("expected Opened with initial state");
+    };
+    assert_eq!(state_bytes, u64::try_from(state.len()).expect("len"));
+    assert_eq!(clients, 1);
+    let expected = fvoci_collab::state_counts(&state).expect("counts");
+    assert_eq!(client_changes, expected.client_changes);
+    assert_eq!(steps_ahead, expected.steps_ahead);
+    assert_eq!(worker.held_bytes, state_bytes);
+
+    let editor = fvoci_collab::testing::Editor::join(901, &state);
+    let update = editor.append_paragraph("first live edit");
+    let Ok(Answer::Taken { repair, remake, .. }) =
+        ask(&mut worker, Request::Take { doc: 1, update })
+    else {
+        panic!("first take succeeded");
+    };
+    assert!(repair.is_none());
+    assert!(!remake);
+    let held = worker.docs.get(&1).expect("held");
+    assert_eq!(held.doc.file_ids(), vec!["file-1".to_owned()]);
+    assert!(
+        held.last_state.is_none(),
+        "first edit used prefilled cache without full state re-encode"
+    );
+
+    // Tiny `state_bytes` limit rejects an oversized `Source::Body` before holding it.
+    let mut tight = Worker::new(Limits {
+        update_bytes: 4096,
+        state_bytes: 8,
+        body_bytes: 64 * 1024,
+        documents: 2,
+        held_bytes: 128 * 1024,
+    });
+    let err = ask(
+        &mut tight,
+        Request::Open {
+            doc: 2,
+            source: Source::Body(Some(body_json)),
+            share: Share::Kept,
+        },
+    )
+    .expect_err("oversized body state refused");
+    assert_eq!(err.refusal, Refusal::DocumentTooLarge);
+    assert_eq!(tight.held_bytes, 0);
+
+    // An unvalidated stored body with >53-bit integer attrs returns a clean refusal instead
+    // of panicking inside the worker.
+    let over_53 = (1_i64 << 53) + 1;
+    let bad_attr_json = serde_json::to_vec(&serde_json::json!({
+        "type": "doc",
+        "content": [{"type": "heading", "attrs": {"level": over_53}}]
+    }))
+    .expect("json");
+    let err = ask(
+        &mut worker,
+        Request::Open {
+            doc: 3,
+            source: Source::Body(Some(bad_attr_json)),
+            share: Share::Kept,
+        },
+    )
+    .expect_err("unreadable stored body refused");
+    assert_eq!(err.refusal, Refusal::Unreadable);
+}
+
 /// A table update past `TABLE_MAX_ROWS` (201 rows) or `TABLE_MAX_COLUMNS` (21 columns) is
 /// refused with `Refusal::TableTooLarge` (not `Refusal::BodyTooLarge`), rolls back cleanly
 /// with `held_bytes` intact, and lets subsequent valid edits succeed.
