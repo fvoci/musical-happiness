@@ -980,7 +980,8 @@ test.describe('a board the reader may only look at', () => {
       const from = await pointOn(first);
       await page.mouse.move(from.x, from.y);
       await page.mouse.down();
-      await page.mouse.move(from.x + 40, from.y + 40, { steps: 4 });
+      // Move well outside the card so releasing the button does not fire a click that opens it.
+      await page.mouse.move(from.x + 160, from.y + 160, { steps: 4 });
       await expect(overlay(page)).toHaveCount(0);
       await page.mouse.up();
     }

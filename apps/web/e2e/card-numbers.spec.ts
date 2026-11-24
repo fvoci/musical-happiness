@@ -144,7 +144,7 @@ test('`#` and a number in a body put that card of the board as a chip, and the b
 }, info) => {
   await openView(page, info, WELCOME, 'Board');
   const target = await cardTitled(page, 'Filter, sort and group');
-  const source = await cardTitled(page, 'Write in the body');
+  const source = await cardTitled(page, 'Describe cards with properties');
   const editor = await openCard(page, source.title);
   await editor.click();
   await documentBoundary(page, 'end');
@@ -301,7 +301,7 @@ test.describe('screens', () => {
         await picture(page, info, `table-${size.name}-${scheme}`);
 
         await show('Board');
-        const editor = await openCard(page, 'Write in the body');
+        const editor = await openCard(page, 'Describe cards with properties');
         await editor.click();
         await documentBoundary(page, 'end');
         await page.keyboard.type(' #1');
