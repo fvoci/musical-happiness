@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use fvoci_model::{Container, ContainerKind, ContainerMember, FileInfo};
+use fvoci_model::{Container, ContainerKind, ContainerMember, FileInfo, ValidatedCourseSchedule};
 use fvoci_store::StreamCreateError;
 use tokio::fs;
 
@@ -38,13 +38,14 @@ use crate::app::loose_objects::{WRITE_TIMEOUT, Written};
 use crate::auth::secret::new_secret;
 use crate::collab::AccessScope;
 use crate::error::AppError;
-use crate::metrics::ContainerWork;
+use crate::metrics::{ContainerWork, CourseSource};
 use crate::permissions;
 
 /// Prepared metadata across every planned board in a native archive.
 struct PreparedStreamedArchive {
     containers: Vec<Container>,
     extra_members: Vec<ContainerMember>,
+    schedules: Vec<(usize, ValidatedCourseSchedule)>,
     by_dir: HashMap<String, String>,
     files: HashMap<String, ArchiveFiles>,
     created_order: Vec<(ContainerKind, String)>,
@@ -125,10 +126,11 @@ impl App {
         let write_result = {
             let _structure = self.collab().changing_structure(self).await;
             self.store()
-                .create_imported_containers_blocks_files_and_members_streamed(
+                .create_imported_containers_blocks_files_members_and_schedules_streamed(
                     &mut prepared.containers,
                     &staged.records,
                     &prepared.extra_members,
+                    &prepared.schedules,
                     &options.modified_by,
                     rx,
                 )
@@ -174,6 +176,7 @@ impl App {
     ) -> Result<PreparedStreamedArchive, AppError> {
         let mut containers = Vec::with_capacity(plans.len());
         let mut extra_members = Vec::new();
+        let mut schedules = Vec::new();
         let mut by_dir = HashMap::with_capacity(plans.len());
         let mut files = HashMap::with_capacity(plans.len());
         let mut created_order = Vec::with_capacity(plans.len());
@@ -210,6 +213,12 @@ impl App {
                     });
                 }
             }
+            let container_offset = containers.len();
+            schedules.extend(
+                plan.schedules
+                    .into_iter()
+                    .map(|(local_idx, schedule)| (container_offset + local_idx, schedule)),
+            );
             containers.extend(plan.containers);
             stream_plans.push((plan.zip_index, plan.stream_plan));
         }
@@ -217,6 +226,7 @@ impl App {
         Ok(PreparedStreamedArchive {
             containers,
             extra_members,
+            schedules,
             by_dir,
             files,
             created_order,
@@ -421,6 +431,9 @@ impl App {
         for container in containers {
             self.metrics()
                 .container_copied(ContainerWork::Import, counted_as(container.kind));
+            if container.kind == ContainerKind::Course && !container.is_template {
+                self.metrics().course_created(CourseSource::Import);
+            }
         }
     }
 }

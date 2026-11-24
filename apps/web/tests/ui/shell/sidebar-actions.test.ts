@@ -53,6 +53,7 @@ describe('the menu of a container of the sidebar', () => {
     ]);
     expect(menuOf('course')).toEqual([
       'export: Export the course',
+      'duplicate: Duplicate course',
       'hide: Hide course',
       'delete: Delete course',
     ]);

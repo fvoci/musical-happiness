@@ -113,10 +113,16 @@ pub struct ImportCounts {
     pub boards: usize,
     /// Number of wikis created (`ContainerKind::Wiki`).
     pub wikis: usize,
+    /// Number of courses created (`ContainerKind::Course`).
+    #[serde(default)]
+    pub courses: usize,
     /// Number of cards created (`BlockType::Card`).
     pub cards: usize,
     /// Number of wiki pages created (`BlockType::Page`).
     pub pages: usize,
+    /// Number of course units created (`BlockType::Unit`).
+    #[serde(default)]
+    pub units: usize,
     /// Number of comments created (`BlockType::Comment`).
     pub comments: usize,
     /// Number of files stored.

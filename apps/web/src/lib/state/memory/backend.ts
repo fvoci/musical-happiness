@@ -443,11 +443,11 @@ export class MemoryBackend implements Backend {
     ].map(copy);
   }
 
-  /** Into `to`, as the server's `toWorkspace`; no diary or course, nor across spaces but by export. */
+  /** Into `to`, as the server's `toWorkspace`; no diary, nor across spaces but by export. */
   async duplicateContainer(id: string, asTemplate: boolean, to: string): Promise<Container> {
     await this.#enterWorkspace('duplicateContainer', to);
     const source = this.#container(id);
-    if (source.kind === 'diary' || source.kind === 'course') fail(404, 'no board');
+    if (source.kind === 'diary') fail(404, 'no board');
     if (source.kind === 'wiki' && asTemplate) fail(400, 'a wiki is no template');
     if (source.isBuiltin !== true && source.workspaceId !== to) fail(404, 'no board');
     return this.#copyContainer(source, asTemplate, to);
@@ -479,8 +479,9 @@ export class MemoryBackend implements Backend {
     source: Container,
     blocks: readonly StoredBlock[],
     workspaceId: string,
+    schedule?: { startDate: string; targetDate: string; studyDays: number },
   ): Container {
-    const board = insertCopy(this.world, this.userId, { source, blocks, workspaceId });
+    const board = insertCopy(this.world, this.userId, { source, blocks, workspaceId, schedule });
     this.#tellContainer(board);
     return copy(board);
   }
@@ -517,7 +518,11 @@ export class MemoryBackend implements Backend {
     await this.#enter('importArchive', options?.signal);
     spaces.checkWorkspace(this.world, this.userId, workspaceId);
     const format = options?.format ?? 'fvoci';
-    const { containers, blocks, skipped } = await readImportFile(file, format, workspaceId);
+    const { containers, blocks, schedules, skipped } = await readImportFile(
+      file,
+      format,
+      workspaceId,
+    );
     options?.onProgress?.({ sentBytes: file.size, totalBytes: file.size });
     checkDiariesComing(this.world, this.userId, workspaceId, { containers, blocks });
     checkArchiveCards(containers, blocks);
@@ -525,7 +530,7 @@ export class MemoryBackend implements Backend {
     const created = containers.map((board) => {
       const own = blocks.filter((b) => b.containerId === board.id);
       insertedBlocks.push(...own);
-      return this.#insertContainer(board, own, workspaceId);
+      return this.#insertContainer(board, own, workspaceId, schedules.get(board.id));
     });
     return summarizeImport(format, created, insertedBlocks, skipped);
   }

@@ -5,12 +5,13 @@
 //! never leaves the caller's own session.
 
 use fvoci_model::{
-    CourseProgressSummary, JsonMap, UnitProgress, UnitProgressChange, course_review_intervals,
-    suggested_next_interval_days,
+    CompletionChange, CourseProgressSummary, JsonMap, UnitProgress, UnitProgressChange,
+    course_review_intervals, suggested_next_interval_days,
 };
 
 use super::App;
 use crate::error::AppError;
+use crate::metrics::UnitCompletionAction;
 
 impl App {
     /// Returns the caller's personal progress rows for live units of `course_id`,
@@ -65,6 +66,17 @@ impl App {
             .store()
             .upsert_unit_progress(course_id, unit_id, user_id, change)
             .await?;
+        match change.completion {
+            CompletionChange::Complete => {
+                self.metrics()
+                    .course_unit_completion(UnitCompletionAction::Completed);
+            }
+            CompletionChange::Incomplete => {
+                self.metrics()
+                    .course_unit_completion(UnitCompletionAction::Uncompleted);
+            }
+            CompletionChange::Keep => {}
+        }
         if progress.completed_at.is_some() {
             let intervals = course_review_intervals(course_properties);
             let latest = self

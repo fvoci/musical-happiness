@@ -10,7 +10,8 @@
       "Meeting notes",
       "Content calendar",
       "Customer contacts",
-      "Study notes"
+      "Study notes",
+      "Two-Week Study Plan"
     ]
   },
   {
@@ -18,7 +19,7 @@
     "request": "(observation)",
     "status": 0,
     "body": [
-      9
+      10
     ]
   },
   {
@@ -226,7 +227,7 @@
       "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": true,
-      "templateVersion": 9,
+      "templateVersion": 10,
       "title": "Getting started with fvoci",
       "type": "P",
       "updateAt": "<ts>",

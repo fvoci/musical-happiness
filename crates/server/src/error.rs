@@ -721,7 +721,6 @@ impl AppError {
             | ContainerError::DiaryNotPrivate
             | ContainerError::DiaryOffOwnSpace
             | ContainerError::TooManyDiaries { .. }
-            | ContainerError::CourseIsTemplate
             | ContainerError::CourseHasCardProperties => Self::not_of_its_kind(refused),
             ContainerError::EmptyWorkspaceId => {
                 Self::from(anyhow::Error::from(StoreError::InvalidContainer(refused)))

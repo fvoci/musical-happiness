@@ -72,7 +72,7 @@ pub(crate) enum Module {
     Wiki,
     /// A diary: exported and imported with a user's own space, and never duplicated.
     Diary,
-    /// A course: exported and imported, and never duplicated whole in t1.
+    /// A course: exported, imported, and duplicated whole.
     Course,
 }
 
@@ -180,11 +180,11 @@ impl StorageMetrics {
         let copied = IntCounterVec::new(
             Opts::new(
                 "containers_copied_total",
-                "How many boards and wikis were copied whole, by work: export (written \
-                 into an archive, once the archive is ready to be sent), import (made from \
-                 an archive with its members), duplicate (copied by duplicateContainer), \
+                "How many containers were copied whole, by work: export (written into an \
+                 archive, once the archive is ready to be sent), import (made from an \
+                 archive with its members), duplicate (copied by duplicateContainer), \
                  welcome (the welcome board, copied for a new account); and by kind: board, \
-                 wiki.",
+                 wiki, diary, course.",
             )
             .namespace(PREFIX),
             &["work", "kind"],

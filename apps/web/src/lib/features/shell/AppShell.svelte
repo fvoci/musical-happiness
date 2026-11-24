@@ -51,6 +51,7 @@
   import { page, pane } from '$lib/layout/room.svelte.ts';
   import {
     createCourse,
+    createCourseFromTemplate,
     createWiki,
     isGuest,
     isOwnSpace,
@@ -287,8 +288,12 @@
     const made = await whileHere(workspace, () => createWiki(workspace, draft));
     if (made) openContainer(made);
   }
-  async function addCourse(draft: CourseDraft): Promise<void> {
-    const made = await whileHere(workspace, () => createCourse(workspace, draft));
+  async function addCourse(draft: CourseDraft, templateId?: string): Promise<void> {
+    const made = await whileHere(workspace, () =>
+      templateId
+        ? createCourseFromTemplate(workspace, templateId, draft)
+        : createCourse(workspace, draft),
+    );
     if (made) openContainer(made);
   }
   async function addBoardFromTemplate(template: Container): Promise<void> {
@@ -452,9 +457,10 @@
 
 <NewCourseDialog
   bind:open={namingCourse}
+  {workspace}
   workspaceName={nameOfWorkspace(workspace.info, m.shell_workspace_unnamed)}
   alone={isOwnSpace(workspace.info)}
-  onCreate={(draft: CourseDraft) => void addCourse(draft)}
+  onCreate={(draft: CourseDraft, templateId?: string) => void addCourse(draft, templateId)}
 />
 
 <SettingsDialog

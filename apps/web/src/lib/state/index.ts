@@ -98,7 +98,7 @@ export { LearningTodayStore } from './learning-today.svelte.ts';
 export { syncDeviceTimeZone } from './time-zone-sync.ts';
 export { UnitStore } from './unit.svelte.ts';
 export type { UnitComments } from './unit-comments.svelte.ts';
-export { createCourse } from './course-parts.ts';
+export { createCourse, createCourseFromTemplate } from './course-parts.ts';
 export { shownCourse } from './shown-course.svelte.ts';
 export {
   AMOUNT_UNITS,

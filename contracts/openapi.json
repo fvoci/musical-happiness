@@ -2746,6 +2746,11 @@
             "minimum": 0,
             "type": "integer"
           },
+          "courses": {
+            "description": "Number of courses created (`ContainerKind::Course`).",
+            "minimum": 0,
+            "type": "integer"
+          },
           "files": {
             "description": "Number of files stored.",
             "minimum": 0,
@@ -2753,6 +2758,11 @@
           },
           "pages": {
             "description": "Number of wiki pages created (`BlockType::Page`).",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "units": {
+            "description": "Number of course units created (`BlockType::Unit`).",
             "minimum": 0,
             "type": "integer"
           },
@@ -2766,8 +2776,10 @@
           "boards",
           "cards",
           "comments",
+          "courses",
           "files",
           "pages",
+          "units",
           "wikis"
         ],
         "type": "object"
@@ -14853,7 +14865,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/duplicate": {
       "post": {
-        "description": "Copies a board with its blocks, except comments, as a board or as a template. The\nuser becomes the admin of the copy, which is always private. A copy of the same kind\nhas the title of the original with ` copy` after it; a template made from a board is\ntitled `New board template`, and a board made from a template keeps the title. The\nserver writes those words in English and in Korean (` 사본`, `새 보드 템플릿`), and\nchooses by the language of the user's settings; where the settings leave the language\nto the device, or name one the server does not write in, by the first of the two that\n`Accept-Language` prefers; failing both, English. The board's members may copy it; an\nopen template is for everyone in its workspace, and a built-in template for everyone.\n\nA wiki is copied as a board is, with its pages as they stand: their tree and order,\ntitles, icons and bodies, the images and file blocks of the bodies given files of\ntheir own, and what a body names among the wiki's pages named in the copy by its\ncopy (what it names elsewhere stays as it was). The comments on the pages, the\nversions of their bodies, the pages in the trash, the wiki's other members and teams\nand its public link are not copied. A wiki is no template: `asTemplate=true` is 400.\nA copy deeper or with more pages than the organization's limits allow, lowered since\nthe wiki grew, is 400 with the reason `page_too_deep` or `too_many_pages` and the\n`limit`.",
+        "description": "Copies a board with its blocks, except comments, as a board or as a template. The\nuser becomes the admin of the copy, which is always private. A copy of the same kind\nhas the title of the original with ` copy` after it; a template made from a board is\ntitled `New board template` (from a course, `New course template`), and a container\nmade from a template keeps the title. The\nserver writes those words in English and in Korean (` 사본`, `새 보드 템플릿`,\n`새 학습 템플릿`), and\nchooses by the language of the user's settings; where the settings leave the language\nto the device, or name one the server does not write in, by the first of the two that\n`Accept-Language` prefers; failing both, English. The container's members may copy it;\nan open template is for everyone in its workspace, and a built-in template for everyone.\n\nA wiki is copied as a board is, with its pages as they stand: their tree and order,\ntitles, icons and bodies, the images and file blocks of the bodies given files of\ntheir own, and what a body names among the wiki's pages named in the copy by its\ncopy (what it names elsewhere stays as it was). The comments on the pages, the\nversions of their bodies, the pages in the trash, the wiki's other members and teams\nand its public link are not copied. A wiki is no template: `asTemplate=true` is 400.\nA copy deeper or with more pages than the organization's limits allow, lowered since\nthe wiki grew, is 400 with the reason `page_too_deep` or `too_many_pages` and the\n`limit`.\n\nA course is copied with its live chapters and units, their hierarchy, order, bodies,\nfiles, internal unit references remapped to the copies, study amounts (`amount`,\n`amountUnit`), shared `scheduledDate`, and shared course schedule (`course_schedules`).\nWhen copied from a built-in course template, template marks are stripped and shared\nschedule dates are shifted to the copier's day. Personal learner progress\n(`unit_progress`), comments, trashed units, body versions, subscriptions, notifications,\nother members, access groups, and public links are never copied.",
         "operationId": "duplicateContainer",
         "parameters": [
           {
@@ -14924,7 +14936,7 @@
             "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
           }
         },
-        "summary": "Copy a board or a wiki",
+        "summary": "Copy a board, wiki, or course",
         "tags": [
           "boards"
         ]

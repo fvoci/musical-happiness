@@ -155,8 +155,8 @@ test.describe('a course in a shared workspace', () => {
     const menuBtn = sidebar(page).getByRole('button', { name: 'Menu of the course Foundations' });
     await menuBtn.click();
     await expect(page.locator('[data-action="export"]')).toBeVisible();
+    await expect(page.locator('[data-action="duplicate"]')).toBeVisible();
     await expect(page.locator('[data-action="delete"]')).toBeVisible();
-    await expect(page.locator('[data-action="duplicate"]')).toHaveCount(0);
     await expect(page.locator('[data-action="template-from-board"]')).toHaveCount(0);
     await page.keyboard.press('Escape');
     if ((await stageOf(page)) === 'medium') {

@@ -101,11 +101,23 @@
     if (counts.wikis > 0) {
       items.push({ key: 'wikis', label: m.shell_import_count_wikis({ count: counts.wikis }) });
     }
+    if ((counts.courses ?? 0) > 0) {
+      items.push({
+        key: 'courses',
+        label: m.shell_import_count_courses({ count: counts.courses ?? 0 }),
+      });
+    }
     if (counts.cards > 0) {
       items.push({ key: 'cards', label: m.shell_import_count_cards({ count: counts.cards }) });
     }
     if (counts.pages > 0) {
       items.push({ key: 'pages', label: m.shell_import_count_pages({ count: counts.pages }) });
+    }
+    if ((counts.units ?? 0) > 0) {
+      items.push({
+        key: 'units',
+        label: m.shell_import_count_units({ count: counts.units ?? 0 }),
+      });
     }
     if (counts.comments > 0) {
       items.push({

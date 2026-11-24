@@ -27,6 +27,15 @@ export function archiveOf(
   const lines = [JSON.stringify({ version: MEMORY_ARCHIVE })];
   for (const board of containers) {
     lines.push(JSON.stringify({ type: 'board', data: board }));
+    const schedule = board.kind === 'course' ? world.courseSchedules.get(board.id) : undefined;
+    if (schedule) {
+      lines.push(
+        JSON.stringify({
+          type: 'courseSchedule',
+          data: { boardId: board.id, ...schedule },
+        }),
+      );
+    }
     // As the server writes them, which is the order an import numbers the cards in.
     for (const block of world.blocksOf(board.id).sort(oldestFirst)) {
       const exported =
@@ -99,15 +108,138 @@ export function exportableContainers(
   );
 }
 
-/** Reads an archive file into its containers and blocks (`importArchive`). */
-export async function readArchive(
-  file: File,
-): Promise<{ containers: Container[]; blocks: StoredBlock[] }> {
-  const lines = await archiveLines(file);
+export type ArchivedCourseSchedule = {
+  startDate: string;
+  targetDate: string;
+  studyDays: number;
+};
+
+const MAX_SCHEDULE_SPAN_DAYS = 3660;
+const DAY_MS = 86_400_000;
+const ALLOWED_SCHEDULE_KEYS = new Set([
+  'boardId',
+  'containerId',
+  'startDate',
+  'targetDate',
+  'studyDays',
+  'updateAt',
+]);
+
+/** Parses a strict `YYYY-MM-DD` calendar date to UTC day number, or `undefined` if invalid. */
+export function parseIsoDateDays(value: string): number | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return undefined;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+  const ms = Date.UTC(year, month - 1, day);
+  const check = new Date(ms);
+  if (
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() + 1 !== month ||
+    check.getUTCDate() !== day
+  ) {
+    return undefined;
+  }
+  return Math.floor(ms / DAY_MS);
+}
+
+function hasMatchingStudyDay(startDay: number, targetDay: number, studyDays: number): boolean {
+  const span = Math.min(targetDay - startDay, 6);
+  for (let offset = 0; offset <= span; offset += 1) {
+    const weekday = (new Date((startDay + offset) * DAY_MS).getUTCDay() + 6) % 7;
+    if ((studyDays & (1 << weekday)) !== 0) return true;
+  }
+  return false;
+}
+
+function parseCourseScheduleLine(
+  data: unknown,
+  containers: readonly Container[],
+): { boardId: string; schedule: ArchivedCourseSchedule } {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    fail(400, 'invalid courseSchedule line');
+  }
+  const raw = data as Record<string, unknown>;
+  for (const key of Object.keys(raw)) {
+    if (!ALLOWED_SCHEDULE_KEYS.has(key)) fail(400, `unknown courseSchedule field: ${key}`);
+  }
+  if (
+    (raw.boardId !== undefined && typeof raw.boardId !== 'string') ||
+    (raw.containerId !== undefined && typeof raw.containerId !== 'string')
+  ) {
+    fail(400, 'invalid courseSchedule target');
+  }
+  const byBoard = typeof raw.boardId === 'string' ? raw.boardId : '';
+  const byContainer = typeof raw.containerId === 'string' ? raw.containerId : '';
+  if (byBoard && byContainer && byBoard !== byContainer) {
+    fail(400, 'conflicting boardId and containerId in courseSchedule');
+  }
+  let boardId = byBoard || byContainer;
+  if (!boardId) {
+    if (containers.length !== 1) fail(400, 'missing boardId in courseSchedule');
+    boardId = containers[0]?.id ?? '';
+  }
+  if (
+    typeof raw.startDate !== 'string' ||
+    typeof raw.targetDate !== 'string' ||
+    typeof raw.studyDays !== 'number' ||
+    !Number.isInteger(raw.studyDays) ||
+    raw.studyDays < 1 ||
+    raw.studyDays > 127
+  ) {
+    fail(400, 'invalid courseSchedule line');
+  }
+  const startDay = parseIsoDateDays(raw.startDate);
+  const targetDay = parseIsoDateDays(raw.targetDate);
+  if (startDay === undefined || targetDay === undefined || startDay > targetDay) {
+    fail(400, 'invalid courseSchedule date range');
+  }
+  if (targetDay - startDay > MAX_SCHEDULE_SPAN_DAYS) {
+    fail(400, 'courseSchedule span exceeds maximum');
+  }
+  if (!hasMatchingStudyDay(startDay, targetDay, raw.studyDays)) {
+    fail(400, 'courseSchedule range contains no study day');
+  }
   return {
-    containers: lines.filter((line) => line.type === 'board').map((line) => line.data as Container),
-    blocks: lines.filter((line) => line.type === 'block').map((line) => blockOfLine(line.data)),
+    boardId,
+    schedule: {
+      startDate: raw.startDate,
+      targetDate: raw.targetDate,
+      studyDays: raw.studyDays,
+    },
   };
+}
+
+/** Reads an archive file into its containers, blocks, and optional course schedules (`importArchive`). */
+export async function readArchive(file: File): Promise<{
+  containers: Container[];
+  blocks: StoredBlock[];
+  schedules: Map<string, ArchivedCourseSchedule>;
+}> {
+  const lines = await archiveLines(file);
+  const containers = lines
+    .filter((line) => line.type === 'board')
+    .map((line) => line.data as Container);
+  const blocks = lines
+    .filter((line) => line.type === 'block')
+    .map((line) => blockOfLine(line.data));
+  const schedules = new Map<string, ArchivedCourseSchedule>();
+  for (const line of lines) {
+    if (line.type !== 'courseSchedule') continue;
+    const { boardId, schedule } = parseCourseScheduleLine(line.data, containers);
+    if (schedules.has(boardId)) fail(400, 'duplicate courseSchedule');
+    schedules.set(boardId, schedule);
+  }
+  const byId = new Map(containers.map((container) => [container.id, container]));
+  for (const boardId of schedules.keys()) {
+    const target = byId.get(boardId);
+    if (!target || (target.kind ?? 'board') !== 'course') {
+      fail(400, 'courseSchedule must reference a course container');
+    }
+  }
+  return { containers, blocks, schedules };
 }
 
 interface TrelloCardLike {
@@ -128,18 +260,25 @@ export async function readImportFile(
   file: File,
   format: ImportFormat,
   workspaceId: string,
-): Promise<{ containers: Container[]; blocks: StoredBlock[]; skipped: ImportWarning[] }> {
+): Promise<{
+  containers: Container[];
+  blocks: StoredBlock[];
+  schedules: Map<string, ArchivedCourseSchedule>;
+  skipped: ImportWarning[];
+}> {
   if (format === 'fvoci') {
     const parsed = await readArchive(file);
     return { ...parsed, skipped: [] };
   }
   if (file.size === 0) fail(400, 'cannot import an empty file');
-  if (format === 'trello') return readTrelloImport(file, workspaceId);
+  if (format === 'trello') {
+    return { ...(await readTrelloImport(file, workspaceId)), schedules: new Map() };
+  }
   const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
   if (head[0] !== 0x50 || head[1] !== 0x4b) fail(400, 'invalid zip archive');
   const title = file.name.replace(/\.zip$/i, '') || 'Notion Import';
   const wiki: Container = { ...createBoard(), workspaceId, title, kind: 'wiki' };
-  return { containers: [wiki], blocks: [], skipped: [] };
+  return { containers: [wiki], blocks: [], schedules: new Map(), skipped: [] };
 }
 
 async function readTrelloImport(
@@ -232,22 +371,26 @@ export function summarizeImport(
   blocks: readonly StoredBlock[],
   skipped: readonly ImportWarning[],
 ): ImportSummary {
-  const counts: { -readonly [K in keyof ImportCounts]: number } = {
+  const counts: Required<{ -readonly [K in keyof ImportCounts]: number }> = {
     boards: 0,
     wikis: 0,
+    courses: 0,
     cards: 0,
     pages: 0,
+    units: 0,
     comments: 0,
     files: 0,
   };
   for (const container of created) {
     const kind = container.kind ?? 'board';
     if (kind === 'wiki') counts.wikis += 1;
+    else if (kind === 'course') counts.courses += 1;
     else if (kind === 'board') counts.boards += 1;
   }
   for (const block of blocks) {
     if (block.type === 'card') counts.cards += 1;
     else if (block.type === 'page') counts.pages += 1;
+    else if (block.type === 'unit') counts.units += 1;
     else if (block.type === 'comment') counts.comments += 1;
   }
   return {

@@ -121,8 +121,8 @@ impl ContainerKinds {
     /// Boards, wikis and courses: what may be shared by a public link or named by a
     /// reference. A diary is never shared or referenced.
     pub const LINKED: Self = Self(Self::BOARD | Self::WIKI | Self::COURSE);
-    /// Boards and wikis: what may be copied whole (`duplicateContainer`).
-    pub const COPIED: Self = Self(Self::BOARD | Self::WIKI);
+    /// Boards, wikis and courses: what may be copied whole (`duplicateContainer`).
+    pub const COPIED: Self = Self(Self::BOARD | Self::WIKI | Self::COURSE);
     /// Wikis and courses: open containers that whoever works in the workspace reads and
     /// searches without joining.
     pub const OPEN_TO_READ: Self = Self(Self::WIKI | Self::COURSE);
@@ -343,9 +343,6 @@ pub enum ContainerError {
         /// The most diaries a space may have.
         limit: u32,
     },
-    /// A course is stored as a template.
-    #[error("a course is no template")]
-    CourseIsTemplate,
     /// A course is stored with card properties.
     #[error("a course has no card properties: it holds units and no cards")]
     CourseHasCardProperties,
@@ -522,10 +519,7 @@ impl Container {
                 Some(ContainerError::DiaryIsTemplate),
                 Some(ContainerError::DiaryHasCardProperties),
             ),
-            ContainerKind::Course => (
-                Some(ContainerError::CourseIsTemplate),
-                Some(ContainerError::CourseHasCardProperties),
-            ),
+            ContainerKind::Course => (None, Some(ContainerError::CourseHasCardProperties)),
         };
         if let Some(refused) = is_template.filter(|_| self.is_template) {
             return Err(refused);

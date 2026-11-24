@@ -13,7 +13,7 @@ use fvoci_server::config::Configuration;
 use crate::common::{PASSWORD, ROOT_WS, Setup, TestServer, USER1_USERNAME};
 
 /// How many built-in templates a reader is listed: each once, in one language.
-const TEMPLATES: usize = 7;
+const TEMPLATES: usize = 8;
 
 /// A directory of the test `name` that exists and takes no file.
 fn dead_storage(name: &str) -> PathBuf {

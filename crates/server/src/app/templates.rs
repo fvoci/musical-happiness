@@ -9,12 +9,13 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, Container, ContainerType, ContainersAndBlocks, FileInfo, WorkspaceRole,
+    Block, BlockType, Container, ContainerKind, ContainerType, ContainersAndBlocks,
+    CourseScheduleUpdate, FileInfo, TEMPLATE_SCHEDULE_PROPERTY, WorkspaceRole,
     renew_containers_and_blocks_ids,
 };
 use fvoci_store::{CopyChanges, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Tenant};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::App;
 use super::files::{FilePlace, file_info};
@@ -23,7 +24,7 @@ use super::loose_objects::Written;
 use crate::error::AppError;
 
 /// The current version of the built-in templates. Raising it stores them again.
-const DEFAULT_TEMPLATE_VERSION: i64 = 9;
+const DEFAULT_TEMPLATE_VERSION: i64 = 10;
 
 /// The longest the storing of one file of the templates may take. The files are a few
 /// kilobytes each, and a server does not serve, nor a request for a first board that
@@ -56,11 +57,12 @@ const TEMPLATE_BASE_DATE_PROPERTY: &str = "templateBaseDate";
 
 /// The properties that say of a board what only a built-in template is: a copy, which
 /// is somebody's own board, is made without them.
-const TEMPLATE_MARKS: [&str; 4] = [
+const TEMPLATE_MARKS: [&str; 5] = [
     ONBOARDING_PROPERTY,
     TEMPLATE_KEY_PROPERTY,
     TEMPLATE_LANGUAGE_PROPERTY,
     TEMPLATE_BASE_DATE_PROPERTY,
+    TEMPLATE_SCHEDULE_PROPERTY,
 ];
 
 /// The files of `assets/templates/` under `$folder` that are named, each with what it
@@ -82,7 +84,7 @@ macro_rules! embedded {
 
 /// The template files of `assets/templates/`, by name, in the order of their names:
 /// the order the templates are stored and offered in.
-const TEMPLATE_FILES: [(&str, &str); 14] = embedded!(
+const TEMPLATE_FILES: [(&str, &str); 16] = embedded!(
     text,
     "",
     [
@@ -100,6 +102,8 @@ const TEMPLATE_FILES: [(&str, &str); 14] = embedded!(
         "06-customer-contacts.ko.json",
         "07-study-notes.en.json",
         "07-study-notes.ko.json",
+        "08-course-study-plan.en.json",
+        "08-course-study-plan.ko.json",
     ]
 );
 
@@ -133,10 +137,28 @@ struct TemplateFile {
     /// Whether this is the board a new account starts on; one template has it.
     onboarding: bool,
     board: TemplateBoard,
+    /// Optional shared course schedule (only for `kind: "course"` templates).
+    #[serde(default)]
+    schedule: Option<TemplateSchedule>,
+    #[serde(default)]
     views: Vec<Block>,
+    #[serde(default)]
     cards: Vec<Block>,
+    #[serde(default)]
+    chapters: Vec<Block>,
+    #[serde(default)]
+    units: Vec<Block>,
     /// The files the bodies show.
     files: Vec<TemplateAsset>,
+}
+
+/// Example shared schedule embedded in a built-in course template.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TemplateSchedule {
+    start_date: String,
+    target_date: String,
+    study_days: i32,
 }
 
 /// The board of a template file: what a template says of its board. The rest is the
@@ -145,10 +167,13 @@ struct TemplateFile {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TemplateBoard {
     id: String,
+    #[serde(default)]
+    kind: ContainerKind,
     title: String,
     description: String,
     icon: String,
     show_description: bool,
+    #[serde(default)]
     card_properties: Vec<fvoci_model::JsonMap>,
 }
 
@@ -232,7 +257,15 @@ fn builtin_templates(workspace_id: &str) -> Result<BuiltinTemplates, AppError> {
             TEMPLATE_BASE_DATE_PROPERTY.to_owned(),
             Value::String(template.base_date),
         );
-        let blocks = template_blocks(name, &board.id, template.views, template.cards)?;
+        let blocks = template_blocks_for_kind(
+            name,
+            &mut board,
+            template.views,
+            template.cards,
+            template.schedule,
+            template.chapters,
+            template.units,
+        )?;
 
         // Each file by itself: a template has the identifiers of its file in every
         // language, and what is stored has its own.
@@ -260,6 +293,56 @@ fn builtin_templates(workspace_id: &str) -> Result<BuiltinTemplates, AppError> {
     Ok(templates)
 }
 
+/// Builds the blocks for a built-in template according to its container kind and stores
+/// any validated example course schedule on the template container.
+fn template_blocks_for_kind(
+    name: &str,
+    board: &mut Container,
+    views: Vec<Block>,
+    cards: Vec<Block>,
+    schedule: Option<TemplateSchedule>,
+    chapters: Vec<Block>,
+    units: Vec<Block>,
+) -> Result<Vec<Block>, AppError> {
+    match board.kind {
+        ContainerKind::Board => {
+            if !chapters.is_empty() || !units.is_empty() || schedule.is_some() {
+                return Err(mistake(name, "mixes course fields into a board template"));
+            }
+            template_blocks(name, &board.id, views, cards)
+        }
+        ContainerKind::Course => {
+            if !views.is_empty() || !cards.is_empty() {
+                return Err(mistake(name, "mixes board blocks into a course template"));
+            }
+            if let Some(schedule) = schedule {
+                let update = CourseScheduleUpdate {
+                    start_date: schedule.start_date,
+                    target_date: schedule.target_date,
+                    study_days: schedule.study_days,
+                    auto_assign: false,
+                };
+                let validated = update.check_request().map_err(|error| {
+                    mistake(name, format_args!("has an invalid schedule: {error}"))
+                })?;
+                board.properties.insert(
+                    TEMPLATE_SCHEDULE_PROPERTY.to_owned(),
+                    json!({
+                        "startDate": validated.start_date.to_string(),
+                        "targetDate": validated.target_date.to_string(),
+                        "studyDays": validated.study_days.bits(),
+                    }),
+                );
+            }
+            template_course_blocks(name, &board.id, chapters, units)
+        }
+        other => Err(mistake(
+            name,
+            format_args!("has unsupported template kind {}", other.as_str()),
+        )),
+    }
+}
+
 /// The board of the template `name`, as a built-in template of `workspace_id` that
 /// carries its `key`.
 fn template_board(
@@ -273,6 +356,7 @@ fn template_board(
     }
     let TemplateBoard {
         id,
+        kind,
         title,
         description,
         icon,
@@ -282,6 +366,7 @@ fn template_board(
     let mut board = Container {
         id,
         workspace_id: workspace_id.to_owned(),
+        kind,
         title,
         description,
         icon,
@@ -340,6 +425,44 @@ fn template_blocks(
         // Directly on the board: no parent.
         block.parent_id.clear();
         blocks.push(block);
+    }
+    Ok(blocks)
+}
+
+/// The chapters and then the units of a built-in course template `name`.
+fn template_course_blocks(
+    name: &str,
+    course_id: &str,
+    chapters: Vec<Block>,
+    units: Vec<Block>,
+) -> Result<Vec<Block>, AppError> {
+    let mut chapter_ids = HashSet::with_capacity(chapters.len());
+    let mut blocks = Vec::with_capacity(chapters.len() + units.len());
+    for mut chapter in chapters {
+        if chapter.block_type != BlockType::Chapter {
+            return Err(mistake(name, "has a non-chapter block among its chapters"));
+        }
+        if !chapter.parent_id.is_empty() {
+            return Err(mistake(name, "has a chapter with a parentId"));
+        }
+        course_id.clone_into(&mut chapter.container_id);
+        chapter_ids.insert(chapter.id.clone());
+        chapter
+            .validate()
+            .map_err(|error| mistake(name, format_args!("has an invalid chapter: {error}")))?;
+        blocks.push(chapter);
+    }
+    for mut unit in units {
+        if unit.block_type != BlockType::Unit {
+            return Err(mistake(name, "has a non-unit block among its units"));
+        }
+        if !unit.parent_id.is_empty() && !chapter_ids.contains(&unit.parent_id) {
+            return Err(mistake(name, "has a unit whose parentId is not a chapter"));
+        }
+        course_id.clone_into(&mut unit.container_id);
+        unit.validate()
+            .map_err(|error| mistake(name, format_args!("has an invalid unit: {error}")))?;
+        blocks.push(unit);
     }
     Ok(blocks)
 }
@@ -643,343 +766,4 @@ fn initialization_reason(boards: &[Container]) -> Option<&'static str> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::{BTreeMap, BTreeSet};
-
-    use super::*;
-
-    /// A built-in template as the import stores it, in English, without the mark of
-    /// the welcome board.
-    fn unmarked() -> Container {
-        let mut board = Container {
-            id: "b-built-in".to_owned(),
-            workspace_id: "t-root".to_owned(),
-            is_template: true,
-            is_builtin: true,
-            template_version: DEFAULT_TEMPLATE_VERSION,
-            container_type: ContainerType::Open,
-            ..Container::default()
-        };
-        board.properties.insert(
-            TEMPLATE_LANGUAGE_PROPERTY.to_owned(),
-            Value::String("en".to_owned()),
-        );
-        board
-    }
-
-    /// The built-in welcome board of a language.
-    fn marked(language: Language) -> Container {
-        let mut board = unmarked();
-        board
-            .properties
-            .insert(ONBOARDING_PROPERTY.to_owned(), Value::Bool(true));
-        board.properties.insert(
-            TEMPLATE_LANGUAGE_PROPERTY.to_owned(),
-            Value::String(language.tag().to_owned()),
-        );
-        board
-    }
-
-    /// The template files as JSON, by key and then by the tag of their language.
-    fn files_by_key() -> BTreeMap<String, BTreeMap<String, Value>> {
-        let mut files: BTreeMap<String, BTreeMap<String, Value>> = BTreeMap::new();
-        for (name, text) in TEMPLATE_FILES {
-            let file: Value = serde_json::from_str(text).expect(name);
-            let key = file["key"].as_str().expect(name).to_owned();
-            let language = file["language"].as_str().expect(name).to_owned();
-            assert!(
-                files
-                    .entry(key)
-                    .or_default()
-                    .insert(language, file)
-                    .is_none(),
-                "{name} is written twice in one language"
-            );
-        }
-        files
-    }
-
-    /// What a template has that is the same in every language: its property
-    /// definitions without their names, its views without their titles, and its cards
-    /// without their titles, their texts and the names of their files.
-    fn skeleton(file: &Value) -> Value {
-        let text_kinds = ["text", "email", "phone", "url"];
-        let properties = file["board"]["cardProperties"]
-            .as_array()
-            .expect("the properties");
-        let written: BTreeSet<&str> = properties
-            .iter()
-            .filter(|property| text_kinds.contains(&property["type"].as_str().expect("a type")))
-            .map(|property| property["id"].as_str().expect("an identifier"))
-            .collect();
-        let definitions: Vec<Value> = properties
-            .iter()
-            .map(|property| {
-                let options: Vec<Value> = property["options"]
-                    .as_array()
-                    .expect("the options")
-                    .iter()
-                    .map(|option| serde_json::json!([option["id"], option["color"]]))
-                    .collect();
-                serde_json::json!([property["id"], property["type"], options])
-            })
-            .collect();
-        let views: Vec<Value> = file["views"]
-            .as_array()
-            .expect("the views")
-            .iter()
-            .map(|view| serde_json::json!([view["id"], view["fields"]]))
-            .collect();
-        let cards: Vec<Value> = file["cards"]
-            .as_array()
-            .expect("the cards")
-            .iter()
-            .map(|card| {
-                let values: BTreeMap<&str, &Value> = card["fields"]["properties"]
-                    .as_object()
-                    .expect("the values")
-                    .iter()
-                    .filter(|(id, _)| !written.contains(id.as_str()))
-                    .map(|(id, value)| (id.as_str(), value))
-                    .collect();
-                let mut nodes = Vec::new();
-                outline(&card["body"], &mut nodes);
-                serde_json::json!([
-                    card["id"],
-                    card["fields"]["icon"],
-                    card["fields"]["isTemplate"],
-                    values,
-                    nodes
-                ])
-            })
-            .collect();
-        serde_json::json!({
-            "onboarding": file["onboarding"],
-            "board": [file["board"]["id"], file["board"]["icon"], definitions],
-            "views": views,
-            "cards": cards,
-            "files": file["files"].as_array().expect("the files").len(),
-        })
-    }
-
-    /// The nodes of a body in the order they are written in, each with what it has
-    /// that no language changes: its level, whether it is checked, what it names.
-    fn outline(node: &Value, nodes: &mut Vec<Value>) {
-        let Some(kind) = node["type"].as_str() else {
-            return;
-        };
-        if kind != "text" {
-            let attrs = &node["attrs"];
-            nodes.push(serde_json::json!([
-                kind,
-                attrs["level"],
-                attrs["checked"],
-                attrs["id"],
-                attrs["latex"]
-            ]));
-        }
-        for child in node["content"].as_array().into_iter().flatten() {
-            outline(child, nodes);
-        }
-    }
-
-    /// The type of every node of the bodies of the template files.
-    fn node_types() -> BTreeSet<String> {
-        fn gather(node: &Value, types: &mut BTreeSet<String>) {
-            if let Some(kind) = node["type"].as_str() {
-                types.insert(kind.to_owned());
-            }
-            for child in node["content"].as_array().into_iter().flatten() {
-                gather(child, types);
-            }
-        }
-        let mut types = BTreeSet::new();
-        for (name, text) in TEMPLATE_FILES {
-            let file: Value = serde_json::from_str(text).expect(name);
-            for card in file["cards"].as_array().expect(name) {
-                gather(&card["body"], &mut types);
-            }
-        }
-        types
-    }
-
-    #[test]
-    fn every_template_file_is_read_with_a_welcome_board_in_each_language() {
-        let templates = builtin_templates("t-root").expect("the embedded template files are read");
-        let boards = &templates.boards_and_blocks.containers;
-        assert_eq!(boards.len(), TEMPLATE_FILES.len(), "a board per file");
-        for language in Language::ALL {
-            let marked = boards
-                .iter()
-                .filter(|board| {
-                    written_in(board) == Some(language)
-                        && board.properties.get(ONBOARDING_PROPERTY) == Some(&Value::Bool(true))
-                })
-                .count();
-            assert_eq!(marked, 1, "one welcome board in {}", language.tag());
-        }
-        assert_eq!(
-            initialization_reason(
-                &boards
-                    .iter()
-                    .cloned()
-                    .map(|board| Container {
-                        is_builtin: true,
-                        ..board
-                    })
-                    .collect::<Vec<_>>()
-            ),
-            None,
-            "once stored they are current"
-        );
-    }
-
-    #[test]
-    fn every_template_is_written_in_every_language_and_differs_in_its_words_only() {
-        for (key, written) in files_by_key() {
-            let languages: Vec<&str> = written.keys().map(String::as_str).collect();
-            let mut expected: Vec<&str> = Language::ALL.iter().map(|each| each.tag()).collect();
-            expected.sort_unstable();
-            assert_eq!(languages, expected, "the languages of {key}");
-            let mut skeletons = written.values().map(skeleton);
-            let first = skeletons.next().expect("a language");
-            for other in skeletons {
-                assert_eq!(other, first, "{key} is the same template in each language");
-            }
-        }
-    }
-
-    #[test]
-    fn the_bodies_point_at_the_places_of_their_files() {
-        let templates = builtin_templates("t-root").expect("the embedded template files are read");
-        assert!(!templates.files.is_empty(), "the templates show files");
-        let mut shown: BTreeSet<(String, String)> = BTreeSet::new();
-        for block in &templates.boards_and_blocks.blocks {
-            for file in block.shown_files() {
-                shown.insert((block.container_id.clone(), file));
-            }
-        }
-        let stored: BTreeSet<(String, String)> = templates
-            .files
-            .iter()
-            .map(|file| {
-                (
-                    file.info.container_id.clone(),
-                    file.info.stored_name.clone(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            shown, stored,
-            "each file shown is one of its board, and stored"
-        );
-        for file in &templates.files {
-            assert_eq!(
-                usize::try_from(file.info.size).ok(),
-                Some(file.bytes.len()),
-                "{} is recorded at its size",
-                file.info.name
-            );
-            assert!(
-                fvoci_model::is_storage_path(&file.info.path),
-                "{} is a place of the storage",
-                file.info.path
-            );
-        }
-        let used: BTreeSet<&[u8]> = templates.files.iter().map(|file| file.bytes).collect();
-        for (name, bytes) in TEMPLATE_ASSETS {
-            assert!(used.contains(bytes), "{name} is embedded and shown nowhere");
-        }
-    }
-
-    /// The node types a body may hold that no template shows, each with why. Anything
-    /// else the allowlist takes has to be in a template: a node that is added to the
-    /// allowlist fails this test until a template shows it or it is listed here.
-    const NODES_NOT_SHOWN: [(&str, &str); 1] = [(
-        "mention",
-        "names a user, and a template is copied to people it knows nothing of",
-    )];
-
-    #[test]
-    fn the_templates_show_every_node_a_body_may_hold() {
-        let shown = node_types();
-        for node in fvoci_model::body_node_types() {
-            let left_out = NODES_NOT_SHOWN.iter().any(|(name, _)| *name == node);
-            assert_ne!(
-                shown.contains(node),
-                left_out,
-                "{node} is shown by a template, or listed as not shown, and not both"
-            );
-        }
-    }
-
-    #[test]
-    fn only_a_marked_template_of_the_system_is_the_onboarding_template() {
-        assert!(
-            is_onboarding_template(&marked(Language::English)),
-            "the built-in one"
-        );
-        assert!(!is_onboarding_template(&unmarked()), "without the mark");
-
-        let by_a_user = Container {
-            created_by: "u-somebody".to_owned(),
-            is_builtin: false,
-            ..marked(Language::English)
-        };
-        assert!(
-            !is_onboarding_template(&by_a_user),
-            "a user's board with the mark and the title"
-        );
-        let no_template = Container {
-            is_template: false,
-            ..marked(Language::English)
-        };
-        assert!(!is_onboarding_template(&no_template), "not a template");
-        let mut marked_otherwise = unmarked();
-        marked_otherwise.properties.insert(
-            ONBOARDING_PROPERTY.to_owned(),
-            Value::String("true".to_owned()),
-        );
-        assert!(
-            !is_onboarding_template(&marked_otherwise),
-            "the mark is the boolean true"
-        );
-    }
-
-    #[test]
-    fn templates_are_imported_when_missing_old_or_without_a_welcome_board() {
-        assert_eq!(
-            initialization_reason(&[]),
-            Some("no default templates found"),
-            "none"
-        );
-        let old = Container {
-            template_version: DEFAULT_TEMPLATE_VERSION - 1,
-            ..marked(Language::English)
-        };
-        assert_eq!(
-            initialization_reason(&[old]),
-            Some("template_version too old"),
-            "an old one"
-        );
-        assert_eq!(
-            initialization_reason(&[unmarked()]),
-            Some("a language has no welcome board"),
-            "current ones without the mark"
-        );
-        assert_eq!(
-            initialization_reason(&[unmarked(), marked(Language::English)]),
-            Some("a language has no welcome board"),
-            "a welcome board in one language only"
-        );
-        assert_eq!(
-            initialization_reason(&[
-                unmarked(),
-                marked(Language::English),
-                marked(Language::Korean)
-            ]),
-            None,
-            "current ones with a welcome board in each language"
-        );
-    }
-}
+mod tests;

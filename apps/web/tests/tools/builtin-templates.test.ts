@@ -90,9 +90,10 @@ function nodesOf(node: DocNode): DocNode[] {
 
 /** Every node of every body of the templates. */
 function allNodes(templates: readonly BuiltinTemplate[]): DocNode[] {
-  return templates.flatMap((template) =>
-    template.cards.flatMap((card) => (card.body ? nodesOf(card.body) : [])),
-  );
+  return templates.flatMap((template) => [
+    ...template.cards.flatMap((card) => (card.body ? nodesOf(card.body) : [])),
+    ...(template.units ?? []).flatMap((unit) => (unit.body ? nodesOf(unit.body) : [])),
+  ]);
 }
 
 /** Every text a person reads in a template, each with where it is. */
@@ -109,6 +110,11 @@ function texts(template: BuiltinTemplate): [where: string, text: string][] {
     ]),
     ...template.views.map((view): [string, string] => [`the view ${view.id}`, view.title]),
     ...template.cards.map((card): [string, string] => [`the card ${card.id}`, card.title]),
+    ...(template.chapters ?? []).map((chapter): [string, string] => [
+      `the chapter ${chapter.id}`,
+      chapter.title,
+    ]),
+    ...(template.units ?? []).map((unit): [string, string] => [`the unit ${unit.id}`, unit.title]),
     ...template.files.map((file): [string, string] => [`the file ${file.asset}`, file.name]),
   ];
 }
@@ -120,7 +126,7 @@ const byLanguage = (language: string): BuiltinTemplate[] =>
 describe('the built-in templates', () => {
   const everything = JSON.stringify(templates);
 
-  it('are seven in each language, the first of them the welcome board', () => {
+  it('are eight in each language, the first the welcome board and the eighth the course template', () => {
     for (const language of LANGUAGES) {
       const written = byLanguage(language);
       expect(written.map((template) => template.key)).toEqual([
@@ -131,26 +137,32 @@ describe('the built-in templates', () => {
         'content-calendar',
         'customer-contacts',
         'study-notes',
+        'course-study-plan',
       ]);
       expect(written.filter((template) => template.onboarding).map((t) => t.key)).toEqual([
         'welcome',
       ]);
     }
-    expect(templates).toHaveLength(7 * LANGUAGES.length);
+    expect(templates).toHaveLength(8 * LANGUAGES.length);
   });
 
-  it('hold 41 cards in each language, each with a body that the validator accepts, and 31 views', () => {
+  it('hold 41 cards, 31 views, 2 chapters, and 5 units in each language, each body accepted by the validator', () => {
     for (const language of LANGUAGES) {
       const cards = byLanguage(language).flatMap((template) => template.cards);
       expect(cards).toHaveLength(41);
       for (const card of cards) expect(validateDoc(card.body), card.title).toEqual([]);
       expect(byLanguage(language).flatMap((template) => template.views)).toHaveLength(31);
+      const chapters = byLanguage(language).flatMap((template) => template.chapters ?? []);
+      const units = byLanguage(language).flatMap((template) => template.units ?? []);
+      expect(chapters).toHaveLength(2);
+      expect(units).toHaveLength(5);
+      for (const unit of units) expect(validateDoc(unit.body), unit.title).toEqual([]);
     }
   });
 
-  it('are the same template in each language: the same properties, views and cards', () => {
+  it('are the same template in each language: the same properties, views, cards, chapters, and units', () => {
     const shape = (template: BuiltinTemplate): unknown => ({
-      board: template.board.id,
+      board: [template.board.id, template.board.kind ?? 'board'],
       properties: template.board.cardProperties.map((property) => [
         property.id,
         property.type,
@@ -163,6 +175,18 @@ describe('the built-in templates', () => {
         // The words are cut into texts where a language marks them.
         card.body
           ? nodesOf(card.body)
+              .map((node) => node.type)
+              .filter((type) => type !== 'text')
+          : null,
+      ]),
+      schedule: template.schedule ?? null,
+      chapters: (template.chapters ?? []).map((chapter) => [chapter.id, chapter.fields]),
+      units: (template.units ?? []).map((unit) => [
+        unit.id,
+        unit.parentId,
+        unit.fields,
+        unit.body
+          ? nodesOf(unit.body)
               .map((node) => node.type)
               .filter((type) => type !== 'text')
           : null,
@@ -182,10 +206,16 @@ describe('the built-in templates', () => {
         expect(HANGUL.test(text), `${template.key}, ${where}: ${text}`).toBe(true);
       }
       for (const card of template.cards) {
-        const body = allNodes([{ ...template, cards: [card] }])
+        const body = allNodes([{ ...template, cards: [card], units: [] }])
           .map((node) => node.text ?? '')
           .join('');
         expect(HANGUL.test(body), `${template.key}, the body of ${card.title}`).toBe(true);
+      }
+      for (const unit of template.units ?? []) {
+        const body = allNodes([{ ...template, cards: [], units: [unit] }])
+          .map((node) => node.text ?? '')
+          .join('');
+        expect(HANGUL.test(body), `${template.key}, the body of ${unit.title}`).toBe(true);
       }
     }
     expect(HANGUL.test(JSON.stringify(byLanguage('en')))).toBe(false);
@@ -204,6 +234,7 @@ describe('the built-in templates', () => {
       'study-notes': 'board',
     };
     for (const template of templates) {
+      if (template.board.kind === 'course') continue;
       const views = template.views.map(
         (view) => ({ ...view, createAt: 0 }) as unknown as BoardView,
       );
@@ -345,6 +376,18 @@ describe('the built-in templates', () => {
         for (const node of card.body ? nodesOf(card.body) : []) {
           if (node.type === 'reference') {
             expect(cardIds.has(String(node.attrs?.id)), `${where} / ${card.title}`).toBe(true);
+          }
+        }
+      }
+      const chapterIds = new Set((template.chapters ?? []).map((chapter) => chapter.id));
+      const unitIds = new Set((template.units ?? []).map((unit) => unit.id));
+      for (const unit of template.units ?? []) {
+        if (unit.parentId !== '') {
+          expect(chapterIds.has(unit.parentId), `${where} / ${unit.title}`).toBe(true);
+        }
+        for (const node of unit.body ? nodesOf(unit.body) : []) {
+          if (node.type === 'reference') {
+            expect(unitIds.has(String(node.attrs?.id)), `${where} / ${unit.title}`).toBe(true);
           }
         }
       }

@@ -3,14 +3,14 @@
 
 use std::time::Instant;
 
-use fvoci_model::{Block, Container, ContainerType};
+use fvoci_model::{Block, Container, ContainerKind, ContainerType};
 use serde_json::{Value, json};
 
 use crate::common::ROOT_WS;
 use crate::common::{ROOT_WORKSPACE_ID, Setup};
 
 /// How many built-in templates there are, and in how many languages each is written.
-const TEMPLATES: usize = 7;
+const TEMPLATES: usize = 8;
 const LANGUAGES: usize = 2;
 
 /// The built-in templates are listed, each with blocks, and each can be duplicated into
@@ -391,15 +391,23 @@ fn template_files() -> Vec<Value> {
         .collect()
 }
 
-/// How many cards of the template files have a body, and how many of their property
-/// values are dates (the only values that are objects).
+/// How many cards or units of the template files have a body, and how many of their
+/// property values are dates (the only values that are objects).
 fn bodies_and_dates(files: &[Value]) -> (usize, usize) {
     let cards = || {
         files
             .iter()
             .flat_map(|template| template["cards"].as_array().into_iter().flatten())
     };
-    let bodies = cards().filter(|card| card["body"].is_object()).count();
+    let units = || {
+        files
+            .iter()
+            .flat_map(|template| template["units"].as_array().into_iter().flatten())
+    };
+    let bodies = cards()
+        .chain(units())
+        .filter(|block| block["body"].is_object())
+        .count();
     let dates = cards()
         .flat_map(|card| {
             card["fields"]["properties"]
@@ -445,6 +453,33 @@ impl Seen {
     /// Counts the blocks of `board` in, reading each file a body shows and holding each
     /// card a view orders to the cards of the board.
     async fn read(&mut self, ts: &crate::common::TestServer, board: &Container) {
+        if board.kind == ContainerKind::Course {
+            let nodes = ts
+                .client
+                .get(&format!("{ROOT_WS}/courses/{}/units", board.id))
+                .await
+                .ok_json::<Vec<Value>>();
+            assert!(
+                nodes.iter().any(|node| node["kind"] == json!("chapter")),
+                "course template has chapters"
+            );
+            assert!(
+                nodes.iter().any(|node| node["kind"] == json!("unit")),
+                "course template has units"
+            );
+            for node in nodes.iter().filter(|node| node["kind"] == json!("unit")) {
+                let unit_id = node["id"].as_str().expect("unit id");
+                let unit = ts
+                    .client
+                    .get(&format!("{ROOT_WS}/courses/{}/units/{unit_id}", board.id))
+                    .await
+                    .ok_json::<Value>();
+                if unit["body"].is_object() {
+                    self.bodies += 1;
+                }
+            }
+            return;
+        }
         let blocks = ts
             .client
             .get(&format!("{ROOT_WS}/boards/{}/blocks", board.id))

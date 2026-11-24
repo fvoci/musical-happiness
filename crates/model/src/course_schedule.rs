@@ -309,6 +309,63 @@ pub struct ValidatedCourseSchedule {
     pub auto_assign: bool,
 }
 
+/// Property key carrying a built-in course template's example shared schedule until copied.
+pub const TEMPLATE_SCHEDULE_PROPERTY: &str = "templateSchedule";
+
+impl ValidatedCourseSchedule {
+    /// Shifts `start_date` and `target_date` by `days` calendar days (preserving span
+    /// and `study_days`), returning `None` if shifting leaves calendar bounds or produces
+    /// a window with no matching study day.
+    #[must_use]
+    pub fn try_shifted(self, days: i64) -> Option<Self> {
+        if days == 0 {
+            return Some(self);
+        }
+        let delta = i32::try_from(days).ok()?;
+        let start_date = self.start_date.plus_days(delta)?;
+        let target_date = self.target_date.plus_days(delta)?;
+        has_study_day_in_range(start_date, target_date, self.study_days).then_some(Self {
+            start_date,
+            target_date,
+            ..self
+        })
+    }
+}
+
+impl CourseSchedule {
+    /// Parses a stored [`CourseSchedule`] into a [`ValidatedCourseSchedule`] with
+    /// `auto_assign: false`, returning `None` if dates or `study_days` are invalid.
+    #[must_use]
+    pub fn to_validated(&self) -> Option<ValidatedCourseSchedule> {
+        let update = CourseScheduleUpdate {
+            start_date: self.start_date.clone(),
+            target_date: self.target_date.clone(),
+            study_days: i32::from(self.study_days),
+            auto_assign: false,
+        };
+        update.check_request().ok()
+    }
+}
+
+/// Shifts a unit's shared `scheduledDate` field (`YYYY-MM-DD`) by `days` calendar days.
+/// Leaves the field unchanged when `days == 0`, absent, malformed, or out of calendar bounds.
+pub fn shift_unit_scheduled_date(fields: &mut JsonMap, days: i64) {
+    if days == 0 {
+        return;
+    }
+    let Ok(delta) = i32::try_from(days) else {
+        return;
+    };
+    let Some(Value::String(raw)) = fields.get_mut(UNIT_SCHEDULED_DATE_FIELD) else {
+        return;
+    };
+    if let Ok(date) = raw.parse::<DiaryDate>()
+        && let Some(moved) = date.plus_days(delta)
+    {
+        *raw = moved.to_string();
+    }
+}
+
 impl CourseScheduleUpdate {
     /// Validates the schedule dates, weekday mask, span limit, and non-empty study days.
     ///
@@ -854,16 +911,19 @@ fn validate_schedule_window(
         refused.refuse("targetDate", RefusalReason::Invalid, SPAN_TOO_LONG);
         return;
     }
-    if let Some(days) = study_days {
-        let has_study_day = (0..7).any(|offset| {
-            start
-                .plus_days(offset)
-                .is_some_and(|d| d <= target && days.includes_date(d))
-        });
-        if !has_study_day {
-            refused.refuse("studyDays", RefusalReason::Invalid, NO_STUDY_DAYS_IN_RANGE);
-        }
+    if let Some(days) = study_days
+        && !has_study_day_in_range(start, target, days)
+    {
+        refused.refuse("studyDays", RefusalReason::Invalid, NO_STUDY_DAYS_IN_RANGE);
     }
+}
+
+fn has_study_day_in_range(start: DiaryDate, target: DiaryDate, days: StudyDays) -> bool {
+    (0..7).any(|offset| {
+        start
+            .plus_days(offset)
+            .is_some_and(|d| d <= target && days.includes_date(d))
+    })
 }
 
 #[cfg(test)]
