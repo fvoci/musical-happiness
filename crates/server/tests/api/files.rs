@@ -1,10 +1,4 @@
 //! File upload, download and info.
-//!
-//! Ports `server/integrationtests/file_test.go`, `TestTeamUploadFile` in
-//! `server/integrationtests/user_test.go`, and the real-behaviour parts of
-//! `server/app/files_test.go`. The headers and range handling are checked against the
-//! oracle.
-
 use fvoci_model::{Block, BlockType, Container, ContainerType, JsonMap, new_id};
 use reqwest::Method;
 use reqwest::StatusCode;
@@ -113,7 +107,7 @@ async fn board_with_attachment(ts: &TestServer) -> (Container, String) {
 
 // -- upload ----------------------------------------------------------------------------
 
-/// `TestUploadFile/"a non authenticated user should be rejected"`.
+/// An unauthenticated user cannot upload a file to a board.
 #[tokio::test]
 async fn upload_file_a_non_authenticated_user_should_be_rejected() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -122,8 +116,7 @@ async fn upload_file_a_non_authenticated_user_should_be_rejected() {
     ts.teardown().await;
 }
 
-/// `TestUploadFile/"upload a file ... without permissions"`: a board that is not there
-/// answers as a private board the user is no member of. (The original answers 403.)
+/// Uploading to a missing board answers 404, matching a private board the user cannot see.
 #[tokio::test]
 async fn upload_file_to_a_board_that_does_not_exist_is_not_found() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -132,7 +125,7 @@ async fn upload_file_to_a_board_that_does_not_exist_is_not_found() {
     ts.teardown().await;
 }
 
-/// `TestUploadFile/"upload a file ... with permissions"`.
+/// A member with edit permission can upload a file to the board.
 #[tokio::test]
 async fn upload_file_with_permissions() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -145,7 +138,7 @@ async fn upload_file_with_permissions() {
     ts.teardown().await;
 }
 
-/// `TestUploadFile/"... reaching the MaxFileLimit"`.
+/// Uploading a file larger than the configured maximum size is rejected.
 #[tokio::test]
 async fn upload_file_reaching_the_max_file_size() {
     let ts = Setup::native()
@@ -167,8 +160,8 @@ async fn upload_file_reaching_the_max_file_size() {
     ts.teardown().await;
 }
 
-/// `TestTeamUploadFile/"no permission"`: who cannot see a board learns nothing of it;
-/// who can see it but may not add to it is refused.
+/// Uploading without permission: who cannot see a board gets 404; who can view it without
+/// edit permission gets 403.
 #[tokio::test]
 async fn workspace_upload_file_no_permission() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -190,7 +183,7 @@ async fn workspace_upload_file_no_permission() {
     ts.teardown().await;
 }
 
-/// `TestTeamUploadFile/"a board admin should be able to update a file"`.
+/// A board admin can upload a file to the board.
 #[tokio::test]
 async fn workspace_upload_file_a_board_admin_can_upload() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -203,7 +196,7 @@ async fn workspace_upload_file_a_board_admin_can_upload() {
     ts.teardown().await;
 }
 
-/// `TestTeamUploadFile/"user that doesn't belong to the board ..."`.
+/// A non-member of an open board is refused when uploading a file to it.
 #[tokio::test]
 async fn workspace_upload_file_a_non_member_is_forbidden() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -215,8 +208,7 @@ async fn workspace_upload_file_a_non_member_is_forbidden() {
     ts.teardown().await;
 }
 
-/// `TestSaveFile/"... save .jpeg file as jpg ..."`: the stored name's extension is
-/// `.jpg`.
+/// Uploading a `.jpeg` file stores it with a normalized `.jpg` extension.
 #[tokio::test]
 async fn upload_maps_jpeg_to_jpg() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -358,8 +350,7 @@ async fn a_download_is_offered_under_the_name_of_the_upload() {
 
 // -- info ------------------------------------------------------------------------------
 
-/// `TestFileInfo/"Retrieving file info"`: there is no info of a name no file has. (The
-/// original answers 200 with `null`.)
+/// Requesting file info for an unknown stored name returns 404.
 #[tokio::test]
 async fn file_info_of_an_unknown_file_is_not_found() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -418,9 +409,9 @@ async fn file_info_has_the_members_of_the_record() {
 
 // -- download --------------------------------------------------------------------------
 
-/// A plain download carries the original's headers and content.
+/// A plain download returns the expected headers and file bytes.
 #[tokio::test]
-async fn download_has_the_originals_headers() {
+async fn download_has_the_expected_headers() {
     let ts = Setup::native().start().await.init_basic().await;
     let (board, file_id) = board_with_attachment(&ts).await;
     let response = ts
@@ -469,8 +460,7 @@ async fn download_has_the_originals_headers() {
     ts.teardown().await;
 }
 
-/// A `Range: bytes=0-7` download is a 206 with the first eight bytes (verified on the
-/// oracle).
+/// A `Range: bytes=0-7` download returns 206 Partial Content with the first eight bytes.
 #[tokio::test]
 async fn download_with_a_range_is_partial_content() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -549,7 +539,7 @@ async fn download_with_a_range_past_the_end_is_416() {
     ts.teardown().await;
 }
 
-/// A future `If-Modified-Since` gets a 304 (verified on the oracle).
+/// A future `If-Modified-Since` header returns 304 Not Modified.
 #[tokio::test]
 async fn download_if_modified_since_in_the_future_is_304() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -566,7 +556,7 @@ async fn download_if_modified_since_in_the_future_is_304() {
     ts.teardown().await;
 }
 
-/// A name no file has is not found. (The original answers 500.)
+/// Downloading an unknown file name returns 404.
 #[tokio::test]
 async fn download_of_an_unknown_file_is_not_found() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -657,8 +647,8 @@ async fn download_with_a_valid_read_token() {
 
 // -- copying files on duplication ------------------------------------------------------
 
-/// `TestCopyAndUpdateCardFiles`: duplicating a board copies its image file to a new name
-/// and the copy is downloadable, also from a copy in another workspace.
+/// Duplicating a board copies its image file to a new name and the copy is downloadable,
+/// including when duplicated into another workspace.
 #[tokio::test]
 async fn duplicating_a_board_copies_its_files() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -704,8 +694,8 @@ async fn duplicating_a_board_copies_its_files() {
     ts.teardown().await;
 }
 
-/// `TestCopyCard`: duplicating a single card copies the files its attachment blocks refer
-/// to, whether a block names its file as `fileId` or as `attachmentId` alone.
+/// Duplicating a single card copies the files its attachment blocks refer to, whether a
+/// block names its file as `fileId` or as `attachmentId` alone.
 #[tokio::test]
 async fn duplicating_a_card_copies_its_files() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -836,9 +826,8 @@ async fn foreign_file(ts: &TestServer) -> ForeignFile {
     }
 }
 
-/// Security fix. On the original, a member of any board fetches any file whose name
-/// they know through their own board's path (verified: a user who gets 403 for the file
-/// through its board's path gets 200 through the path of a board of their own). A file
+/// Cross-board file isolation: a member of another board cannot fetch a file through
+/// their own board's path even if they know its stored name. A file
 /// this server stored is given out through its own board only.
 #[tokio::test]
 async fn a_file_is_not_given_out_through_another_board() {
@@ -911,7 +900,7 @@ async fn a_file_is_given_out_through_its_own_board() {
 
 /// The same tie holds where the server itself reads a file by name: duplicating a block
 /// or a board does not copy another board's file into the duplicate, and an export does
-/// not put it into the archive. On the original, the duplicate gets a copy of the file.
+/// not put it into the archive.
 #[tokio::test]
 async fn a_file_of_another_board_is_neither_copied_nor_exported() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -1027,9 +1016,8 @@ async fn template_file(ts: &TestServer) -> TemplateFile {
     }
 }
 
-/// Not in the original. A file stored in the template layout names its board in its path
-/// like any other, and is given out through that board only. Before, such a file was an
-/// exception: whoever knew its name fetched it through any board they could read.
+/// A file stored on a template board is scoped to that template's path like any other
+/// file, and cannot be fetched through an unrelated board.
 #[tokio::test]
 async fn a_template_file_is_not_given_out_through_another_board() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -1103,9 +1091,8 @@ async fn a_file_without_a_record_is_given_out_through_no_board() {
     ts.teardown().await;
 }
 
-/// A block that names no file does not stop a duplication: the original logs the failed
-/// copy and carries on (`server/app/files.go:186-190`; verified on the original, which
-/// answers 200 and keeps the empty `fileId`).
+/// A block with an empty `fileId` does not stop duplication: the failure is logged and
+/// the duplicate succeeds with the empty `fileId` preserved.
 #[tokio::test]
 async fn duplicating_a_board_with_an_empty_file_reference_works() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -1157,10 +1144,8 @@ async fn duplicating_a_board_with_an_empty_file_reference_works() {
     ts.teardown().await;
 }
 
-/// A file name that begins with a character of several bytes, uploaded to a template
-/// board. The original keeps the client's name for a template's files and drops the
-/// first byte of a name to find its record. Here every upload is stored under a
-/// generated name, and the record keeps the name it came with.
+/// Uploading a file with a multi-byte UTF-8 leading character to a template board stores
+/// it under a generated name while preserving the upload name in its metadata record.
 #[tokio::test]
 async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -1254,7 +1239,7 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
     ts.teardown().await;
 }
 
-/// A range on an empty file: the whole, empty file is the answer, as in the original.
+/// A byte range on an empty file returns 200 with the empty body.
 #[tokio::test]
 async fn a_range_on_an_empty_file_is_ignored() {
     let ts = Setup::native().start().await.init_basic().await;

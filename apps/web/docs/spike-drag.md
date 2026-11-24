@@ -702,6 +702,6 @@ pnpm --filter web run build    fonts: up to date / ✓ built in 827ms
 - **어두운 화면에서의 모습.** 토큰만 썼으므로 따라올 것으로 보이나 찍어 보지 않았다.
 - **Storybook과 제품 빌드.** 이 코드는 아직 제품의 어느 화면에도 들어가 있지 않다. 제품 빌드(`build`)는 통과하지만 드래그 코드는 그 번들에 없다.
 
-## 참고한 것
+## 구현
 
-코드는 모두 새로 썼다. `github.com/fvoci/groundzero`의 `board.ts`와 `e2e/board-drag.spec.ts`는 열어 보지 않았다.
+드래그 기반 코드는 모두 새로 작성했다.

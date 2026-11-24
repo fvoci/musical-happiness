@@ -114,7 +114,7 @@ fn with_action<'m>(messages: &'m [Value], action: &str) -> Vec<&'m Value> {
 }
 
 /// Creating a board tells its creator about the board and the membership; patching and
-/// deleting it tell the members (`server/app/boards.go:249-266`, `:367`, `:462`).
+/// deleting it notify the members.
 #[tokio::test]
 async fn board_changes_are_broadcast_to_the_members() {
     let th = Setup::native().start().await.init_basic().await;
@@ -192,8 +192,8 @@ async fn board_changes_are_broadcast_to_the_members() {
     th.teardown().await;
 }
 
-/// Adding, updating and removing a member tell the board's members; the removed user is
-/// told too (`server/app/boards.go:551`, `:594`, `:647-654`).
+/// Adding, updating and removing a member notify the board's members, including the
+/// removed user.
 #[tokio::test]
 async fn member_changes_are_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
@@ -262,11 +262,8 @@ async fn member_changes_are_broadcast() {
     th.teardown().await;
 }
 
-/// The "patch type open/private" cases of `TestPatchBoard` in
-/// `server/app/boards_test.go` ("no users", "single user", "user with member"), through
-/// the real store and a real connection: when a template changes between open and
-/// private, the workspace's users who are not members of it are told that they lost or gained
-/// access (`server/app/boards.go:402-432`).
+/// When a template changes between open and private, non-member workspace users are
+/// notified that they gained or lost access.
 #[tokio::test]
 async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users() {
     let th = Setup::native().start().await.init_basic().await;
@@ -370,8 +367,8 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
     th.teardown().await;
 }
 
-/// Duplicating a board tells its new owner about the copy, its blocks and the
-/// membership (`server/app/boards.go:209-224`).
+/// Duplicating a board notifies its new owner about the copy, its blocks, and the
+/// membership.
 #[tokio::test]
 async fn duplicate_container_is_broadcast() {
     let th = Setup::native().start().await.init_basic().await;

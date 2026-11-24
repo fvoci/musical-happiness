@@ -5,8 +5,8 @@
 //! and making the search index again.
 //!
 //! It is served on the local Unix socket only, never on the TCP listener, so that being
-//! able to open the socket file is the credential. There is no session and no cross-site
-//! request forgery header, as in the original (`server/api/api.go` `RegisterAdminRoutes`).
+//! able to open the socket file is the credential. No session cookie or cross-site
+//! request forgery header is required on this socket.
 
 use axum::Router;
 use axum::body::Bytes;
@@ -82,9 +82,8 @@ struct AdminSetPasswordData {
     password: Option<String>,
 }
 
-/// Refuses requests that did not arrive through a Unix socket, the original's
-/// `adminRequired` (`server/api/auth.go:399-410`). The routes are not mounted anywhere
-/// else; this keeps them closed should they ever be.
+/// Refuses requests that did not arrive through a Unix socket. The routes are not mounted
+/// anywhere else; this middleware keeps them closed as defense in depth.
 async fn require_unix_connection(request: Request, next: Next) -> Response {
     if Peer::of(&request) == Some(Peer::Unix) {
         next.run(request).await
@@ -339,7 +338,7 @@ mod tests {
         (status, String::from_utf8_lossy(&body).into_owned())
     }
 
-    /// `adminRequired` of `server/api/auth.go`: only a Unix socket connection passes.
+    /// Only a Unix socket connection passes the admin-route guard.
     #[tokio::test]
     async fn admin_required_lets_only_unix_connections_through() {
         let (status, body) = status_for(Some(Peer::Unix)).await;

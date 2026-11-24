@@ -62,9 +62,9 @@ async fn board_with_previewed_card(th: &TestServer) -> (Container, String, Strin
     (board, file_id, me.id)
 }
 
-/// Not in the original (user decision 2026-11-11 14:25 KST). With `preview=true` the card
-/// list gives each card the file of its body's first image and the beginning of its text,
-/// at most 200 UTF-16 code units cut between characters; without it, no preview. A reader
+/// With `preview=true` the card list gives each card the file of its body's first image
+/// and the beginning of its text, at most 200 UTF-16 code units cut between characters;
+/// without it, no preview. A reader
 /// with the board's read token gets the same previews, the cards naming no users, and
 /// gets the image with the same token.
 #[tokio::test]

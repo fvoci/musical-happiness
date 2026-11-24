@@ -58,12 +58,10 @@ impl App {
             return Ok(category_containers);
         }
 
-        // The original looks and then creates without holding anything in between, so
-        // two requests of a new user that arrive together each create a default
-        // category, and the boards of one of them are filed nowhere. Here the second
-        // request waits and finds the category the first one created. The category
-        // exists before boards are filed under it, so the nested call that filing makes
-        // returns above and does not wait for this turn again.
+        // Serialize concurrent first-time creation so two simultaneous requests from a
+        // new user do not create duplicate default categories. The category exists before
+        // boards are filed under it, so the nested call that filing makes returns above
+        // and does not wait for this turn again.
         let _turn = self.default_category_turn().await;
         let mut category_containers = self
             .store()
@@ -123,9 +121,8 @@ impl App {
             error.context("createBoardsCategory default category creation failed")
         })?;
 
-        // The boards are read before the memberships. The original reads them the other
-        // way round, so a board created by another request in between is in its list of
-        // boards but not in its list of memberships, and the request fails.
+        // Read boards before memberships so a board created concurrently in between does
+        // not appear in the board list without a corresponding membership.
         // Boards and wikis alike, whichever the request is about that makes the category:
         // it is made once, and files what the user is on.
         let containers = self
@@ -229,9 +226,8 @@ impl App {
         if container_ids.is_empty() {
             return Ok(());
         }
-        // The original writes first and only then finds that the user has no such
-        // category, which lets a user file boards into another user's category
-        // (server/app/category_boards.go:150-170). The check comes first here.
+        // Verify category ownership before writing so a user cannot file boards into
+        // another user's category.
         self.user_category(workspace_id, user_id, category_id)
             .await?;
         for container_id in container_ids {
@@ -299,9 +295,8 @@ impl App {
 
     /// Checks that a new order names the boards of the category and nothing else.
     ///
-    /// Preserved quirk: only the count and the membership are compared, so an order that
-    /// names one board twice and leaves another out passes
-    /// (server/app/category_boards.go:212-263).
+    /// Only the count and membership are compared, so an order that names one board twice
+    /// and omits another passes.
     async fn verify_new_category_containers_match_existing(
         &self,
         user_id: &str,
@@ -345,9 +340,8 @@ impl App {
     ///
     /// The category must be the user's and the board one of its workspace or a built-in
     /// template (both checked here), and the route has checked that the user sees the
-    /// board. Preserved quirk: if the user does not have the board in the category,
-    /// nothing changes, and the user's connection is told of the change all the same
-    /// (server/app/category_boards.go:265-279).
+    /// board. If the user does not have the board in the category, nothing changes in the
+    /// store, and the user's connection is still notified.
     ///
     /// # Errors
     ///

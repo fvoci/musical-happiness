@@ -1,7 +1,7 @@
 //! The fvoci board server.
 //!
-//! A port of the original server's standalone mode: the `/api/v1` REST API, the `/ws`
-//! websocket, and the static web app, on SQLite or PostgreSQL.
+//! The `/api/v1` REST API, the `/ws` websocket, and the static web app, backed by SQLite
+//! or PostgreSQL.
 
 pub mod api;
 pub mod app;
@@ -315,8 +315,7 @@ impl Server {
         result
     }
 
-    /// Everything between start and shutdown, in the order of the original's `Start` and
-    /// `Shutdown` (`server/server/server.go:242-322`).
+    /// Runs the server lifecycle between startup and shutdown.
     async fn run(
         &self,
         listener: tokio::net::TcpListener,
@@ -412,9 +411,8 @@ impl Server {
 
     /// The TLS settings to serve with, or `None` to serve plain HTTP.
     ///
-    /// With `serve_https` a missing certificate or key is an error. The original serves plain
-    /// HTTP then, without a word (`server/web/webserver.go:113`): an operator who asked
-    /// for TLS would be sending sessions and passwords in the clear without knowing.
+    /// With `serve_https` enabled, a missing certificate or key is a startup error so an
+    /// operator who asked for TLS never silently serves sessions and passwords in plain HTTP.
     fn tls_config(&self) -> anyhow::Result<Option<tls::ServerConfig>> {
         if !self.app.config().serve_https {
             return Ok(None);

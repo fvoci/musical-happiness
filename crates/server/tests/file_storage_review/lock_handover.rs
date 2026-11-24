@@ -114,7 +114,7 @@ impl Observer for AfterHoldQuery {
     fn waited_for_connection(&self, _: DbType, _: Duration) {}
 }
 
-/// The next server removes the original's job and records a replacement at its place.
+/// The next server removes the previous holder's job and records a replacement at its place.
 async fn replace_as_the_next_server(next: &App, file: FileInfo) -> FileInfo {
     next.housekeeping()
         .remove_doomed_objects(now_millis())

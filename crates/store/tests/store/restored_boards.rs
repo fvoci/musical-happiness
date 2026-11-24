@@ -79,10 +79,10 @@ async fn stored_board_of(
     board_id
 }
 
-/// Not in the original (user decision 2026-11-11 14:25 KST). A deleted board keeps where
-/// each user had filed it, and comes back there: the same category, between the boards
-/// it was between, hidden as it was; under the user's default category, hidden as it
-/// was, if that category went meanwhile; nowhere for a user who has no default category
+/// A deleted board remembers where each user had filed it and comes back there: the same
+/// category, between the boards it was between, hidden as it was; under the user's
+/// default category, hidden as it was, if that category went meanwhile; nowhere for a
+/// user who has no default category
 /// yet. The places go with the board when the trash is emptied of it.
 #[tokio::test]
 #[expect(

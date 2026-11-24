@@ -237,9 +237,8 @@ fn renew_ids(
     let mut blocks = Vec::new();
     for container in &mut containers {
         let new_container_id = new_id();
-        // Validation does not reject two boards sharing an identifier. Here the first one
-        // takes the blocks; the original lists those blocks twice, attached to the last
-        // such board.
+        // Validation does not reject two boards sharing an identifier; the first one
+        // takes the blocks so they are not emitted twice.
         for mut block in blocks_by_container
             .remove(&container.id)
             .unwrap_or_default()

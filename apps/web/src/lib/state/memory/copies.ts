@@ -36,7 +36,7 @@ function writtenIn(tag: string): 'en' | 'ko' | undefined {
 
 /**
  * The title of a copy, as the server titles it: a copy of the same kind is
- * the original's with "copy" after it, a template made from a board "New
+ * the source's with "copy" after it, a template made from a board "New
  * board template", and a board made from a template keeps the title. The
  * words are English or Korean: by the account's `language`; where that is
  * left to the device or is another language, by the first of the two the

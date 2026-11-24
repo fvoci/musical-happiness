@@ -1,5 +1,4 @@
-//! Port of `TestGenerateBlockIDs` and `TestStampModificationMetadata` from
-//! `server/model/block_test.go`. Each test maps to one subtest of the original.
+//! Tests for block ID regeneration and modification-metadata stamping.
 
 use fvoci_model::{Block, JsonMap, generate_block_ids, new_id, stamp_modification_metadata};
 use serde_json::{Value, json};
@@ -243,7 +242,7 @@ fn generate_block_ids_updates_default_template_id() {
     assert_eq!(blocks[1].fields["defaultTemplateId"], json!(blocks[0].id));
 }
 
-/// Not in the original suite: `cardOrder` is rewritten like `contentOrder`.
+/// `cardOrder` is rewritten like `contentOrder`.
 #[test]
 fn generate_block_ids_updates_card_order() {
     let (card_id, view_id, board_id) = (id(), id(), id());
@@ -263,9 +262,9 @@ fn generate_block_ids_updates_card_order() {
     );
 }
 
-/// Not in the original suite: a card that only a view's `cardOrder` names, as a card
-/// whose content is its body is, keeps its place in the order. The view is on the
-/// board, as views are, so nothing else refers to the card.
+/// A card that only a view's `cardOrder` names, as a card whose content is its body is,
+/// keeps its place in the order. The view is on the board, as views are, so nothing else
+/// refers to the card.
 #[test]
 fn generate_block_ids_follows_a_card_only_the_card_order_names() {
     let (card_id, view_id, board_id) = (id(), id(), id());
@@ -287,7 +286,7 @@ fn generate_block_ids_follows_a_card_only_the_card_order_names() {
     );
 }
 
-/// Not in the original suite: fields of an unexpected type are left as they are.
+/// Fields of an unexpected type are left unchanged during ID rewriting.
 #[test]
 fn generate_block_ids_leaves_fields_of_unexpected_type() {
     let weird = json!({ "contentOrder": "not a list", "cardOrder": 7, "defaultTemplateId": [] });

@@ -1,7 +1,7 @@
 //! The application layer: what the server does, independent of HTTP.
 //!
 //! [`App`] holds the server's shared state. Its operations are spread over the modules of
-//! this directory by area, mirroring the original's `server/app` package.
+//! this directory by area.
 
 mod accept_language;
 mod access;

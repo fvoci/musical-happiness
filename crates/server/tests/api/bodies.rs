@@ -779,8 +779,8 @@ async fn copies_of_a_body_show_copies_of_its_files(kind: &str) {
 
 /// A copy of a card that shows an image begins with one version of its body, as any
 /// copy of a card does: the body as copied, which shows the copy's own file, and none
-/// of the original's versions. The cards of a copy of its board begin without versions.
-/// The original keeps its versions.
+/// of the source card's versions. The cards of a copy of its board begin without versions.
+/// The source card keeps its versions.
 #[tokio::test]
 async fn a_copy_of_a_card_that_shows_an_image_begins_with_one_version() {
     a_copy_of_a_card_with_a_file_begins_with_one_version("image").await;
@@ -855,7 +855,7 @@ async fn a_copy_of_a_card_with_a_file_begins_with_one_version(kind: &str) {
     assert_eq!(
         version["body"]["content"][1]["attrs"]["fileId"].as_str(),
         shown.as_ref().and_then(|files| files.first().copied()),
-        "the version shows the copy's file, not the original's"
+        "the version shows the copy's file, not the source card's"
     );
 
     let board_copy: Value = th
@@ -1134,8 +1134,8 @@ async fn a_comment_has_a_body() {
         .await
         .check_no_content();
 
-    // Copying and moving leave comments behind, as the original does; a comment made
-    // from another board's shows copies of that board's files.
+    // Copying and moving leave comments behind; a comment created referencing another
+    // board's file copies that file into the destination board.
     let other_card: Card = new_card(&th.client, &other.id, &json!({"title": "Card"}))
         .await
         .created_json();
@@ -1353,8 +1353,7 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
 /// A comment whose body was changed says so (`editedAt`), and the board's members read
 /// what it said before (`getCommentVersions`): the text it was posted with, by its
 /// author, and each later one, by who wrote it. A reader by the read token, and anybody
-/// who is no member, gets no versions. Not in the original (user decision 2026-11-11
-/// 14:46 KST).
+/// who is no member, gets no versions.
 #[tokio::test]
 async fn a_changed_comment_says_so_and_its_members_read_what_it_said() {
     let th = Setup::native().start().await.init_basic().await;

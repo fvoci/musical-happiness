@@ -1,14 +1,11 @@
 //! Sharing a board: the state that is set is the state that is read, a shared board
 //! keeps its token until a new one is asked for, and turning sharing off forgets it.
-//!
-//! The first test began as a port of `server/services/store/storetests/sharing.go`.
-
 use fvoci_model::{Sharing, new_id};
 use fvoci_store::{SharingChange, StoreError};
 
 use crate::common;
 
-/// `testUpsertSharingAndGetSharing`.
+/// Creating, updating, and reading sharing settings on a board.
 #[tokio::test]
 async fn set_sharing_and_get_sharing() {
     let test = common::setup().await;

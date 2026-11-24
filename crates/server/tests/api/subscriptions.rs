@@ -1,11 +1,5 @@
-//! Subscriptions to blocks.
-//! Port of `server/integrationtests/subscriptions_test.go`, plus tests of what
-//! `server/api/subscriptions.go` decides and the original leaves untested: the
-//! validation with its order and messages, subscribing twice, whose subscriptions a
-//! user may read and end, and that nobody is told. The expectations of those were
-//! observed on the original, except where a test says that the port differs.
-//!
-//! The subtests of the original share one server; here every subtest has its own.
+//! Integration tests for block subscriptions: validation, permissions, membership
+//! cascade, and non-broadcasting behavior. Each test runs against its own server.
 
 use std::time::Duration;
 
@@ -131,9 +125,7 @@ async fn create_test_subscriptions(client: &Client, count: usize) -> (Vec<Subscr
     (subscriptions, user.id)
 }
 
-// -- server/integrationtests/subscriptions_test.go ----------------------------------------
-
-/// `TestCreateSubscription/"Create valid subscription"`
+/// Creating a valid subscription succeeds and returns the stored subscription.
 #[tokio::test]
 async fn create_subscription_create_valid_subscription() {
     let th = Setup::native().start().await.init_basic().await;
@@ -147,13 +139,12 @@ async fn create_subscription_create_valid_subscription() {
     th.teardown().await;
 }
 
-/// `TestCreateSubscription/"Create invalid subscription"`
+/// Creating a subscription with an empty subscriber type is rejected.
 #[tokio::test]
 async fn create_subscription_create_invalid_subscription() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
 
-    // The original's client sends the empty subscriber type along.
     let response = th
         .client
         .post(
@@ -182,7 +173,7 @@ async fn create_subscription_create_invalid_subscription() {
     th.teardown().await;
 }
 
-/// `TestCreateSubscription/"Create subscription for another user"`
+/// Creating a subscription on behalf of another user is rejected.
 #[tokio::test]
 async fn create_subscription_create_subscription_for_another_user() {
     let th = Setup::native().start().await.init_basic().await;
@@ -203,8 +194,7 @@ async fn create_subscription_create_subscription_for_another_user() {
         )
         .await;
 
-    // As in the original, the subscription is refused for what it lacks before the
-    // subscriber is compared with the session's user.
+    // Missing required fields are rejected before comparing the subscriber with the session user.
     check_error(
         &response,
         StatusCode::BAD_REQUEST,
@@ -217,7 +207,7 @@ async fn create_subscription_create_subscription_for_another_user() {
     th.teardown().await;
 }
 
-/// `TestGetSubscriptions/"Get subscriptions for user"`
+/// Listing subscriptions for a user returns their active subscriptions.
 #[tokio::test]
 async fn get_subscriptions_get_subscriptions_for_user() {
     let th = Setup::native().start().await.init_basic().await;
@@ -234,7 +224,7 @@ async fn get_subscriptions_get_subscriptions_for_user() {
     th.teardown().await;
 }
 
-/// `TestDeleteSubscription/"Delete valid subscription"`
+/// Deleting an existing subscription removes it from the user's subscriptions.
 #[tokio::test]
 async fn delete_subscription_delete_valid_subscription() {
     let th = Setup::native().start().await.init_basic().await;
@@ -253,7 +243,7 @@ async fn delete_subscription_delete_valid_subscription() {
     th.teardown().await;
 }
 
-/// `TestDeleteSubscription/"Delete invalid subscription"`
+/// Deleting a non-existent or invalid subscription is rejected.
 #[tokio::test]
 async fn delete_subscription_delete_invalid_subscription() {
     let th = Setup::native().start().await.init_basic().await;
@@ -314,7 +304,7 @@ async fn create_subscription_validation() {
             with("subscriberType", json!("User")),
             "invalid subscriber type",
         ),
-        // The original also takes `channel`, for the channels of its host application.
+        // Only `user` is an accepted subscriber type; `channel` is rejected.
         (
             with("subscriberType", json!("channel")),
             "invalid subscriber type",
@@ -350,8 +340,7 @@ async fn create_subscription_validation() {
         check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
     }
 
-    // A body that is no JSON object, or whose members have the wrong types, is a bad
-    // request. (The original answers 500.)
+    // A body that is not a JSON object, or whose members have the wrong types, is a 400.
     let block_id_number = with("blockId", json!(5)).to_string();
     let time_text = with("notifiedAt", json!("now")).to_string();
     for body in [
@@ -564,8 +553,7 @@ async fn a_subscription_goes_to_the_trash_with_its_block_and_comes_back_with_it(
 
 // -- who is told --------------------------------------------------------------------------
 
-/// The standalone websocket server of the original sends nothing about subscriptions
-/// (server/ws/server.go:785-787), and neither does this one.
+/// Subscription mutations do not broadcast websocket messages.
 #[tokio::test]
 async fn subscription_changes_are_not_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
@@ -596,9 +584,7 @@ async fn subscription_changes_are_not_broadcast() {
 
 // -- security -----------------------------------------------------------------------------
 
-/// In the original, every signed-in user can subscribe to any block whose identifier
-/// they know, also on a board they cannot see. Here that takes the permission to view
-/// the block's board.
+/// Subscribing to a block requires permission to view the block's board.
 #[tokio::test]
 async fn subscription_to_a_block_of_a_board_the_user_cannot_view_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
@@ -695,9 +681,8 @@ async fn subscription_by_every_member_of_the_board_still_works() {
     th.teardown().await;
 }
 
-/// Not in the original, where a subscription outlives the membership it was made with
-/// (the user keeps a standing request to be told about a board they can no longer see).
-/// A member who leaves or is removed loses the subscriptions to that board's blocks.
+/// A member who leaves or is removed from a board loses their subscriptions to that
+/// board's blocks.
 /// Subscriptions on other boards, and those of members who stay, are untouched.
 #[tokio::test]
 async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blocks() {

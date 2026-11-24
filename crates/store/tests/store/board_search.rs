@@ -1,6 +1,5 @@
-//! The searches for boards: the ports of the original's `testSearchBoardsForUser` and of
-//! its search in one workspace, and what its suite does not cover of the latter. They
-//! were in `boards.rs` and keep their names.
+//! Integration tests for searching boards across a user's accessible boards and within a
+//! single workspace.
 
 use fvoci_model::{Container, ContainerKinds, ContainerSearchField, ContainerType, new_id};
 use fvoci_store::PublicContainers;
@@ -9,8 +8,7 @@ use serde_json::json;
 use crate::boards::{NOT_AN_ID, new_board, object, sorted_board_ids};
 use crate::common;
 
-/// A case of the original's `testSearchBoardsForUser` table; each is a subtest there.
-/// The original's cases also name a workspace, which the search does not take.
+/// A table-driven case for searching a user's accessible boards.
 struct SearchCase<'a> {
     name: &'static str,
     term: &'static str,
@@ -22,7 +20,7 @@ struct SearchCase<'a> {
 #[tokio::test]
 #[expect(
     clippy::too_many_lines,
-    reason = "one test per test function of the original, whose subtests share a store"
+    reason = "table-driven search cases share one seeded store fixture"
 )]
 async fn search_containers_for_user() {
     let test = common::setup().await;
@@ -196,7 +194,7 @@ async fn search_containers_for_user_in_workspace() {
     test.teardown().await;
 }
 
-/// `server/services/store/sqlstore/board.go:713-753`.
+/// Searching within a workspace returns open boards and the user's own private boards.
 #[tokio::test]
 async fn search_containers_for_user_in_workspace_finds_open_boards_and_own_private_boards() {
     let test = common::setup().await;

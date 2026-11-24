@@ -421,18 +421,6 @@ fn clear_values_of_another_kind(containers_and_blocks: &mut ContainersAndBlocks)
     }
 }
 
-/// A board of an archive with its workspace under the name it has now: an archive written
-/// before the workspaces were named so names it `teamId`.
-fn with_workspace_named(mut data: Value) -> Value {
-    if let Value::Object(container) = &mut data
-        && !container.contains_key("workspaceId")
-        && let Some(workspace) = container.remove("teamId")
-    {
-        container.insert("workspaceId".to_owned(), workspace);
-    }
-    data
-}
-
 mod archive;
 mod bundle;
 #[cfg(test)]

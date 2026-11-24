@@ -39,9 +39,8 @@ impl Store {
 ///
 /// Compared here rather than in SQL, so that both databases fold every letter the same
 /// way (SQLite's `lower()` folds ASCII letters only) and `%` and `_` are characters
-/// like any other. Preserved quirk: the words are split at single spaces, so two spaces
-/// in a row yield an empty word, which every title contains
-/// (`server/services/store/sqlstore/board.go:691-695`).
+/// like any other. Words are split on single spaces, so consecutive spaces produce empty
+/// tokens that match every title.
 fn title_has_words(title: &str, term: &str) -> bool {
     let title = title.to_lowercase();
     term.trim()

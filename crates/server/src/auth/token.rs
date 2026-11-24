@@ -288,7 +288,7 @@ mod tests {
                 "{header:?}"
             );
         }
-        // Other schemes are no session tokens; the original's `token` scheme is none.
+        // Non-Bearer authorization schemes are not accepted as session tokens.
         for header in ["token mytoken", "Basic dTpw", "Bearer:mytoken", "mytoken"] {
             assert_eq!(
                 plain.credential(&headers(&[("authorization", header)])),

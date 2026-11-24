@@ -1,6 +1,5 @@
 //! Who may change, move, delete and bring back a comment: its author from the
-//! commenter's role up, and somebody else's the board's admins only. Not in the
-//! original, where comments are blocks like any other (`server/api/blocks.go`).
+//! commenter's role up, and somebody else's by the board's admins only.
 
 use fvoci_model::{Block, BlockType};
 use reqwest::StatusCode;
@@ -14,9 +13,7 @@ use crate::blocks::{
 use crate::common::TEST_WS;
 use crate::common::{Setup, TEST_WORKSPACE_ID};
 
-/// Not in the original, where every editor can delete anyone's comment
-/// (`server/api/blocks.go:372`; on the original, an editor's `DELETE` of another user's
-/// comment answers 200). A comment is deleted by its author or by an admin.
+/// A comment can only be deleted by its author or by a board admin, not by another editor.
 #[tokio::test]
 async fn delete_comment_of_another_user_needs_the_permission_to_delete_others_comments() {
     let th = Setup::native().start().await.init_basic().await;
@@ -66,10 +63,9 @@ async fn delete_comment_by_its_author_or_by_an_admin_works() {
     assert_eq!(titles(&stored), ["card", "text"], "both comments are gone");
 }
 
-/// Not in the original, where deleting needs the editor's role whatever the block is
-/// (`server/api/blocks.go:372`; user decision 2026-11-11 22:13 KST). A commenter
-/// deletes their own comment and brings it back, and does neither to anything else: not
-/// to somebody else's comment, not to a card, and not to their comment that went with a
+/// A commenter deletes their own comment and brings it back, and does neither to anything
+/// else: not to somebody else's comment, not to a card, and not to their comment that went
+/// with a
 /// card, since the card decides what comes back.
 #[tokio::test]
 async fn a_commenter_deletes_and_brings_back_their_own_comment() {
@@ -128,8 +124,7 @@ const OFF_A_CARD: &str =
 /// The refusal of a block below a comment.
 const BELOW_A_COMMENT: &str = "a comment is the parent of no block";
 
-/// Not in the original (contract B1, decided 2026-11-11 by the coordinating session).
-/// A comment is on a card of its board and nothing is below it, however a block is
+/// A comment is always on a card of its board and nothing is below it, however a block is
 /// written: a new comment, a block that becomes one and a block that moves are refused
 /// (400) at the `parentId` of the request, and a card that has comments stays a card.
 #[tokio::test]
@@ -239,9 +234,9 @@ async fn a_comment_is_on_a_card_and_has_nothing_below_it() {
         .check_no_content();
 }
 
-/// Not in the original (contract B1). A block comes back from the trash only where it
-/// may be: a comment whose card became a view, or a block whose parent became a
-/// comment, while it was in the trash, is refused (409) and stays there.
+/// A block comes back from the trash only where it may be: a comment whose card became a
+/// view, or a block whose parent became a comment, while it was in the trash, is refused
+/// (409) and stays there.
 #[tokio::test]
 async fn a_block_comes_back_from_the_trash_only_where_it_may_be() {
     let th = Setup::native().start().await.init_basic().await;
@@ -295,8 +290,7 @@ async fn a_block_comes_back_from_the_trash_only_where_it_may_be() {
     );
 }
 
-/// Not in the original (user decision 2026-11-11 22:13 KST, changed by the decisions of
-/// O4). The author of a comment deletes it and brings it back; a comment of theirs that
+/// The author of a comment deletes it and brings it back; a comment of theirs that
 /// somebody else deleted is the board's admins' to bring back, not theirs. (Deleting a
 /// comment would take what is below it, and a block of somebody else there would
 /// refuse it; a comment has nothing below it, so that check is left as a guard.)
@@ -324,9 +318,9 @@ async fn the_author_of_a_comment_brings_back_only_what_they_deleted() {
     assert!(titles(&blocks_of(&th.client, board_id).await).contains(&"comment"));
 }
 
-/// Not in the original (user decision 2026-11-11 21:00 KST). What comes back is the
-/// whole deletion, so the block that was deleted decides: a comment of somebody else
-/// that went with its card comes back with the card, which an editor may delete and
+/// What comes back is the whole deletion, so the block that was deleted decides: a
+/// comment of somebody else that went with its card comes back with the card, which an
+/// editor may delete and
 /// bring back, naming the card or the comment.
 #[tokio::test]
 async fn a_deletion_comes_back_as_its_top_block_allows() {
@@ -352,9 +346,9 @@ async fn a_deletion_comes_back_as_its_top_block_allows() {
     );
 }
 
-/// Not in the original (user decision 2026-11-11 21:00 KST). A deleted comment is
-/// brought back only by who may delete it: its author, and the comment of somebody else
-/// the board's admins only. An editor and a commenter are refused another's. A card is
+/// A deleted comment is brought back only by who may delete it: its author, and the
+/// comment of somebody else the board's admins only. An editor and a commenter are
+/// refused another's. A card is
 /// brought back by an editor as before.
 #[tokio::test]
 async fn a_deleted_comment_is_brought_back_only_by_who_may_delete_it() {
@@ -591,9 +585,9 @@ async fn a_commenter_changes_no_card_and_makes_none() {
     );
 }
 
-/// Not in the original (coordinator's decision 2026-11-11 21:10 KST). The commenter's
-/// role changes the text of the commenter's own comment, its body; moving it to another
-/// card (`parentId`) is for editors, refused as any change the role may not make on
+/// The commenter's role changes the text of the commenter's own comment, its body; moving
+/// it to another card (`parentId`) is for editors, refused as any change the role may not
+/// make on
 /// patchBlock and patchBlocks; patchBoardsAndBlocks refuses a commenter before, by the
 /// board's permission. A `parentId` that stays as it was moves nothing. An editor
 /// moves their own comment and not somebody else's; an admin moves anybody's.
@@ -656,9 +650,8 @@ async fn a_commenter_changes_the_text_of_their_comment_but_does_not_move_it() {
     );
 }
 
-/// Not in the original (coordinator's decision 2026-11-11 21:10 KST). An editor moves
-/// their own comment to another card, alone or with the board, but not somebody else's;
-/// an admin moves anybody's.
+/// An editor moves their own comment to another card, alone or with the board, but not
+/// somebody else's; an admin moves anybody's.
 #[tokio::test]
 async fn an_editor_moves_their_own_comment_and_an_admin_anybodys() {
     let th = Setup::native().start().await.init_basic().await;

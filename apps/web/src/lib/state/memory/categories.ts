@@ -91,7 +91,7 @@ export class MemoryCategories {
     if (draft.name.trim() === '') fail(400, 'a category needs a name', { field: 'name' });
     const { world, userId } = this.#asker;
     const now = world.now();
-    // A new category goes first, as the original's did.
+    // A new category is placed first in the sidebar.
     for (const category of this.#mine(workspaceId)) category.sortOrder += 10;
     const category: Category = {
       id: world.newId(),

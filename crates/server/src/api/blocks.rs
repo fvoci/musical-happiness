@@ -93,17 +93,15 @@ async fn require_read_access(ws: &InWorkspace, container: &Container) -> Result<
         && !app.invited_to_container(user_id, &container.id).await?
     {
         return Err(AppError::forbidden(
-            "guest are not allowed to get board templates",
+            "guests are not allowed to get board templates",
         ));
     }
     Ok(())
 }
 
-/// Checks that the user may read the board that inserted blocks copy their files from.
-///
-/// Security fix: the original copies the files without looking at the source board
-/// (`server/api/blocks.go:297-303`), so a user could make the server copy files out of a
-/// board they cannot see. Whoever may read the board's blocks may copy from it.
+/// Checks that the user may read the board that inserted blocks copy their files from,
+/// so a caller cannot copy files out of an unreadable board. Whoever may read the
+/// board's blocks may copy from it.
 async fn require_source_board_access(
     ws: &InWorkspace,
     source_board_id: &str,
@@ -750,7 +748,6 @@ async fn handle_duplicate_block(
         )
         .await?;
         // Comments are never copied: the store leaves them out of every duplication.
-        // The original crashes here and answers 500.
         return Err(AppError::bad_request("a comment cannot be duplicated"));
     }
     require_container_permission(

@@ -1,6 +1,4 @@
-//! Port of `server/services/store/storetests/files.go`, followed by tests of what the
-//! original suite does not cover: a file record is one board's, and is there for as long
-//! as its board is.
+//! Integration tests for board-scoped file metadata records, retention, and cleanup.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -42,8 +40,7 @@ async fn file_store() {
 
     store.save_file_info(&file_info).await.unwrap();
 
-    // The original asks for the record by its identifier; here a file is asked for
-    // through its board, by the name it is stored under.
+    // A file is looked up through its board by its stored name.
     let retrieved_file_info = store
         .get_file_info(board_id, "7salesreport.sales")
         .await
@@ -65,8 +62,7 @@ async fn file_store() {
     test.teardown().await;
 }
 
-/// Not in the original suite: every member of a record is stored, and what a board may
-/// hold one of.
+/// Every member of a file record is stored and read back accurately.
 #[tokio::test]
 async fn file_info_stores_every_member() {
     let test = common::setup().await;
@@ -155,9 +151,9 @@ async fn file_info_stores_every_member() {
     test.teardown().await;
 }
 
-/// Not in the original, where a file is found by its name alone: a file is one board's.
-/// Another board does not find it and may hold a file of its own under the same stored
-/// name. Deleting the block that shows a file leaves the records of both boards.
+/// A file record belongs to one board: another board does not find it and may hold a file
+/// of its own under the same stored name. Deleting the block that shows a file leaves the
+/// records of both boards.
 #[tokio::test]
 async fn a_file_is_found_through_its_own_board_only() {
     let test = common::setup().await;
@@ -252,9 +248,8 @@ fn record_of(board_id: &str, stored_name: &str) -> FileInfo {
     }
 }
 
-/// Not in the original, whose file records name boards that need not exist. A file is
-/// one board's: for a record of a board that does not exist the board is not found, and
-/// nothing is stored.
+/// A file record requires an existing board: saving one for a missing board returns
+/// not-found and stores nothing.
 #[tokio::test]
 async fn a_file_record_for_a_board_that_does_not_exist_is_refused() {
     let test = common::setup().await;
@@ -298,10 +293,8 @@ async fn a_file_record_for_a_board_that_does_not_exist_is_refused() {
     test.teardown().await;
 }
 
-/// Not in the original, where a stored name is one file of the whole server. A board
-/// has one file under a stored name: a second record is refused as a duplicate and
-/// changes nothing. Two boards may each have a file under the same name, and each finds
-/// its own.
+/// A board has at most one file under a given stored name: a second record is refused as
+/// a duplicate and changes nothing, while two different boards may reuse the same name.
 #[tokio::test]
 async fn a_stored_name_is_taken_once_per_board() {
     let test = common::setup().await;
@@ -460,9 +453,9 @@ fn card_showing(board_id: &str, names: &[&str]) -> Block {
     }
 }
 
-/// Not in the original (`docs/s6-design.md` 5.7). A file that an image block or a card's
-/// body (an image, a file block) shows stays; one that no block shows, live or in the trash, is collected once
-/// the grace period has passed since it became so, and its record goes.
+/// A file referenced by an image block or a card's body stays (`docs/s6-design.md` 5.7);
+/// one that no block shows, live or in the trash, is collected once the grace period has
+/// passed since it became unreferenced, and its record goes.
 #[tokio::test]
 async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
     let test = common::setup().await;
@@ -543,9 +536,8 @@ async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
     test.teardown().await;
 }
 
-/// Not in the original. A block that comes back from the trash shows its files again,
-/// and a file of a restored board that no block shows is counted from the restoring,
-/// not from its upload: the trash kept no marks.
+/// A block that comes back from the trash shows its files again, and an unreferenced file
+/// of a restored board is counted from the restoring time, not from its upload.
 #[tokio::test]
 async fn a_restored_block_or_board_shows_its_files_again() {
     let test = common::setup().await;
@@ -662,10 +654,10 @@ pub(crate) async fn posted_comment(store: &fvoci_store::Store, author: &str) -> 
     store.get_block(&comment.id).await.expect("the comment")
 }
 
-/// Not in the original (user decision 2026-11-11 14:46 KST). Each change of a comment's
-/// body keeps what it said before, with who wrote it and when, up to the set number of
-/// versions: the first and the newest. The files of the kept versions stay, and the
-/// versions go with the comment when it is gone for good, not while it is in the trash.
+/// Each change of a comment's body keeps what it said before, with who wrote it and when,
+/// up to the set number of versions (the first and the newest). The files of the kept
+/// versions stay, and the versions go with the comment when it is gone for good, not
+/// while it is in the trash.
 #[tokio::test]
 async fn a_changed_comment_keeps_what_it_said_before() {
     let test = common::setup().await;

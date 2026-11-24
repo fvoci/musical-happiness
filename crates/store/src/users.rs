@@ -413,8 +413,6 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn get_users_by_workspace(&self) -> Result<Vec<User>, StoreError> {
         self.with_conn(async |scope| {
-            // Preserved quirk: asked for the users of a workspace, the original returns all
-            // users whatever the workspace (`server/services/store/sqlstore/user.go:217-218`).
             let mut sql = select_users(scope);
             sql.push(OLDEST_FIRST);
             fetch_users(scope, sql).await
@@ -497,8 +495,7 @@ fn select_users(scope: &Scope<'_>) -> Sql {
 /// of them for an empty query.
 ///
 /// Compared here rather than in SQL, so that both databases fold every letter the same
-/// way and `%` and `_` are characters like any other. (The original's `LIKE` ignores
-/// ASCII case on SQLite only, `server/services/store/sqlstore/user.go:227`.)
+/// way and `%` and `_` are treated as literal characters.
 ///
 /// # Errors
 ///
@@ -572,10 +569,7 @@ fn user_from_row(row: &Row) -> Result<User, StoreError> {
     })
 }
 
-/// The error for a user that a read did not find.
-///
-/// Preserved quirk: it does not say which user is missing; clients see `{user} not found`
-/// (`server/services/store/sqlstore/user.go:54` and `:95`).
+/// The error for a user that a read did not find (`user not found`).
 pub(crate) fn user_not_found() -> StoreError {
     StoreError::not_found("user")
 }

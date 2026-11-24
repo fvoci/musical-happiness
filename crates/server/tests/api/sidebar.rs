@@ -1,10 +1,7 @@
-//! Ports of `server/integrationtests/sidebar_test.go`, `server/app/category_test.go` and
-//! `server/app/category_boards_test.go`, plus tests of the category routes that the
-//! original has none for: validation, the exact answers, and what one user can do to the
-//! categories of another.
+//! Integration and application-layer tests for sidebar categories and board filing:
+//! category CRUD, ordering, default category creation, validation, and cross-user isolation.
 //!
-//! The original's application tests run against a mocked store. Here they run against a
-//! real one, so each checks what the mock sequence stood for.
+//! All tests run against a real store.
 
 use fvoci_model::{
     Category, CategoryContainerMetadata, CategoryContainers, CategoryType, Container,
@@ -207,9 +204,9 @@ pub(crate) fn check_error(response: &ApiResponse, status: StatusCode, message: &
 }
 
 // ---------------------------------------------------------------------------------------
-// server/integrationtests/sidebar_test.go
+// Sidebar HTTP route workflows
 
-/// `TestSidebar`
+/// End-to-end sidebar workflow: creating categories, filing boards, reordering, and deleting.
 ///
 /// Creates its boards through the board routes, which file a new board under the
 /// creator's default category. [`sidebar_with_boards_from_the_store`] is the same walk
@@ -276,8 +273,8 @@ async fn sidebar() {
     th.teardown().await;
 }
 
-/// The walk of `TestSidebar` with boards that are put into the store directly: the first
-/// is filed when the default category is created, the second is filed by hand.
+/// Sidebar workflow with boards inserted directly into the store: the first is filed when
+/// the default category is created, and the second is filed explicitly.
 #[tokio::test]
 async fn sidebar_with_boards_from_the_store() {
     let th = Setup::one_user().start().await;
@@ -340,7 +337,7 @@ async fn sidebar_with_boards_from_the_store() {
     th.teardown().await;
 }
 
-/// `TestHideUnhideBoard`
+/// Hiding and unhiding a board in a sidebar category.
 ///
 /// The board comes from the store rather than from the board routes; it is filed under
 /// the default category when that is created, which is all this test needs of it.
@@ -390,9 +387,9 @@ async fn hide_unhide_container() {
 }
 
 // ---------------------------------------------------------------------------------------
-// server/app/category_test.go
+// Application-layer category tests
 
-/// `TestCreateCategory/"base case"`
+/// Creating a custom category persists it with the expected defaults.
 #[tokio::test]
 async fn create_category_base_case() {
     let th = Setup::native().start().await;
@@ -422,10 +419,10 @@ async fn create_category_base_case() {
     th.teardown().await;
 }
 
-/// `TestCreateCategory/"creating invalid category"`
+/// Rejects invalid category payloads at the application layer.
 ///
-/// The original's last case, an unknown type, cannot be built here: the type is an enum.
-/// It is checked over the API in [`create_category_refuses_invalid_requests`].
+/// Unknown category types are prevented by the `CategoryType` enum and checked over HTTP
+/// in [`create_category_refuses_invalid_requests`].
 #[tokio::test]
 async fn create_category_creating_invalid_category() {
     let th = Setup::native().start().await;
@@ -465,7 +462,7 @@ async fn create_category_creating_invalid_category() {
     th.teardown().await;
 }
 
-/// `TestUpdateCategory/"base case"`
+/// Updating a custom category persists its new name and state.
 #[tokio::test]
 async fn update_category_base_case() {
     let th = Setup::native().start().await;
@@ -513,7 +510,7 @@ async fn update_category_base_case() {
     th.teardown().await;
 }
 
-/// `TestUpdateCategory/"updating invalid category"`
+/// Rejects invalid category updates at the application layer.
 ///
 /// The unknown-type case is checked over the API in
 /// [`update_category_refuses_invalid_requests`].
@@ -577,7 +574,7 @@ async fn update_category_updating_invalid_category() {
     th.teardown().await;
 }
 
-/// `TestUpdateCategory/"trying to update someone else's category"`
+/// Rejects updating a category owned by another user.
 #[tokio::test]
 async fn update_category_trying_to_update_someone_elses_category() {
     let th = Setup::native().start().await;
@@ -608,7 +605,7 @@ async fn update_category_trying_to_update_someone_elses_category() {
     th.teardown().await;
 }
 
-/// `TestUpdateCategory/"trying to update some other team's category"`
+/// Rejects updating a category belonging to another workspace.
 #[tokio::test]
 async fn update_category_trying_to_update_some_other_workspaces_category() {
     let th = Setup::native().start().await;
@@ -686,7 +683,7 @@ async fn default_category(th: &TestServer, user_id: &str, workspace_id: &str) ->
         .expect("the default category exists")
 }
 
-/// `TestUpdateCategory/"should not be allowed to rename system category"`
+/// Renaming a system category is refused.
 #[tokio::test]
 async fn update_category_should_not_be_allowed_to_rename_system_category() {
     let th = Setup::native().start().await;
@@ -713,7 +710,7 @@ async fn update_category_should_not_be_allowed_to_rename_system_category() {
     th.teardown().await;
 }
 
-/// `TestUpdateCategory/"should be allowed to collapse and expand any category type"`
+/// Both system and custom categories can be collapsed and expanded.
 #[tokio::test]
 async fn update_category_should_be_allowed_to_collapse_and_expand_any_category_type() {
     let th = Setup::native().start().await;
@@ -758,7 +755,7 @@ async fn update_category_should_be_allowed_to_collapse_and_expand_any_category_t
     th.teardown().await;
 }
 
-/// `TestDeleteCategory/"base case"`
+/// Deleting a custom category succeeds and returns it.
 #[tokio::test]
 async fn delete_category_base_case() {
     let th = Setup::native().start().await;
@@ -792,7 +789,7 @@ async fn delete_category_base_case() {
     th.teardown().await;
 }
 
-/// `TestDeleteCategory/"trying to delete already deleted category"`
+/// Deleting an already-deleted category returns not found.
 #[tokio::test]
 async fn delete_category_trying_to_delete_already_deleted_category() {
     let th = Setup::native().start().await;
@@ -830,7 +827,7 @@ async fn delete_category_trying_to_delete_already_deleted_category() {
     th.teardown().await;
 }
 
-/// `TestDeleteCategory/"trying to delete system category"`
+/// Deleting a system category is refused.
 #[tokio::test]
 async fn delete_category_trying_to_delete_system_category() {
     let th = Setup::native().start().await;
@@ -843,7 +840,6 @@ async fn delete_category_trying_to_delete_system_category() {
         .await
         .expect_err("a system category cannot be deleted");
 
-    // (The original does not classify this error and answers 500.)
     assert_eq!(error.status(), StatusCode::FORBIDDEN, "{error}");
     assert_eq!(
         error.to_string(),
@@ -856,9 +852,9 @@ async fn delete_category_trying_to_delete_system_category() {
     th.teardown().await;
 }
 
-/// `TestMoveBoardsToDefaultCategory/"When default category already exists"`
+/// Deleting a custom category moves its boards into the existing default category.
 ///
-/// The function is private; deleting a category is what calls it.
+/// The helper is private; deleting a category exercises it.
 #[tokio::test]
 async fn move_containers_to_default_category_when_default_category_already_exists() {
     let th = Setup::native().start().await;
@@ -904,7 +900,7 @@ async fn move_containers_to_default_category_when_default_category_already_exist
     th.teardown().await;
 }
 
-/// `TestMoveBoardsToDefaultCategory/"When default category doesn't already exists"`
+/// Deleting a custom category creates the default category when absent and moves boards into it.
 #[tokio::test]
 async fn move_containers_to_default_category_when_default_category_doesnt_already_exists() {
     let th = Setup::native().start().await;
@@ -988,7 +984,7 @@ async fn listed_ids(th: &TestServer, user_id: &str) -> Vec<String> {
         .collect()
 }
 
-/// `TestReorderCategories/"base case"`
+/// Reordering categories persists the requested order.
 #[tokio::test]
 async fn reorder_categories_base_case() {
     let th = Setup::native().start().await;
@@ -1012,7 +1008,7 @@ async fn reorder_categories_base_case() {
     th.teardown().await;
 }
 
-/// `TestReorderCategories/"not specifying all categories should fail"`
+/// Reordering categories fails when not all existing categories are included.
 #[tokio::test]
 async fn reorder_categories_not_specifying_all_categories_should_fail() {
     let th = Setup::native().start().await;
@@ -1029,7 +1025,6 @@ async fn reorder_categories_not_specifying_all_categories_should_fail() {
         .await
         .expect_err("an order that leaves a category out is refused");
 
-    // (The original does not classify this error and answers 500.)
     assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{error}");
     assert_eq!(
         listed_ids(&th, &user_id).await,
@@ -1040,9 +1035,9 @@ async fn reorder_categories_not_specifying_all_categories_should_fail() {
     th.teardown().await;
 }
 
-/// `TestVerifyNewCategoriesMatchExisting/"base case"`
+/// Category reorder verification succeeds when the new order matches all existing categories.
 ///
-/// The function is private; this goes through the route that calls it.
+/// The verification helper is private; this goes through the route that calls it.
 #[tokio::test]
 async fn verify_new_categories_match_existing_base_case() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1079,7 +1074,7 @@ async fn verify_new_categories_match_existing_base_case() {
     th.teardown().await;
 }
 
-/// `TestVerifyNewCategoriesMatchExisting/"different category counts"`
+/// Category reorder verification fails when category counts differ.
 #[tokio::test]
 async fn verify_new_categories_match_existing_different_category_counts() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1117,9 +1112,9 @@ async fn verify_new_categories_match_existing_different_category_counts() {
 }
 
 // ---------------------------------------------------------------------------------------
-// server/app/category_boards_test.go
+// Application-layer category-boards tests
 
-/// `TestGetUserCategoryBoards/"user had no default category and had boards"`
+/// Listing categories creates a default Boards category populated with existing boards.
 #[tokio::test]
 async fn get_user_category_containers_user_had_no_default_category_and_had_boards() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1151,7 +1146,7 @@ async fn get_user_category_containers_user_had_no_default_category_and_had_board
     th.teardown().await;
 }
 
-/// `TestGetUserCategoryBoards/"user had no default category BUT had no boards"`
+/// Listing categories creates an empty default Boards category when the user has no boards.
 #[tokio::test]
 async fn get_user_category_containers_user_had_no_default_category_but_had_no_boards() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1190,7 +1185,7 @@ async fn get_user_category_containers_user_had_no_default_category_but_had_no_bo
     th.teardown().await;
 }
 
-/// `TestGetUserCategoryBoards/"user already had a default Boards category with boards in it"`
+/// Listing categories returns the existing default Boards category and its boards unchanged.
 #[tokio::test]
 async fn get_user_category_containers_user_already_had_a_default_boards_category_with_boards_in_it()
 {
@@ -1214,9 +1209,9 @@ async fn get_user_category_containers_user_already_had_a_default_boards_category
     th.teardown().await;
 }
 
-/// `TestCreateBoardsCategory/"user doesn't have any boards - implicit or explicit"`
+/// Default Boards category initialization when the user has neither implicit nor explicit board access.
 ///
-/// The function is private; listing the categories of a user who has none calls it.
+/// The helper is private; listing the categories of a user who has none calls it.
 #[tokio::test]
 async fn create_containers_category_user_doesnt_have_any_boards_implicit_or_explicit() {
     let th = Setup::native().start().await;
@@ -1239,10 +1234,8 @@ async fn create_containers_category_user_doesnt_have_any_boards_implicit_or_expl
     th.teardown().await;
 }
 
-/// `TestCreateBoardsCategory/"user has implicit access to some board"`
-///
-/// Implicit access comes from the host application in the original. What a standalone
-/// server has of it are open boards that the user can see without being a member.
+/// Default Boards category initialization when the user has implicit access to an open
+/// board without explicit membership.
 #[tokio::test]
 async fn create_containers_category_user_has_implicit_access_to_some_board() {
     let th = Setup::native().start().await;
@@ -1266,7 +1259,7 @@ async fn create_containers_category_user_has_implicit_access_to_some_board() {
     th.teardown().await;
 }
 
-/// `TestCreateBoardsCategory/"user has explicit access to some board"`
+/// Default Boards category initialization when the user has explicit board membership.
 #[tokio::test]
 async fn create_containers_category_user_has_explicit_access_to_some_board() {
     let th = Setup::native().start().await;
@@ -1306,7 +1299,7 @@ async fn create_containers_category_user_has_explicit_access_to_some_board() {
     th.teardown().await;
 }
 
-/// `TestCreateBoardsCategory/"user has both implicit and explicit access to some board"`
+/// Default Boards category initialization when the user has both implicit and explicit board access.
 #[tokio::test]
 async fn create_containers_category_user_has_both_implicit_and_explicit_access_to_some_board() {
     let th = Setup::native().start().await;
@@ -1373,7 +1366,7 @@ async fn listed_board_ids(th: &TestServer, user_id: &str, category_id: &str) -> 
         .collect()
 }
 
-/// `TestReorderCategoryBoards/"base case"`
+/// Reordering boards within a category persists the new board order.
 #[tokio::test]
 async fn reorder_category_containers_base_case() {
     let th = Setup::native().start().await;
@@ -1402,7 +1395,7 @@ async fn reorder_category_containers_base_case() {
     th.teardown().await;
 }
 
-/// `TestReorderCategoryBoards/"not specifying all boards"`
+/// Reordering boards within a category fails when not all boards in the category are listed.
 #[tokio::test]
 async fn reorder_category_containers_not_specifying_all_boards() {
     let th = Setup::native().start().await;
@@ -1420,7 +1413,6 @@ async fn reorder_category_containers_not_specifying_all_boards() {
         .await
         .expect_err("an order that leaves a board out is refused");
 
-    // (The original does not classify this error and answers 500.)
     assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{error}");
     assert_eq!(
         listed_board_ids(&th, &user_id, &created.id).await,
@@ -1432,7 +1424,7 @@ async fn reorder_category_containers_not_specifying_all_boards() {
 }
 
 // ---------------------------------------------------------------------------------------
-// Not in the original: the routes' answers, checked against the original server.
+// Category route validation and exact HTTP responses
 
 /// The category routes need a session.
 #[tokio::test]
@@ -1690,8 +1682,8 @@ async fn create_category_refuses_invalid_requests() {
         json!({"name": "x", "userId": other.id, "workspaceId": ROOT_WORKSPACE_ID}),
         json!({"name": "x", "workspaceId": ROOT_WORKSPACE_ID}),
         json!({"name": "x", "userId": other.id, "workspaceId": ROOT_WORKSPACE_ID, "type": "bogus"}),
-        // The user under a name that is no member of a category: no user is named.
-        json!({"name": "x", "userID": user.id, "teamID": ROOT_WORKSPACE_ID}),
+        // Wrong-case field names are ignored as unknown, leaving `userId` absent.
+        json!({"name": "x", "userID": user.id, "workspaceID": ROOT_WORKSPACE_ID}),
     ] {
         let response = th.client.post(path, &body).await;
         check_error(
@@ -1925,7 +1917,7 @@ async fn update_category_refuses_invalid_requests() {
         check_error(&response, StatusCode::NOT_FOUND, "category not found");
     }
 
-    // A body that cannot be decoded is a bad request. (The original answers 500.)
+    // A body that cannot be decoded is a bad request.
     th.client
         .send_raw_body(Method::PUT, &path, "{nope")
         .await
@@ -1970,7 +1962,6 @@ async fn delete_category_over_the_api() {
         .await;
     check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
-    // (The original answers 500.)
     let response = th
         .client
         .delete(&format!("{ROOT_WS}/categories/{default_id}"))
@@ -2050,7 +2041,6 @@ async fn reorder_categories_over_the_api() {
         json!({}),
         json!("reorder"),
     ];
-    // (The original answers all of these with 500.)
     for body in refused {
         let response = th.client.put(path, &body).await;
         response.check_bad_request();
@@ -2142,7 +2132,6 @@ async fn reorder_category_containers_over_the_api() {
         Value::Null,
         json!({}),
     ];
-    // (The original answers all of these with 500.)
     for body in refused {
         let response = th.client.put(&path, &body).await;
         response.check_bad_request();
@@ -2226,7 +2215,6 @@ async fn update_category_container_over_the_api() {
         "the board starts in the default category"
     );
 
-    // (The original answers the bare word `ok`, labelled as JSON.)
     let response = th
         .client
         .post_empty(&board_path(ROOT_WORKSPACE_ID, &created.id))
@@ -2238,9 +2226,7 @@ async fn update_category_container_over_the_api() {
         "the board moved"
     );
 
-    // A category that does not exist, is in another workspace, or is deleted: the original
-    // answers these with a server error after moving the board out of sight. Here the
-    // board stays where it is.
+    // A nonexistent, cross-workspace, or deleted category is refused without moving the board.
     let deleted = create_category(
         &th.client,
         &category(ROOT_WORKSPACE_ID, &user.id, "Deleted"),
@@ -2265,8 +2251,7 @@ async fn update_category_container_over_the_api() {
         );
     }
 
-    // Only a board the user can see is filed. (The original does not look at the
-    // board, so any identifier can be filed.)
+    // Only a board the user can see may be filed in a category.
     let private = board_of_somebody_else(&th, ROOT_WORKSPACE_ID).await;
     for board_id in [UNKNOWN_ID, "no-such-board", private.as_str()] {
         let response = th
@@ -2410,7 +2395,7 @@ async fn the_word_reorder_is_an_identifier_like_any_other() {
 }
 
 // ---------------------------------------------------------------------------------------
-// Not in the original: what one user can do to the categories of another.
+// Cross-user category isolation
 
 /// The state two users start from: each has listed their categories, and the first has a
 /// custom category with one board in it.
@@ -2452,10 +2437,8 @@ impl TwoUsers {
     }
 }
 
-/// Security fix. In the original, `POST /teams/{team}/categories/{category}/boards/{id}`
-/// by a user who does not own the category answers 500, but the board has been filed and
-/// shows in the owner's category (`server/app/category_boards.go:150-170`). Here the
-/// request is refused before anything is written.
+/// Filing a board into a category owned by another user is refused before anything is written,
+/// so the board never appears in the owner's category.
 #[tokio::test]
 async fn filing_a_board_into_another_users_category_is_refused() {
     let two = TwoUsers::start().await;
@@ -2520,9 +2503,7 @@ async fn filing_a_board_into_an_own_category_works() {
     two.th.teardown().await;
 }
 
-/// Security fix. The original answers a `DELETE` of a category that is deleted already
-/// with the category, whoever asks (`server/app/category.go:104-112`). Here a deleted
-/// category is gone for everyone.
+/// Deleting an already-deleted category returns 404 for every caller rather than leaking it.
 #[tokio::test]
 async fn another_users_deleted_category_is_not_handed_out() {
     let two = TwoUsers::start().await;

@@ -124,8 +124,7 @@ fn block_type_keeps_unknown_strings_and_parses_strictly() {
 
     // Decoding is exact: a different case is some other type, kept as sent.
     assert_eq!(BlockType::from("Card"), BlockType::Other("Card".to_owned()));
-    // The content block types of the original, and its board block, are no types of
-    // this server.
+    // Retired content block types and board block types decode as `BlockType::Other`.
     assert_eq!(BlockType::from("text"), BlockType::Other("text".to_owned()));
     assert_eq!(
         BlockType::from("board"),
@@ -338,7 +337,7 @@ fn container_patch_without_card_property_changes_keeps_them_untouched() {
 }
 
 /// A property that the same patch deletes and updates comes out once, updated, at its
-/// place. (In the original's merge it comes out twice.)
+/// first position rather than duplicated.
 #[test]
 fn container_patch_deleting_and_updating_a_card_property_keeps_one() {
     let mut board = Container {
@@ -714,7 +713,7 @@ fn config_error_and_request_json_members() {
         })
     );
 
-    // Members a client of the original sends along are not read and not refused.
+    // Extra fields sent on login requests are ignored rather than rejected.
     let login: LoginRequest = serde_json::from_value(json!({
         "type": "normal", "username": "u", "email": "e", "password": "p", "mfa_token": "m"
     }))

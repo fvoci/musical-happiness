@@ -1,16 +1,6 @@
-//! Port of `server/services/store/storetests/boards.go`.
-//!
-//! One test per test function of the original; its subtests are the commented sections,
-//! in the original order, on one store.
-//!
-//! The original names users, workspaces and boards by whatever text is at hand. Here each of
-//! them is a stored row with an identifier of its own, and text that is no identifier
-//! names nothing. The original's tests of the board history, the membership history and
-//! the board count went with those functions.
-//!
-//! The tests after [`delete_member`] have no counterpart in the
-//! original, which does not test templates, the template tracking identifier, the trash
-//! or the membership changes that keep a board its administrator.
+//! Integration tests for board storage, memberships, templates, trash, and administrator
+//! invariants. Every user, workspace, and board is stored with a generated UUID identifier,
+//! and malformed text names nothing.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -149,7 +139,7 @@ async fn get_containers_for_user_and_workspace() {
         assert!(boards.is_empty(), "got {boards:?}");
     }
 
-    // "should return only the boards of the team that the user is a member of"
+    // Returns only the boards of the workspace that the user is a member of.
     {
         // workspace 1 boards
         let mut board1 = new_board(&new_id(), &workspace_id_1, ContainerType::Open);
@@ -202,7 +192,7 @@ async fn get_containers_for_user_and_workspace() {
             );
         }
 
-        // "should only find the two boards that the user is a member of for team 1"
+        // Only the two boards the user is a member of in workspace 1.
         {
             let found = test
                 .get_containers_for_user_and_workspace(
@@ -220,7 +210,7 @@ async fn get_containers_for_user_and_workspace() {
             );
         }
 
-        // "should only find the board that the user is a member of for team 2"
+        // Only the one board the user is a member of in workspace 2.
         {
             let found = test
                 .get_containers_for_user_and_workspace(
@@ -239,7 +229,7 @@ async fn get_containers_for_user_and_workspace() {
     test.teardown().await;
 }
 
-/// A case of the original's `testGetBoardsInTeamByIds` table; each is a subtest there.
+/// A table-driven case for fetching workspace boards by a list of IDs.
 struct BoardsByIdsCase {
     name: &'static str,
     board_ids: [String; 2],
@@ -293,9 +283,8 @@ async fn get_containers_in_workspace_by_ids() {
                 .await;
             if case.expected_error {
                 let error = result.expect_err(case.name);
-                // The original returns the boards it did find next to the error and the
-                // test checks their number. A `Result` carries one or the other, so how
-                // many of the boards exist is checked through another query below.
+                // A `Result` carries either the boards or the error, so how many of the
+                // boards exist is verified with a separate query below.
                 match &error {
                     StoreError::NotAllFound { entity, ids } => {
                         assert_eq!(*entity, "board", "{}", case.name);
@@ -378,10 +367,7 @@ async fn insert_container() {
     }
 
     // "invalid properties field board"
-    //
-    // Not expressible: the original stores a function value in the board's properties to
-    // make their serialization fail. The properties are a `JsonMap` here, which can only
-    // hold values that serialize.
+    // Unserializable property values are prevented by type (`JsonMap`).
 
     // "update board"
     {
@@ -402,8 +388,8 @@ async fn insert_container() {
     {
         let type_board_id = new_id();
 
-        // The original stores this board without a workspace. Here a board is some workspace's:
-        // one without a workspace is refused, and nothing is stored.
+        // A board must belong to a workspace: one without a workspace is refused, and
+        // nothing is stored.
         let mut board = Container {
             id: type_board_id.clone(),
             title: "Public board".to_owned(),
@@ -456,7 +442,7 @@ async fn insert_container() {
 #[tokio::test]
 #[expect(
     clippy::too_many_lines,
-    reason = "one test per test function of the original, whose subtests share a store"
+    reason = "sequential board-patching cases share one store fixture"
 )]
 async fn patch_container() {
     let test = common::setup().await;
@@ -580,8 +566,7 @@ async fn patch_container() {
     {
         let board_id = new_id();
         let properties = object(json!({ "prop1": "val1" }));
-        // The original's test data is `{"prop2": "val2"}`, a definition without an
-        // identifier, which is no longer stored.
+        // Card property definitions require an `id`.
         let card_properties = vec![object(json!({ "id": "prop2", "name": "val2" }))];
 
         let mut board = Container {
@@ -671,7 +656,7 @@ async fn patch_removes_one_card_property_and_updates_another(
         .patch_container(&board_id, &patch, user_id)
         .await
         .expect("the patch is applied");
-    // The original compares without regard to order; so does this.
+    // Compare definitions without regard to order.
     let by_property_id = |a: &JsonMap, b: &JsonMap| a["id"].as_str().cmp(&b["id"].as_str());
     let mut expected = vec![new_prop1, prop3];
     expected.sort_by(by_property_id);
@@ -743,7 +728,6 @@ async fn undelete_container() {
             show_description: true,
             is_template: false,
             properties: object(json!({ "prop_1": "value_1" })),
-            // The original's test data has no `id`; see `patch_container`.
             card_properties: vec![object(json!({ "id": "prop_1", "name": "value_1" }))],
             ..new_board(&board_id, &workspace_id, ContainerType::Open)
         };
@@ -819,8 +803,7 @@ async fn undelete_container() {
             .await
             .expect("the board is back");
 
-        // The original restores a board that is not deleted once more, without effect.
-        // Here only what is in the trash is restored.
+        // Only a board currently in the trash can be restored.
         let error = test
             .undelete_container(&board_id, &user_id)
             .await
@@ -832,7 +815,7 @@ async fn undelete_container() {
             .expect("the board is still there");
     }
 
-    // "from not existing id": the original succeeds and restores nothing.
+    // Restoring a non-existent or invalid board ID fails with not-found.
     for board_id in [new_id(), NOT_AN_ID.to_owned()] {
         let error = test
             .undelete_container(&board_id, &user_id)
@@ -900,8 +883,7 @@ async fn save_member() {
         test.save_member(&member)
             .await
             .expect("the member is saved");
-        // The original checks the member it gets back; the port returns nothing, so the
-        // same members are checked on the stored membership.
+        // Read back the stored membership to verify every saved flag.
         let stored = test
             .get_member_for_container(&board_id, &user_id)
             .await
@@ -936,9 +918,7 @@ async fn save_member() {
         assert!(stored.scheme_editor, "an editor now");
         assert!(stored.scheme_viewer, "a viewer now");
 
-        // The original checks here that the membership history did not grow. There is
-        // no such history any more; that the membership was updated and not added to
-        // shows in there still being one.
+        // Updating an existing membership replaces it in place rather than duplicating it.
         let members = test
             .get_members_for_container(&board_id)
             .await
@@ -1129,8 +1109,7 @@ async fn delete_member() {
     test.teardown().await;
 }
 
-// Characterization tests: behavior of the original that its test suite does not cover,
-// or what this server does in its place.
+// Additional store invariants: updates, deletion/trash, templates, and membership rules.
 
 /// A template stored on behalf of no user is one the server ships with: it is built in,
 /// whatever the caller says of it, and nothing else is. It stays built in whoever
@@ -1200,9 +1179,8 @@ async fn a_template_stored_on_behalf_of_nobody_is_built_in_and_stays_so() {
     test.teardown().await;
 }
 
-/// `server/services/store/sqlstore/board.go:360-399`: what an update leaves alone. The
-/// original leaves the caller's board as the caller filled it in; here it comes back as
-/// it is stored.
+/// Verifies which board fields an update overwrites versus leaves untouched, returning
+/// the board as stored.
 #[tokio::test]
 async fn insert_container_update_keeps_workspace_creator_and_creation_time() {
     let test = common::setup().await;
@@ -1266,9 +1244,7 @@ async fn insert_container_update_keeps_workspace_creator_and_creation_time() {
     test.teardown().await;
 }
 
-/// `server/services/store/sqlstore/board.go:414-479` and `:789-874`: a board takes its
-/// blocks with it, both ways. The original marks them deleted where they are; here they
-/// move to the trash and back.
+/// Deleting and restoring a board moves its blocks to the trash and back with it.
 #[tokio::test]
 async fn delete_and_undelete_container_take_the_blocks_along() {
     let test = common::setup().await;
@@ -1317,16 +1293,13 @@ async fn delete_and_undelete_container_take_the_blocks_along() {
         .await
         .expect("the blocks are read");
     assert!(left.is_empty(), "got {left:?}");
-    // The original keeps the memberships of a deleted board. Here they go to the trash
-    // with it.
+    // Memberships move to the trash with a deleted board.
     let members = test
         .get_members_for_container(&board_id)
         .await
         .expect("the members are read");
     assert!(members.is_empty(), "got {members:?}");
-    // The original marks the board's last history row as deleted, with the deleter as
-    // its modifier. Here the board is in the trash as it was, and the trash says who
-    // deleted it.
+    // The deleted board is recorded in the trash along with who deleted it.
     let deleted = test
         .get_deleted_container(&board_id)
         .await
@@ -1375,8 +1348,7 @@ async fn delete_and_undelete_container_take_the_blocks_along() {
     test.teardown().await;
 }
 
-/// `server/services/store/sqlstore/board.go:502-550`. There is no column for the roles
-/// any more; the member reads as empty.
+/// Saving a member stores its scheme role flags and reads `roles` as empty.
 #[tokio::test]
 async fn save_member_stores_the_scheme_flags_and_no_roles() {
     let test = common::setup().await;
@@ -1428,8 +1400,8 @@ async fn save_member_stores_the_scheme_flags_and_no_roles() {
     test.teardown().await;
 }
 
-/// `server/services/store/sqlstore/templates.go:57-89`. The original lists its built-in
-/// templates through this query too; here they are read on their own.
+/// Workspace template queries return open templates and templates the user is a member of;
+/// built-in templates are queried separately.
 #[tokio::test]
 async fn get_template_boards_returns_open_templates_and_templates_the_user_is_member_of() {
     let test = common::setup().await;
@@ -1505,11 +1477,8 @@ async fn get_template_boards_returns_open_templates_and_templates_the_user_is_me
     test.teardown().await;
 }
 
-/// The original's `RemoveDefaultTemplates`
-/// (`server/services/store/sqlstore/templates.go:17-55`) removes the templates its system
-/// user made. Here the templates the server ships with are the boards stored on behalf of
-/// no user, and `remove_builtin_templates` removes those. The original leaves their
-/// history rows; here nothing of them is left, in the trash or elsewhere.
+/// Built-in templates are stored on behalf of no user, and `remove_builtin_templates`
+/// permanently removes them and their blocks without sending them to the trash.
 #[tokio::test]
 async fn remove_default_templates_removes_system_templates_and_their_blocks_past_the_trash() {
     let test = common::setup().await;
@@ -1582,8 +1551,7 @@ async fn remove_default_templates_removes_system_templates_and_their_blocks_past
         .expect("a template created by a user stays");
     assert_eq!(blocks_of(&user_template).await, 1, "and so does its block");
 
-    // The original keeps a board of its system user that is not a template and removes
-    // its blocks all the same. Here such a board is not built in, and stays whole.
+    // A non-template board is not built-in and stays intact with its blocks.
     let kept = test
         .get_container(&plain_board.id)
         .await
@@ -1616,8 +1584,8 @@ async fn remove_default_templates_removes_system_templates_and_their_blocks_past
     test.teardown().await;
 }
 
-/// Not in the original: a board is not stored with a malformed card property
-/// definition, whether it is inserted or patched, and the stored board stays as it was.
+/// A board is not stored with a malformed card property definition, whether it is
+/// inserted or patched, and the stored board stays as it was.
 #[tokio::test]
 async fn boards_with_malformed_card_property_definitions_are_not_stored() {
     let test = common::setup().await;
@@ -1682,7 +1650,7 @@ async fn boards_with_malformed_card_property_definitions_are_not_stored() {
     test.teardown().await;
 }
 
-// The trash. None of this is in the original, which marks what is deleted where it is.
+// Trash behavior: deleted boards and blocks move to trash tables and can be restored or purged.
 
 /// A membership that administers the board.
 fn admin_of(board_id: &str, user_id: &str) -> ContainerMember {
@@ -2829,9 +2797,8 @@ async fn purge_trash_returns_the_file_records_of_the_boards_it_removed() {
     test.teardown().await;
 }
 
-// Membership changes that say what they did, and that keep a board its administrator.
-// The original checks for the last administrator outside the store, without holding
-// anything, and does not test the store's part.
+// Membership changes that report what changed and enforce the last-administrator invariant
+// atomically inside the store.
 
 #[tokio::test]
 async fn add_member_stores_a_new_membership_and_returns_none() {

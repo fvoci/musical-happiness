@@ -1,10 +1,7 @@
 //! Sharing a board through a read token: who may share, what the server answers, and
 //! that the token is the server's to make and to forget.
 //!
-//! The tests whose names begin with `sharing_` began as ports of
-//! `server/integrationtests/sharing_test.go`, whose `TestSharing` runs its subtests on
-//! one server and turns public sharing on halfway. A server's configuration is fixed
-//! here, so each has a server of its own with the configuration it needs.
+//! Each test starts its own server with public sharing enabled or disabled as needed.
 
 use fvoci_model::{Container, ContainerMember, ContainerType, Sharing, new_id};
 use fvoci_server::auth::secret::SECRET_LENGTH;
@@ -82,7 +79,7 @@ async fn read_token_opens(th: &TestServer, board_id: &str, token: &str) -> bool 
 // ---------------------------------------------------------------------------------------
 // what the routes answer
 
-/// `TestSharing/"an unauthenticated client should not be able to get a sharing"`
+/// An unauthenticated client cannot read a board's sharing configuration.
 #[tokio::test]
 async fn sharing_an_unauthenticated_client_should_not_be_able_to_get_a_sharing() {
     let th = Setup::native().start().await.init_basic().await;
@@ -93,8 +90,7 @@ async fn sharing_an_unauthenticated_client_should_not_be_able_to_get_a_sharing()
     th.teardown().await;
 }
 
-/// `TestSharing/"Check no initial sharing"`: a board that was never shared is not
-/// shared, which is an answer and no error.
+/// A board that was never shared reports sharing as disabled rather than returning an error.
 #[tokio::test]
 async fn sharing_check_no_initial_sharing() {
     let th = Setup::native().start().await.init_basic().await;
@@ -114,8 +110,7 @@ async fn sharing_check_no_initial_sharing() {
     th.teardown().await;
 }
 
-/// `TestSharing/"POST sharing, config = false"` and its `"GET sharing"`: with public
-/// sharing turned off in the configuration nothing can be shared, or unshared.
+/// With public sharing turned off in configuration, sharing and unsharing are rejected.
 #[tokio::test]
 async fn sharing_post_sharing_config_false() {
     let th = Setup::native().start().await.init_basic().await;
@@ -138,9 +133,8 @@ async fn sharing_post_sharing_config_false() {
     th.teardown().await;
 }
 
-/// `TestSharing/"POST sharing, config = true"` and its `"GET sharing"`: sharing a board
-/// answers the sharing state with the token the server made, and that is what is read
-/// afterwards.
+/// With public sharing enabled, enabling sharing returns the server-generated token and
+/// subsequent reads return that same sharing state.
 #[tokio::test]
 async fn sharing_post_sharing_config_true() {
     let (th, board) = shared_setup().await;
@@ -521,9 +515,7 @@ async fn get_sharing_does_not_depend_on_the_configuration() {
 // ---------------------------------------------------------------------------------------
 // the application layer
 
-/// `TestGetSharing` and `TestUpsertSharing` of `server/app/sharing_test.go`, for the
-/// functions there are now: the state that is set is the state that is read, and a
-/// board that does not exist cannot be shared.
+/// App-level sharing getters and setters persist state and refuse non-existent boards.
 #[tokio::test]
 async fn app_sharing_is_set_and_read() {
     let th = Setup::native().start().await;

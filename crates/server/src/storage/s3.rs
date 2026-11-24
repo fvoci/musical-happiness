@@ -113,8 +113,7 @@ impl S3Files {
 
     /// The object key of a stored path: the configured prefix followed by the path.
     ///
-    /// Characters that are not allowed in a key segment are percent-encoded, so a file
-    /// with such a name gets a different key than the original server would give it.
+    /// Characters that are not allowed in a key segment are percent-encoded by `object_store`.
     fn key(&self, path: &str) -> Result<Path, StorageError> {
         // One spelling of a place: the key of `a//b` would be that of `a/b`.
         if !fvoci_model::is_storage_path(path) {

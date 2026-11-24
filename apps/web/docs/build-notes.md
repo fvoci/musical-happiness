@@ -1,16 +1,16 @@
-# 빌드의 `.zst`, 원본에서 떼어 내기, 템플릿의 주소: 한 것과 잰 것
+# 빌드의 `.zst` 사전 압축: 한 것과 잰 것
 
-작성: 2026-11-10 23:00 KST. `docs/notes.md`의 "빌드 산출물"에 이어지는 기록이다. 스스로 정한 것과 그 이유는 `decisions.md`의 "빌드의 `.zst`, 원본에서 떼어 내기, 템플릿의 주소"에 있다. 측정은 이 기기(Node 26.13.0, WSL2)에서 했다.
+작성: 2026-11-10 23:00 KST. `docs/notes.md`의 "빌드 산출물"에 이어지는 기록이다. 스스로 정한 것과 그 이유는 `decisions.md`의 "빌드의 `.zst`"에 있다. 측정은 이 기기(Node 26.13.0, WSL2)에서 했다.
 
 ## 1. 빌드가 `.zst`도 만든다
 
-`pnpm --filter web run build`가 `dist/static/` 아래의 텍스트 파일마다 `.br`, `.zst`, `.gz`를 쓴다(`tools/build/output.ts`의 `precompress`). 압축본이 원본보다 작지 않으면 쓰지 않고, `woff2`와 `index.html`은 전처럼 압축하지 않는다. 지금의 빌드는 텍스트 8개에 24개를 쓴다.
+`pnpm --filter web run build`가 `dist/static/` 아래의 텍스트 파일마다 `.br`, `.zst`, `.gz`를 쓴다(`tools/build/output.ts`의 `precompress`). 압축본이 비압축 파일보다 작지 않으면 쓰지 않고, `woff2`와 `index.html`은 전처럼 압축하지 않는다. 지금의 빌드는 텍스트 8개에 24개를 쓴다.
 
 **방법.** Node에 들어 있는 `node:zlib`의 `zstdCompress`다. 의존성은 더하지 않았다.
 
 - 문서(`nodejs.org/docs/latest-v26.x/api/zlib.html`, 2026-11-10 22:36 KST에 읽음): Zstd 계열(`zlib.zstdCompress`, `ZstdOptions`, 상수)은 v22.15.0과 v23.8.0에서 들어왔고 v26에서도 **"Stability: 1 - Experimental"**이다. `pledgedSrcSize`(압축할 크기를 미리 알림)는 v26.11.0부터 `zstdCompress`에서 입력 길이가 기본값이다. 이 저장소의 `engines`는 Node 24 이상이라 그 값을 직접 넘긴다.
-- 실제 호출: `process.versions.zstd`는 `1.5.7`. 압축한 것을 `zstdDecompressSync`로 풀면 원본과 바이트까지 같다. 실험 기능 경고는 찍히지 않는다.
-- 실험 단계라는 것이 남는 위험이다. 옵션의 이름이나 기본값이 바뀌면 `tools/build/output.ts`의 `compressedForms` 한 곳을 고치면 되고, `tests/tools/build.test.ts`가 세 파일이 만들어지고 풀면 원본과 같은지를 본다.
+- 실제 호출: `process.versions.zstd`는 `1.5.7`. 압축한 것을 `zstdDecompressSync`로 풀면 압축 전 파일과 바이트까지 같다. 실험 기능 경고는 찍히지 않는다.
+- 실험 단계라는 것이 남는 위험이다. 옵션의 이름이나 기본값이 바뀌면 `tools/build/output.ts`의 `compressedForms` 한 곳을 고치면 되고, `tests/tools/build.test.ts`가 세 파일이 만들어지고 풀면 압축 전 파일과 같은지를 본다.
 
 **수준.** 19로 정했다(`ZSTD_LEVEL`). zstd의 설명(`zstd.h` 1.5.7): 보통 수준은 1에서 22(`ZSTD_maxCLevel()`)까지이고 기본값은 3이며, 20 이상은 "ultra"로 메모리를 더 쓴다. 빌드 산출물의 텍스트 8개(합계 806,912바이트)를 수준별로 잰 것:
 
@@ -55,41 +55,25 @@
 | `zstd;q=0, gzip`          | `gzip`                            |      13,426 |
 | `identity`                | (없음)                            |      34,235 |
 
-- `zstd`로 받은 것을 풀면 원본과 같다. `serve.ts`에 `app=dist`로 올려도 같은 답이 온다. 모든 응답에 `Vary: Accept-Encoding`이 있다.
+- `zstd`로 받은 것을 풀면 압축 전 파일과 같다. `serve.ts`에 `app=dist`로 올려도 같은 답이 온다. 모든 응답에 `Vary: Accept-Encoding`이 있다.
 - e2e의 브라우저(Chromium 158 headless)는 `http://127.0.0.1`에 `gzip, deflate, br, zstd`를 보낸다(직접 찍어 봤다). `e2e/shell.spec.ts`는 스크립트와 스타일시트가 `br`로 오는지를 본다. 순서를 `zstd` 먼저로 바꾸면 그 테스트도 고쳐야 한다.
 
 **서버 쪽에 전달할 것**(서버 세션의 몫, 여기서는 읽기만 했다): 서버의 `crates/server/src/web.rs`는 `ServeDir`에 `.precompressed_br().precompressed_gzip()`만 켜 두었다. `.zst`를 보내려면 zstd 쪽도 켜야 한다. `static/`에 `<파일>.zst`가 생긴다는 것, 프레임은 수준 19·한 덩어리·창 8 MB 이하라는 것, 지금의 파일은 전부 brotli가 더 작다는 것이 서버가 순서를 정할 때의 재료다.
 
-## 2. 원본 폴더에서 떼어 내기
+## 2. 이름 검사 폴백
 
-원본(`webapp/`, 템플릿 아카이브)을 읽던 도구와 원본 없는 사본에서 확인하던 스크립트는 2026-11-11에 지웠다(사용자 결정). 메시지는 `messages/<태그>.json`, 내장 템플릿은 저장소 루트의 `crates/server/assets/templates/`가 원천이다. 이름 검사(`tools/names/check.ts`)는 git이 파일 목록을 주지 못하면(0개 포함) 폴더를 걸어서 검사하고 한 줄을 찍으며, 그래도 0개면 실패한다.
-
-## 3. 템플릿 산출물의 주소
-
-`url` 속성의 값 가운데 바깥 주소 32건을 전에는 모두 비웠다. 이제 도메인으로 갈라, 원본 회사로 가는 것만 빼고 나머지는 `example.com` 아래로 옮겼다(2026-11-10 22:40 KST). 아래는 그때의 수이고, 그 뒤 게시물 1건을 뺌으로 바꿔 지금은 뺀 것 22, 옮긴 것 10이다(`decisions.md`의 42. 그 템플릿들은 이제 메모리 구현의 씨앗 `src/lib/state/memory/seed/`에만 있다).
-
-| 전      | 지금                           | 건수 | 무엇                                                         |
-| ------- | ------------------------------ | ---: | ------------------------------------------------------------ |
-| 비움    | **비움**(`outside-link-value`) |   21 | 원본 회사의 도메인: 제품 소개 페이지 10, 보도 자료 2, 문서 9 |
-| 비움    | **옮김**(`example-link-value`) |   11 | 지어낸 회사의 사이트 5, 다른 사이트의 그림 4·기사 1·게시물 1 |
-| 합계 32 | 합계 32                        |      |                                                              |
-
-- 옮긴 값: `liminarycorp.com` → `https://liminarycorp.example.com`(나머지 넷도 같은 꼴), `https://www.toolbox.com/tech/…` → `https://toolbox.example.com/tech/…`, 그림 4건 → `https://user-images.githubusercontent.example.com/…gif`, 게시물 → `https://twitter.example.com/fvoci/status/…`.
-- 글에서 바뀐 곳의 합계는 전과 같은 47곳이다(9 + 5 + 1 + 21 + 11).
-- 본문의 바깥 링크 처리(결정 14: 링크와 그 문장을 뺀다)는 그대로다(1건).
+메시지는 `messages/<태그>.json`, 내장 템플릿은 저장소 루트의 `crates/server/assets/templates/`가 원천이다. 이름 검사(`tools/names/check.ts`)는 git이 파일 목록을 주지 못하면(0개 포함) 폴더를 걸어서 검사하고 한 줄을 찍으며, 그래도 0개면 실패한다.
 
 ## 마지막 실행
 
-2026-11-10 23:02–23:10 KST, 이 글을 담은 커밋의 내용으로(커밋하기 직전의 작업 트리).
+2026-11-10 23:02–23:10 KST, 이 글을 담은 커밋의 내용으로(커밋하기 직전의 작업 트리):
 
-원본이 있는 이 워크트리에서(전과 같은 검사가 돈다):
-
-| 명령    | 결과                                                                                                                                          | 시간 |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| `check` | 통과. svelte-check 3,042 파일 오류 0, 이름 검사 599 파일, 메시지 파일은 "원본에서 다시 변환한 것과 같고, 원본 없이 돌려도 같다", 키 검사 통과 | 66초 |
-| `test`  | 통과. 세 시간대 각 55 파일, 1,666건 통과, 건너뛴 것 없음(기준 커밋에서는 54 파일, 1,601건)                                                    | 53초 |
-| `build` | 통과. `.br/.zst/.gz` 24개                                                                                                                     | 2초  |
-| `e2e`   | 16 통과, 14 건너뜀(전과 같다)                                                                                                                 | 8초  |
+| 명령    | 결과                                                                                       | 시간 |
+| ------- | ------------------------------------------------------------------------------------------ | ---- |
+| `check` | 통과. svelte-check 3,042 파일 오류 0, 이름 검사 599 파일, 키 검사 통과                     | 66초 |
+| `test`  | 통과. 세 시간대 각 55 파일, 1,666건 통과, 건너뛴 것 없음(기준 커밋에서는 54 파일, 1,601건) | 53초 |
+| `build` | 통과. `.br/.zst/.gz` 24개                                                                  | 2초  |
+| `e2e`   | 16 통과, 14 건너뜀(전과 같다)                                                              | 8초  |
 
 - `spikes:e2e`는 돌리지 않았다. 스파이크, `lib/drag`, `lib/editor`를 건드리지 않았다.
 

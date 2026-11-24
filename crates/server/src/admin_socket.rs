@@ -14,8 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::connection::Connection;
 
-/// The mode of the socket file: only the user the server runs as may connect
-/// (`server/server/server.go:398`).
+/// The mode of the socket file: only the user the server runs as may connect.
 const SOCKET_MODE: u32 = 0o600;
 
 /// How long stopping waits for requests in flight before it cuts them off.
@@ -89,9 +88,7 @@ impl Drop for AdminSocket {
 /// Removes the socket file of a server that did not get to remove it, such as one
 /// that was killed.
 ///
-/// The original removes whatever file it finds at the path
-/// (`server/server/server.go:386-390`); only a socket is removed here, so that a
-/// mistyped path cannot cost a file.
+/// Only a Unix socket is removed here, so a mistyped path cannot delete a regular file.
 fn remove_stale_socket(path: &Path) -> anyhow::Result<()> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_socket() => {

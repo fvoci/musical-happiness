@@ -1,8 +1,8 @@
 //! Serving the web app: the files under `static/` and the `index.html` shell.
 //!
 //! Every path that is neither an API route nor a static file gets `index.html`, so that
-//! the web app's client-side routes can be opened directly. The original server adds no
-//! cache headers; this one sets them so that the server can sit behind a CDN.
+//! the web app's client-side routes can be opened directly. Cache headers are set so that
+//! the server can sit behind a CDN.
 
 mod discovery;
 
@@ -236,7 +236,7 @@ fn without_trailing_slash(uri: &Uri) -> Option<String> {
     })
 }
 
-/// The response for a path that names nothing, worded as the original's.
+/// The plain-text 404 response for an unmatched path.
 pub fn not_found() -> Response {
     (
         StatusCode::NOT_FOUND,
@@ -281,8 +281,7 @@ fn has_content_hash(file_name: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// The base URL cases of `Test_NewServer` in `server/web/webserver_test.go`. The
-    /// listen address cases of that test are covered where the listener is created.
+    /// Extracts the base path from `server_url`, falling back to `/` for invalid URLs.
     #[test]
     fn base_url_is_the_path_of_the_server_url() {
         let cases = [

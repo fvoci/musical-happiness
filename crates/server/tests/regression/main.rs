@@ -1,7 +1,6 @@
 //! Regression tests: fixed request sequences whose answers are pinned in `golden/`.
 //!
-//! The recordings were taken from the server at the tag `parity-s5`, where its answers
-//! had been compared with the original server's. A test fails when an answer differs
+//! Recorded HTTP answers are stored under `golden/`. A test fails when an answer differs
 //! from its recording. To change an answer on purpose, rerun with
 //! `FVOCI_REGRESSION_UPDATE=1` and commit the rewritten golden files with the change.
 //!
