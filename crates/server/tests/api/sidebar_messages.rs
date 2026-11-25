@@ -140,10 +140,12 @@ async fn category_changes_are_sent_to_the_users_connection() {
     );
     // The answer has no body: the message is where the deleted category is told.
     let message = expect_message(&mut socket, "deleting a category").await;
-    let delete_at = message["category"]["deleteAt"].as_i64().unwrap_or_default();
-    assert!(delete_at > 0, "marked as deleted: {message}");
+    let deleted_at = message["category"]["deletedAt"]
+        .as_i64()
+        .unwrap_or_default();
+    assert!(deleted_at > 0, "marked as deleted: {message}");
     let deleted = Category {
-        delete_at,
+        deleted_at: Some(deleted_at),
         ..stored
     };
     assert_eq!(

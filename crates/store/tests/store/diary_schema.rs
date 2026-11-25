@@ -125,7 +125,7 @@ async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String
         ),
     )
     .await;
-    common::works_in(&store, &workspace_id, &user_id).await;
+    common::pre0072_works_in(&store, &workspace_id, &user_id).await;
     let mut kept = String::new();
     for (kind, is_template, trashed) in [
         (ContainerKind::Board, false, false),

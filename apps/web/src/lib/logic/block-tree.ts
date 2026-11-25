@@ -15,7 +15,7 @@ export function mergeBlocks(blocks: readonly Block[], updatedBlocks: readonly Bl
   const updatedIds = new Set(updatedBlocks.map((block) => block.id));
   return [
     ...blocks.filter((block) => !updatedIds.has(block.id)),
-    ...updatedBlocks.filter((block) => block.deleteAt === 0),
+    ...updatedBlocks.filter((block) => block.deletedAt === undefined),
   ];
 }
 
@@ -39,6 +39,7 @@ export function duplicateBlockTree(
     copy.id = createId(idKindOfBlockType(copy.type));
     copy.createAt = now;
     copy.updateAt = now;
+    delete copy.deletedAt;
     idMap[block.id] = copy.id;
     return copy;
   });

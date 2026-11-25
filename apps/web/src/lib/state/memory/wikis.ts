@@ -273,7 +273,6 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
       body: null,
       createAt: now,
       updateAt: now,
-      deleteAt: 0,
     };
     const renumbered = this.#writePlace(page, place);
     this.#world.blocks.set(page.id, page);
@@ -318,15 +317,15 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     const copies = family.flatMap((id) => {
       const source = world.blocks.get(id);
       if (!source) return [];
+      const { deletedAt: _deletedAt, ...rest } = copy(source);
       const made: StoredBlock = {
-        ...copy(source),
+        ...rest,
         id: ids.get(id) ?? world.newId(),
         parentId: ids.get(source.parentId) ?? source.parentId,
         createdBy: userId,
         modifiedBy: userId,
         createAt: now,
         updateAt: now,
-        deleteAt: 0,
       };
       return [made];
     });

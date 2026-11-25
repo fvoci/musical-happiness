@@ -15,7 +15,6 @@
       ],
       "createAt": "<ts>",
       "createdBy": "<id:2>",
-      "deleteAt": 0,
       "description": "to export",
       "icon": "",
       "id": "<id:3>",
@@ -44,7 +43,6 @@
         "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
-        "deleteAt": 0,
         "fields": {
           "icon": "x"
         },
@@ -62,7 +60,6 @@
         "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
-        "deleteAt": 0,
         "fields": {},
         "id": "<id:5>",
         "modifiedBy": "<id:2>",
@@ -77,7 +74,6 @@
         "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
-        "deleteAt": 0,
         "fields": {
           "fileId": "<secret:1>.png"
         },
@@ -94,7 +90,6 @@
         "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
-        "deleteAt": 0,
         "fields": {
           "viewType": "table"
         },
@@ -135,7 +130,6 @@
             ],
             "createAt": "<ts>",
             "createdBy": "<id:2>",
-            "deleteAt": 0,
             "description": "to export",
             "fileNames": {
               "<secret:1>.png": "pixel.png"
@@ -163,7 +157,6 @@
             "containerId": "<id:3>",
             "createAt": "<ts>",
             "createdBy": "<id:2>",
-            "deleteAt": 0,
             "fields": {
               "icon": "x"
             },
@@ -184,7 +177,6 @@
             "containerId": "<id:3>",
             "createAt": "<ts>",
             "createdBy": "<id:2>",
-            "deleteAt": 0,
             "fields": {},
             "id": "<id:5>",
             "modifiedBy": "<id:2>",
@@ -202,7 +194,6 @@
             "containerId": "<id:3>",
             "createAt": "<ts>",
             "createdBy": "<id:2>",
-            "deleteAt": 0,
             "fields": {
               "fileId": "<secret:1>.png"
             },
@@ -222,7 +213,6 @@
             "containerId": "<id:3>",
             "createAt": "<ts>",
             "createdBy": "<id:2>",
-            "deleteAt": 0,
             "fields": {
               "viewType": "table"
             },
@@ -466,7 +456,6 @@
         ],
         "createAt": "<ts>",
         "createdBy": "<id:22>",
-        "deleteAt": 0,
         "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
         "icon": "👋",
         "id": "<id:23>",
@@ -494,7 +483,6 @@
         ],
         "createAt": "<ts>",
         "createdBy": "<id:22>",
-        "deleteAt": 0,
         "description": "to export",
         "icon": "",
         "id": "<id:8>",
@@ -524,7 +512,6 @@
         "containerId": "<id:8>",
         "createAt": "<ts>",
         "createdBy": "<id:22>",
-        "deleteAt": 0,
         "fields": {
           "icon": "x"
         },
@@ -542,7 +529,6 @@
         "containerId": "<id:8>",
         "createAt": "<ts>",
         "createdBy": "<id:22>",
-        "deleteAt": 0,
         "fields": {},
         "id": "<id:25>",
         "modifiedBy": "<id:22>",
@@ -557,7 +543,6 @@
         "containerId": "<id:8>",
         "createAt": "<ts>",
         "createdBy": "<id:22>",
-        "deleteAt": 0,
         "fields": {
           "fileId": "<secret:2>.png"
         },
@@ -574,7 +559,6 @@
         "containerId": "<id:8>",
         "createAt": "<ts>",
         "createdBy": "<id:22>",
-        "deleteAt": 0,
         "fields": {
           "viewType": "table"
         },

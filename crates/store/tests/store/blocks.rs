@@ -1600,8 +1600,8 @@ async fn assert_blocks_of_a_writer_add_up(
                 (writer_id, "patched", writer_id),
                 "the block of task {task}, round {round} is in the trash as its task left it"
             );
-            assert_ne!(
-                deleted.block.delete_at, 0,
+            assert!(
+                deleted.block.deleted_at.is_some_and(|at| at > 0),
                 "the block of task {task}, round {round} has a deletion time"
             );
         } else {
@@ -2483,7 +2483,8 @@ async fn delete_block_takes_everything_below_it_along_as_one_deletion() {
     let deleted_at = block_in_trash(store, id_of(&tree, "card"))
         .await
         .block
-        .delete_at;
+        .deleted_at
+        .expect("deletion time");
     assert_within_a_second(now_millis(), deleted_at, "the deletion time of the card");
     for name in CARD_AND_BELOW {
         let stored = block_named(&tree, name);
@@ -2494,7 +2495,7 @@ async fn delete_block_takes_everything_below_it_along_as_one_deletion() {
             "the trash names who deleted {name}"
         );
         let expected = Block {
-            delete_at: deleted_at,
+            deleted_at: Some(deleted_at),
             ..stored.clone()
         };
         assert_eq!(
@@ -2770,7 +2771,7 @@ fn subscription(block: &Block, user_id: &str) -> Subscription {
         user_id: user_id.to_owned(),
         notified_at: 0,
         create_at: 0,
-        delete_at: 0,
+        deleted_at: None,
     }
 }
 
@@ -3229,14 +3230,22 @@ async fn purge_trash_removes_what_was_deleted_before_the_cutoff() {
         .delete_block(card_id, user_id)
         .await
         .expect("the card is deleted");
-    let older = block_in_trash(store, card_id).await.block.delete_at;
+    let older = block_in_trash(store, card_id)
+        .await
+        .block
+        .deleted_at
+        .expect("older deletion time");
     // A later millisecond, so that the two deletions have different times.
     tokio::time::sleep(Duration::from_millis(2)).await;
     store
         .delete_block(other_card_id, user_id)
         .await
         .expect("the other card is deleted");
-    let newer = block_in_trash(store, other_card_id).await.block.delete_at;
+    let newer = block_in_trash(store, other_card_id)
+        .await
+        .block
+        .deleted_at
+        .expect("newer deletion time");
     assert!(
         newer > older,
         "the second deletion is later than the first: {newer} after {older}"
@@ -3507,10 +3516,14 @@ async fn concurrent_deletes_of_one_block_all_succeed_and_delete_it_once() {
             blocks.is_empty(),
             "round {round}: the card and what was below it are gone: {blocks:?}"
         );
-        let deleted_at = block_in_trash(store, card_id).await.block.delete_at;
+        let deleted_at = block_in_trash(store, card_id)
+            .await
+            .block
+            .deleted_at
+            .expect("deletion time");
         for stored in &tree {
             let expected = Block {
-                delete_at: deleted_at,
+                deleted_at: Some(deleted_at),
                 ..stored.clone()
             };
             assert_eq!(

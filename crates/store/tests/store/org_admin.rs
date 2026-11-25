@@ -79,10 +79,11 @@ fn file_of(board_id: &str, stored_name: &str) -> FileRecord {
     }
 }
 
-/// Puts the test's organization out of use (`delete_at` other than 0), or back in use.
-async fn set_org_deleted(test: &TestStore, delete_at: i64) {
+/// Puts the test's organization out of use (`deleted_at` set), or back in use (`None`).
+async fn set_org_deleted(test: &TestStore, deleted_at: Option<i64>) {
+    let value = deleted_at.map_or_else(|| "NULL".to_owned(), |at| at.to_string());
     let statement = format!(
-        "UPDATE organizations SET delete_at = {delete_at} WHERE id = '{}'",
+        "UPDATE organizations SET deleted_at = {value} WHERE id = '{}'",
         test.org_id
     );
     test.execute_unchecked(&statement)
@@ -182,7 +183,7 @@ async fn a_workspace_in_the_trash_goes_for_good_as_its_boards_do() {
     );
 
     // Also of an organization no longer in use, whose trash is still emptied.
-    set_org_deleted(&test, 5).await;
+    set_org_deleted(&test, Some(5)).await;
     let Purged {
         records,
         files: mut gone,
@@ -190,7 +191,7 @@ async fn a_workspace_in_the_trash_goes_for_good_as_its_boards_do() {
         .purge_workspace(&doomed, i64::MAX)
         .await
         .expect("the workspace is purged");
-    set_org_deleted(&test, 0).await;
+    set_org_deleted(&test, None).await;
     gone.sort_by(|a, b| a.path.cmp(&b.path));
     assert_eq!(gone, files, "the files of both of its boards");
     assert_eq!(records, 2, "its two boards");

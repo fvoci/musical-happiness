@@ -288,7 +288,6 @@ test('public link dialog works on a course and SharedCourse reads a shared cours
           modifiedBy: '',
           createAt: 1,
           updateAt: 1,
-          deleteAt: 0,
         },
       });
       return;

@@ -177,6 +177,7 @@ export function insertCopy(world: World, userId: string, copied: Copied): Contai
     createAt: now,
     updateAt: now,
   };
+  delete board.deletedAt;
   world.containers.set(board.id, board);
   world.members.set(board.id, [memberOf(board.id, userId, 'admin')]);
   fileAsNew(world, userId, board);
@@ -221,6 +222,7 @@ export function insertCopy(world: World, userId: string, copied: Copied): Contai
       createAt: now,
       updateAt: now,
     };
+    delete stored.deletedAt;
     numberBlock(world, stored);
     world.blocks.set(stored.id, stored);
   }

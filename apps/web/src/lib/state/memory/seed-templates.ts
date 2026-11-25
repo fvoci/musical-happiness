@@ -285,7 +285,6 @@ function seedCardComments(
       fields: {},
       createAt: written,
       updateAt: written,
-      deleteAt: 0,
       body: paragraph(COMMENTS[(templateIndex + index) % COMMENTS.length] ?? ''),
     });
   }
@@ -320,7 +319,6 @@ function seedBoardViews(
       fields,
       createAt: made,
       updateAt: made,
-      deleteAt: 0,
     });
   }
 }
@@ -374,7 +372,6 @@ export function seedBoardBlocks(
       fields: { icon: card.fields.icon, isTemplate: card.fields.isTemplate, properties },
       createAt: made,
       updateAt: made,
-      deleteAt: 0,
       body: remapBody(card.body, cardIdOf, assetIdOf),
     });
     if (live && !card.fields.isTemplate) {
@@ -463,7 +460,6 @@ function seedCourseTemplateBlocks(
       body: null,
       createAt: made,
       updateAt: made,
-      deleteAt: 0,
     });
   }
   for (const unit of units) {
@@ -482,7 +478,6 @@ function seedCourseTemplateBlocks(
       body: remapBody(unit.body, nodeIdOf, assetIdOf),
       createAt: made,
       updateAt: made,
-      deleteAt: 0,
     });
   }
 }

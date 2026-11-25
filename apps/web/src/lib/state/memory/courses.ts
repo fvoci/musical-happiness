@@ -315,7 +315,6 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
       body: null,
       createAt: now,
       updateAt: now,
-      deleteAt: 0,
     };
     const renumbered = this.#writePlace(made, place);
     this.#world.blocks.set(made.id, made);

@@ -121,7 +121,7 @@ impl Store {
     pub async fn accounts_to_erase(&self, now: i64) -> Result<Vec<String>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT id FROM users WHERE delete_at > 0 AND erased_at = 0 \
+                "SELECT id FROM users WHERE deleted_at IS NOT NULL AND erased_at = 0 \
                  AND (erase_started_at > 0 OR (delete_after > 0 AND delete_after <= ",
             );
             sql.bind(now).push(")) ORDER BY delete_after, id");
@@ -448,8 +448,8 @@ async fn mark(
 ) -> Result<bool, StoreError> {
     let mut sql = scope.sql("UPDATE users SET erase_started_at = ");
     sql.bind(now)
-        .push_bind(", delete_at = CASE WHEN delete_at = 0 THEN ", now)
-        .push_bind(" ELSE delete_at END, update_at = ", now)
+        .push_bind(", deleted_at = COALESCE(deleted_at, ", now)
+        .push_bind("), update_at = ", now)
         .push_bind(
             " WHERE erase_started_at = 0 AND erased_at = 0 AND id = ",
             Id(user_id),
@@ -487,10 +487,10 @@ async fn wait_for_who_comes_in(scope: &mut Scope<'_>, org_id: &str) -> Result<()
 /// Puts an organization out of use at `now` and closes the ways into it: its provider
 /// is removed, with the sign-ins under way through it, and its links are revoked.
 async fn put_out_of_use(scope: &mut Scope<'_>, org_id: &str, now: i64) -> Result<(), StoreError> {
-    let mut sql = scope.sql("UPDATE organizations SET delete_at = ");
+    let mut sql = scope.sql("UPDATE organizations SET deleted_at = ");
     sql.bind(now)
         .push_bind(", update_at = ", now)
-        .push_bind(" WHERE delete_at = 0 AND id = ", Id(org_id));
+        .push_bind(" WHERE deleted_at IS NULL AND id = ", Id(org_id));
     scope.execute(sql).await?;
     let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
     sql.bind(Id(org_id));
@@ -504,7 +504,7 @@ async fn put_out_of_use(scope: &mut Scope<'_>, org_id: &str, now: i64) -> Result
 
 /// Puts the scope's organization, which was put out of use to go, back in use.
 async fn put_back_in_use(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    let mut sql = scope.sql("UPDATE organizations SET delete_at = 0 WHERE id = ");
+    let mut sql = scope.sql("UPDATE organizations SET deleted_at = NULL WHERE id = ");
     sql.bind(scope.org()?);
     scope.execute(sql).await?;
     Ok(())
@@ -528,7 +528,7 @@ async fn is_own_space_of(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, S
 
 /// Whether the scope's organization is out of use.
 async fn is_out_of_use(scope: &mut Scope<'_>) -> Result<bool, StoreError> {
-    let mut sql = scope.sql("SELECT 1 FROM organizations WHERE delete_at > 0 AND id = ");
+    let mut sql = scope.sql("SELECT 1 FROM organizations WHERE deleted_at IS NOT NULL AND id = ");
     sql.bind(scope.org()?);
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
@@ -600,7 +600,7 @@ async fn leave_workspace(
     user_id: &str,
     actor: &AuditActor,
 ) -> Result<Option<LeftWorkspace>, StoreError> {
-    let mut sql = scope.sql("SELECT delete_at FROM workspaces WHERE id = ");
+    let mut sql = scope.sql("SELECT deleted_at FROM workspaces WHERE id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND org_id = ", scope.org()?);
     if scope.dialect() == Dialect::Postgres {
@@ -609,7 +609,7 @@ async fn leave_workspace(
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(None);
     };
-    let in_use = row.int(0)? == 0;
+    let in_use = row.opt_int(0)?.is_none();
     let containers = workspace_membership::hold_containers_of(scope, workspace_id, user_id).await?;
     trash::hold_deleted_containers(scope, workspace_id).await?;
     let role = workspace_membership::held_role(scope, workspace_id, user_id).await?;
@@ -715,7 +715,7 @@ async fn heir_in(
 ) -> Result<Option<String>, StoreError> {
     let mut sql = scope.sql(
         "SELECT wm.user_id FROM workspace_members AS wm JOIN users AS u ON u.id = wm.user_id \
-         WHERE u.delete_at = 0 AND wm.workspace_id = ",
+         WHERE u.deleted_at IS NULL AND wm.workspace_id = ",
     );
     sql.bind(Id(workspace_id))
         .push_bind(" AND wm.user_id <> ", Id(user_id))

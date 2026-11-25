@@ -74,7 +74,7 @@ fn subscription(block: &Block, user: &User) -> Subscription {
         user_id: user.id.clone(),
         notified_at: 0,
         create_at: 0,
-        delete_at: 0,
+        deleted_at: None,
     }
 }
 
@@ -113,7 +113,7 @@ async fn create_subscription() {
 
                 assert_ne!(sub_new.notified_at, 0);
                 assert_ne!(sub_new.create_at, 0);
-                assert_eq!(sub_new.delete_at, 0);
+                assert_eq!(sub_new.deleted_at, None);
             }
         }
 
@@ -162,7 +162,7 @@ async fn create_subscription() {
             user_id: String::new(),
             notified_at: 0,
             create_at: 0,
-            delete_at: 0,
+            deleted_at: None,
         };
         let assert_invalid = |result: Result<Subscription, StoreError>| {
             assert!(
@@ -510,7 +510,7 @@ async fn resubscribing_keeps_the_stored_creation_time() {
     );
     assert_ne!(first.create_at, 0, "stamped with the current time");
     assert_eq!(
-        first.delete_at, 0,
+        first.deleted_at, None,
         "a subscription that exists is not ended"
     );
     let stored = store
@@ -815,7 +815,7 @@ async fn block_subscribers(store: &Store, block_id: &str) -> Vec<String> {
 async fn mark_erased(test: &common::TestStore, user_id: &str) {
     test.system()
         .execute_unchecked(&format!(
-            "UPDATE users SET delete_at = 1, erase_started_at = 1, erased_at = 1 WHERE id = '{user_id}'"
+            "UPDATE users SET deleted_at = 1, erase_started_at = 1, erased_at = 1 WHERE id = '{user_id}'"
         ))
         .await
         .expect("the account is erased");
@@ -1286,10 +1286,8 @@ struct Pre0069Fixture {
 async fn seed_pre_0069(pre: &Store) -> Pre0069Fixture {
     let (org_a, ws_a) = common::organization(pre, "org-a").await;
     let scoped_a = pre.for_org(&org_a).expect("org-a scope");
-    let alice = common::user(&scoped_a, "alice").await;
-    let bob = common::user(&scoped_a, "bob").await;
-    common::works_in(&scoped_a, &ws_a, &alice).await;
-    common::works_in(&scoped_a, &ws_a, &bob).await;
+    let alice = common::pre0072_user(&scoped_a, &org_a, &ws_a, "alice").await;
+    let bob = common::pre0072_user(&scoped_a, &org_a, &ws_a, "bob").await;
     let board_a_id = new_id();
     scoped_a
         .execute_unchecked(&format!(
@@ -1366,8 +1364,7 @@ async fn seed_pre_0069(pre: &Store) -> Pre0069Fixture {
 async fn seed_pre_0069_second_org(pre: &Store, alice: &str) -> Pre0069SecondOrg {
     let (org_b, ws_b) = common::organization(pre, "org-b").await;
     let scoped_b = pre.for_org(&org_b).expect("org-b scope");
-    let carol = common::user(&scoped_b, "carol").await;
-    common::works_in(&scoped_b, &ws_b, &carol).await;
+    let carol = common::pre0072_user(&scoped_b, &org_b, &ws_b, "carol").await;
     let board_b_id = new_id();
     scoped_b
         .execute_unchecked(&format!(
@@ -1479,7 +1476,7 @@ async fn assert_post_0069_org_a(post_a: &Store, fx: &Pre0069Fixture) {
             user_id: fx.alice.clone(),
             notified_at: 111,
             create_at: 222,
-            delete_at: 0,
+            deleted_at: None,
         }],
         "user subscription preserved losslessly"
     );
@@ -1512,7 +1509,7 @@ async fn assert_post_0069_org_a(post_a: &Store, fx: &Pre0069Fixture) {
             user_id: fx.alice.clone(),
             notified_at: 30,
             create_at: 40,
-            delete_at: 0,
+            deleted_at: None,
         },
         "restored alice watcher preserves create_at and block_type"
     );
@@ -1527,7 +1524,7 @@ async fn assert_post_0069_org_a(post_a: &Store, fx: &Pre0069Fixture) {
             user_id: fx.bob.clone(),
             notified_at: 50,
             create_at: 60,
-            delete_at: 0,
+            deleted_at: None,
         },
         "restored bob watcher preserves escaped block_type and timestamps"
     );
@@ -1569,7 +1566,7 @@ async fn assert_post_0069_second_org(
             user_id: other.carol.clone(),
             notified_at: 555,
             create_at: 666,
-            delete_at: 0,
+            deleted_at: None,
         }],
         "second organization's user subscription migrated"
     );
@@ -1588,7 +1585,7 @@ async fn assert_post_0069_second_org(
             user_id: other.carol.clone(),
             notified_at: 90,
             create_at: 95,
-            delete_at: 0,
+            deleted_at: None,
         },
         "second organization's trashed watcher migrated across org wall"
     );

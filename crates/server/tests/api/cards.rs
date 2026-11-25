@@ -790,7 +790,7 @@ async fn create_card_answer_and_stored_block() {
                 "properties": {"p": "v", "q": ["1", "2"]},
                 "createAt": 5,
                 "updateAt": 6,
-                "deleteAt": 7,
+                "deletedAt": 7,
             }),
         )
         .await;
@@ -826,7 +826,6 @@ async fn create_card_answer_and_stored_block() {
             "lastCommentAt": 0,
             "createAt": card.create_at,
             "updateAt": card.update_at,
-            "deleteAt": 0,
         }),
         "the answer is the card with the server's identifier, creator and times"
     );
@@ -851,7 +850,6 @@ async fn create_card_answer_and_stored_block() {
             "body": null,
             "createAt": card.create_at,
             "updateAt": card.update_at,
-            "deleteAt": 0,
             "containerId": board.id,
         }),
         "a card block directly on its board, with the times that were answered"
@@ -890,7 +888,6 @@ async fn create_card_without_members() {
             "lastCommentAt": 0,
             "createAt": card.create_at,
             "updateAt": card.update_at,
-            "deleteAt": 0,
         }),
         "an empty card"
     );
@@ -1400,7 +1397,6 @@ async fn get_card_permissions_and_refusals() {
             "lastCommentAt": 0,
             "createAt": response.value()["createAt"],
             "updateAt": response.value()["updateAt"],
-            "deleteAt": 0,
         }),
         "the card of a bare card block"
     );
@@ -1601,7 +1597,7 @@ async fn patch_card_changes() {
         json!({}),
         json!({"updatedProperties": {}}),
         json!({"title": null, "contentOrder": null, "icon": null}),
-        json!({"isTemplate": false, "deleteAt": 5, "boardId": "x"}),
+        json!({"isTemplate": false, "deletedAt": 5, "boardId": "x"}),
         json!({"deletedProperties": ["none"]}),
     ] {
         let patched = send(&th.client, &path, body.clone()).await;

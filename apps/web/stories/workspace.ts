@@ -44,7 +44,6 @@ export function exampleWorkspace({
       email: `${id}@example.test`,
       createAt: STORY_NOW,
       updateAt: STORY_NOW,
-      deleteAt: 0,
     })),
   );
   world.settings.set('example-reader', {
@@ -81,7 +80,6 @@ export function exampleWorkspace({
     ],
     createAt: STORY_NOW,
     updateAt: STORY_NOW,
-    deleteAt: 0,
   };
   world.containers.set(board.id, board);
   world.members.set(board.id, [

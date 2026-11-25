@@ -100,7 +100,7 @@ impl Store {
                 .push_bind(", title = ", name.title.map_or("", |title| title.as_str()))
                 .push_bind(", credentials = ", name.stored_credentials())
                 .push_bind(", update_at = ", now_millis())
-                .push_bind(" WHERE delete_at = 0 AND id = ", Id(user_id));
+                .push_bind(" WHERE deleted_at IS NULL AND id = ", Id(user_id));
             scope.execute(sql).await?;
             Ok(ChangedName {
                 user: users::get_user_by_id(scope, user_id).await?,

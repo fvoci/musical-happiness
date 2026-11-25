@@ -774,7 +774,10 @@ async fn delete_category_base_case() {
         .expect("the owner deletes the category");
 
     assert_eq!(deleted.id, created.id, "the deleted category is returned");
-    assert!(deleted.delete_at > 0, "marked as deleted");
+    assert!(
+        deleted.deleted_at.is_some_and(|at| at > 0),
+        "marked as deleted"
+    );
     let listed = th
         .app
         .user_category_containers(&user_id, TEST_WORKSPACE_ID)
@@ -813,8 +816,8 @@ async fn delete_category_trying_to_delete_already_deleted_category() {
         .await
         .expect_err("there is no such category any more");
     assert_eq!(error.status(), StatusCode::NOT_FOUND, "{error}");
-    assert_ne!(
-        deleted.delete_at, 0,
+    assert!(
+        deleted.deleted_at.is_some_and(|at| at > 0),
         "the first answer said when it was deleted"
     );
     let error = th
@@ -847,7 +850,7 @@ async fn delete_category_trying_to_delete_system_category() {
         "the refusal"
     );
     let stored = th.app.category(&system.id).await.expect("it is stored");
-    assert_eq!(stored.delete_at, 0, "the category is not deleted");
+    assert_eq!(stored.deleted_at, None, "the category is not deleted");
 
     th.teardown().await;
 }
@@ -1172,7 +1175,6 @@ async fn get_user_category_containers_user_had_no_default_category_but_had_no_bo
             "workspaceId": ROOT_WORKSPACE_ID,
             "createAt": listed[0].category.create_at,
             "updateAt": listed[0].category.create_at,
-            "deleteAt": 0,
             "collapsed": false,
             "type": "system",
             "containerMetadata": [],
@@ -1598,7 +1600,6 @@ async fn create_category_answers_the_stored_category() {
             "workspaceId": ROOT_WORKSPACE_ID,
             "createAt": created.create_at,
             "updateAt": created.create_at,
-            "deleteAt": 0,
             "collapsed": false,
             // Preserved quirk: a category created at the top is stored one place down.
             "sortOrder": 10,
@@ -1640,7 +1641,6 @@ async fn create_category_answers_the_stored_category() {
             "workspaceId": ROOT_WORKSPACE_ID,
             "createAt": 5,
             "updateAt": 5,
-            "deleteAt": 0,
             "collapsed": true,
             "sortOrder": 10,
             "type": "system",
@@ -1805,7 +1805,7 @@ async fn update_category_changes_the_name_and_the_collapsed_state_only() {
                 "collapsed": true,
                 "sortOrder": 99,
                 "type": "system",
-                "deleteAt": 77,
+                "deletedAt": 77,
                 "createAt": 3,
             }),
         )
@@ -1821,7 +1821,6 @@ async fn update_category_changes_the_name_and_the_collapsed_state_only() {
             "workspaceId": ROOT_WORKSPACE_ID,
             "createAt": created.create_at,
             "updateAt": updated.update_at,
-            "deleteAt": 0,
             "collapsed": true,
             "sortOrder": created.sort_order,
             "type": "custom",

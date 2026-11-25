@@ -88,7 +88,7 @@ it('names and lists nobody whose account was closed, though their card stays', a
   expect((await backend.usersById(world.workspace.id, ids)).map((user) => user.id)).toEqual(ids);
   const closed = world.users.get(other.userId);
   assert(closed);
-  closed.deleteAt = 1;
+  closed.deletedAt = 1;
   expect(await backend.usersById(world.workspace.id, ids)).toEqual([]);
   // Nor among the people of the workspace, nor found: as the server leaves closed accounts out.
   expect((await backend.users(world.workspace.id)).some((user) => user.id === other.userId)).toBe(

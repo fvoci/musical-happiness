@@ -187,11 +187,21 @@ fn an_answer_has_every_member_and_a_patch_needs_none() {
     let text = document().expect("the document");
     let document: Value = serde_json::from_str(&text).expect("JSON");
     let schemas = &document["components"]["schemas"];
+    let workspace = &schemas["Workspace"];
+    assert_eq!(
+        workspace["required"].as_array().map(Vec::len),
+        workspace["properties"]
+            .as_object()
+            .map(serde_json::Map::len),
+        "every member of a workspace is always there"
+    );
     let board = &schemas["Container"];
     assert_eq!(
         board["required"].as_array().map(Vec::len),
-        board["properties"].as_object().map(serde_json::Map::len),
-        "every member of a board is always there"
+        board["properties"]
+            .as_object()
+            .map(|members| members.len() - 1),
+        "every member of a board but deletedAt is always there"
     );
     assert_eq!(
         schemas["ContainerPatch"]["required"],
@@ -286,7 +296,8 @@ fn required_of(schemas: &Value, schema: &Value) -> Vec<String> {
 fn what_is_always_there_is_what_the_server_writes() {
     use fvoci_model::{
         Block, Card, Category, CategoryContainerMetadata, CategoryContainers, ClientConfig,
-        Container, ContainerMember, ContainersAndBlocks, FileRecord, PublicLink, User, Workspace,
+        Container, ContainerMember, ContainersAndBlocks, FileRecord, PublicLink, Subscription,
+        User, Workspace,
     };
 
     let text = document().expect("the document");
@@ -307,6 +318,7 @@ fn what_is_always_there_is_what_the_server_writes() {
         ("ContainersAndBlocks", sent(&ContainersAndBlocks::default())),
         ("FileRecord", sent(&FileRecord::default())),
         ("PublicLink", sent(&PublicLink::default())),
+        ("Subscription", sent(&Subscription::default())),
         ("Workspace", sent(&Workspace::default())),
         ("User", sent(&User::default())),
     ];

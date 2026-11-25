@@ -55,8 +55,7 @@ async fn database_before_courses() -> PreMigration {
         .expect("the database opens");
     let (people_org, people_ws) = common::organization(&store, "people").await;
     let scoped = store.for_org(&people_org).expect("an identifier");
-    let user_id = common::user(&scoped, "member").await;
-    common::works_in(&scoped, &people_ws, &user_id).await;
+    let user_id = common::pre0072_user(&scoped, &people_org, &people_ws, "member").await;
 
     let mut board_id = String::new();
     for (kind, is_template, trashed) in [
@@ -159,7 +158,7 @@ async fn trash_container_before_courses(
     let now = 1_000_i64;
     for block in blocks {
         let mut trashed = block.clone();
-        trashed.delete_at = now;
+        trashed.deleted_at = Some(now);
         let json = serde_json::to_string(&trashed)
             .expect("block json")
             .replace('\'', "''");
@@ -174,7 +173,7 @@ async fn trash_container_before_courses(
             .expect("deleted_block stored");
     }
     let mut in_trash = container.clone();
-    in_trash.delete_at = now;
+    in_trash.deleted_at = Some(now);
     let json = serde_json::to_string(&in_trash)
         .expect("container json")
         .replace(r#""visibility":"private""#, r#""type":"P""#)

@@ -175,7 +175,7 @@ async fn an_own_space_has_no_organization_to_administer_and_no_people() {
 }
 
 /// `restoreOrgWorkspace` filters by organization even when an own space's workspace is
-/// actually in the trash (`delete_at > 0`): neither the shared organization's admin nor
+/// actually in the trash (`deleted_at IS NOT NULL`): neither the shared organization's admin nor
 /// the space's owner can restore it, while the same admin restores a trashed workspace
 /// of the shared organization.
 #[tokio::test]
@@ -206,23 +206,23 @@ async fn restore_org_workspace_refuses_a_trashed_own_space_workspace() {
         ))
         .await;
     restored.check_ok();
-    assert_eq!(restored.value()["deletedAt"], json!(0));
+    assert_eq!(restored.value().get("deletedAt"), None);
 
     // Put both own spaces' workspaces in the trash directly in the database so a 404
-    // cannot be explained by `delete_at = 0`.
+    // cannot be explained by `deleted_at IS NULL`.
     for ws_id in [&own.id, &other_own.id] {
         th.app
             .store()
             .system()
             .execute_unchecked(&format!(
-                "UPDATE workspaces SET delete_at = 1 WHERE id = '{ws_id}'"
+                "UPDATE workspaces SET deleted_at = 1 WHERE id = '{ws_id}'"
             ))
             .await
             .expect("trashed own space workspace");
     }
 
     // Shared org admin asking under shared_org_id, and owners asking under their space org_id:
-    // every restore is 404 and leaves delete_at = 1.
+    // every restore is 404 and leaves deleted_at = 1.
     for (client, org_id, ws_id) in [
         (&th.client, shared_org_id.as_str(), own.id.as_str()),
         (&th.client, shared_org_id.as_str(), other_own.id.as_str()),
@@ -244,7 +244,7 @@ async fn restore_org_workspace_refuses_a_trashed_own_space_workspace() {
             .store()
             .system()
             .texts_unchecked(&format!(
-                "SELECT CAST(delete_at AS TEXT) FROM workspaces WHERE id = '{ws_id}'"
+                "SELECT CAST(deleted_at AS TEXT) FROM workspaces WHERE id = '{ws_id}'"
             ))
             .await
             .expect("read");

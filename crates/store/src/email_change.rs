@@ -148,7 +148,7 @@ impl Store {
                 .push_bind(" AND expires_at > ", now)
                 .push(
                     " AND EXISTS (SELECT 1 FROM users \
-                     WHERE users.id = email_changes.user_id AND users.delete_at = 0)",
+                     WHERE users.id = email_changes.user_id AND users.deleted_at IS NULL)",
                 );
             Ok(scope.execute(sql).await? == 1)
         })
@@ -313,7 +313,7 @@ async fn hold_account(
     user_id: &str,
     password_hash: Option<&str>,
 ) -> Result<Option<Held>, StoreError> {
-    let mut sql = scope.sql("SELECT username, email FROM users WHERE delete_at = 0 AND id = ");
+    let mut sql = scope.sql("SELECT username, email FROM users WHERE deleted_at IS NULL AND id = ");
     sql.bind(Id(user_id));
     if let Some(password_hash) = password_hash {
         sql.push_bind(" AND password_hash = ", password_hash)

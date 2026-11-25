@@ -45,7 +45,6 @@ const BLOCK = {
   parentId: 'b1',
   createAt: 1,
   updateAt: 2,
-  deleteAt: 0,
   createdBy: 'u',
   modifiedBy: 'u',
   schema: 1,
@@ -150,7 +149,7 @@ describe('changes from the server', () => {
     socket.message({
       type: 'blockChanged',
       workspaceId: 't',
-      block: { ...BLOCK, id: 'c1', containerId: 'b1', deleteAt: 5, type: '', fields: {} },
+      block: { ...BLOCK, id: 'c1', containerId: 'b1', deletedAt: 5, type: '', fields: {} },
     });
     await settle();
     expect(board).toMatchObject([
@@ -188,12 +187,12 @@ describe('changes from the server', () => {
     socket.message({
       type: 'containerChanged',
       workspaceId: 't',
-      container: { ...shape, id: 'b1', deleteAt: 0 },
+      container: { ...shape, id: 'b1' },
     });
     socket.message({
       type: 'containerChanged',
       workspaceId: 't',
-      container: { ...shape, id: 'b1', deleteAt: 9 },
+      container: { ...shape, id: 'b1', deletedAt: 9 },
     });
     await settle();
     expect(board.map((change) => change.kind)).toEqual(['container', 'containerDeleted']);
@@ -368,7 +367,7 @@ describe('changes from the server', () => {
     const board = (workspaceId: string, id: string): unknown => ({
       type: 'containerChanged',
       workspaceId,
-      container: { id, workspaceId, deleteAt: 0, title: id, cardProperties: [], properties: {} },
+      container: { id, workspaceId, title: id, cardProperties: [], properties: {} },
     });
     socket.message(board('t', 'old'));
     socket.message(board('t2', 'new'));

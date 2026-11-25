@@ -11,7 +11,7 @@ use fvoci_model::{
 
 use crate::Store;
 use crate::audit::AuditActor;
-use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, Param, Row, Scope, Sql, now_millis};
 use crate::error::{StoreError, Taken};
 use crate::password_reset;
 use crate::person_names;
@@ -20,7 +20,7 @@ use crate::{directory, members, users_by_id};
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
 pub(crate) const USER_COLUMNS: &str = concat!(
-    "id, username, email, password_hash, password_locked_at, create_at, update_at, delete_at, \
+    "id, username, email, password_hash, password_locked_at, create_at, update_at, deleted_at, \
      is_admin, display_name, ",
     person_names::name_columns!()
 );
@@ -98,7 +98,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn get_registered_user_count(&self) -> Result<i64, StoreError> {
         self.with_conn(async |scope| {
-            let sql = scope.sql("SELECT COUNT(*) FROM users WHERE delete_at = 0");
+            let sql = scope.sql("SELECT COUNT(*) FROM users WHERE deleted_at IS NULL");
             match scope.fetch_optional(sql).await? {
                 Some(row) => row.int(0),
                 None => Ok(0),
@@ -184,7 +184,7 @@ impl Store {
     }
 
     /// Returns the account with the given identifier that somebody can sign in to: one
-    /// in use, or one that waits to be deleted (its `delete_at` is not zero then),
+    /// in use, or one that waits to be deleted (its `deleted_at` is set then),
     /// whose session opens the way back and nothing else.
     ///
     /// # Errors
@@ -294,7 +294,7 @@ impl Store {
                 };
                 if asker == Asker::Administrator {
                     let mut sql =
-                        scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
+                        scope.sql("SELECT 1 FROM users WHERE deleted_at IS NULL AND is_admin = ");
                     sql.bind(true).push_bind(" AND id = ", Id(actor_id));
                     if scope.fetch_optional(sql).await?.is_none() {
                         return Ok(AdminChange::NotAnAdministrator);
@@ -302,7 +302,7 @@ impl Store {
                 }
                 if current.is_admin && !is_admin {
                     let mut sql =
-                        scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
+                        scope.sql("SELECT 1 FROM users WHERE deleted_at IS NULL AND is_admin = ");
                     sql.bind(true)
                         .push_bind(" AND id <> ", Id(user_id))
                         .push(" LIMIT 1");
@@ -367,7 +367,7 @@ impl Store {
             let mut sql = scope.sql("UPDATE users SET ");
             sql.push_bind("password_hash = ", password_hash)
                 .push_bind(", update_at = ", now_millis())
-                .push_bind(" WHERE delete_at = 0 AND id = ", Id(user_id))
+                .push_bind(" WHERE deleted_at IS NULL AND id = ", Id(user_id))
                 .push_bind(" AND password_hash = ", seen_password_hash)
                 .push_bind(" AND password_locked_at = ", 0_i64);
             if scope.execute(sql).await? == 0 {
@@ -489,7 +489,7 @@ impl Store {
 /// Starts the query for the users that are not deleted; conditions follow with `AND`.
 fn select_users(scope: &Scope<'_>) -> Sql {
     scope.sql(&format!(
-        "SELECT {USER_COLUMNS} FROM users WHERE delete_at = 0"
+        "SELECT {USER_COLUMNS} FROM users WHERE deleted_at IS NULL"
     ))
 }
 
@@ -520,7 +520,7 @@ pub(crate) async fn search_users(
     let mut sql = scope.sql(concat!(
         "SELECT id, username, ",
         person_names::name_columns!(),
-        " FROM users WHERE delete_at = 0"
+        " FROM users WHERE deleted_at IS NULL"
     ));
     narrow(&mut sql, scope);
     sql.push(OLDEST_FIRST);
@@ -564,7 +564,7 @@ fn user_from_row(row: &Row) -> Result<User, StoreError> {
         password_locked_at: row.int(4)?,
         create_at: row.int(5)?,
         update_at: row.int(6)?,
-        delete_at: row.int(7)?,
+        deleted_at: row.opt_int(7)?,
         is_admin: row.bool(8)?,
         display_name: row.text(9)?,
         name: person_names::name_from_row(row, 10)?,
@@ -628,7 +628,7 @@ pub(crate) async fn account_by_id(
 /// waiting to be deleted ([`WAITS`]).
 async fn find_account(scope: &mut Scope<'_>, lookup: Lookup<'_>) -> Result<User, StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT {USER_COLUMNS} FROM users WHERE (delete_at = 0 OR ({WAITS})) AND "
+        "SELECT {USER_COLUMNS} FROM users WHERE (deleted_at IS NULL OR ({WAITS})) AND "
     ));
     lookup.push_condition(&mut sql);
     fetch_users(scope, sql)
@@ -644,7 +644,7 @@ async fn find_account(scope: &mut Scope<'_>, lookup: Lookup<'_>) -> Result<User,
 pub(crate) async fn has_address(scope: &mut Scope<'_>, email: &str) -> Result<bool, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT 1 FROM users \
-         WHERE (delete_at = 0 OR ({WAITS}) OR (erase_started_at > 0 AND erased_at = 0)) AND "
+         WHERE (deleted_at IS NULL OR ({WAITS}) OR (erase_started_at > 0 AND erased_at = 0)) AND "
     ));
     Lookup::Email(email).push_condition(&mut sql);
     Ok(scope.fetch_optional(sql).await?.is_some())
@@ -680,7 +680,7 @@ pub(crate) async fn insert_user_row(scope: &mut Scope<'_>, user: &User) -> Resul
         .push_bind(", ", user.password_locked_at)
         .push_bind(", ", user.create_at)
         .push_bind(", ", user.update_at)
-        .push_bind(", ", user.delete_at)
+        .push_bind(", ", Param::OptInt(user.deleted_at))
         .push_bind(", ", user.is_admin)
         .push_bind(", ", user.name.shown());
     person_names::push_name_values(&mut sql, &user.name);
@@ -766,7 +766,7 @@ pub(crate) async fn lock_password(
 ///
 /// Returns [`StoreError::UserNotFound`] if there is no such user.
 pub(crate) async fn lock_user(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
-    let mut sql = scope.sql("SELECT id FROM users WHERE delete_at = 0 AND id = ");
+    let mut sql = scope.sql("SELECT id FROM users WHERE deleted_at IS NULL AND id = ");
     sql.bind(Id(user_id));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR NO KEY UPDATE");
@@ -777,7 +777,7 @@ pub(crate) async fn lock_user(scope: &mut Scope<'_>, user_id: &str) -> Result<()
     }
 }
 
-/// Holds the user's row (`FOR NO KEY UPDATE` on PostgreSQL) regardless of `delete_at`,
+/// Holds the user's row (`FOR NO KEY UPDATE` on PostgreSQL) regardless of `deleted_at`,
 /// so cleanup on organization departure or guest removal serializes with concurrent
 /// per-user `time_entries` writes (`lock_user` / `hold_in_use`) without deadlocking
 /// against the `organizations -> workspaces -> containers -> users` lock order.
@@ -797,7 +797,7 @@ pub(crate) async fn hold_user_for_cleanup(
 /// ends, and says whether it is in use: an asking to delete it waits for this, or
 /// this finds it asked.
 pub(crate) async fn hold_in_use(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
-    let mut sql = scope.sql("SELECT id FROM users WHERE delete_at = 0 AND id = ");
+    let mut sql = scope.sql("SELECT id FROM users WHERE deleted_at IS NULL AND id = ");
     sql.bind(Id(user_id));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR SHARE");
@@ -933,7 +933,7 @@ pub(crate) async fn follow_org_role(
         if scope.fetch_optional(sql).await?.is_none() {
             return Ok(true);
         }
-        let mut sql = scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
+        let mut sql = scope.sql("SELECT 1 FROM users WHERE deleted_at IS NULL AND is_admin = ");
         sql.bind(true)
             .push_bind(" AND id <> ", Id(user_id))
             .push(" LIMIT 1");

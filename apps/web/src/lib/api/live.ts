@@ -385,13 +385,13 @@ export class LiveChanges {
       const { container } = message;
       // A deleted board or wiki carries only its identifier and times.
       const change: Change =
-        container.deleteAt === 0
+        container.deletedAt === undefined
           ? { kind: 'container', container: containerOf(container) }
           : { kind: 'containerDeleted', containerId: container.id };
       this.#tellContainer(container.id, change, true);
     } else if (message.type === 'blockChanged' && 'block' in message) {
       const { block, summary } = message;
-      if (block.deleteAt !== 0) {
+      if (block.deletedAt !== undefined) {
         // Only the block deleted is told, not what went with it.
         this.#tellContainer(
           block.containerId,

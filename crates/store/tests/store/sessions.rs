@@ -246,7 +246,7 @@ async fn a_session_of_a_deactivated_user_is_not_found() {
 
     common::execute_raw(
         &test.database_connection(),
-        &format!("UPDATE users SET delete_at = {T0} WHERE id = '{user_id}'"),
+        &format!("UPDATE users SET deleted_at = {T0} WHERE id = '{user_id}'"),
     )
     .await;
     assert!(
@@ -260,7 +260,7 @@ async fn a_session_of_a_deactivated_user_is_not_found() {
 
     common::execute_raw(
         &test.database_connection(),
-        &format!("UPDATE users SET delete_at = 0 WHERE id = '{user_id}'"),
+        &format!("UPDATE users SET deleted_at = NULL WHERE id = '{user_id}'"),
     )
     .await;
     assert!(
@@ -557,7 +557,7 @@ async fn create_session_for_a_deactivated_user_stores_nothing() {
     let user_id = common::user(store, "leaving").await;
     common::execute_raw(
         &test.database_connection(),
-        &format!("UPDATE users SET delete_at = {T0} WHERE id = '{user_id}'"),
+        &format!("UPDATE users SET deleted_at = {T0} WHERE id = '{user_id}'"),
     )
     .await;
 
@@ -571,7 +571,7 @@ async fn create_session_for_a_deactivated_user_stores_nothing() {
     // Active again, the user gets the same session: the refused call stored nothing.
     common::execute_raw(
         &test.database_connection(),
-        &format!("UPDATE users SET delete_at = 0 WHERE id = '{user_id}'"),
+        &format!("UPDATE users SET deleted_at = NULL WHERE id = '{user_id}'"),
     )
     .await;
     assert!(
@@ -804,7 +804,7 @@ async fn the_live_sessions_are_those_that_would_be_found() {
     assert!(is_valid(&test, "digest-2", T0 + 1, T0).await);
     common::execute_raw(
         &test.database_connection(),
-        &format!("UPDATE users SET delete_at = {T0} WHERE id = '{leaving_id}'"),
+        &format!("UPDATE users SET deleted_at = {T0} WHERE id = '{leaving_id}'"),
     )
     .await;
     assert_eq!(

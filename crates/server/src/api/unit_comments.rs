@@ -293,7 +293,7 @@ async fn handle_patch_unit_comment(
 /// The comment goes to the trash, as a comment on a card or page does: by its author
 /// from the commenter's role up, and the comment of somebody else by the course's admins
 /// only (403, `access denied to delete other users' comments`). Who reads the course is
-/// told with `blockChanged` whose `deleteAt` is not 0.
+/// told with `blockChanged` with `deletedAt` set.
 #[utoipa::path(
     delete,
     path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}",

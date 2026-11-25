@@ -56,7 +56,7 @@ impl App {
         }
         let mut subscription = self.store().get_subscription(block_id, user_id).await?;
         self.store().delete_subscription(block_id, user_id).await?;
-        subscription.delete_at = now_millis();
+        subscription.deleted_at = Some(now_millis());
         Ok(subscription)
     }
 

@@ -234,7 +234,7 @@ async fn a_member_does_not_find_a_workspace_that_is_not_in_use() {
     let system = test.system();
     let trashed = system
         .execute_unchecked(&format!(
-            "UPDATE workspaces SET delete_at = 5 WHERE id = '{second_workspace}'"
+            "UPDATE workspaces SET deleted_at = 5 WHERE id = '{second_workspace}'"
         ))
         .await
         .expect("the workspace is put in the trash");
@@ -249,7 +249,7 @@ async fn a_member_does_not_find_a_workspace_that_is_not_in_use() {
 
     let deleted = system
         .execute_unchecked(&format!(
-            "UPDATE organizations SET delete_at = 5 WHERE id = '{}'",
+            "UPDATE organizations SET deleted_at = 5 WHERE id = '{}'",
             test.org_id
         ))
         .await
@@ -497,7 +497,7 @@ async fn the_organization_of_a_shared_board_is_for_the_holder_of_its_token() {
     let trashed = test
         .system()
         .execute_unchecked(&format!(
-            "UPDATE workspaces SET delete_at = 5 WHERE id = '{workspace_id}'"
+            "UPDATE workspaces SET deleted_at = 5 WHERE id = '{workspace_id}'"
         ))
         .await
         .expect("the workspace is put in the trash");

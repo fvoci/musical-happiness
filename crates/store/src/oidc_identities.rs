@@ -83,7 +83,7 @@ impl Store {
                 .push_bind(" AND s.token_hash = ", link.token_digest)
                 .push_bind(" AND s.expires_at > ", link.now)
                 .push_bind(" AND s.last_used_at > ", link.idle_since)
-                .push_bind(" AND u.delete_at = ", 0_i64);
+                .push(" AND u.deleted_at IS NULL");
             if scope.dialect() == Dialect::Postgres {
                 // The account stays while its identity is stored.
                 sql.push(" FOR SHARE OF u");
@@ -157,7 +157,7 @@ impl Store {
     ) -> Result<Unlinked, StoreError> {
         self.transaction(async |scope| {
             let mut sql = scope.sql(
-                "SELECT password_hash, password_locked_at FROM users WHERE delete_at = 0 AND id = ",
+                "SELECT password_hash, password_locked_at FROM users WHERE deleted_at IS NULL AND id = ",
             );
             sql.bind(Id(user_id));
             if scope.dialect() == Dialect::Postgres {

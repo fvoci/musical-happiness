@@ -779,7 +779,7 @@ async fn leaving_organization_and_account_erasure_remove_time_entries() {
     th.app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE users SET delete_at = 1, delete_after = 1 WHERE id = '{leaver_id}'"
+            "UPDATE users SET deleted_at = 1, delete_after = 1 WHERE id = '{leaver_id}'"
         ))
         .await
         .expect("mark for erasure");

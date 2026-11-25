@@ -99,10 +99,10 @@ export interface User extends UserNames {
   createAt: number;
   updateAt: number;
   /**
-   * Not 0: the account was deactivated; it stays so that what it made keeps an author.
-   * One that was deleted has an empty `username` and all three times 0.
+   * Present when the account waits to be deleted (or is deactivated); omitted while in use.
+   * An account that was erased has an empty `username`, `createAt` and `updateAt` 0, and no `deletedAt`.
    */
-  deleteAt: number;
+  deletedAt?: number;
 }
 
 /**

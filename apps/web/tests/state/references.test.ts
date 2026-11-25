@@ -255,7 +255,6 @@ describe('references, for a reader by a public link', () => {
     isTemplate: false,
     createAt: 1,
     updateAt: 1,
-    deleteAt: 0,
   });
 
   it('are resolved among the cards of the link’s board, and nothing else is asked', async () => {

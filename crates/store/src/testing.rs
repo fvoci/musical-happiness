@@ -496,6 +496,16 @@ pub const GLOBAL_TABLES: [&str; 12] = crate::schema::GLOBAL_TABLES;
 /// behind the wall on PostgreSQL.
 pub const ORG_TABLES: [&str; 48] = crate::schema::ORG_TABLES;
 
+async fn migrate_database(database: &TestDatabase, version: i64) {
+    let store = Store::open(database.db_type(), database.database_connection())
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(&store, Some(version))
+        .await
+        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
+}
+
 /// Brings a test database to the schema as a server left it that knew nothing of
 /// organizations: every migration before theirs, and none of the changes of the data
 /// that follow the migrations.
@@ -504,13 +514,7 @@ pub const ORG_TABLES: [&str; 48] = crate::schema::ORG_TABLES;
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_organizations(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::ORGANIZATIONS_VERSION - 1))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::ORGANIZATIONS_VERSION - 1).await;
 }
 
 /// Brings a test database to the schema as the server of the organizations left it,
@@ -521,13 +525,7 @@ pub async fn migrate_to_before_organizations(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_the_organizations(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::ORGANIZATIONS_VERSION))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::ORGANIZATIONS_VERSION).await;
 }
 
 /// Brings a test database to the schema as a server left it before the workspaces were
@@ -538,13 +536,7 @@ pub async fn migrate_to_the_organizations(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_workspaces(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::WORKSPACES_VERSION - 1))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::WORKSPACES_VERSION - 1).await;
 }
 
 /// Brings a test database to the schema of the migration that named the workspaces so
@@ -554,13 +546,7 @@ pub async fn migrate_to_before_workspaces(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_the_workspaces(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::WORKSPACES_VERSION))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::WORKSPACES_VERSION).await;
 }
 
 /// Brings a test database to the schema as a server left it before the containers were
@@ -571,13 +557,7 @@ pub async fn migrate_to_the_workspaces(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_containers(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::CONTAINERS_VERSION - 1))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::CONTAINERS_VERSION - 1).await;
 }
 
 /// Brings a test database to the schema of the migration that named the containers so
@@ -587,13 +567,7 @@ pub async fn migrate_to_before_containers(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_the_containers(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::CONTAINERS_VERSION))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::CONTAINERS_VERSION).await;
 }
 
 /// Brings a test database to the schema as a server left it before the diaries
@@ -603,13 +577,7 @@ pub async fn migrate_to_the_containers(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_diaries(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::BEFORE_DIARIES_VERSION))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::BEFORE_DIARIES_VERSION).await;
 }
 
 /// Brings a test database to the schema as a server left it before the courses
@@ -619,13 +587,7 @@ pub async fn migrate_to_before_diaries(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_courses(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::BEFORE_COURSES_VERSION))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::BEFORE_COURSES_VERSION).await;
 }
 
 /// Brings a test database to the schema as a server left it before unit progress
@@ -635,13 +597,7 @@ pub async fn migrate_to_before_courses(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_unit_progress(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::BEFORE_UNIT_PROGRESS_VERSION))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::BEFORE_UNIT_PROGRESS_VERSION).await;
 }
 
 /// Brings a test database to the schema as a server left it before time entries
@@ -651,13 +607,7 @@ pub async fn migrate_to_before_unit_progress(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_time_entries(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::BEFORE_TIME_ENTRIES_VERSION))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::BEFORE_TIME_ENTRIES_VERSION).await;
 }
 
 /// Brings a test database to the schema as a server left it before migration 65
@@ -667,16 +617,11 @@ pub async fn migrate_to_before_time_entries(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_audit_org_member_removed(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(
-        &store,
-        Some(crate::schema::BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION),
+    migrate_database(
+        database,
+        crate::schema::BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION,
     )
-    .await
-    .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    .await;
 }
 
 /// Brings a test database to the schema as a server left it before course schedules
@@ -686,13 +631,7 @@ pub async fn migrate_to_before_audit_org_member_removed(database: &TestDatabase)
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_course_schedules(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::BEFORE_COURSE_SCHEDULES_VERSION))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::BEFORE_COURSE_SCHEDULES_VERSION).await;
 }
 
 /// Brings a test database to the schema as a server left it before unit reviews and notes
@@ -702,13 +641,7 @@ pub async fn migrate_to_before_course_schedules(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_unit_reviews(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::BEFORE_UNIT_REVIEWS_VERSION))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::BEFORE_UNIT_REVIEWS_VERSION).await;
 }
 
 /// Brings a test database to the schema as a server left it before course meetings and
@@ -718,13 +651,7 @@ pub async fn migrate_to_before_unit_reviews(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_course_events(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::BEFORE_COURSE_EVENTS_VERSION))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::BEFORE_COURSE_EVENTS_VERSION).await;
 }
 
 /// Brings a test database to the schema as a server left it before subscriptions
@@ -734,16 +661,11 @@ pub async fn migrate_to_before_course_events(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_subscriptions_user_id(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(
-        &store,
-        Some(crate::schema::BEFORE_SUBSCRIPTIONS_USER_ID_VERSION),
+    migrate_database(
+        database,
+        crate::schema::BEFORE_SUBSCRIPTIONS_USER_ID_VERSION,
     )
-    .await
-    .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    .await;
 }
 
 /// Brings a test database to the schema as a server left it before container
@@ -753,16 +675,7 @@ pub async fn migrate_to_before_subscriptions_user_id(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_container_visibility(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(
-        &store,
-        Some(crate::schema::BEFORE_CONTAINER_VISIBILITY_VERSION),
-    )
-    .await
-    .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::BEFORE_CONTAINER_VISIBILITY_VERSION).await;
 }
 
 /// Brings a test database to the schema as a server left it before native view
@@ -772,16 +685,21 @@ pub async fn migrate_to_before_container_visibility(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_native_view_field_keys(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(
-        &store,
-        Some(crate::schema::BEFORE_NATIVE_VIEW_FIELD_KEYS_VERSION),
+    migrate_database(
+        database,
+        crate::schema::BEFORE_NATIVE_VIEW_FIELD_KEYS_VERSION,
     )
-    .await
-    .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    .await;
+}
+
+/// Brings a test database to the schema as a server left it before nullable
+/// `deleted_at` (migration 72): every migration up to 71.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_nullable_deleted_at(database: &TestDatabase) {
+    migrate_database(database, crate::schema::BEFORE_NULLABLE_DELETED_AT_VERSION).await;
 }
 
 /// Brings a test database to the schema as a server left it before the organization's
@@ -792,13 +710,7 @@ pub async fn migrate_to_before_native_view_field_keys(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_org_management(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(crate::schema::ORG_MANAGEMENT_VERSION - 1))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, crate::schema::ORG_MANAGEMENT_VERSION - 1).await;
 }
 
 /// Migrates a test database to the last schema before operator audit attribution.
@@ -807,13 +719,7 @@ pub async fn migrate_to_before_org_management(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_audit_actors(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(26))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, 26).await;
 }
 
 /// Migrates a test database to the last schema before sessions kept their origin.
@@ -822,13 +728,7 @@ pub async fn migrate_to_before_audit_actors(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_session_origin(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(27))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, 27).await;
 }
 
 /// Migrates a test database to the last schema before the registrations whose address
@@ -838,13 +738,7 @@ pub async fn migrate_to_before_session_origin(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_signups(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(35))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
+    migrate_database(database, 35).await;
 }
 
 impl Store {

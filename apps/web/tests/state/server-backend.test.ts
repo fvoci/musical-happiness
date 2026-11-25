@@ -50,7 +50,6 @@ const BLOCK = {
   parentId: 'c',
   createAt: 1,
   updateAt: 2,
-  deleteAt: 0,
   createdBy: 'u',
   modifiedBy: 'u',
   schema: 1,
@@ -82,14 +81,13 @@ describe('the server backend', () => {
 
   it("reads the reader's own address and the one the account waits for, and asks to change it with the password", async () => {
     const user = { id: 'u', username: 'ada', displayName: 'Ada', createAt: 1, updateAt: 2 };
-    serve({ ...user, deleteAt: 0, hasPassword: true, email: 'a@old.example' });
+    serve({ ...user, hasPassword: true, email: 'a@old.example' });
     const backend = serverBackend('/base');
     const alone = await backend.me();
     expect(alone).toMatchObject({ email: 'a@old.example', hasPassword: true });
     expect(alone.pendingEmail).toBeUndefined();
     serve({
       ...user,
-      deleteAt: 0,
       hasPassword: true,
       email: 'a@old.example',
       pendingEmail: 'a@new.example',
@@ -183,9 +181,7 @@ describe('the server backend', () => {
   });
 
   it('asks once for the people by their identifiers, each once, and not for none', async () => {
-    const sent = serve([
-      { id: 'u1', username: 'ann', email: '', createAt: 1, updateAt: 1, deleteAt: 0 },
-    ]);
+    const sent = serve([{ id: 'u1', username: 'ann', email: '', createAt: 1, updateAt: 1 }]);
     const backend = serverBackend('');
     expect(await backend.usersById('w1', [])).toEqual([]);
     const found = await backend.usersById('w1', ['u1', 'u2', 'u1']);
@@ -620,7 +616,7 @@ describe('the problems of the server', () => {
 });
 
 describe('changing a view on the server', () => {
-  it('patches its block without what the contract does not have, and reads it again', async () => {
+  it('patches its block and reads it again', async () => {
     const sent = serve([
       {
         ...BLOCK,
@@ -633,7 +629,6 @@ describe('changing a view on the server', () => {
     ]);
     const view = await serverBackend('').patchView('b', 'v', {
       updatedFields: { cardOrder: ['c2', 'c1'] },
-      deleteAt: 0,
     });
     expect(sent.map((one) => [one.method, one.url, one.body])).toEqual([
       ['GET', '/api/v1/w/w1/boards/b/blocks?blockId=v', undefined],
@@ -928,7 +923,6 @@ describe('the sidebar on the server', () => {
     sortOrder: 10,
     createAt: 1,
     updateAt: 2,
-    deleteAt: 0,
   };
   const FILED = [
     { containerId: 'b1', hidden: false },
@@ -939,7 +933,7 @@ describe('the sidebar on the server', () => {
 
   it('makes a category of the reader, under their identifier', async () => {
     const sent = serveRoutes([
-      ['GET /api/v1/users/me', { id: 'me', username: 'me', createAt: 1, updateAt: 1, deleteAt: 0 }],
+      ['GET /api/v1/users/me', { id: 'me', username: 'me', createAt: 1, updateAt: 1 }],
       ['POST /api/v1/w/t/categories', CATEGORY, 201],
     ]);
     const made = await serverBackend('').createCategory('t', { name: 'Work' });
@@ -1074,7 +1068,6 @@ describe('boards on the server', () => {
     cardProperties: [],
     createAt: 1,
     updateAt: 2,
-    deleteAt: 0,
   };
   const VIEW = {
     ...BLOCK,
@@ -1304,7 +1297,6 @@ describe('templates on the server', () => {
     cardProperties: [],
     createAt: 1,
     updateAt: 2,
-    deleteAt: 0,
   };
 
   it('reads the templates, copies a board either way, and makes the welcome board', async () => {

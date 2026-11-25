@@ -493,7 +493,7 @@ async fn is_made_just_now(
     let session = binding.session;
     let mut sql = scope.sql(
         "SELECT 1 FROM sessions AS s JOIN users AS u ON u.id = s.user_id \
-         WHERE u.delete_at = 0 AND s.id = ",
+         WHERE u.deleted_at IS NULL AND s.id = ",
     );
     sql.bind(Id(session.session_id))
         .push_bind(" AND s.token_hash = ", session.token_digest)

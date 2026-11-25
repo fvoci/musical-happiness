@@ -50,8 +50,10 @@ use crate::users;
 /// A block in the trash.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeletedBlock {
-    /// The block as it was, with its `delete_at` set to when it was deleted.
+    /// The block as it was when it was deleted.
     pub block: Block,
+    /// When it was deleted, in milliseconds since the Unix epoch.
+    pub deleted_at: i64,
     /// The identifier of the user who deleted it; empty if nobody did.
     pub deleted_by: String,
 }
@@ -59,10 +61,12 @@ pub struct DeletedBlock {
 /// A board in the trash.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeletedContainer {
-    /// The board as it was, with its `delete_at` set to when it was deleted.
+    /// The board as it was when it was deleted.
     pub container: Container,
     /// The memberships the board had.
     pub members: Vec<ContainerMember>,
+    /// When it was deleted, in milliseconds since the Unix epoch.
+    pub deleted_at: i64,
     /// The identifier of the user who deleted it; empty if nobody did.
     pub deleted_by: String,
 }
@@ -103,7 +107,8 @@ impl Store {
     /// Returns [`StoreError::NotFound`] if no block of that identifier is in the trash.
     pub async fn get_deleted_block(&self, block_id: &str) -> Result<DeletedBlock, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql("SELECT block, deleted_by FROM deleted_blocks WHERE id = ");
+            let mut sql =
+                scope.sql("SELECT block, deleted_by, deleted_at FROM deleted_blocks WHERE id = ");
             sql.bind(Id(block_id));
             let row = scope
                 .fetch_optional(sql)
@@ -112,6 +117,7 @@ impl Store {
             Ok(DeletedBlock {
                 block: block_from_json(&row, 0)?,
                 deleted_by: row.id(1)?,
+                deleted_at: row.int(2)?,
             })
         })
         .await
@@ -184,8 +190,9 @@ impl Store {
                 Dialect::Sqlite => "json_extract(block, '$.type') = 'card'",
                 Dialect::Postgres => "block->>'type' = 'card'",
             };
-            let mut sql =
-                scope.sql("SELECT block, deleted_by FROM deleted_blocks WHERE container_id = ");
+            let mut sql = scope.sql(
+                "SELECT block, deleted_by, deleted_at FROM deleted_blocks WHERE container_id = ",
+            );
             sql.bind(Id(container_id)).push(&format!(
                 " AND {is_card} AND NOT EXISTS (SELECT 1 FROM deleted_blocks below \
                  WHERE below.deletion_id = deleted_blocks.deletion_id \
@@ -200,6 +207,7 @@ impl Store {
                     Ok(DeletedBlock {
                         block: block_from_json(row, 0)?,
                         deleted_by: row.id(1)?,
+                        deleted_at: row.int(2)?,
                     })
                 })
                 .collect()
@@ -274,8 +282,9 @@ impl Store {
         container_id: &str,
     ) -> Result<DeletedContainer, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope
-                .sql("SELECT container, members, deleted_by FROM deleted_containers WHERE id = ");
+            let mut sql = scope.sql(
+                "SELECT container, members, deleted_by, deleted_at FROM deleted_containers WHERE id = ",
+            );
             sql.bind(Id(container_id));
             let row = scope
                 .fetch_optional(sql)
@@ -285,6 +294,7 @@ impl Store {
                 container: from_json(&row, 0, "container")?,
                 members: from_json(&row, 1, "members")?,
                 deleted_by: row.id(2)?,
+                deleted_at: row.int(3)?,
             })
         })
         .await
@@ -324,8 +334,9 @@ impl Store {
                      member WHERE member->>'schemeAdmin' = 'true' AND member->>'userId' = "
                 }
             };
-            let mut sql = scope
-                .sql("SELECT container, members, deleted_by FROM deleted_containers WHERE workspace_id = ");
+            let mut sql = scope.sql(
+                "SELECT container, members, deleted_by, deleted_at FROM deleted_containers WHERE workspace_id = ",
+            );
             sql.bind(Id(workspace_id));
             if let Some(admin_id) = admin_id {
                 sql.push_bind(was_admin, admin_id).push(")");
@@ -342,6 +353,7 @@ impl Store {
                         container: from_json(row, 0, "container")?,
                         members: from_json(row, 1, "members")?,
                         deleted_by: row.id(2)?,
+                        deleted_at: row.int(3)?,
                     })
                 })
                 .collect()
@@ -678,7 +690,7 @@ async fn put_blocks_in_trash(
     let mut watchers = watchers::watchers_of(scope, &ids).await?;
     for block in blocks {
         let in_trash = Block {
-            delete_at: deleted_at,
+            deleted_at: Some(deleted_at),
             ..block.clone()
         };
         let stored = watchers::with_watchers(&in_trash, watchers.remove(&block.id))?;
@@ -722,7 +734,7 @@ pub(crate) async fn take_blocks_out_of_trash(
     let mut known_users = KnownUsers::default();
     for block in &mut restored {
         adjust(block);
-        block.delete_at = 0;
+        block.deleted_at = None;
         block.update_at = now;
         user_id.clone_into(&mut block.modified_by);
         known_users
@@ -822,7 +834,7 @@ pub(crate) async fn delete_container(
     let deletion_id = new_id();
     put_blocks_in_trash(scope, &container_blocks, &deletion_id, now, user_id).await?;
     let in_trash = Container {
-        delete_at: now,
+        deleted_at: Some(now),
         ..container
     };
     let mut sql = scope.sql(
@@ -882,7 +894,7 @@ pub(crate) async fn undelete_container(
     let places: Vec<StoredPlace> = from_json(&row, 4, "places")?;
 
     let now = now_millis();
-    container.delete_at = 0;
+    container.deleted_at = None;
     container.update_at = now;
     user_id.clone_into(&mut container.modified_by);
     let mut known_users = KnownUsers::default();

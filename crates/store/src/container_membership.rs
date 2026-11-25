@@ -88,7 +88,7 @@ impl Store {
                  JOIN organizations AS o ON o.id = w.org_id",
             )
             .push_bind(" WHERE bm.container_id = ", Id(container_id))
-            .push(" AND w.delete_at = 0 AND o.delete_at = 0")
+            .push(" AND w.deleted_at IS NULL AND o.deleted_at IS NULL")
             .push(&scope.same_organization(&[("bm", "b"), ("wm", "b"), ("w", "b")]))
             .push(" ORDER BY bm.user_id");
             fetch_members(scope, sql).await
@@ -261,7 +261,7 @@ async fn standing_holds(
     }
     let mut sql = scope.sql(
         "SELECT b.workspace_id FROM containers AS b JOIN workspaces AS w ON w.id = b.workspace_id \
-         WHERE w.delete_at = 0 AND b.id = ",
+         WHERE w.deleted_at IS NULL AND b.id = ",
     );
     sql.bind(Id(container_id));
     let Some(row) = scope.fetch_optional(sql).await? else {

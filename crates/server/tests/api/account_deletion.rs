@@ -155,7 +155,10 @@ async fn a_member_asks_to_delete_the_account_and_takes_it_back_by_signing_in() {
     back.delete(DELETION).await.check_no_content();
 
     let me = back.me().await;
-    assert_eq!((me.username.as_str(), me.delete_at), (USER2_USERNAME, 0));
+    assert_eq!(
+        (me.username.as_str(), me.deleted_at),
+        (USER2_USERNAME, None)
+    );
     back.get(&format!("{ROOT_WS}/boards")).await.check_ok();
     let again = back.delete(DELETION).await;
     again.check_status(StatusCode::CONFLICT);

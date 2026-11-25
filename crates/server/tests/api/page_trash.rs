@@ -72,7 +72,7 @@ async fn a_deleted_page_is_listed_brought_back_with_those_below_and_told_of() {
     assert_eq!(tree.len(), 2);
     for id in [&a, &b] {
         let told = socket.expect("blockChanged", "/block/id", id).await;
-        assert_eq!(told["block"]["deleteAt"], json!(0), "{told}");
+        assert_eq!(told["block"].get("deletedAt"), None, "{told}");
     }
     // Once back, it is no more in the trash.
     client

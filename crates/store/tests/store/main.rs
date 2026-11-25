@@ -48,6 +48,7 @@ mod link_lock_order;
 mod lock_gate;
 mod loose_objects;
 mod notifications;
+mod nullable_deleted_at_migration;
 mod observe;
 mod oidc;
 mod oidc_audit;

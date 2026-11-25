@@ -96,7 +96,7 @@ async fn record_in_organizations_of(
          JOIN organizations AS o ON o.id = m.org_id WHERE m.user_id = ",
     );
     sql.bind(Id(user_id))
-        .push(" AND o.delete_at = 0 AND o.is_system = false")
+        .push(" AND o.deleted_at IS NULL AND o.is_system = false")
         .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
         .push(" ORDER BY m.org_id");
     let organizations = scope

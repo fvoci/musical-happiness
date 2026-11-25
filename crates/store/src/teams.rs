@@ -116,7 +116,7 @@ pub(crate) async fn list(
     let mut sql = scope.sql("SELECT t.id, t.name FROM teams t JOIN workspaces w ON w.id = t.workspace_id AND w.org_id = t.org_id WHERE t.workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND t.org_id = ", scope.org()?)
-        .push(" AND w.delete_at = 0 ORDER BY t.name_key")
+        .push(" AND w.deleted_at IS NULL ORDER BY t.name_key")
         .push(match scope.dialect() {
             Dialect::Postgres => " COLLATE \"C\", t.id",
             Dialect::Sqlite => ", t.id",
@@ -168,7 +168,7 @@ fn name_error(error: StoreError) -> StoreError {
 pub(crate) fn present_members(scope: &Scope<'_>) -> String {
     let wall = scope.same_organization(&[("wm", "tm")]);
     format!(
-        "(SELECT tm.team_id, tm.workspace_id, tm.org_id, tm.user_id FROM team_members tm JOIN workspace_members wm ON wm.workspace_id = tm.workspace_id AND wm.user_id = tm.user_id JOIN workspaces w ON w.id = tm.workspace_id AND w.org_id = tm.org_id WHERE wm.role IN ('admin', 'member') AND w.delete_at = 0{wall})"
+        "(SELECT tm.team_id, tm.workspace_id, tm.org_id, tm.user_id FROM team_members tm JOIN workspace_members wm ON wm.workspace_id = tm.workspace_id AND wm.user_id = tm.user_id JOIN workspaces w ON w.id = tm.workspace_id AND w.org_id = tm.org_id WHERE wm.role IN ('admin', 'member') AND w.deleted_at IS NULL{wall})"
     )
 }
 

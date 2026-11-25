@@ -342,7 +342,7 @@ async fn a_trial_does_not_end_in_an_account_that_waits_to_be_deleted() {
         .await
         .expect("set aside");
     test.execute_unchecked(&format!(
-        "UPDATE users SET delete_at = 5, delete_after = 6 WHERE id = '{user}'"
+        "UPDATE users SET deleted_at = 5, delete_after = 6 WHERE id = '{user}'"
     ))
     .await
     .expect("the account waits");

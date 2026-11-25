@@ -434,7 +434,7 @@ impl Store {
                 scope.sql("SELECT user_id FROM user_identities AS i JOIN users AS u ON u.id = i.user_id WHERE i.issuer = ");
             sql.bind(identity.issuer)
                 .push_bind(" AND i.subject = ", identity.subject)
-                .push(" AND (u.delete_at = 0 OR (u.delete_after > 0 AND u.erase_started_at = 0))");
+                .push(" AND (u.deleted_at IS NULL OR (u.delete_after > 0 AND u.erase_started_at = 0))");
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(None);
             };
@@ -919,7 +919,7 @@ pub(crate) async fn has_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bo
     }
     let mut sql = scope.sql(
         "SELECT 1 FROM workspace_members AS wm JOIN workspaces AS t ON t.id = wm.workspace_id \
-         WHERE t.delete_at = 0 AND t.org_id = ",
+         WHERE t.deleted_at IS NULL AND t.org_id = ",
     );
     sql.bind(scope.org()?)
         .push_bind(" AND wm.user_id = ", Id(user_id));

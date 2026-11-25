@@ -83,8 +83,7 @@ async fn migration_0062_to_0063_creates_unit_progress_behind_rls() {
         .expect("open at 0062");
     let (org_id, workspace_id) = common::organization(&pre, "school").await;
     let scoped = pre.for_org(&org_id).expect("org handle");
-    let owner = common::user(&scoped, "teacher").await;
-    common::works_in(&scoped, &workspace_id, &owner).await;
+    let owner = common::pre0072_user(&scoped, &org_id, &workspace_id, "teacher").await;
     let course_id = new_id();
     scoped
         .execute_unchecked(&format!(
@@ -426,7 +425,7 @@ async fn summary_and_workspace_removal_enforce_active_member_rules() {
         .await
         .expect("pending u1");
     test.execute_unchecked(&format!(
-        "UPDATE users SET delete_at = 1000 WHERE id = '{pending_delete}'"
+        "UPDATE users SET deleted_at = 1000 WHERE id = '{pending_delete}'"
     ))
     .await
     .expect("marked pending deletion");
@@ -555,7 +554,7 @@ async fn org_admin_joining_end_and_soft_deleted_org_enforce_progress_bounds() {
     );
 
     test.execute_unchecked(&format!(
-        "UPDATE organizations SET delete_at = 1000 WHERE id = '{}'",
+        "UPDATE organizations SET deleted_at = 1000 WHERE id = '{}'",
         test.org_id
     ))
     .await

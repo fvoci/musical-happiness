@@ -246,7 +246,7 @@ fn subscription_from_row(row: &Row) -> Result<Subscription, StoreError> {
         notified_at: row.int(3)?,
         create_at: row.int(4)?,
         // A subscription that exists is not ended.
-        delete_at: 0,
+        deleted_at: None,
     })
 }
 
@@ -285,7 +285,7 @@ pub(crate) async fn create_subscription(
     let subscription = Subscription {
         notified_at: now,
         create_at: now,
-        delete_at: 0,
+        deleted_at: None,
         ..subscription
     };
 

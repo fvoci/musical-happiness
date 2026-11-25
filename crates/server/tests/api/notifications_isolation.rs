@@ -62,7 +62,7 @@ async fn erase(th: &TestServer, user_id: &str) {
     th.app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE users SET delete_at = 1, delete_after = 1 WHERE id = '{user_id}'"
+            "UPDATE users SET deleted_at = 1, delete_after = 1 WHERE id = '{user_id}'"
         ))
         .await
         .expect("the account waits to be deleted");

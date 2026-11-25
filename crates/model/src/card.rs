@@ -97,8 +97,14 @@ pub struct Card {
     pub create_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
     pub update_at: i64,
-    /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
-    pub delete_at: i64,
+    /// Deletion time in milliseconds since the Unix epoch; absent while not deleted.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_util::non_null"
+    )]
+    #[schema(nullable = false)]
+    pub deleted_at: Option<i64>,
     /// When the card's last comment was posted (the `createAt` of the newest of its
     /// comments, the blocks of the type `comment` directly on it), in milliseconds since
     /// the Unix epoch; zero if it has none. Changing a comment does not change it; a
@@ -301,7 +307,7 @@ impl Card {
             tasks_done: summary.tasks.done,
             create_at: block.create_at,
             update_at: block.update_at,
-            delete_at: block.delete_at,
+            deleted_at: block.deleted_at,
             // A block does not know its comments.
             last_comment_at: 0,
             preview: None,
@@ -332,7 +338,7 @@ impl From<Card> for Block {
             body: card.body,
             create_at: card.create_at,
             update_at: card.update_at,
-            delete_at: card.delete_at,
+            deleted_at: card.deleted_at,
             container_id: card.board_id,
             number: card.number,
             edited_at: 0,

@@ -50,8 +50,8 @@ impl Store {
                 .push_bind(" AND b.type = ", BlockType::Unit.as_str())
                 .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
                 .push_bind(" AND w.org_id = ", org)
-                .push_bind(" AND w.delete_at = ", 0_i64)
-                .push_bind(" AND o.delete_at = ", 0_i64)
+                .push(" AND w.deleted_at IS NULL")
+                .push(" AND o.deleted_at IS NULL")
                 .push(&scope.same_organization(&[("up", "b"), ("b", "c"), ("c", "w")]))
                 .push(" ORDER BY up.unit_id");
             scope
@@ -168,8 +168,8 @@ pub(crate) async fn require_live_unit(
         .push_bind(" AND b.type = ", BlockType::Unit.as_str())
         .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
         .push_bind(" AND w.org_id = ", org.clone())
-        .push_bind(" AND w.delete_at = ", 0_i64)
-        .push_bind(" AND o.delete_at = ", 0_i64)
+        .push(" AND w.deleted_at IS NULL")
+        .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("b", "c"), ("c", "w")]));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR KEY SHARE OF b");
@@ -192,7 +192,7 @@ pub(crate) async fn require_live_unit(
 
     let mut user = scope.sql("SELECT 1 FROM users WHERE id = ");
     user.bind(Id(user_id))
-        .push_bind(" AND delete_at = ", 0_i64)
+        .push(" AND deleted_at IS NULL")
         .push_bind(" AND erased_at = ", 0_i64);
     if scope.dialect() == Dialect::Postgres {
         user.push(" FOR KEY SHARE");
@@ -295,8 +295,8 @@ async fn fetch_summary_rows(
         .push_bind(" AND ub.type = ", unit_type)
         .push_bind(" AND uc.kind = ", course_kind)
         .push_bind(" AND uw.org_id = ", org.clone())
-        .push_bind(" AND uw.delete_at = ", 0_i64)
-        .push_bind(" AND uo.delete_at = ", 0_i64)
+        .push(" AND uw.deleted_at IS NULL")
+        .push(" AND uo.deleted_at IS NULL")
         .push(&scope.same_organization(&[("ub", "uc"), ("uc", "uw")]))
         .push(
             ") FROM (\
@@ -313,9 +313,9 @@ async fn fetch_summary_rows(
         .bind(Id(course_id))
         .push_bind(" AND c.kind = ", course_kind)
         .push_bind(" AND w.org_id = ", org.clone())
-        .push_bind(" AND w.delete_at = ", 0_i64)
-        .push_bind(" AND o.delete_at = ", 0_i64)
-        .push_bind(" AND u.delete_at = ", 0_i64)
+        .push(" AND w.deleted_at IS NULL")
+        .push(" AND o.deleted_at IS NULL")
+        .push(" AND u.deleted_at IS NULL")
         .push_bind(" AND u.erased_at = ", 0_i64)
         .push_bind(" AND (cm.scheme_admin = ", true)
         .push_bind(" OR cm.scheme_editor = ", true)
@@ -334,7 +334,7 @@ async fn fetch_summary_rows(
         .bind(Id(course_id))
         .push_bind(" AND c.kind = ", course_kind)
         .push_bind(" AND im.org_id = ", org.clone())
-        .push_bind(" AND u.delete_at = ", 0_i64)
+        .push(" AND u.deleted_at IS NULL")
         .push_bind(" AND u.erased_at = ", 0_i64)
         .push(&scope.same_organization(&[("im", "c")]))
         .push(
@@ -353,8 +353,8 @@ async fn fetch_summary_rows(
         .push_bind(" AND b.type = ", unit_type)
         .push_bind(" AND c.kind = ", course_kind)
         .push_bind(" AND w.org_id = ", org)
-        .push_bind(" AND w.delete_at = ", 0_i64)
-        .push_bind(" AND o.delete_at = ", 0_i64)
+        .push(" AND w.deleted_at IS NULL")
+        .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("up", "b"), ("b", "c"), ("c", "w")]))
         .push(" GROUP BY up.user_id) AS cc ON cc.user_id = am.user_id ORDER BY am.user_id");
     scope.fetch_all(sql).await
@@ -379,8 +379,8 @@ async fn count_live_units(
         .push_bind(" AND b.type = ", BlockType::Unit.as_str())
         .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
         .push_bind(" AND w.org_id = ", org)
-        .push_bind(" AND w.delete_at = ", 0_i64)
-        .push_bind(" AND o.delete_at = ", 0_i64)
+        .push(" AND w.deleted_at IS NULL")
+        .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("b", "c"), ("c", "w")]));
     let count = scope
         .fetch_optional(sql)

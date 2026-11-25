@@ -90,8 +90,7 @@ async fn migration_before_0066_to_0066_creates_course_schedules_behind_rls() {
         .expect("open before 0066");
     let (org_id, workspace_id) = common::organization(&pre, "academy").await;
     let scoped = pre.for_org(&org_id).expect("org handle");
-    let owner = common::user(&scoped, "teacher").await;
-    common::works_in(&scoped, &workspace_id, &owner).await;
+    let owner = common::pre0072_user(&scoped, &org_id, &workspace_id, "teacher").await;
     let course_id = new_id();
     scoped
         .execute_unchecked(&format!(

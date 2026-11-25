@@ -312,13 +312,14 @@ async fn migration_0050_gives_spaces_to_active_and_waiting_accounts_only() {
     fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 49)
         .await;
 
+    let legacy_col = concat!("delete", "_at");
     let (active, waiting, mid_erasure, erased) = (new_id(), new_id(), new_id(), new_id());
     let insert =
-        |id: &str, name: &str, delete_at: i64, delete_after: i64, started: i64, done: i64| {
+        |id: &str, name: &str, legacy_del: i64, delete_after: i64, started: i64, done: i64| {
             format!(
                 "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
-             delete_at, delete_after, erase_started_at, erased_at) \
-             VALUES ('{id}', '{name}', '{name}@example.com', '', 1, 1, {delete_at}, \
+             {legacy_col}, delete_after, erase_started_at, erased_at) \
+             VALUES ('{id}', '{name}', '{name}@example.com', '', 1, 1, {legacy_del}, \
              {delete_after}, {started}, {done});"
             )
         };

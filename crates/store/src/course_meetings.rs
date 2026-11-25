@@ -74,8 +74,8 @@ impl Store {
                 .push_bind(" AND m.org_id = ", org.clone())
                 .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
                 .push_bind(" AND w.org_id = ", org.clone())
-                .push_bind(" AND w.delete_at = ", 0_i64)
-                .push_bind(" AND o.delete_at = ", 0_i64)
+                .push(" AND w.deleted_at IS NULL")
+                .push(" AND o.deleted_at IS NULL")
                 .push(&scope.same_organization(&[("m", "c"), ("c", "w")]))
                 .push(" ORDER BY m.starts_at ASC, m.id ASC");
             let rows = scope.fetch_all(sql).await?;
@@ -386,8 +386,8 @@ impl Store {
                 )
                 .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
                 .push_bind(" AND c.is_template = ", false)
-                .push_bind(" AND w.delete_at = ", 0_i64)
-                .push_bind(" AND o.delete_at = ", 0_i64)
+                .push(" AND w.deleted_at IS NULL")
+                .push(" AND o.deleted_at IS NULL")
                 .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
                 .push(&scope.same_organization(&[("course_meetings", "c"), ("c", "w")]))
                 .push(") RETURNING id, org_id, container_id");
@@ -450,8 +450,8 @@ impl Store {
                     .push_bind(" AND m.org_id = ", org.clone())
                     .push_bind(" AND w.org_id = ", org.clone())
                     .push_bind(" AND c.is_template = ", false)
-                    .push_bind(" AND w.delete_at = ", 0_i64)
-                    .push_bind(" AND o.delete_at = ", 0_i64)
+                    .push(" AND w.deleted_at IS NULL")
+                    .push(" AND o.deleted_at IS NULL")
                     .push(&scope.same_organization(&[("m", "c"), ("c", "w")]))
                     .push(" AND m.id IN (")
                     .bind_list(batch.iter().map(|id| Id(id)))
@@ -488,8 +488,8 @@ pub(crate) async fn require_live_course(
     sql.bind(Id(course_id))
         .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
         .push_bind(" AND w.org_id = ", org)
-        .push_bind(" AND w.delete_at = ", 0_i64)
-        .push_bind(" AND o.delete_at = ", 0_i64)
+        .push(" AND w.deleted_at IS NULL")
+        .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("c", "w")]));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR KEY SHARE OF c");
@@ -525,9 +525,9 @@ pub(crate) fn push_active_course_members_subquery(
     .bind(Id(course_id))
     .push_bind(" AND c.kind = ", course_kind)
     .push_bind(" AND w.org_id = ", org.clone())
-    .push_bind(" AND w.delete_at = ", 0_i64)
-    .push_bind(" AND o.delete_at = ", 0_i64)
-    .push_bind(" AND u.delete_at = ", 0_i64)
+    .push(" AND w.deleted_at IS NULL")
+    .push(" AND o.deleted_at IS NULL")
+    .push(" AND u.deleted_at IS NULL")
     .push_bind(" AND u.erased_at = ", 0_i64)
     .push_bind(" AND (cm.scheme_admin = ", true)
     .push_bind(" OR cm.scheme_editor = ", true)
@@ -547,8 +547,8 @@ pub(crate) fn push_active_course_members_subquery(
     .bind(Id(course_id))
     .push_bind(" AND c.kind = ", course_kind)
     .push_bind(" AND im.org_id = ", org)
-    .push_bind(" AND w.delete_at = ", 0_i64)
-    .push_bind(" AND u.delete_at = ", 0_i64)
+    .push(" AND w.deleted_at IS NULL")
+    .push(" AND u.deleted_at IS NULL")
     .push_bind(" AND u.erased_at = ", 0_i64)
     .push(&scope.same_organization(&[("im", "c"), ("c", "w")]))
     .push(")");

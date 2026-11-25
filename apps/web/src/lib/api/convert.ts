@@ -79,7 +79,7 @@ export function userOf(user: Schemas['User']): User {
     isAdmin: user.isAdmin,
     createAt: user.createAt,
     updateAt: user.updateAt,
-    deleteAt: user.deleteAt,
+    ...(user.deletedAt === undefined ? {} : { deletedAt: user.deletedAt }),
   };
 }
 
@@ -121,7 +121,7 @@ export function containerOf(board: Schemas['Container']): Container {
     cardProperties: board.cardProperties as unknown as PropertyTemplate[],
     createAt: board.createAt,
     updateAt: board.updateAt,
-    deleteAt: board.deleteAt,
+    ...(board.deletedAt === undefined ? {} : { deletedAt: board.deletedAt }),
   };
 }
 
@@ -179,7 +179,7 @@ export function cardOf(card: Schemas['Card']): CardSummary {
       fields: { icon: card.icon, isTemplate: card.isTemplate, properties: card.properties },
       createAt: card.createAt,
       updateAt: card.updateAt,
-      deleteAt: card.deleteAt,
+      ...(card.deletedAt === undefined ? {} : { deletedAt: card.deletedAt }),
       ...(card.number === null ? {} : { number: card.number }),
     }),
     hasBody: card.hasBody,

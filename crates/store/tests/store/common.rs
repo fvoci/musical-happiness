@@ -143,7 +143,7 @@ pub(crate) async fn in_own_space(test: &TestStore, user_id: &str) -> (Store, Str
 /// administrator.
 pub(crate) fn own_space() -> [Vec<String>; 4] {
     [
-        vec!["personal||0".to_owned()],
+        vec!["personal||alive".to_owned()],
         vec!["|default|no guests".to_owned()],
         vec!["owner|admin".to_owned()],
         vec!["owner|admin".to_owned()],
@@ -155,7 +155,8 @@ pub(crate) fn own_space() -> [Vec<String>; 4] {
 pub(crate) async fn own_space_shape(system: &Store, user_id: &str) -> [Vec<String>; 4] {
     let who = "CASE WHEN m.user_id = o.owner_id THEN 'owner' ELSE 'other' END || '|' || m.role";
     let queries = [
-        "SELECT o.kind || '|' || o.name || '|' || CAST(o.delete_at AS TEXT) \
+        "SELECT o.kind || '|' || o.name || '|' \
+         || CASE WHEN o.deleted_at IS NULL THEN 'alive' ELSE CAST(o.deleted_at AS TEXT) END \
          FROM organizations AS o WHERE"
             .to_owned(),
         "SELECT w.name || '|' \
@@ -340,6 +341,89 @@ pub(crate) async fn works_in(store: &Store, workspace_id: &str, user_id: &str) {
             .await
             .expect("the user is let into the workspace");
     }
+}
+
+/// Stores an account, its personal space, and its membership in `(org_id, workspace_id)`
+/// using pre-`0072` SQL so migration tests seeded before `0072` do not query post-`0072`
+/// `deleted_at IS NULL` predicates.
+pub(crate) async fn pre0072_user(
+    store: &Store,
+    org_id: &str,
+    workspace_id: &str,
+    username: &str,
+) -> String {
+    let (user_id, own_org, own_ws) = (new_id(), new_id(), new_id());
+    let first = store
+        .system()
+        .execute_unchecked(
+            "UPDATE instance SET bootstrapped = true WHERE id = 1 AND bootstrapped = false",
+        )
+        .await
+        .expect("instance bootstrap updated")
+        > 0;
+    let role = if first { "admin" } else { "member" };
+    store
+        .system()
+        .execute_unchecked(&format!(
+            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, is_admin) \
+             VALUES ('{user_id}', '{username}', '{username}@example.com', '', 1, 1, {first})"
+        ))
+        .await
+        .expect("pre-0072 user stored");
+    let own = store.for_org(&own_org).expect("own org");
+    for sql in [
+        format!(
+            "INSERT INTO organizations (id, name, kind, owner_id, settings, create_at, update_at) \
+             VALUES ('{own_org}', '', 'personal', '{user_id}', '{{}}', 1, 1)"
+        ),
+        format!(
+            "INSERT INTO workspaces (id, org_id, name, settings, guest_invitations, create_at, update_at) \
+             VALUES ('{own_ws}', '{own_org}', '', '{{}}', false, 1, 1)"
+        ),
+        format!(
+            "UPDATE organizations SET default_workspace_id = '{own_ws}' WHERE id = '{own_org}'"
+        ),
+        format!(
+            "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+             VALUES ('{own_org}', '{user_id}', 'admin', 1)"
+        ),
+        format!(
+            "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) \
+             VALUES ('{own_ws}', '{user_id}', 'admin', 1)"
+        ),
+    ] {
+        own.execute_unchecked(&sql)
+            .await
+            .expect("pre-0072 own space stored");
+    }
+    let scoped = store.for_org(org_id).expect("org");
+    for sql in [
+        format!(
+            "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+             VALUES ('{org_id}', '{user_id}', '{role}', 1) ON CONFLICT DO NOTHING"
+        ),
+        format!(
+            "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) \
+             VALUES ('{workspace_id}', '{user_id}', '{role}', 1) ON CONFLICT DO NOTHING"
+        ),
+    ] {
+        scoped
+            .execute_unchecked(&sql)
+            .await
+            .expect("pre-0072 membership stored");
+    }
+    user_id
+}
+
+/// Inserts a `workspace_members` row directly for pre-`0072` migration fixtures.
+pub(crate) async fn pre0072_works_in(store: &Store, workspace_id: &str, user_id: &str) {
+    store
+        .execute_unchecked(&format!(
+            "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) \
+             VALUES ('{workspace_id}', '{user_id}', 'member', 1) ON CONFLICT DO NOTHING"
+        ))
+        .await
+        .expect("pre-0072 workspace membership stored");
 }
 
 /// `storetests.InsertBlocks`: inserts each block on its own.

@@ -510,11 +510,11 @@ pub(crate) async fn archive(s: &mut Session) {
         json!({"type": "block", "data": {
             "id": "legacy-board", "type": "board", "title": "Legacy board", "schema": 1,
             "fields": {"icon": "x", "cardProperties": []}, "createAt": 1, "updateAt": 1,
-            "deleteAt": 0, "parentId": "", "rootId": "legacy-board",
+            "parentId": "", "rootId": "legacy-board",
         }}),
         json!({"type": "block", "data": {
             "id": "legacy-card", "type": "card", "title": "Legacy card", "schema": 1,
-            "fields": {}, "createAt": 1, "updateAt": 1, "deleteAt": 0,
+            "fields": {}, "createAt": 1, "updateAt": 1,
             "parentId": "legacy-board", "rootId": "legacy-board",
         }}),
     ];

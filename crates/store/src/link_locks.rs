@@ -108,7 +108,7 @@ pub(crate) async fn hold_for_new_link(
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
     sql.bind(Id(link.workspace_id))
         .push_bind(" AND org_id = ", scope.org()?)
-        .push_bind(" AND delete_at = ", 0_i64);
+        .push(" AND deleted_at IS NULL");
     if link.guest_of.is_some() {
         sql.push_bind(" AND guest_invitations = ", true);
         if postgres {
@@ -177,7 +177,7 @@ pub(crate) async fn hold_for_letting_in(
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
     sql.bind(Id(&link.workspace_id))
         .push_bind(" AND org_id = ", scope.org()?)
-        .push_bind(" AND delete_at = ", 0_i64);
+        .push(" AND deleted_at IS NULL");
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR KEY SHARE");
     }

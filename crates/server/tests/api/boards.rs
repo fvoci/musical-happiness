@@ -760,7 +760,6 @@ async fn create_board_wire_format() {
             "cardProperties": [],
             "createAt": value["createAt"],
             "updateAt": value["createAt"],
-            "deleteAt": 0,
         }),
         "the members of a board on the wire"
     );
@@ -1601,7 +1600,7 @@ async fn undelete_container_an_existing_deleted_board_should_be_correctly_undele
 
     let answered: Container = response.ok_json();
     assert_eq!(answered.id, board.id, "the answer is the board");
-    assert_eq!(answered.delete_at, 0, "as it is after the restoring");
+    assert_eq!(answered.deleted_at, None, "as it is after the restoring");
     let restored = stored_board(&th, &board.id).await;
     assert_eq!(restored, answered, "the board is back, as answered");
     assert_eq!(restored.title, board.title, "with the title it had");

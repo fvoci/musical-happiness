@@ -32,6 +32,18 @@ test('duplicateBlockTree: Card', () => {
   }
 });
 
+test('duplicateBlockTree strips deletedAt from copied blocks', () => {
+  const [blocks, sourceBlock] = createCardTree();
+  for (const block of blocks) {
+    block.deletedAt = 12345;
+  }
+  const [newBlocks, newSourceBlock] = duplicateBlockTree(blocks, sourceBlock.id);
+  expect(newSourceBlock.deletedAt).toBeUndefined();
+  for (const copied of newBlocks) {
+    expect(copied.deletedAt).toBeUndefined();
+  }
+});
+
 test('filterConditionValidOrDefault', () => {
   // Test 'options'
   expect(filterConditionValidOrDefault('options', 'includes')).toBe('includes');

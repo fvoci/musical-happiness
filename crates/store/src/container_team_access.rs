@@ -39,14 +39,14 @@ impl Store {
                  JOIN organizations o ON o.id = w.org_id",
             )
             .push_bind(" WHERE bm.container_id = ", Id(container_id))
-            .push(" AND w.delete_at = 0 AND o.delete_at = 0")
+            .push(" AND w.deleted_at IS NULL AND o.deleted_at IS NULL")
             .push(&scope.same_organization(&[("bm", "b"), ("wm", "b"), ("w", "b")]));
             let mut members = containers::fetch_members(scope, sql).await?;
             let mut sql = inherited(scope)?;
             sql.push_bind(" AND bt.container_id = ", Id(container_id))
                 .push(
                     " AND EXISTS (SELECT 1 FROM organizations o \
-                 WHERE o.id = bt.org_id AND o.delete_at = 0)",
+                 WHERE o.id = bt.org_id AND o.deleted_at IS NULL)",
                 );
             extend(scope, sql, &mut members).await?;
             members.sort_by(|a, b| a.user_id.cmp(&b.user_id));
@@ -159,7 +159,7 @@ pub(crate) fn inherited_members_source(scope: &Scope<'_>) -> String {
            AND tm.workspace_id = bt.workspace_id \
            AND tm.org_id = bt.org_id \
           JOIN organizations AS o ON o.id = bt.org_id \
-          WHERE o.delete_at = 0)"
+          WHERE o.deleted_at IS NULL)"
     )
 }
 

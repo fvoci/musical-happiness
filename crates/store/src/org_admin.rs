@@ -120,7 +120,7 @@ impl Store {
                 "SELECT om.user_id, u.username, u.display_name, om.role, ",
                 person_names::name_columns!(),
                 " FROM organization_members AS om JOIN users AS u ON u.id = om.user_id \
-                 WHERE (u.delete_at = 0 OR (u.delete_after > 0 AND u.erase_started_at = 0)) \
+                 WHERE (u.deleted_at IS NULL OR (u.delete_after > 0 AND u.erase_started_at = 0)) \
                  AND om.org_id = ",
             ));
             sql.bind(scope.org()?)
@@ -205,7 +205,7 @@ impl Store {
     pub async fn org_workspaces(&self, viewer_id: &str) -> Result<Vec<OrgWorkspace>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT w.id, w.name, w.delete_at, \
+                "SELECT w.id, w.name, w.deleted_at, \
                  CAST(CASE WHEN o.default_workspace_id = w.id THEN 1 ELSE 0 END AS BIGINT), \
                  (SELECT CAST(COUNT(*) AS BIGINT) FROM workspace_members AS m \
                  WHERE m.workspace_id = w.id), me.role, me.via_org_admin \
@@ -224,7 +224,7 @@ impl Store {
                     Ok(OrgWorkspace {
                         id: row.id(0)?,
                         name: row.text(1)?,
-                        deleted_at: row.int(2)?,
+                        deleted_at: row.opt_int(2)?,
                         is_default: row.int(3)? == 1,
                         member_count: row.int(4)?,
                         role: if my_role.is_empty() {
@@ -286,7 +286,7 @@ impl Store {
                 .push_bind(", update_at = ", now_millis())
                 .push_bind(" WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
-                .push_bind(" AND delete_at = ", 0_i64);
+                .push(" AND deleted_at IS NULL");
             if scope.execute(sql).await.map_err(name_taken)? == 0 {
                 return Err(StoreError::not_found("workspace"));
             }
@@ -314,12 +314,12 @@ impl Store {
             if org.default_workspace_id == workspace_id {
                 return Ok(WorkspaceTrashing::Default);
             }
-            let mut sql = scope.sql("UPDATE workspaces SET delete_at = ");
+            let mut sql = scope.sql("UPDATE workspaces SET deleted_at = ");
             sql.bind(now_millis())
                 .push_bind(", modified_by = ", OptId(actor_id))
                 .push_bind(" WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
-                .push_bind(" AND delete_at = ", 0_i64)
+                .push(" AND deleted_at IS NULL")
                 .push_bind(" AND is_system = ", false);
             if scope.execute(sql).await? == 0 {
                 return Ok(WorkspaceTrashing::NotFound);
@@ -348,13 +348,12 @@ impl Store {
             held_by_admin(scope, actor_id).await?;
             // Of a restoration and the removal for good, the one that comes second finds
             // the workspace the first left: the removal holds the row.
-            let mut sql = scope.sql("UPDATE workspaces SET delete_at = ");
-            sql.bind(0_i64)
-                .push_bind(", modified_by = ", OptId(actor_id))
+            let mut sql = scope.sql("UPDATE workspaces SET deleted_at = NULL");
+            sql.push_bind(", modified_by = ", OptId(actor_id))
                 .push_bind(", update_at = ", now_millis())
                 .push_bind(" WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
-                .push_bind(" AND delete_at > ", 0_i64);
+                .push(" AND deleted_at IS NOT NULL");
             if scope.execute(sql).await.map_err(name_taken)? == 0 {
                 return Err(StoreError::not_found("workspace in the trash"));
             }
@@ -389,8 +388,8 @@ impl Store {
             let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
             sql.bind(Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
-                .push_bind(" AND delete_at > ", 0_i64)
-                .push_bind(" AND delete_at < ", deleted_before);
+                .push(" AND deleted_at IS NOT NULL")
+                .push_bind(" AND deleted_at < ", deleted_before);
             if scope.dialect() == Dialect::Postgres {
                 sql.push(" FOR UPDATE");
             }
@@ -424,7 +423,7 @@ impl Store {
             let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
             sql.bind(Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
-                .push_bind(" AND delete_at = ", 0_i64)
+                .push(" AND deleted_at IS NULL")
                 .push_bind(" AND is_system = ", false);
             if scope.fetch_optional(sql).await?.is_none() {
                 return Ok(Joining::NotFound);
@@ -505,7 +504,7 @@ async fn organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError>
     let mut sql = scope
         .sql("SELECT id, name, public_links, default_workspace_id FROM organizations WHERE id = ");
     sql.bind(scope.org()?)
-        .push(" AND delete_at = 0 AND is_system = false");
+        .push(" AND deleted_at IS NULL AND is_system = false");
     let row = scope
         .fetch_optional(sql)
         .await?
@@ -663,7 +662,7 @@ pub(crate) async fn is_last_org_admin(
 async fn another_admin(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     let mut sql = scope.sql(
         "SELECT 1 FROM organization_members AS om JOIN users AS u ON u.id = om.user_id \
-         WHERE u.delete_at = 0 AND om.org_id = ",
+         WHERE u.deleted_at IS NULL AND om.org_id = ",
     );
     sql.bind(scope.org()?)
         .push_bind(" AND om.role = ", OrgRole::Admin.as_str())

@@ -525,7 +525,7 @@ impl Hub {
             id: block_id.to_owned(),
             container_id: container_id.to_owned(),
             update_at: now,
-            delete_at: now,
+            deleted_at: Some(now),
             ..Block::default()
         };
         self.broadcast_block_change(workspace_id, &block).await;
@@ -547,7 +547,7 @@ impl Hub {
             id: block_id.to_owned(),
             container_id: container_id.to_owned(),
             update_at: now,
-            delete_at: now,
+            deleted_at: Some(now),
             ..Block::default()
         };
         let message = UpdateBlockMessage::new(workspace_id, &block);
@@ -911,7 +911,7 @@ fn gone_container(workspace_id: &str, container_id: &str) -> Container {
         id: container_id.to_owned(),
         workspace_id: workspace_id.to_owned(),
         update_at: now,
-        delete_at: now,
+        deleted_at: Some(now),
         ..Container::default()
     }
 }

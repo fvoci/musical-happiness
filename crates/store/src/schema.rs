@@ -95,6 +95,10 @@ pub(crate) const BEFORE_CONTAINER_VISIBILITY_VERSION: i64 = 69;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_NATIVE_VIEW_FIELD_KEYS_VERSION: i64 = 70;
 
+/// The migration before nullable `deleted_at` (0072).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_NULLABLE_DELETED_AT_VERSION: i64 = 71;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -498,5 +502,16 @@ mod tests {
             .expect("migration 71 is in the list");
         assert_eq!(step.version, 71);
         assert_eq!(step.description, "native view field keys");
+    }
+
+    /// Migration 72 is nullable `deleted_at`, immediately following `BEFORE_NULLABLE_DELETED_AT_VERSION` (71).
+    #[test]
+    fn migration_72_is_nullable_deleted_at() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_NULLABLE_DELETED_AT_VERSION + 1)
+            .expect("migration 72 is in the list");
+        assert_eq!(step.version, 72);
+        assert_eq!(step.description, "nullable deleted at");
     }
 }

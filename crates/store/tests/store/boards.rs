@@ -342,7 +342,7 @@ async fn insert_container() {
         assert_eq!(board.visibility, visibility, "the visibility is kept");
         assert_ne!(board.create_at, 0, "the creation time is set");
         assert_ne!(board.update_at, 0, "the modification time is set");
-        assert_eq!(board.delete_at, 0, "the board is not deleted");
+        assert_eq!(board.deleted_at, None, "the board is not deleted");
         assert_eq!(user_id, board.created_by, "the creator");
         assert_eq!(board.created_by, board.modified_by, "the modifier");
     }
@@ -1290,10 +1290,10 @@ async fn delete_and_undelete_container_take_the_blocks_along() {
         deleted.container.modified_by, user_id,
         "the board as it was"
     );
+    let deleted_at = deleted.container.deleted_at.expect("deletion time");
     assert!(
-        deleted.container.delete_at >= board.update_at,
-        "deleted at {} after the last modification at {}",
-        deleted.container.delete_at,
+        deleted_at >= board.update_at,
+        "deleted at {deleted_at} after the last modification at {}",
         board.update_at
     );
     assert_eq!(
@@ -1315,7 +1315,7 @@ async fn delete_and_undelete_container_take_the_blocks_along() {
         restored.create_at, board.create_at,
         "the creation time stays"
     );
-    assert_eq!(restored.delete_at, 0, "the board is not deleted");
+    assert_eq!(restored.deleted_at, None, "the board is not deleted");
     let back = test
         .get_blocks(&BlockFilter::container(&board_id))
         .await
@@ -1703,7 +1703,7 @@ async fn subscribe(store: &Store, card_id: &str, user_id: &str) {
         user_id: user_id.to_owned(),
         notified_at: 0,
         create_at: 0,
-        delete_at: 0,
+        deleted_at: None,
     };
     store
         .create_subscription(subscription)
@@ -1902,7 +1902,7 @@ async fn delete_container_moves_the_board_and_what_is_its_own_to_the_trash() {
         .get_deleted_container(board_id)
         .await
         .expect("the board is in the trash");
-    let deleted_at = deleted.container.delete_at;
+    let deleted_at = deleted.container.deleted_at.expect("deletion time");
     assert!(
         deleted_at >= full.board.update_at,
         "deleted at {deleted_at}, after the board was stored at {}",
@@ -1911,7 +1911,7 @@ async fn delete_container_moves_the_board_and_what_is_its_own_to_the_trash() {
     assert_eq!(
         deleted.container,
         Container {
-            delete_at: deleted_at,
+            deleted_at: Some(deleted_at),
             ..full.board.clone()
         },
         "the board as it was, marked as deleted"
@@ -1936,7 +1936,7 @@ async fn delete_container_moves_the_board_and_what_is_its_own_to_the_trash() {
         assert_eq!(
             in_trash.block,
             Block {
-                delete_at: deleted_at,
+                deleted_at: Some(deleted_at),
                 ..block.clone()
             },
             "{} as it was, deleted when its board was",
@@ -2162,7 +2162,7 @@ async fn undelete_container_brings_back_the_membership_of_a_user_who_was_deactiv
         .expect("the board is deleted");
     common::execute_raw(
         &test.database_connection(),
-        &format!("UPDATE users SET delete_at = 1700000000000 WHERE id = '{deactivated_id}'"),
+        &format!("UPDATE users SET deleted_at = 1700000000000 WHERE id = '{deactivated_id}'"),
     )
     .await;
     test.get_user_by_id(&deactivated_id)
@@ -2487,7 +2487,8 @@ async fn deleted_at(store: &Store, board_id: &str) -> i64 {
         .await
         .expect("the board is in the trash")
         .container
-        .delete_at
+        .deleted_at
+        .expect("deletion time")
 }
 
 #[tokio::test]
@@ -2609,7 +2610,8 @@ async fn purge_trash_keeps_what_was_deleted_at_the_cutoff_or_later() {
         .await
         .expect("the text is in the trash")
         .block
-        .delete_at;
+        .deleted_at
+        .expect("deletion time");
     test.delete_container(&board_id, &user_id)
         .await
         .expect("the board is deleted");
@@ -3899,7 +3901,7 @@ fn members_at_their_default<T: Serialize>(value: &T, default: &T) -> Vec<String>
 ///
 /// Every member of the board, of a block on it and of a membership is something other
 /// than its default before the board is deleted, except what cannot be for a row that
-/// exists: `delete_at`, and of a membership `roles` and `synthetic`, which have no
+/// exists: `deleted_at`, and of a membership `roles` and `synthetic`, which have no
 /// column. The literals below name every member on purpose, without `..`: a member
 /// that is added later does not compile until it is given a value here.
 #[tokio::test]
@@ -3940,7 +3942,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         }))],
         create_at: 0,
         update_at: 0,
-        delete_at: 0,
+        deleted_at: None,
     };
     test.insert_container(&mut board, &author_id)
         .await
@@ -3989,7 +3991,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         .expect("a body that may be stored"),
         create_at: 0,
         update_at: 0,
-        delete_at: 0,
+        deleted_at: None,
         container_id: board.id.clone(),
         // Only a comment whose body was changed has one.
         edited_at: 0,
@@ -4011,12 +4013,12 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
     let note = test.get_block(&note.id).await.expect("the text is read");
     assert_eq!(
         members_at_their_default(&board, &Container::default()),
-        ["deleteAt", "kind"],
+        ["kind"],
         "of the board: {board:?}"
     );
     assert_eq!(
         members_at_their_default(&note, &Block::default()),
-        ["deleteAt"],
+        Vec::<String>::new(),
         "of the block: {note:?}"
     );
     let all_flags = members

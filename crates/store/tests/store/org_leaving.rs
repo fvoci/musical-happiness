@@ -180,7 +180,7 @@ async fn follow(store: &Store, block_id: &str, user_id: &str) {
         user_id: user_id.to_owned(),
         notified_at: 0,
         create_at: 0,
-        delete_at: 0,
+        deleted_at: None,
     };
     store
         .create_subscription(subscription)
@@ -1003,7 +1003,7 @@ async fn remove_org_member_refuses_self_non_admin_non_member_and_guardrails() {
     set_org_role(&test, &test.org_id, &member, OrgRole::Admin).await;
     administers_the_instance(&test, &member).await;
     test.execute_unchecked(&format!(
-        "UPDATE users SET delete_at = {T0} WHERE id = '{founder}'"
+        "UPDATE users SET deleted_at = {T0} WHERE id = '{founder}'"
     ))
     .await
     .expect("pending deletion");
@@ -1234,7 +1234,7 @@ async fn organizations_of_user_lists_shared_orgs_including_zero_workspace_orgs()
             .expect("member of deleted org");
         test.system()
             .execute_unchecked(&format!(
-                "UPDATE organizations SET delete_at = {T0} WHERE id = '{deleted_org}'"
+                "UPDATE organizations SET deleted_at = {T0} WHERE id = '{deleted_org}'"
             ))
             .await
             .expect("deleted");
@@ -1271,8 +1271,8 @@ async fn migration_0065_keeps_audit_rows_and_erasure_guard_and_allows_org_member
         .expect("pre-65 database opens");
     let (org, ws) = common::organization(&pre, "org").await;
     let pre_org = pre.for_org(&org).expect("org scope");
-    let actor = common::user(&pre_org, "actor").await;
-    let subject = common::user(&pre_org, "subject").await;
+    let actor = common::pre0072_user(&pre_org, &org, &ws, "actor").await;
+    let subject = common::pre0072_user(&pre_org, &org, &ws, "subject").await;
     let (ws_row, lapsed, carried) = (new_id(), new_id(), new_id());
     pre_org
         .execute_unchecked(&format!(
@@ -1460,7 +1460,7 @@ async fn assert_migration_0065_guards_hold(
     store
         .system()
         .execute_unchecked(&format!(
-            "UPDATE users SET delete_at = 1, erase_started_at = 1 WHERE id = '{actor}'"
+            "UPDATE users SET deleted_at = 1, erase_started_at = 1 WHERE id = '{actor}'"
         ))
         .await
         .expect("mark actor erasing");

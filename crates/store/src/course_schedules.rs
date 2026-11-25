@@ -318,8 +318,8 @@ pub(crate) async fn fetch_course_schedule(
         .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
         .push_bind(" AND w.org_id = ", org)
         .push(" AND cs.org_id = w.org_id")
-        .push_bind(" AND w.delete_at = ", 0_i64)
-        .push_bind(" AND o.delete_at = ", 0_i64)
+        .push(" AND w.deleted_at IS NULL")
+        .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("cs", "c"), ("c", "w")]));
     scope
         .fetch_optional(sql)
@@ -348,8 +348,8 @@ async fn require_live_course_locked(
     sql.bind(Id(course_id))
         .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
         .push_bind(" AND w.org_id = ", org)
-        .push_bind(" AND w.delete_at = ", 0_i64)
-        .push_bind(" AND o.delete_at = ", 0_i64)
+        .push(" AND w.deleted_at IS NULL")
+        .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("c", "w")]));
     if scope.fetch_optional(sql).await?.is_none() {
         return Err(StoreError::not_found("course"));
@@ -375,8 +375,8 @@ async fn lock_live_course_for_learner(
     sql.bind(Id(course_id))
         .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
         .push_bind(" AND w.org_id = ", org)
-        .push_bind(" AND w.delete_at = ", 0_i64)
-        .push_bind(" AND o.delete_at = ", 0_i64)
+        .push(" AND w.deleted_at IS NULL")
+        .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("c", "w")]));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR KEY SHARE OF c");
@@ -409,7 +409,7 @@ async fn lock_active_learner(
 
     let mut user = scope.sql("SELECT 1 FROM users WHERE id = ");
     user.bind(Id(user_id))
-        .push_bind(" AND delete_at = ", 0_i64)
+        .push(" AND deleted_at IS NULL")
         .push_bind(" AND erased_at = ", 0_i64);
     if scope.dialect() == Dialect::Postgres {
         user.push(" FOR KEY SHARE");
@@ -697,7 +697,7 @@ async fn fetch_enrolled_courses(
              WHERE w.id = b.workspace_id AND w.org_id = ",
             org,
         )
-        .push(" AND w.delete_at = 0 AND o.delete_at = 0")
+        .push(" AND w.deleted_at IS NULL AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("w", "b")]))
         .push(") ORDER BY b.create_at, b.id");
     let containers = fetch_containers(scope, sql).await?;

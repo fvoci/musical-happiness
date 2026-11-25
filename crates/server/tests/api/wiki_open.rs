@@ -106,7 +106,7 @@ fn has_block(id: &str) -> impl Fn(&[Value]) -> bool + '_ {
 fn is_gone(told: &Value, id: &str) -> bool {
     told["type"] == json!("containerChanged")
         && told["container"]["id"] == json!(id)
-        && told["container"]["deleteAt"] != json!(0)
+        && told["container"]["deletedAt"].as_i64() > Some(0)
 }
 
 /// The identifiers of the blocks, boards and wikis among what was told, each once.

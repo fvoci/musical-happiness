@@ -263,7 +263,6 @@ test('isolates unjoined open-course reader and public shared links from reviews 
           modifiedBy: '',
           createAt: 1,
           updateAt: 1,
-          deleteAt: 0,
         },
       });
       return;

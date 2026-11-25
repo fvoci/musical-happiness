@@ -14,13 +14,17 @@ use crate::common;
 /// template (a membership, a file, sharing, a subscription, a filing: what an older
 /// server let a user have on one), some on a board in the trash, some on nothing that
 /// is still there. The words that begin with a colon stand for identifiers.
-pub(crate) const BEFORE_ORGANIZATIONS: &str = r#"
-INSERT INTO users (id, username, email, password_hash, create_at, update_at, delete_at,
+pub(crate) const BEFORE_ORGANIZATIONS: &str = concat!(
+    "\nINSERT INTO users (id, username, email, password_hash, create_at, update_at, ",
+    "delete",
+    "_at",
+    r#",
                    is_admin, display_name) VALUES
     (':admin', 'admin', 'admin@example.com', '', 10, 10, 0, true, ''),
     (':member', 'member', 'member@example.com', '', 20, 20, 0, false, ''),
     (':left', 'left', 'left@example.com', '', 30, 30, 40, false, '');
-UPDATE instance SET bootstrapped = true;
+UPDATE instance SET bootstrapped = true;"#,
+    r#"
 INSERT INTO teams (id, signup_token, settings, modified_by, create_at, update_at) VALUES
     (':younger_workspace', 'token-2', '{}', NULL, 200, 200),
     (':older_workspace', 'token-1', '{"kept": 1}', ':admin', 100, 100);
@@ -81,7 +85,8 @@ INSERT INTO upload_parts (upload_id, number, size, part_id) VALUES ('an-upload',
 INSERT INTO comment_versions (block_id, version, body, files, written_by, written_at) VALUES
     (':comment', 1, NULL, '[]', ':admin', 1),
     (':comment_that_is_gone', 1, NULL, '[]', ':admin', 1);
-"#;
+"#
+);
 
 /// The identifiers of [`BEFORE_ORGANIZATIONS`], by their names there.
 pub(crate) struct Before(BTreeMap<&'static str, String>);
@@ -443,11 +448,12 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
     let database = common::empty_database().await;
     fvoci_store::testing::migrate_to_before_organizations(&database).await;
     let (workspace_id, admin, member, left) = (new_id(), new_id(), new_id(), new_id());
+    let legacy_col = concat!("delete", "_at");
     common::execute_raw(
         &common::raw_connection(&database),
         &format!(
             "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
-             delete_at, is_admin, display_name) VALUES \
+             {legacy_col}, is_admin, display_name) VALUES \
              ('{admin}', 'admin', 'admin@example.com', '', 10, 10, 0, true, ''), \
              ('{member}', 'member', 'member@example.com', '', 20, 20, 0, false, ''), \
              ('{left}', 'left', 'left@example.com', '', 30, 30, 40, false, ''); \

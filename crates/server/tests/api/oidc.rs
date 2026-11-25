@@ -1072,7 +1072,7 @@ async fn an_address_a_provider_gave_is_still_free_to_register() {
         .store()
         .system()
         .execute_unchecked(&format!(
-            "UPDATE users SET delete_at = 1 WHERE id = '{}'",
+            "UPDATE users SET deleted_at = 1 WHERE id = '{}'",
             owner.id
         ))
         .await
@@ -1210,7 +1210,7 @@ async fn an_organization_not_in_use_lets_nobody_in() {
         .store()
         .system()
         .execute_unchecked(&format!(
-            "UPDATE organizations SET delete_at = 1 WHERE id = '{org_id}'"
+            "UPDATE organizations SET deleted_at = 1 WHERE id = '{org_id}'"
         ))
         .await
         .expect("the organization is marked deleted");
@@ -1277,7 +1277,7 @@ async fn the_identity_of_a_deleted_account_lets_nobody_in() {
         .store()
         .system()
         .execute_unchecked(&format!(
-            "UPDATE users SET delete_at = 1 WHERE id = '{}'",
+            "UPDATE users SET deleted_at = 1 WHERE id = '{}'",
             me.id
         ))
         .await

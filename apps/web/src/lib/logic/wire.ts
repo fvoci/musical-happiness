@@ -12,7 +12,7 @@
  * tests/logic/wire-boundary.test.ts fails when one of them reads `fields`
  * itself. What they do use directly are the members every block has at the
  * top level: `id`, `title`, `type`, `boardId`, `parentId`, `createdBy`,
- * `modifiedBy`, `createAt`, `updateAt`, `deleteAt`, `limited` and `number`.
+ * `modifiedBy`, `createAt`, `updateAt`, `deletedAt`, `limited` and `number`.
  */
 import type { MemberRole } from './container-members.ts';
 export type { ContainerMember, MemberRole } from './container-members.ts';
@@ -105,7 +105,7 @@ export interface Block {
   fields: Record<string, unknown>;
   createAt: number;
   updateAt: number;
-  deleteAt: number;
+  deletedAt?: number;
   /** Set by the server on a card it withholds the content of. */
   limited?: boolean;
   /** A card's number on its board (`#12`), as the server gives it; none for a template or another block. */
@@ -119,7 +119,6 @@ export interface BlockPatch {
   title?: string;
   updatedFields?: Record<string, unknown>;
   deletedFields?: string[];
-  deleteAt?: number;
   readAt?: number;
 }
 
@@ -141,7 +140,7 @@ export function createBlock(source?: Block): Block {
     title: source?.title || '',
     createAt: source?.createAt || now,
     updateAt: source?.updateAt || now,
-    deleteAt: source?.deleteAt || 0,
+    ...(source?.deletedAt === undefined ? {} : { deletedAt: source.deletedAt }),
     limited: Boolean(source?.limited),
     ...(source?.number === undefined ? {} : { number: source.number }),
   };
@@ -543,7 +542,7 @@ export interface Container {
   cardProperties: PropertyTemplate[];
   createAt: number;
   updateAt: number;
-  deleteAt: number;
+  deletedAt?: number;
 }
 
 export interface ContainerPatch {
@@ -607,7 +606,7 @@ export function createBoard(source?: Container, statusName = 'Status'): Containe
     cardProperties,
     createAt: source?.createAt || now,
     updateAt: source?.updateAt || now,
-    deleteAt: source?.deleteAt || 0,
+    ...(source?.deletedAt === undefined ? {} : { deletedAt: source.deletedAt }),
   };
 }
 

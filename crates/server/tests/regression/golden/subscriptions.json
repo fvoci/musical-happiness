@@ -8,7 +8,6 @@
       "cardProperties": [],
       "createAt": "<ts>",
       "createdBy": "<id:2>",
-      "deleteAt": 0,
       "description": "",
       "icon": "",
       "id": "<id:3>",
@@ -37,7 +36,6 @@
         "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
-        "deleteAt": 0,
         "fields": {},
         "id": "<id:4>",
         "modifiedBy": "<id:2>",
@@ -60,7 +58,6 @@
         "blockId": "<id:4>",
         "blockType": "card",
         "createAt": "<ts>",
-        "deleteAt": 0,
         "notifiedAt": "<ts>",
         "userId": "<id:2>"
       }
@@ -75,7 +72,6 @@
       "blockId": "<id:4>",
       "blockType": "card",
       "createAt": "<ts>",
-      "deleteAt": 0,
       "notifiedAt": "<ts>",
       "userId": "<id:2>"
     }
@@ -89,7 +85,6 @@
       "blockId": "<id:4>",
       "blockType": "card",
       "createAt": "<ts>",
-      "deleteAt": 0,
       "notifiedAt": "<ts>",
       "userId": "<id:2>"
     }
@@ -160,7 +155,6 @@
         "blockId": "<id:4>",
         "blockType": "card",
         "createAt": "<ts>",
-        "deleteAt": 0,
         "notifiedAt": "<ts>",
         "userId": "<id:2>"
       }

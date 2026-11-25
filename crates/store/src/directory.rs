@@ -51,13 +51,13 @@ pub const SYSTEM_WORKSPACE_ID: &str = "00000000-0000-7000-8000-00000000a001";
 
 /// The condition every lookup here ends with: the workspace `t` and its organization
 /// `o` are in use, and are not the system's, which is nobody's to work in.
-pub(crate) const IN_USE: &str = " AND t.delete_at = 0 AND o.delete_at = 0 AND o.is_system = false \
-                      AND t.is_system = false";
+pub(crate) const IN_USE: &str = " AND t.deleted_at IS NULL AND o.deleted_at IS NULL \
+                      AND o.is_system = false AND t.is_system = false";
 
 /// The condition that the organization `o`, if it is the space of an account, is of
 /// one in use: not of one that waits to be deleted or is being erased.
 const OWNER_IN_USE: &str = " AND NOT EXISTS (SELECT 1 FROM users AS owner \
-                            WHERE owner.id = o.owner_id AND owner.delete_at <> 0)";
+                            WHERE owner.id = o.owner_id AND owner.deleted_at IS NOT NULL)";
 
 /// What a user is in a workspace, and whose the workspace is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -499,7 +499,7 @@ impl Store {
                 sql.bind(Id(org_id))
                     .push_bind(" AND p.sso_required = ", true)
                     .push(
-                        " AND o.delete_at = 0 AND o.is_system = false \
+                        " AND o.deleted_at IS NULL AND o.is_system = false \
                          AND (EXISTS (SELECT 1 FROM organization_members AS om \
                          WHERE om.org_id = p.org_id AND om.user_id = ",
                     )
@@ -507,7 +507,7 @@ impl Store {
                     .push(
                         ") OR EXISTS (SELECT 1 FROM workspace_members AS wm \
                          JOIN workspaces AS t ON t.id = wm.workspace_id \
-                         WHERE t.org_id = p.org_id AND t.delete_at = 0 AND wm.user_id = ",
+                         WHERE t.org_id = p.org_id AND t.deleted_at IS NULL AND wm.user_id = ",
                     )
                     .bind(Id(user_id))
                     .push("))");
@@ -855,8 +855,10 @@ impl Store {
     ) -> Result<Vec<(String, String)>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                let mut sql =
-                    scope.sql("SELECT org_id, id FROM workspaces WHERE is_system = false AND delete_at > 0 AND delete_at < ");
+                let mut sql = scope.sql(
+                    "SELECT org_id, id FROM workspaces WHERE is_system = false \
+                     AND deleted_at IS NOT NULL AND deleted_at < ",
+                );
                 sql.bind(deleted_before).push(" ORDER BY org_id, id");
                 scope
                     .fetch_all(sql)
@@ -890,7 +892,7 @@ impl Store {
                 );
                 sql.bind(Id(user_id))
                     .push_bind(" AND om.org_id = ", Id(org_id))
-                    .push(" AND o.delete_at = 0 AND o.is_system = false")
+                    .push(" AND o.deleted_at IS NULL AND o.is_system = false")
                     .push_bind(" AND o.kind = ", OrgKind::Team.as_str());
                 match scope.fetch_optional(sql).await? {
                     Some(row) => role(&row, 0).map(Some),
@@ -961,7 +963,7 @@ pub(crate) async fn oldest_organization(
     scope: &mut Scope<'_>,
 ) -> Result<Option<String>, StoreError> {
     let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-    sql.bind(false).push_bind(" AND delete_at = ", 0_i64);
+    sql.bind(false).push(" AND deleted_at IS NULL");
     of_people(&mut sql, "kind");
     sql.push(" ORDER BY create_at, id LIMIT 1");
     scope

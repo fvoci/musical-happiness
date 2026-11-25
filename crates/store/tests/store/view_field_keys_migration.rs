@@ -18,6 +18,7 @@ const OLD_SHOWN_PROPERTIES: &str = concat!("visible", "PropertyIds");
 const OLD_GROUP_BY: &str = concat!("groupBy", "Id");
 const OLD_SORT: &str = concat!("sort", "Options");
 const OLD_DATE_PROPERTY: &str = concat!("dateDisplay", "PropertyId");
+const OLD_DEL_KEY: &str = concat!("delete", "At");
 
 const RETIRED_VIEW_KEYS: [&str; 8] = [
     OLD_VISIBLE_GROUPS,
@@ -343,7 +344,7 @@ async fn seed_trashed_board(scoped_a: &Store, ws_a: &str, alice: &str) -> (Strin
         "cardProperties": [{"id": "p-status", "name": "Status", "type": "select"}],
         "createAt": 100,
         "updateAt": 200,
-        "deleteAt": 310
+        (OLD_DEL_KEY): 310
     })
     .to_string();
     let members_json = json!([{
@@ -367,7 +368,7 @@ async fn seed_trashed_board(scoped_a: &Store, ws_a: &str, alice: &str) -> (Strin
 
     let trashed_board_view_raw = if scoped_a.db_type() == DbType::Postgres {
         format!(
-            r#"{{"id":"{trashed_board_view_id}","containerId":"{trashed_board_id}","parentId":"","createdBy":"{alice}","modifiedBy":"{alice}","schema":1,"type":"view","title":"NUL Trashed View","fields":{{"viewType":"gantt","{OLD_GROUP_BY}":"p-status","{OLD_DATE_PROPERTY}":"p-due","{OLD_VISIBLE_GROUPS}":["opt-b","opt-a"],"note":"nul:\u0000 literal:\\u0000"}},"createAt":110,"updateAt":210,"deleteAt":310}}"#
+            r#"{{"id":"{trashed_board_view_id}","containerId":"{trashed_board_id}","parentId":"","createdBy":"{alice}","modifiedBy":"{alice}","schema":1,"type":"view","title":"NUL Trashed View","fields":{{"viewType":"gantt","{OLD_GROUP_BY}":"p-status","{OLD_DATE_PROPERTY}":"p-due","{OLD_VISIBLE_GROUPS}":["opt-b","opt-a"],"note":"nul:\u0000 literal:\\u0000"}},"createAt":110,"updateAt":210,"{OLD_DEL_KEY}":310}}"#
         )
     } else {
         json!({
@@ -387,7 +388,7 @@ async fn seed_trashed_board(scoped_a: &Store, ws_a: &str, alice: &str) -> (Strin
             },
             "createAt": 110,
             "updateAt": 210,
-            "deleteAt": 310
+            (OLD_DEL_KEY): 310
         })
         .to_string()
     };
@@ -442,7 +443,7 @@ async fn seed_trashed_and_decoys(
         "fields": pre0071_all_eight_fields(),
         "createAt": 110,
         "updateAt": 210,
-        "deleteAt": 300
+        (OLD_DEL_KEY): 300
     });
     insert_raw_deleted_block(
         scoped_a,
@@ -468,7 +469,7 @@ async fn seed_trashed_and_decoys(
         "fields": {"properties": {(OLD_VISIBLE_GROUPS): "keep-card-as-is"}},
         "createAt": 110,
         "updateAt": 210,
-        "deleteAt": 300,
+        (OLD_DEL_KEY): 300,
         "number": 2
     });
     insert_raw_deleted_block(
@@ -494,8 +495,7 @@ async fn seed_trashed_and_decoys(
 async fn seed_second_org(pre: &Store) -> Pre0071SecondOrg {
     let (org_id, ws_b) = common::organization(pre, "org-b").await;
     let scoped_b = pre.for_org(&org_id).expect("org-b");
-    let bob = common::user(&scoped_b, "bob").await;
-    common::works_in(&scoped_b, &ws_b, &bob).await;
+    let bob = common::pre0072_user(&scoped_b, &org_id, &ws_b, "bob").await;
     let board_id = new_id();
     insert_board(&scoped_b, &board_id, &ws_b, Some(&bob)).await;
     let kanban_view_id = new_id();
@@ -526,7 +526,7 @@ async fn seed_second_org(pre: &Store) -> Pre0071SecondOrg {
         "fields": pre0071_all_eight_fields(),
         "createAt": 110,
         "updateAt": 210,
-        "deleteAt": 320
+        (OLD_DEL_KEY): 320
     });
     insert_raw_deleted_block(
         &scoped_b,
@@ -567,8 +567,7 @@ async fn seed_pre0071(pre: &Store) -> Pre0071Fixture {
 
     let (org_a, ws_a) = common::organization(pre, "org-a").await;
     let scoped_a = pre.for_org(&org_a).expect("org-a");
-    let alice = common::user(&scoped_a, "alice").await;
-    common::works_in(&scoped_a, &ws_a, &alice).await;
+    let alice = common::pre0072_user(&scoped_a, &org_a, &ws_a, "alice").await;
 
     let board_id = new_id();
     insert_board(&scoped_a, &board_id, &ws_a, Some(&alice)).await;

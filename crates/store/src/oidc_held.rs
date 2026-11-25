@@ -325,7 +325,7 @@ async fn hold_account_of(
 ) -> Result<Option<String>, StoreError> {
     let mut sql = scope.sql(
         "SELECT u.id FROM users AS u JOIN user_identities AS i ON i.user_id = u.id \
-         WHERE u.delete_at = 0 AND i.issuer = ",
+         WHERE u.deleted_at IS NULL AND i.issuer = ",
     );
     sql.bind(identity.issuer)
         .push_bind(" AND i.subject = ", identity.subject);

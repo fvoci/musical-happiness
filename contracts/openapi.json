@@ -463,8 +463,8 @@
             "description": "The identifier of the user who created the block.",
             "type": "string"
           },
-          "deleteAt": {
-            "description": "Deletion time in milliseconds since the Unix epoch; zero if not deleted.",
+          "deletedAt": {
+            "description": "Deletion time in milliseconds since the Unix epoch; absent while not deleted.",
             "format": "int64",
             "type": "integer"
           },
@@ -523,7 +523,6 @@
           "containerId",
           "createAt",
           "createdBy",
-          "deleteAt",
           "fields",
           "id",
           "modifiedBy",
@@ -754,8 +753,8 @@
             "description": "The identifier of the user who created the card.",
             "type": "string"
           },
-          "deleteAt": {
-            "description": "Deletion time in milliseconds since the Unix epoch; zero if not deleted.",
+          "deletedAt": {
+            "description": "Deletion time in milliseconds since the Unix epoch; absent while not deleted.",
             "format": "int64",
             "type": "integer"
           },
@@ -840,7 +839,6 @@
           "body",
           "createAt",
           "createdBy",
-          "deleteAt",
           "hasBody",
           "icon",
           "id",
@@ -954,8 +952,8 @@
             "format": "int64",
             "type": "integer"
           },
-          "deleteAt": {
-            "description": "Deletion time in milliseconds since the Unix epoch; zero if not deleted.",
+          "deletedAt": {
+            "description": "Deletion time in milliseconds since the Unix epoch; absent while not deleted.",
             "format": "int64",
             "type": "integer"
           },
@@ -993,7 +991,6 @@
         "required": [
           "collapsed",
           "createAt",
-          "deleteAt",
           "id",
           "name",
           "sortOrder",
@@ -1294,8 +1291,8 @@
             "description": "The identifier of the user who created the board; empty for a built-in template,\nwhich no user made.",
             "type": "string"
           },
-          "deleteAt": {
-            "description": "Deletion time in milliseconds since the Unix epoch; zero if not deleted.",
+          "deletedAt": {
+            "description": "Deletion time in milliseconds since the Unix epoch; absent while not deleted.",
             "format": "int64",
             "type": "integer"
           },
@@ -1367,7 +1364,6 @@
           "cardProperties",
           "createAt",
           "createdBy",
-          "deleteAt",
           "description",
           "icon",
           "id",
@@ -4718,7 +4714,7 @@
         "description": "A workspace of an organization as its administrators list it: whether or not they\nare in it, and whether or not it is in the trash. Nothing of what is in it.",
         "properties": {
           "deletedAt": {
-            "description": "When it was put in the trash, in milliseconds since the epoch; zero while it is\nin use.",
+            "description": "When it was put in the trash, in milliseconds since the epoch; absent while it is\nin use.",
             "format": "int64",
             "type": "integer"
           },
@@ -4756,7 +4752,6 @@
           }
         },
         "required": [
-          "deletedAt",
           "id",
           "isDefault",
           "joinedAsOrgAdmin",
@@ -6408,8 +6403,8 @@
             "format": "int64",
             "type": "integer"
           },
-          "deleteAt": {
-            "description": "Deletion time in milliseconds since the Unix epoch; zero if not deleted.",
+          "deletedAt": {
+            "description": "Deletion time in milliseconds since the Unix epoch; absent while not deleted.",
             "format": "int64",
             "type": "integer"
           },
@@ -6427,7 +6422,6 @@
           "blockId",
           "blockType",
           "createAt",
-          "deleteAt",
           "notifiedAt",
           "userId"
         ],
@@ -7454,8 +7448,8 @@
                 "format": "int64",
                 "type": "integer"
               },
-              "deleteAt": {
-                "description": "When the account was put out of use (deactivated, or its deletion asked), in\nmilliseconds since the Unix epoch; zero for one in use, and for a deleted account,\nwhich an empty `username` tells.",
+              "deletedAt": {
+                "description": "When the account was put out of use (deactivated, or its deletion asked), in\nmilliseconds since the Unix epoch; absent for one in use, and for a deleted\naccount, which an empty `username` tells.",
                 "format": "int64",
                 "type": "integer"
               },
@@ -7483,7 +7477,6 @@
             },
             "required": [
               "createAt",
-              "deleteAt",
               "displayName",
               "id",
               "isAdmin",
@@ -9744,7 +9737,7 @@
     },
     "/api/v1/org/{orgId}/workspaces": {
       "get": {
-        "description": "Every workspace of it, in use (`deletedAt` 0) and in the trash, the oldest first:\nits name, how many members it has and what the administrator who asks is in it.\nNothing of what is in it: that is read by joining it.",
+        "description": "Every workspace of it, in use (`deletedAt` absent) and in the trash, the oldest first:\nits name, how many members it has and what the administrator who asks is in it.\nNothing of what is in it: that is read by joining it.",
         "operationId": "getOrgWorkspaces",
         "parameters": [
           {
@@ -18040,7 +18033,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}": {
       "delete": {
-        "description": "Moves the unit to the trash of its course, or moves the chapter together with every\nunit below it as one deletion, for editors of the course. The course's listeners are\ntold with `blockChanged` of the deleted block alone, whose `deleteAt` is not 0.",
+        "description": "Moves the unit to the trash of its course, or moves the chapter together with every\nunit below it as one deletion, for editors of the course. The course's listeners are\ntold with `blockChanged` of the deleted block alone, with `deletedAt` set.",
         "operationId": "deleteUnit",
         "parameters": [
           {
@@ -18620,7 +18613,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}": {
       "delete": {
-        "description": "The comment goes to the trash, as a comment on a card or page does: by its author\nfrom the commenter's role up, and the comment of somebody else by the course's admins\nonly (403, `access denied to delete other users' comments`). Who reads the course is\ntold with `blockChanged` whose `deleteAt` is not 0.",
+        "description": "The comment goes to the trash, as a comment on a card or page does: by its author\nfrom the commenter's role up, and the comment of somebody else by the course's admins\nonly (403, `access denied to delete other users' comments`). Who reads the course is\ntold with `blockChanged` with `deletedAt` set.",
         "operationId": "deleteUnitComment",
         "parameters": [
           {
@@ -22064,7 +22057,7 @@
         ]
       },
       "post": {
-        "description": "The users with the identifiers of the body that the user sees in the workspace, each\nonce; the body names at least one and at most 200: an empty list, or a longer one,\nis 400. An identifier of\nsomebody the user does not see finds nothing, as one of nobody: the answer does not\ntell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or\nlast changed a card, block or comment of a board of the workspace they read, also\nafter leaving the workspace. Oldest account first, not in the order of the request:\nby `createAt`, then by identifier.\n\nAn account that was deleted is answered to whoever asks by its identifier, seen\nbefore or not, as what is left of it: the identifier, an empty `username`, `email`\nand `displayName`, every part of the name empty, no title nor credentials,\n`nameShown` `name`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of\nthe account is answered, neither when it went nor when it was asked to (the\nidentifier is kept as it was made). The empty `username` is what tells it, not a\ntime: a page shows a deleted user where it wrote or is mentioned.\n`deleteAt` is not zero for a writer whose account waits to be deleted, who is\nanswered as they are, with their name.",
+        "description": "The users with the identifiers of the body that the user sees in the workspace, each\nonce; the body names at least one and at most 200: an empty list, or a longer one,\nis 400. An identifier of\nsomebody the user does not see finds nothing, as one of nobody: the answer does not\ntell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or\nlast changed a card, block or comment of a board of the workspace they read, also\nafter leaving the workspace. Oldest account first, not in the order of the request:\nby `createAt`, then by identifier.\n\nAn account that was deleted is answered to whoever asks by its identifier, seen\nbefore or not, as what is left of it: the identifier, an empty `username`, `email`\nand `displayName`, every part of the name empty, no title nor credentials,\n`nameShown` `name`, `createAt` and `updateAt` both zero, and `deletedAt` absent: no\ntime of the account is answered, neither when it went nor when it was asked to (the\nidentifier is kept as it was made). The empty `username` is what tells it, not a\ntime: a page shows a deleted user where it wrote or is mentioned.\n`deletedAt` is present for a writer whose account waits to be deleted, who is\nanswered as they are, with their name.",
         "operationId": "getWorkspaceUsersById",
         "parameters": [
           {
@@ -22384,7 +22377,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}": {
       "delete": {
-        "description": "The page goes to the trash with every page below it and the comments on them, for\neditors of the wiki. The wiki's members are told with `blockChanged` of the page\nalone, whose `deleteAt` is not 0, as for any block that is deleted; what went with\nit is not told of one by one.",
+        "description": "The page goes to the trash with every page below it and the comments on them, for\neditors of the wiki. The wiki's members are told with `blockChanged` of the page\nalone, with `deletedAt` set, as for any block that is deleted; what went with\nit is not told of one by one.",
         "operationId": "deletePage",
         "parameters": [
           {
@@ -22964,7 +22957,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}": {
       "delete": {
-        "description": "The comment goes to the trash, as a comment on a card does: by its author from the\ncommenter's role up, and the comment of somebody else by the wiki's admins only\n(403, `access denied to delete other users' comments`). Who reads the wiki is told\nwith `blockChanged` whose `deleteAt` is not 0.",
+        "description": "The comment goes to the trash, as a comment on a card does: by its author from the\ncommenter's role up, and the comment of somebody else by the wiki's admins only\n(403, `access denied to delete other users' comments`). Who reads the wiki is told\nwith `blockChanged` with `deletedAt` set.",
         "operationId": "deletePageComment",
         "parameters": [
           {

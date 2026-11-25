@@ -152,8 +152,8 @@ async fn the_operator_erases_an_account_and_what_it_wrote_stays_under_no_name() 
         "nothing of the name, not even which of it was shown"
     );
     assert_eq!(
-        (gone[0].create_at, gone[0].update_at, gone[0].delete_at),
-        (0, 0, 0),
+        (gone[0].create_at, gone[0].update_at, gone[0].deleted_at),
+        (0, 0, None),
         "nor when it came, or went"
     );
     // Among the people of the workspace, and in a search, they are not.
@@ -332,11 +332,11 @@ async fn an_erased_account_tells_nobody_when_it_came_or_went() {
                     user.username.as_str(),
                     user.create_at,
                     user.update_at,
-                    user.delete_at,
+                    user.deleted_at,
                 )
             })
             .collect();
-        assert_eq!(told, [(user2.as_str(), "", 0, 0, 0)]);
+        assert_eq!(told, [(user2.as_str(), "", 0, 0, None)]);
     }
     th.teardown().await;
 }

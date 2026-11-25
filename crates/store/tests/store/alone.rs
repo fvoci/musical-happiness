@@ -273,7 +273,7 @@ async fn an_account_starts_as_many_organizations_as_the_limit() {
     assert_eq!(rows(store, "organizations").await, organizations + 6);
     // One that is deleted is not counted.
     let delete = format!(
-        "UPDATE organizations SET delete_at = 1 WHERE id = '{}'",
+        "UPDATE organizations SET deleted_at = 1 WHERE id = '{}'",
         theirs[0]
     );
     common::execute_raw(&test.database_connection(), &delete).await;

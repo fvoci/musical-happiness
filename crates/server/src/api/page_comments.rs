@@ -291,7 +291,7 @@ async fn handle_patch_page_comment(
 /// The comment goes to the trash, as a comment on a card does: by its author from the
 /// commenter's role up, and the comment of somebody else by the wiki's admins only
 /// (403, `access denied to delete other users' comments`). Who reads the wiki is told
-/// with `blockChanged` whose `deleteAt` is not 0.
+/// with `blockChanged` with `deletedAt` set.
 #[utoipa::path(
     delete,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}",

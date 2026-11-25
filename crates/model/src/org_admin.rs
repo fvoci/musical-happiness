@@ -78,9 +78,15 @@ pub struct OrgWorkspace {
     pub member_count: i64,
     /// Whether it is the organization's default workspace, which cannot be deleted.
     pub is_default: bool,
-    /// When it was put in the trash, in milliseconds since the epoch; zero while it is
+    /// When it was put in the trash, in milliseconds since the epoch; absent while it is
     /// in use.
-    pub deleted_at: i64,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_util::non_null"
+    )]
+    #[schema(nullable = false)]
+    pub deleted_at: Option<i64>,
     /// What the administrator who asks is in it; `null` for no member.
     pub role: Option<WorkspaceRole>,
     /// Whether the administrator who asks is in it as the organization's administrator,

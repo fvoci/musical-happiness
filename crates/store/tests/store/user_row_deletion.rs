@@ -123,7 +123,7 @@ async fn give_belongings(
             user_id: user_id.to_owned(),
             notified_at: 0,
             create_at: 0,
-            delete_at: 0,
+            deleted_at: None,
         })
         .await
         .expect("the user subscribes to the block");

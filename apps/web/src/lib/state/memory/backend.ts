@@ -249,7 +249,6 @@ export class MemoryBackend implements Backend {
       fields: {},
       createAt: now,
       updateAt: now,
-      deleteAt: 0,
     };
   }
 

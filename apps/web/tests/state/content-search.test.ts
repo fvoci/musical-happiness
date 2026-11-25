@@ -30,7 +30,6 @@ function block(id: string, boardId: string, title: string, updateAt = NOW): Bloc
     fields: {},
     createAt: NOW,
     updateAt,
-    deleteAt: 0,
   };
 }
 

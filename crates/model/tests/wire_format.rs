@@ -4,8 +4,8 @@ use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Card, Category, CategoryContainerMetadata,
     CategoryContainers, CategoryType, ClientConfig, Container, ContainerKind, ContainerMember,
     ContainerPatch, ContainerVisibility, Credential, InvalidInput, LoginRequest, MinimumRole,
-    NameShown, PatchContainersAndBlocks, PersonName, Problem, PublicLink, Subscriber, Subscription,
-    Title, User, UserPreferencesPatch, Workspace,
+    NameShown, OrgWorkspace, PatchContainersAndBlocks, PersonName, Problem, PublicLink, Subscriber,
+    Subscription, Title, User, UserPreferencesPatch, Workspace,
 };
 use serde_json::{Value, json};
 
@@ -27,7 +27,7 @@ fn block_json_members() {
         body: None,
         create_at: 10,
         update_at: 20,
-        delete_at: 0,
+        deleted_at: None,
         container_id: "b1".to_owned(),
         number: None,
         edited_at: 0,
@@ -35,17 +35,22 @@ fn block_json_members() {
     let want = json!({
         "id": "a1", "parentId": "c1", "createdBy": "u1", "modifiedBy": "u2", "schema": 1,
         "type": "comment", "title": "hello", "fields": { "a": [true], "z": 1 }, "body": null,
-        "createAt": 10, "updateAt": 20, "deleteAt": 0, "containerId": "b1"
+        "createAt": 10, "updateAt": 20, "containerId": "b1"
     });
     assert_eq!(
         to_json(&block),
         want,
-        "a comment never changed has no editedAt"
+        "a comment never changed has no editedAt, and a live block has no deletedAt"
     );
     assert_eq!(
         serde_json::from_value::<Block>(want).expect("decodes"),
         block
     );
+    let deleted = Block {
+        deleted_at: Some(25),
+        ..block.clone()
+    };
+    assert_eq!(to_json(&deleted)["deletedAt"], json!(25));
     let edited = Block {
         edited_at: 30,
         ..block
@@ -227,20 +232,25 @@ fn container_json_members() {
             .expect("list of objects"),
         create_at: 1,
         update_at: 2,
-        delete_at: 0,
+        deleted_at: None,
     };
     let want = json!({
         "id": "b1", "workspaceId": "0", "createdBy": "u1", "modifiedBy": "u1",
         "visibility": "private", "kind": "board", "minimumRole": "commenter", "title": "Roadmap", "description": "d",
         "icon": "🚀", "showDescription": true, "isTemplate": false, "isBuiltin": false, "templateVersion": 6,
         "properties": { "k": "v" }, "cardProperties": [{ "id": "p1", "name": "Status" }],
-        "createAt": 1, "updateAt": 2, "deleteAt": 0
+        "createAt": 1, "updateAt": 2
     });
     assert_eq!(to_json(&board), want);
     assert_eq!(
         serde_json::from_value::<Container>(want).expect("decodes"),
         board
     );
+    let trashed = Container {
+        deleted_at: Some(99),
+        ..board
+    };
+    assert_eq!(to_json(&trashed)["deletedAt"], json!(99));
 }
 
 #[test]
@@ -412,7 +422,7 @@ fn category_json_members() {
         workspace_id: "0".to_owned(),
         create_at: 1,
         update_at: 2,
-        delete_at: 0,
+        deleted_at: None,
         collapsed: true,
         sort_order: 20,
         sorting: "alpha".to_owned(),
@@ -421,7 +431,7 @@ fn category_json_members() {
     // The sorting method has no place in the storage and is not sent.
     let want = json!({
         "id": "7c", "name": "Boards", "userId": "u", "workspaceId": "0", "createAt": 1,
-        "updateAt": 2, "deleteAt": 0, "collapsed": true, "sortOrder": 20,
+        "updateAt": 2, "collapsed": true, "sortOrder": 20,
         "type": "system"
     });
     assert_eq!(to_json(&category), want);
@@ -455,7 +465,7 @@ fn category_containers_json_flattens_the_category() {
         to_json(&category_boards),
         json!({
             "id": "7c", "name": "Boards", "userId": "", "workspaceId": "", "createAt": 0,
-            "updateAt": 0, "deleteAt": 0, "collapsed": false, "sortOrder": 30,
+            "updateAt": 0, "collapsed": false, "sortOrder": 30,
             "type": "custom", "containerMetadata": [{ "containerId": "b1", "hidden": true }]
         })
     );
@@ -535,7 +545,7 @@ fn user_json_hides_credentials_and_carries_the_name() {
         password_locked_at: 7,
         create_at: 0,
         update_at: 5,
-        delete_at: 0,
+        deleted_at: None,
         is_admin: true,
         is_bot: false,
         is_guest: true,
@@ -549,7 +559,7 @@ fn user_json_hides_credentials_and_carries_the_name() {
             "lastName": "A", "latinFirstName": "", "latinLastName": "",
             "customName": "Alice A.", "nameShown": "custom_name", "title": "dr",
             "credentials": ["phd", "kr_attorney"], "createAt": 0, "updateAt": 5,
-            "deleteAt": 0, "isAdmin": true
+            "isAdmin": true
         })
     );
 
@@ -615,17 +625,22 @@ fn subscription_json_members() {
         user_id: "u".to_owned(),
         notified_at: 0,
         create_at: 1,
-        delete_at: 0,
+        deleted_at: None,
     };
     let want = json!({
         "blockType": "card", "blockId": "c", "userId": "u",
-        "notifiedAt": 0, "createAt": 1, "deleteAt": 0
+        "notifiedAt": 0, "createAt": 1
     });
     assert_eq!(to_json(&subscription), want);
     assert_eq!(
         serde_json::from_value::<Subscription>(want).expect("decodes"),
         subscription
     );
+    let cancelled = Subscription {
+        deleted_at: Some(8),
+        ..subscription
+    };
+    assert_eq!(to_json(&cancelled)["deletedAt"], json!(8));
 
     let subscriber = Subscriber {
         user_id: "u".to_owned(),
@@ -746,7 +761,7 @@ fn subscription_validate() {
         user_id: "u".to_owned(),
         notified_at: 0,
         create_at: 0,
-        delete_at: 0,
+        deleted_at: None,
     };
     assert_eq!(valid.validate(), Ok(()));
 
@@ -779,62 +794,66 @@ fn subscription_validate() {
     }
 }
 
+/// `base` decodes; each of its members is refused when it is null, and may be left
+/// out unless it is one of `required`.
+fn refuses_null_members<T: serde::de::DeserializeOwned>(
+    base: &Value,
+    required: &[&str],
+    what: &str,
+) {
+    assert!(
+        serde_json::from_value::<T>(base.clone()).is_ok(),
+        "{what} decodes"
+    );
+    let members = base.as_object().expect("an object");
+    for member in members.keys() {
+        let mut nulled = base.clone();
+        nulled[member.as_str()] = Value::Null;
+        assert!(
+            serde_json::from_value::<T>(nulled).is_err(),
+            "{what}: a null {member} is refused"
+        );
+        if required.contains(&member.as_str()) {
+            continue;
+        }
+        let mut left_out = base.clone();
+        left_out
+            .as_object_mut()
+            .expect("an object")
+            .remove(member.as_str());
+        assert!(
+            serde_json::from_value::<T>(left_out).is_ok(),
+            "{what}: {member} may be left out"
+        );
+    }
+}
+
 /// `null` is a value only for a member that may be `null` (an `Option`, `null` in the
 /// contract's schema), and is then none. For every other member it is refused, as any
 /// value of the wrong type is: a member that may be left out is left out instead.
 #[test]
 fn null_is_refused_for_members_that_are_not_nullable() {
-    /// `base` decodes; each of its members is refused when it is null, and may be left
-    /// out unless it is one of `required`.
-    fn refuses<T: serde::de::DeserializeOwned>(base: &Value, required: &[&str], what: &str) {
-        assert!(
-            serde_json::from_value::<T>(base.clone()).is_ok(),
-            "{what} decodes"
-        );
-        let members = base.as_object().expect("an object");
-        for member in members.keys() {
-            let mut nulled = base.clone();
-            nulled[member.as_str()] = Value::Null;
-            assert!(
-                serde_json::from_value::<T>(nulled).is_err(),
-                "{what}: a null {member} is refused"
-            );
-            if required.contains(&member.as_str()) {
-                continue;
-            }
-            let mut left_out = base.clone();
-            left_out
-                .as_object_mut()
-                .expect("an object")
-                .remove(member.as_str());
-            assert!(
-                serde_json::from_value::<T>(left_out).is_ok(),
-                "{what}: {member} may be left out"
-            );
-        }
-    }
-
-    refuses::<Block>(
+    refuses_null_members::<Block>(
         &json!({
             "id": "a1", "parentId": "", "createdBy": "u1", "modifiedBy": "u1", "schema": 1,
             "type": "card", "title": "t", "fields": {}, "createAt": 1, "updateAt": 1,
-            "deleteAt": 0, "containerId": "b1",
+            "deletedAt": 2, "containerId": "b1",
         }),
         &[],
         "a block",
     );
-    refuses::<Container>(
+    refuses_null_members::<Container>(
         &json!({
             "id": "b1", "workspaceId": "w1", "createdBy": "u1", "modifiedBy": "u1",
             "visibility": "private", "minimumRole": "editor", "title": "t", "description": "", "icon": "",
             "showDescription": false, "isTemplate": false, "templateVersion": 0,
             "properties": {}, "cardProperties": [], "createAt": 1, "updateAt": 1,
-            "deleteAt": 0,
+            "deletedAt": 2,
         }),
         &["visibility"],
         "a board",
     );
-    refuses::<ContainerMember>(
+    refuses_null_members::<ContainerMember>(
         &json!({
             "containerId": "b1", "userId": "u1", "schemeAdmin": false, "schemeEditor": false, "schemeCommenter": false,
             "schemeViewer": false,
@@ -842,15 +861,49 @@ fn null_is_refused_for_members_that_are_not_nullable() {
         &[],
         "a member",
     );
-    refuses::<Category>(
+    refuses_null_members::<Category>(
         &json!({
             "id": "c1", "name": "n", "userId": "u1", "workspaceId": "w1", "createAt": 1,
-            "updateAt": 1, "deleteAt": 0, "collapsed": false, "sortOrder": 0,
+            "updateAt": 1, "deletedAt": 2, "collapsed": false, "sortOrder": 0,
         }),
         &[],
         "a category",
     );
-    refuses::<LoginRequest>(
+    refuses_null_members::<Card>(
+        &json!({
+            "id": "c1", "boardId": "b1", "createdBy": "u1",
+            "modifiedBy": "u1", "title": "t", "icon": "", "isTemplate": false,
+            "properties": {}, "hasBody": false, "tasksTotal": 0, "tasksDone": 0,
+            "createAt": 1, "updateAt": 1, "deletedAt": 2, "lastCommentAt": 0,
+        }),
+        &[],
+        "a card",
+    );
+    refuses_null_members::<Subscription>(
+        &json!({
+            "blockType": "card", "blockId": "c1", "userId": "u1",
+            "notifiedAt": 0, "createAt": 1, "deletedAt": 2,
+        }),
+        &[],
+        "a subscription",
+    );
+    refuses_null_members::<OrgWorkspace>(
+        &json!({
+            "id": "w1", "name": "Design", "memberCount": 1, "isDefault": false,
+            "deletedAt": 2, "joinedAsOrgAdmin": false,
+        }),
+        &["id", "name", "memberCount", "isDefault", "joinedAsOrgAdmin"],
+        "an org workspace",
+    );
+    refuses_null_members::<User>(
+        &json!({
+            "id": "u1", "username": "ada", "displayName": "Ada",
+            "createAt": 1, "updateAt": 1, "deletedAt": 2, "isAdmin": false,
+        }),
+        &[],
+        "a user",
+    );
+    refuses_null_members::<LoginRequest>(
         &json!({ "username": "u", "password": "p" }),
         &[],
         "a login request",

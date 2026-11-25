@@ -47,8 +47,8 @@ describe('somebody whose account was deleted', () => {
       email: '',
       createAt: 0,
       updateAt: 0,
-      deleteAt: 0,
     });
+    expect(workspace.user(otherId)?.deletedAt).toBeUndefined();
     expect(workspace.userName(otherId)).toBe('Deleted user');
     // On no board any more.
     for (const members of world.members.values()) {

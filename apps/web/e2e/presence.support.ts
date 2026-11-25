@@ -39,7 +39,6 @@ export async function othersArrive(page: Page, count: number): Promise<number> {
         email: `visitor${String(made)}@example.com`,
         createAt: 0,
         updateAt: 0,
-        deleteAt: 0,
       });
     }
     const store = dev.workspace.board;

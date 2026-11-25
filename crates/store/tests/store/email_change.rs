@@ -451,7 +451,7 @@ async fn a_change_that_waits_goes_with_the_password_and_with_the_account() {
                 .expect("a link")
     );
     test.execute_unchecked(&format!(
-        "UPDATE users SET delete_at = {T0} WHERE id = '{}'",
+        "UPDATE users SET deleted_at = {T0} WHERE id = '{}'",
         ada.id
     ))
     .await

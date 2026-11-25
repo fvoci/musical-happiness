@@ -63,7 +63,7 @@ impl Store {
                 .push_bind(", update_at = ", now)
                 .push_bind(" WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
-                .push_bind(" AND delete_at = ", 0_i64)
+                .push(" AND deleted_at IS NULL")
                 .push(&format!(" RETURNING {WORKSPACE_COLUMNS}"));
             let row = scope
                 .fetch_optional(sql)
@@ -241,7 +241,7 @@ fn select_workspaces(scope: &Scope<'_>) -> Result<Sql, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT {WORKSPACE_COLUMNS} FROM workspaces WHERE org_id = "
     ));
-    sql.bind(scope.org()?).push_bind(" AND delete_at = ", 0_i64);
+    sql.bind(scope.org()?).push(" AND deleted_at IS NULL");
     Ok(sql)
 }
 

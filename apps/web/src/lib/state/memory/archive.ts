@@ -356,7 +356,6 @@ async function readTrelloImport(
       schema: 1,
       createAt: 0,
       updateAt: 0,
-      deleteAt: 0,
     });
   }
   return { containers: [board], blocks, skipped };

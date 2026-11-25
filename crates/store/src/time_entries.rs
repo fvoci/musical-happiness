@@ -32,7 +32,7 @@ const TIME_ENTRY_COLUMNS: &str = "id, org_id, workspace_id, container_id, block_
 const VISIBLE_ENTRY_SELECT: &str = "\
     SELECT te.id, te.org_id, te.workspace_id, te.container_id, te.block_id, \
            te.target_kind, te.target_title, te.kind, te.started_at, te.ended_at, \
-           te.note, te.create_at, te.update_at, o.kind, o.delete_at, p.id, \
+           te.note, te.create_at, te.update_at, o.kind, o.deleted_at, p.id, \
            CASE WHEN u.password_hash = '' THEN '' ELSE 'set' END \
     FROM time_entries AS te \
     JOIN users AS u ON u.id = te.user_id \
@@ -62,11 +62,11 @@ impl TimeReader<'_> {
     /// transaction ([`Store::read_snapshot`]).
     async fn open_organizations(self, scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
         let mut sql = scope.sql(
-            "SELECT DISTINCT te.org_id, o.kind, o.delete_at, p.id, \
+            "SELECT DISTINCT te.org_id, o.kind, o.deleted_at, p.id, \
              CASE WHEN u.password_hash = '' THEN '' ELSE 'set' END \
              FROM time_entries AS te \
              JOIN users AS u ON u.id = te.user_id \
-             JOIN organizations AS o ON o.id = te.org_id AND o.delete_at = 0 \
+             JOIN organizations AS o ON o.id = te.org_id AND o.deleted_at IS NULL \
              LEFT JOIN oidc_providers AS p ON p.org_id = te.org_id AND p.sso_required = ",
         );
         sql.bind(true)
@@ -74,7 +74,7 @@ impl TimeReader<'_> {
         let mut open = Vec::new();
         for row in scope.fetch_all(sql).await? {
             let kind = parse_org_kind(&row.text(1)?)?;
-            let deleted = row.int(2)? != 0;
+            let deleted = row.opt_int(2)?.is_some();
             let required = opt_id(&row, 3)?;
             let password = row.text(4)?;
             if !deleted && org_opened_by(kind, required, &password, self.making) {
@@ -434,7 +434,7 @@ impl Store {
                      WHERE o.owner_id = ",
                 );
                 sql.bind(Id(user_id))
-                    .push(" AND o.delete_at = 0 AND w.delete_at = 0");
+                    .push(" AND o.deleted_at IS NULL AND w.deleted_at IS NULL");
                 scope
                     .fetch_optional(sql)
                     .await?
@@ -568,7 +568,7 @@ async fn user_present_in_active_org(
 ) -> Result<bool, StoreError> {
     let mut sql = scope.sql("SELECT 1 FROM organizations AS o WHERE o.id = ");
     sql.bind(Id(org_id))
-        .push(" AND o.delete_at = 0 AND (o.owner_id = ")
+        .push(" AND o.deleted_at IS NULL AND (o.owner_id = ")
         .bind(Id(user_id))
         .push(
             " OR EXISTS (SELECT 1 FROM organization_members AS om WHERE om.org_id = o.id \
@@ -578,7 +578,7 @@ async fn user_present_in_active_org(
         .push(
             ") OR EXISTS (SELECT 1 FROM workspace_members AS wm \
                JOIN workspaces AS w ON w.id = wm.workspace_id \
-               WHERE w.org_id = o.id AND w.delete_at = 0 AND wm.user_id = ",
+               WHERE w.org_id = o.id AND w.deleted_at IS NULL AND wm.user_id = ",
         )
         .bind(Id(user_id))
         .push(&scope.same_organization(&[("wm", "w")]))
@@ -808,7 +808,7 @@ fn row_to_visible(row: &Row, making: Making<&str>) -> Result<VisibleRow, StoreEr
     let visible = match row.opt_text(13)? {
         Some(kind_text) => {
             let kind = parse_org_kind(&kind_text)?;
-            let deleted = row.opt_int(14)?.is_none_or(|at| at != 0);
+            let deleted = row.opt_int(14)?.is_some();
             let required = opt_id(row, 15)?;
             let password = row.text(16)?;
             !deleted && org_opened_by(kind, required, &password, making)

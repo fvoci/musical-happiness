@@ -39,7 +39,6 @@ const BOARD = {
   properties: {},
   createAt: 1,
   updateAt: 1,
-  deleteAt: 0,
 };
 
 describe('the backend of a public link', () => {
