@@ -75,7 +75,7 @@ test('a board is shared from its dialog, and every change is kept on the server'
   await expect(dialog.getByTestId('share-search')).toBeFocused();
   await expect
     .poll(async () => (await members(api, board)).find((one) => one.userId === guestId))
-    .toMatchObject({ schemeEditor: true, schemeAdmin: false });
+    .toMatchObject({ role: 'editor' });
   // The guest's sidebar gets it without a reload.
   await expect(boardLink(guestPage, 'Garden share')).toBeVisible();
 
@@ -83,7 +83,7 @@ test('a board is shared from its dialog, and every change is kept on the server'
   await dialog.getByLabel(`Role of ${guest.username}`).selectOption('viewer');
   await expect
     .poll(async () => (await members(api, board)).find((one) => one.userId === guestId))
-    .toMatchObject({ schemeViewer: true, schemeEditor: false });
+    .toMatchObject({ role: 'viewer' });
 
   // The reader's own role is another admin's to change.
   await expect(dialog.getByLabel(`Role of ${owner.username}`)).toBeDisabled();

@@ -89,9 +89,10 @@ const CATEGORY_MESSAGE_TYPES = new Set([
 type Message = { workspaceId?: string } & (
   | { type: 'containerChanged'; container: Schemas['Container'] }
   | { type: 'blockChanged'; block: Schemas['Block']; summary?: BodySummary }
+  | { type: 'containerMemberChanged'; member: Schemas['ContainerMember'] }
   | {
-      type: 'containerMemberChanged' | 'containerMemberRemoved';
-      member: Schemas['ContainerMember'];
+      type: 'containerMemberRemoved';
+      member: { containerId: string; userId: string };
     }
   | { type: 'userChanged'; userId: string }
   | { type: string }

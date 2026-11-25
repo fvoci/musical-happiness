@@ -102,7 +102,7 @@ impl Space {
             .insert_container(&mut managed, &owner_id)
             .await
             .expect("a board of the space that its owner is not on");
-        let role = json!({"userId": owner_id, "schemeAdmin": true});
+        let role = json!({"userId": owner_id, "role": "admin"});
         let path = format!("/w/{}/containers/{}/members", workspace.id, managed.id);
         let given = owner.post(&path, &role).await;
         assert!(given.status.is_success(), "{}", given.text());
@@ -729,8 +729,9 @@ async fn nobody_but_its_owner_reaches_a_space_by_a_route() {
         let member = ContainerMember {
             container_id: read_by_all.id.clone(),
             user_id: client.me().await.id,
-            scheme_viewer: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Viewer,
+            synthetic: false,
+            inherited_role: None,
         };
         let saved = ts.app.store().save_member(&member).await;
         saved.expect("a viewer of the board");
@@ -1371,8 +1372,9 @@ async fn a_board_read_by(ts: &TestServer, clients: &[&Client]) {
         let member = ContainerMember {
             container_id: board.id.clone(),
             user_id: client.me().await.id,
-            scheme_viewer: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Viewer,
+            synthetic: false,
+            inherited_role: None,
         };
         let saved = ts.app.store().save_member(&member).await;
         saved.expect("a viewer of the board");
@@ -1474,7 +1476,7 @@ async fn a_role_on_a_board_of_a_space_opens_nothing_to_another_account() {
     };
     for board in boards {
         let path = format!("/w/{}/containers/{board}/members", space.workspace.id);
-        let role = json!({"userId": colleague_id, "schemeAdmin": true});
+        let role = json!({"userId": colleague_id, "role": "admin"});
         let asked = space.owner.post(&path, &role).await;
         assert_eq!(
             asked.status,
@@ -1489,8 +1491,9 @@ async fn a_role_on_a_board_of_a_space_opens_nothing_to_another_account() {
         let member = ContainerMember {
             container_id: board.clone(),
             user_id: colleague_id.clone(),
-            scheme_admin: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Admin,
+            synthetic: false,
+            inherited_role: None,
         };
         let planted = space.app.store().save_member(&member).await;
         planted.expect("a row past every door");

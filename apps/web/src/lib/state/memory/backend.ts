@@ -584,7 +584,7 @@ export class MemoryBackend implements Backend {
 
   /** A board keeps an admin, as on the server (409, `last_admin`). */
   #keepAnAdmin(members: readonly ContainerMember[]): void {
-    if (!members.some((member) => member.schemeAdmin)) {
+    if (!members.some((member) => !member.synthetic && member.role === 'admin')) {
       fail(409, 'a board keeps its last admin', { reason: 'last_admin' });
     }
   }

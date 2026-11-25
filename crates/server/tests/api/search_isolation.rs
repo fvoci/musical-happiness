@@ -4,9 +4,7 @@
 //! answers every search with all of them), and in the database of a server without
 //! one: both answer each user with the same, what they read now and nothing else.
 
-use fvoci_model::{
-    Block, BlockType, Container, ContainerMember, ContainerVisibility, SearchHit, new_id,
-};
+use fvoci_model::{Block, BlockType, Container, ContainerVisibility, SearchHit, new_id};
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
 use serde_json::json;
@@ -245,10 +243,11 @@ async fn world(th: &TestServer) -> World {
     // A private board the guest was invited to.
     let invited = private_board(&th.client, "Invited").await;
     th.client
-        .add_member(&ContainerMember {
-            scheme_viewer: true,
-            ..member(&invited.id, &guest_id)
-        })
+        .add_member(&member(
+            &invited.id,
+            &guest_id,
+            fvoci_model::ContainerRole::Viewer,
+        ))
         .await
         .check_ok();
     let invited_card = new_card(&th.client, &invited.id, "초대된 카드", WORD).await;
@@ -259,7 +258,7 @@ async fn world(th: &TestServer) -> World {
         .await
         .check_ok();
     let left_card = new_card(&th.client, &left.id, "떠난 카드", WORD).await;
-    delete_member(&th.client, &member(&left.id, &user2))
+    delete_member(&th.client, &left.id, &user2)
         .await
         .check_no_content();
     let (teamed, teamed_card) = card_read_through_a_team(th, &user2).await;
@@ -448,10 +447,11 @@ async fn numbered_world(th: &TestServer) -> NumberedWorld {
         .created_json();
     let invited = private_board(&th.client, "Guest Board").await;
     th.client
-        .add_member(&ContainerMember {
-            scheme_viewer: true,
-            ..member(&invited.id, &guest_id)
-        })
+        .add_member(&member(
+            &invited.id,
+            &guest_id,
+            fvoci_model::ContainerRole::Viewer,
+        ))
         .await
         .check_ok();
     let (teamed, _) = card_read_through_a_team(th, &user2).await;

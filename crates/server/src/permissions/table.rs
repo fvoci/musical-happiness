@@ -565,27 +565,27 @@ fn a_guest_sees_of_the_people_who_is_on_its_boards() {
 }
 
 #[test]
-fn a_role_is_the_highest_of_its_flags() {
-    use fvoci_model::ContainerMember;
-    let member = |admin, editor, commenter, viewer| ContainerMember {
-        scheme_admin: admin,
-        scheme_editor: editor,
-        scheme_commenter: commenter,
-        scheme_viewer: viewer,
-        ..ContainerMember::default()
+fn effective_role_takes_the_higher_of_direct_and_inherited_role() {
+    use fvoci_model::{ContainerMember, MinimumRole};
+    let member = |role, inherited_role| ContainerMember {
+        inherited_role,
+        ..ContainerMember::new("", "", role)
     };
-    assert_eq!(super::role_of(&member(false, false, false, false)), None);
     assert_eq!(
-        super::role_of(&member(false, false, false, true)),
-        Some(ContainerRole::Viewer)
+        super::role_of(&member(ContainerRole::Viewer, None)),
+        ContainerRole::Viewer
     );
     assert_eq!(
-        super::role_of(&member(false, true, false, true)),
-        Some(ContainerRole::Editor)
+        super::role_of(&member(ContainerRole::Viewer, Some(MinimumRole::Editor))),
+        ContainerRole::Editor
     );
     assert_eq!(
-        super::role_of(&member(true, false, false, false)),
-        Some(ContainerRole::Admin)
+        super::role_of(&member(ContainerRole::Editor, Some(MinimumRole::Viewer))),
+        ContainerRole::Editor
+    );
+    assert_eq!(
+        super::role_of(&member(ContainerRole::Admin, Some(MinimumRole::Editor))),
+        ContainerRole::Admin
     );
 }
 

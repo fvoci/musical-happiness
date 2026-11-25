@@ -61,12 +61,6 @@ enum StreamAbort<E> {
     Incomplete,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum CreatorMembership {
-    AdminOnly,
-    AdminAndEditor,
-}
-
 /// The key of the PostgreSQL advisory lock that the replacement of the built-in
 /// templates holds. Any number that the migrator's lock does not use.
 const BUILTIN_TEMPLATES_LOCK: i64 = 0x6676_6f63_6974_706c;
@@ -279,13 +273,7 @@ impl Store {
                 )
                 .await?;
                 insert_streamed_schedules(scope, containers, schedules).await?;
-                add_imported_members(
-                    scope,
-                    containers,
-                    extra_members,
-                    CreatorMembership::AdminOnly,
-                )
-                .await
+                add_imported_members(scope, containers, extra_members).await
             })
             .await;
         map_stream_outcome(outcome, abort)
@@ -486,12 +474,7 @@ pub(crate) async fn create_containers_and_blocks_with_admin(
     new_files: NewBodyFiles,
 ) -> Result<Vec<ContainerMember>, StoreError> {
     create_containers_and_blocks(scope, containers_and_blocks, user_id, new_files).await?;
-    add_creator_admins(
-        scope,
-        &containers_and_blocks.containers,
-        CreatorMembership::AdminAndEditor,
-    )
-    .await
+    add_creator_admins(scope, &containers_and_blocks.containers).await
 }
 
 async fn stream_block_batches_in_tx<E>(
@@ -585,9 +568,8 @@ async fn add_imported_members(
     scope: &mut Scope<'_>,
     containers: &[Container],
     extra_members: &[ContainerMember],
-    creator_role: CreatorMembership,
 ) -> Result<Vec<ContainerMember>, StoreError> {
-    let mut members = add_creator_admins(scope, containers, creator_role).await?;
+    let mut members = add_creator_admins(scope, containers).await?;
     for member in extra_members {
         if container_membership::add_member(scope, member)
             .await?
@@ -618,32 +600,23 @@ async fn create_imported_containers_blocks_and_files(
         Telling::Nobody,
     )
     .await?;
-    add_imported_members(
-        scope,
-        &containers_and_blocks.containers,
-        extra_members,
-        CreatorMembership::AdminAndEditor,
-    )
-    .await
+    add_imported_members(scope, &containers_and_blocks.containers, extra_members).await
 }
 
 async fn add_creator_admins(
     scope: &mut Scope<'_>,
     containers: &[Container],
-    role: CreatorMembership,
 ) -> Result<Vec<ContainerMember>, StoreError> {
     let mut members = Vec::with_capacity(containers.len());
     for container in containers {
         // As in `insert_container_with_admin`, the administrator is the board's creator:
         // `user_id` for a new board, the stored creator for one that existed.
         members::hold_creator(scope, &container.workspace_id, &container.created_by).await?;
-        let member = ContainerMember {
-            container_id: container.id.clone(),
-            user_id: container.created_by.clone(),
-            scheme_admin: true,
-            scheme_editor: role == CreatorMembership::AdminAndEditor,
-            ..ContainerMember::default()
-        };
+        let member = ContainerMember::new(
+            &container.id,
+            &container.created_by,
+            fvoci_model::ContainerRole::Admin,
+        );
         containers::save_member(scope, &member).await?;
         members.push(member);
     }

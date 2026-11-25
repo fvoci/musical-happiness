@@ -50,7 +50,7 @@ test('a departed writer of an earlier revision is named when the comment history
   });
   const prefix = `/api/v1/w/${board.workspaceId}/containers/${board.boardId}`;
   const added = await api.post(`${prefix}/members`, {
-    data: { userId: writerId, schemeAdmin: true },
+    data: { userId: writerId, role: 'admin' },
   });
   expect(added.ok(), await added.text()).toBe(true);
   const posted = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
@@ -110,7 +110,7 @@ test('a departed comment author is named without opening the comment history', a
   });
   const prefix = `/api/v1/w/${board.workspaceId}/containers/${board.boardId}`;
   const added = await api.post(`${prefix}/members`, {
-    data: { userId: writerId, schemeCommenter: true },
+    data: { userId: writerId, role: 'commenter' },
   });
   expect(added.ok(), await added.text()).toBe(true);
   const posted = await writer.post(

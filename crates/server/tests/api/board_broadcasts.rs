@@ -3,9 +3,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{
-    Category, Container, ContainerMember, ContainerVisibility, ContainersAndBlocks, new_id,
-};
+use fvoci_model::{Category, Container, ContainerVisibility, ContainersAndBlocks, new_id};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -146,7 +144,7 @@ async fn board_changes_are_broadcast_to_the_members() {
         .expect("containerMemberChanged", "/member/containerId", &board.id)
         .await;
     assert_eq!(message["member"]["userId"], json!(user1.id), "{message}");
-    assert_eq!(message["member"]["schemeAdmin"], json!(true), "{message}");
+    assert_eq!(message["member"]["role"], json!("admin"), "{message}");
 
     patch_board(&th.client, &board.id, &title_patch("Roadmap 2"))
         .await
@@ -227,25 +225,21 @@ async fn member_changes_are_broadcast() {
             json!(board.id),
             "{message}"
         );
-        assert_eq!(message["member"]["schemeEditor"], json!(true), "{message}");
+        assert_eq!(message["member"]["role"], json!("editor"), "{message}");
     }
 
     update_member(
         &th.client,
-        &ContainerMember {
-            scheme_viewer: true,
-            ..member(&board.id, &user2.id)
-        },
+        &member(&board.id, &user2.id, fvoci_model::ContainerRole::Viewer),
     )
     .await
     .check_ok();
     let message = socket2
         .expect("containerMemberChanged", "/member/userId", &user2.id)
         .await;
-    assert_eq!(message["member"]["schemeViewer"], json!(true), "{message}");
-    assert_eq!(message["member"]["schemeEditor"], json!(false), "{message}");
+    assert_eq!(message["member"]["role"], json!("viewer"), "{message}");
 
-    delete_member(&th.client, &member(&board.id, &user2.id))
+    delete_member(&th.client, &board.id, &user2.id)
         .await
         .check_no_content();
     for socket in [&mut socket1, &mut socket2] {
@@ -321,10 +315,7 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
         json!({
             "containerId": template.id,
             "userId": user2.id,
-            "schemeAdmin": false,
-            "schemeEditor": false,
-            "schemeCommenter": false,
-            "schemeViewer": true,
+            "role": "viewer",
             "synthetic": true,
         }),
         "a viewer"

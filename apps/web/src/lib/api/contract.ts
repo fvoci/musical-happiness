@@ -3478,12 +3478,11 @@ export interface paths {
         put?: never;
         /**
          * Make a user a member of a board
-         * @description The board's admins add members with the roles the request names; with no role at
-         *     all the member may do nothing on the board, not even view it. On an open board
+         * @description The board's admins add members with the `role` the request names. On an open board
          *     editors who work in the workspace add members too, with the board's minimum role,
-         *     whatever else the request names; a request of theirs that asks for `schemeAdmin` is
+         *     whatever else the request names; a request of theirs that asks for `admin` is
          *     403. A guest of the workspace is given no role above editor: asking for
-         *     `schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a
+         *     `admin` for one is 403 with the reason `guest_role_limit`. A user who is a
          *     member already stays as they are. The workspace's administrators manage the members
          *     of every board of it; one who could not read a board and gives somebody a role on
          *     it, themselves or another, is recorded in the workspace's audit log.
@@ -3504,13 +3503,12 @@ export interface paths {
         };
         get?: never;
         /**
-         * Change the roles of a member
-         * @description Replaces the roles of a member of the board; with no role at all the member may do
-         *     nothing on the board, not even view it. For the board's admins. The last admin of a
-         *     board cannot be made less: that is 409 with the reason `last_admin`. A guest of the
-         *     workspace is made no more than an editor: `schemeAdmin` for one is 403 with the
-         *     reason `guest_role_limit`. A user who is no member of the board, or of its workspace any
-         *     more, is 404.
+         * Change the role of a member
+         * @description Replaces the `role` of a member of the board. For the board's admins. The last admin
+         *     of a board cannot be made less: that is 409 with the reason `last_admin`. A guest of
+         *     the workspace is made no more than an editor: `admin` for one is 403 with the
+         *     reason `guest_role_limit`. A user who is no member of the board, or of its workspace
+         *     any more, is 404.
          */
         put: operations["updateMember"];
         post?: never;
@@ -6892,19 +6890,19 @@ export interface components {
         ContainerMember: {
             /** @description The identifier of the board. */
             containerId: string;
-            inheritedRole?: components["schemas"]["MinimumRole"] | null;
-            /** @description The user administers the board. */
-            schemeAdmin: boolean;
-            /** @description The user may comment on the board's cards. */
-            schemeCommenter: boolean;
-            /** @description The user may edit the board. */
-            schemeEditor: boolean;
-            /** @description The user may view the board. */
-            schemeViewer: boolean;
+            /** @description The highest role inherited from teams; the direct `role` remains unchanged. */
+            inheritedRole?: components["schemas"]["MinimumRole"];
+            /** @description The user's role on the board. */
+            role: components["schemas"]["ContainerRole"];
             /** @description The membership has no directly stored role record. */
             synthetic?: boolean;
             /** @description The identifier of the user. */
             userId: string;
+        };
+        /** @description A change to a member's role on a board. */
+        ContainerMemberPatch: {
+            /** @description The role the member is to have on the board. */
+            role: components["schemas"]["ContainerRole"];
         };
         /** @description A partial update of a `Container`. Absent members leave the board unchanged. */
         ContainerPatch: {
@@ -6931,6 +6929,11 @@ export interface components {
             };
             visibility?: components["schemas"]["ContainerVisibility"] | null;
         };
+        /**
+         * @description A role on a board, from least to most privileged.
+         * @enum {string}
+         */
+        ContainerRole: "viewer" | "commenter" | "editor" | "admin";
         /** @description A workspace team and the role its members inherit on a board. */
         ContainerTeam: {
             /** @description No team may administer a board. */
@@ -7911,20 +7914,6 @@ export interface components {
             userId: string;
         };
         /**
-         * @description The roles a member of a board is to have. A role that is left out is taken away, and
-         *     a member with no role may do nothing on the board, not even view it.
-         */
-        MemberRoles: {
-            /** @description The user administers the board. */
-            schemeAdmin?: boolean;
-            /** @description The user may comment on the board's cards. */
-            schemeCommenter?: boolean;
-            /** @description The user may edit the board. */
-            schemeEditor?: boolean;
-            /** @description The user may view the board. */
-            schemeViewer?: boolean;
-        };
-        /**
          * @description The minimum role of a board: the role a user gets who joins the board, or is added
          *     to it by somebody who does not manage its roles.
          *
@@ -8246,22 +8235,14 @@ export interface components {
             /** @description What whoever accepts becomes in the workspace: `member`, or `guest`. */
             role: components["schemas"]["WorkspaceRole"];
         };
-        /**
-         * @description A user to make a member of a board, and the roles to give them. A member with no
-         *     role may do nothing on the board, not even view it.
-         */
+        /** @description A user to make a member of a board, and the role to give them. */
         NewMember: {
             /**
-             * @description The user administers the board. Only who manages the board's roles may ask for
-             *     this.
+             * @description The role the user is to have on the board. Required when who asks manages the
+             *     board's roles (`admin` included); on an open board an editor who does not manage
+             *     roles grants the board's `minimumRole` (and asking for `admin` is 403).
              */
-            schemeAdmin?: boolean;
-            /** @description The user may comment on the board's cards. */
-            schemeCommenter?: boolean;
-            /** @description The user may edit the board. */
-            schemeEditor?: boolean;
-            /** @description The user may view the board. */
-            schemeViewer?: boolean;
+            role?: components["schemas"]["ContainerRole"];
             /** @description The identifier of the user, who must be able to see the board's workspace. */
             userId: string;
         };
@@ -15279,7 +15260,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MemberRoles"];
+                "application/json": components["schemas"]["ContainerMemberPatch"];
             };
         };
         responses: {

@@ -150,7 +150,7 @@ async fn wiki_copied_with_its_files(kind: &str) {
     client
         .post(
             &format!("{TEST_WS}/containers/{wiki}/members"),
-            &json!({"containerId": wiki, "userId": other, "schemeEditor": true}),
+            &json!({"containerId": wiki, "userId": other, "role": "editor"}),
         )
         .await
         .check_ok();
@@ -263,7 +263,7 @@ async fn check_left_behind(ts: &TestServer, copy: &str, copy_a: &str) {
     let me = client.me().await.id;
     assert_eq!(members.len(), 1, "who copies it alone");
     assert!(
-        members[0].user_id == me && members[0].scheme_admin,
+        members[0].user_id == me && members[0].role == fvoci_model::ContainerRole::Admin,
         "who copies it administers the copy"
     );
     let sharing = client

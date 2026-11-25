@@ -6,7 +6,7 @@
 
 use fvoci_model::{
     Block, BlockType, Category, CategoryContainers, Container, ContainerMember, ContainerPatch,
-    ContainerVisibility, MinimumRole, User, Workspace, is_id, new_id,
+    ContainerRole, ContainerVisibility, MinimumRole, User, Workspace, is_id, new_id,
 };
 use fvoci_store::PublicContainers;
 use reqwest::{Method, StatusCode};
@@ -98,27 +98,17 @@ pub(crate) async fn stored_user(th: &TestServer, username: &str) -> String {
     user.id
 }
 
-pub(crate) fn member(board_id: &str, user_id: &str) -> ContainerMember {
-    ContainerMember {
-        container_id: board_id.to_owned(),
-        user_id: user_id.to_owned(),
-        ..ContainerMember::default()
-    }
+pub(crate) fn member(board_id: &str, user_id: &str, role: ContainerRole) -> ContainerMember {
+    ContainerMember::new(board_id, user_id, role)
 }
 
 pub(crate) fn editor(board_id: &str, user_id: &str) -> ContainerMember {
-    ContainerMember {
-        scheme_editor: true,
-        ..member(board_id, user_id)
-    }
+    ContainerMember::new(board_id, user_id, ContainerRole::Editor)
 }
 
 /// A membership as a viewer and nothing else.
 fn viewer(board_id: &str, user_id: &str) -> ContainerMember {
-    ContainerMember {
-        scheme_viewer: true,
-        ..member(board_id, user_id)
-    }
+    ContainerMember::new(board_id, user_id, ContainerRole::Viewer)
 }
 
 /// `th.Server.App().AddMemberToBoard(member)`
@@ -191,11 +181,10 @@ pub(crate) async fn update_member(client: &Client, member: &ContainerMember) -> 
         .await
 }
 
-pub(crate) async fn delete_member(client: &Client, member: &ContainerMember) -> ApiResponse {
+pub(crate) async fn delete_member(client: &Client, board_id: &str, user_id: &str) -> ApiResponse {
     client
         .delete(&format!(
-            "{TEST_WS}/containers/{}/members/{}",
-            member.container_id, member.user_id
+            "{TEST_WS}/containers/{board_id}/members/{user_id}"
         ))
         .await
 }
@@ -439,7 +428,7 @@ async fn create_board_create_public_board() {
     assert_eq!(members.len(), 1, "one member: {members:?}");
     assert_eq!(members[0].user_id, me.id, "the creator is the member");
     assert_eq!(members[0].container_id, board.id, "of this board");
-    assert!(members[0].scheme_admin, "as an admin");
+    assert_eq!(members[0].role, ContainerRole::Admin, "as an admin");
 
     // "creator should be able to access the public board and its blocks"
     let read: Container = get_board(&th.client, &board.id).await.ok_json();
@@ -524,7 +513,7 @@ async fn create_board_create_private_board() {
     assert_eq!(members.len(), 1, "one member: {members:?}");
     assert_eq!(members[0].user_id, me.id, "the creator is the member");
     assert_eq!(members[0].container_id, board.id, "of this board");
-    assert!(members[0].scheme_admin, "as an admin");
+    assert_eq!(members[0].role, ContainerRole::Admin, "as an admin");
 
     // "creator should be able to access the private board and its blocks"
     let read: Container = get_board(&th.client, &board.id).await.ok_json();
@@ -845,7 +834,7 @@ async fn create_board_template_create_public_board_template() {
     assert_eq!(members.len(), 1, "one member: {members:?}");
     assert_eq!(members[0].user_id, me.id, "the creator is the member");
     assert_eq!(members[0].container_id, board.id, "of this board");
-    assert!(members[0].scheme_admin, "as an admin");
+    assert_eq!(members[0].role, ContainerRole::Admin, "as an admin");
 
     // "creator should be able to access the public board template and its blocks"
     let read: Container = get_board(&th.client, &board.id).await.ok_json();
@@ -928,7 +917,7 @@ async fn create_board_template_create_private_board_template() {
     assert_eq!(members.len(), 1, "one member: {members:?}");
     assert_eq!(members[0].user_id, me.id, "the creator is the member");
     assert_eq!(members[0].container_id, board.id, "of this board");
-    assert!(members[0].scheme_admin, "as an admin");
+    assert_eq!(members[0].role, ContainerRole::Admin, "as an admin");
 
     // "creator should be able to access the private board template and its blocks"
     let read: Container = get_board(&th.client, &board.id).await.ok_json();
@@ -1684,11 +1673,7 @@ async fn get_members_for_container_should_correctly_return_board_members_for_a_v
     assert_eq!(
         members,
         vec![
-            ContainerMember {
-                scheme_admin: true,
-                scheme_editor: true,
-                ..member(&board.id, &user1.id)
-            },
+            member(&board.id, &user1.id, ContainerRole::Admin),
             editor(&board.id, &user2.id),
         ],
         "the admin and the editor"
@@ -1715,10 +1700,7 @@ async fn get_members_for_container_should_correctly_return_board_members_for_a_v
         json!({
             "containerId": board.id,
             "userId": user2.id,
-            "schemeAdmin": false,
-            "schemeEditor": true,
-            "schemeCommenter": false,
-            "schemeViewer": false,
+            "role": "editor",
         }),
         "the members of a membership on the wire"
     );
@@ -1882,10 +1864,7 @@ async fn add_member_should_always_add_a_new_member_as_given_board_role() {
         &user1.id,
     )
     .await;
-    let new_member = ContainerMember {
-        scheme_commenter: true,
-        ..member(&board.id, &user2.id)
-    };
+    let new_member = member(&board.id, &user2.id, ContainerRole::Commenter);
 
     let added: ContainerMember = th.client.add_member(&new_member).await.ok_json();
 
@@ -1906,10 +1885,7 @@ async fn add_member_should_do_nothing_if_the_member_already_exists() {
     .await;
     let members = members_of(&th, &board.id).await;
     assert_eq!(members.len(), 1, "one member: {members:?}");
-    assert!(
-        members[0].scheme_admin && members[0].scheme_editor,
-        "an admin and editor"
-    );
+    assert_eq!(members[0].role, ContainerRole::Admin, "an admin");
 
     let answered: ContainerMember = th
         .client
@@ -1917,8 +1893,9 @@ async fn add_member_should_do_nothing_if_the_member_already_exists() {
         .await
         .ok_json();
 
-    assert!(
-        answered.scheme_admin && answered.scheme_editor,
+    assert_eq!(
+        answered.role,
+        ContainerRole::Admin,
         "the existing membership is answered: {answered:?}"
     );
     assert_eq!(
@@ -1949,12 +1926,11 @@ async fn add_member_validates_the_body() {
             .await
             .check_bad_request();
     }
-    let response = th.client.post(&path, &json!({"schemeEditor": true})).await;
+    let response = th.client.post(&path, &json!({"role": "editor"})).await;
     response.check_bad_request();
     assert_eq!(response.error_message(), "empty userId", "no user named");
 
-    // Only the user and the four role flags are taken from the body; the board comes from
-    // the path.
+    // Only the user and the role are taken from the body; the board comes from the path.
     let added: ContainerMember = th
         .client
         .post(
@@ -1962,7 +1938,7 @@ async fn add_member_validates_the_body() {
             &json!({
                 "userId": user2.id,
                 "containerId": "another-board",
-                "schemeCommenter": true,
+                "role": "commenter",
                 "roles": "x",
                 "minimumRole": "admin",
                 "synthetic": true,
@@ -1972,10 +1948,7 @@ async fn add_member_validates_the_body() {
         .ok_json();
     assert_eq!(
         added,
-        ContainerMember {
-            scheme_commenter: true,
-            ..member(&board.id, &user2.id)
-        },
+        member(&board.id, &user2.id, ContainerRole::Commenter),
         "the rest of the body is ignored"
     );
 
@@ -1983,7 +1956,7 @@ async fn add_member_validates_the_body() {
     for no_user in [UNKNOWN_ID, "no-such-user"] {
         let response = th
             .client
-            .post(&path, &json!({"userId": no_user, "schemeEditor": true}))
+            .post(&path, &json!({"userId": no_user, "role": "editor"}))
             .await;
         response.check_error(StatusCode::BAD_REQUEST, "no such user");
         assert_eq!(
@@ -1993,14 +1966,18 @@ async fn add_member_validates_the_body() {
         );
     }
 
-    // A membership without any role is stored as such.
+    // A role manager must name a valid role; missing, null or unknown roles are refused.
     let user3 = th.add_user("user3").await.me().await;
-    let added: ContainerMember = th
-        .client
-        .post(&path, &json!({"userId": user3.id}))
-        .await
-        .ok_json();
-    assert_eq!(added, member(&board.id, &user3.id), "no role at all");
+    for bad in [
+        json!({"userId": user3.id}),
+        json!({"userId": user3.id, "role": null}),
+        json!({"userId": user3.id, "role": ""}),
+        json!({"userId": user3.id, "role": "owner"}),
+    ] {
+        let response = th.client.post(&path, &bad).await;
+        response.check_bad_request();
+        assert_eq!(response.refused_at(), "/role", "{bad}");
+    }
 
     th.teardown().await;
 }
@@ -2027,10 +2004,7 @@ async fn add_member_as_admin_needs_the_permission_to_manage_roles() {
     // The attack: the editor adds an accomplice as admin.
     let response = th
         .client2
-        .add_member(&ContainerMember {
-            scheme_admin: true,
-            ..member(&board.id, &user3.id)
-        })
+        .add_member(&member(&board.id, &user3.id, ContainerRole::Admin))
         .await;
     response.check_forbidden();
     assert_eq!(
@@ -2047,17 +2021,14 @@ async fn add_member_as_admin_needs_the_permission_to_manage_roles() {
         .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_forbidden();
-    delete_member(&client3, &member(&board.id, &user1.id))
+    delete_member(&client3, &board.id, &user1.id)
         .await
         .check_forbidden();
 
-    // Naming an existing member with the admin flag is refused as well, not answered
+    // Naming an existing member with the admin role is refused as well, not answered
     // with that membership.
     th.client2
-        .add_member(&ContainerMember {
-            scheme_admin: true,
-            ..member(&board.id, &user2.id)
-        })
+        .add_member(&member(&board.id, &user2.id, ContainerRole::Admin))
         .await
         .check_forbidden();
 
@@ -2079,13 +2050,7 @@ async fn add_member_by_an_editor_of_an_open_board_and_as_admin_by_an_admin_still
     .await;
     join_board(&th.client2, &board.id).await.check_ok();
 
-    let response = th
-        .client2
-        .add_member(&ContainerMember {
-            scheme_viewer: true,
-            ..member(&board.id, &user3.id)
-        })
-        .await;
+    let response = th.client2.add_member(&viewer(&board.id, &user3.id)).await;
     let added: ContainerMember = response.ok_json();
     assert_eq!(added.user_id, user3.id, "added: {added:?}");
 
@@ -2094,31 +2059,17 @@ async fn add_member_by_an_editor_of_an_open_board_and_as_admin_by_an_admin_still
     let user4 = client4.me().await;
     let added: ContainerMember = th
         .client
-        .add_member(&ContainerMember {
-            scheme_admin: true,
-            ..member(&board.id, &user4.id)
-        })
+        .add_member(&member(&board.id, &user4.id, ContainerRole::Admin))
         .await
         .ok_json();
-    assert!(added.scheme_admin, "added as an admin: {added:?}");
+    assert_eq!(
+        added.role,
+        ContainerRole::Admin,
+        "added as an admin: {added:?}"
+    );
 
     th.teardown().await;
 }
-
-/// The role flags of a member, in the order admin, editor, commenter, viewer.
-fn role_flags(member: &ContainerMember) -> [bool; 4] {
-    [
-        member.scheme_admin,
-        member.scheme_editor,
-        member.scheme_commenter,
-        member.scheme_viewer,
-    ]
-}
-
-const ONLY_EDITOR: [bool; 4] = [false, true, false, false];
-const ONLY_COMMENTER: [bool; 4] = [false, false, true, false];
-const ONLY_VIEWER: [bool; 4] = [false, false, false, true];
-const NO_ROLE: [bool; 4] = [false; 4];
 
 /// A member who may add members on an open board without managing roles always grants
 /// the board's minimum role (editor unless configured otherwise), ignoring requested roles.
@@ -2127,19 +2078,13 @@ const NO_ROLE: [bool; 4] = [false; 4];
 async fn add_member_without_managing_roles_gives_the_minimum_role_of_the_board() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let editor_request = |board_id: &str, user_id: &str| ContainerMember {
-        scheme_editor: true,
-        scheme_commenter: true,
-        scheme_viewer: true,
-        ..member(board_id, user_id)
-    };
 
     // The empty one is the board that says nothing about its minimum role.
     let cases = [
-        ("", ONLY_EDITOR),
-        ("viewer", ONLY_VIEWER),
-        ("commenter", ONLY_COMMENTER),
-        ("editor", ONLY_EDITOR),
+        ("", ContainerRole::Editor),
+        ("viewer", ContainerRole::Viewer),
+        ("commenter", ContainerRole::Commenter),
+        ("editor", ContainerRole::Editor),
     ];
     for (index, (minimum_role, expected)) in cases.into_iter().enumerate() {
         let board = board_with_admin(
@@ -2161,38 +2106,41 @@ async fn add_member_without_managing_roles_gives_the_minimum_role_of_the_board()
         }
         let asked_for_editor = th.add_user(&format!("asked-editor-{index}")).await;
         let asked_for_nothing = th.add_user(&format!("asked-nothing-{index}")).await;
+        let editor_id = asked_for_editor.me().await.id;
+        let nothing_id = asked_for_nothing.me().await.id;
+        let members_path = format!("{TEST_WS}/containers/{}/members", board.id);
 
-        for (client, request) in [
+        for (client, user_id, body) in [
             (
                 &asked_for_editor,
-                editor_request(&board.id, &asked_for_editor.me().await.id),
+                editor_id.as_str(),
+                json!({"userId": editor_id, "role": "editor"}),
             ),
             (
                 &asked_for_nothing,
-                member(&board.id, &asked_for_nothing.me().await.id),
+                nothing_id.as_str(),
+                json!({"userId": nothing_id}),
             ),
         ] {
-            let added: ContainerMember = th.client2.add_member(&request).await.ok_json();
+            let added: ContainerMember = th.client2.post(&members_path, &body).await.ok_json();
             assert_eq!(
-                role_flags(&added),
-                expected,
-                "minimum role {minimum_role:?}, request {request:?}: the answer"
+                added.role, expected,
+                "minimum role {minimum_role:?}, body {body}: the answer"
             );
             let stored = members_of(&th, &board.id)
                 .await
                 .into_iter()
-                .find(|member| member.user_id == request.user_id)
+                .find(|member| member.user_id == user_id)
                 .expect("the membership is stored");
             assert_eq!(
-                role_flags(&stored),
-                expected,
+                stored.role, expected,
                 "minimum role {minimum_role:?}: the stored membership"
             );
             // The role is real: only an editor may insert a card.
             let insert = client
                 .insert_blocks(&board.id, &[card_block(&board.id)])
                 .await;
-            if expected == ONLY_EDITOR {
+            if expected == ContainerRole::Editor {
                 insert.check_created();
             } else {
                 insert.check_forbidden();
@@ -2203,7 +2151,7 @@ async fn add_member_without_managing_roles_gives_the_minimum_role_of_the_board()
 }
 
 /// Who manages the board's roles still chooses them: an admin's request is stored as it
-/// is, also on a board with a minimum role, and also when it names no role at all.
+/// is, also on a board with a minimum role, and a request without a role is refused.
 #[tokio::test]
 async fn add_member_by_a_manager_of_roles_gives_the_roles_of_the_request() {
     let th = Setup::native().start().await.init_basic().await;
@@ -2228,27 +2176,26 @@ async fn add_member_by_a_manager_of_roles_gives_the_roles_of_the_request() {
         .add_member(&editor(&board.id, &user3.id))
         .await
         .ok_json();
-    assert_eq!(role_flags(&added), ONLY_EDITOR, "above the minimum role");
+    assert_eq!(added.role, ContainerRole::Editor, "above the minimum role");
 
     let user4 = th.add_user("user4").await.me().await;
     let added: ContainerMember = th
         .client
-        .add_member(&ContainerMember {
-            scheme_viewer: true,
-            ..member(&board.id, &user4.id)
-        })
+        .add_member(&viewer(&board.id, &user4.id))
         .await
         .ok_json();
-    assert_eq!(role_flags(&added), ONLY_VIEWER, "below the minimum role");
+    assert_eq!(added.role, ContainerRole::Viewer, "below the minimum role");
 
-    // Preserved quirk: a request without a role makes a member without one.
     let user5 = th.add_user("user5").await.me().await;
-    let added: ContainerMember = th
+    let refused = th
         .client
-        .add_member(&member(&board.id, &user5.id))
-        .await
-        .ok_json();
-    assert_eq!(role_flags(&added), NO_ROLE, "no role asked, none given");
+        .post(
+            &format!("{TEST_WS}/containers/{}/members", board.id),
+            &json!({"userId": user5.id}),
+        )
+        .await;
+    refused.check_error(StatusCode::BAD_REQUEST, "missing role");
+    assert_eq!(refused.refused_at(), "/role");
 
     th.teardown().await;
 }
@@ -2275,14 +2222,7 @@ async fn add_member_permissions_by_board_type_and_role() {
     .await;
 
     // A commenter of an open board.
-    add_member(
-        &th,
-        &ContainerMember {
-            scheme_commenter: true,
-            ..member(&open.id, &user2.id)
-        },
-    )
-    .await;
+    add_member(&th, &member(&open.id, &user2.id, ContainerRole::Commenter)).await;
     th.client2
         .add_member(&editor(&open.id, &user3.id))
         .await
@@ -2365,14 +2305,7 @@ async fn add_member_to_container_return_existing_non_synthetic_membership_if_any
     .await;
     let existing = add_member(&th, &editor(&board.id, &user)).await;
 
-    let answered = add_member(
-        &th,
-        &ContainerMember {
-            scheme_admin: true,
-            ..member(&board.id, &user)
-        },
-    )
-    .await;
+    let answered = add_member(&th, &member(&board.id, &user, ContainerRole::Admin)).await;
 
     assert_eq!(answered, existing, "the existing membership, unchanged");
     assert_eq!(
@@ -2452,12 +2385,8 @@ async fn update_member_should_correctly_update_a_member_for_a_valid_board() {
     )
     .await;
     let added = add_member(&th, &editor(&board.id, &user2.id)).await;
-    assert!(!added.scheme_admin && added.scheme_editor, "an editor");
-    let update = ContainerMember {
-        scheme_admin: true,
-        scheme_editor: true,
-        ..member(&board.id, &user2.id)
-    };
+    assert_eq!(added.role, ContainerRole::Editor, "an editor");
+    let update = member(&board.id, &user2.id, ContainerRole::Admin);
 
     let updated: ContainerMember = update_member(&th.client, &update).await.ok_json();
 
@@ -2493,7 +2422,7 @@ async fn update_member_should_not_leave_a_board_without_any_admin() {
     assert_eq!(response.error_reason(), "last_admin", "the reason");
     let members = members_of(&th, &board.id).await;
     assert_eq!(members.len(), 1, "one member: {members:?}");
-    assert!(members[0].scheme_admin, "still an admin");
+    assert_eq!(members[0].role, ContainerRole::Admin, "still an admin");
     th.teardown().await;
 }
 
@@ -2514,7 +2443,7 @@ async fn update_member_checks() {
 
     // Non-members of a private board receive 404 regardless of body or target user.
     for target in [user2.id.as_str(), UNKNOWN_ID, "no-such-user"] {
-        for body in ["{bad", "{\"schemeEditor\":true}"] {
+        for body in ["{bad", "{\"role\":\"editor\"}"] {
             let response = th
                 .client2
                 .send_raw_body(
@@ -2528,7 +2457,14 @@ async fn update_member_checks() {
     }
 
     // Then the body.
-    for body in ["{bad", "[]", "null"] {
+    for body in [
+        "{bad",
+        "[]",
+        "null",
+        "{}",
+        "{\"role\":null}",
+        "{\"role\":\"owner\"}",
+    ] {
         th.client
             .send_raw_body(Method::PUT, &path, body)
             .await
@@ -2541,7 +2477,7 @@ async fn update_member_checks() {
             .client
             .put(
                 &format!("{TEST_WS}/containers/{}/members/{target}", board.id),
-                &json!({"schemeEditor": true}),
+                &json!({"role": "editor"}),
             )
             .await;
         response.check_error(StatusCode::NOT_FOUND, "member not found");
@@ -2558,16 +2494,13 @@ async fn update_member_checks() {
         .client
         .put(
             &path,
-            &json!({"userId": "ignored", "containerId": "ignored", "schemeAdmin": true}),
+            &json!({"userId": "ignored", "containerId": "ignored", "role": "admin"}),
         )
         .await
         .ok_json();
     assert_eq!(
         updated,
-        ContainerMember {
-            scheme_admin: true,
-            ..member(&board.id, &user2.id)
-        },
+        member(&board.id, &user2.id, ContainerRole::Admin),
         "the path decides whose membership it is"
     );
 
@@ -2600,7 +2533,7 @@ async fn delete_member_a_non_authenticated_user_should_be_rejected() {
     )
     .await;
 
-    let response = delete_member(&th.anonymous(), &member(&board.id, &user1.id)).await;
+    let response = delete_member(&th.anonymous(), &board.id, &user1.id).await;
 
     response.check_unauthorized();
     th.teardown().await;
@@ -2618,7 +2551,7 @@ async fn delete_member_a_user_without_permissions_should_be_rejected() {
     )
     .await;
 
-    let response = delete_member(&th.client2, &member(&board.id, &user1.id)).await;
+    let response = delete_member(&th.client2, &board.id, &user1.id).await;
 
     response.check_forbidden();
     assert_eq!(
@@ -2636,7 +2569,7 @@ async fn delete_member_non_existing_board() {
     let user1 = th.client.me().await;
 
     for board_id in [UNKNOWN_ID, "non-existent-board-id"] {
-        let response = delete_member(&th.client, &member(board_id, &user1.id)).await;
+        let response = delete_member(&th.client, board_id, &user1.id).await;
         response.check_error(StatusCode::NOT_FOUND, "board not found");
     }
     th.teardown().await;
@@ -2653,7 +2586,7 @@ async fn private_board_with_users(th: &TestServer) -> Container {
     )
     .await;
     let added = add_member(th, &editor(&board.id, &user2.id)).await;
-    assert!(!added.scheme_admin && added.scheme_editor, "an editor");
+    assert_eq!(added.role, ContainerRole::Editor, "an editor");
     assert_eq!(members_of(th, &board.id).await.len(), 2, "two members");
     board
 }
@@ -2665,7 +2598,7 @@ async fn delete_member_admin_removing_a_user() {
     let user2 = th.client2.me().await;
     let board = private_board_with_users(&th).await;
 
-    let response = delete_member(&th.client, &member(&board.id, &user2.id)).await;
+    let response = delete_member(&th.client, &board.id, &user2.id).await;
 
     response.check_no_content();
     assert_eq!(members_of(&th, &board.id).await.len(), 1, "one member left");
@@ -2679,7 +2612,7 @@ async fn delete_member_user_removing_themselves() {
     let user2 = th.client2.me().await;
     let board = private_board_with_users(&th).await;
 
-    let response = delete_member(&th.client2, &member(&board.id, &user2.id)).await;
+    let response = delete_member(&th.client2, &board.id, &user2.id).await;
 
     response.check_forbidden();
     assert_eq!(members_of(&th, &board.id).await.len(), 2, "still two");
@@ -2693,7 +2626,7 @@ async fn delete_member_a_non_admin_user_should_not_be_able_to_remove_another_use
     let user1 = th.client.me().await;
     let board = private_board_with_users(&th).await;
 
-    let response = delete_member(&th.client2, &member(&board.id, &user1.id)).await;
+    let response = delete_member(&th.client2, &board.id, &user1.id).await;
 
     response.check_forbidden();
     assert_eq!(members_of(&th, &board.id).await.len(), 2, "still two");
@@ -2712,18 +2645,18 @@ async fn delete_member_should_not_leave_a_board_without_any_admin() {
     )
     .await;
 
-    let response = delete_member(&th.client, &member(&board.id, &user1.id)).await;
+    let response = delete_member(&th.client, &board.id, &user1.id).await;
 
     // The request is fine; the state of the board stands against it.
     response.check_error(StatusCode::CONFLICT, "cannot leave a board with no admins");
     assert_eq!(response.error_reason(), "last_admin", "the reason");
     let members = members_of(&th, &board.id).await;
     assert_eq!(members.len(), 1, "one member: {members:?}");
-    assert!(members[0].scheme_admin, "still an admin");
+    assert_eq!(members[0].role, ContainerRole::Admin, "still an admin");
 
     // Removing a user who is not a member is idempotent and succeeds.
     for no_member in [UNKNOWN_ID, "no-such-user"] {
-        delete_member(&th.client, &member(&board.id, no_member))
+        delete_member(&th.client, &board.id, no_member)
             .await
             .check_no_content();
     }
@@ -2768,7 +2701,11 @@ async fn join_container_create_and_join_public_board() {
     let again: ContainerMember = join_board(&th.client2, &board.id).await.ok_json();
     assert_eq!(again, joined, "the same membership");
     let admin: ContainerMember = join_board(&th.client, &board.id).await.ok_json();
-    assert!(admin.scheme_admin, "the admin stays an admin: {admin:?}");
+    assert_eq!(
+        admin.role,
+        ContainerRole::Admin,
+        "the admin stays an admin: {admin:?}"
+    );
     th.teardown().await;
 }
 
@@ -2779,9 +2716,9 @@ async fn join_container_should_match_the_minimum_role_in_the_membership() {
     let user2 = th.client2.me().await;
 
     for (minimum_role, expected) in [
-        (MinimumRole::Commenter, ONLY_COMMENTER),
-        (MinimumRole::Viewer, ONLY_VIEWER),
-        (MinimumRole::Editor, ONLY_EDITOR),
+        (MinimumRole::Commenter, ContainerRole::Commenter),
+        (MinimumRole::Viewer, ContainerRole::Viewer),
+        (MinimumRole::Editor, ContainerRole::Editor),
     ] {
         let board: Container = th
             .client
@@ -2804,8 +2741,7 @@ async fn join_container_should_match_the_minimum_role_in_the_membership() {
             "the membership of the user on the board"
         );
         assert_eq!(
-            role_flags(&joined),
-            expected,
+            joined.role, expected,
             "joining a board whose minimum role is {minimum_role:?}"
         );
     }
@@ -2830,8 +2766,8 @@ async fn join_container_should_match_editor_role_when_the_board_names_no_minimum
     let joined: ContainerMember = join_board(&th.client2, &board.id).await.ok_json();
 
     assert_eq!(
-        role_flags(&joined),
-        ONLY_EDITOR,
+        joined.role,
+        ContainerRole::Editor,
         "new member should be editor and nothing else"
     );
     assert_eq!(joined.user_id, user2.id, "the user who joined");
@@ -2861,27 +2797,31 @@ async fn joining_again_raises_to_the_minimum_role_and_never_lowers() {
             .iter()
             .find(|member| member.user_id == user2.id)
             .expect("user2 is a member");
-        role_flags(member)
+        member.role
     };
 
     // The administrator made user2 a viewer: below the board's minimum role.
     add_member(&th, &viewer(&board.id, &user2.id)).await;
     assert_eq!(
         stored_role().await,
-        ONLY_VIEWER,
+        ContainerRole::Viewer,
         "as the administrator said"
     );
     let joined: ContainerMember = join_board(&th.client2, &board.id).await.ok_json();
     assert_eq!(
-        role_flags(&joined),
-        ONLY_COMMENTER,
+        joined.role,
+        ContainerRole::Commenter,
         "raised by joining again"
     );
-    assert_eq!(stored_role().await, ONLY_COMMENTER, "and stored so");
+    assert_eq!(
+        stored_role().await,
+        ContainerRole::Commenter,
+        "and stored so"
+    );
 
     // With the minimum role: joining again changes nothing.
     let again: ContainerMember = join_board(&th.client2, &board.id).await.ok_json();
-    assert_eq!(role_flags(&again), ONLY_COMMENTER, "as before");
+    assert_eq!(again.role, ContainerRole::Commenter, "as before");
 
     // Above it: an editor stays an editor.
     th.client
@@ -2892,8 +2832,12 @@ async fn joining_again_raises_to_the_minimum_role_and_never_lowers() {
         .await
         .check_ok();
     let as_editor: ContainerMember = join_board(&th.client2, &board.id).await.ok_json();
-    assert_eq!(role_flags(&as_editor), ONLY_EDITOR, "not lowered");
-    assert_eq!(stored_role().await, ONLY_EDITOR, "nor in the store");
+    assert_eq!(as_editor.role, ContainerRole::Editor, "not lowered");
+    assert_eq!(
+        stored_role().await,
+        ContainerRole::Editor,
+        "nor in the store"
+    );
 
     // The minimum role goes up: members below it stay where they are until they join
     // again, and then are raised.
@@ -2912,7 +2856,7 @@ async fn joining_again_raises_to_the_minimum_role_and_never_lowers() {
         .check_ok();
     assert_eq!(
         stored_role().await,
-        ONLY_VIEWER,
+        ContainerRole::Viewer,
         "raising the minimum raises nobody"
     );
     th.client2
@@ -2920,7 +2864,7 @@ async fn joining_again_raises_to_the_minimum_role_and_never_lowers() {
         .await
         .check_forbidden();
     let raised: ContainerMember = join_board(&th.client2, &board.id).await.ok_json();
-    assert_eq!(role_flags(&raised), ONLY_EDITOR, "joining again does");
+    assert_eq!(raised.role, ContainerRole::Editor, "joining again does");
     th.client2
         .insert_blocks(&board.id, &[card_block(&board.id)])
         .await
@@ -2928,8 +2872,9 @@ async fn joining_again_raises_to_the_minimum_role_and_never_lowers() {
 
     // The administrator joins: still the administrator.
     let admin: ContainerMember = join_board(&th.client, &board.id).await.ok_json();
-    assert!(
-        admin.scheme_admin,
+    assert_eq!(
+        admin.role,
+        ContainerRole::Admin,
         "the administrator is not lowered: {admin:?}"
     );
 

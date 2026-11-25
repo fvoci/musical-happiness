@@ -110,12 +110,7 @@ async fn who_is_taken_out_leaves_their_boards_with_an_admin() {
     let boards = common::create_test_boards(&test, &test.workspace_id, &leaving, 3).await;
     let (alone, with_another, with_a_guest_admin) = (&boards[0].id, &boards[1].id, &boards[2].id);
     let add = async |board_id: &str, user_id: &str, role: ContainerRole| {
-        let member = ContainerMember {
-            container_id: board_id.to_owned(),
-            user_id: user_id.to_owned(),
-            ..ContainerMember::default()
-        }
-        .with_role(Some(role));
+        let member = ContainerMember::new(board_id.to_owned(), user_id.to_owned(), role);
         test.add_member(&member)
             .await
             .expect("a member of the board");
@@ -161,7 +156,7 @@ async fn who_is_taken_out_leaves_their_boards_with_an_admin() {
         test.get_member_for_container(board_id, user_id)
             .await
             .ok()
-            .and_then(|member| member.role())
+            .map(|member| member.role)
     };
     for board_id in [alone, with_another, with_a_guest_admin] {
         assert_eq!(role(board_id, &leaving).await, None, "no role is left");
@@ -240,12 +235,11 @@ async fn a_board_comes_back_from_the_trash_with_an_admin() {
     let (of_the_leaver, of_the_guest, of_both_and_the_admin) =
         (&boards[0].id, &boards[1].id, &boards[2].id);
     let add = async |board_id: &str, user_id: &str| {
-        let member = ContainerMember {
-            container_id: board_id.to_owned(),
-            user_id: user_id.to_owned(),
-            ..ContainerMember::default()
-        }
-        .with_role(Some(ContainerRole::Admin));
+        let member = ContainerMember::new(
+            board_id.to_owned(),
+            user_id.to_owned(),
+            ContainerRole::Admin,
+        );
         test.add_member(&member)
             .await
             .expect("an admin of the board");
@@ -281,7 +275,7 @@ async fn a_board_comes_back_from_the_trash_with_an_admin() {
         test.get_member_for_container(board_id, user_id)
             .await
             .ok()
-            .and_then(|member| member.role())
+            .map(|member| member.role)
     };
     assert_eq!(role(of_the_leaver, &leaving).await, None);
     assert_eq!(

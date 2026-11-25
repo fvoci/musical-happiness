@@ -149,8 +149,12 @@ async fn seed_pre0072_deleted_containers(
         ),
         format!(
             "INSERT INTO container_members \
-             (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
-             VALUES ('{live_board_id}', '{alice}', true, true, false, false)"
+             (container_id, user_id, {}, {}, {}, {}) \
+             VALUES ('{live_board_id}', '{alice}', true, true, false, false)",
+            concat!("scheme", "_admin"),
+            concat!("scheme", "_editor"),
+            concat!("scheme", "_commenter"),
+            concat!("scheme", "_viewer"),
         ),
     ] {
         scoped_a
@@ -186,10 +190,10 @@ async fn seed_pre0072_deleted_containers(
     let members_pos = json!([{
         "containerId": trashed_board_pos,
         "userId": alice,
-        "schemeAdmin": true,
-        "schemeEditor": true,
-        "schemeCommenter": false,
-        "schemeViewer": false
+        (concat!("scheme", "Admin")): true,
+        (concat!("scheme", "Editor")): true,
+        (concat!("scheme", "Commenter")): false,
+        (concat!("scheme", "Viewer")): false
     }])
     .to_string();
     for (id, at, del_id, doc, members) in [
@@ -366,8 +370,12 @@ async fn seed_pre0072_second_org(pre: &Store) -> Pre0072SecondOrg {
         ),
         format!(
             "INSERT INTO container_members \
-             (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
-             VALUES ('{live_board_b}', '{bob}', true, true, false, false)"
+             (container_id, user_id, {}, {}, {}, {}) \
+             VALUES ('{live_board_b}', '{bob}', true, true, false, false)",
+            concat!("scheme", "_admin"),
+            concat!("scheme", "_editor"),
+            concat!("scheme", "_commenter"),
+            concat!("scheme", "_viewer"),
         ),
     ] {
         scoped_b

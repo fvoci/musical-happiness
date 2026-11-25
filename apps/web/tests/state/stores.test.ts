@@ -804,12 +804,10 @@ describe('sharing a board', () => {
     if (!outsider) throw new Error('unexpected seed');
     expect(board.canShare).toBe(true);
     await board.addMember(outsider.id, 'commenter');
-    expect(board.members.find((member) => member.userId === outsider.id)?.schemeCommenter).toBe(
-      true,
-    );
+    expect(board.members.find((member) => member.userId === outsider.id)?.role).toBe('commenter');
     await board.setMemberRole(outsider.id, 'viewer');
     const stored = await backend.members(board.boardId);
-    expect(stored.find((member) => member.userId === outsider.id)?.schemeViewer).toBe(true);
+    expect(stored.find((member) => member.userId === outsider.id)?.role).toBe('viewer');
     await board.removeMember(outsider.id);
     expect((await backend.members(board.boardId)).map((member) => member.userId)).not.toContain(
       outsider.id,

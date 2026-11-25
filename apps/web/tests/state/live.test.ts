@@ -57,11 +57,7 @@ const reads: LiveReads = {
       {
         containerId,
         userId: 'u',
-        minimumRole: '',
-        schemeAdmin: true,
-        schemeEditor: false,
-        schemeCommenter: false,
-        schemeViewer: false,
+        role: 'admin',
         synthetic: false,
       },
     ]),
@@ -205,7 +201,7 @@ describe('changes from the server', () => {
     socket.message({
       type: 'containerMemberChanged',
       workspaceId: 't',
-      member: { containerId: 'b1', userId: 'u2', schemeViewer: true },
+      member: { containerId: 'b1', userId: 'u2', role: 'viewer' },
     });
     // A board nobody here watches: its members are not read.
     socket.message({

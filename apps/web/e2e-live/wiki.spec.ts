@@ -168,7 +168,7 @@ test('two people write one page together, see each other on it, and the tree fol
     await api.get(`${inWorkspace}/users`, { params: { search: colleague.username } })
   ).json()) as Schemas['User'][];
   await api.post(`${inWorkspace}/containers/${wiki.id}/members`, {
-    data: { userId: found?.id, schemeViewer: true, schemeCommenter: true, schemeEditor: true },
+    data: { userId: found?.id, role: 'editor' },
   });
   const pageOf = async (title: string, parentId?: string): Promise<string> =>
     (

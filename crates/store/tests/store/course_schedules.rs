@@ -68,13 +68,24 @@ async fn create_unit(
 }
 
 async fn save_role(store: &Store, course_id: &str, user_id: &str, role: Option<ContainerRole>) {
-    let member = ContainerMember {
-        container_id: course_id.to_owned(),
-        user_id: user_id.to_owned(),
-        ..ContainerMember::default()
+    match role {
+        Some(role) => {
+            let member = ContainerMember {
+                container_id: course_id.to_owned(),
+                user_id: user_id.to_owned(),
+                role,
+                synthetic: false,
+                inherited_role: None,
+            };
+            store.save_member(&member).await.expect("member saved");
+        }
+        None => {
+            store
+                .delete_member(course_id, user_id)
+                .await
+                .expect("member removed");
+        }
     }
-    .with_role(role);
-    store.save_member(&member).await.expect("member saved");
 }
 
 /// Upgrading a database seeded before migration 0066 applies 0066 cleanly without
@@ -105,8 +116,12 @@ async fn migration_before_0066_to_0066_creates_course_schedules_behind_rls() {
     scoped
         .execute_unchecked(&format!(
             "INSERT INTO container_members \
-             (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
-             VALUES ('{course_id}', '{owner}', true, true, false, false)"
+             (container_id, user_id, {}, {}, {}, {}) \
+             VALUES ('{course_id}', '{owner}', true, true, false, false)",
+            concat!("scheme", "_admin"),
+            concat!("scheme", "_editor"),
+            concat!("scheme", "_commenter"),
+            concat!("scheme", "_viewer"),
         ))
         .await
         .expect("pre-0066 course admin stored");

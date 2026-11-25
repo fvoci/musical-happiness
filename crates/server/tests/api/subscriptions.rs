@@ -663,8 +663,9 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
         let member = ContainerMember {
             container_id: board.id.clone(),
             user_id: user2_id.clone(),
-            scheme_editor: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Editor,
+            synthetic: false,
+            inherited_role: None,
         };
         th.client.add_member(&member).await.check_ok();
         cards.push(insert_card(&th.client, &board.id).await);
@@ -723,8 +724,9 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     let member = ContainerMember {
         container_id: boards[0].id.clone(),
         user_id: user2_id.clone(),
-        scheme_viewer: true,
-        ..ContainerMember::default()
+        role: fvoci_model::ContainerRole::Viewer,
+        synthetic: false,
+        inherited_role: None,
     };
     th.client.add_member(&member).await.check_ok();
     subscribe(&th.client2, &cards[0].id, &user2_id).await;

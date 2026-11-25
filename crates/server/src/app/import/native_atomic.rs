@@ -39,7 +39,6 @@ use crate::auth::secret::new_secret;
 use crate::collab::AccessScope;
 use crate::error::AppError;
 use crate::metrics::{ContainerWork, CourseSource};
-use crate::permissions;
 
 /// Prepared metadata across every planned board in a native archive.
 struct PreparedStreamedArchive {
@@ -199,9 +198,6 @@ impl App {
             files.insert(plan.dir, plan.files);
             let mut kept_members = Vec::with_capacity(plan.members.len());
             for member in plan.members {
-                if permissions::role_of(&member).is_none() {
-                    continue;
-                }
                 let actor = self.actor(&member.user_id, &options.workspace_id).await?;
                 match actor.workspace {
                     Some(workspace_role) => {
@@ -217,7 +213,10 @@ impl App {
                 for member in &kept_members {
                     extra_members.push(ContainerMember {
                         container_id: container.id.clone(),
-                        ..member.clone()
+                        user_id: member.user_id.clone(),
+                        role: member.role,
+                        synthetic: false,
+                        inherited_role: None,
                     });
                 }
             }

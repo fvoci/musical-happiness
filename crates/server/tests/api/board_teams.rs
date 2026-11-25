@@ -73,7 +73,8 @@ async fn team_roles_open_edit_find_and_export_a_board_then_end_when_removed() {
         .find(|m| m.container_id == board.id)
         .expect("inherited board in memberships");
     assert!(membership.synthetic);
-    assert_eq!(membership.role(), Some(ContainerRole::Editor));
+    assert_eq!(membership.role, ContainerRole::Editor);
+    assert_eq!(membership.effective_role(), ContainerRole::Editor);
     for suffix in ["/boards", "/boards/search?q=Inherited"] {
         let listed: Vec<Container> = th
             .client2
@@ -132,7 +133,7 @@ async fn the_highest_direct_or_team_role_survives_until_its_source_ends() {
     th.client
         .post(
             &format!("{path}/members"),
-            &json!({"userId":user,"schemeViewer":true}),
+            &json!({"userId":user,"role":"viewer"}),
         )
         .await
         .check_ok();
@@ -157,8 +158,12 @@ async fn the_highest_direct_or_team_role_survives_until_its_source_ends() {
         .check_status(StatusCode::FORBIDDEN);
     let members: Vec<ContainerMember> = th.client2.get(&format!("{path}/members")).await.ok_json();
     let member = members.iter().find(|m| m.user_id == user).unwrap();
-    assert!(member.scheme_viewer, "direct role stays separate");
-    assert_eq!(member.role(), Some(ContainerRole::Commenter));
+    assert_eq!(
+        member.role,
+        ContainerRole::Viewer,
+        "direct role stays separate"
+    );
+    assert_eq!(member.effective_role(), ContainerRole::Commenter);
     th.client
         .delete(&format!("{path}/teams/{}", first.id))
         .await
@@ -429,7 +434,7 @@ async fn a_private_template_is_listed_while_a_team_role_grants_it() {
     th.client2
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/containers/{}/members", board.id),
-            &json!({"userId": manager, "schemeAdmin": true}),
+            &json!({"userId": manager, "role": "admin"}),
         )
         .await
         .check_ok();

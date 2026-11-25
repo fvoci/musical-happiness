@@ -76,10 +76,13 @@ async fn add_member_in_store(th: &TestServer, board_id: &str, client: &Client, r
     let member = ContainerMember {
         container_id: board_id.to_owned(),
         user_id: client.me().await.id,
-        scheme_editor: matches!(role, Role::Editor),
-        scheme_commenter: matches!(role, Role::Commenter),
-        scheme_viewer: matches!(role, Role::Viewer),
-        ..ContainerMember::default()
+        role: match role {
+            Role::Editor => fvoci_model::ContainerRole::Editor,
+            Role::Commenter => fvoci_model::ContainerRole::Commenter,
+            Role::Viewer => fvoci_model::ContainerRole::Viewer,
+        },
+        synthetic: false,
+        inherited_role: None,
     };
     th.app
         .store()

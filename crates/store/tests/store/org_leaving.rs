@@ -86,12 +86,11 @@ async fn course_with_progress(
         .expect("course stored");
     if learner != owner {
         store
-            .save_member(&ContainerMember {
-                container_id: course.id.clone(),
-                user_id: learner.to_owned(),
-                scheme_viewer: true,
-                ..ContainerMember::default()
-            })
+            .save_member(&ContainerMember::new(
+                &course.id,
+                learner,
+                fvoci_model::ContainerRole::Viewer,
+            ))
             .await
             .expect("learner enrolled");
     }
@@ -413,7 +412,7 @@ async fn what_stays(test: &TestStore, placed: &Placed) {
     );
     let administered = format!(
         "SELECT CAST(count(*) AS TEXT) FROM container_members \
-         WHERE container_id = '{founders}' AND user_id = '{founder}' AND scheme_admin"
+         WHERE container_id = '{founders}' AND user_id = '{founder}' AND role = 'admin'"
     );
     assert_eq!(
         one(test, &administered).await,

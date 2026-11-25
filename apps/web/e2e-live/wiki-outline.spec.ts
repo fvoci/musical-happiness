@@ -127,15 +127,15 @@ test('the outline follows the headings another browser writes, writes nothing it
   const wiki = (await (
     await api.post(`${at}/wikis`, { data: { title: 'Handbook', visibility: 'private' } })
   ).json()) as Schemas['Container'];
-  for (const [who, roles] of [
-    [colleague, { schemeViewer: true, schemeCommenter: true, schemeEditor: true }],
-    [viewer, { schemeViewer: true }],
+  for (const [who, role] of [
+    [colleague, 'editor'],
+    [viewer, 'viewer'],
   ] as const) {
     const [found] = (await (
       await api.get(`${at}/users`, { params: { search: who.username } })
     ).json()) as Schemas['User'][];
     await api.post(`${at}/containers/${wiki.id}/members`, {
-      data: { userId: found?.id, ...roles },
+      data: { userId: found?.id, role },
     });
   }
   const made = (await (

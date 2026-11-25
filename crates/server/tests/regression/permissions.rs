@@ -310,17 +310,17 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         "members: add viewer" => Request::json(
             Method::POST,
             format!("{board_path}/members"),
-            json!({"containerId": board, "userId": extra, "schemeViewer": true}),
+            json!({"containerId": board, "userId": extra, "role": "viewer"}),
         ),
         "members: add admin" => Request::json(
             Method::POST,
             format!("{board_path}/members"),
-            json!({"containerId": board, "userId": extra, "schemeAdmin": true}),
+            json!({"containerId": board, "userId": extra, "role": "admin"}),
         ),
         "members: update" => Request::json(
             Method::PUT,
             format!("{board_path}/members/{viewer}"),
-            json!({"containerId": board, "userId": viewer, "schemeEditor": true}),
+            json!({"containerId": board, "userId": viewer, "role": "editor"}),
         ),
         "members: delete another" => {
             Request::new(Method::DELETE, format!("{board_path}/members/{viewer}"))

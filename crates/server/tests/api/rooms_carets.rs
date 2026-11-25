@@ -277,8 +277,9 @@ async fn a_caret_stays_in_its_organization() {
     let member = ContainerMember {
         container_id: board_id,
         user_id: user2,
-        scheme_editor: true,
-        ..ContainerMember::default()
+        role: fvoci_model::ContainerRole::Editor,
+        synthetic: false,
+        inherited_role: None,
     };
     theirs.save_member(&member).await.expect("invited");
     let mut there = Peer::connect(&th.client2, 103).await;

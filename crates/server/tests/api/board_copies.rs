@@ -1,8 +1,7 @@
 //! Copies of boards and templates (`duplicateContainer`).
 
 use fvoci_model::{
-    Block, BlockType, Category, Container, ContainerMember, ContainerVisibility,
-    ContainersAndBlocks, new_id,
+    Block, BlockType, Category, Container, ContainerVisibility, ContainersAndBlocks, new_id,
 };
 use fvoci_store::{BlockFilter, DuplicateAs};
 use reqwest::StatusCode;
@@ -70,7 +69,11 @@ async fn duplicate_container_create_and_duplicate_public_board() {
     );
     assert_eq!(members[0].user_id, me.id, "the user who duplicated");
     assert_eq!(members[0].container_id, duplicate.id, "of the copy");
-    assert!(members[0].scheme_admin, "as an admin");
+    assert_eq!(
+        members[0].role,
+        fvoci_model::ContainerRole::Admin,
+        "as an admin"
+    );
 
     assert_eq!(
         category_name_of(&th, &me.id, TEST_WORKSPACE_ID, &duplicate.id).await,
@@ -149,7 +152,11 @@ async fn duplicate_container_create_and_duplicate_public_board_from_a_custom_cat
         "Duplicated board should only have one member"
     );
     assert_eq!(members[0].user_id, me.id, "the user who duplicated");
-    assert!(members[0].scheme_admin, "as an admin");
+    assert_eq!(
+        members[0].role,
+        fvoci_model::ContainerRole::Admin,
+        "as an admin"
+    );
 
     // verify duplicated board is in the same custom category
     assert_eq!(
@@ -489,10 +496,7 @@ async fn duplicate_container_permissions_and_parameters() {
     insert_block(&th, view_block(&private.id), &user1.id).await;
     add_member(
         &th,
-        &ContainerMember {
-            scheme_viewer: true,
-            ..member(&private.id, &user2.id)
-        },
+        &member(&private.id, &user2.id, fvoci_model::ContainerRole::Viewer),
     )
     .await;
     let copy: ContainersAndBlocks = duplicate_board(&th.client2, &private.id, "")
@@ -505,7 +509,11 @@ async fn duplicate_container_permissions_and_parameters() {
     let members = members_of(&th, &copy.containers[0].id).await;
     assert_eq!(members.len(), 1, "one member: {members:?}");
     assert_eq!(members[0].user_id, user2.id, "the viewer");
-    assert!(members[0].scheme_admin, "administers the copy");
+    assert_eq!(
+        members[0].role,
+        fvoci_model::ContainerRole::Admin,
+        "administers the copy"
+    );
 
     th.teardown().await;
 }

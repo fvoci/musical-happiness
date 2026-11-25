@@ -28,12 +28,7 @@ async fn create_course(store: &Store, workspace_id: &str, admin: &str) -> String
 }
 
 async fn enroll(store: &Store, course_id: &str, user_id: &str, role: fvoci_model::ContainerRole) {
-    let member = ContainerMember {
-        container_id: course_id.to_owned(),
-        user_id: user_id.to_owned(),
-        ..ContainerMember::default()
-    }
-    .with_role(Some(role));
+    let member = ContainerMember::new(course_id.to_owned(), user_id.to_owned(), role);
     store.save_member(&member).await.expect("member enrolled");
 }
 

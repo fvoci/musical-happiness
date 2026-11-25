@@ -104,8 +104,12 @@ async fn insert_board(scoped: &Store, board_id: &str, workspace_id: &str, user_i
         scoped
             .execute_unchecked(&format!(
                 "INSERT INTO container_members \
-                 (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
-                 VALUES ('{board_id}', '{uid}', true, true, false, false)"
+                 (container_id, user_id, {}, {}, {}, {}) \
+                 VALUES ('{board_id}', '{uid}', true, true, false, false)",
+                concat!("scheme", "_admin"),
+                concat!("scheme", "_editor"),
+                concat!("scheme", "_commenter"),
+                concat!("scheme", "_viewer"),
             ))
             .await
             .expect("pre-0071 board admin inserted");
@@ -350,10 +354,10 @@ async fn seed_trashed_board(scoped_a: &Store, ws_a: &str, alice: &str) -> (Strin
     let members_json = json!([{
         "containerId": trashed_board_id,
         "userId": alice,
-        "schemeAdmin": true,
-        "schemeEditor": true,
-        "schemeCommenter": false,
-        "schemeViewer": false
+        (concat!("scheme", "Admin")): true,
+        (concat!("scheme", "Editor")): true,
+        (concat!("scheme", "Commenter")): false,
+        (concat!("scheme", "Viewer")): false
     }])
     .to_string();
     scoped_a

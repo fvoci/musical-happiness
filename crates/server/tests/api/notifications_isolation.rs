@@ -15,7 +15,7 @@ use fvoci_store::{DbType, Making, NotificationReader, Paging, Store};
 use serde_json::{Value, json};
 
 use crate::blocks::{delete, undelete_path};
-use crate::boards::{delete_member, member, new_board};
+use crate::boards::{delete_member, new_board};
 use crate::common::{
     HIDDEN_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID,
 };
@@ -153,7 +153,7 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
     give(&th, &other_board.id, &other_guest, "editor").await;
     let former = th.add_user("former").await.me().await.id;
     give(&th, &board.id, &former, "editor").await;
-    delete_member(&th.client, &member(&board.id, &former))
+    delete_member(&th.client, &board.id, &former)
         .await
         .check_no_content();
     // Somebody of the workspace with no role on the board. The board is shared by its

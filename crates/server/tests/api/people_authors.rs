@@ -63,13 +63,8 @@ async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -
         .await
         .created_json();
     if matches!(authorship, Authorship::Board) {
-        creator
-            .add_member(&ContainerMember {
-                scheme_admin: true,
-                ..member(&board.id, &owner)
-            })
-            .await
-            .check_ok();
+        let as_admin = member(&board.id, &owner, fvoci_model::ContainerRole::Admin);
+        creator.add_member(&as_admin).await.check_ok();
     } else if matches!(authorship, Authorship::BodyVersion) {
         versioned_card(th, &board.id, &owner, leaver).await;
     } else if matches!(authorship, Authorship::FileVersion) {
@@ -316,10 +311,11 @@ async fn check_authorship(authorship: Authorship) {
         "a guest cannot name an unread author"
     );
     th.client
-        .add_member(&ContainerMember {
-            scheme_viewer: true,
-            ..member(&board.id, &guest_id)
-        })
+        .add_member(&member(
+            &board.id,
+            &guest_id,
+            fvoci_model::ContainerRole::Viewer,
+        ))
         .await
         .check_ok();
     assert_eq!(

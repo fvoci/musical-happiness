@@ -702,6 +702,20 @@ pub async fn migrate_to_before_nullable_deleted_at(database: &TestDatabase) {
     migrate_database(database, crate::schema::BEFORE_NULLABLE_DELETED_AT_VERSION).await;
 }
 
+/// Brings a test database to the schema as a server left it before the single `role`
+/// enum on `container_members` (migration 73): every migration up to 72.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_container_member_role_enum(database: &TestDatabase) {
+    migrate_database(
+        database,
+        crate::schema::BEFORE_CONTAINER_MEMBER_ROLE_ENUM_VERSION,
+    )
+    .await;
+}
+
 /// Brings a test database to the schema as a server left it before the organization's
 /// management (migration 23): every migration before that one, and none of the changes
 /// of the data that follow the migrations.

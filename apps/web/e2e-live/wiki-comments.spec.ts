@@ -53,9 +53,7 @@ async function twoOnAPage(
   await api.post(`${inWorkspace}/containers/${wiki.id}/members`, {
     data: {
       userId: found?.id,
-      schemeViewer: true,
-      schemeCommenter: true,
-      schemeEditor: plan.role === 'editor',
+      role: plan.role,
     },
   });
   const pages = `${inWorkspace}/wikis/${wiki.id}/pages`;

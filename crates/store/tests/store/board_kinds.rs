@@ -547,14 +547,11 @@ async fn seed_course_learning_rows(
         .await
         .expect("course");
     if ctype == ContainerVisibility::Private {
-        test.save_member(
-            &ContainerMember {
-                container_id: c.id.clone(),
-                user_id: learner.to_owned(),
-                ..ContainerMember::default()
-            }
-            .with_role(Some(ContainerRole::Viewer)),
-        )
+        test.save_member(&ContainerMember::new(
+            c.id.clone(),
+            learner.to_owned(),
+            ContainerRole::Viewer,
+        ))
         .await
         .expect("direct course viewer");
     } else {

@@ -1400,31 +1400,12 @@
             "type": "string"
           },
           "inheritedRole": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/MinimumRole",
-                "description": "The highest role inherited from teams; direct flags remain unchanged."
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/MinimumRole",
+            "description": "The highest role inherited from teams; the direct `role` remains unchanged."
           },
-          "schemeAdmin": {
-            "description": "The user administers the board.",
-            "type": "boolean"
-          },
-          "schemeCommenter": {
-            "description": "The user may comment on the board's cards.",
-            "type": "boolean"
-          },
-          "schemeEditor": {
-            "description": "The user may edit the board.",
-            "type": "boolean"
-          },
-          "schemeViewer": {
-            "description": "The user may view the board.",
-            "type": "boolean"
+          "role": {
+            "$ref": "#/components/schemas/ContainerRole",
+            "description": "The user's role on the board."
           },
           "synthetic": {
             "description": "The membership has no directly stored role record.",
@@ -1437,11 +1418,21 @@
         },
         "required": [
           "containerId",
-          "schemeAdmin",
-          "schemeCommenter",
-          "schemeEditor",
-          "schemeViewer",
+          "role",
           "userId"
+        ],
+        "type": "object"
+      },
+      "ContainerMemberPatch": {
+        "description": "A change to a member's role on a board.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/ContainerRole",
+            "description": "The role the member is to have on the board."
+          }
+        },
+        "required": [
+          "role"
         ],
         "type": "object"
       },
@@ -1527,6 +1518,16 @@
           }
         },
         "type": "object"
+      },
+      "ContainerRole": {
+        "description": "A role on a board, from least to most privileged.",
+        "enum": [
+          "viewer",
+          "commenter",
+          "editor",
+          "admin"
+        ],
+        "type": "string"
       },
       "ContainerTeam": {
         "description": "A workspace team and the role its members inherit on a board.",
@@ -3515,28 +3516,6 @@
         ],
         "type": "object"
       },
-      "MemberRoles": {
-        "description": "The roles a member of a board is to have. A role that is left out is taken away, and\na member with no role may do nothing on the board, not even view it.",
-        "properties": {
-          "schemeAdmin": {
-            "description": "The user administers the board.",
-            "type": "boolean"
-          },
-          "schemeCommenter": {
-            "description": "The user may comment on the board's cards.",
-            "type": "boolean"
-          },
-          "schemeEditor": {
-            "description": "The user may edit the board.",
-            "type": "boolean"
-          },
-          "schemeViewer": {
-            "description": "The user may view the board.",
-            "type": "boolean"
-          }
-        },
-        "type": "object"
-      },
       "MinimumRole": {
         "description": "The minimum role of a board: the role a user gets who joins the board, or is added\nto it by somebody who does not manage its roles.\n\nA board always has one, and it is never admin: nobody becomes an administrator of a\nboard by joining it.",
         "enum": [
@@ -4067,23 +4046,11 @@
         "type": "object"
       },
       "NewMember": {
-        "description": "A user to make a member of a board, and the roles to give them. A member with no\nrole may do nothing on the board, not even view it.",
+        "description": "A user to make a member of a board, and the role to give them.",
         "properties": {
-          "schemeAdmin": {
-            "description": "The user administers the board. Only who manages the board's roles may ask for\nthis.",
-            "type": "boolean"
-          },
-          "schemeCommenter": {
-            "description": "The user may comment on the board's cards.",
-            "type": "boolean"
-          },
-          "schemeEditor": {
-            "description": "The user may edit the board.",
-            "type": "boolean"
-          },
-          "schemeViewer": {
-            "description": "The user may view the board.",
-            "type": "boolean"
+          "role": {
+            "$ref": "#/components/schemas/ContainerRole",
+            "description": "The role the user is to have on the board. Required when who asks manages the\nboard's roles (`admin` included); on an open board an editor who does not manage\nroles grants the board's `minimumRole` (and asking for `admin` is 403)."
           },
           "userId": {
             "description": "The identifier of the user, who must be able to see the board's workspace.",
@@ -15775,7 +15742,7 @@
         ]
       },
       "post": {
-        "description": "The board's admins add members with the roles the request names; with no role at\nall the member may do nothing on the board, not even view it. On an open board\neditors who work in the workspace add members too, with the board's minimum role,\nwhatever else the request names; a request of theirs that asks for `schemeAdmin` is\n403. A guest of the workspace is given no role above editor: asking for\n`schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a\nmember already stays as they are. The workspace's administrators manage the members\nof every board of it; one who could not read a board and gives somebody a role on\nit, themselves or another, is recorded in the workspace's audit log.",
+        "description": "The board's admins add members with the `role` the request names. On an open board\neditors who work in the workspace add members too, with the board's minimum role,\nwhatever else the request names; a request of theirs that asks for `admin` is\n403. A guest of the workspace is given no role above editor: asking for\n`admin` for one is 403 with the reason `guest_role_limit`. A user who is a\nmember already stays as they are. The workspace's administrators manage the members\nof every board of it; one who could not read a board and gives somebody a role on\nit, themselves or another, is recorded in the workspace's audit log.",
         "operationId": "addMember",
         "parameters": [
           {
@@ -15889,7 +15856,7 @@
         ]
       },
       "put": {
-        "description": "Replaces the roles of a member of the board; with no role at all the member may do\nnothing on the board, not even view it. For the board's admins. The last admin of a\nboard cannot be made less: that is 409 with the reason `last_admin`. A guest of the\nworkspace is made no more than an editor: `schemeAdmin` for one is 403 with the\nreason `guest_role_limit`. A user who is no member of the board, or of its workspace any\nmore, is 404.",
+        "description": "Replaces the `role` of a member of the board. For the board's admins. The last admin\nof a board cannot be made less: that is 409 with the reason `last_admin`. A guest of\nthe workspace is made no more than an editor: `admin` for one is 403 with the\nreason `guest_role_limit`. A user who is no member of the board, or of its workspace\nany more, is 404.",
         "operationId": "updateMember",
         "parameters": [
           {
@@ -15924,7 +15891,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MemberRoles"
+                "$ref": "#/components/schemas/ContainerMemberPatch"
               }
             }
           },
@@ -15952,7 +15919,7 @@
             "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
           }
         },
-        "summary": "Change the roles of a member",
+        "summary": "Change the role of a member",
         "tags": [
           "members"
         ]

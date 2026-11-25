@@ -213,8 +213,9 @@ async fn a_restored_private_board_is_filed_for_its_members_only() {
     test.save_member(&ContainerMember {
         container_id: board_id.clone(),
         user_id: admin.clone(),
-        scheme_admin: true,
-        ..ContainerMember::default()
+        role: fvoci_model::ContainerRole::Admin,
+        synthetic: false,
+        inherited_role: None,
     })
     .await
     .expect("the admin is a member");

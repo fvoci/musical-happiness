@@ -142,10 +142,7 @@ test('made a viewer while the card is open: the body turns read-only, and says w
   );
   const role = await api.put(memberPath, {
     data: {
-      schemeViewer: true,
-      schemeCommenter: false,
-      schemeEditor: false,
-      schemeAdmin: false,
+      role: 'viewer',
     },
   });
   expect(role.ok()).toBe(true);

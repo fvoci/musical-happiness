@@ -14,12 +14,7 @@ export type Role = 'admin' | 'editor' | 'commenter' | 'viewer' | '';
 
 /** The highest role of a user on a board; none for who is no member. */
 export function roleOn(members: readonly ContainerMember[], userId: string): Role {
-  const member = members.find((each) => each.userId === userId);
-  if (!member) return '';
-  if (member.schemeAdmin) return 'admin';
-  if (member.schemeEditor) return 'editor';
-  if (member.schemeCommenter) return 'commenter';
-  return member.schemeViewer ? 'viewer' : '';
+  return members.find((each) => each.userId === userId)?.role ?? '';
 }
 
 /** Its author changes a comment with the commenter's role; anybody else's is for the admins. */

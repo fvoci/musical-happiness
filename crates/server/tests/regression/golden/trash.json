@@ -32,10 +32,7 @@
     "content_type": "application/json",
     "body": {
       "containerId": "<id:3>",
-      "schemeAdmin": false,
-      "schemeCommenter": false,
-      "schemeEditor": true,
-      "schemeViewer": false,
+      "role": "editor",
       "userId": "<id:4>"
     }
   },
@@ -46,10 +43,7 @@
     "content_type": "application/json",
     "body": {
       "containerId": "<id:3>",
-      "schemeAdmin": false,
-      "schemeCommenter": false,
-      "schemeEditor": false,
-      "schemeViewer": true,
+      "role": "viewer",
       "userId": "<id:5>"
     }
   },
@@ -559,10 +553,7 @@
     "body": [
       {
         "containerId": "<id:12>",
-        "schemeAdmin": true,
-        "schemeCommenter": false,
-        "schemeEditor": true,
-        "schemeViewer": false,
+        "role": "admin",
         "userId": "<id:4>"
       }
     ]
@@ -798,26 +789,17 @@
     "body": [
       {
         "containerId": "<id:3>",
-        "schemeAdmin": true,
-        "schemeCommenter": false,
-        "schemeEditor": true,
-        "schemeViewer": false,
+        "role": "admin",
         "userId": "<id:2>"
       },
       {
         "containerId": "<id:3>",
-        "schemeAdmin": false,
-        "schemeCommenter": false,
-        "schemeEditor": true,
-        "schemeViewer": false,
+        "role": "editor",
         "userId": "<id:4>"
       },
       {
         "containerId": "<id:3>",
-        "schemeAdmin": false,
-        "schemeCommenter": false,
-        "schemeEditor": false,
-        "schemeViewer": true,
+        "role": "viewer",
         "userId": "<id:5>"
       }
     ]

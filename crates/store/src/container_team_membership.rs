@@ -3,7 +3,7 @@
 
 use crate::db::{Id, Scope};
 use crate::{Store, StoreError, container_teams, teams};
-use fvoci_model::{ContainerMember, ContainerVisibility};
+use fvoci_model::{ContainerVisibility, MemberRef};
 
 impl Store {
     /// Deletes a team, its members, and every role it was given on a board.
@@ -15,7 +15,7 @@ impl Store {
         workspace_id: &str,
         team_id: &str,
         by: &str,
-    ) -> Result<Vec<ContainerMember>, StoreError> {
+    ) -> Result<Vec<MemberRef>, StoreError> {
         self.transaction(async |scope| {
             teams::managing(scope, workspace_id, by).await?;
             let changes = container_teams::affected(scope, team_id, None).await?;
@@ -42,7 +42,7 @@ impl Store {
         team_id: &str,
         user_id: &str,
         by: &str,
-    ) -> Result<Vec<ContainerMember>, StoreError> {
+    ) -> Result<Vec<MemberRef>, StoreError> {
         self.transaction(async |scope| {
             teams::managing(scope, workspace_id, by).await?;
             teams::require_team(scope, workspace_id, team_id).await?;
@@ -68,7 +68,7 @@ impl Store {
         team_id: &str,
         user_id: &str,
         by: &str,
-    ) -> Result<Vec<ContainerMember>, StoreError> {
+    ) -> Result<Vec<MemberRef>, StoreError> {
         self.transaction(async |scope| {
             teams::managing(scope, workspace_id, by).await?;
             teams::require_team(scope, workspace_id, team_id).await?;
@@ -107,13 +107,7 @@ pub(crate) async fn remove_workspace_teams(
         .fetch_all(sql)
         .await?
         .iter()
-        .map(|row| {
-            Ok(ContainerMember {
-                container_id: row.id(0)?,
-                user_id: user_id.to_owned(),
-                ..ContainerMember::default()
-            })
-        })
+        .map(|row| Ok(MemberRef::new(row.id(0)?, user_id)))
         .collect::<Result<Vec<_>, StoreError>>()?;
     teams::remove_workspace_memberships(scope, workspace_id, user_id).await?;
     container_teams::end_lost_subscriptions(

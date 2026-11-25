@@ -202,7 +202,7 @@
 
 - **WebSocket(`/ws`)의 메시지.** OpenAPI는 WebSocket을 적지 못한다. 메시지는 계약 파일 밖의 `contracts/websocket.md`(사람이 읽는 것)와 `contracts/websocket.json`(멤버와 타입, 서버의 테스트가 실제 메시지를 견준다)에 적었다(2026-11-11 04:14 KST). 카드 본문을 함께 고치는 방의 명령·메시지·Binary 프레임(커서, 쥔 문서로 다시 들기까지)은 그 6절이다(2026-11-15 01:40 KST). 죽은 연결을 알아채는 `ping`·`pong`과 90초 동안 조용한 연결의 닫힘은 3절이다(2026-11-15 19:02 KST).
   - 핸드셰이크의 인증, 명령 여덟, 메시지 스물, 어느 조작이 어느 메시지를 내는지, 서버가 구독을 끝내고 연결을 닫는 때가 그 문서에 있다. 웹앱의 질문 G1–G6의 답도 그 문서의 5절에 있다.
-  - 메시지가 싣는 보드, 블록, 카테고리, 멤버는 계약의 `Container`, `Block`, `Category`, `ContainerMember`와 같은 모양이다.
+  - 메시지가 싣는 보드, 블록, 카테고리, 멤버는 계약의 `Container`, `Block`, `Category`, `ContainerMember`와 같은 모양이다(`containerMemberRemoved`의 `member`는 `{containerId, userId}`만 싣는다).
   - `blockChanged`이 싣는 블록은 1절의 본문(`body`)을 함께 싣는다.
 - **오류의 상태 코드.** 조작마다 4xx를 하나씩 적지 않았다.
   - 모든 조작의 `default` 응답이 `application/problem+json`의 `Problem`(RFC 9457)이다. 어느 상태가 무슨 뜻인지는 계약의 머리말과 `default`의 설명에 있다. 거절된 입력은 `errors`에 자리(`pointer`, `parameter`, `header`)와 함께 온다.

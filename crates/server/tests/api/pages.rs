@@ -402,7 +402,7 @@ async fn a_page_is_subscribed_to_by_its_readers_and_not_brought_back_as_a_block(
     client
         .post(
             &format!("{TEST_WS}/containers/{wiki_id}/members"),
-            &json!({"containerId": wiki_id, "userId": stranger, "schemeViewer": true}),
+            &json!({"containerId": wiki_id, "userId": stranger, "role": "viewer"}),
         )
         .await
         .check_ok();

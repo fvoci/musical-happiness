@@ -101,7 +101,7 @@ async fn add_course_viewer(owner: &Client, ws: &str, course_id: &str, user_id: &
     owner
         .post(
             &format!("{ws}/containers/{course_id}/members"),
-            &json!({"containerId": course_id, "userId": user_id, "schemeViewer": true}),
+            &json!({"containerId": course_id, "userId": user_id, "role": "viewer"}),
         )
         .await
         .check_ok();

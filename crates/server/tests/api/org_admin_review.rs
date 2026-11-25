@@ -115,8 +115,9 @@ async fn organization_demotion_revokes_workspace_power_granted_by_the_instance_r
         .add_member(&ContainerMember {
             container_id: board.id,
             user_id: promoted,
-            scheme_viewer: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Viewer,
+            synthetic: false,
+            inherited_role: None,
         })
         .await;
     ts.teardown().await;

@@ -80,11 +80,13 @@ async fn add_container_role_in(
     let member = ContainerMember {
         container_id: container_id.to_owned(),
         user_id: user_id.to_owned(),
-        scheme_admin: matches!(role, MemberRole::Admin),
-        scheme_editor: matches!(role, MemberRole::Admin | MemberRole::Editor),
-        scheme_commenter: false,
-        scheme_viewer: true,
-        ..ContainerMember::default()
+        role: match role {
+            MemberRole::Admin => fvoci_model::ContainerRole::Admin,
+            MemberRole::Editor => fvoci_model::ContainerRole::Editor,
+            MemberRole::Viewer => fvoci_model::ContainerRole::Viewer,
+        },
+        synthetic: false,
+        inherited_role: None,
     };
     owner.add_member_in(workspace_id, &member).await.check_ok();
 }

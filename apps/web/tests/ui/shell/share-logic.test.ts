@@ -2,44 +2,39 @@
 import { describe, expect, it } from 'vitest';
 
 import { roleOf } from '$lib/state/board-parts.ts';
+import type { ContainerRole } from '$lib/state/index.ts';
 
 import { roleOfMember } from '$lib/features/shell/share-logic.ts';
 
 import { routePath } from '../../../src/app/router.svelte.ts';
 
-const member = (
-  flags: Partial<
-    Record<'schemeAdmin' | 'schemeEditor' | 'schemeCommenter' | 'schemeViewer', boolean>
-  >,
-) => ({
+const member = (role: ContainerRole) => ({
   containerId: 'b',
   userId: 'u',
-  minimumRole: '' as const,
+  role,
   synthetic: false,
-  schemeAdmin: false,
-  schemeEditor: false,
-  schemeCommenter: false,
-  schemeViewer: false,
-  ...flags,
 });
 
 describe('the share dialog', () => {
-  it('names the highest role of a membership', () => {
-    expect(roleOfMember(member({ schemeAdmin: true, schemeViewer: true }))).toBe('admin');
-    expect(roleOfMember(member({ schemeCommenter: true }))).toBe('commenter');
-    expect(roleOfMember(member({ schemeViewer: true }))).toBe('viewer');
-    expect(roleOfMember(member({}))).toBe('none');
+  it('names the direct role of a membership', () => {
+    expect(roleOfMember(member('admin'))).toBe('admin');
+    expect(roleOfMember(member('editor'))).toBe('editor');
+    expect(roleOfMember(member('commenter'))).toBe('commenter');
+    expect(roleOfMember(member('viewer'))).toBe('viewer');
   });
 
   it('keeps direct role controls separate from the highest inherited access', () => {
-    const inherited = { ...member({ schemeViewer: true }), inheritedRole: 'editor' as const };
+    const inherited = { ...member('viewer'), inheritedRole: 'editor' as const };
     expect(roleOfMember(inherited)).toBe('viewer');
     expect(roleOf(inherited)).toBe('editor');
-    expect(roleOf({ ...inherited, schemeAdmin: true })).toBe('admin');
-    expect(roleOf({ ...member({ schemeEditor: true }), inheritedRole: 'commenter' })).toBe(
+    expect(roleOf({ ...inherited, role: 'admin' })).toBe('admin');
+    expect(roleOf({ ...member('editor'), inheritedRole: 'commenter' })).toBe('editor');
+    expect(roleOf({ ...member('viewer'), inheritedRole: 'viewer', synthetic: true })).toBe(
+      'viewer',
+    );
+    expect(roleOf({ ...member('editor'), inheritedRole: 'viewer', synthetic: true })).toBe(
       'editor',
     );
-    expect(roleOf({ ...member({}), inheritedRole: 'viewer', synthetic: true })).toBe('viewer');
   });
 
   it('makes the public link the reader’s address of the board, the read token in it', () => {

@@ -165,10 +165,7 @@ test.describe('a mouse', () => {
       ).fvociDev.workspace.board;
       board.members = board.members.map((member) => ({
         ...member,
-        schemeAdmin: false,
-        schemeEditor: false,
-        schemeCommenter: false,
-        schemeViewer: true,
+        role: 'viewer',
       }));
     });
     await expect(bars(page, 'Open a card').locator('[data-grip]')).toHaveCount(0);

@@ -17,8 +17,8 @@
 
   const uid = $props.id();
   const ROLE_LABELS = {
-    commenter: () => m['BoardMember.schemeCommenter'](),
-    viewer: () => m['BoardMember.schemeViewer'](),
+    commenter: () => m['BoardMember.roleCommenter'](),
+    viewer: () => m['BoardMember.roleViewer'](),
   };
   const hint = $derived(
     role === 'commenter' || role === 'viewer'

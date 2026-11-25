@@ -62,21 +62,6 @@ impl Joined {
     }
 }
 
-/// The highest role the scheme flags of a membership give; none if no flag is set.
-fn highest_role(member: &ContainerMember) -> Option<ContainerRole> {
-    if member.scheme_admin {
-        Some(ContainerRole::Admin)
-    } else if member.scheme_editor {
-        Some(ContainerRole::Editor)
-    } else if member.scheme_commenter {
-        Some(ContainerRole::Commenter)
-    } else if member.scheme_viewer {
-        Some(ContainerRole::Viewer)
-    } else {
-        None
-    }
-}
-
 /// What became of a change to a membership that must leave its board an administrator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemberChange {
@@ -223,13 +208,12 @@ impl Store {
         .await
     }
 
-    /// Makes a user a member of a board with the scheme flags of `member`, or replaces
-    /// the scheme flags of an existing membership, whatever that does to the board: for
-    /// tests that need a membership the checked ways would not make. The server uses
+    /// Makes a user a member of a board with the `role` of `member`, or replaces the
+    /// `role` of an existing membership, whatever that does to the board: for tests that
+    /// need a membership the checked ways would not make. The server uses
     /// [`Store::add_member`], [`Store::join_container`] and [`Store::change_member`].
     ///
-    /// The `synthetic` member of `member` is not stored; `roles` has no column and reads
-    /// as empty.
+    /// The `synthetic` and `inherited_role` members of `member` are not stored.
     ///
     /// # Errors
     ///
@@ -275,14 +259,7 @@ impl Store {
             hold_container(scope, container_id).await?;
             let container = get_container(scope, container_id).await?;
             let minimum = ContainerRole::from(container.minimum_role);
-            let with_minimum = ContainerMember {
-                container_id: container_id.to_owned(),
-                user_id: user_id.to_owned(),
-                scheme_editor: minimum == ContainerRole::Editor,
-                scheme_commenter: minimum == ContainerRole::Commenter,
-                scheme_viewer: minimum == ContainerRole::Viewer,
-                ..ContainerMember::default()
-            };
+            let with_minimum = ContainerMember::new(container_id, user_id, minimum);
             match find_member(scope, container_id, user_id).await? {
                 None => {
                     save_member(scope, &with_minimum)
@@ -290,7 +267,7 @@ impl Store {
                         .map_err(|error| error.missing_reference("user"))?;
                     Ok(Joined::New(with_minimum))
                 }
-                Some(member) if highest_role(&member) < Some(minimum) => {
+                Some(member) if member.role < minimum => {
                     save_member(scope, &with_minimum).await?;
                     Ok(Joined::Raised(with_minimum))
                 }
@@ -321,7 +298,9 @@ impl Store {
             let Some(current) = find_member(scope, container_id, user_id).await? else {
                 return Ok(MemberChange::NotAMember);
             };
-            if current.scheme_admin && members::is_only_admin(scope, container_id, user_id).await? {
+            if current.role == ContainerRole::Admin
+                && members::is_only_admin(scope, container_id, user_id).await?
+            {
                 return Ok(MemberChange::LastAdmin);
             }
             delete_member(scope, container_id, user_id).await?;
@@ -550,9 +529,7 @@ pub(crate) fn select_containers_of_user(
         PublicContainers::Exclude => sql.push(" AND ("),
     };
     sql.push("(");
-    members::push_own_membership_in_workspace(&mut sql, user_id)
-        .push(members::BM_HAS_A_ROLE)
-        .push(") OR ");
+    members::push_own_membership_in_workspace(&mut sql, user_id).push(") OR ");
     crate::container_team_access::push_has_team_role(&mut sql, scope, user_id);
     sql.push(")");
     sql
@@ -693,13 +670,7 @@ pub(crate) async fn insert_container_with_admin(
     insert_container(scope, container, user_id).await?;
     // Its admin is its creator (`user_id`, or the stored one of a board that existed).
     members::hold_creator(scope, &container.workspace_id, &container.created_by).await?;
-    let member = ContainerMember {
-        container_id: container.id.clone(),
-        user_id: container.created_by.clone(),
-        scheme_admin: true,
-        scheme_editor: true,
-        ..ContainerMember::default()
-    };
+    let member = ContainerMember::new(&container.id, &container.created_by, ContainerRole::Admin);
     save_member(scope, &member).await?;
     Ok(member)
 }
@@ -722,12 +693,16 @@ pub(crate) async fn patch_container(
     Ok(container)
 }
 
+pub(crate) fn role_from_text(text: &str) -> Result<ContainerRole, StoreError> {
+    text.parse().map_err(|_| StoreError::Corrupt {
+        column: "role",
+        reason: format!("unknown container member role {text:?}"),
+    })
+}
+
 /// Starts the query for memberships.
 pub(crate) fn select_members(scope: &Scope<'_>) -> Sql {
-    scope.sql(
-        "SELECT bm.container_id, bm.user_id, bm.scheme_admin, bm.scheme_editor, \
-         bm.scheme_commenter, bm.scheme_viewer FROM container_members AS bm",
-    )
+    scope.sql("SELECT bm.container_id, bm.user_id, bm.role FROM container_members AS bm")
 }
 
 pub(crate) async fn fetch_members(
@@ -742,11 +717,7 @@ pub(crate) async fn fetch_members(
             Ok(ContainerMember {
                 container_id: row.id(0)?,
                 user_id: row.id(1)?,
-                roles: String::new(),
-                scheme_admin: row.bool(2)?,
-                scheme_editor: row.bool(3)?,
-                scheme_commenter: row.bool(4)?,
-                scheme_viewer: row.bool(5)?,
+                role: role_from_text(&row.text(2)?)?,
                 synthetic: false,
                 inherited_role: None,
             })
@@ -793,22 +764,11 @@ pub(crate) async fn save_member(
     scope: &mut Scope<'_>,
     member: &ContainerMember,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql(
-        "INSERT INTO container_members (container_id, user_id, scheme_admin, scheme_editor, \
-         scheme_commenter, scheme_viewer) VALUES (",
-    );
+    let mut sql = scope.sql("INSERT INTO container_members (container_id, user_id, role) VALUES (");
     sql.bind(Id(&member.container_id))
         .push_bind(", ", Id(&member.user_id))
-        .push_bind(", ", member.scheme_admin)
-        .push_bind(", ", member.scheme_editor)
-        .push_bind(", ", member.scheme_commenter)
-        .push_bind(", ", member.scheme_viewer)
-        .push(
-            ") ON CONFLICT (container_id, user_id) DO UPDATE SET \
-             scheme_admin = EXCLUDED.scheme_admin, scheme_editor = EXCLUDED.scheme_editor, \
-             scheme_commenter = EXCLUDED.scheme_commenter, \
-             scheme_viewer = EXCLUDED.scheme_viewer",
-        );
+        .push_bind(", ", member.role.as_str())
+        .push(") ON CONFLICT (container_id, user_id) DO UPDATE SET role = EXCLUDED.role");
     scope.execute(sql).await?;
     Ok(())
 }

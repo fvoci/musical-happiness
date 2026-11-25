@@ -26,17 +26,7 @@ function setRole(world: World, boardId: string, who: MemoryBackend, role: Contai
   const members = world.members.get(boardId) ?? [];
   world.members.set(
     boardId,
-    members.map((member) =>
-      member.userId === who.userId
-        ? {
-            ...member,
-            schemeAdmin: role === 'admin',
-            schemeEditor: role === 'editor',
-            schemeCommenter: role === 'commenter',
-            schemeViewer: role === 'viewer',
-          }
-        : member,
-    ),
+    members.map((member) => (member.userId === who.userId ? { ...member, role } : member)),
   );
 }
 

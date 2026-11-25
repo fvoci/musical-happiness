@@ -314,7 +314,14 @@ fn what_is_always_there_is_what_the_server_writes() {
         ("CategoryContainers", sent(&CategoryContainers::default())),
         ("ClientConfig", sent(&ClientConfig::default())),
         ("Container", sent(&Container::default())),
-        ("ContainerMember", sent(&ContainerMember::default())),
+        (
+            "ContainerMember",
+            sent(&ContainerMember::new(
+                "",
+                "",
+                fvoci_model::ContainerRole::Viewer,
+            )),
+        ),
         ("ContainersAndBlocks", sent(&ContainersAndBlocks::default())),
         ("FileRecord", sent(&FileRecord::default())),
         ("PublicLink", sent(&PublicLink::default())),
@@ -335,13 +342,16 @@ fn what_is_always_there_is_what_the_server_writes() {
 /// The words of a closed set are those the server writes, letter for letter.
 #[test]
 fn a_closed_set_of_words_lists_the_words_as_they_are_written() {
-    use fvoci_model::{CardOpen, Density, HourCycle, Theme, UserSettings, WeekStart};
+    use fvoci_model::{
+        CardOpen, ContainerRole, Density, HourCycle, Theme, UserSettings, WeekStart,
+    };
 
     let text = document().expect("the document");
     let document: Value = serde_json::from_str(&text).expect("JSON");
     let schemas = &document["components"]["schemas"];
     for (name, words) in [
         ("CardOpen", CardOpen::WORDS),
+        ("ContainerRole", ContainerRole::WORDS),
         ("Density", Density::WORDS),
         ("HourCycle", HourCycle::WORDS),
         ("Theme", Theme::WORDS),

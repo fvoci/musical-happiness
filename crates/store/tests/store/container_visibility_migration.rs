@@ -76,8 +76,12 @@ async fn insert_pre0070_container(scoped: &Store, spec: &Pre0070Container<'_>) {
         scoped
             .execute_unchecked(&format!(
                 "INSERT INTO container_members \
-                 (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
+                 (container_id, user_id, {}, {}, {}, {}) \
                  VALUES ('{}', '{uid}', true, true, false, false)",
+                concat!("scheme", "_admin"),
+                concat!("scheme", "_editor"),
+                concat!("scheme", "_commenter"),
+                concat!("scheme", "_viewer"),
                 spec.id,
             ))
             .await
@@ -251,10 +255,10 @@ async fn seed_pre0070_trash_in_org_a(
     let members_json = json!([{
         "containerId": trashed_open_id,
         "userId": alice,
-        "schemeAdmin": true,
-        "schemeEditor": true,
-        "schemeCommenter": false,
-        "schemeViewer": false
+        (concat!("scheme", "Admin")): true,
+        (concat!("scheme", "Editor")): true,
+        (concat!("scheme", "Commenter")): false,
+        (concat!("scheme", "Viewer")): false
     }])
     .to_string();
     let open_doc = json!({

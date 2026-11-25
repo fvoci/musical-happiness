@@ -43,7 +43,7 @@ use crate::app::{Audience, Former, SessionKept, SessionMade};
 use crate::auth::limiter::AddressKey;
 use crate::auth::{Authenticator, now_millis};
 use crate::metrics::{Disconnect, Metrics};
-use crate::permissions::{ContainerScope, role_of};
+use crate::permissions::ContainerScope;
 
 /// How many undelivered messages a connection may have queued before it is dropped. A
 /// client that reads this slowly has lost track of the board anyway and reloads on
@@ -106,6 +106,22 @@ struct UpdateMemberMessage<'a> {
     kind: &'static str,
     workspace_id: &'a str,
     member: &'a ContainerMember,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemovedMemberRef<'a> {
+    container_id: &'a str,
+    user_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoveMemberMessage<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    workspace_id: &'a str,
+    member: RemovedMemberRef<'a>,
 }
 
 #[derive(Serialize)]
@@ -197,6 +213,7 @@ macro_rules! outgoing {
 outgoing!(
     UpdateContainerMessage,
     UpdateMemberMessage,
+    RemoveMemberMessage,
     UpdateUserMessage,
     UpdateCategoryMessage,
     CategoryReorderMessage,
@@ -618,9 +635,9 @@ impl Hub {
                 .into_iter()
                 .filter(|id| {
                     listeners.by_id.get(id).is_some_and(|listener| {
-                        !members.iter().any(|member| {
-                            member.user_id == listener.user_id && role_of(member).is_some()
-                        })
+                        !members
+                            .iter()
+                            .any(|member| member.user_id == listener.user_id)
                     })
                 })
                 .collect()
@@ -699,15 +716,13 @@ impl Hub {
         container_id: &str,
         user_id: &str,
     ) {
-        let member = ContainerMember {
-            user_id: user_id.to_owned(),
-            container_id: container_id.to_owned(),
-            ..ContainerMember::default()
-        };
-        let message = UpdateMemberMessage {
+        let message = RemoveMemberMessage {
             kind: "containerMemberRemoved",
             workspace_id,
-            member: &member,
+            member: RemovedMemberRef {
+                container_id,
+                user_id,
+            },
         };
         let recipients = self.workspace_listeners(workspace_id);
         self.send(

@@ -116,8 +116,9 @@ pub(crate) async fn let_read(admin: &Client, board_id: &str, user_id: &str) {
     let member = ContainerMember {
         container_id: board_id.to_owned(),
         user_id: user_id.to_owned(),
-        scheme_viewer: true,
-        ..ContainerMember::default()
+        role: fvoci_model::ContainerRole::Viewer,
+        synthetic: false,
+        inherited_role: None,
     };
     admin
         .post(&format!("{TEST_WS}/containers/{board_id}/members"), &member)

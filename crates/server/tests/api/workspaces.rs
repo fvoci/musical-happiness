@@ -343,8 +343,9 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
         .save_member(&ContainerMember {
             container_id: their_board.clone(),
             user_id: user1.clone(),
-            scheme_editor: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Editor,
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("the user is put on their board");
@@ -711,7 +712,7 @@ async fn a_board_takes_the_people_of_its_workspace() {
     let members = format!("{TEST_WS}/containers/{}/members", board.id);
     let add = async |user_id: &str| {
         ts.client
-            .post(&members, &json!({"userId": user_id, "schemeEditor": true}))
+            .post(&members, &json!({"userId": user_id, "role": "editor"}))
             .await
     };
 

@@ -3,9 +3,10 @@
 use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Card, Category, CategoryContainerMetadata,
     CategoryContainers, CategoryType, ClientConfig, Container, ContainerKind, ContainerMember,
-    ContainerPatch, ContainerVisibility, Credential, InvalidInput, LoginRequest, MinimumRole,
-    NameShown, OrgWorkspace, PatchContainersAndBlocks, PersonName, Problem, PublicLink, Subscriber,
-    Subscription, Title, User, UserPreferencesPatch, Workspace,
+    ContainerMemberPatch, ContainerPatch, ContainerRole, ContainerVisibility, Credential,
+    InvalidInput, LoginRequest, MinimumRole, NameShown, OrgWorkspace, PatchContainersAndBlocks,
+    PersonName, Problem, PublicLink, Subscriber, Subscription, Title, User, UserPreferencesPatch,
+    Workspace,
 };
 use serde_json::{Value, json};
 
@@ -382,23 +383,47 @@ fn container_member_json_members() {
     let member = ContainerMember {
         container_id: "b".to_owned(),
         user_id: "u".to_owned(),
-        roles: "r".to_owned(),
-        scheme_admin: true,
-        scheme_editor: false,
-        scheme_commenter: true,
-        scheme_viewer: false,
+        role: ContainerRole::Viewer,
         synthetic: true,
-        inherited_role: Some(fvoci_model::MinimumRole::Editor),
+        inherited_role: Some(MinimumRole::Editor),
     };
-    // Direct flags and inherited roles remain distinguishable on the wire.
+    // Direct role and inherited role remain distinguishable on the wire.
     assert_eq!(
         to_json(&member),
         json!({
-            "containerId": "b", "userId": "u",
-            "schemeAdmin": true, "schemeEditor": false, "schemeCommenter": true,
-            "schemeViewer": false, "synthetic": true, "inheritedRole": "editor"
+            "containerId": "b",
+            "userId": "u",
+            "role": "viewer",
+            "synthetic": true,
+            "inheritedRole": "editor",
         })
     );
+    assert_eq!(member.effective_role(), ContainerRole::Editor);
+
+    // Every closed-set role decodes and serializes identically, and invalid or missing
+    // roles are refused.
+    for role in ContainerRole::ALL {
+        let patch: ContainerMemberPatch =
+            serde_json::from_value(json!({ "role": role.as_str() })).expect("decodes");
+        assert_eq!(patch, ContainerMemberPatch { role });
+        assert_eq!(to_json(&patch), json!({ "role": role.as_str() }));
+    }
+    for invalid in [
+        json!({}),
+        json!({ "role": "" }),
+        json!({ "role": "owner" }),
+        json!({ "role": "Admin" }),
+        json!({ "role": null }),
+    ] {
+        assert!(
+            serde_json::from_value::<ContainerMember>(invalid.clone()).is_err(),
+            "{invalid} must not decode as ContainerMember"
+        );
+        assert!(
+            serde_json::from_value::<ContainerMemberPatch>(invalid.clone()).is_err(),
+            "{invalid} must not decode as ContainerMemberPatch"
+        );
+    }
 }
 
 #[test]
@@ -855,10 +880,10 @@ fn null_is_refused_for_members_that_are_not_nullable() {
     );
     refuses_null_members::<ContainerMember>(
         &json!({
-            "containerId": "b1", "userId": "u1", "schemeAdmin": false, "schemeEditor": false, "schemeCommenter": false,
-            "schemeViewer": false,
+            "containerId": "b1", "userId": "u1", "role": "viewer",
+            "synthetic": false, "inheritedRole": "editor",
         }),
-        &[],
+        &["role"],
         "a member",
     );
     refuses_null_members::<Category>(

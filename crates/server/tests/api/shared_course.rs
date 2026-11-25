@@ -80,7 +80,7 @@ async fn shared_course(th: &TestServer) -> SharedCourse {
     owner
         .post(
             &format!("{TEST_WS}/containers/{course}/members"),
-            &json!({"containerId": course, "userId": other_id, "schemeEditor": true}),
+            &json!({"containerId": course, "userId": other_id, "role": "editor"}),
         )
         .await
         .check_ok();

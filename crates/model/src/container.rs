@@ -216,7 +216,19 @@ impl From<ContainerKind> for ContainerKinds {
 }
 
 /// A role on a board, from least to most privileged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    utoipa::ToSchema,
+)]
 pub enum ContainerRole {
     /// May view the board.
     #[serde(rename = "viewer")]
@@ -233,7 +245,14 @@ pub enum ContainerRole {
 }
 
 impl ContainerRole {
+    /// Every role there is, from least to most privileged.
+    pub const ALL: [Self; 4] = [Self::Viewer, Self::Commenter, Self::Editor, Self::Admin];
+
+    /// The wire words in the order of [`Self::ALL`].
+    pub const WORDS: &[&str] = &["viewer", "commenter", "editor", "admin"];
+
     /// Returns the wire form.
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Viewer => "viewer",
@@ -244,11 +263,17 @@ impl ContainerRole {
     }
 }
 
+impl std::fmt::Display for ContainerRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 impl std::str::FromStr for ContainerRole {
     type Err = crate::organization::UnknownRole;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        [Self::Viewer, Self::Commenter, Self::Editor, Self::Admin]
+        Self::ALL
             .into_iter()
             .find(|role| role.as_str() == text)
             .ok_or_else(|| crate::organization::UnknownRole(text.to_owned()))
@@ -717,63 +742,92 @@ fn property_id(property: &JsonMap) -> Option<String> {
 }
 
 /// A user's membership of a board.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(default, rename_all = "camelCase")]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "the four scheme flags and `synthetic` are separate members of the wire format"
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ContainerMember {
     /// The identifier of the board.
+    #[serde(default)]
     pub container_id: String,
     /// The identifier of the user.
+    #[serde(default)]
     pub user_id: String,
-    /// The user's independent roles on the board. Nothing stores any; not part of the
-    /// JSON form.
-    #[serde(skip)]
-    pub roles: String,
-    /// The user administers the board.
-    pub scheme_admin: bool,
-    /// The user may edit the board.
-    pub scheme_editor: bool,
-    /// The user may comment on the board's cards.
-    pub scheme_commenter: bool,
-    /// The user may view the board.
-    pub scheme_viewer: bool,
+    /// The user's role on the board.
+    pub role: ContainerRole,
     /// The membership has no directly stored role record.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub synthetic: bool,
-    /// The highest role inherited from teams; direct flags remain unchanged.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The highest role inherited from teams; the direct `role` remains unchanged.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_util::non_null"
+    )]
+    #[schema(nullable = false)]
     pub inherited_role: Option<MinimumRole>,
 }
 
 impl ContainerMember {
-    /// The role the membership has: the highest of its flags, `None` if it has none.
+    /// A direct membership of `user_id` on `container_id` with `role`.
     #[must_use]
-    pub fn role(&self) -> Option<ContainerRole> {
-        [
-            (self.scheme_admin, ContainerRole::Admin),
-            (self.scheme_editor, ContainerRole::Editor),
-            (self.scheme_commenter, ContainerRole::Commenter),
-            (self.scheme_viewer, ContainerRole::Viewer),
-        ]
-        .into_iter()
-        .find_map(|(held, role)| held.then_some(role))
-        .max(self.inherited_role.map(ContainerRole::from))
-    }
-
-    /// The membership with exactly the flag of `role`, and none for `None`.
-    #[must_use]
-    pub fn with_role(self, role: Option<ContainerRole>) -> Self {
+    pub fn new(
+        container_id: impl Into<String>,
+        user_id: impl Into<String>,
+        role: ContainerRole,
+    ) -> Self {
         Self {
-            scheme_admin: role == Some(ContainerRole::Admin),
-            scheme_editor: role == Some(ContainerRole::Editor),
-            scheme_commenter: role == Some(ContainerRole::Commenter),
-            scheme_viewer: role == Some(ContainerRole::Viewer),
-            ..self
+            container_id: container_id.into(),
+            user_id: user_id.into(),
+            role,
+            synthetic: false,
+            inherited_role: None,
         }
     }
+
+    /// The effective role the membership grants: the higher of its `role` and any
+    /// `inherited_role`.
+    #[must_use]
+    pub fn effective_role(&self) -> ContainerRole {
+        match self.inherited_role {
+            Some(inherited) => self.role.max(ContainerRole::from(inherited)),
+            None => self.role,
+        }
+    }
+
+    /// The membership with `role` as its direct role.
+    #[must_use]
+    pub fn with_role(self, role: ContainerRole) -> Self {
+        Self { role, ..self }
+    }
+}
+
+/// A `(container_id, user_id)` pair naming a person on a board without a role,
+/// carried when a membership ends or a group's board reach is rechecked.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemberRef {
+    /// The identifier of the board.
+    pub container_id: String,
+    /// The identifier of the user.
+    pub user_id: String,
+}
+
+impl MemberRef {
+    /// Names `user_id` on `container_id`.
+    #[must_use]
+    pub fn new(container_id: impl Into<String>, user_id: impl Into<String>) -> Self {
+        Self {
+            container_id: container_id.into(),
+            user_id: user_id.into(),
+        }
+    }
+}
+
+/// A change to a member's role on a board.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerMemberPatch {
+    /// The role the member is to have on the board.
+    pub role: ContainerRole,
 }
 
 /// The board member that a board search matches against.

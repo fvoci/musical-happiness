@@ -12,7 +12,7 @@ use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::blocks::{block_path, delete, undelete_path};
-use crate::boards::{delete_member, editor, patch_board};
+use crate::boards::{delete_member, patch_board};
 use crate::common::{Client, HIDDEN_WORKSPACE_ID, Setup, TEST_WS, TestServer};
 use crate::content_search::set_role;
 use crate::notifications::{
@@ -388,7 +388,7 @@ async fn who_watched_a_card_or_a_page_watches_it_again_once_it_is_back() {
         ..fvoci_model::Block::default()
     };
     delete(&th.client, &as_block).await;
-    delete_member(&th.client, &editor(&board.id, &leaver_id))
+    delete_member(&th.client, &board.id, &leaver_id)
         .await
         .check_no_content();
     th.client

@@ -49,7 +49,7 @@ describe('a wiki in memory', () => {
     const system = categories.find((category) => category.type === 'system');
     expect(system?.containerIds).toContain(made.wiki.id);
     const [member] = await made.backend.members(made.wiki.id);
-    expect(member?.schemeAdmin).toBe(true);
+    expect(member?.role).toBe('admin');
     expect((await made.backend.container(made.wiki.id)).kind).toBe('wiki');
   });
 

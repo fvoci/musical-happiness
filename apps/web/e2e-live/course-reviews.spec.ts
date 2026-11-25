@@ -88,7 +88,7 @@ test('full review & note lifecycle on live server with strict user and public-li
     });
     await postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {
       userId: boraUser.id,
-      schemeViewer: true,
+      role: 'viewer',
     });
     const unit1 = await postJson<Schemas['Unit']>(
       adaApi,

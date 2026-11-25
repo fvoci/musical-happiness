@@ -63,9 +63,8 @@ describe('the memory backend', () => {
     // Only who may change the properties: an editor or an admin.
     expect(await refused([STATUS, OWNER])).toBe('taken');
     const commenter = backend.as(
-      (backend.world.members.get(board.boardId) ?? []).find(
-        (member) => member.schemeCommenter && !member.schemeEditor && !member.schemeAdmin,
-      )?.userId ?? '',
+      (backend.world.members.get(board.boardId) ?? []).find((member) => member.role === 'commenter')
+        ?.userId ?? '',
     );
     const asCommenter = await commenter
       .reorderCardProperties(board.boardId, [OWNER, STATUS])
@@ -139,9 +138,7 @@ describe('an open board', () => {
     made.world.members.set(
       made.board.boardId,
       (made.world.members.get(made.board.boardId) ?? []).map((member) =>
-        member.userId === made.other.userId
-          ? { ...member, schemeEditor: true, schemeCommenter: true }
-          : member,
+        member.userId === made.other.userId ? { ...member, role: 'editor' } : member,
       ),
     );
     const elsewhere = new Workspace({ backend: made.other, locale: () => 'en' });

@@ -43,16 +43,16 @@ async fn private_template_for_admin() -> (TestServer, Container, String) {
 #[tokio::test]
 async fn a_roleless_workspace_admin_gets_no_template_content_from_the_list() {
     let (server, template, admin) = private_template_for_admin().await;
-    // This is a supported API state: the board's owner can remove every role.
-    server
+    // A membership without a role is refused at the API boundary.
+    let refused = server
         .client
-        .add_member(&ContainerMember {
-            container_id: template.id.clone(),
-            user_id: admin,
-            ..ContainerMember::default()
-        })
-        .await
-        .check_ok();
+        .post(
+            &format!("{TEST_WS}/containers/{}/members", template.id),
+            &json!({"userId": admin}),
+        )
+        .await;
+    refused.check_bad_request();
+    assert_eq!(refused.refused_at(), "/role");
     let direct: Container = server
         .client2
         .get(&format!("{TEST_WS}/containers/{}", template.id))
@@ -118,8 +118,9 @@ async fn a_former_non_author_is_not_discoverable_through_a_stale_board_role() {
         .add_member(&ContainerMember {
             container_id: board.id,
             user_id: leaver.clone(),
-            scheme_viewer: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Viewer,
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .check_ok();

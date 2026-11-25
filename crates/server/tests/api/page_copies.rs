@@ -74,7 +74,7 @@ async fn copied_with_those_below_it_and_given_files(kind: &str) {
     client
         .post(
             &format!("{TEST_WS}/containers/{wiki_id}/members"),
-            &json!({"containerId": wiki_id, "userId": other, "schemeEditor": true}),
+            &json!({"containerId": wiki_id, "userId": other, "role": "editor"}),
         )
         .await
         .check_ok();
@@ -163,7 +163,7 @@ async fn a_copy_is_the_editors_held_to_the_limits_and_checked() {
     client
         .post(
             &format!("{TEST_WS}/containers/{wiki_id}/members"),
-            &json!({"containerId": wiki_id, "userId": other, "schemeViewer": true}),
+            &json!({"containerId": wiki_id, "userId": other, "role": "viewer"}),
         )
         .await
         .check_ok();

@@ -7,7 +7,6 @@
 import type { Container, ContainerMember } from '../logic/wire.ts';
 
 import { isBackendError, type ContainerRole } from './backend.ts';
-import { roleFlags } from './board-parts.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
 /** What holds the members of one board or wiki. */
@@ -56,9 +55,7 @@ export class MemberWrites {
   async setRole(userId: string, role: ContainerRole): Promise<void> {
     const of = this.#of;
     await this.#write(
-      of.members.map((member) =>
-        member.userId === userId ? { ...member, ...roleFlags(role) } : member,
-      ),
+      of.members.map((member) => (member.userId === userId ? { ...member, role } : member)),
       () => of.workspace.backend.setMemberRole(of.containerId, userId, role),
     );
   }

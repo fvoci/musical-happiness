@@ -6,7 +6,7 @@ use super::ending::{Ended, Of};
 use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, ReadPermit, UpdateBlockMessage, text_of};
 use crate::app::SessionMade;
 use crate::metrics::Disconnect;
-use crate::permissions::{ContainerScope, role_of, told_without_a_role};
+use crate::permissions::{ContainerScope, told_without_a_role};
 
 #[derive(Clone, Copy)]
 pub(super) enum Access<'a> {
@@ -51,9 +51,7 @@ struct Known {
 
 impl Known {
     fn reads(&self, user: &str, role: WorkspaceRole) -> bool {
-        self.members
-            .iter()
-            .any(|member| member.user_id == user && role_of(member).is_some())
+        self.members.iter().any(|member| member.user_id == user)
             || self
                 .scope
                 .is_some_and(|scope| told_without_a_role(scope, role))
@@ -214,7 +212,7 @@ impl Hub {
         for (id, user, making) in signed_in {
             let on_container = container_members
                 .iter()
-                .any(|member| member.user_id == user && role_of(member).is_some());
+                .any(|member| member.user_id == user);
             if !on_container {
                 readers.push(id);
                 continue;

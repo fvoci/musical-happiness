@@ -594,8 +594,9 @@ async fn versions_are_read_by_readers_and_written_by_editors() {
     let viewer = fvoci_model::ContainerMember {
         container_id: board.id.clone(),
         user_id: ts.client2.me().await.id,
-        scheme_viewer: true,
-        ..fvoci_model::ContainerMember::default()
+        role: fvoci_model::ContainerRole::Viewer,
+        synthetic: false,
+        inherited_role: None,
     };
     ts.client.add_member(&viewer).await.check_ok();
     assert_eq!(versions(&ts.client2, &board.id, &file_id).await.len(), 2);

@@ -229,10 +229,7 @@
         {
           "data": {
             "containerId": "<id:3>",
-            "schemeAdmin": true,
-            "schemeCommenter": false,
-            "schemeEditor": true,
-            "schemeViewer": false,
+            "role": "admin",
             "userId": "<id:2>"
           },
           "type": "containerMember"
@@ -580,18 +577,12 @@
     "body": [
       {
         "containerId": "<id:8>",
-        "schemeAdmin": true,
-        "schemeCommenter": false,
-        "schemeEditor": true,
-        "schemeViewer": false,
+        "role": "admin",
         "userId": "<id:2>"
       },
       {
         "containerId": "<id:8>",
-        "schemeAdmin": true,
-        "schemeCommenter": false,
-        "schemeEditor": false,
-        "schemeViewer": false,
+        "role": "admin",
         "userId": "<id:22>"
       }
     ]

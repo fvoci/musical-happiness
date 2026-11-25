@@ -496,7 +496,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("InvitationMail", Members::Only(&["token", "recipients"])),
     ("InvitationToken", Members::All),
     ("LoginRequest", Members::Only(&["password"])),
-    ("MemberRoles", Members::AsWritten),
+    ("ContainerMemberPatch", Members::All),
     (
         "NewAccount",
         Members::Only(&["username", "email", "password"]),
@@ -616,6 +616,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("DeletionProof", Members::AsWritten),
     ("CategoryType", Members::AsWritten),
     ("ContainerKind", Members::AsWritten),
+    ("ContainerRole", Members::AsWritten),
     ("ContainerVisibility", Members::AsWritten),
     ("Credential", Members::AsWritten),
     ("Density", Members::AsWritten),

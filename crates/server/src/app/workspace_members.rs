@@ -187,12 +187,7 @@ impl App {
                         by,
                         "a board passed to who manages the workspace"
                     );
-                    let admin = ContainerMember {
-                        container_id,
-                        user_id: by.to_owned(),
-                        ..ContainerMember::default()
-                    }
-                    .with_role(Some(ContainerRole::Admin));
+                    let admin = ContainerMember::new(container_id, by, ContainerRole::Admin);
                     self.broadcast_member_change_in_background(workspace_id.to_owned(), admin);
                 }
                 Ok(taken_over)

@@ -343,9 +343,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
       await api.post(`/api/v1/w/${board.workspaceId}/containers/${board.id}/members`, {
         data: {
           userId: user.id,
-          schemeViewer: true,
-          schemeCommenter: role !== 'viewer',
-          schemeEditor: role === 'editor',
+          role,
         },
       }),
       `add ${who.username}`,

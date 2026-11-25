@@ -3,7 +3,7 @@
 적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST, 그 커서는 2026-11-14 23:20 KST, 다시 들기는 2026-11-15 04:10 KST, 보드의 있음 7절은 2026-11-13 19:41 KST. 서버가 구독을 끝낼 때의 알림, 3절은 2026-11-14 01:35 KST. 죽은 연결의 `ping`·`pong`, 3절은 2026-11-15 19:02 KST. 팀의 조작, 3절과 6절은 2026-11-14 06:55 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
 
 - 메시지마다의 멤버와 타입은 기계가 읽는 `contracts/websocket.json`에 있다. 서버의 테스트(`crates/server/tests/api/websocket.rs`의 `messages_match_the_websocket_contract`, 본문의 공동 편집(6절)의 `doc…`은 `rooms_contract.rs`의 `the_messages_of_the_rooms_match_the_websocket_contract`)가 서버가 실제로 보낸 메시지를 그 파일과 견준다: 맨 위 멤버가 정확히 그 이름들이고, 실린 객체(`container`, `block` 등)의 멤버는 계약 파일의 같은 이름의 스키마에 있는 것들이다. 테스트가 보는 것은 **메시지**뿐이다. 명령(2절)과 `session`·`sent` 표시는 이 문서와 코드를 사람이 맞춰 둔다. 실린 객체의 멤버는 이름만 견주고 타입은 계약 파일의 스키마를 따른다. Binary 프레임(6절)의 바이트는 `crates/server/src/collab/frame.rs`의 테스트와 `rooms.rs`의 테스트가 따로 쓴 부호화로 견준다. 커서의 바이트는 편집기의 라이브러리(y-protocols, Yjs)로 찍은 `contracts/caret-vectors.json`에 서버(`collab/caret.rs`)와 웹앱의 테스트가 함께 견준다.
-- 메시지가 싣는 보드, 블록, 멤버, 카테고리는 계약의 `Container`, `Block`, `ContainerMember`, `Category`와 같은 모양이다. `Block`은 본문(`body`, `docs/contract-pending.md` 1절)을 싣는다.
+- 메시지가 싣는 보드, 블록, 멤버, 카테고리는 계약의 `Container`, `Block`, `ContainerMember`, `Category`와 같은 모양이다(`containerMemberRemoved`의 `member`는 `{containerId, userId}`만 싣는다). `Block`은 본문(`body`, `docs/contract-pending.md` 1절)을 싣는다.
 - 이 문서의 모양을 바꾸는 일은 계약을 바꾸는 일이다. 바꿀 때는 이 문서, `websocket.json`, `docs/contract-pending.md`를 같은 커밋에서 고친다.
 
 ## 1. 핸드셰이크와 인증
@@ -57,7 +57,7 @@
 | `containerChanged` | `workspaceId`, `container`(`Container` 전체) | 그 워크스페이스를 구독한 연결 가운데 사용자가 보드를 읽는 사람인 것(아래 "받는 사람의 규칙") |
 | `blockChanged` | `workspaceId`, `block`(`Block`). **카드·페이지·일기 항목·단원(`BlockType::WITH_ROOM`)은 본문 대신 그 요약을 싣는다**: `block`의 `body`는 `null`이고, 곁의 `summary`가 `hasBody`·`tasksTotal`·`tasksDone`(`getCards`의 카드의 그것)과 `preview`(`getCards`의 `preview=true`가 주는 `CardPreview`)를 싣는다. 본문은 방(6절)이나 HTTP로 읽는다. 다른 블록(댓글은 본문까지 블록 전체)과 지운 블록(아래 `deleteBlock`)에는 `summary`가 없다 | 위와 같은 연결, 그리고 그 블록이나 그 블록의 부모를 `subscribeBlocks`로 따라가는 연결 |
 | `containerMemberChanged` | `workspaceId`, `member`(`ContainerMember`) | 그 워크스페이스를 구독한 연결 가운데 사용자가 보드를 읽는 사람인 것 |
-| `containerMemberRemoved` | `workspaceId`, `member`(`containerId`, `userId`만 뜻이 있고 역할은 모두 `false`) | 위와 같은 연결, 그리고 빠진 사용자의 연결 |
+| `containerMemberRemoved` | `workspaceId`, `member`(`{containerId, userId}`) | 위와 같은 연결, 그리고 빠진 사용자의 연결 |
 | `userChanged` | `workspaceId`, `userId`. 이름은 싣지 않는다: 받은 클라이언트가 그 사람을 다시 읽는다(`getWorkspaceUsersById`) | 그 워크스페이스를 구독한 연결 가운데 사용자가 그 사람을 이름으로 보는 것(`permissions::sees_person`: 구성원은 모두, 손님은 같은 보드에 있는 사람). 그 사람 자신의 연결도 |
 | `categoryChanged` | `workspaceId`, `category`(`Category`) | 카테고리 주인의, 그 워크스페이스를 구독한 연결 모두(아래) |
 | `containerCategoriesChanged` | `workspaceId`, `containerCategories`(`{containerId, categoryId, hidden}`의 목록). **목록은 바꾼 항목들이지 전체가 아니다**: `setContainerCategory`와 보드를 기본 카테고리에 넣는 조작은 그 카테고리의 보드 전부를, `hideContainer`·`unhideContainer`·`undeleteContainer`는 항목 하나를 싣는다. 받는 쪽은 항목마다 덮어쓴다(목록으로 갈아 끼우면 보드를 잃는다) | 그 사용자의 연결 모두 |

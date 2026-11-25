@@ -96,7 +96,7 @@ impl Store {
         .await
     }
 
-    /// Replaces the scheme flags of a membership, unless that would leave the board
+    /// Replaces the `role` of a membership, unless that would leave the board
     /// without an administrator.
     ///
     /// The check and the write are one step: of two administrators who give up the role
@@ -113,7 +113,7 @@ impl Store {
             .await
     }
 
-    /// Replaces the scheme flags of a membership as [`Store::change_member`] does and, if
+    /// Replaces the `role` of a membership as [`Store::change_member`] does and, if
     /// it is changed, records `entry` with it, in one step.
     ///
     /// # Errors
@@ -187,16 +187,10 @@ pub(crate) async fn add_member(
     // without the lock a removal in between would make this say "new" of a
     // membership that does not exist.
     hold_container(scope, &member.container_id).await?;
-    let mut sql = scope.sql(
-        "INSERT INTO container_members (container_id, user_id, scheme_admin, scheme_editor, \
-         scheme_commenter, scheme_viewer) VALUES (",
-    );
+    let mut sql = scope.sql("INSERT INTO container_members (container_id, user_id, role) VALUES (");
     sql.bind(Id(&member.container_id))
         .push_bind(", ", Id(&member.user_id))
-        .push_bind(", ", member.scheme_admin)
-        .push_bind(", ", member.scheme_editor)
-        .push_bind(", ", member.scheme_commenter)
-        .push_bind(", ", member.scheme_viewer)
+        .push_bind(", ", member.role.as_str())
         .push(") ON CONFLICT (container_id, user_id) DO NOTHING");
     let added = scope
         .execute(sql)
@@ -218,8 +212,8 @@ async fn change_member(
     let Some(current) = find_member(scope, &member.container_id, &member.user_id).await? else {
         return Ok(MemberChange::NotAMember);
     };
-    if current.scheme_admin
-        && !member.scheme_admin
+    if current.role == ContainerRole::Admin
+        && member.role != ContainerRole::Admin
         && members::is_only_admin(scope, &member.container_id, &member.user_id).await?
     {
         return Ok(MemberChange::LastAdmin);
@@ -272,18 +266,10 @@ async fn standing_holds(
         .await?
         .map(|(role, _)| role);
     let now_member = find_member(scope, container_id, asked.user_id).await?;
-    let flags = |member: &ContainerMember| {
-        [
-            member.scheme_admin,
-            member.scheme_editor,
-            member.scheme_commenter,
-            member.scheme_viewer,
-        ]
-    };
     let team_role =
         crate::container_team_access::role_for(scope, container_id, asked.user_id).await?;
     if now_role == asked.workspace_role
-        && now_member.as_ref().map(flags) == asked.member.map(flags)
+        && now_member.as_ref().map(|member| member.role) == asked.member.map(|member| member.role)
         && team_role == asked.team_role
     {
         Ok(())

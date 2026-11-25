@@ -82,7 +82,7 @@ test('isolates personal progress & lastPosition between members, shows only aggr
     // Add Bora as a Viewer (read-only on content, allowed to track personal progress).
     await postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {
       userId: boraUser.id,
-      schemeViewer: true,
+      role: 'viewer',
     });
     const chapter = await postJson<Schemas['Unit']>(
       adaApi,

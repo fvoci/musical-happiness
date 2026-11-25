@@ -42,24 +42,22 @@ pub(crate) async fn board_with_roles(th: &TestServer) -> Roles {
     let editor = th.add_user("editor").await;
     let commenter = th.add_user("commenter").await;
     let viewer = th.add_user("viewer").await;
-    let member = |user_id: String| ContainerMember {
-        container_id: board.id.clone(),
-        user_id,
-        ..ContainerMember::default()
-    };
     let members = [
-        ContainerMember {
-            scheme_editor: true,
-            ..member(editor.me().await.id)
-        },
-        ContainerMember {
-            scheme_commenter: true,
-            ..member(commenter.me().await.id)
-        },
-        ContainerMember {
-            scheme_viewer: true,
-            ..member(viewer.me().await.id)
-        },
+        ContainerMember::new(
+            &board.id,
+            editor.me().await.id,
+            fvoci_model::ContainerRole::Editor,
+        ),
+        ContainerMember::new(
+            &board.id,
+            commenter.me().await.id,
+            fvoci_model::ContainerRole::Commenter,
+        ),
+        ContainerMember::new(
+            &board.id,
+            viewer.me().await.id,
+            fvoci_model::ContainerRole::Viewer,
+        ),
     ];
     for member in &members {
         th.client.add_member(member).await.check_ok();

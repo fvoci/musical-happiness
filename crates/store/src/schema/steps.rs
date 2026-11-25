@@ -9,7 +9,7 @@ pub(super) struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-pub(super) const STEPS: [Step; 69] = [
+pub(super) const STEPS: [Step; 70] = [
     Step {
         version: 1,
         description: "baseline",
@@ -430,5 +430,11 @@ pub(super) const STEPS: [Step; 69] = [
         description: "nullable deleted at",
         sqlite: include_str!("../../schema/sqlite/0072_nullable_deleted_at.sql"),
         postgres: include_str!("../../schema/postgres/0072_nullable_deleted_at.sql"),
+    },
+    Step {
+        version: 73,
+        description: "container member role enum",
+        sqlite: include_str!("../../schema/sqlite/0073_container_member_role_enum.sql"),
+        postgres: include_str!("../../schema/postgres/0073_container_member_role_enum.sql"),
     },
 ];

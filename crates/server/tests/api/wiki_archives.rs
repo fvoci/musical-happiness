@@ -126,7 +126,7 @@ async fn check_handbook(ts: &TestServer, at: &str, copy: &str, source: &Handbook
     assert!(
         members
             .iter()
-            .any(|member| member.user_id == me && member.scheme_admin),
+            .any(|member| member.user_id == me && member.role == fvoci_model::ContainerRole::Admin),
         "who imports administers it"
     );
 }

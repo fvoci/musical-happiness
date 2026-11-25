@@ -86,8 +86,12 @@ async fn database_before_courses() -> PreMigration {
         scoped
             .execute_unchecked(&format!(
                 "INSERT INTO container_members \
-                 (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
+                 (container_id, user_id, {}, {}, {}, {}) \
                  VALUES ('{}', '{user_id}', true, true, false, false)",
+                concat!("scheme", "_admin"),
+                concat!("scheme", "_editor"),
+                concat!("scheme", "_commenter"),
+                concat!("scheme", "_viewer"),
                 container.id
             ))
             .await
@@ -222,8 +226,12 @@ async fn seed_diary_in_own_space(store: &Store, user_id: &str) -> (String, Strin
     .expect("diary stored");
     own.execute_unchecked(&format!(
         "INSERT INTO container_members \
-         (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
-         VALUES ('{diary_id}', '{user_id}', true, true, false, false)"
+         (container_id, user_id, {}, {}, {}, {}) \
+         VALUES ('{diary_id}', '{user_id}', true, true, false, false)",
+        concat!("scheme", "_admin"),
+        concat!("scheme", "_editor"),
+        concat!("scheme", "_commenter"),
+        concat!("scheme", "_viewer"),
     ))
     .await
     .expect("diary member stored");

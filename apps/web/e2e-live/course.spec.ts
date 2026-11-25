@@ -594,9 +594,7 @@ test('shared workspace: open course read without joining, joined co-editing with
     //    immediate docLeft and blocks reading.
     await postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {
       userId: boraId,
-      schemeViewer: true,
-      schemeCommenter: true,
-      schemeEditor: true,
+      role: 'editor',
     });
     boraWs.length = 0;
     await second.goto(unit2Url);
@@ -662,9 +660,7 @@ test('unit body table: inserts, syncs live between two editors, persists in DB a
     });
     await postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {
       userId: boraId,
-      schemeViewer: true,
-      schemeCommenter: true,
-      schemeEditor: true,
+      role: 'editor',
     });
 
     const chapter = await postJson<Schemas['Unit']>(

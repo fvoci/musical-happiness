@@ -88,14 +88,14 @@ test('a wiki is shared from its head: a colleague added, their role changed, and
   await expect(dialog.getByTestId('share-members').locator('li')).toHaveCount(2);
   await expect
     .poll(async () => (await members(api, wiki)).find((one) => one.userId === colleagueId))
-    .toMatchObject({ schemeEditor: true, schemeAdmin: false });
+    .toMatchObject({ role: 'editor' });
 
   await dialog
     .getByRole('combobox', { name: `Role of ${colleague.username}` })
     .selectOption('viewer');
   await expect
     .poll(async () => (await members(api, wiki)).find((one) => one.userId === colleagueId))
-    .toMatchObject({ schemeViewer: true, schemeEditor: false });
+    .toMatchObject({ role: 'viewer' });
 
   const open = dialog.getByTestId('share-open');
   await expect(open).not.toBeChecked();
@@ -157,8 +157,7 @@ test('a wiki for the invited only is managed by the workspace’s administrator 
   await expect(page.locator('h1[data-testid="page-title"]')).toHaveText('Hello');
   const adminId = await idOf(await signedIn(base, ADMIN));
   expect((await members(api, wiki)).find((one) => one.userId === adminId)).toMatchObject({
-    schemeViewer: true,
-    schemeEditor: false,
+    role: 'viewer',
   });
   expect(errors).toEqual([]);
   await api.dispose();

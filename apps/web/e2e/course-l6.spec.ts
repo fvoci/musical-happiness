@@ -85,6 +85,7 @@ test('creates a course from built-in template, duplicates, and exports/imports w
   await expect(page).toHaveURL(ON_A_COURSE);
   await expect.poll(() => courseIdOf(page.url())).not.toBe(originalId);
   const dupId = courseIdOf(page.url());
+  await showSidebar(page);
   await expect(sidebar(page).getByRole('link', { name: 'L6 Study Plan copy' })).toBeVisible();
   await hideSidebar(page);
   await showTree(page);
@@ -101,6 +102,7 @@ test('creates a course from built-in template, duplicates, and exports/imports w
   const archive = testInfo.outputPath('course-l6.fvoci');
   await (await saving).saveAs(archive);
 
+  await showSidebar(page);
   await sidebar(page).getByTestId('open-settings').click();
   const settings = page.getByTestId('settings-dialog');
   await settings.getByTestId('import-archive').setInputFiles(archive);

@@ -607,14 +607,15 @@ pub const fn reads_the_audit_log(role: Option<WorkspaceRole>) -> bool {
     matches!(role, Some(WorkspaceRole::Admin | WorkspaceRole::Member))
 }
 
-/// The membership with exactly the flag of `role`, and none for `None`.
+/// The membership with `role` as its direct role.
 #[must_use]
-pub fn with_role(member: ContainerMember, role: Option<ContainerRole>) -> ContainerMember {
+pub fn with_role(member: ContainerMember, role: ContainerRole) -> ContainerMember {
     member.with_role(role)
 }
 
-/// The role a membership has: the highest of its flags, `None` if it has none.
+/// The effective role a membership grants: the higher of its direct `role` and any
+/// `inherited_role`.
 #[must_use]
-pub fn role_of(member: &ContainerMember) -> Option<ContainerRole> {
-    member.role()
+pub fn role_of(member: &ContainerMember) -> ContainerRole {
+    member.effective_role()
 }

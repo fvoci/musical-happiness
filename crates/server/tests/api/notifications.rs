@@ -5,15 +5,15 @@
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, Card, Container, ContainerMember, ContainerVisibility, Notification,
-    NotificationKind, SearchKind, UnreadNotifications,
+    Block, BlockType, Card, Container, ContainerVisibility, Notification, NotificationKind,
+    SearchKind, UnreadNotifications,
 };
 use fvoci_server::app::tend_notifications;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::blocks::{block_path, child_of, delete, insert_one, undelete_path};
-use crate::boards::{delete_member, editor, new_board};
+use crate::boards::{delete_member, new_board};
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID};
 use crate::rooms::{Peer, card_holds, give};
 
@@ -288,7 +288,7 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
     );
 
     // Off the board: the two are still B's, and say nothing.
-    delete_member(&th.client, &editor(&board.id, &b.id))
+    delete_member(&th.client, &board.id, &b.id)
         .await
         .check_no_content();
     let unseen = told(&th, &th.client2).await;
@@ -664,16 +664,9 @@ async fn what_cannot_be_seen_is_seen_again_once_its_reader_is_let_back() {
     give(&th, &board.id, &b.id, "viewer").await;
     card_with(&th.client, &board.id, &mentioning(&[&b.id])).await;
     assert_eq!(kinds(&told(&th, &th.client2).await), (vec!["mention"], 0));
-    delete_member(
-        &th.client,
-        &ContainerMember {
-            container_id: board.id.clone(),
-            user_id: b.id.clone(),
-            ..ContainerMember::default()
-        },
-    )
-    .await
-    .check_no_content();
+    delete_member(&th.client, &board.id, &b.id)
+        .await
+        .check_no_content();
     assert_eq!(kinds(&told(&th, &th.client2).await), (vec![], 1));
     give(&th, &board.id, &b.id, "commenter").await;
     assert_eq!(kinds(&told(&th, &th.client2).await), (vec!["mention"], 0));

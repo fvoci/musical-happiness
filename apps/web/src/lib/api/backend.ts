@@ -65,7 +65,6 @@ import {
   containerPatchOf,
   previewsOf,
   settingsChangeOf,
-  rolesOf,
   settingsOf,
   publicLinkOf,
   userOf,
@@ -268,9 +267,9 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return members.map(memberOf);
   }
 
-  /** `addMember` with exactly the one role, as the server gives roles. */
+  /** `addMember` with the requested role, as the server gives roles. */
   async addMember(id: string, userId: string, role: ContainerRole): Promise<ContainerMember> {
-    const request: Schemas['NewMember'] = { userId, ...rolesOf(role) };
+    const request: Schemas['NewMember'] = { userId, role };
     return memberOf(
       await this.inWorkspace<Schemas['ContainerMember']>(
         '/containers/{containerId}/members',
@@ -281,11 +280,12 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   }
 
   async setMemberRole(id: string, userId: string, role: ContainerRole): Promise<ContainerMember> {
+    const patch: Schemas['ContainerMemberPatch'] = { role };
     return memberOf(
       await this.inWorkspace<Schemas['ContainerMember']>(
         '/containers/{containerId}/members/{userId}',
         { containerId: id, userId },
-        { method: 'PUT', json: rolesOf(role) },
+        { method: 'PUT', json: patch },
       ),
     );
   }

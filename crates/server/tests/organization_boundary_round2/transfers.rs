@@ -132,8 +132,9 @@ async fn export_with_b_only_member(scene: &Scene) -> (Vec<u8>, User) {
         .save_member(&ContainerMember {
             container_id: scene.b.id.clone(),
             user_id: outsider.id.clone(),
-            scheme_viewer: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Viewer,
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("B's invited member");

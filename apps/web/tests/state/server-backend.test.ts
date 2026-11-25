@@ -538,17 +538,13 @@ describe('joining an open board on the server', () => {
     const sent = serve({
       containerId: 'b',
       userId: 'u',
-      roles: '',
-      schemeAdmin: false,
-      schemeEditor: true,
-      schemeCommenter: true,
-      schemeViewer: true,
+      role: 'editor',
     });
     const member = await serverBackend('').joinContainer('b');
     expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
       'POST /api/v1/w/w1/containers/b/join',
     ]);
-    expect(member).toMatchObject({ containerId: 'b', userId: 'u', schemeEditor: true });
+    expect(member).toMatchObject({ containerId: 'b', userId: 'u', role: 'editor' });
   });
 });
 
@@ -1192,24 +1188,18 @@ describe('sharing a board on the server', () => {
   const MEMBER = {
     containerId: 'b1',
     userId: 'u2',
-    schemeAdmin: false,
-    schemeEditor: false,
-    schemeCommenter: true,
-    schemeViewer: false,
+    role: 'commenter' as const,
   };
 
-  it('adds, changes and removes a member with exactly the one role', async () => {
+  it('adds, changes and removes a member with the requested role', async () => {
     const sent = serveRoutes([
       ['POST /api/v1/w/w1/containers/b1/members', MEMBER],
-      [
-        'PUT /api/v1/w/w1/containers/b1/members/u2',
-        { ...MEMBER, schemeCommenter: false, schemeViewer: true },
-      ],
+      ['PUT /api/v1/w/w1/containers/b1/members/u2', { ...MEMBER, role: 'viewer' }],
       ['DELETE /api/v1/w/w1/containers/b1/members/u2', undefined, 204],
     ]);
     const backend = serverBackend('');
-    expect((await backend.addMember('b1', 'u2', 'commenter')).schemeCommenter).toBe(true);
-    expect((await backend.setMemberRole('b1', 'u2', 'viewer')).schemeViewer).toBe(true);
+    expect((await backend.addMember('b1', 'u2', 'commenter')).role).toBe('commenter');
+    expect((await backend.setMemberRole('b1', 'u2', 'viewer')).role).toBe('viewer');
     await backend.removeMember('b1', 'u2');
     expect(sentLines(sent)).toEqual([
       'POST /api/v1/w/w1/containers/b1/members',
@@ -1218,16 +1208,10 @@ describe('sharing a board on the server', () => {
     ]);
     expect(sent[0]?.body).toEqual({
       userId: 'u2',
-      schemeAdmin: false,
-      schemeEditor: false,
-      schemeCommenter: true,
-      schemeViewer: false,
+      role: 'commenter',
     });
     expect(sent[1]?.body).toEqual({
-      schemeAdmin: false,
-      schemeEditor: false,
-      schemeCommenter: false,
-      schemeViewer: true,
+      role: 'viewer',
     });
   });
 

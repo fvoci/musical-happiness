@@ -831,8 +831,11 @@ async fn insert_container_with_admin() {
         assert_eq!(user_id, board.modified_by, "the modifier");
         assert_eq!(user_id, new_member.user_id, "the member is the creator");
         assert_eq!(board_id, new_member.container_id, "the member's board");
-        assert!(new_member.scheme_admin, "the creator administers the board");
-        assert!(new_member.scheme_editor, "the creator may edit the board");
+        assert_eq!(
+            new_member.role,
+            fvoci_model::ContainerRole::Admin,
+            "the creator administers the board"
+        );
 
         // The membership that is returned is the one that is stored.
         let stored = test
@@ -857,22 +860,26 @@ async fn save_member() {
         let member = ContainerMember {
             user_id: user_id.clone(),
             container_id: board_id.clone(),
-            scheme_admin: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Admin,
+            synthetic: false,
+            inherited_role: None,
         };
 
         test.save_member(&member)
             .await
             .expect("the member is saved");
-        // Read back the stored membership to verify every saved flag.
+        // Read back the stored membership to verify its role.
         let stored = test
             .get_member_for_container(&board_id, &user_id)
             .await
             .expect("the member exists");
         assert_eq!(user_id, stored.user_id, "the member");
         assert_eq!(board_id, stored.container_id, "the member's board");
-
-        assert!(stored.scheme_admin, "the member administers the board");
+        assert_eq!(
+            stored.role,
+            fvoci_model::ContainerRole::Admin,
+            "the member administers the board"
+        );
     }
 
     // "should correctly update a member"
@@ -880,9 +887,9 @@ async fn save_member() {
         let member = ContainerMember {
             user_id: user_id.clone(),
             container_id: board_id.clone(),
-            scheme_editor: true,
-            scheme_viewer: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Editor,
+            synthetic: false,
+            inherited_role: None,
         };
 
         test.save_member(&member)
@@ -894,10 +901,11 @@ async fn save_member() {
             .expect("the member exists");
         assert_eq!(user_id, stored.user_id, "the member");
         assert_eq!(board_id, stored.container_id, "the member's board");
-
-        assert!(!stored.scheme_admin, "no longer an administrator");
-        assert!(stored.scheme_editor, "an editor now");
-        assert!(stored.scheme_viewer, "a viewer now");
+        assert_eq!(
+            stored.role,
+            fvoci_model::ContainerRole::Editor,
+            "an editor now"
+        );
 
         // Updating an existing membership replaces it in place rather than duplicating it.
         let members = test
@@ -940,8 +948,9 @@ async fn get_member_for_container() {
         let member = ContainerMember {
             user_id: user_id.clone(),
             container_id: board_id.clone(),
-            scheme_admin: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Admin,
+            synthetic: false,
+            inherited_role: None,
         };
         test.save_member(&member)
             .await
@@ -953,7 +962,11 @@ async fn get_member_for_container() {
             .expect("the member exists");
         assert_eq!(user_id, stored.user_id, "the member");
         assert_eq!(board_id, stored.container_id, "the member's board");
-        assert!(stored.scheme_admin, "the member administers the board");
+        assert_eq!(
+            stored.role,
+            fvoci_model::ContainerRole::Admin,
+            "the member administers the board"
+        );
     }
 
     test.teardown().await;
@@ -983,24 +996,27 @@ async fn get_members_for_container() {
         let member1 = ContainerMember {
             container_id: board_id_1.clone(),
             user_id: user_id_1.clone(),
-            scheme_admin: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Admin,
+            synthetic: false,
+            inherited_role: None,
         };
         test.save_member(&member1).await.expect("member 1 is saved");
 
         let member2 = ContainerMember {
             container_id: board_id_1.clone(),
             user_id: user_id_2.clone(),
-            scheme_editor: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Editor,
+            synthetic: false,
+            inherited_role: None,
         };
         test.save_member(&member2).await.expect("member 2 is saved");
 
         let member3 = ContainerMember {
             container_id: board_id_2.clone(),
             user_id: user_id_3.clone(),
-            scheme_admin: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Admin,
+            synthetic: false,
+            inherited_role: None,
         };
         test.save_member(&member3).await.expect("member 3 is saved");
 
@@ -1066,8 +1082,9 @@ async fn delete_member() {
         let member = ContainerMember {
             user_id: user_id.clone(),
             container_id: board_id.clone(),
-            scheme_admin: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Admin,
+            synthetic: false,
+            inherited_role: None,
         };
         test.save_member(&member)
             .await
@@ -1259,8 +1276,9 @@ async fn delete_and_undelete_container_take_the_blocks_along() {
     let member = ContainerMember {
         container_id: board_id.clone(),
         user_id: user_id.clone(),
-        scheme_admin: true,
-        ..ContainerMember::default()
+        role: fvoci_model::ContainerRole::Admin,
+        synthetic: false,
+        inherited_role: None,
     };
     test.save_member(&member)
         .await
@@ -1329,9 +1347,10 @@ async fn delete_and_undelete_container_take_the_blocks_along() {
     test.teardown().await;
 }
 
-/// Saving a member stores its scheme role flags and reads `roles` as empty.
+/// Saving a member stores its direct `role` and ignores transient `synthetic` and
+/// `inherited_role` annotations.
 #[tokio::test]
-async fn save_member_stores_the_scheme_flags_and_no_roles() {
+async fn save_member_stores_the_direct_role_only() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let member_id = common::user(&test, "member").await;
@@ -1349,9 +1368,9 @@ async fn save_member_stores_the_scheme_flags_and_no_roles() {
     let member = ContainerMember {
         container_id: board_id.clone(),
         user_id: member_id.clone(),
-        roles: "some-role".to_owned(),
-        scheme_commenter: true,
-        ..ContainerMember::default()
+        role: fvoci_model::ContainerRole::Commenter,
+        synthetic: true,
+        inherited_role: Some(MinimumRole::Editor),
     };
     test.save_member(&member)
         .await
@@ -1366,11 +1385,11 @@ async fn save_member_stores_the_scheme_flags_and_no_roles() {
         ContainerMember {
             container_id: board_id,
             user_id: member_id.clone(),
-            roles: String::new(),
-            scheme_commenter: true,
-            ..ContainerMember::default()
+            role: fvoci_model::ContainerRole::Commenter,
+            synthetic: false,
+            inherited_role: None,
         },
-        "the scheme flags and no roles"
+        "the direct role alone"
     );
     let of_user = test
         .get_members_for_user(&member_id)
@@ -1638,9 +1657,9 @@ fn admin_of(board_id: &str, user_id: &str) -> ContainerMember {
     ContainerMember {
         container_id: board_id.to_owned(),
         user_id: user_id.to_owned(),
-        scheme_admin: true,
-        scheme_editor: true,
-        ..ContainerMember::default()
+        role: fvoci_model::ContainerRole::Admin,
+        synthetic: false,
+        inherited_role: None,
     }
 }
 
@@ -1649,8 +1668,9 @@ fn editor_of(board_id: &str, user_id: &str) -> ContainerMember {
     ContainerMember {
         container_id: board_id.to_owned(),
         user_id: user_id.to_owned(),
-        scheme_editor: true,
-        ..ContainerMember::default()
+        role: fvoci_model::ContainerRole::Editor,
+        synthetic: false,
+        inherited_role: None,
     }
 }
 
@@ -2793,8 +2813,7 @@ async fn add_member_stores_a_new_membership_and_returns_none() {
     let board_id = stored_board(&test, &workspace_id, &user_id).await;
 
     let member = ContainerMember {
-        scheme_commenter: true,
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Commenter,
         ..editor_of(&board_id, &user_id)
     };
     let existing = test.add_member(&member).await.expect("the member is added");
@@ -2820,13 +2839,12 @@ async fn add_member_returns_the_existing_membership_and_changes_nothing() {
         .await
         .expect("the member is stored");
 
-    // The same flags again, and others: more rights and fewer.
+    // The same role again, and others: more rights and fewer.
     let offers = [
         editor_of(&board_id, &user_id),
         admin_of(&board_id, &user_id),
         ContainerMember {
-            scheme_editor: false,
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..editor_of(&board_id, &user_id)
         },
     ];
@@ -2909,7 +2927,7 @@ async fn add_member_to_a_board_or_of_a_user_that_does_not_exist_is_an_error() {
 pub(crate) const RACE_ROUNDS: usize = 25;
 
 /// How many requests add the same user to the same board at once.
-const RACING_ADDERS: u8 = 8;
+const RACING_ADDERS: usize = 8;
 
 /// Two requests that add the same user at once end in one membership, the one that was
 /// stored first; every other request is told of it.
@@ -2922,16 +2940,14 @@ async fn concurrent_add_member_calls_end_in_one_membership_and_one_of_them_added
     for round in 0..RACE_ROUNDS {
         let board_id = stored_board(&test, &workspace_id, &user_id).await;
         let mut adders = JoinSet::new();
-        for number in 1..=RACING_ADDERS {
-            // No two requests offer the same flags.
+        for number in 0..RACING_ADDERS {
+            let role = fvoci_model::ContainerRole::ALL[number % 4];
             let offer = ContainerMember {
                 container_id: board_id.clone(),
                 user_id: user_id.clone(),
-                scheme_admin: number & 1 != 0,
-                scheme_editor: number & 2 != 0,
-                scheme_commenter: number & 4 != 0,
-                scheme_viewer: number & 8 != 0,
-                ..ContainerMember::default()
+                role,
+                synthetic: false,
+                inherited_role: None,
             };
             let store = test.store.clone();
             adders.spawn(async move {
@@ -2993,8 +3009,7 @@ async fn change_member_replaces_the_flags_of_a_membership_and_of_no_one_else() {
 
     // Up to administrator and down again: there is another one.
     let viewer = ContainerMember {
-        scheme_editor: false,
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Viewer,
         ..editor_of(&board_id, &member_id)
     };
     for change in [admin_of(&board_id, &member_id), viewer] {
@@ -3007,7 +3022,7 @@ async fn change_member_replaces_the_flags_of_a_membership_and_of_no_one_else() {
             .get_member_for_container(&board_id, &member_id)
             .await
             .expect("the membership exists");
-        assert_eq!(stored, change, "the flags are the given ones");
+        assert_eq!(stored, change, "the role is the given one");
     }
 
     // Who is no member is not made one: on this board, on a board that does not exist
@@ -3069,13 +3084,10 @@ async fn change_member_refuses_to_take_the_role_from_the_only_administrator() {
         .expect("the membership exists");
     assert_eq!(stored, admin_of(&board_id, &admin_id), "nothing changed");
 
-    // A change that leaves the role alone is made.
-    let also_viewer = ContainerMember {
-        scheme_viewer: true,
-        ..admin_of(&board_id, &admin_id)
-    };
+    // A change that leaves the admin role alone is made.
+    let still_admin = admin_of(&board_id, &admin_id);
     let outcome = test
-        .change_member(&also_viewer)
+        .change_member(&still_admin)
         .await
         .expect("the membership is changed");
     assert_eq!(outcome, MemberChange::Done, "the administrator stays one");
@@ -3083,7 +3095,7 @@ async fn change_member_refuses_to_take_the_role_from_the_only_administrator() {
         .get_member_for_container(&board_id, &admin_id)
         .await
         .expect("the membership exists");
-    assert_eq!(stored, also_viewer, "the flags are the given ones");
+    assert_eq!(stored, still_admin, "the role is unchanged");
 
     test.teardown().await;
 }
@@ -3309,7 +3321,7 @@ async fn of_two_administrators_who_give_up_the_role_at_once_one_is_refused() {
         let members = members_of(&test, &board_id).await;
         let admins: Vec<&str> = members
             .iter()
-            .filter(|member| member.scheme_admin)
+            .filter(|member| member.role == fvoci_model::ContainerRole::Admin)
             .map(|member| member.user_id.as_str())
             .collect();
         assert_eq!(
@@ -3323,20 +3335,6 @@ async fn of_two_administrators_who_give_up_the_role_at_once_one_is_refused() {
 
 // -- joining with the minimum role ------------------------------------------------------
 
-/// The scheme flags of a membership: admin, editor, commenter, viewer.
-fn flags(member: &ContainerMember) -> [bool; 4] {
-    [
-        member.scheme_admin,
-        member.scheme_editor,
-        member.scheme_commenter,
-        member.scheme_viewer,
-    ]
-}
-
-const VIEWER: [bool; 4] = [false, false, false, true];
-const COMMENTER: [bool; 4] = [false, false, true, false];
-const EDITOR: [bool; 4] = [false, true, false, false];
-
 /// Joining gives the board's minimum role to a user who is no member, raises a member
 /// who is below it, and leaves alone a member who has it or more. It says which.
 #[tokio::test]
@@ -3345,15 +3343,16 @@ const EDITOR: [bool; 4] = [false, true, false, false];
     reason = "every role a user may hold against every minimum role, on one board"
 )]
 async fn join_container_gives_the_minimum_role_raises_to_it_and_never_lowers() {
+    use fvoci_model::ContainerRole;
     let test = common::setup().await;
     let owner_id = common::user(&test, "owner").await;
     let user_id = common::user(&test, "joiner").await;
     let workspace_id = common::workspace_of(&test, &[&owner_id]).await;
 
     for (minimum_role, expected) in [
-        (MinimumRole::Viewer, VIEWER),
-        (MinimumRole::Commenter, COMMENTER),
-        (MinimumRole::Editor, EDITOR),
+        (MinimumRole::Viewer, ContainerRole::Viewer),
+        (MinimumRole::Commenter, ContainerRole::Commenter),
+        (MinimumRole::Editor, ContainerRole::Editor),
     ] {
         let board_id = new_id();
         let mut board = Container {
@@ -3372,7 +3371,7 @@ async fn join_container_gives_the_minimum_role_raises_to_it_and_never_lowers() {
             matches!(joined, Joined::New(_)),
             "{minimum_role:?}: {joined:?}"
         );
-        assert_eq!(flags(&joined.into_member()), expected, "{minimum_role:?}");
+        assert_eq!(joined.into_member().role, expected, "{minimum_role:?}");
         let again = test
             .join_container(&board_id, &user_id)
             .await
@@ -3385,25 +3384,28 @@ async fn join_container_gives_the_minimum_role_raises_to_it_and_never_lowers() {
             .get_member_for_container(&board_id, &user_id)
             .await
             .expect("the membership is stored");
-        assert_eq!(flags(&stored), expected, "{minimum_role:?}: as stored");
+        assert_eq!(stored.role, expected, "{minimum_role:?}: as stored");
 
-        // A member without any role is below every minimum role.
-        test.save_member(&ContainerMember {
-            container_id: board_id.clone(),
-            user_id: user_id.clone(),
-            ..ContainerMember::default()
-        })
-        .await
-        .expect("the roles are taken away");
-        let raised = test
-            .join_container(&board_id, &user_id)
+        if expected > ContainerRole::Viewer {
+            test.save_member(&ContainerMember {
+                container_id: board_id.clone(),
+                user_id: user_id.clone(),
+                role: ContainerRole::Viewer,
+                synthetic: false,
+                inherited_role: None,
+            })
             .await
-            .expect("joined");
-        assert!(
-            matches!(raised, Joined::Raised(_)),
-            "{minimum_role:?}: {raised:?}"
-        );
-        assert_eq!(flags(&raised.into_member()), expected, "{minimum_role:?}");
+            .expect("lowered to viewer");
+            let raised = test
+                .join_container(&board_id, &user_id)
+                .await
+                .expect("joined");
+            assert!(
+                matches!(raised, Joined::Raised(_)),
+                "{minimum_role:?}: {raised:?}"
+            );
+            assert_eq!(raised.into_member().role, expected, "{minimum_role:?}");
+        }
 
         // The owner is the administrator and stays it.
         let owner = test
@@ -3411,7 +3413,11 @@ async fn join_container_gives_the_minimum_role_raises_to_it_and_never_lowers() {
             .await
             .expect("joined");
         assert!(matches!(owner, Joined::Already(_)), "{owner:?}");
-        assert!(owner.into_member().scheme_admin, "not lowered");
+        assert_eq!(
+            owner.into_member().role,
+            ContainerRole::Admin,
+            "not lowered"
+        );
     }
 
     // A board whose minimum role is commenter: a viewer is raised, an editor is not.
@@ -3424,22 +3430,16 @@ async fn join_container_gives_the_minimum_role_raises_to_it_and_never_lowers() {
         .await
         .expect("the board is stored");
     for (before, outcome_is_raise, after) in [
-        (VIEWER, true, COMMENTER),
-        (EDITOR, false, EDITOR),
-        // Several flags at once count as the highest of them.
-        (
-            [false, true, false, true],
-            false,
-            [false, true, false, true],
-        ),
+        (ContainerRole::Viewer, true, ContainerRole::Commenter),
+        (ContainerRole::Commenter, false, ContainerRole::Commenter),
+        (ContainerRole::Editor, false, ContainerRole::Editor),
     ] {
         test.save_member(&ContainerMember {
             container_id: board_id.clone(),
             user_id: user_id.clone(),
-            scheme_editor: before[1],
-            scheme_commenter: before[2],
-            scheme_viewer: before[3],
-            ..ContainerMember::default()
+            role: before,
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("the member is stored");
@@ -3452,7 +3452,7 @@ async fn join_container_gives_the_minimum_role_raises_to_it_and_never_lowers() {
             outcome_is_raise,
             "{before:?}: {joined:?}"
         );
-        assert_eq!(flags(&joined.into_member()), after, "{before:?}");
+        assert_eq!(joined.into_member().role, after, "{before:?}");
     }
 
     // What does not exist is not joined.
@@ -3651,10 +3651,9 @@ async fn add_member_racing_remove_member_answers_what_is_true() {
         .await
         .expect("the administrator is stored");
     let there_before = editor_of(&board_id, &user_id);
-    // Not the flags of the membership that is there: which one is stored shows.
+    // Not the role of the membership that is there: which one is stored shows.
     let offer = ContainerMember {
-        scheme_editor: false,
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Viewer,
         ..editor_of(&board_id, &user_id)
     };
 
@@ -3956,16 +3955,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
     )
     .await;
     for member in [
-        ContainerMember {
-            container_id: board.id.clone(),
-            user_id: author_id.clone(),
-            roles: String::new(),
-            scheme_admin: true,
-            scheme_editor: true,
-            scheme_commenter: true,
-            scheme_viewer: true,
-            ..ContainerMember::default()
-        },
+        admin_of(&board.id, &author_id),
         editor_of(&board.id, &restorer_id),
     ] {
         test.save_member(&member)
@@ -4026,7 +4016,10 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         .find(|member| member.user_id == author_id)
         .expect("the author is a member");
     assert_eq!(
-        members_at_their_default(all_flags, &ContainerMember::default()),
+        members_at_their_default(
+            all_flags,
+            &ContainerMember::new("", "", fvoci_model::ContainerRole::Viewer),
+        ),
         Vec::<String>::new(),
         "of the membership: {all_flags:?}"
     );

@@ -98,10 +98,10 @@
   );
 
   const ROLE_LABELS: Record<ContainerRole, () => string> = {
-    admin: () => m['BoardMember.schemeAdmin'](),
-    editor: () => m['BoardMember.schemeEditor'](),
-    commenter: () => m['BoardMember.schemeCommenter'](),
-    viewer: () => m['BoardMember.schemeViewer'](),
+    admin: () => m['BoardMember.roleAdmin'](),
+    editor: () => m['BoardMember.roleEditor'](),
+    commenter: () => m['BoardMember.roleCommenter'](),
+    viewer: () => m['BoardMember.roleViewer'](),
   };
   /** A minimum role is one a member can have below admin. */
   const MINIMUM_ROLES = ROLE_ORDER.filter((role) => role !== 'admin');
@@ -300,7 +300,7 @@
                 {/if}
                 {#if readOnly}
                   <span class="shrink-0 text-muted-foreground" data-testid="share-member-role">
-                    {memberRole === 'none' ? m.share_role_none() : ROLE_LABELS[memberRole]()}
+                    {ROLE_LABELS[memberRole]()}
                   </span>
                 {:else}
                   <!-- The reader's own role is another admin's to change: no locking oneself out. -->
@@ -316,9 +316,6 @@
                         event.currentTarget.value as ContainerRole,
                       )}
                   >
-                    {#if memberRole === 'none'}
-                      <option value="none" disabled>{m.share_role_none()}</option>
-                    {/if}
                     {#each ROLE_ORDER as role (role)}
                       <option value={role}>{ROLE_LABELS[role]()}</option>
                     {/each}

@@ -1280,28 +1280,14 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
         &crate::files::upload(&th.client, &source.id, "source.png", b"png").await,
     );
     let user2 = th.client2.me().await;
-    for (board_id, member) in [
-        (
-            &board.id,
-            fvoci_model::ContainerMember {
-                scheme_commenter: true,
-                ..Default::default()
-            },
-        ),
-        (
-            &source.id,
-            fvoci_model::ContainerMember {
-                scheme_viewer: true,
-                ..Default::default()
-            },
-        ),
+    for (board_id, role) in [
+        (&board.id, fvoci_model::ContainerRole::Commenter),
+        (&source.id, fvoci_model::ContainerRole::Viewer),
     ] {
         th.app
-            .add_member_to_container(&fvoci_model::ContainerMember {
-                container_id: board_id.clone(),
-                user_id: user2.id.clone(),
-                ..member
-            })
+            .add_member_to_container(&fvoci_model::ContainerMember::new(
+                board_id, &user2.id, role,
+            ))
             .await
             .expect("user2 is a member");
     }
@@ -1419,12 +1405,11 @@ async fn a_changed_comment_says_so_and_its_members_read_what_it_said() {
         .check_unauthorized();
     let user2 = th.client2.me().await;
     th.app
-        .add_member_to_container(&fvoci_model::ContainerMember {
-            container_id: board.id.clone(),
-            user_id: user2.id.clone(),
-            scheme_viewer: true,
-            ..Default::default()
-        })
+        .add_member_to_container(&fvoci_model::ContainerMember::new(
+            &board.id,
+            &user2.id,
+            fvoci_model::ContainerRole::Viewer,
+        ))
         .await
         .expect("user2 is a viewer");
     assert_eq!(

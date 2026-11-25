@@ -547,8 +547,7 @@ fn target_container_workspace_sql(scope: &Scope<'_>, user_id: &str, container_id
 fn push_readable_container(sql: &mut Sql, scope: &Scope<'_>, user_id: &str) {
     sql.push(
         " AND (EXISTS (SELECT 1 FROM container_members AS cm \
-         WHERE cm.container_id = b.id AND cm.user_id = wm.user_id \
-         AND (cm.scheme_admin OR cm.scheme_editor OR cm.scheme_commenter OR cm.scheme_viewer)",
+         WHERE cm.container_id = b.id AND cm.user_id = wm.user_id",
     )
     .push(&scope.same_organization(&[("cm", "b")]))
     .push(") OR ");

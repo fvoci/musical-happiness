@@ -88,12 +88,6 @@ impl WorkspaceAccess {
     }
 }
 
-/// The condition that the memberships `mine` and `other` of a board each have a role: a
-/// membership without one opens nothing, and shares nothing.
-const ROLES_HELD: &str = " AND (mine.scheme_admin OR mine.scheme_editor OR mine.scheme_commenter \
-                          OR mine.scheme_viewer) AND (other.scheme_admin OR other.scheme_editor \
-                          OR other.scheme_commenter OR other.scheme_viewer)";
-
 /// Whom a user sees of the other users in a workspace the user is a member of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reach {
@@ -168,7 +162,6 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
             ))
             .bind(Id(seer_id))
             .push_bind(" AND b.workspace_id = ", Id(workspace_id))
-            .push(ROLES_HELD)
             .push(&scope.same_organization(&[("mine", "b"), ("other", "b"), ("them", "b")]))
             .push(")");
             if reach == Reach::Workspace {
@@ -208,7 +201,6 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
                 ))
                 .bind(Id(seer_id))
                 .push(IN_USE)
-                .push(ROLES_HELD)
                 .push(&scope.same_organization(&[
                     ("mine", "b"),
                     ("b", "t"),
@@ -280,8 +272,7 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
     };
     sql.push(
         " AND (EXISTS (SELECT 1 FROM container_members AS mine WHERE mine.container_id = b.id \
-         AND mine.user_id = me.user_id AND (mine.scheme_admin OR mine.scheme_editor \
-         OR mine.scheme_commenter OR mine.scheme_viewer)",
+         AND mine.user_id = me.user_id",
     )
     .push(&scope.same_organization(&[("mine", "b")]))
     .push(")");

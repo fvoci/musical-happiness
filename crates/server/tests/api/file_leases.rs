@@ -73,8 +73,9 @@ async fn one_editor_holds_a_file_s_lease_at_a_time() {
     let member = ContainerMember {
         container_id: board.id.clone(),
         user_id: editor.clone(),
-        scheme_editor: true,
-        ..ContainerMember::default()
+        role: fvoci_model::ContainerRole::Editor,
+        synthetic: false,
+        inherited_role: None,
     };
     ts.client.add_member(&member).await.check_ok();
 
@@ -159,8 +160,9 @@ async fn the_lease_is_held_by_editors_and_told_to_readers() {
     let viewer = ContainerMember {
         container_id: board.id.clone(),
         user_id: ts.client2.me().await.id,
-        scheme_viewer: true,
-        ..ContainerMember::default()
+        role: fvoci_model::ContainerRole::Viewer,
+        synthetic: false,
+        inherited_role: None,
     };
     ts.client.add_member(&viewer).await.check_ok();
     assert!(told(&ts.client2, &board.id, &file_id).await.0);

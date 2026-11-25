@@ -153,7 +153,7 @@ async fn seed_rich_course_personal_and_shared_state(ts: &TestServer, course: &st
     client
         .post(
             &format!("{TEST_WS}/containers/{course}/members"),
-            &json!({"containerId": course, "userId": other_id, "schemeEditor": true}),
+            &json!({"containerId": course, "userId": other_id, "role": "editor"}),
         )
         .await
         .check_ok();
@@ -613,7 +613,7 @@ async fn verify_guest_outsider_and_sso_refusals(
     ts.client
         .post(
             &format!("{TEST_WS}/containers/{priv_course}/members"),
-            &json!({"containerId": priv_course, "userId": guest_id, "schemeViewer": true}),
+            &json!({"containerId": priv_course, "userId": guest_id, "role": "viewer"}),
         )
         .await
         .check_ok();
@@ -691,7 +691,7 @@ async fn course_duplication_permissions_own_space_guest_sso_and_cross_org_isolat
     owner
         .post(
             &format!("{TEST_WS}/containers/{priv_course}/members"),
-            &json!({"containerId": priv_course, "userId": member_id, "schemeViewer": true}),
+            &json!({"containerId": priv_course, "userId": member_id, "role": "viewer"}),
         )
         .await
         .check_ok();
