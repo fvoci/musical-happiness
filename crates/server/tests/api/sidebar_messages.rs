@@ -331,7 +331,7 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         .await
         .check_no_content();
     th.client
-        .post_empty(&format!("{ROOT_WS}/containers/{}/undelete", board.id))
+        .post_empty(&format!("{ROOT_WS}/containers/{}/restore", board.id))
         .await
         .check_ok();
 

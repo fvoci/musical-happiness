@@ -398,7 +398,7 @@ fn people_of(doers: &str) -> i64 {
 }
 
 fn place_from_row(row: &Row) -> Result<NotificationPlace, StoreError> {
-    let block_type = BlockType::from(row.text(1)?.as_str());
+    let block_type = crate::blocks::block_type_column(row, 1, "type")?;
     let block_kind = SearchKind::of_block(&block_type).ok_or_else(|| StoreError::Corrupt {
         column: "type",
         reason: format!("a block of type {block_type} is no card, page or unit"),

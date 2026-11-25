@@ -6,7 +6,7 @@ import type { WorkspaceRole } from './people-types.ts';
  * space ("My space"), which is theirs alone and has nobody to administer it;
  * for every other, the kind of an organization that people work in together.
  */
-export type OrgKind = 'team' | 'personal';
+export type OrgKind = 'shared' | 'personal';
 
 /** What a member of an organization is in it. */
 export type OrgRole = 'admin' | 'member';

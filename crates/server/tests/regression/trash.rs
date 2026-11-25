@@ -90,34 +90,34 @@ pub(crate) async fn trash(s: &mut Session) {
     s.get("subscriptions: ended with the card", &of_alice)
         .user(&alice)
         .await;
-    s.post("undelete: viewer", &format!("{blocks}/{card}/undelete"))
+    s.post("undelete: viewer", &format!("{blocks}/{card}/restore"))
         .user(&carol)
         .await;
-    s.post("undelete: non-member", &format!("{blocks}/{card}/undelete"))
+    s.post("undelete: non-member", &format!("{blocks}/{card}/restore"))
         .user(&dave)
         .await;
     s.post(
         "undelete: unknown block",
-        &format!("{blocks}/{UNKNOWN_ID}/undelete"),
+        &format!("{blocks}/{UNKNOWN_ID}/restore"),
     )
     .user(&alice)
     .await;
     s.post(
         "undelete: a block that is not deleted",
-        &format!("{blocks}/{view}/undelete"),
+        &format!("{blocks}/{view}/restore"),
     )
     .user(&alice)
     .await;
     s.post(
         "undelete: a child brings back the whole deletion",
-        &format!("{blocks}/{deep}/undelete"),
+        &format!("{blocks}/{deep}/restore"),
     )
     .user(&bob)
     .await;
     s.get("blocks: all back, with their parents", &blocks)
         .user(&alice)
         .await;
-    s.post("undelete: again", &format!("{blocks}/{card}/undelete"))
+    s.post("undelete: again", &format!("{blocks}/{card}/restore"))
         .user(&alice)
         .await;
     s.get("subscriptions: back with the card", &of_alice)
@@ -134,11 +134,11 @@ pub(crate) async fn trash(s: &mut Session) {
         .await;
     s.post(
         "undelete the text: its card is in the trash",
-        &format!("{blocks}/{text}/undelete"),
+        &format!("{blocks}/{text}/restore"),
     )
     .user(&alice)
     .await;
-    s.post("undelete the card", &format!("{blocks}/{card}/undelete"))
+    s.post("undelete the card", &format!("{blocks}/{card}/restore"))
         .user(&alice)
         .await;
     s.get(
@@ -147,7 +147,7 @@ pub(crate) async fn trash(s: &mut Session) {
     )
     .user(&alice)
     .await;
-    s.post("undelete the text", &format!("{blocks}/{text}/undelete"))
+    s.post("undelete the text", &format!("{blocks}/{text}/restore"))
         .user(&alice)
         .await;
     s.get(
@@ -184,35 +184,35 @@ pub(crate) async fn trash(s: &mut Session) {
     .await;
     s.post(
         "undelete a block of the deleted board",
-        &format!("{blocks}/{card}/undelete"),
+        &format!("{blocks}/{card}/restore"),
     )
     .user(&alice)
     .await;
     s.post(
         "undelete the board: viewer",
-        &format!("{board_path}/undelete"),
+        &format!("{board_path}/restore"),
     )
     .user(&carol)
     .await;
     s.post(
         "undelete the board: editor",
-        &format!("{board_path}/undelete"),
+        &format!("{board_path}/restore"),
     )
     .user(&bob)
     .await;
     s.post(
         "undelete the board: never a member",
-        &format!("{board_path}/undelete"),
+        &format!("{board_path}/restore"),
     )
     .user(&dave)
     .await;
     s.post(
         "undelete: unknown board",
-        &format!("{ROOT_API}/containers/{UNKNOWN_ID}/undelete"),
+        &format!("{ROOT_API}/containers/{UNKNOWN_ID}/restore"),
     )
     .user(&alice)
     .await;
-    s.post("undelete the board", &format!("{board_path}/undelete"))
+    s.post("undelete the board", &format!("{board_path}/restore"))
         .user(&alice)
         .await;
     s.get("board: back", &board_path).user(&alice).await;
@@ -227,7 +227,7 @@ pub(crate) async fn trash(s: &mut Session) {
         .await;
     s.post(
         "undelete the board: again",
-        &format!("{board_path}/undelete"),
+        &format!("{board_path}/restore"),
     )
     .user(&alice)
     .await;

@@ -20,7 +20,7 @@ pub enum StoreError {
 
     /// A change would leave a user with more entries of client state than there may be.
     #[error("a user keeps at most {limit} entries of client state")]
-    TooManyPreferences {
+    TooManyClientStateEntries {
         /// The most entries a user may keep.
         limit: usize,
     },

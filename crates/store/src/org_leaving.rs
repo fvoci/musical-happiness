@@ -254,7 +254,7 @@ async fn evict_from_organization(
 async fn is_shared_and_in_use(scope: &mut Scope<'_>) -> Result<bool, StoreError> {
     let mut sql = scope.sql("SELECT 1 FROM organizations WHERE id = ");
     sql.bind(scope.org()?)
-        .push_bind(" AND kind = ", OrgKind::Team.as_str())
+        .push_bind(" AND kind = ", OrgKind::Shared.as_str())
         .push(" AND deleted_at IS NULL AND is_system = false");
     Ok(scope.fetch_optional(sql).await?.is_some())
 }

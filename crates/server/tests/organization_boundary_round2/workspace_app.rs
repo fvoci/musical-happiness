@@ -36,7 +36,7 @@ async fn a_second_founder_can_use_the_workspace_app() {
         let kinds: Vec<OrgKind> = listed.iter().map(|listed| listed.kind).collect();
         assert_eq!(
             kinds,
-            [OrgKind::Team, OrgKind::Personal],
+            [OrgKind::Shared, OrgKind::Personal],
             "a founder sees only the workspace of their organization, and their own space"
         );
         let workspace = &listed[0].id;
@@ -185,7 +185,7 @@ async fn exercise_people_and_trash(client: &Client, path: &str, user_id: &str, b
         "the deleted board is in the trash"
     );
     client
-        .post(&format!("{path}/containers/{board}/undelete"), &json!({}))
+        .post(&format!("{path}/containers/{board}/restore"), &json!({}))
         .await
         .check_ok();
 }

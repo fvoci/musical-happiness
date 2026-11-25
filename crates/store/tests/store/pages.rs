@@ -114,14 +114,9 @@ async fn a_page_is_a_block_of_a_wiki_and_a_wiki_has_no_other() {
     );
     // What a board has, on a wiki: at its top and below a page. A comment is on a page
     // (`a_comment_of_a_wiki_is_on_a_page_and_goes_to_the_trash_with_it`).
-    for block_type in [
-        BlockType::Card,
-        BlockType::View,
-        BlockType::Attachment,
-        BlockType::from("text"),
-    ] {
+    for block_type in [BlockType::Card, BlockType::View, BlockType::Attachment] {
         for parent in ["", on_wiki.as_str()] {
-            let mut stray = block(&wiki.id, parent, block_type.clone());
+            let mut stray = block(&wiki.id, parent, block_type);
             assert_eq!(
                 refusal(test.insert_block(&mut stray, &user_id).await),
                 BlockError::NotPageOnWiki,

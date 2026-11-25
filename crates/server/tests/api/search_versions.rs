@@ -182,7 +182,7 @@ async fn late_writes_lose(th: TestServer, reach: &Reach) -> (TestServer, Seen) {
         .check_no_content();
     sent(&th, reach).await;
     th.client
-        .post_empty(&format!("{TEST_WS}/containers/{}/undelete", board.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/restore", board.id))
         .await
         .check_ok();
     sent(&th, reach).await;

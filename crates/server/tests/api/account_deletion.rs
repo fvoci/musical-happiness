@@ -477,7 +477,7 @@ async fn an_organization_behind_the_wall_does_not_go_by_a_password() {
         open["organizations"],
         json!([
             space,
-            {"id": org_id, "kind": "team", "name": ORG_NAME, "boards": 0, "wikis": 0, "diaries": 0, "courses": 0, "files": 0}
+            {"id": org_id, "kind": "shared", "name": ORG_NAME, "boards": 0, "wikis": 0, "diaries": 0, "courses": 0, "files": 0}
         ]),
         "{open}"
     );
@@ -488,7 +488,7 @@ async fn an_organization_behind_the_wall_does_not_go_by_a_password() {
     let closed: Value = ts.client.get(DELETION).await.ok_json();
     assert_eq!(
         closed["organizations"],
-        json!([space, {"id": org_id, "kind": "team", "name": ORG_NAME}]),
+        json!([space, {"id": org_id, "kind": "shared", "name": ORG_NAME}]),
         "nothing of what is in it, and the account's own space as it was: {closed}"
     );
     let refused = ask(&ts.client, "user1", PASSWORD).await;

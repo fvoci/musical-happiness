@@ -5,7 +5,7 @@
 //! and for the search that checks each of the search server's answers against it:
 //! what is not read here is not found.
 
-use fvoci_model::{BlockType, ContainerKind, SearchKind};
+use fvoci_model::{ContainerKind, SearchKind};
 
 use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, Sql};
@@ -136,7 +136,7 @@ impl Store {
 }
 
 fn document_from_row(row: &Row) -> Result<SearchDocument, StoreError> {
-    let block_type = BlockType::from(row.text(6)?.as_str());
+    let block_type = crate::blocks::block_type_column(row, 6, "type")?;
     let kind = SearchKind::of_block(&block_type).ok_or_else(|| StoreError::Corrupt {
         column: "type",
         reason: format!("a document of a block of type {block_type}"),

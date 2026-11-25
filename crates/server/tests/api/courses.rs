@@ -153,7 +153,7 @@ async fn course_outline_crud_move_trash_and_problem_pages() {
     // Undelete chapter 1 -> both ch1 and u1 come back.
     client
         .post(
-            &format!("{TEST_WS}/courses/{course}/units/{}/undelete", ch1.id),
+            &format!("{TEST_WS}/courses/{course}/units/{}/restore", ch1.id),
             &json!({}),
         )
         .await
@@ -169,7 +169,7 @@ async fn course_outline_crud_move_trash_and_problem_pages() {
         .await
         .check_no_content();
     let restored: Unit = client
-        .post(&format!("{u2_path}/undelete"), &json!({}))
+        .post(&format!("{u2_path}/restore"), &json!({}))
         .await
         .ok_json();
     assert_eq!(restored.parent_id, "");

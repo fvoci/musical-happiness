@@ -25,12 +25,12 @@ impl App {
                 Ok::<_, fvoci_store::StoreError>(if own {
                     OrgKind::Personal
                 } else {
-                    OrgKind::Team
+                    OrgKind::Shared
                 })
             })
             .await;
         match kind {
-            Ok(OrgKind::Team) => {
+            Ok(OrgKind::Shared) => {
                 let posted = if !block.takes_number() && block.number.is_some() {
                     let mut hidden = block.clone();
                     hidden.hide_inactive_number();

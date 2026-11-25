@@ -148,11 +148,10 @@ pub(crate) async fn pre0075_insert_block(store: &Store, block: &mut Block, user_
         .execute_unchecked(&format!(
             "INSERT INTO blocks (id, container_id, parent_id, created_by, modified_by, \
              \"schema\", type, title, fields, body, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, number) \
-             VALUES ('{}', '{}', {parent}, '{user_id}', '{user_id}', {}, '{}', '{title}', \
+             VALUES ('{}', '{}', {parent}, '{user_id}', '{user_id}', 1, '{}', '{title}', \
              '{fields}', {body}, {}, {}, {num})",
             block.id,
             block.container_id,
-            block.schema,
             block.block_type.as_str(),
             block.created_at,
             block.updated_at,

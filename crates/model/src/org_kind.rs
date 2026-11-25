@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "lowercase")]
 pub enum OrgKind {
     /// People work in it together: it has members and administrators, workspaces,
-    /// invitations, guests, teams and a provider of sign-ins.
-    Team,
+    /// invitations, guests, groups of people and a provider of sign-ins.
+    Shared,
     /// The space of one account, which every account has one of: the account is its
     /// only member and it has one workspace. Nobody is invited into it and nobody
     /// administers it; what is in it is the account's alone, but for what the account
@@ -20,11 +20,17 @@ pub enum OrgKind {
 }
 
 impl OrgKind {
+    /// Every organization kind, in contract order.
+    pub const ALL: [Self; 2] = [Self::Shared, Self::Personal];
+
+    /// The wire words in the order of [`Self::ALL`].
+    pub const WORDS: &[&str] = &["shared", "personal"];
+
     /// Returns the wire and database form.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Team => "team",
+            Self::Shared => "shared",
             Self::Personal => "personal",
         }
     }
@@ -35,7 +41,7 @@ impl FromStr for OrgKind {
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
-            "team" => Ok(Self::Team),
+            "shared" => Ok(Self::Shared),
             "personal" => Ok(Self::Personal),
             other => Err(UnknownOrgKind(other.to_owned())),
         }
@@ -53,7 +59,7 @@ mod tests {
 
     #[test]
     fn a_kind_reads_back_from_its_text_and_nothing_else_does() {
-        for kind in [OrgKind::Team, OrgKind::Personal] {
+        for kind in OrgKind::ALL {
             assert_eq!(kind.as_str().parse(), Ok(kind), "{kind:?}");
             assert_eq!(
                 serde_json::to_value(kind).expect("a kind is JSON"),
@@ -65,6 +71,12 @@ mod tests {
             "Personal".parse::<OrgKind>(),
             Err(UnknownOrgKind("Personal".to_owned())),
             "in this letter case only"
+        );
+        let retired = concat!("te", "am");
+        assert_eq!(
+            retired.parse::<OrgKind>(),
+            Err(UnknownOrgKind(retired.to_owned())),
+            "the former name is rejected"
         );
     }
 }

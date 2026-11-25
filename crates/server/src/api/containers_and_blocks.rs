@@ -17,31 +17,33 @@ use super::contract::params::MemberWorkspaceId;
 use super::contract::tag;
 use super::workspace::InWorkspace;
 
-use super::blocks::new_block_problem;
+use super::blocks::{check_patch_block_types, new_block_problem, take_new_block_types};
 use super::containers::{BoardObject, check_listed_boards};
 use super::{ApiResult, json_response, no_content};
+use super::{BlockAction, require_block_patch_permission, require_block_permission};
 use super::{decode_json, json_object};
 use super::{decode_object, require_container_permission};
-use super::{element_pointer, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies};
+use super::{
+    element_pointer, objects_mut, put_patch_bodies, require_delete_permission, take_block_bodies,
+    take_patch_bodies,
+};
+use crate::app::App;
+use crate::error::AppError;
+use crate::permissions::ContainerPermission;
 
 /// The JSON Pointers to the blocks of a `ContainersAndBlocks` and to the block patches of a
 /// `PatchContainersAndBlocks`.
 const BLOCKS: &str = "/blocks";
 const PATCHES: &str = "/blockPatches";
-use super::require_delete_permission;
-use super::{BlockAction, require_block_patch_permission, require_block_permission};
-use crate::app::App;
-use crate::error::AppError;
-use crate::permissions::ContainerPermission;
 
 /// The refusal of a change to a block of a board the user may not change cards on.
 const MODIFYING_CARDS_DENIED: &str = "access denied to modifying cards";
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(
-        handle_create_boards_and_blocks,
-        handle_patch_boards_and_blocks,
-        handle_delete_boards_and_blocks
+        handle_create_containers_and_blocks,
+        handle_patch_containers_and_blocks,
+        handle_delete_containers_and_blocks
     ))
 }
 
@@ -55,9 +57,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// category. They are boards: one whose `kind` is not `board` is 400 at its `kind`.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/boards-and-blocks",
+    path = "/w/{workspaceId}/containers-and-blocks",
     params(MemberWorkspaceId),
-    operation_id = "createBoardsAndBlocks",
+    operation_id = "createContainersAndBlocks",
     tag = tag::CONTAINERS,
     request_body = NewContainersAndBlocks,
     responses((
@@ -66,7 +68,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         body = ContainersAndBlocks,
     )),
 )]
-async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResult {
+async fn handle_create_containers_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
     // Whoever works in the workspace makes boards in it.
     ws.require_container_maker("access denied to create board")?;
@@ -74,6 +76,7 @@ async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiRes
     // Each board's type and minimum role are refused as `createBoard` refuses them.
     check_listed_boards(&object, "containers", BoardObject::Board)?;
     let bodies = take_block_bodies(objects_mut(&mut object, "blocks"), Some(BLOCKS));
+    let raw_types = take_new_block_types(objects_mut(&mut object, "blocks"));
     let mut request: ContainersAndBlocks =
         serde_json::from_value(Value::Object(object)).map_err(AppError::bad_request)?;
     // The boards are new and have no files, so a body that names a file is refused, without
@@ -111,15 +114,18 @@ async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiRes
         .map(|container| container.id.as_str())
         .collect();
 
-    let problem = request
-        .blocks
-        .iter()
-        .enumerate()
-        .find_map(|(index, block)| {
+    let problem = request.blocks.iter().zip(&raw_types).enumerate().find_map(
+        |(index, (block, &raw_type))| {
             let on_board = |container_id: &str| container_ids.contains(container_id);
-            new_block_problem(block, on_board, "the block is on no board of the request")
-                .map(|problem| (index, problem))
-        });
+            new_block_problem(
+                block,
+                raw_type,
+                on_board,
+                "the block is on no board of the request",
+            )
+            .map(|problem| (index, problem))
+        },
+    );
     if let Some((index, (field, problem))) = problem {
         return Err(AppError::bad_request(problem)
             .with_field(field)
@@ -150,9 +156,9 @@ async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiRes
 /// names a `kind` is 400 at `/containerPatches/{index}/kind`.
 #[utoipa::path(
     patch,
-    path = "/w/{workspaceId}/boards-and-blocks",
+    path = "/w/{workspaceId}/containers-and-blocks",
     params(MemberWorkspaceId),
-    operation_id = "patchBoardsAndBlocks",
+    operation_id = "patchContainersAndBlocks",
     tag = tag::CONTAINERS,
     request_body = PatchContainersAndBlocks,
     responses((
@@ -161,11 +167,12 @@ async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiRes
         body = ContainersAndBlocks,
     )),
 )]
-async fn handle_patch_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResult {
+async fn handle_patch_containers_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
     let mut object = json_object(decode_json(&body)?)?;
     // Each patch's type and minimum role are refused as `patchContainer` refuses them.
     check_listed_boards(&object, "containerPatches", BoardObject::Patch)?;
+    check_patch_block_types(objects_mut(&mut object, "blockPatches"), Some(PATCHES))?;
     let names_a_kind: Vec<bool> = objects_mut(&mut object, "containerPatches")
         .map(|patch| patch.is_some_and(|patch| patch.contains_key("kind")))
         .collect();
@@ -310,18 +317,18 @@ async fn block_of_containers(
 /// board, and every block it names must be on one of its boards and be the user's to
 /// delete as `deleteBlock` has it; the blocks are checked and nothing more, since a
 /// board takes all of its blocks along. The boards go to the trash as `deleteContainer`
-/// puts them there, and `undeleteContainer` brings each back with its blocks. For the
+/// puts them there, and `restoreContainer` brings each back with its blocks. For the
 /// admins of every board named.
 #[utoipa::path(
     delete,
-    path = "/w/{workspaceId}/boards-and-blocks",
+    path = "/w/{workspaceId}/containers-and-blocks",
     params(MemberWorkspaceId),
-    operation_id = "deleteBoardsAndBlocks",
+    operation_id = "deleteContainersAndBlocks",
     tag = tag::CONTAINERS,
     request_body = DeleteContainersAndBlocks,
     responses((status = 204, description = "The boards and blocks are deleted.")),
 )]
-async fn handle_delete_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResult {
+async fn handle_delete_containers_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
     let request: DeleteContainersAndBlocks = decode_object(&body)?;
     request.validate().map_err(AppError::bad_request)?;

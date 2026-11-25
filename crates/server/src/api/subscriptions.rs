@@ -2,7 +2,7 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{BlockType, Subscription};
+use fvoci_model::{BlockType, RefusalReason, Refusals, Subscription};
 use serde::Deserialize;
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
@@ -37,11 +37,27 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_subscriptions))
 }
 
+/// Decodes `blockType` of [`SubscriptionRequest`]: `null` and non-strings fail JSON
+/// decoding, `""` is missing, and any other string must be a known [`BlockType`].
+fn deserialize_requested_block_type<'de, D>(deserializer: D) -> Result<Option<BlockType>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    raw.parse::<BlockType>()
+        .map(Some)
+        .map_err(serde::de::Error::custom)
+}
+
 /// A subscription as a request body carries it. Unknown members are refused with 400.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 struct SubscriptionRequest {
-    block_type: BlockType,
+    #[serde(deserialize_with = "deserialize_requested_block_type")]
+    block_type: Option<BlockType>,
     block_id: String,
     user_id: String,
 }
@@ -58,8 +74,19 @@ impl SubscriptionRequest {
     /// Validates every member and refuses all that are wrong at once: block identifier,
     /// block type, user identifier.
     fn into_subscription(self) -> Result<Subscription, AppError> {
+        let mut refused = Refusals::new();
+        if self.block_id.is_empty() {
+            refused.refuse("blockId", RefusalReason::Required, "missing block id");
+        }
+        if self.block_type.is_none() {
+            refused.refuse("blockType", RefusalReason::Required, "missing block type");
+        }
+        if self.user_id.is_empty() {
+            refused.refuse("userId", RefusalReason::Required, "missing user id");
+        }
+        refused.into_result()?;
         let subscription = Subscription {
-            block_type: self.block_type,
+            block_type: self.block_type.unwrap_or_default(),
             block_id: self.block_id,
             user_id: self.user_id,
             notified_at: 0,

@@ -190,7 +190,7 @@ test('deleted while open: the card says it is gone, and restored it holds what w
   await second.getByTestId('card-missing').getByRole('button', { name: 'Close' }).click();
   await expect(second.getByTestId('card-dialog')).toHaveCount(0);
 
-  expect((await api.post(`${card}/undelete`)).ok()).toBe(true);
+  expect((await api.post(`${card}/restore`)).ok()).toBe(true);
   const restored = (await (
     await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
   ).json()) as Schemas['Card'];

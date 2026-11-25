@@ -207,7 +207,7 @@ async fn an_open_wiki_not_joined_has_its_comments_read_as_a_viewer_does() {
         th.client2.patch(&own, &change).await,
         th.client2.delete(&own).await,
         th.client2
-            .post(&format!("{comments}/{}/undelete", id(&gone)), &json!({}))
+            .post(&format!("{comments}/{}/restore", id(&gone)), &json!({}))
             .await,
     ]
     .map(|response| response.status.as_u16());
@@ -301,7 +301,7 @@ async fn a_comment_is_reached_through_its_own_page_only() {
         client.patch(&blocks, &patched).await,
         client.delete(&block).await,
         client.get(&format!("{block}/versions")).await,
-        client.post(&format!("{block}/undelete"), &json!({})).await,
+        client.post(&format!("{block}/restore"), &json!({})).await,
         client
             .get(&format!("{blocks}?blockId={}", id(&comment)))
             .await,
@@ -473,7 +473,7 @@ async fn a_comment_deleted_on_its_own_comes_back_onto_its_page() {
     let (wiki, page) = wiki_of(&th.client, "private").await;
     put_on(&th.client, &wiki, &member, "commenter").await;
     let comments = comments_of(TEST_WS, &wiki, &page);
-    let undelete = |id: &str| format!("{comments}/{id}/undelete");
+    let undelete = |id: &str| format!("{comments}/{id}/restore");
 
     // Their own, deleted and brought back by them.
     let own = written(&th.client2, &wiki, &page, "mine").await;
@@ -534,7 +534,7 @@ async fn a_comment_deleted_on_its_own_comes_back_onto_its_page() {
     none.check_not_found();
     for named in [
         format!(
-            "{TEST_WS}/wikis/{wiki}/pages/{sibling}/comments/{}/undelete",
+            "{TEST_WS}/wikis/{wiki}/pages/{sibling}/comments/{}/restore",
             id(&admins)
         ),
         undelete(&page),
@@ -565,7 +565,7 @@ async fn a_comment_gone_with_its_page_comes_back_with_the_page() {
     let th = Setup::native().start().await.init_basic().await;
     let (wiki, page) = wiki_of(&th.client, "private").await;
     let comments = comments_of(TEST_WS, &wiki, &page);
-    let undelete = |id: &str| format!("{comments}/{id}/undelete");
+    let undelete = |id: &str| format!("{comments}/{id}/restore");
     let own = written(&th.client, &wiki, &page, "deleted on its own").await;
     th.client
         .delete(&format!("{comments}/{}", id(&own)))
@@ -583,7 +583,7 @@ async fn a_comment_gone_with_its_page_comes_back_with_the_page() {
         .check_not_found();
     th.client
         .post(
-            &format!("{TEST_WS}/wikis/{wiki}/pages/{page}/undelete"),
+            &format!("{TEST_WS}/wikis/{wiki}/pages/{page}/restore"),
             &json!({}),
         )
         .await

@@ -52,7 +52,6 @@ const BLOCK = {
   updatedAt: 2,
   createdBy: 'u',
   modifiedBy: 'u',
-  schema: 1,
   fields: {},
 };
 
@@ -851,7 +850,7 @@ describe('the trash on the server', () => {
       'DELETE /api/v1/w/w1/boards/b/blocks/c1',
     ]);
     expect(restoring.map((one) => `${one.method} ${one.url}`)).toEqual([
-      'POST /api/v1/w/w1/boards/b/blocks/c1/undelete',
+      'POST /api/v1/w/w1/boards/b/blocks/c1/restore',
     ]);
     expect(sent[0]?.headers['X-Requested-With']).toBe('XMLHttpRequest');
   });
@@ -1076,14 +1075,14 @@ describe('boards on the server', () => {
 
   it('makes a board and its first view in one request, the view tied to the board', async () => {
     const sent = serveRoutes([
-      ['POST /api/v1/w/t/boards-and-blocks', { containers: [BOARD], blocks: [VIEW] }, 201],
+      ['POST /api/v1/w/t/containers-and-blocks', { containers: [BOARD], blocks: [VIEW] }, 201],
     ]);
     const made = await serverBackend('').createBoard(
       't',
       { title: 'Plan', cardProperties: [{ id: 's', name: 'Status', type: 'select', options: [] }] },
       { title: 'Board view', fields: { viewType: 'board' } as never },
     );
-    expect(sentLines(sent)).toEqual(['POST /api/v1/w/t/boards-and-blocks']);
+    expect(sentLines(sent)).toEqual(['POST /api/v1/w/t/containers-and-blocks']);
     const body = sent[0]?.body as {
       containers: { id: string }[];
       blocks: { containerId: string }[];
@@ -1108,7 +1107,7 @@ describe('boards on the server', () => {
     const sent = serveRoutes([
       ['PATCH /api/v1/w/w1/containers/b1', { ...BOARD, title: 'New' }],
       ['DELETE /api/v1/w/w1/containers/b1', undefined, 204],
-      ['POST /api/v1/w/w1/containers/b1/undelete', BOARD],
+      ['POST /api/v1/w/w1/containers/b1/restore', BOARD],
     ]);
     const backend = serverBackend('');
     expect(
@@ -1119,7 +1118,7 @@ describe('boards on the server', () => {
     expect(sentLines(sent)).toEqual([
       'PATCH /api/v1/w/w1/containers/b1',
       'DELETE /api/v1/w/w1/containers/b1',
-      'POST /api/v1/w/w1/containers/b1/undelete',
+      'POST /api/v1/w/w1/containers/b1/restore',
     ]);
     expect(sent[0]?.body).toEqual({ title: 'New', minimumRole: 'viewer' });
   });

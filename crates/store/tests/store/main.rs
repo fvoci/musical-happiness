@@ -92,6 +92,7 @@ mod unified_timestamps_migration;
 mod unit_progress;
 mod unit_reviews;
 mod user_row_deletion;
+mod user_settings_and_block_cleanup_migration;
 mod users;
 mod users_at_once;
 mod view_field_keys_migration;

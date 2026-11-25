@@ -592,7 +592,7 @@ async fn compare_routes(
     let listed: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
     let own_org = listed
         .iter()
-        .find(|workspace| workspace.kind == OrgKind::Team)
+        .find(|workspace| workspace.kind == OrgKind::Shared)
         .map_or(UNKNOWN_ID, |workspace| &workspace.org_id);
     let hidden = &space.workspace.id;
     let mut violations = compare_workspace_routes(client, &user_id, asker, hidden).await;

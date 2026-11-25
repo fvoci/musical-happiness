@@ -132,9 +132,7 @@ async fn a_space_has_its_first_diary_once_and_so_many_at_most() {
     let deleted = client.delete(&trashed).await;
     deleted.check_status(StatusCode::NO_CONTENT);
     client.post(&diaries, &json!({})).await.check_created();
-    let back = client
-        .post(&format!("{trashed}/undelete"), &json!({}))
-        .await;
+    let back = client.post(&format!("{trashed}/restore"), &json!({})).await;
     back.check_bad_request();
     assert_eq!(back.error_reason(), "too_many_diaries", "{}", back.text());
     th.teardown().await;
@@ -387,7 +385,7 @@ async fn the_runs_of_a_diary_are_its_written_days_one_after_the_other() {
         ]
     );
     client
-        .post(&format!("{leap}/undelete"), &json!({}))
+        .post(&format!("{leap}/restore"), &json!({}))
         .await
         .check_ok();
     assert_eq!(runs().await[1], run("2024-02-28", "2024-03-01", 3));
@@ -542,7 +540,7 @@ async fn an_entry_in_the_trash_holds_no_day_and_comes_back_to_a_free_one() {
     );
     let anew = written(client, &diary, &json!({"date": "2024-02-29"})).await;
     assert_ne!(anew["id"], json!(id), "a new entry of the day");
-    let undelete = format!("{entry}/undelete");
+    let undelete = format!("{entry}/restore");
     let taken = client.post(&undelete, &json!({})).await;
     taken.check_status(StatusCode::CONFLICT);
     assert_eq!(taken.error_reason(), "day_taken", "{}", taken.text());
@@ -558,7 +556,7 @@ async fn an_entry_in_the_trash_holds_no_day_and_comes_back_to_a_free_one() {
         [("2024-02-29".to_owned(), id.clone())]
     );
     client.post(&undelete, &json!({})).await.check_not_found();
-    let nothing = format!("{diary}/entries/{UNKNOWN_ID}/undelete");
+    let nothing = format!("{diary}/entries/{UNKNOWN_ID}/restore");
     client.post(&nothing, &json!({})).await.check_not_found();
     th.teardown().await;
 }
@@ -1113,7 +1111,7 @@ async fn deleting_an_empty_entry_purges_it_while_non_empty_entries_go_to_trash()
         json!([])
     );
     client
-        .post(&format!("{blank_at}/undelete"), &json!({}))
+        .post(&format!("{blank_at}/restore"), &json!({}))
         .await
         .check_not_found();
 
@@ -1186,7 +1184,7 @@ async fn deleting_an_empty_entry_purges_it_while_non_empty_entries_go_to_trash()
             "{date}: expected non-empty entry in trash: {trash}"
         );
         client
-            .post(&format!("{at}/undelete"), &json!({}))
+            .post(&format!("{at}/restore"), &json!({}))
             .await
             .check_ok();
     }

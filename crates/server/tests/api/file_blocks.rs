@@ -100,7 +100,7 @@ async fn a_comment_has_no_file_block() {
     });
     check_refused_body(
         &ts.client
-            .patch(&format!("{TEST_WS}/boards-and-blocks"), &both)
+            .patch(&format!("{TEST_WS}/containers-and-blocks"), &both)
             .await,
         "/blockPatches/0/body",
     );
@@ -134,7 +134,7 @@ async fn a_comment_has_no_file_block() {
     let refused = ts
         .client
         .post(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &json!({"containers": [new_board], "blocks": [new_card, new_comment]}),
         )
         .await;

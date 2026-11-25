@@ -17,7 +17,7 @@ pub(crate) async fn type_on_container(
     sql.bind(Id(block_id))
         .push_bind(" AND container_id = ", Id(container_id));
     match scope.fetch_optional(sql).await? {
-        Some(row) => Ok(Some(BlockType::from(row.text(0)?))),
+        Some(row) => Ok(Some(crate::blocks::block_type_column(&row, 0, "type")?)),
         None => Ok(None),
     }
 }
@@ -30,7 +30,7 @@ async fn types_below(scope: &mut Scope<'_>, block_id: &str) -> Result<Vec<BlockT
         .fetch_all(sql)
         .await?
         .iter()
-        .map(|row| Ok(BlockType::from(row.text(0)?)))
+        .map(|row| crate::blocks::block_type_column(row, 0, "type"))
         .collect()
 }
 
@@ -55,7 +55,7 @@ pub(crate) async fn check(
     let old_type = existing.map(|existing| &existing.block_type);
     let is_comment = block.block_type == BlockType::Comment;
     let becomes_comment = is_comment && old_type != Some(&BlockType::Comment);
-    let on_its_place = parent_type.is_some_and(BlockType::takes_comments);
+    let on_its_place = parent_type.copied().is_some_and(BlockType::takes_comments);
     if is_comment && (moves || becomes_comment) && !on_its_place {
         // Where only the type changed, the type is what the request got wrong.
         return refuse(if moves {
@@ -83,12 +83,12 @@ pub(crate) async fn check(
 /// for none) would break, if anything: the parent may have changed type since the
 /// block was deleted, and a block stored before the rule may never have kept it.
 pub(crate) fn restore_refusal(
-    block_type: &BlockType,
-    parent_type: Option<&BlockType>,
+    block_type: BlockType,
+    parent_type: Option<BlockType>,
 ) -> Option<BlockError> {
-    if *block_type == BlockType::Comment && !parent_type.is_some_and(BlockType::takes_comments) {
+    if block_type == BlockType::Comment && !parent_type.is_some_and(BlockType::takes_comments) {
         Some(BlockError::CommentNotOnCardOrPage)
-    } else if parent_type == Some(&BlockType::Comment) {
+    } else if parent_type == Some(BlockType::Comment) {
         Some(BlockError::ParentIsComment)
     } else {
         None

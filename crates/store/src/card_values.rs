@@ -197,7 +197,10 @@ async fn types_on_board(
             .bind_list(chunk.iter().map(|id| Id(id)))
             .push(")");
         for row in scope.fetch_all(sql).await? {
-            types.insert(row.id(0)?, BlockType::from(row.text(1)?));
+            types.insert(
+                row.id(0)?,
+                crate::blocks::block_type_column(&row, 1, "type")?,
+            );
         }
     }
     Ok(types)

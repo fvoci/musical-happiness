@@ -498,7 +498,6 @@ fn build_cards(
             title,
             fields,
             body,
-            schema: 1,
             ..Block::default()
         });
     }
@@ -799,7 +798,6 @@ fn build_comments(
             block_type: BlockType::Comment,
             body,
             created_at,
-            schema: 1,
             ..Block::default()
         });
     }
@@ -834,7 +832,6 @@ fn build_board_view(
         block_type: BlockType::View,
         title: "Board".to_owned(),
         fields,
-        schema: 1,
         ..Block::default()
     }
 }

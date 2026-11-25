@@ -47,7 +47,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_delete_diary_entry
         ))
         .routes(routes!(handle_get_deleted_diary_entries))
-        .routes(routes!(handle_undelete_diary_entry))
+        .routes(routes!(handle_restore_diary_entry))
 }
 
 /// A diary to make.
@@ -433,7 +433,7 @@ async fn handle_patch_diary_entry(
 ///
 /// An entry with a body or any note (mood, weather or place) goes to the trash of its
 /// diary, where it holds no day so the day takes a new entry; it is restored by
-/// `undeleteDiaryEntry`, and gone for good when the trash is emptied of it. A completely
+/// `restoreDiaryEntry`, and gone for good when the trash is emptied of it. A completely
 /// empty entry (no body, no mood, no weather and no place) is removed for good without
 /// entering the trash.
 #[utoipa::path(
@@ -505,13 +505,13 @@ async fn handle_get_deleted_diary_entries(
 /// the trash of the diary has no such entry.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}/undelete",
-    operation_id = "undeleteDiaryEntry",
+    path = "/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}/restore",
+    operation_id = "restoreDiaryEntry",
     tag = tag::DIARIES,
     params(OwnWorkspaceId, DiaryId, EntryId),
     responses((status = 200, description = "The entry as it is again.", body = DiaryEntry)),
 )]
-async fn handle_undelete_diary_entry(
+async fn handle_restore_diary_entry(
     InDiary(ws): InDiary,
     Path((_, diary_id, entry_id)): Path<(String, String, String)>,
 ) -> ApiResult {

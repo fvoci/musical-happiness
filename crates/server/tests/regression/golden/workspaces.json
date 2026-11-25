@@ -7,7 +7,7 @@
     "body": [
       {
         "id": "<id:1>",
-        "kind": "team",
+        "kind": "shared",
         "name": "The Firm",
         "orgId": "<id:2>",
         "passwordRequired": false,
@@ -16,7 +16,7 @@
       },
       {
         "id": "<id:3>",
-        "kind": "team",
+        "kind": "shared",
         "name": "",
         "orgId": "<id:2>",
         "passwordRequired": false,

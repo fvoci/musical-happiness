@@ -190,7 +190,7 @@ async fn a_comment_is_on_a_card_and_has_nothing_below_it() {
     let response = th
         .client
         .patch(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &json!({
                 "containerIds": [board_id], "containerPatches": [{}],
                 "blockIds": [attachment.id], "blockPatches": [under_comment],
@@ -418,7 +418,7 @@ async fn a_deleted_comment_is_brought_back_only_by_who_may_delete_it() {
 
 /// A comment is changed by its author with the commenter's role, and the comment of
 /// somebody else by the board's admins only, as it is deleted; an editor may not change
-/// it. `patchBlock`, `patchBlocks` and `patchBoardsAndBlocks` alike. Who changed it and
+/// it. `patchBlock`, `patchBlocks` and `patchContainersAndBlocks` alike. Who changed it and
 /// when is what its `modifiedBy` and `updatedAt` say to the members.
 #[tokio::test]
 async fn a_comment_is_changed_by_its_author_or_an_admin() {
@@ -494,7 +494,7 @@ async fn a_comment_is_changed_by_its_author_or_an_admin() {
     let response = boards
         .editor
         .patch(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &together(json!({"title": "by an editor"})),
         )
         .await;
@@ -516,7 +516,7 @@ async fn a_comment_is_changed_by_its_author_or_an_admin() {
     assert_eq!(told["modifiedBy"], json!(admin.id), "{told}");
     th.client
         .patch(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &together(json!({"title": "by the admin again"})),
         )
         .await
@@ -588,7 +588,7 @@ async fn a_commenter_changes_no_card_and_makes_none() {
 /// The commenter's role changes the text of the commenter's own comment, its body; moving
 /// it to another card (`parentId`) is for editors, refused as any change the role may not
 /// make on
-/// patchBlock and patchBlocks; patchBoardsAndBlocks refuses a commenter before, by the
+/// patchBlock and patchBlocks; patchContainersAndBlocks refuses a commenter before, by the
 /// board's permission. A `parentId` that stays as it was moves nothing. An editor
 /// moves their own comment and not somebody else's; an admin moves anybody's.
 #[tokio::test]
@@ -634,7 +634,7 @@ async fn a_commenter_changes_the_text_of_their_comment_but_does_not_move_it() {
     });
     boards
         .commenter
-        .patch(&format!("{TEST_WS}/boards-and-blocks"), &moved_together)
+        .patch(&format!("{TEST_WS}/containers-and-blocks"), &moved_together)
         .await
         .check_error(
             StatusCode::FORBIDDEN,
@@ -679,7 +679,7 @@ async fn an_editor_moves_their_own_comment_and_an_admin_anybodys() {
     boards
         .editor
         .patch(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &json!({
                 "containerIds": [board_id], "containerPatches": [{}],
                 "blockIds": [editors.id], "blockPatches": [{"parentId": content.card.id}],

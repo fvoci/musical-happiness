@@ -11,7 +11,7 @@ use crate::container::{Container, ContainerPatch};
 use crate::id::new_id;
 use crate::relation::RelationProperties;
 
-/// Reasons a boards-and-blocks request is rejected.
+/// Reasons a containers-and-blocks request is rejected.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ContainersAndBlocksError {
     /// The request lists no board.

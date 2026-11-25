@@ -186,7 +186,9 @@ impl Place<'_> {
             (BlockType::Unit, Some(parent)) if *parent != BlockType::Chapter => {
                 Some(BlockError::UnitParentNotChapter)
             }
-            (BlockType::Comment, parent) if !parent.is_some_and(BlockType::takes_comments) => {
+            (BlockType::Comment, parent)
+                if !parent.copied().is_some_and(BlockType::takes_comments) =>
+            {
                 Some(BlockError::CommentNotOnCardOrPage)
             }
             (_, Some(BlockType::Comment)) => Some(BlockError::ParentIsComment),
@@ -221,7 +223,7 @@ fn check_type(block: BlockPlace<'_>, kind: ContainerKind) -> Result<(), AppError
         }
         (ContainerKind::Board, BlockType::Page) => Some(BlockError::PageOffWiki),
         (ContainerKind::Board, block_type) if !block_type.is_current() => {
-            Some(BlockError::type_not_current(block_type))
+            Some(BlockError::TypeNotCurrent)
         }
         (ContainerKind::Wiki, BlockType::Page | BlockType::Comment) | (ContainerKind::Board, _) => {
             None
@@ -463,7 +465,7 @@ mod tests {
                 id: (*id).to_owned(),
                 container_id: container_id.to_owned(),
                 parent_id: (*parent).to_owned(),
-                block_type: block_type.clone(),
+                block_type: *block_type,
                 ..Block::default()
             })
             .collect();
@@ -567,10 +569,10 @@ mod tests {
             assert!(refused.contains(&said.to_string()), "{blocks:?}: {refused}");
         }
         let card = BlockType::Card;
-        let dropped_later = [("c", "gone", card.clone()), ("x", "c", BlockType::Comment)];
+        let dropped_later = [("c", "gone", card), ("x", "c", BlockType::Comment)];
         assert!(check(&of("w", ContainerKind::Board, &dropped_later), LIMITS).is_ok());
         // A parent on another board of the same file.
-        let mut two = of("w", ContainerKind::Board, &[("c", "", card.clone())]);
+        let mut two = of("w", ContainerKind::Board, &[("c", "", card)]);
         let other = of("o", ContainerKind::Board, &[("d", "c", card)]);
         two.containers.extend(other.containers);
         two.blocks.extend(other.blocks);

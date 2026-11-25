@@ -388,7 +388,7 @@ impl Store {
                 .push_bind(" AND c.is_template = ", false)
                 .push(" AND w.deleted_at IS NULL")
                 .push(" AND o.deleted_at IS NULL")
-                .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
+                .push_bind(" AND o.kind = ", OrgKind::Shared.as_str())
                 .push(&scope.same_organization(&[("course_meetings", "c"), ("c", "w")]))
                 .push(") RETURNING id, org_id, container_id");
             let claimed: Vec<(String, String, String)> = scope

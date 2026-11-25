@@ -25,7 +25,7 @@
   const listed = $derived<WorkspaceInfo[]>([
     ...Array.from({ length: count }, (_, index) => ({
       id: `example-workspace-${index}`,
-      kind: 'team' as const,
+      kind: 'shared' as const,
       title:
         index === 0 && long
           ? 'Example workspace · 이름이 긴 작업 공간 '.repeat(8)
@@ -44,7 +44,7 @@
     if (starts === 'limit') {
       throw new BackendError(400, { reason: 'too_many_organizations', limit: 3 });
     }
-    const made = { id: `started-${started.length}`, kind: 'team' as const, title: name };
+    const made = { id: `started-${started.length}`, kind: 'shared' as const, title: name };
     started = [...started, made];
     current = made.id;
   }

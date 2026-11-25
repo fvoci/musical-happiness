@@ -99,7 +99,7 @@ impl Outcome {
             | StoreError::NoOrganization => Self::Failed,
             StoreError::TeamSelfJoining
             | StoreError::NotFound(_)
-            | StoreError::TooManyPreferences { .. }
+            | StoreError::TooManyClientStateEntries { .. }
             | StoreError::NotFirstUser
             | StoreError::NoFirstUser
             | StoreError::TooManyOrganizations { .. }

@@ -131,7 +131,7 @@ async fn roles_versions_and_undelete_ownership_hold_on_unit_comments() {
     assert_eq!(versions[0]["body"], text("first"), "{versions}");
     th.client2.delete(&at_mine).await.check_no_content();
     th.client2
-        .post_empty(&format!("{at_mine}/undelete"))
+        .post_empty(&format!("{at_mine}/restore"))
         .await
         .check_ok();
 
@@ -139,11 +139,11 @@ async fn roles_versions_and_undelete_ownership_hold_on_unit_comments() {
     // (`ManageOthersComments`), while the admin can.
     th.client.delete(&at_mine).await.check_no_content();
     th.client2
-        .post_empty(&format!("{at_mine}/undelete"))
+        .post_empty(&format!("{at_mine}/restore"))
         .await
         .check_forbidden();
     th.client
-        .post_empty(&format!("{at_mine}/undelete"))
+        .post_empty(&format!("{at_mine}/restore"))
         .await
         .check_ok();
     th.teardown().await;
@@ -204,7 +204,7 @@ async fn open_course_unjoined_member_reads_comments_only() {
         .await
         .check_no_content();
     th.client2
-        .post_empty(&format!("{at_mine}/undelete"))
+        .post_empty(&format!("{at_mine}/restore"))
         .await
         .check_forbidden();
 
@@ -222,7 +222,7 @@ async fn open_course_unjoined_member_reads_comments_only() {
         .check_no_content();
     let restored = th
         .client
-        .post_empty(&format!("{at_unit}/undelete"))
+        .post_empty(&format!("{at_unit}/restore"))
         .await
         .value();
     assert_eq!(restored["parentId"], "", "promoted to top level");
@@ -253,7 +253,7 @@ async fn chapters_file_blocks_trash_broadcasts_and_archive_round_trip() {
     );
     th.client
         .post_empty(&format!(
-            "{}/{UNKNOWN_ID}/undelete",
+            "{}/{UNKNOWN_ID}/restore",
             comments_of(TEST_WS, &course, &chapter)
         ))
         .await
@@ -299,7 +299,7 @@ async fn chapters_file_blocks_trash_broadcasts_and_archive_round_trip() {
         .await
         .check_not_found();
     th.client
-        .post_empty(&format!("{at_chapter}/undelete"))
+        .post_empty(&format!("{at_chapter}/restore"))
         .await
         .check_ok();
     let listed = th

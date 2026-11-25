@@ -267,12 +267,9 @@ crates/server/tests/api/file_leases.rs | team
 # verifies byte for byte: its instances are named so in Oracle's documentation.
 crates/server/src/app/mail/provider/http_signature.rs | displayName=TeamXInstances
 
-# The kind of an organization that people work in together, `team`, beside the space of
-# one account (`personal`): the plan of 2026-11-19 names the two, and the contract and
-# the schema carry them.
-crates/model/src/org_kind.rs
+# Historical migrations (0050, 0051) and migration 0076 replacing `organizations.kind = 'team'`
+# with `'shared'`.
 crates/store/schema/*/0050_personal_organizations.sql
 crates/store/schema/*/0051_organizations_made_by.sql | kind = 'team'
-** | OrgKind::Team
-** | "kind": "team"
-crates/model/src/organization.rs | `team` for every other
+crates/store/schema/*/0076_user_settings_client_state_and_block_cleanup.sql | 'team'
+crates/store/schema/postgres/0076_user_settings_client_state_and_block_cleanup.sql | '%team%'

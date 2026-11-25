@@ -243,7 +243,6 @@ export class MemoryBackend implements Backend {
       parentId,
       createdBy: this.userId,
       modifiedBy: this.userId,
-      schema: 1,
       type,
       title: '',
       fields: {},

@@ -151,7 +151,7 @@ export interface Wikis {
    * pages come back with them. Each page that came back is told (`pages`),
    * and each comment (`blocks`); the answer is the page asked for.
    */
-  undeletePage(wikiId: string, pageId: string): Promise<WikiPageDetail>;
+  restorePage(wikiId: string, pageId: string): Promise<WikiPageDetail>;
   /**
    * Moves the page with every page below it, for the wiki's editors: below
    * itself, below a page below it or deeper than the limit (`page_too_deep`)

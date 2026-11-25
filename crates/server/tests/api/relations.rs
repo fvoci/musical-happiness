@@ -130,7 +130,7 @@ async fn view_of(client: &Client, board_id: &str) -> String {
             &format!("{TEST_WS}/boards/{board_id}/blocks"),
             &json!([{
                 "id": "v", "containerId": board_id, "type": "view",
-                "title": "Table", "schema": 1, "createdAt": 1, "updatedAt": 1,
+                "title": "Table", "createdAt": 1, "updatedAt": 1,
                 "fields": {"viewType": "table"},
             }]),
         )
@@ -380,7 +380,7 @@ async fn a_card_in_the_trash_may_be_named_and_one_gone_for_good_may_not() {
     // Gone for good: the purge removes what was deleted before now.
     th.client
         .post_empty(&format!(
-            "{TEST_WS}/boards/{}/blocks/{deleted}/undelete",
+            "{TEST_WS}/boards/{}/blocks/{deleted}/restore",
             board.id
         ))
         .await
@@ -422,11 +422,11 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
 
     let mut block = json!({
         "id": "c", "containerId": board.id, "type": "card", "title": "c",
-        "schema": 1, "createdAt": 1, "updatedAt": 1, "fields": {"properties": {RELATION: refused}},
+        "createdAt": 1, "updatedAt": 1, "fields": {"properties": {RELATION: refused}},
     });
     let view = json!({
         "id": "v", "containerId": board.id, "type": "view", "title": "v",
-        "schema": 1, "createdAt": 1, "updatedAt": 1, "fields": {},
+        "createdAt": 1, "updatedAt": 1, "fields": {},
     });
     let blocks = th
         .client
@@ -461,7 +461,7 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
     let both = th
         .client
         .patch(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &json!({
                 "containerIds": [board.id], "containerPatches": [{}],
                 "blockIds": [card],
@@ -476,7 +476,7 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
     let new_board = th
         .client
         .post(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &json!({
                 "containers": [{
                     "id": "b", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "new",
@@ -504,7 +504,7 @@ async fn new_cards_of_one_request_may_name_each_other() {
     let card = |id: &str, names: Value| {
         json!({
             "id": id, "containerId": board.id, "type": "card", "title": id,
-            "schema": 1, "createdAt": 1, "updatedAt": 1, "fields": {"properties": {RELATION: names}},
+            "createdAt": 1, "updatedAt": 1, "fields": {"properties": {RELATION: names}},
         })
     };
     let created: Vec<Block> = th
@@ -540,7 +540,7 @@ async fn new_cards_of_one_request_may_name_each_other() {
     let made: Value = th
         .client
         .post(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &json!({
                 "containers": [{
                     "id": "nb", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "new",
@@ -548,10 +548,10 @@ async fn new_cards_of_one_request_may_name_each_other() {
                 }],
                 "blocks": [
                     {"id": "x", "containerId": "nb", "type": "card", "title": "x",
-                     "schema": 1, "createdAt": 1, "updatedAt": 1,
+                     "createdAt": 1, "updatedAt": 1,
                      "fields": {"properties": {RELATION: [{"card": "y", "kind": "sf", "lagDays": 4}]}}},
                     {"id": "y", "containerId": "nb", "type": "card", "title": "y",
-                     "schema": 1, "createdAt": 1, "updatedAt": 1,
+                     "createdAt": 1, "updatedAt": 1,
                      "fields": {"properties": {RELATION: [{"card": "x"}]}}},
                 ],
             }),
@@ -712,7 +712,7 @@ async fn a_block_that_becomes_a_card_has_its_relations_checked() {
                 &blocks,
                 &json!([{
                     "id": id, "containerId": board.id, "type": "view",
-                    "title": id, "schema": 1, "createdAt": 1, "updatedAt": 1,
+                    "title": id, "createdAt": 1, "updatedAt": 1,
                     "fields": {"viewType": "table", "properties": value},
                 }]),
             )
@@ -741,7 +741,7 @@ async fn a_block_that_becomes_a_card_has_its_relations_checked() {
         after
             .iter()
             .find(|block| block.title == title)
-            .map(|block| block.block_type.clone())
+            .map(|block| block.block_type)
     };
     assert_eq!(type_of("odd"), Some(fvoci_model::BlockType::View));
     assert_eq!(type_of("fine"), Some(fvoci_model::BlockType::Card));

@@ -5,7 +5,7 @@
 //! goes into the trash takes the subscriptions to it along, and brings them back
 //! (`trash/watchers.rs`).
 
-use fvoci_model::{BlockType, Subscriber, Subscription};
+use fvoci_model::{Subscriber, Subscription};
 
 use crate::Store;
 use crate::db::{Id, Row, Scope, Sql, now_millis};
@@ -240,7 +240,7 @@ async fn fetch_subscriptions(
 
 fn subscription_from_row(row: &Row) -> Result<Subscription, StoreError> {
     Ok(Subscription {
-        block_type: BlockType::from(row.text(0)?),
+        block_type: crate::blocks::block_type_column(row, 0, "block_type")?,
         block_id: row.id(1)?,
         user_id: row.id(2)?,
         notified_at: row.int(3)?,

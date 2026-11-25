@@ -40,7 +40,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_move_page))
         .routes(routes!(handle_duplicate_page))
         .routes(routes!(handle_get_deleted_pages))
-        .routes(routes!(handle_undelete_page))
+        .routes(routes!(handle_restore_page))
 }
 
 /// A wiki to make.
@@ -427,7 +427,7 @@ async fn handle_delete_page(
 ///
 /// One page of the wiki's pages that are in the trash, each with its identifier, its
 /// title and icon, the page it was below, when it was deleted, by whom, and how many
-/// pages below it went with it; `undeletePage` brings one back with those until the
+/// pages below it went with it; `restorePage` brings one back with those until the
 /// trash is emptied of it (`trash_retention_days`, as for a board's cards). A page that
 /// went with the page it was below comes back with that page, and is not listed. For
 /// the wiki's editors. The last deleted first; the pages cut that order.
@@ -471,13 +471,13 @@ async fn handle_get_deleted_pages(
 /// below it, and of each page numbered anew to leave it room.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/undelete",
-    operation_id = "undeletePage",
+    path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/restore",
+    operation_id = "restorePage",
     tag = tag::WIKIS,
     params(MemberWorkspaceId, WikiId, PageId),
     responses((status = 200, description = "The page as it is again.", body = Page)),
 )]
-async fn handle_undelete_page(
+async fn handle_restore_page(
     InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {

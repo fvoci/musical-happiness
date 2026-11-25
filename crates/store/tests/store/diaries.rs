@@ -367,7 +367,7 @@ async fn a_diary_holds_entries_and_nothing_else_does() {
         (BlockType::Comment, entry.id.as_str()),
         (BlockType::Attachment, entry.id.as_str()),
     ] {
-        let mut other = block(&diary_id, block_type.clone(), parent_id);
+        let mut other = block(&diary_id, block_type, parent_id);
         assert_eq!(
             block_refusal(own.insert_block(&mut other, &user_id).await),
             BlockError::NotEntryOnDiary,

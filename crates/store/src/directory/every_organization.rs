@@ -117,7 +117,7 @@ pub(crate) async fn organizations_made_by(
         let mut sql = scope.sql("SELECT COUNT(*) FROM organizations WHERE created_by = ");
         sql.bind(Id(user_id))
             .push(" AND deleted_at IS NULL AND is_system = false")
-            .push_bind(" AND kind = ", OrgKind::Team.as_str());
+            .push_bind(" AND kind = ", OrgKind::Shared.as_str());
         match scope.fetch_optional(sql).await? {
             Some(row) => row.int(0),
             None => Ok(0),
@@ -140,7 +140,7 @@ pub(super) async fn organizations_of_user(
     );
     sql.bind(Id(user_id))
         .push(" AND o.deleted_at IS NULL AND o.is_system = false")
-        .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
+        .push_bind(" AND o.kind = ", OrgKind::Shared.as_str())
         .push(" ORDER BY o.created_at, o.id");
     scope
         .fetch_all(sql)
@@ -165,6 +165,6 @@ pub(crate) fn of_people(sql: &mut Sql, kind: &str) {
     sql.push(" AND ")
         .push(kind)
         .push(" = '")
-        .push(OrgKind::Team.as_str())
+        .push(OrgKind::Shared.as_str())
         .push("'");
 }

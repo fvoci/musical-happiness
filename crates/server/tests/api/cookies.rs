@@ -173,7 +173,7 @@ async fn a_change_with_the_cookie_needs_the_request_forgery_header() {
         (Method::POST, format!("{ROOT_WS}/boards")),
         (Method::PATCH, "/users/me/client-state".to_owned()),
         (Method::PATCH, "/users/me/settings".to_owned()),
-        (Method::DELETE, format!("{ROOT_WS}/boards-and-blocks")),
+        (Method::DELETE, format!("{ROOT_WS}/containers-and-blocks")),
         (Method::POST, "/logout".to_owned()),
     ];
 

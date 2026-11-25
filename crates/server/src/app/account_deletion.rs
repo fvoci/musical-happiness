@@ -65,7 +65,7 @@ impl App {
                     }
                 }
                 None => {
-                    organizations.push(LeavingOrganization::closed(organization, OrgKind::Team));
+                    organizations.push(LeavingOrganization::closed(organization, OrgKind::Shared));
                 }
             }
         }

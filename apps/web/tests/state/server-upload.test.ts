@@ -198,7 +198,6 @@ describe('uploading a file to the server', () => {
               body: null,
               createdBy: 'u',
               modifiedBy: 'u',
-              schema: 1,
             },
           ]),
           { status: 201 },

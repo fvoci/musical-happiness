@@ -47,7 +47,6 @@ const BLOCK = {
   updatedAt: 2,
   createdBy: 'u',
   modifiedBy: 'u',
-  schema: 1,
   title: 'A card',
 };
 

@@ -168,8 +168,6 @@ fn category_from_row(row: &Row) -> Result<Category, StoreError> {
         deleted_at: None,
         collapsed: row.bool(6)?,
         sort_order: row.int(7)?,
-        // The table has no column for the sorting method.
-        sorting: String::new(),
         category_type: category_type_from_column(&row.text(8)?)?,
     })
 }

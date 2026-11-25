@@ -14,7 +14,13 @@ import {
 } from '$lib/state/index.ts';
 
 const own: WorkspaceInfo = { id: 'own', title: '', kind: 'personal', role: 'admin' };
-const made: WorkspaceInfo = { id: 'made', title: 'Made', kind: 'team', role: 'admin', orgId: 'o' };
+const made: WorkspaceInfo = {
+  id: 'made',
+  title: 'Made',
+  kind: 'shared',
+  role: 'admin',
+  orgId: 'o',
+};
 
 function holder(read: () => Promise<WorkspaceInfo[]>) {
   return { workspaces: [own], backend: { workspaces: read } as unknown as Backend };

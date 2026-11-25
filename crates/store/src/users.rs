@@ -1,12 +1,14 @@
-//! Users and their preferences.
+//! Users, their settings, and their client state.
 //!
 //! Accounts belong to the service. Workspace people are selected by membership and
 //! visibility in `directory.rs`; these account operations do not choose a workspace.
 //!
 //! An account is made in `accounts.rs`.
 
+use std::collections::BTreeMap;
+
 use fvoci_model::{
-    CLIENT_STATE_MAX_ENTRIES, OrgRole, User, UserPreferencesPatch, UserSettings, UserSettingsPatch,
+    CLIENT_STATE_MAX_ENTRIES, ClientStatePatch, OrgRole, User, UserSettings, UserSettingsPatch,
 };
 
 use crate::Store;
@@ -58,14 +60,6 @@ enum Asker {
     Operator,
 }
 
-/// The category of the bag of state a client keeps with the account: names and values
-/// the server stores without knowing what they mean.
-const CLIENT_CATEGORY: &str = "client";
-
-/// The category of the settings: names and values the server knows and checks. The
-/// checking is the caller's; see `fvoci_model::UserSettings`.
-const SETTINGS_CATEGORY: &str = "settings";
-
 /// The most users a search returns.
 const SEARCH_LIMIT: usize = 10;
 
@@ -77,18 +71,10 @@ const OLDEST_FIRST: &str = " ORDER BY created_at, id";
 /// take the asking back (`account_deletion.rs`). Not once its erasing began.
 pub(crate) const WAITS: &str = "delete_after > 0 AND erase_started_at = 0";
 
-/// One stored preference of a user.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Preference {
-    /// The identifier of the user the preference belongs to.
-    pub user_id: String,
-    /// The category the preference is filed under.
-    pub category: String,
-    /// The name of the preference.
-    pub name: String,
-    /// The value of the preference.
-    pub value: String,
-}
+/// The columns of `user_settings` read for [`UserSettings`].
+const USER_SETTINGS_COLUMNS: &str = "language, theme, density, card_open, haptics, week_start, \
+                                     hour_cycle, time_zone, notify_mentions, notify_assignments, \
+                                     notify_comments";
 
 impl Store {
     /// Returns the number of users that are not deleted.
@@ -108,9 +94,6 @@ impl Store {
     }
 
     /// Returns the user with the given identifier, unless deleted.
-    ///
-    /// Only the members a standalone server stores are filled in: the roles and the
-    /// permissions are empty, and the user is neither a bot nor a guest.
     ///
     /// # Errors
     ///
@@ -424,7 +407,7 @@ impl Store {
     }
 
     /// Sets and removes entries of the bag of client state of a user and returns the
-    /// bag as it is afterwards, by name.
+    /// bag as it is afterwards, keyed by entry name.
     ///
     /// A name that is both set and removed ends up removed. Either all changes are
     /// stored or none. Whether the names and values are ones the bag takes is the
@@ -432,15 +415,15 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::TooManyPreferences`] if the bag would hold more than
+    /// Returns [`StoreError::TooManyClientStateEntries`] if the bag would hold more than
     /// `fvoci_model::CLIENT_STATE_MAX_ENTRIES` entries, and [`StoreError::UserNotFound`]
     /// if there is no such user; nothing is stored then.
-    pub async fn patch_user_preferences(
+    pub async fn patch_client_state(
         &self,
         user_id: &str,
-        patch: &UserPreferencesPatch,
-    ) -> Result<Vec<Preference>, StoreError> {
-        self.transaction(async |scope| patch_user_preferences(scope, user_id, patch).await)
+        patch: &ClientStatePatch,
+    ) -> Result<BTreeMap<String, String>, StoreError> {
+        self.transaction(async |scope| patch_client_state(scope, user_id, patch).await)
             .await
     }
 
@@ -468,20 +451,22 @@ impl Store {
     ) -> Result<UserSettings, StoreError> {
         self.transaction(async |scope| {
             lock_user(scope, user_id).await?;
-            let (set, reset) = patch.changes();
-            change_preferences(scope, user_id, SETTINGS_CATEGORY, &set, &reset).await?;
+            upsert_user_settings(scope, user_id, patch).await?;
             stored_settings(scope, user_id).await
         })
         .await
     }
 
-    /// Returns the bag of client state of a user, by name.
+    /// Returns the bag of client state of a user, keyed by entry name.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_user_preferences(&self, user_id: &str) -> Result<Vec<Preference>, StoreError> {
-        self.with_conn(async |scope| get_user_preferences(scope, user_id).await)
+    pub async fn get_client_state(
+        &self,
+        user_id: &str,
+    ) -> Result<BTreeMap<String, String>, StoreError> {
+        self.with_conn(async |scope| get_client_state(scope, user_id).await)
             .await
     }
 }
@@ -568,7 +553,6 @@ fn user_from_row(row: &Row) -> Result<User, StoreError> {
         is_admin: row.bool(8)?,
         display_name: row.text(9)?,
         name: person_names::name_from_row(row, 10)?,
-        ..User::default()
     })
 }
 
@@ -736,10 +720,87 @@ async fn update_password(
 }
 
 async fn stored_settings(scope: &mut Scope<'_>, user_id: &str) -> Result<UserSettings, StoreError> {
-    let stored = preferences_in(scope, user_id, SETTINGS_CATEGORY).await?;
-    Ok(UserSettings::from_stored(stored.iter().map(|preference| {
-        (preference.name.as_str(), preference.value.as_str())
-    })))
+    let mut sql = scope.sql(&format!(
+        "SELECT {USER_SETTINGS_COLUMNS} FROM user_settings WHERE user_id = "
+    ));
+    sql.bind(Id(user_id));
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Ok(UserSettings::default());
+    };
+    Ok(UserSettings {
+        language: row.text(0)?.parse().unwrap_or_default(),
+        theme: row.text(1)?.parse().unwrap_or_default(),
+        density: row.text(2)?.parse().unwrap_or_default(),
+        card_open: row.text(3)?.parse().unwrap_or_default(),
+        haptics: row.bool(4)?,
+        week_start: row.text(5)?.parse().unwrap_or_default(),
+        hour_cycle: row.text(6)?.parse().unwrap_or_default(),
+        time_zone: row.text(7)?.parse().unwrap_or_default(),
+        notify_mentions: row.bool(8)?,
+        notify_assignments: row.bool(9)?,
+        notify_comments: row.bool(10)?,
+    })
+}
+
+/// Maps a wire setting name and optional stored value (`None` resets to the default) to
+/// its `user_settings` column and typed SQL parameter.
+fn setting_column_param(name: &str, value: Option<&str>) -> Option<(&'static str, Param)> {
+    let text = |default: &'static str| Param::Text(value.unwrap_or(default).to_owned());
+    let flag = |default: bool| Param::Bool(value.map_or(default, |stored| stored == "true"));
+    Some(match name {
+        "language" => ("language", text("auto")),
+        "theme" => ("theme", text("auto")),
+        "density" => ("density", text("auto")),
+        "cardOpen" => ("card_open", text("center")),
+        "haptics" => ("haptics", flag(true)),
+        "weekStart" => ("week_start", text("auto")),
+        "hourCycle" => ("hour_cycle", text("auto")),
+        "timeZone" => ("time_zone", text("auto")),
+        "notifyMentions" => ("notify_mentions", flag(true)),
+        "notifyAssignments" => ("notify_assignments", flag(true)),
+        "notifyComments" => ("notify_comments", flag(true)),
+        _ => return None,
+    })
+}
+
+async fn upsert_user_settings(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    patch: &UserSettingsPatch,
+) -> Result<(), StoreError> {
+    let (set, reset) = patch.changes();
+    let mut columns: Vec<(&'static str, Param)> = Vec::with_capacity(set.len() + reset.len());
+    for (name, value) in set {
+        if let Some(entry) = setting_column_param(name, Some(value)) {
+            columns.push(entry);
+        }
+    }
+    for name in reset {
+        if let Some(entry) = setting_column_param(name, None) {
+            columns.push(entry);
+        }
+    }
+    if columns.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<&str> = columns.iter().map(|(col, _)| *col).collect();
+    let mut sql = scope.sql(&format!(
+        "INSERT INTO user_settings (user_id, {}) VALUES (",
+        names.join(", ")
+    ));
+    sql.bind(Id(user_id));
+    for (_, param) in columns {
+        sql.push_bind(", ", param);
+    }
+    sql.push(") ON CONFLICT (user_id) DO UPDATE SET ");
+    for (index, col) in names.iter().enumerate() {
+        if index > 0 {
+            sql.push(", ");
+        }
+        sql.push(col).push(" = EXCLUDED.").push(col);
+    }
+    scope.execute(sql).await?;
+    Ok(())
 }
 
 /// Locks the password of the account at `now`, if it has one: it is taken nowhere, as
@@ -805,92 +866,51 @@ pub(crate) async fn hold_in_use(scope: &mut Scope<'_>, user_id: &str) -> Result<
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
-/// The preferences of a user in one category, by name.
-async fn preferences_in(
+pub(crate) async fn get_client_state(
     scope: &mut Scope<'_>,
     user_id: &str,
-    category: &'static str,
-) -> Result<Vec<Preference>, StoreError> {
-    let mut sql =
-        scope.sql("SELECT user_id, category, name, value FROM preferences WHERE user_id = ");
-    sql.bind(Id(user_id))
-        .push_bind(" AND category = ", category)
-        .push(" ORDER BY name");
+) -> Result<BTreeMap<String, String>, StoreError> {
+    let mut sql = scope.sql("SELECT key, value FROM user_client_state WHERE user_id = ");
+    sql.bind(Id(user_id)).push(" ORDER BY key");
     scope
         .fetch_all(sql)
         .await?
         .iter()
-        .map(|row| {
-            Ok(Preference {
-                user_id: row.id(0)?,
-                category: row.text(1)?,
-                name: row.text(2)?,
-                value: row.text(3)?,
-            })
-        })
+        .map(|row| Ok((row.text(0)?, row.text(1)?)))
         .collect()
 }
 
-/// Stores values and removes others in one category of a user's preferences.
-async fn change_preferences(
+pub(crate) async fn patch_client_state(
     scope: &mut Scope<'_>,
     user_id: &str,
-    category: &'static str,
-    set: &[(&str, &str)],
-    removed: &[&str],
-) -> Result<(), StoreError> {
-    for &(name, value) in set {
-        let mut sql =
-            scope.sql("INSERT INTO preferences (user_id, category, name, value) VALUES (");
-        sql.bind(Id(user_id))
-            .push_bind(", ", category)
-            .push_bind(", ", name)
-            .push_bind(", ", value)
-            .push(") ON CONFLICT (user_id, category, name) DO UPDATE SET value = EXCLUDED.value");
-        scope.execute(sql).await?;
-    }
-    for &name in removed {
-        let mut sql = scope.sql("DELETE FROM preferences WHERE user_id = ");
-        sql.bind(Id(user_id))
-            .push_bind(" AND category = ", category)
-            .push_bind(" AND name = ", name);
-        scope.execute(sql).await?;
-    }
-    Ok(())
-}
-
-pub(crate) async fn get_user_preferences(
-    scope: &mut Scope<'_>,
-    user_id: &str,
-) -> Result<Vec<Preference>, StoreError> {
-    preferences_in(scope, user_id, CLIENT_CATEGORY).await
-}
-
-pub(crate) async fn patch_user_preferences(
-    scope: &mut Scope<'_>,
-    user_id: &str,
-    patch: &UserPreferencesPatch,
-) -> Result<Vec<Preference>, StoreError> {
+    patch: &ClientStatePatch,
+) -> Result<BTreeMap<String, String>, StoreError> {
     // The user's row is held: the count below is of what is there when this change is
     // the only one, and two changes at once cannot both find room for the same places.
     lock_user(scope, user_id).await?;
-    let set: Vec<(&str, &str)> = patch
-        .updated_fields
-        .iter()
-        .map(|(name, value)| (name.as_str(), value.as_str()))
-        .collect();
-    let removed: Vec<&str> = patch.deleted_fields.iter().map(String::as_str).collect();
-    change_preferences(scope, user_id, CLIENT_CATEGORY, &set, &removed).await?;
+    for (key, value) in &patch.updated_fields {
+        let mut sql = scope.sql("INSERT INTO user_client_state (user_id, key, value) VALUES (");
+        sql.bind(Id(user_id))
+            .push_bind(", ", key)
+            .push_bind(", ", value)
+            .push(") ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value");
+        scope.execute(sql).await?;
+    }
+    for key in &patch.deleted_fields {
+        let mut sql = scope.sql("DELETE FROM user_client_state WHERE user_id = ");
+        sql.bind(Id(user_id)).push_bind(" AND key = ", key);
+        scope.execute(sql).await?;
+    }
 
     // Counted after the change, in the transaction of the change: what would make the
     // bag too full is not stored.
-    let preferences = get_user_preferences(scope, user_id).await?;
-    if preferences.len() > CLIENT_STATE_MAX_ENTRIES {
-        return Err(StoreError::TooManyPreferences {
+    let entries = get_client_state(scope, user_id).await?;
+    if entries.len() > CLIENT_STATE_MAX_ENTRIES {
+        return Err(StoreError::TooManyClientStateEntries {
             limit: CLIENT_STATE_MAX_ENTRIES,
         });
     }
-    Ok(preferences)
+    Ok(entries)
 }
 
 /// Whether the account `user_id` has a password to sign in with, by the same rule as

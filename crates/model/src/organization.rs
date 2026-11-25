@@ -106,7 +106,7 @@ pub struct UserWorkspace {
     /// The identifier of the organization the workspace belongs to.
     pub org_id: String,
     /// What that organization is: `personal` for the one workspace of the user's own
-    /// space, `team` for every other.
+    /// space, `shared` for every other.
     pub kind: OrgKind,
     /// The workspace's name; empty if it was given none, as the workspace of the user's
     /// own space always is: a client names that one in the reader's language.

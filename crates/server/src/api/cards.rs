@@ -87,7 +87,7 @@ async fn card_with_permission(
 /// `relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`
 /// (a block of the board that is no card) or `relation_card_not_found`: no card of that
 /// identifier on the board, which is also the answer for a card of another board. Every
-/// write of a card checks so (`patchCard`, the block routes, `createBoardsAndBlocks`)
+/// write of a card checks so (`patchCard`, the block routes, `createContainersAndBlocks`)
 /// the values it changes, and does not ask again for a card that a value named before.
 #[utoipa::path(
     post,

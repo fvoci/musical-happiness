@@ -2,7 +2,7 @@
  * The courses and their chapters and units on the server (`Backend.course`):
  * the operations under `/w/{workspaceId}/courses` (`getCourses`, `createCourse`,
  * `getUnitTree`, `createUnit`, `getUnit`, `patchUnit`, `deleteUnit`, `moveUnit`,
- * `getDeletedUnits`, `undeleteUnit`). What a course shares with a board or wiki
+ * `getDeletedUnits`, `restoreUnit`). What a course shares with a board or wiki
  * (reading, changing, deleting, restoring, members, joining, sidebar, export)
  * goes through the container operations.
  */
@@ -264,10 +264,10 @@ export class ServerCourses implements Courses {
     return units.map(deletedUnitOf);
   }
 
-  async undeleteUnit(courseId: string, unitId: string): Promise<CourseUnitDetail> {
+  async restoreUnit(courseId: string, unitId: string): Promise<CourseUnitDetail> {
     return unitDetailOf(
       await this.#request<Schemas['Unit']>(
-        '/courses/{courseId}/units/{unitId}/undelete',
+        '/courses/{courseId}/units/{unitId}/restore',
         { courseId, unitId },
         { method: 'POST' },
       ),
@@ -326,7 +326,7 @@ export class ServerCourses implements Courses {
   async restoreComment(courseId: string, unitId: string, commentId: string): Promise<Comment> {
     return commentOf(
       await this.#request<Schemas['Block']>(
-        '/courses/{courseId}/units/{unitId}/comments/{commentId}/undelete',
+        '/courses/{courseId}/units/{unitId}/comments/{commentId}/restore',
         { courseId, unitId, commentId },
         { method: 'POST' },
       ),

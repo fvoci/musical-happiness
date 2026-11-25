@@ -4008,7 +4008,6 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         created_by: String::new(),
         modified_by: String::new(),
         number: None,
-        schema: 7,
         // A card and no template, the one block with a body and a number: all is set.
         block_type: BlockType::Card,
         title: "a text".to_owned(),
@@ -4031,7 +4030,8 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         .await
         .expect("the text on the card is stored");
 
-    // As stored, nothing that can be set is at its default; a wiki has no card properties.
+    // As stored, nothing that can be set is at its default; a wiki has no card properties,
+    // and only a card has both a body and a number.
     let board = test
         .get_container(&board.id)
         .await
@@ -4046,7 +4046,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
     );
     assert_eq!(
         members_at_their_default(&note, &Block::default()),
-        Vec::<String>::new(),
+        ["type"],
         "of the block: {note:?}"
     );
     let all_flags = members

@@ -953,12 +953,12 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
         "the board is gone"
     );
 
-    // The board deleted with others at once, as `deleteBoardsAndBlocks` does.
+    // The board deleted with others at once, as `deleteContainersAndBlocks` does.
     let (board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
     let (mut reader, _) = follow_block(&th, &block, &token).await;
     th.client
         .delete_json(
-            &format!("{ROOT_WS}/boards-and-blocks"),
+            &format!("{ROOT_WS}/containers-and-blocks"),
             &json!({"containers": [board.id], "blocks": [block.id]}),
         )
         .await

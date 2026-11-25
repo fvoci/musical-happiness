@@ -572,15 +572,12 @@ async fn converting_a_card_to_template_hides_and_restores_its_number_across_rout
     let undeleted: Block = ts
         .client
         .post_empty(&format!(
-            "{TEST_WS}/boards/{}/blocks/{}/undelete",
+            "{TEST_WS}/boards/{}/blocks/{}/restore",
             board.id, first.id
         ))
         .await
         .ok_json();
-    assert_eq!(
-        undeleted.number, None,
-        "undeleteBlock hides template number"
-    );
+    assert_eq!(undeleted.number, None, "restoreBlock hides template number");
 
     // Duplicate while template: ordinary copy gets #2, template copy gets None.
     let copied: Vec<Block> = ts

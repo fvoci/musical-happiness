@@ -4,7 +4,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fvoci_model::{BlockType, DATE_PROPERTY_TYPE, rewrite_previous_date_values};
+#[cfg(test)]
+use fvoci_model::BlockType;
+use fvoci_model::{DATE_PROPERTY_TYPE, rewrite_previous_date_values};
 
 use crate::db::{Dialect, Row};
 use crate::db::{Id, Param, Scope};
@@ -98,7 +100,7 @@ async fn content_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
 
     // The trash keeps a block as JSON: its type is read there.
     deleted += delete_from_trash(scope, org, &live, |block_type| {
-        !KEPT_TYPES.contains(&BlockType::from(block_type).as_str())
+        !KEPT_TYPES.contains(&block_type)
     })
     .await?;
 
@@ -315,25 +317,12 @@ mod tests {
     /// type, so newly added current types are kept as well.
     #[test]
     fn the_kept_types_are_the_current_ones_and_the_page_and_the_board() {
-        let current = [
-            "card",
-            "view",
-            "comment",
-            "attachment",
-            "board",
-            "text",
-            "h1",
-            "",
-        ]
-        .map(BlockType::from)
-        .into_iter()
-        .filter(BlockType::is_current);
-        for block_type in current {
+        for block_type in BlockType::ALL.into_iter().filter(|kind| kind.is_current()) {
             assert!(KEPT_TYPES.contains(&block_type.as_str()), "{block_type}");
         }
         let besides: Vec<&str> = KEPT_TYPES
             .into_iter()
-            .filter(|kept| !BlockType::from(*kept).is_current())
+            .filter(|kept| !kept.parse::<BlockType>().is_ok_and(BlockType::is_current))
             .collect();
         assert_eq!(besides, ["page", "board"]);
     }

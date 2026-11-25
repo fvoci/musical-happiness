@@ -167,8 +167,16 @@ async fn person(store: &Store) -> String {
     );
     store
         .execute_unchecked(&format!(
-            "INSERT INTO preferences (user_id, category, name, value) \
-             VALUES ('{}', 'client', 'seen', 'yes')",
+            "INSERT INTO user_settings (user_id, theme, language) \
+             VALUES ('{}', 'dark', 'ko')",
+            user.id
+        ))
+        .await
+        .expect("stored");
+    store
+        .execute_unchecked(&format!(
+            "INSERT INTO user_client_state (user_id, key, value) \
+             VALUES ('{}', 'seen', 'yes')",
             user.id
         ))
         .await

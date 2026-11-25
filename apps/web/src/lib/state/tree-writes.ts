@@ -312,7 +312,7 @@ export class TreeWrites {
    * A refusal is thrown.
    */
   async restorePage(pageId: string): Promise<void> {
-    const back = await this.#host.wikis().undeletePage(this.#host.wikiId, pageId);
+    const back = await this.#host.wikis().restorePage(this.#host.wikiId, pageId);
     this.#host.takePage(back);
     this.#host.reread();
   }

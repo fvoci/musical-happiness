@@ -508,12 +508,12 @@ pub(crate) async fn archive(s: &mut Session) {
     let legacy_lines = [
         json!({"version": 1, "date": 1}),
         json!({"type": "block", "data": {
-            "id": "legacy-board", "type": "board", "title": "Legacy board", "schema": 1,
+            "id": "legacy-board", "type": "board", "title": "Legacy board",
             "fields": {"icon": "x", "cardProperties": []}, "createdAt": 1, "updatedAt": 1,
             "parentId": "", "rootId": "legacy-board",
         }}),
         json!({"type": "block", "data": {
-            "id": "legacy-card", "type": "card", "title": "Legacy card", "schema": 1,
+            "id": "legacy-card", "type": "card", "title": "Legacy card",
             "fields": {}, "createdAt": 1, "updatedAt": 1,
             "parentId": "legacy-board", "rootId": "legacy-board",
         }}),

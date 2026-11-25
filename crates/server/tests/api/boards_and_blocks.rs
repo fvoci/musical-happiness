@@ -1,5 +1,5 @@
 //! Integration tests for combined boards-and-blocks routes (`POST`/`PATCH`/`DELETE
-//! /boards-and-blocks`), covering validation, permissions, atomicity, and broadcasts.
+//! /containers-and-blocks`), covering validation, permissions, atomicity, and broadcasts.
 //!
 //! Helper fixtures arrange prerequisite boards and blocks directly through the store.
 //!
@@ -25,7 +25,7 @@ use crate::common::{
     ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID,
 };
 
-const PATH: &str = "/w/00000000-0000-7000-8000-000000000001/boards-and-blocks";
+const PATH: &str = "/w/00000000-0000-7000-8000-000000000001/containers-and-blocks";
 
 // -- helpers --------------------------------------------------------------------------
 
@@ -158,7 +158,7 @@ async fn assert_titles_unchanged(th: &TestServer, boards: &TwoBoards) {
 
 // -- TestCreateBoardsAndBlocks --------------------------------------------------------
 
-/// Unauthenticated `POST /boards-and-blocks` is rejected.
+/// Unauthenticated `POST /containers-and-blocks` is rejected.
 #[tokio::test]
 async fn create_boards_and_blocks_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await;
@@ -208,7 +208,7 @@ async fn create_boards_and_blocks_no_blocks() {
     th.teardown().await;
 }
 
-/// Rejects blocks referencing nonexistent boards in `POST /boards-and-blocks`.
+/// Rejects blocks referencing nonexistent boards in `POST /containers-and-blocks`.
 #[tokio::test]
 async fn create_boards_and_blocks_blocks_from_nonexistent_boards() {
     let th = Setup::native().start().await.init_basic().await;
@@ -229,7 +229,7 @@ async fn create_boards_and_blocks_blocks_from_nonexistent_boards() {
     th.teardown().await;
 }
 
-/// Rejects boards missing temporary identifiers in `POST /boards-and-blocks`.
+/// Rejects boards missing temporary identifiers in `POST /containers-and-blocks`.
 #[tokio::test]
 async fn create_boards_and_blocks_boards_with_no_ids() {
     let th = Setup::native().start().await.init_basic().await;
@@ -397,7 +397,7 @@ async fn workspace_boards(client: &Client) -> Vec<Container> {
     client.get(&format!("{TEST_WS}/boards")).await.ok_json()
 }
 
-/// Additional validation refusals for `POST /boards-and-blocks`.
+/// Additional validation refusals for `POST /containers-and-blocks`.
 #[tokio::test]
 async fn create_boards_and_blocks_refusals() {
     let th = Setup::native().start().await.init_basic().await;
@@ -510,7 +510,7 @@ async fn create_boards_and_blocks_refusals() {
     th.teardown().await;
 }
 
-/// `POST /boards-and-blocks` accepts creating a template board with its blocks.
+/// `POST /containers-and-blocks` accepts creating a template board with its blocks.
 #[tokio::test]
 async fn create_boards_and_blocks_accepts_a_template() {
     let th = Setup::native().start().await.init_basic().await;
@@ -628,7 +628,7 @@ async fn patch(client: &Client, request: &impl serde::Serialize) -> ApiResponse 
     client.patch(PATH, request).await
 }
 
-/// Unauthenticated `PATCH /boards-and-blocks` is rejected.
+/// Unauthenticated `PATCH /containers-and-blocks` is rejected.
 #[tokio::test]
 async fn patch_boards_and_blocks_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await;
@@ -639,7 +639,7 @@ async fn patch_boards_and_blocks_a_non_authenticated_user_should_be_rejected() {
     th.teardown().await;
 }
 
-/// Rejects `PATCH /boards-and-blocks` when no board IDs are given.
+/// Rejects `PATCH /containers-and-blocks` when no board IDs are given.
 #[tokio::test]
 async fn patch_boards_and_blocks_no_board_ids() {
     let th = Setup::native().start().await.init_basic().await;
@@ -659,7 +659,7 @@ async fn patch_boards_and_blocks_no_board_ids() {
     th.teardown().await;
 }
 
-/// Rejects `PATCH /boards-and-blocks` when board IDs and patches have different lengths.
+/// Rejects `PATCH /containers-and-blocks` when board IDs and patches have different lengths.
 #[tokio::test]
 async fn patch_boards_and_blocks_missmatch_board_ids_and_patches() {
     let th = Setup::native().start().await.init_basic().await;
@@ -680,7 +680,7 @@ async fn patch_boards_and_blocks_missmatch_board_ids_and_patches() {
     th.teardown().await;
 }
 
-/// Rejects `PATCH /boards-and-blocks` when block patches exist without block IDs.
+/// Rejects `PATCH /containers-and-blocks` when block patches exist without block IDs.
 #[tokio::test]
 async fn patch_boards_and_blocks_no_block_ids() {
     let th = Setup::native().start().await.init_basic().await;
@@ -700,7 +700,7 @@ async fn patch_boards_and_blocks_no_block_ids() {
     th.teardown().await;
 }
 
-/// Rejects `PATCH /boards-and-blocks` when block IDs and patches have different lengths.
+/// Rejects `PATCH /containers-and-blocks` when block IDs and patches have different lengths.
 #[tokio::test]
 async fn patch_boards_and_blocks_missmatch_block_ids_and_patches() {
     let th = Setup::native().start().await.init_basic().await;
@@ -721,7 +721,7 @@ async fn patch_boards_and_blocks_missmatch_block_ids_and_patches() {
     th.teardown().await;
 }
 
-/// Rejects `PATCH /boards-and-blocks` when a block does not belong to any board.
+/// Rejects `PATCH /containers-and-blocks` when a block does not belong to any board.
 #[tokio::test]
 async fn patch_boards_and_blocks_block_that_doesnt_belong_to_any_board() {
     let th = Setup::native().start().await.init_basic().await;
@@ -770,7 +770,7 @@ async fn patch_boards_and_blocks_without_permissions_for_one_board_nothing_is_up
     th.teardown().await;
 }
 
-/// Rejects `PATCH /boards-and-blocks` across boards belonging to different workspaces.
+/// Rejects `PATCH /containers-and-blocks` across boards belonging to different workspaces.
 #[tokio::test]
 async fn patch_boards_and_blocks_boards_belonging_to_different_workspaces_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
@@ -791,7 +791,7 @@ async fn patch_boards_and_blocks_boards_belonging_to_different_workspaces_should
     th.teardown().await;
 }
 
-/// Rejects `PATCH /boards-and-blocks` when any single patch is invalid.
+/// Rejects `PATCH /containers-and-blocks` when any single patch is invalid.
 #[tokio::test]
 async fn patch_boards_and_blocks_patches_should_be_rejected_if_one_is_invalid() {
     let th = Setup::native().start().await.init_basic().await;
@@ -840,7 +840,7 @@ async fn patch_boards_and_blocks_patches_should_be_rejected_if_one_is_invalid() 
     th.teardown().await;
 }
 
-/// Rejects `PATCH /boards-and-blocks` when a block does not belong to the patched boards.
+/// Rejects `PATCH /containers-and-blocks` when a block does not belong to the patched boards.
 #[tokio::test]
 async fn patch_boards_and_blocks_rejects_a_block_of_a_board_that_is_not_patched() {
     let th = Setup::native().start().await.init_basic().await;
@@ -924,7 +924,7 @@ async fn patch_boards_and_blocks_patches_should_be_applied_if_valid_and_related(
     th.teardown().await;
 }
 
-/// A body of `PATCH /boards-and-blocks` that cannot be decoded is a bad request. (The
+/// A body of `PATCH /containers-and-blocks` that cannot be decoded is a bad request. (The
 /// original answers 500.)
 #[tokio::test]
 async fn patch_boards_and_blocks_undecodable_bodies_are_bad_requests() {
@@ -949,7 +949,7 @@ async fn patch_boards_and_blocks_undecodable_bodies_are_bad_requests() {
     th.teardown().await;
 }
 
-/// Validation order and edge cases for `PATCH /boards-and-blocks`.
+/// Validation order and edge cases for `PATCH /containers-and-blocks`.
 #[tokio::test]
 async fn patch_boards_and_blocks_checks() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1066,7 +1066,7 @@ async fn delete(client: &Client, request: &impl serde::Serialize) -> ApiResponse
     client.delete_json(PATH, request).await
 }
 
-/// Unauthenticated `DELETE /boards-and-blocks` is rejected.
+/// Unauthenticated `DELETE /containers-and-blocks` is rejected.
 #[tokio::test]
 async fn delete_boards_and_blocks_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await;
@@ -1077,7 +1077,7 @@ async fn delete_boards_and_blocks_a_non_authenticated_user_should_be_rejected() 
     th.teardown().await;
 }
 
-/// Rejects `DELETE /boards-and-blocks` when no board IDs are provided.
+/// Rejects `DELETE /containers-and-blocks` when no board IDs are provided.
 #[tokio::test]
 async fn delete_boards_and_blocks_no_boards() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1108,7 +1108,7 @@ async fn delete_boards_and_blocks_no_boards() {
     th.teardown().await;
 }
 
-/// Rejects `DELETE /boards-and-blocks` across boards in different workspaces.
+/// Rejects `DELETE /containers-and-blocks` across boards in different workspaces.
 #[tokio::test]
 async fn delete_boards_and_blocks_boards_from_different_workspaces() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1292,7 +1292,7 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
     th.teardown().await;
 }
 
-/// Validation order and edge cases for `DELETE /boards-and-blocks`.
+/// Validation order and edge cases for `DELETE /containers-and-blocks`.
 #[tokio::test]
 async fn delete_boards_and_blocks_checks() {
     let th = Setup::native().start().await.init_basic().await;

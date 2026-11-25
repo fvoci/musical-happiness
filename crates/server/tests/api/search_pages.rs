@@ -171,7 +171,7 @@ async fn a_page_is_sent_and_found_with_the_cards_while_it_is_there() {
     tend(&th.app).await;
     let after_the_wiki = held(&fake);
     th.client
-        .post_empty(&format!("{TEST_WS}/containers/{wiki}/undelete"))
+        .post_empty(&format!("{TEST_WS}/containers/{wiki}/restore"))
         .await
         .check_ok();
     tend(&th.app).await;

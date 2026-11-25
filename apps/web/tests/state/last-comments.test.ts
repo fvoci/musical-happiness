@@ -94,7 +94,6 @@ describe('an open board', () => {
         parentId: betaId,
         createdBy: backend.userId,
         modifiedBy: backend.userId,
-        schema: 1,
         type: 'comment',
         title: '',
         fields: {},

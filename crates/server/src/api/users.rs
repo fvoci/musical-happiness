@@ -1,14 +1,12 @@
-//! Users: the signed-in user, other users' profiles, and preferences.
-
-use std::collections::BTreeMap;
+//! Users: the signed-in user, other users' profiles, settings, and client state.
 
 use axum::body::Bytes;
 use axum::extract::{Extension, Path, State};
 use fvoci_model::{
-    ContainerMember, LinkedIdentity, Me, PersonNameChange, Problem, UnlinkRequest, User,
-    UserOrganization, UserPreferencesPatch, UserSettings, UserSettingsPatch,
+    ClientStatePatch, ContainerMember, LinkedIdentity, Me, PersonNameChange, Problem,
+    UnlinkRequest, User, UserOrganization, UserSettings, UserSettingsPatch,
 };
-use fvoci_store::{InstanceRole, Preference};
+use fvoci_store::InstanceRole;
 use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -278,14 +276,6 @@ async fn handle_set_user_admin(
     Ok(json_response(&user))
 }
 
-/// The bag of client state as it goes out: the value of every entry by its name.
-fn client_state(entries: Vec<Preference>) -> BTreeMap<String, String> {
-    entries
-        .into_iter()
-        .map(|entry| (entry.name, entry.value))
-        .collect()
-}
-
 /// Change the client's state
 ///
 /// Sets and removes entries of the state the client keeps with the account. The
@@ -296,7 +286,7 @@ fn client_state(entries: Vec<Preference>) -> BTreeMap<String, String> {
     path = "/users/me/client-state",
     operation_id = "patchClientState",
     tag = tag::USERS,
-    request_body = UserPreferencesPatch,
+    request_body = ClientStatePatch,
     responses((
         status = 200,
         description = "All of the state as it is now: the value of every entry by its name.",
@@ -308,10 +298,10 @@ async fn handle_patch_client_state(
     RequiredSession(session): RequiredSession,
     body: Bytes,
 ) -> ApiResult {
-    let patch: UserPreferencesPatch = decode_object(&body)?;
+    let patch: ClientStatePatch = decode_object(&body)?;
     patch.validate()?;
-    let entries = app.update_user_config(&session.user_id, &patch).await?;
-    Ok(json_response(&client_state(entries)))
+    let entries = app.patch_client_state(&session.user_id, &patch).await?;
+    Ok(json_response(&entries))
 }
 
 /// The user's settings
@@ -375,6 +365,6 @@ async fn handle_get_client_state(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    let entries = app.user_preferences(&session.user_id).await?;
-    Ok(json_response(&client_state(entries)))
+    let entries = app.client_state(&session.user_id).await?;
+    Ok(json_response(&entries))
 }

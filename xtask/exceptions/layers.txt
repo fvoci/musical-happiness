@@ -19,7 +19,6 @@ crates/server/src/api/search.rs      fvoci_store::PublicContainers::Include     
 crates/server/src/api/users.rs       fvoci_store::InstanceRole                            1
 crates/server/src/api/users.rs       fvoci_store::InstanceRole::Administrator             1
 crates/server/src/api/users.rs       fvoci_store::InstanceRole::User                      1
-crates/server/src/api/users.rs       fvoci_store::Preference                              2
 crates/server/src/app/mod.rs         fvoci_server::web::WebRoot                           3
 crates/server/src/app/mod.rs         fvoci_server::web::WebRoot::new                      1
 crates/server/src/app/mod.rs         fvoci_server::ws::Hub                                3

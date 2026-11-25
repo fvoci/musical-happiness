@@ -64,7 +64,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "First card",
         "type": "card",
         "updatedAt": "<ts>"
@@ -78,7 +77,6 @@
         "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Some text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -94,7 +92,6 @@
         "id": "<id:7>",
         "modifiedBy": "<id:2>",
         "parentId": "",
-        "schema": 1,
         "title": "Board view",
         "type": "view",
         "updatedAt": "<ts>"
@@ -122,7 +119,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "First card",
         "type": "card",
         "updatedAt": "<ts>"
@@ -136,7 +132,6 @@
         "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Some text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -152,7 +147,6 @@
         "id": "<id:7>",
         "modifiedBy": "<id:2>",
         "parentId": "",
-        "schema": 1,
         "title": "Board view",
         "type": "view",
         "updatedAt": "<ts>"
@@ -180,7 +174,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "First card",
         "type": "card",
         "updatedAt": "<ts>"
@@ -202,7 +195,6 @@
         "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Some text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -224,7 +216,6 @@
         "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Some text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -246,7 +237,6 @@
         "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Some text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -281,7 +271,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "First card",
         "type": "card",
         "updatedAt": "<ts>"
@@ -295,7 +284,6 @@
         "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Some text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -311,7 +299,6 @@
         "id": "<id:7>",
         "modifiedBy": "<id:2>",
         "parentId": "",
-        "schema": 1,
         "title": "Board view",
         "type": "view",
         "updatedAt": "<ts>"
@@ -339,7 +326,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "First card",
         "type": "card",
         "updatedAt": "<ts>"
@@ -381,7 +367,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "First card",
         "type": "card",
         "updatedAt": "<ts>"
@@ -395,7 +380,6 @@
         "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Some text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -411,7 +395,6 @@
         "id": "<id:7>",
         "modifiedBy": "<id:2>",
         "parentId": "",
-        "schema": 1,
         "title": "Board view",
         "type": "view",
         "updatedAt": "<ts>"
@@ -622,7 +605,6 @@
         "id": "<id:9>",
         "modifiedBy": "<id:4>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "A comment",
         "type": "comment",
         "updatedAt": "<ts>"
@@ -645,7 +627,6 @@
         "modifiedBy": "<id:2>",
         "number": 2,
         "parentId": "",
-        "schema": 1,
         "title": "Quiet card",
         "type": "card",
         "updatedAt": "<ts>"
@@ -784,7 +765,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "Card again",
         "type": "card",
         "updatedAt": "<ts>"
@@ -798,7 +778,6 @@
         "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Text again",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -814,7 +793,6 @@
         "id": "<id:7>",
         "modifiedBy": "<id:2>",
         "parentId": "",
-        "schema": 1,
         "title": "Board view",
         "type": "view",
         "updatedAt": "<ts>"
@@ -828,7 +806,6 @@
         "id": "<id:9>",
         "modifiedBy": "<id:4>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "A comment",
         "type": "comment",
         "updatedAt": "<ts>"
@@ -843,7 +820,6 @@
         "modifiedBy": "<id:2>",
         "number": 2,
         "parentId": "",
-        "schema": 1,
         "title": "Quiet card",
         "type": "card",
         "updatedAt": "<ts>"
@@ -873,7 +849,6 @@
         "modifiedBy": "<id:2>",
         "number": 3,
         "parentId": "",
-        "schema": 1,
         "title": "Card again",
         "type": "card",
         "updatedAt": "<ts>"
@@ -887,7 +862,6 @@
         "id": "<id:12>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:11>",
-        "schema": 1,
         "title": "Text again",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -916,7 +890,6 @@
         "id": "<id:13>",
         "modifiedBy": "<id:2>",
         "parentId": "",
-        "schema": 1,
         "title": "Card again",
         "type": "card",
         "updatedAt": "<ts>"
@@ -930,7 +903,6 @@
         "id": "<id:14>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:13>",
-        "schema": 1,
         "title": "Text again",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -1036,7 +1008,7 @@
   },
   {
     "name": "undelete: commenter",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:7>/undelete as blocks-bob",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:7>/restore as blocks-bob",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -1050,7 +1022,7 @@
   },
   {
     "name": "undelete",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:7>/undelete as blocks-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:7>/restore as blocks-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -1064,7 +1036,6 @@
       "id": "<id:7>",
       "modifiedBy": "<id:2>",
       "parentId": "",
-      "schema": 1,
       "title": "Board view",
       "type": "view",
       "updatedAt": "<ts>"
@@ -1072,7 +1043,7 @@
   },
   {
     "name": "undelete: again",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:7>/undelete as blocks-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:7>/restore as blocks-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -1086,7 +1057,7 @@
   },
   {
     "name": "undelete: unknown block",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/unknown-block/undelete as blocks-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/unknown-block/restore as blocks-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -1115,7 +1086,6 @@
         "id": "<id:7>",
         "modifiedBy": "<id:2>",
         "parentId": "",
-        "schema": 1,
         "title": "Board view",
         "type": "view",
         "updatedAt": "<ts>"
@@ -1177,7 +1147,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 0,
         "title": "Nameless one",
         "type": "card",
         "updatedAt": "<ts>"
@@ -1192,7 +1161,6 @@
         "modifiedBy": "<id:2>",
         "number": 2,
         "parentId": "",
-        "schema": 0,
         "title": "Nameless two",
         "type": "card",
         "updatedAt": "<ts>"
@@ -1214,7 +1182,6 @@
         "id": "<id:18>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:19>",
-        "schema": 1,
         "title": "Text of A",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -1233,7 +1200,6 @@
         "modifiedBy": "<id:2>",
         "number": 3,
         "parentId": "",
-        "schema": 1,
         "title": "Card A",
         "type": "card",
         "updatedAt": "<ts>"
@@ -1247,7 +1213,6 @@
         "id": "<id:20>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:21>",
-        "schema": 1,
         "title": "Text of B",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -1266,7 +1231,6 @@
         "modifiedBy": "<id:2>",
         "number": 4,
         "parentId": "",
-        "schema": 1,
         "title": "Card B",
         "type": "card",
         "updatedAt": "<ts>"
@@ -1289,7 +1253,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 0,
         "title": "Nameless one",
         "type": "card",
         "updatedAt": "<ts>"
@@ -1304,7 +1267,6 @@
         "modifiedBy": "<id:2>",
         "number": 2,
         "parentId": "",
-        "schema": 0,
         "title": "Nameless two",
         "type": "card",
         "updatedAt": "<ts>"
@@ -1318,7 +1280,6 @@
         "id": "<id:18>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:19>",
-        "schema": 1,
         "title": "Text of A",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -1337,7 +1298,6 @@
         "modifiedBy": "<id:2>",
         "number": 3,
         "parentId": "",
-        "schema": 1,
         "title": "Card A",
         "type": "card",
         "updatedAt": "<ts>"
@@ -1351,7 +1311,6 @@
         "id": "<id:20>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:21>",
-        "schema": 1,
         "title": "Text of B",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -1370,7 +1329,6 @@
         "modifiedBy": "<id:2>",
         "number": 4,
         "parentId": "",
-        "schema": 1,
         "title": "Card B",
         "type": "card",
         "updatedAt": "<ts>"

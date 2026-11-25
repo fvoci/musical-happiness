@@ -101,7 +101,7 @@ async fn a_json_body_over_the_default_limit_is_refused_with_413() {
             Method::PATCH,
             format!("{TEST_WS}/boards/{}/blocks", board.id),
         ),
-        (Method::POST, format!("{TEST_WS}/boards-and-blocks")),
+        (Method::POST, format!("{TEST_WS}/containers-and-blocks")),
         (Method::POST, format!("{TEST_WS}/categories")),
         (Method::POST, format!("{TEST_WS}/subscriptions")),
         (Method::POST, format!("{TEST_WS}/users")),
@@ -191,7 +191,7 @@ async fn a_request_without_a_session_token_gets_the_small_limit_on_every_route()
 
     for (method, path) in [
         (Method::POST, &format!("{TEST_WS}/boards")),
-        (Method::POST, &format!("{TEST_WS}/boards-and-blocks")),
+        (Method::POST, &format!("{TEST_WS}/containers-and-blocks")),
         (
             Method::PATCH,
             &format!("{TEST_WS}/containers/no-such-board"),

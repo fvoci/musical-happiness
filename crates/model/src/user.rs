@@ -102,18 +102,6 @@ pub struct User {
     /// Whether the user is an administrator of the instance. Decided by the server;
     /// nothing a request says about it is taken over.
     pub is_admin: bool,
-    /// Whether the account is a bot. Nothing makes one; not part of the JSON form.
-    #[serde(skip)]
-    pub is_bot: bool,
-    /// Whether the account is a guest. Nothing makes one; not part of the JSON form.
-    #[serde(skip)]
-    pub is_guest: bool,
-    /// Special permissions of the user. Nothing stores any; not part of the JSON form.
-    #[serde(skip)]
-    pub permissions: Vec<String>,
-    /// The user's system roles. Nothing stores any; not part of the JSON form.
-    #[serde(skip)]
-    pub roles: String,
 }
 
 impl User {
@@ -150,10 +138,6 @@ impl fmt::Debug for User {
             .field("updated_at", &self.updated_at)
             .field("deleted_at", &self.deleted_at)
             .field("is_admin", &self.is_admin)
-            .field("is_bot", &self.is_bot)
-            .field("is_guest", &self.is_guest)
-            .field("permissions", &self.permissions)
-            .field("roles", &self.roles)
             .finish_non_exhaustive()
     }
 }
@@ -162,14 +146,14 @@ impl fmt::Debug for User {
 /// stores without knowing what they mean.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
-pub struct UserPreferencesPatch {
+pub struct ClientStatePatch {
     /// Entries to set, by name.
     pub updated_fields: BTreeMap<String, String>,
     /// Names of entries to remove.
     pub deleted_fields: Vec<String>,
 }
 
-impl UserPreferencesPatch {
+impl ClientStatePatch {
     /// Checks that every name the change sets and every value it sets it to is one the
     /// bag takes. Names to remove are not checked: removing what cannot be there
     /// removes nothing.

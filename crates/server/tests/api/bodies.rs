@@ -338,7 +338,7 @@ async fn a_body_comes_back_from_the_trash_and_is_copied() {
 
     th.client.delete(&block_path).await.check_no_content();
     th.client
-        .post_empty(&format!("{block_path}/undelete"))
+        .post_empty(&format!("{block_path}/restore"))
         .await
         .check_ok();
     let restored = card(&th.client, &created.id).await;
@@ -455,7 +455,7 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
         "blockIds": [card_id], "blockPatches": [{"body": null, "readAt": read.updated_at}],
     });
     th.client
-        .patch(&format!("{TEST_WS}/boards-and-blocks"), &request)
+        .patch(&format!("{TEST_WS}/containers-and-blocks"), &request)
         .await
         .check_ok();
     assert_eq!(card(&th.client, &card_id).await.body, None);
@@ -464,7 +464,7 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
     let made: Value = th
         .client
         .post(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &json!({
                 "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"}],
                 "blocks": [card_block("bd", &document())],
@@ -560,7 +560,7 @@ async fn files_of_a_body_are_files_of_its_board(kind: &str) {
     });
     check_refused_member(
         &th.client
-            .patch(&format!("{TEST_WS}/boards-and-blocks"), &request)
+            .patch(&format!("{TEST_WS}/containers-and-blocks"), &request)
             .await,
         "blockPatches/0/body",
     );
@@ -568,7 +568,7 @@ async fn files_of_a_body_are_files_of_its_board(kind: &str) {
     let response = th
         .client
         .post(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &json!({
                 "containers": [{"id": board.id, "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"}],
                 "blocks": [card_block(&board.id, &with_node(kind, &file_id))],
@@ -620,7 +620,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
     let response = th
         .client
         .post(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &json!({
                 "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"}],
                 "blocks": [card_block("bd", &json!("attachment"))],
@@ -1205,7 +1205,7 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
         "blockPatches": [{"body": with_image(&file_id), "readAt": read["updatedAt"]}],
     });
     th.client
-        .patch(&format!("{TEST_WS}/boards-and-blocks"), &request)
+        .patch(&format!("{TEST_WS}/containers-and-blocks"), &request)
         .await
         .check_ok();
     let read = block_of(&th.client, &board.id, &comment_id).await;
@@ -1219,7 +1219,7 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
     // Back from the trash with its body.
     th.client.delete(&path).await.check_no_content();
     th.client
-        .post_empty(&format!("{path}/undelete"))
+        .post_empty(&format!("{path}/restore"))
         .await
         .check_ok();
     let restored = block_of(&th.client, &board.id, &comment_id).await;
@@ -1237,7 +1237,7 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
     let made: Value = th
         .client
         .post(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &json!({
                 "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"}],
                 "blocks": [

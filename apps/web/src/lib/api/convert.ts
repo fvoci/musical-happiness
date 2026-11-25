@@ -17,7 +17,6 @@ import {
   createBoardView,
   createCard,
   type Block,
-  type BlockType,
   type Container,
   type ContainerMember,
   type ContainerPatch,
@@ -138,7 +137,7 @@ export function memberOf(member: Schemas['ContainerMember']): ContainerMember {
 export function blockOf(block: Schemas['Block']): Block {
   const { body: _body, number, ...rest } = block;
   const numbered = number === undefined || number === null ? {} : { number };
-  return { ...rest, ...numbered, type: block.type as BlockType, fields: { ...block.fields } };
+  return { ...rest, ...numbered, fields: { ...block.fields } };
 }
 
 /** The body of a block or a card, as the screens' document. */
@@ -169,7 +168,6 @@ export function cardOf(card: Schemas['Card']): CardSummary {
       parentId: card.parentId,
       createdBy: card.createdBy,
       modifiedBy: card.modifiedBy,
-      schema: 1,
       type: 'card',
       title: card.title,
       fields: { icon: card.icon, isTemplate: card.isTemplate, properties: card.properties },
@@ -342,7 +340,7 @@ export function publicLinkOf(link: Schemas['PublicLink']): PublicLink {
 }
 
 /**
- * A board and its first view, to be made in one request (`createBoardsAndBlocks`);
+ * A board and its first view, to be made in one request (`createContainersAndBlocks`);
  * the workspace is the one of the request's path.
  */
 export function newBoardAndViewOf(

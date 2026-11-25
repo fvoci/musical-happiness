@@ -63,7 +63,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "Card",
         "type": "card",
         "updatedAt": "<ts>"
@@ -79,7 +78,6 @@
         "id": "<id:7>",
         "modifiedBy": "<id:2>",
         "parentId": "",
-        "schema": 1,
         "title": "View",
         "type": "view",
         "updatedAt": "<ts>"
@@ -101,7 +99,6 @@
         "id": "<id:8>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Comment",
         "type": "comment",
         "updatedAt": "<ts>"
@@ -115,7 +112,6 @@
         "id": "<id:9>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -137,7 +133,6 @@
         "id": "<id:10>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:9>",
-        "schema": 1,
         "title": "Below the text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -180,7 +175,6 @@
         "id": "<id:7>",
         "modifiedBy": "<id:2>",
         "parentId": "",
-        "schema": 1,
         "title": "View",
         "type": "view",
         "updatedAt": "<ts>"
@@ -196,7 +190,7 @@
   },
   {
     "name": "undelete: viewer",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6>/undelete as trash-carol",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6>/restore as trash-carol",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -210,7 +204,7 @@
   },
   {
     "name": "undelete: non-member",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6>/undelete as trash-dave",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6>/restore as trash-dave",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -224,7 +218,7 @@
   },
   {
     "name": "undelete: unknown block",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:11>/undelete as trash-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:11>/restore as trash-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -238,7 +232,7 @@
   },
   {
     "name": "undelete: a block that is not deleted",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:7>/undelete as trash-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:7>/restore as trash-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -252,7 +246,7 @@
   },
   {
     "name": "undelete: a child brings back the whole deletion",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:10>/undelete as trash-bob",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:10>/restore as trash-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -264,7 +258,6 @@
       "id": "<id:10>",
       "modifiedBy": "<id:4>",
       "parentId": "<id:9>",
-      "schema": 1,
       "title": "Below the text",
       "type": "attachment",
       "updatedAt": "<ts>"
@@ -286,7 +279,6 @@
         "modifiedBy": "<id:4>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "Card",
         "type": "card",
         "updatedAt": "<ts>"
@@ -302,7 +294,6 @@
         "id": "<id:7>",
         "modifiedBy": "<id:2>",
         "parentId": "",
-        "schema": 1,
         "title": "View",
         "type": "view",
         "updatedAt": "<ts>"
@@ -316,7 +307,6 @@
         "id": "<id:8>",
         "modifiedBy": "<id:4>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Comment",
         "type": "comment",
         "updatedAt": "<ts>"
@@ -330,7 +320,6 @@
         "id": "<id:9>",
         "modifiedBy": "<id:4>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -344,7 +333,6 @@
         "id": "<id:10>",
         "modifiedBy": "<id:4>",
         "parentId": "<id:9>",
-        "schema": 1,
         "title": "Below the text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -353,7 +341,7 @@
   },
   {
     "name": "undelete: again",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6>/undelete as trash-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6>/restore as trash-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -394,7 +382,7 @@
   },
   {
     "name": "undelete the text: its card is in the trash",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:9>/undelete as trash-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:9>/restore as trash-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -408,7 +396,7 @@
   },
   {
     "name": "undelete the card",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6>/undelete as trash-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6>/restore as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -421,7 +409,6 @@
       "modifiedBy": "<id:2>",
       "number": 1,
       "parentId": "",
-      "schema": 1,
       "title": "Card",
       "type": "card",
       "updatedAt": "<ts>"
@@ -442,7 +429,6 @@
         "id": "<id:8>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Comment",
         "type": "comment",
         "updatedAt": "<ts>"
@@ -451,7 +437,7 @@
   },
   {
     "name": "undelete the text",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:9>/undelete as trash-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:9>/restore as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -463,7 +449,6 @@
       "id": "<id:9>",
       "modifiedBy": "<id:2>",
       "parentId": "<id:6>",
-      "schema": 1,
       "title": "Text",
       "type": "attachment",
       "updatedAt": "<ts>"
@@ -484,7 +469,6 @@
         "id": "<id:8>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Comment",
         "type": "comment",
         "updatedAt": "<ts>"
@@ -498,7 +482,6 @@
         "id": "<id:9>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -661,7 +644,7 @@
   },
   {
     "name": "undelete a block of the deleted board",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6>/undelete as trash-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6>/restore as trash-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -675,7 +658,7 @@
   },
   {
     "name": "undelete the board: viewer",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/undelete as trash-carol",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/restore as trash-carol",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -689,7 +672,7 @@
   },
   {
     "name": "undelete the board: editor",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/undelete as trash-bob",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/restore as trash-bob",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -703,7 +686,7 @@
   },
   {
     "name": "undelete the board: never a member",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/undelete as trash-dave",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/restore as trash-dave",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -717,7 +700,7 @@
   },
   {
     "name": "undelete: unknown board",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:11>/undelete as trash-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:11>/restore as trash-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -731,7 +714,7 @@
   },
   {
     "name": "undelete the board",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/undelete as trash-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/restore as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -820,7 +803,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "Card",
         "type": "card",
         "updatedAt": "<ts>"
@@ -834,7 +816,6 @@
         "id": "<id:8>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Comment",
         "type": "comment",
         "updatedAt": "<ts>"
@@ -848,7 +829,6 @@
         "id": "<id:9>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
-        "schema": 1,
         "title": "Text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -862,7 +842,6 @@
         "id": "<id:10>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:9>",
-        "schema": 1,
         "title": "Below the text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -871,7 +850,7 @@
   },
   {
     "name": "undelete the board: again",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/undelete as trash-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/restore as trash-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {

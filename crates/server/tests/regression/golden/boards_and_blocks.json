@@ -1,7 +1,7 @@
 [
   {
     "name": "create",
-    "request": "POST /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "POST /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
@@ -16,7 +16,6 @@
           "modifiedBy": "<id:3>",
           "number": 1,
           "parentId": "",
-          "schema": 1,
           "title": "Card A",
           "type": "card",
           "updatedAt": "<ts>"
@@ -31,7 +30,6 @@
           "modifiedBy": "<id:3>",
           "number": 1,
           "parentId": "",
-          "schema": 1,
           "title": "Card B",
           "type": "card",
           "updatedAt": "<ts>"
@@ -83,7 +81,7 @@
   },
   {
     "name": "create: no boards",
-    "request": "POST /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "POST /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -97,7 +95,7 @@
   },
   {
     "name": "create: block of another board",
-    "request": "POST /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "POST /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -118,7 +116,7 @@
   },
   {
     "name": "create: boards of two workspaces",
-    "request": "POST /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "POST /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -139,7 +137,7 @@
   },
   {
     "name": "create: board without visibility",
-    "request": "POST /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "POST /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -160,7 +158,7 @@
   },
   {
     "name": "create: malformed body",
-    "request": "POST /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "POST /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -174,7 +172,7 @@
   },
   {
     "name": "create: without session",
-    "request": "POST /api/v1/w/<id:1>/boards-and-blocks as anonymous",
+    "request": "POST /api/v1/w/<id:1>/containers-and-blocks as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -188,7 +186,7 @@
   },
   {
     "name": "patch",
-    "request": "PATCH /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -203,7 +201,6 @@
           "modifiedBy": "<id:3>",
           "number": 1,
           "parentId": "",
-          "schema": 1,
           "title": "Card A2",
           "type": "card",
           "updatedAt": "<ts>"
@@ -220,7 +217,6 @@
           "modifiedBy": "<id:3>",
           "number": 1,
           "parentId": "",
-          "schema": 1,
           "title": "Card B",
           "type": "card",
           "updatedAt": "<ts>"
@@ -272,7 +268,7 @@
   },
   {
     "name": "patch: counts differ",
-    "request": "PATCH /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -286,7 +282,7 @@
   },
   {
     "name": "patch: no boards",
-    "request": "PATCH /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -300,7 +296,7 @@
   },
   {
     "name": "patch: block of an unlisted board",
-    "request": "PATCH /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -314,7 +310,7 @@
   },
   {
     "name": "patch: non-member",
-    "request": "PATCH /api/v1/w/<id:1>/boards-and-blocks as bab-bob",
+    "request": "PATCH /api/v1/w/<id:1>/containers-and-blocks as bab-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -328,7 +324,7 @@
   },
   {
     "name": "patch: unknown board",
-    "request": "PATCH /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -384,7 +380,6 @@
         "modifiedBy": "<id:3>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "Card B",
         "type": "card",
         "updatedAt": "<ts>"
@@ -393,7 +388,7 @@
   },
   {
     "name": "delete: non-member",
-    "request": "DELETE /api/v1/w/<id:1>/boards-and-blocks as bab-bob",
+    "request": "DELETE /api/v1/w/<id:1>/containers-and-blocks as bab-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -407,7 +402,7 @@
   },
   {
     "name": "delete: no boards",
-    "request": "DELETE /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "DELETE /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -421,7 +416,7 @@
   },
   {
     "name": "delete: block of an unlisted board",
-    "request": "DELETE /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "DELETE /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -435,7 +430,7 @@
   },
   {
     "name": "delete: unknown board",
-    "request": "DELETE /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "DELETE /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -449,7 +444,7 @@
   },
   {
     "name": "delete",
-    "request": "DELETE /api/v1/w/<id:1>/boards-and-blocks as bab-alice",
+    "request": "DELETE /api/v1/w/<id:1>/containers-and-blocks as bab-alice",
     "status": 204,
     "body": "<0 bytes>"
   },

@@ -25,7 +25,6 @@ function block(id: string, boardId: string, title: string, updatedAt = NOW): Blo
     parentId: '',
     createdBy: 'reader',
     modifiedBy: 'reader',
-    schema: 1,
     title,
     fields: {},
     createdAt: NOW,

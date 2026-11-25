@@ -213,7 +213,7 @@ async fn the_first_signup_makes_the_organization_and_a_second_start_finds_it() {
             .iter()
             .map(|workspace| workspace.kind)
             .collect::<Vec<_>>(),
-        [fvoci_model::OrgKind::Team, fvoci_model::OrgKind::Personal],
+        [fvoci_model::OrgKind::Shared, fvoci_model::OrgKind::Personal],
         "one workspace, and the one of the user's own space: {workspaces:?}"
     );
     assert_eq!(workspaces[0].role, fvoci_model::WorkspaceRole::Admin);

@@ -1,12 +1,11 @@
-//! Blocks: reading, inserting, patching, deleting, undeleting and duplicating.
+//! Blocks: reading, inserting, patching, deleting, restoring and duplicating.
 
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body, CommentVersion, Container,
-    RelationProperties, UnmatchedRelation, renew_block_ids, stamp_modification_metadata,
+    JsonMap, RelationProperties, UnmatchedRelation, renew_block_ids, stamp_modification_metadata,
 };
-
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -43,7 +42,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_patch_blocks
         ))
         .routes(routes!(handle_delete_block, handle_patch_block))
-        .routes(routes!(handle_undelete_block))
+        .routes(routes!(handle_restore_block))
         .routes(routes!(handle_get_comment_versions))
         .routes(routes!(handle_duplicate_block))
 }
@@ -155,7 +154,13 @@ pub(super) async fn asked_blocks(
     } else {
         let parent_id = query_option(query, "parentId");
         // The type is matched as it is written: one that no block has finds nothing.
-        let block_type = query_option(query, "type").map(BlockType::from);
+        let block_type = match query_option(query, "type") {
+            None => None,
+            Some(raw) => match raw.parse::<BlockType>() {
+                Ok(parsed) => Some(parsed),
+                Err(_) => return Ok(Vec::new()),
+            },
+        };
         app.blocks(container_id, parent_id.as_deref(), block_type.as_ref())
             .await
     }
@@ -279,6 +284,7 @@ async fn handle_post_blocks(
     // apart, so that one that may not be stored is refused as a body.
     let mut blocks: Vec<Value> = decode_json(&body)?;
     let bodies = take_block_bodies(blocks.iter_mut().map(Value::as_object_mut), Some(""))?;
+    let raw_types = take_new_block_types(blocks.iter_mut().map(Value::as_object_mut));
     let mut blocks: Vec<Block> =
         serde_json::from_value(Value::Array(blocks)).map_err(AppError::bad_request)?;
     give_bodies(&mut blocks, bodies)?;
@@ -287,10 +293,11 @@ async fn handle_post_blocks(
 
     let mut has_comments = false;
     let mut has_contents = false;
-    for (index, block) in blocks.iter().enumerate() {
+    for (index, (block, &raw_type)) in blocks.iter().zip(&raw_types).enumerate() {
         let on_board = |container_id: &str| container_id == board_id;
         if let Some((member, problem)) = new_block_problem(
             block,
+            raw_type,
             on_board,
             "the block is on another board than the path",
         ) {
@@ -340,6 +347,73 @@ async fn handle_post_blocks(
     Ok(created(&blocks))
 }
 
+/// How the `type` member of a new block object was written before `Block` decoding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RawBlockType {
+    /// Left out or empty (`""`).
+    Missing,
+    /// A non-empty string outside [`BlockType`].
+    Unknown,
+    /// A known [`BlockType`].
+    Known(BlockType),
+}
+
+/// Inspects the `type` member of each new block object before [`Block`] decoding so
+/// missing or unknown string values can be refused at their JSON Pointer in check order,
+/// while non-string or `null` values still fail JSON decoding immediately.
+pub(super) fn take_new_block_types<'a>(
+    blocks: impl IntoIterator<Item = Option<&'a mut JsonMap>>,
+) -> Vec<RawBlockType> {
+    blocks
+        .into_iter()
+        .map(|block| {
+            let Some(block) = block else {
+                return RawBlockType::Missing;
+            };
+            match block.get("type") {
+                None => {
+                    block.insert("type".to_owned(), Value::String("view".to_owned()));
+                    RawBlockType::Missing
+                }
+                Some(Value::String(raw)) if raw.is_empty() => {
+                    block.insert("type".to_owned(), Value::String("view".to_owned()));
+                    RawBlockType::Missing
+                }
+                Some(Value::String(raw)) => {
+                    if let Ok(parsed) = raw.parse::<BlockType>() {
+                        RawBlockType::Known(parsed)
+                    } else {
+                        block.insert("type".to_owned(), Value::String("view".to_owned()));
+                        RawBlockType::Unknown
+                    }
+                }
+                Some(_) => RawBlockType::Unknown,
+            }
+        })
+        .collect()
+}
+
+/// Refuses a block patch whose `type` is a string outside [`BlockType`], naming `type`
+/// at the patch's JSON Pointer and stripping the unknown value so `decode_object_with`
+/// surfaces this pointer-bearing error rather than a flat serde error.
+pub(super) fn check_patch_block_types<'a>(
+    patches: impl IntoIterator<Item = Option<&'a mut JsonMap>>,
+    list: Option<&str>,
+) -> Result<(), AppError> {
+    for (index, patch) in patches.into_iter().enumerate() {
+        let Some(patch) = patch else { continue };
+        if let Some(Value::String(raw)) = patch.get("type")
+            && raw.parse::<BlockType>().is_err()
+        {
+            patch.remove("type");
+            return Err(AppError::bad_request(BlockError::TypeNotCurrent)
+                .with_field("type")
+                .under(&element_pointer(list, index)));
+        }
+    }
+    Ok(())
+}
+
 /// What is wrong with a block that a request makes, if anything, in the order the
 /// checks go: its board (`on_board` says whether the request makes blocks on the board
 /// it names, and `elsewhere` is the words for one it does not), its type, and its times.
@@ -347,18 +421,16 @@ async fn handle_post_blocks(
 /// the answer points at the block.
 pub(super) fn new_block_problem(
     block: &Block,
+    raw_type: RawBlockType,
     on_board: impl Fn(&str) -> bool,
     elsewhere: &'static str,
 ) -> Option<(&'static str, String)> {
     if !on_board(&block.container_id) {
         Some(("containerId", elsewhere.to_owned()))
-    } else if block.block_type.is_empty() {
+    } else if raw_type == RawBlockType::Missing {
         Some(("type", "the block has no type".to_owned()))
-    } else if !block.block_type.is_current() {
-        Some((
-            "type",
-            BlockError::type_not_current(&block.block_type).to_string(),
-        ))
+    } else if raw_type == RawBlockType::Unknown || !block.block_type.is_current() {
+        Some(("type", BlockError::TypeNotCurrent.to_string()))
     } else if block.created_at < 1 {
         Some((
             "createdAt",
@@ -399,7 +471,7 @@ async fn renew_request_ids(
 
 /// Delete a block
 ///
-/// The block goes to the trash with the blocks below it, and `undeleteBlock` brings it
+/// The block goes to the trash with the blocks below it, and `restoreBlock` brings it
 /// back until the trash is emptied of it. For editors; a comment is its author's to
 /// delete from the commenter's role up, and a comment of somebody else the board's
 /// admins' only (403, `access denied to delete other users' comments`), also as a
@@ -453,13 +525,13 @@ async fn handle_delete_block(
 /// back the card.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/undelete",
-    operation_id = "undeleteBlock",
+    path = "/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/restore",
+    operation_id = "restoreBlock",
     tag = tag::BLOCKS,
     params(MemberWorkspaceId, BoardId, BlockId),
     responses((status = 200, description = "The block as it is again.", body = Block)),
 )]
-async fn handle_undelete_block(
+async fn handle_restore_block(
     ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
 ) -> ApiResult {
@@ -600,8 +672,10 @@ async fn handle_patch_block(
         CHANGES_DENIED,
     )
     .await?;
-    let (mut patch, changes): (BlockPatch, _) =
-        decode_object_with(&body, |patch| take_patch_bodies([Some(patch)], None))?;
+    let (mut patch, changes): (BlockPatch, _) = decode_object_with(&body, |patch| {
+        check_patch_block_types([Some(&mut *patch)], None)?;
+        take_patch_bodies([Some(patch)], None)
+    })?;
     put_patch_bodies([&mut patch], changes?, None)?;
     require_block_patch_permission(&ws.app, user_id, &block, &patch, CHANGES_DENIED).await?;
     ws.app
@@ -652,6 +726,7 @@ async fn handle_patch_blocks(
     .await?;
     let board = ws.app.container(&board_id).await?;
     let (mut batch, changes): (BlockPatchBatch, _) = decode_object_with(&body, |batch| {
+        check_patch_block_types(objects_mut(batch, "blockPatches"), Some(PATCHES))?;
         take_patch_bodies(objects_mut(batch, "blockPatches"), Some(PATCHES))
     })?;
     put_patch_bodies(&mut batch.block_patches, changes?, Some(PATCHES))?;

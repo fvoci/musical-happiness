@@ -41,7 +41,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_delete_unit_comment
         ))
         .routes(routes!(handle_get_unit_comment_versions))
-        .routes(routes!(handle_undelete_unit_comment))
+        .routes(routes!(handle_restore_unit_comment))
 }
 
 /// What a comment is changed by, and what a comment is refused with that a request does
@@ -323,24 +323,24 @@ async fn handle_delete_unit_comment(
 
 /// Bring a deleted comment on a unit back
 ///
-/// A comment deleted on its own comes back onto its unit, as `undeletePageComment`
+/// A comment deleted on its own comes back onto its unit, as `restorePageComment`
 /// brings a page's comment back: for its author from the commenter's role up if they
 /// deleted it themselves, and for the course's admins whoever wrote or deleted it (403,
 /// `access denied to undelete other users' comments`, and for the author of a comment
 /// somebody else deleted, `a comment somebody else deleted is brought back by the
 /// board's admins`). A comment that went to the trash with its unit comes back with the
-/// unit (`undeleteUnit`), not on its own; that one, one not in the trash, and one of
+/// unit (`restoreUnit`), not on its own; that one, one not in the trash, and one of
 /// another unit are not there (404), nor is any while the unit is in the trash. Who
 /// reads the course is told with `blockChanged`.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/undelete",
-    operation_id = "undeleteUnitComment",
+    path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/restore",
+    operation_id = "restoreUnitComment",
     tag = tag::COURSES,
     params(MemberWorkspaceId, CourseId, UnitId, UnitCommentId),
     responses((status = 200, description = "The comment as it is again.", body = Block)),
 )]
-async fn handle_undelete_unit_comment(
+async fn handle_restore_unit_comment(
     InCourse(ws): InCourse,
     Path((_, course_id, unit_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {

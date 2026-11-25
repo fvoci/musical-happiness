@@ -103,7 +103,6 @@ export function createComment(on: OnPage, body: DocNode): Comment {
     parentId: on.pageId,
     createdBy: on.userId,
     modifiedBy: on.userId,
-    schema: 1,
     type: 'comment',
     title: '',
     fields: {},

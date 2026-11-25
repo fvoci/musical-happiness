@@ -55,7 +55,6 @@ pub(crate) fn block(
         "parentId": parent,
         "type": block_type,
         "title": title,
-        "schema": 1,
         "createdAt": 1,
         "updatedAt": 1,
     });

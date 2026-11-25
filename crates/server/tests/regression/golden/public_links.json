@@ -52,7 +52,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "Visible card",
         "type": "card",
         "updatedAt": "<ts>"
@@ -284,7 +283,6 @@
         "modifiedBy": "",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "Visible card",
         "type": "card",
         "updatedAt": "<ts>"

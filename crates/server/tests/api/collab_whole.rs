@@ -311,7 +311,7 @@ async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
     };
     th.client
         .patch(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &patch(read_before.updated_at),
         )
         .await
@@ -319,7 +319,7 @@ async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
     let read = card(&th.client, &e.card_id).await;
     th.client
         .patch(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &patch(read.updated_at),
         )
         .await

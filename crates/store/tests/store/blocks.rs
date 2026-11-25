@@ -28,18 +28,18 @@ const SUBTREE_SAMPLE: [(&str, &str, &str); 6] = [
     ("parent", "", "card"),
     ("child1", "parent", "card"),
     ("child2", "parent", "card"),
-    ("grandchild1", "child1", ""),
-    ("grandchild2", "child2", ""),
-    ("greatgrandchild1", "grandchild1", ""),
+    ("grandchild1", "child1", "attachment"),
+    ("grandchild2", "child2", "attachment"),
+    ("greatgrandchild1", "grandchild1", "attachment"),
 ];
 
 /// Five sample blocks of varying types used by pagination and filter tests.
 const TYPED_SAMPLE: [(&str, &str, &str); 5] = [
-    ("block1", "", "test"),
-    ("block2", "block1", "test"),
-    ("block3", "block1", "test"),
-    ("block4", "block1", "test2"),
-    ("block5", "block2", "test"),
+    ("block1", "", "view"),
+    ("block2", "block1", "view"),
+    ("block3", "block1", "view"),
+    ("block4", "block1", "attachment"),
+    ("block5", "block2", "view"),
 ];
 
 /// What has to exist before a block does: a user to write it and a board to hold it,
@@ -112,7 +112,7 @@ pub(crate) fn named_blocks(board_id: &str, specs: &[(&str, &str, &str)]) -> Vec<
         };
         blocks.push(Block {
             parent_id,
-            block_type: BlockType::from(block_type),
+            block_type: block_type.parse().expect("known block type"),
             title: name.to_owned(),
             ..block(&new_id(), board_id)
         });
@@ -150,7 +150,11 @@ fn typed_sample_blocks(board_id: &str) -> Vec<Block> {
 fn three_blocks(board_id: &str) -> Vec<Block> {
     named_blocks(
         board_id,
-        &[("block1", "", ""), ("block2", "", ""), ("block3", "", "")],
+        &[
+            ("block1", "", "card"),
+            ("block2", "", "card"),
+            ("block3", "", "card"),
+        ],
     )
 }
 
@@ -1122,9 +1126,7 @@ async fn get_blocks() {
     let missing = new_id();
 
     // "not existing parent"
-    let filter = board()
-        .with_parent(&missing)
-        .with_type(BlockType::from("test"));
+    let filter = board().with_parent(&missing).with_type(BlockType::View);
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert!(
         blocks.is_empty(),
@@ -1132,9 +1134,7 @@ async fn get_blocks() {
     );
 
     // "not existing type"
-    let filter = board()
-        .with_parent(block1_id)
-        .with_type(BlockType::from("not-existing"));
+    let filter = board().with_parent(block1_id).with_type(BlockType::Page);
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert!(
         blocks.is_empty(),
@@ -1142,9 +1142,7 @@ async fn get_blocks() {
     );
 
     // "valid parent and type"
-    let filter = board()
-        .with_parent(block1_id)
-        .with_type(BlockType::from("test"));
+    let filter = board().with_parent(block1_id).with_type(BlockType::View);
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert_eq!(
         blocks.len(),
@@ -1166,7 +1164,7 @@ async fn get_blocks() {
     assert_eq!(blocks.len(), 3, "block1 has three children: {blocks:?}");
 
     // "not existing type"
-    let filter = board().with_type(BlockType::from("not-exists"));
+    let filter = board().with_type(BlockType::Page);
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert!(
         blocks.is_empty(),
@@ -1174,7 +1172,7 @@ async fn get_blocks() {
     );
 
     // "valid type"
-    let filter = board().with_type(BlockType::from("test"));
+    let filter = board().with_type(BlockType::View);
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert_eq!(blocks.len(), 4, "four blocks have the type: {blocks:?}");
 
@@ -1840,10 +1838,9 @@ async fn get_blocks_pages_the_result() {
     test.teardown().await;
 }
 
-/// The empty type does not filter; any other, `unknown` too, finds the blocks of that
-/// type.
+/// An unset type does not filter; a set `BlockType` returns only blocks of that type.
 #[tokio::test]
-async fn get_blocks_does_not_filter_by_the_empty_type() {
+async fn get_blocks_does_not_filter_when_type_is_unset() {
     let test = common::setup().await;
     let store = &test.store;
     let Fixture {
@@ -1852,18 +1849,18 @@ async fn get_blocks_does_not_filter_by_the_empty_type() {
 
     let specs = [
         &TYPED_SAMPLE[..],
-        &[("typeless", "", ""), ("unknown-typed", "", "unknown")],
+        &[("card-a", "", "card"), ("card-b", "", "card")],
     ]
     .concat();
     let mut sample = named_blocks(&board_id, &specs);
     common::insert_blocks(store, &mut sample, &user_id).await;
 
-    let filter = BlockFilter::container(&board_id).with_type(BlockType::from(""));
+    let filter = BlockFilter::container(&board_id);
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert_eq!(
         blocks.len(),
         7,
-        "the empty type selects every block of the board: {:?}",
+        "an unset type selects every block of the board: {:?}",
         sorted_names(&blocks)
     );
     let below = filter.with_parent(id_of(&sample, "block1"));
@@ -1871,16 +1868,12 @@ async fn get_blocks_does_not_filter_by_the_empty_type() {
     assert_eq!(
         sorted_names(&blocks),
         ["block2", "block3", "block4"],
-        "the empty type leaves the other filters in force"
+        "an unset type leaves the other filters in force"
     );
 
-    let filter = BlockFilter::container(&board_id).with_type(BlockType::from("unknown"));
+    let filter = BlockFilter::container(&board_id).with_type(BlockType::Card);
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
-    assert_eq!(
-        sorted_names(&blocks),
-        ["unknown-typed"],
-        "`unknown` is a type"
-    );
+    assert_eq!(sorted_names(&blocks), ["card-a", "card-b"]);
 
     test.teardown().await;
 }
@@ -2127,7 +2120,7 @@ async fn deleting_blocks_that_hold_files_leaves_the_file_records() {
     .into_iter()
     .map(|(card, block_type, field, stored_name)| Block {
         parent_id: cards[card].id.clone(),
-        block_type: BlockType::from(block_type),
+        block_type: block_type.parse().expect("known block type"),
         fields: fields(json!({ field: stored_name })),
         ..block(&new_id(), board_id)
     })
@@ -2201,7 +2194,7 @@ async fn get_block_counts_by_type_counts_existing_blocks() {
     common::insert_blocks(store, &mut sample, &user_id).await;
     let other_board_id = another_board(store, &workspace_id, &user_id).await;
     let mut other_board = Block {
-        block_type: BlockType::from("test2"),
+        block_type: BlockType::Attachment,
         ..block(&new_id(), &other_board_id)
     };
     store
@@ -2217,7 +2210,7 @@ async fn get_block_counts_by_type_counts_existing_blocks() {
         .get_block_counts_by_type()
         .await
         .expect("the counts are read");
-    let expected = [("test".to_owned(), 3), ("test2".to_owned(), 2)];
+    let expected = [("attachment".to_owned(), 2), ("view".to_owned(), 3)];
     assert_eq!(
         counts.into_iter().collect::<Vec<_>>(),
         expected,
@@ -2766,7 +2759,7 @@ async fn undelete_block_of_what_is_not_in_the_trash_is_not_found_and_writes_noth
 /// A subscription of a user to a block.
 fn subscription(block: &Block, user_id: &str) -> Subscription {
     Subscription {
-        block_type: block.block_type.clone(),
+        block_type: block.block_type,
         block_id: block.id.clone(),
         user_id: user_id.to_owned(),
         notified_at: 0,
@@ -3130,7 +3123,7 @@ async fn lists_of_blocks_are_ordered_by_creation_time_then_identifier() {
     }];
     blocks.extend(CHILDREN.into_iter().map(|(number, _, block_type)| Block {
         parent_id: card_id.clone(),
-        block_type: BlockType::from(block_type),
+        block_type: block_type.parse().expect("known block type"),
         title: number.to_string(),
         ..block(&ids[number], &board_id)
     }));

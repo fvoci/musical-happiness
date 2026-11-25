@@ -1,10 +1,12 @@
-//! Users and their preferences.
+//! Users, their settings, and their client state.
+
+use std::collections::BTreeMap;
 
 use fvoci_model::{
-    ContainerKinds, ContainerMember, PersonNameChange, Session, User, UserOrganization,
-    UserPreferencesPatch, UserSettings, UserSettingsPatch, WorkspaceRole,
+    ClientStatePatch, ContainerKinds, ContainerMember, PersonNameChange, Session, User,
+    UserOrganization, UserSettings, UserSettingsPatch, WorkspaceRole,
 };
-use fvoci_store::{AdminChange, InstanceRole, Looking, Preference, Sight};
+use fvoci_store::{AdminChange, InstanceRole, Looking, Sight};
 
 use super::App;
 use crate::collab::AccessScope;
@@ -247,26 +249,26 @@ impl App {
         Ok(self.store().patch_user_settings(user_id, patch).await?)
     }
 
-    /// Applies a patch to a user's preferences and returns all of them.
+    /// Applies a patch to a user's client state and returns all entries.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the preferences cannot be written or read.
-    pub async fn update_user_config(
+    /// Returns the store's error if the client state cannot be written or read.
+    pub async fn patch_client_state(
         &self,
         user_id: &str,
-        patch: &UserPreferencesPatch,
-    ) -> Result<Vec<Preference>, AppError> {
-        Ok(self.store().patch_user_preferences(user_id, patch).await?)
+        patch: &ClientStatePatch,
+    ) -> Result<BTreeMap<String, String>, AppError> {
+        Ok(self.store().patch_client_state(user_id, patch).await?)
     }
 
-    /// Returns a user's preferences.
+    /// Returns a user's client state.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the preferences cannot be read.
-    pub async fn user_preferences(&self, user_id: &str) -> Result<Vec<Preference>, AppError> {
-        Ok(self.store().get_user_preferences(user_id).await?)
+    /// Returns the store's error if the client state cannot be read.
+    pub async fn client_state(&self, user_id: &str) -> Result<BTreeMap<String, String>, AppError> {
+        Ok(self.store().get_client_state(user_id).await?)
     }
 
     /// Blanks what another user must not see of a profile: the email address, unless

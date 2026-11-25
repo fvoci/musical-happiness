@@ -23,14 +23,10 @@ use crate::diary::{
 use crate::page::{PAGE_ICON_FIELD, PAGE_ORDER_FIELD, is_order_value};
 use crate::relation::RelationError;
 
-/// Maximum number of characters in a block title.
-///
-/// A quarter of the 65535-byte limit of a `MySQL` `TEXT` column, assuming the worst-case
-/// four bytes per character.
-pub const BLOCK_TITLE_MAX_CHARS: usize = 65535 / 4;
+/// Maximum number of Unicode scalar values allowed in a block title (`16_383`).
+pub const BLOCK_TITLE_MAX_CHARS: usize = 16_383;
 
-/// Maximum number of characters in a view's `fields` once serialized to JSON, and in
-/// those of a block of a type that new blocks no longer have.
+/// Maximum number of characters in a view's `fields` once serialized to JSON.
 pub const BLOCK_FIELDS_MAX_CHARS: usize = 800_000;
 
 /// Maximum number of characters in the `fields` of a card, a comment or an attachment
@@ -39,18 +35,20 @@ pub const CARD_FIELDS_MAX_CHARS: usize = 64_000;
 
 /// The type of a block.
 ///
-/// A new block of a board has one of four types ([`BlockType::is_current`]), a wiki
-/// has pages ([`crate::Page`]) and a diary entries ([`crate::DiaryEntry`]). Earlier blocks
-/// stored before rich card bodies may carry legacy type strings (such as `h1` or
-/// `list-item`); those are read and returned verbatim in [`BlockType::Other`].
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(from = "String", into = "String")]
+/// A block of a board has one of four types ([`BlockType::is_current`]), a wiki has
+/// pages ([`crate::Page`]) and comments, a diary has entries ([`crate::DiaryEntry`]),
+/// and a course has chapters, units ([`crate::Unit`]) and comments on units.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
+)]
+#[serde(rename_all = "lowercase")]
 pub enum BlockType {
     /// A card.
+    #[default]
     Card,
     /// A board view.
     View,
-    /// A comment on a card or on a page ([`BlockType::takes_comments`]).
+    /// A comment on a card, a page or a unit ([`BlockType::takes_comments`]).
     Comment,
     /// A file attachment on a card.
     Attachment,
@@ -63,14 +61,33 @@ pub enum BlockType {
     /// A chapter of a course ([`crate::Unit`]): a title-only heading at the top of the
     /// course with no body and no room.
     Chapter,
-    /// Any other type string, kept as sent, such as pre-body content block types
-    /// (`text`, `image`, ...): no block is written with one any more, and the data steps
-    /// of migrations 8 and 42 delete those stored before. The empty string means "no
-    /// type".
-    Other(String),
 }
 
 impl BlockType {
+    /// Every block type, in contract order.
+    pub const ALL: [Self; 8] = [
+        Self::Card,
+        Self::View,
+        Self::Comment,
+        Self::Attachment,
+        Self::Page,
+        Self::Entry,
+        Self::Unit,
+        Self::Chapter,
+    ];
+
+    /// The wire words in the order of [`Self::ALL`].
+    pub const WORDS: &[&str] = &[
+        "card",
+        "view",
+        "comment",
+        "attachment",
+        "page",
+        "entry",
+        "unit",
+        "chapter",
+    ];
+
     /// The types whose body is edited together, in a room of the block's own: a card,
     /// a page, an entry and a unit. A comment's body is written whole by its author, and
     /// a chapter has no body.
@@ -79,7 +96,7 @@ impl BlockType {
     /// Returns `true` for the types that may have a body: a card and a comment
     /// (`docs/s6-design.md` 5.7), a page, an entry and a unit.
     #[must_use]
-    pub fn has_body(&self) -> bool {
+    pub const fn has_body(self) -> bool {
         matches!(
             self,
             Self::Card | Self::Comment | Self::Page | Self::Entry | Self::Unit
@@ -95,14 +112,14 @@ impl BlockType {
     /// [`BlockError::FileBlockInComment`] for a comment's body with a file block, and
     /// [`BlockError::BodyTooLarge`] if the serialized body exceeds
     /// [`crate::BODY_MAX_BYTES`].
-    pub fn check_body(&self, body: Option<&Body>) -> Result<(), BlockError> {
+    pub fn check_body(self, body: Option<&Body>) -> Result<(), BlockError> {
         let Some(body) = body else {
             return Ok(());
         };
         if !self.has_body() {
             return Err(BlockError::BodyNotAllowed);
         }
-        if *self == Self::Comment && body.has_file_blocks() {
+        if self == Self::Comment && body.has_file_blocks() {
             return Err(BlockError::FileBlockInComment);
         }
         body.check_size().map_err(|_| BlockError::BodyTooLarge)
@@ -111,24 +128,23 @@ impl BlockType {
     /// Returns `true` for the types a comment may be on: a card of a board, a page of
     /// a wiki and a unit of a course. A diary entry and a chapter take none.
     #[must_use]
-    pub fn takes_comments(&self) -> bool {
+    pub const fn takes_comments(self) -> bool {
         matches!(self, Self::Card | Self::Page | Self::Unit)
     }
 
     /// Returns `true` for the types whose body has a room ([`Self::WITH_ROOM`]).
     #[must_use]
-    pub fn has_room(&self) -> bool {
-        Self::WITH_ROOM.contains(self)
+    pub fn has_room(self) -> bool {
+        Self::WITH_ROOM.contains(&self)
     }
 
     /// Returns `true` for the types a block may be given by a write of blocks: a card,
-    /// a view, a comment and an attachment (`docs/s6-design.md` 5.7). The content
-    /// blocks that were stored before a card's content became its body were deleted by
-    /// a data step of migration 8. A page is no such type: the operations of pages make
-    /// and change it, which keep it in its place in the tree of its wiki. Nor is an
-    /// entry: the operations of diaries make it, which keep a day to one.
+    /// a view, a comment and an attachment (`docs/s6-design.md` 5.7). A page is no such
+    /// type: the operations of pages make and change it, which keep it in its place in
+    /// the tree of its wiki. Nor is an entry: the operations of diaries make it, which
+    /// keep a day to one. Nor is a unit or chapter: the operations of courses make it.
     #[must_use]
-    pub fn is_current(&self) -> bool {
+    pub const fn is_current(self) -> bool {
         matches!(
             self,
             Self::Card | Self::View | Self::Comment | Self::Attachment
@@ -138,7 +154,7 @@ impl BlockType {
     /// Returns the maximum number of characters in the serialized `fields` of a block
     /// of this type.
     #[must_use]
-    pub fn fields_max_chars(&self) -> usize {
+    pub const fn fields_max_chars(self) -> usize {
         match self {
             Self::Card
             | Self::Comment
@@ -147,12 +163,13 @@ impl BlockType {
             | Self::Entry
             | Self::Unit
             | Self::Chapter => CARD_FIELDS_MAX_CHARS,
-            Self::View | Self::Other(_) => BLOCK_FIELDS_MAX_CHARS,
+            Self::View => BLOCK_FIELDS_MAX_CHARS,
         }
     }
 
-    /// Returns the wire string of this type.
-    pub fn as_str(&self) -> &str {
+    /// Returns the wire and database form.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Card => "card",
             Self::View => "view",
@@ -162,13 +179,7 @@ impl BlockType {
             Self::Entry => "entry",
             Self::Unit => "unit",
             Self::Chapter => "chapter",
-            Self::Other(other) => other,
         }
-    }
-
-    /// Returns `true` if this is the empty type string, which a block must not have.
-    pub fn is_empty(&self) -> bool {
-        self.as_str().is_empty()
     }
 
     /// Maps an exact wire string to a known type, if it is one.
@@ -187,37 +198,9 @@ impl BlockType {
     }
 }
 
-impl Default for BlockType {
-    /// The empty type string, which is what a block decoded without a `type` has.
-    fn default() -> Self {
-        Self::Other(String::new())
-    }
-}
-
 impl fmt::Display for BlockType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-impl From<String> for BlockType {
-    fn from(name: String) -> Self {
-        Self::known(&name).unwrap_or(Self::Other(name))
-    }
-}
-
-impl From<&str> for BlockType {
-    fn from(name: &str) -> Self {
-        Self::known(name).unwrap_or_else(|| Self::Other(name.to_owned()))
-    }
-}
-
-impl From<BlockType> for String {
-    fn from(block_type: BlockType) -> Self {
-        match block_type {
-            BlockType::Other(other) => other,
-            known => known.as_str().to_owned(),
-        }
     }
 }
 
@@ -232,8 +215,6 @@ impl FromStr for BlockType {
 
     /// Parses one of the known block types, written exactly as [`BlockType::as_str`]
     /// writes it: `Card` is no type.
-    ///
-    /// Unlike the `From<&str>` conversion, which keeps unknown strings, this rejects them.
     fn from_str(name: &str) -> Result<Self, Self::Err> {
         Self::known(name).ok_or(ParseBlockTypeError(()))
     }
@@ -544,37 +525,41 @@ impl BlockError {
 }
 
 /// The basic data unit of a board.
+// `type` is required when decoding; every other member defaults to its empty value.
+// (No extra doc comment: the doc comment is the description in the API contract.)
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct Block {
     /// The block's identifier.
+    #[serde(default)]
     pub id: String,
     /// The identifier of the parent block; empty for root blocks.
+    #[serde(default)]
     pub parent_id: String,
     /// The identifier of the user who created the block.
+    #[serde(default)]
     pub created_by: String,
     /// The identifier of the user who last modified the block.
+    #[serde(default)]
     pub modified_by: String,
-    /// The schema version of the block.
-    pub schema: i64,
     /// The block type: `card`, `view`, `comment` or `attachment` on a board, `page`
-    /// and `comment` (on a page) on a wiki, `entry` on a diary, and `chapter` and `unit`
-    /// on a course. No request of blocks makes a block of another type or patches one
-    /// into it (400 naming `type`), nor a page, an entry, a unit or a chapter:
-    /// `createPage` makes pages, `createPageComment` the comments of a wiki,
-    /// `createDiaryEntry` entries, and `createUnit` chapters and units.
+    /// and `comment` (on a page) on a wiki, `entry` on a diary, and `chapter`, `unit`
+    /// and `comment` (on a unit) on a course. No request of blocks makes a block of
+    /// another type or patches one into it (400 naming `type`), nor a page, an entry,
+    /// a unit or a chapter: `createPage` makes pages, `createPageComment` the comments
+    /// of a wiki, `createDiaryEntry` entries, and `createUnit` chapters and units.
     #[serde(rename = "type")]
-    #[schema(value_type = String)]
     pub block_type: BlockType,
     /// The display title. A title with U+0000 is refused (400 naming `title`).
+    #[serde(default)]
     pub title: String,
     /// Type-specific data, free-form: serialized, at most 64,000 characters for a card, a
     /// comment, an attachment, a page, an entry, a unit or a chapter and 800,000 for a
-    /// view or a block of another type. The `icon` of a card is a string and its
-    /// `isTemplate` a boolean, or either `null` (400 naming `fields` otherwise). A page
-    /// has its `icon` and its `order` here, as `Page` gives them, an entry its `date`,
-    /// `mood`, `weather` and `place`, as `DiaryEntry` gives them, and a unit or chapter
-    /// its `order`, as `Unit` gives it.
+    /// view. The `icon` of a card is a string and its `isTemplate` a boolean, or either
+    /// `null` (400 naming `fields` otherwise). A page has its `icon` and its `order`
+    /// here, as `Page` gives them, an entry its `date`, `mood`, `weather` and `place`,
+    /// as `DiaryEntry` gives them, and a unit or chapter its `order`, as `Unit` gives it.
+    #[serde(default)]
     #[schema(value_type = Object)]
     pub fields: JsonMap,
     /// The body of a card, a comment, a page, an entry or a unit; `null` for a block
@@ -584,10 +569,13 @@ pub struct Block {
     /// sent, which a write would have refused. A change message (`blockChanged`) of a
     /// card, a page, an entry or a unit has it `null`, with a summary of it beside the
     /// block.
+    #[serde(default)]
     pub body: Option<Body>,
     /// Creation time in milliseconds since the Unix epoch.
+    #[serde(default)]
     pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
+    #[serde(default)]
     pub updated_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; absent while not deleted.
     #[serde(
@@ -598,6 +586,7 @@ pub struct Block {
     #[schema(nullable = false)]
     pub deleted_at: Option<i64>,
     /// The identifier of the board the block belongs to.
+    #[serde(default)]
     pub container_id: String,
     /// A card's number on its board, as `Card.number` gives it; absent for a template
     /// of the board's cards and for every other block. The server gives it and ignores
@@ -861,13 +850,9 @@ pub struct BlockPatch {
     /// The new parent identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
-    /// The new schema version.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub schema: Option<i64>,
     /// The new block type: `card`, `view`, `comment` or `attachment`. Any other is
     /// refused (400 naming `type`).
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    #[schema(value_type = Option<String>)]
     pub block_type: Option<BlockType>,
     /// The new title.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -940,11 +925,8 @@ impl BlockPatch {
         if let Some(parent_id) = &self.parent_id {
             block.parent_id.clone_from(parent_id);
         }
-        if let Some(schema) = self.schema {
-            block.schema = schema;
-        }
-        if let Some(block_type) = &self.block_type {
-            block.block_type.clone_from(block_type);
+        if let Some(block_type) = self.block_type {
+            block.block_type = block_type;
         }
         if let Some(title) = &self.title {
             block.title.clone_from(title);

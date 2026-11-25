@@ -253,7 +253,7 @@ async fn what_is_in_the_trash_is_resolved_as_nothing() {
     )
     .await;
     th.client
-        .post_empty(&format!("{TEST_WS}/containers/{}/undelete", other.wiki))
+        .post_empty(&format!("{TEST_WS}/containers/{}/restore", other.wiki))
         .await
         .check_ok();
     assert_eq!(

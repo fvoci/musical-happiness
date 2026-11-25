@@ -127,7 +127,8 @@ pub(crate) fn push_block_types_in_json(
         Dialect::Sqlite => sql.push(&format!("json_extract({row}.block, '$.type') IN (")),
         Dialect::Postgres => sql.push(&format!("{row}.block->>'type' IN (")),
     };
-    sql.bind_list(types.iter().map(BlockType::as_str)).push(")");
+    sql.bind_list(types.iter().copied().map(BlockType::as_str))
+        .push(")");
 }
 
 /// The deletion of the container the block went with, if the block is in the container's

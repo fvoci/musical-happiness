@@ -52,7 +52,7 @@ import {
   checkedUnitScheduleFields,
   checkedUnitTitle as checkedTitle,
   isCourseBlock,
-  memoryUndeleteUnit,
+  memoryRestoreUnit,
   patchedUnitScheduleFields,
   unitDetailOf as detailOf,
 } from './course-unit-fields.ts';
@@ -308,7 +308,6 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
       parentId,
       createdBy: userId,
       modifiedBy: userId,
-      schema: 1,
       type: kind,
       title,
       fields: scheduleFields,
@@ -398,10 +397,10 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
     return deletedUnitsOf(this.#world, courseId, paging);
   }
 
-  async undeleteUnit(courseId: string, unitId: string): Promise<CourseUnitDetail> {
-    await this.#enter('undeleteUnit');
+  async restoreUnit(courseId: string, unitId: string): Promise<CourseUnitDetail> {
+    await this.#enter('restoreUnit');
     this.#mayWrite(courseId);
-    return memoryUndeleteUnit({
+    return memoryRestoreUnit({
       world: this.#world,
       userId: this.#host.userId,
       courseId,
