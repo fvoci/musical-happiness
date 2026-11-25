@@ -1,6 +1,7 @@
 /**
  * View, card, comment, attachment, and block HTTP operations for `ServerBackend`
- * (`api/backend.ts`), including 1-round-trip `patchView` & `patchComment` (§1.3.5).
+ * (`api/backend.ts`), keeping unconditional `patchView` at 1 round-trip while
+ * re-reading server `updatedAt` after conditional (`readAt`) patches.
  */
 import type { CardPreview } from '../editor/card-preview.ts';
 import type { DocNode } from '../editor/schema.ts';
@@ -133,7 +134,7 @@ export class ServerBlocks {
     let after: BoardView;
     if (answered) {
       after = viewOf(answered);
-    } else if (conditionalQueued) {
+    } else if (patch.readAt !== undefined || conditionalQueued) {
       after = await this.#view(boardId, viewId).catch(() =>
         applyViewPatch(this.#knownViews.get(viewId) ?? known, patch),
       );
@@ -253,30 +254,22 @@ export class ServerBlocks {
         { boardId, blockId: commentId },
         { method: 'PATCH', json: patch },
       );
-      if (answered) {
-        const comment = commentOf(answered);
-        this.#knownComments.set(commentId, comment);
-        return comment;
-      }
-      const before = this.#knownComments.get(commentId);
-      const updated: Comment = before
-        ? { ...before, body, updatedAt: Math.max(before.updatedAt, write.readAt) }
-        : {
-            id: commentId,
-            containerId: boardId,
-            parentId: '',
-            type: 'comment',
-            title: '',
-            fields: {},
-            body,
-            createdBy: '',
-            modifiedBy: '',
-            createdAt: write.readAt,
-            updatedAt: write.readAt,
-          };
-      this.#knownComments.set(commentId, updated);
-      return updated;
+      const comment = answered ? commentOf(answered) : await this.#comment(boardId, commentId);
+      this.#knownComments.set(commentId, comment);
+      return comment;
     });
+  }
+
+  async #comment(boardId: string, commentId: string): Promise<Comment> {
+    const [comment] = await this.#inWorkspace<Schemas['Block'][]>(
+      '/boards/{boardId}/blocks',
+      { boardId },
+      { query: { blockId: commentId } },
+    );
+    if (comment?.type !== 'comment') {
+      throw new BackendError(404, { detail: 'no such comment on this board' });
+    }
+    return commentOf(comment);
   }
 
   async commentVersions(boardId: string, commentId: string): Promise<CommentVersion[]> {

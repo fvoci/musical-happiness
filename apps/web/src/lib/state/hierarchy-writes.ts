@@ -362,7 +362,7 @@ export class HierarchyWriteQueue<
     } catch (error) {
       if (isBackendError(error) && error.status === 404) {
         this.forget([nodeId], 'others');
-        this.#host.workspace.report('movePage', error);
+        this.#host.workspace.report(stepName, error);
       } else this.#host.workspace.report('save', error);
       return false;
     }

@@ -74,7 +74,6 @@ export class EntryStore {
       },
       onState: (state) => {
         if (state.pending) this.#changedHere = true;
-        if (state.doc) this.#syncBodyFromDoc(state.doc);
       },
       onDocReleased: () => {
         this.#catchUp();
@@ -175,7 +174,9 @@ export class EntryStore {
     const entryId = this.entry?.id;
     if (!entryId || this.#closed) return;
     void import('../editor/room-body.ts').then(({ bodyOfDoc }) => {
-      if (this.#closed || this.entry?.id !== entryId || this.room?.doc !== doc) return;
+      if (this.#closed || this.entry?.id !== entryId || (this.room?.doc && this.room.doc !== doc)) {
+        return;
+      }
       const body = bodyOfDoc(doc);
       if (body === undefined) return;
       this.entry = this.#notes.over({ ...this.entry, body });
@@ -302,7 +303,9 @@ export class EntryStore {
   closeBody(): void {
     this.#wanted = false;
     const emptied = this.#emptied();
+    const closingDoc = !emptied ? this.room?.doc : undefined;
     const opened = this.#collab.detach();
+    if (closingDoc) this.#syncBodyFromDoc(closingDoc);
     if (emptied) this.#notes.stop();
     else void this.#notes.send();
     [this.#changedHere, this.#blankBody, this.#missedBodyEntryId] = [false, false, undefined];

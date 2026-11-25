@@ -3,10 +3,16 @@
   Reacts to `router.route` changes (`popstate`) so navigating Back/Forward between
   two shared links reloads cleanly (`W1.5`).
 -->
+<script lang="ts" module>
+  import { LazyChunk } from '$lib/chunk-reload.svelte.ts';
+
+  const sharedBoardChunk = new LazyChunk(() => import('./BoardPage.svelte'));
+  const sharedTreeChunk = new LazyChunk(() => import('./SharedTreeReader.svelte'));
+</script>
+
 <script lang="ts">
   import { untrack } from 'svelte';
 
-  import { LazyChunk } from '$lib/chunk-reload.svelte.ts';
   import FileViewerHost from '$lib/components/file-viewer/FileViewerHost.svelte';
   import { setViewedFileSource } from '$lib/components/file-viewer/viewing.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -22,9 +28,6 @@
   import NotFound from './NotFound.svelte';
   import Problems from './Problems.svelte';
   import type { Router } from './router.svelte.ts';
-
-  const sharedBoardChunk = new LazyChunk(() => import('./BoardPage.svelte'));
-  const sharedTreeChunk = new LazyChunk(() => import('./SharedTreeReader.svelte'));
 
   let { router }: { router: Router } = $props();
 
@@ -77,7 +80,9 @@
         workspace = made;
         backend = read;
         await made.load(place);
+        if (isLeft()) return;
         readKind = async () => {
+          if (isLeft()) return;
           kind = undefined;
           try {
             const opened = await read.container(containerId);

@@ -3,8 +3,18 @@
   course, diary, or personal/learning screen it names, SSO/password lock gates,
   or not-found/loading states.
 -->
-<script lang="ts">
+<script lang="ts" module>
   import { LazyChunk } from '$lib/chunk-reload.svelte.ts';
+
+  const wikiPageChunk = new LazyChunk(() => import('./WikiPage.svelte'));
+  const coursePageChunk = new LazyChunk(() => import('./CoursePage.svelte'));
+  const diaryPageChunk = new LazyChunk(() => import('./DiaryPage.svelte'));
+  const myTimePageChunk = new LazyChunk(() => import('./MyTimePage.svelte'));
+  const learningTodayChunk = new LazyChunk(() => import('./LearningTodayPage.svelte'));
+  const todayReviewsChunk = new LazyChunk(() => import('./TodayReviewsPage.svelte'));
+</script>
+
+<script lang="ts">
   import OwnSpaceLocked from '$lib/features/account/OwnSpaceLocked.svelte';
   import SignInNotice from '$lib/features/account/SignInNotice.svelte';
   import SsoRequired from '$lib/features/account/SsoRequired.svelte';
@@ -23,13 +33,6 @@
   import LazyView from './LazyView.svelte';
   import NotFound from './NotFound.svelte';
   import { placeRoute, shownContainerId, workspaceIdOf, type Router } from './router.svelte.ts';
-
-  const wikiPageChunk = new LazyChunk(() => import('./WikiPage.svelte'));
-  const coursePageChunk = new LazyChunk(() => import('./CoursePage.svelte'));
-  const diaryPageChunk = new LazyChunk(() => import('./DiaryPage.svelte'));
-  const myTimePageChunk = new LazyChunk(() => import('./MyTimePage.svelte'));
-  const learningTodayChunk = new LazyChunk(() => import('./LearningTodayPage.svelte'));
-  const todayReviewsChunk = new LazyChunk(() => import('./TodayReviewsPage.svelte'));
 
   interface Props {
     workspace: Workspace;

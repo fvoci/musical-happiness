@@ -31,7 +31,7 @@
   import { Label } from '$lib/ui/label/index.js';
 
   import type { WaitingAccount } from '$lib/state/email-verification.ts';
-  import { forgetInviteToken } from '../../../app/fragment-token.ts';
+  import { forgetInviteToken } from '$lib/fragment-token.ts';
   import AccountFields from './AccountFields.svelte';
   import CheckMailPage from './CheckMailPage.svelte';
   import ResendLink from './ResendLink.svelte';

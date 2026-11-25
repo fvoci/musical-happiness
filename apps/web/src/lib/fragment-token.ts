@@ -9,6 +9,8 @@
 const PREFIX = 'fvoci:token:';
 /** How long a kept token survives a reload in the same tab (30 minutes). */
 const KEPT_FOR = 30 * 60 * 1000;
+/** Fallback when `sessionStorage` is blocked by the browser in this tab. */
+const memoryFallback = new Map<string, { token: string; at: number }>();
 
 function readKept(scope: string, now: number): string {
   try {
@@ -24,15 +26,22 @@ function readKept(scope: string, now: number): string {
     }
     return token;
   } catch {
-    return '';
+    const entry = memoryFallback.get(scope);
+    if (!entry) return '';
+    if (now - entry.at < 0 || now - entry.at >= KEPT_FOR) {
+      memoryFallback.delete(scope);
+      return '';
+    }
+    return entry.token;
   }
 }
 
 function writeKept(scope: string, token: string, now: number): void {
   try {
     sessionStorage.setItem(`${PREFIX}${scope}`, JSON.stringify({ token, at: now }));
+    memoryFallback.delete(scope);
   } catch {
-    // Without sessionStorage the token still lives in component memory for this load.
+    memoryFallback.set(scope, { token, at: now });
   }
 }
 
@@ -57,8 +66,14 @@ export function takeFragmentToken(scope: string, now: number = Date.now()): stri
   return readKept(scope, now);
 }
 
+/** Reads the kept fragment token for `scope` without mutating history or storage. */
+export function readFragmentToken(scope: string, now: number = Date.now()): string {
+  return readKept(scope, now);
+}
+
 /** Clears the kept fragment token for `scope` and ensures no hash remains in the URL. */
 export function forgetFragmentToken(scope: string): void {
+  memoryFallback.delete(scope);
   try {
     sessionStorage.removeItem(`${PREFIX}${scope}`);
   } catch {
@@ -88,8 +103,14 @@ export function takeInviteToken(
   return readKept(INVITE_SCOPE, now);
 }
 
+/** Reads the kept invitation token without mutating history or storage. */
+export function readInviteToken(now: number = Date.now()): string {
+  return readKept(INVITE_SCOPE, now);
+}
+
 /** Clears any kept invitation token once joined or refused as unavailable. */
 export function forgetInviteToken(): void {
+  memoryFallback.delete(INVITE_SCOPE);
   try {
     sessionStorage.removeItem(`${PREFIX}${INVITE_SCOPE}`);
   } catch {

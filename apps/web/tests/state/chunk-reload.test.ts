@@ -61,4 +61,27 @@ describe('stale deployment detection on chunk load failure', () => {
     expect(staleBuild.detected).toBe(true);
     unregister();
   });
+
+  it('probes under meta[name="fvoci:base"] when deployed on a subpath', async () => {
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'fvoci:base');
+    meta.setAttribute('content', '/boards/');
+    document.head.appendChild(meta);
+    setCurrentScript('/boards/index-old111.js');
+
+    const requested: string[] = [];
+    vi.stubGlobal('fetch', (input: string) => {
+      requested.push(input);
+      return Promise.resolve(
+        new Response(
+          '<!doctype html><script type="module" src="/boards/index-new222.js"></script>',
+          { headers: { 'Content-Type': 'text/html' } },
+        ),
+      );
+    });
+
+    expect(await noteChunkFailure()).toBe(true);
+    expect(requested).toEqual(['/boards/']);
+    expect(staleBuild.detected).toBe(true);
+  });
 });

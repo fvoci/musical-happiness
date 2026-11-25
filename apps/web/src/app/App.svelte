@@ -15,10 +15,19 @@
   (`OrgPage`), in place of the workspace; the way to it is in the sidebar of
   whoever administers one. Only the server has organizations.
 -->
+<script lang="ts" module>
+  import { LazyChunk } from '$lib/chunk-reload.svelte.ts';
+
+  const orgHostChunk = new LazyChunk(() => import('./OrgHost.svelte'));
+  const invitePageChunk = new LazyChunk(() => import('$lib/features/account/InvitePage.svelte'));
+  const accountLeavingChunk = new LazyChunk(
+    () => import('$lib/features/account/AccountLeaving.svelte'),
+  );
+</script>
+
 <script lang="ts">
   import { onMount } from 'svelte';
 
-  import { LazyChunk } from '$lib/chunk-reload.svelte.ts';
   import FileViewerHost from '$lib/components/file-viewer/FileViewerHost.svelte';
   import { setViewedFileSource, viewing } from '$lib/components/file-viewer/viewing.svelte.ts';
   import { daysLeft } from '$lib/features/account/account-deletion.ts';
@@ -48,7 +57,7 @@
   import { acceptedRoute } from './accepted-route.ts';
   import { followAddress } from './address.svelte.ts';
   import { resendLink, startBackend } from './backend.ts';
-  import { forgetInviteToken, takeInviteToken } from './fragment-token.ts';
+  import { forgetInviteToken } from '$lib/fragment-token.ts';
   import { forgetUnscoped, forgetUser, lastWorkspace } from './last-workspace.ts';
   import {
     browserLocale,
@@ -68,12 +77,6 @@
   import { Administered } from './administered.svelte.ts';
   import TopBarTools from './TopBarTools.svelte';
   import WorkspacePane from './WorkspacePane.svelte';
-
-  const orgHostChunk = new LazyChunk(() => import('./OrgHost.svelte'));
-  const invitePageChunk = new LazyChunk(() => import('$lib/features/account/InvitePage.svelte'));
-  const accountLeavingChunk = new LazyChunk(
-    () => import('$lib/features/account/AccountLeaving.svelte'),
-  );
 
   let { router }: { router: Router } = $props();
 
@@ -234,12 +237,8 @@
     router.restart({}, { query: `account_leaving=${daysLeft(due ?? 0, Date.now())}` });
   }
 
-  /** The token of the invitation (`/invite/<token>`), stripped immediately from the URL (H-8). */
-  const invitation = $derived(
-    router.route.kind === 'invite'
-      ? takeInviteToken(router.route.invitation, router.href({ kind: 'invite' }))
-      : undefined,
-  );
+  /** The token of the invitation (`/invite/<token>`), already captured & stripped by `Router` (H-8, S10). */
+  const invitation = $derived(router.route.kind === 'invite' ? router.invitation : undefined);
 
   followAddress(
     () => router,

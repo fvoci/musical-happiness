@@ -8,6 +8,15 @@
  * (`settleActiveBodies()`) before exposing the 1-click reload banner.
  */
 
+import { buildUrl, normalizeBasePath } from './logic/urls.ts';
+
+/** The base path the server filled into index.html (`meta[name="fvoci:base"]`); empty at the site root. */
+export function readBasePath(document: Document): string {
+  const raw = document.querySelector('meta[name="fvoci:base"]')?.getAttribute('content') ?? '';
+  // Served as a plain file (the development server), the placeholder is still there.
+  return raw.startsWith('{{') ? '' : normalizeBasePath(raw);
+}
+
 // eslint-disable-next-line svelte/prefer-svelte-reactivity -- internal callback registry, not read in templates
 const bodySettlers = new Set<() => Promise<void>>();
 
@@ -47,13 +56,9 @@ class StaleBuildState {
   async #probe(): Promise<boolean> {
     const currentSrc = entryScriptSrc(document);
     if (!currentSrc) return false;
-    const base =
-      document
-        .querySelector('meta[name="fvoci-base"]')
-        ?.getAttribute('content')
-        ?.replace(/\/+$/, '') ?? '';
+    const base = readBasePath(document);
     try {
-      const response = await fetch(`${base}/`, {
+      const response = await fetch(buildUrl('/', base), {
         cache: 'no-store',
         credentials: 'same-origin',
         headers: { Accept: 'text/html' },

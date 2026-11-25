@@ -12,15 +12,6 @@ import type { Workspace } from './workspace.svelte.ts';
 /** How long "saving" stays visible after pending changes reach the server. */
 export const SAVING_SHOWN = 600;
 
-/** Active open collaborative rooms so a stale-deployment banner can flush buffered edits first. */
-// eslint-disable-next-line svelte/prefer-svelte-reactivity -- module registry, not rendered
-const activeRooms = new Set<CollaborativeBodyState>();
-
-/** Flushes buffered keystrokes on every open collaborative document room before reloading. */
-export async function settleActiveBodies(): Promise<void> {
-  await Promise.allSettled([...activeRooms].map((state) => state.settle()));
-}
-
 export interface CollaborativeBodyHooks {
   readonly workspace: Workspace;
   /** Re-reads the entity via HTTP after a `not_found` room eviction to tell restored vs gone vs 401. */
@@ -92,7 +83,6 @@ export class CollaborativeBodyState {
     });
     this.#bodyDoc = opened;
     this.room = opened.state;
-    activeRooms.add(this);
   }
 
   /** If `load()` finished while the room had already transitioned to `not_found`, probe now. */
@@ -133,7 +123,6 @@ export class CollaborativeBodyState {
     const opened = this.#bodyDoc;
     this.#bodyDoc = undefined;
     this.room = undefined;
-    activeRooms.delete(this);
     return opened;
   }
 

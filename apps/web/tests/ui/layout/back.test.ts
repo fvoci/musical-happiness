@@ -281,4 +281,35 @@ describe('opening right after closing', () => {
     expect(location.pathname).toBe('/w/t/boards/b/v');
     stop();
   });
+
+  it('releases queued writes after WAIT_LIMIT when popstate never arrives', () => {
+    const router = new Router('');
+    const stop = router.listen();
+    const sheet = open();
+    vi.useFakeTimers();
+    const backSpy = vi.spyOn(history, 'back').mockImplementation(() => {
+      // Simulate a step back whose popstate never fires (e.g. history boundary).
+    });
+    try {
+      sheet.open = false;
+      flushSync();
+      router.openView('other');
+      expect(location.pathname).toBe('/w/t/boards/b/v');
+
+      vi.advanceTimersByTime(1999);
+      expect(location.pathname).toBe('/w/t/boards/b/v');
+
+      vi.advanceTimersByTime(1);
+      expect(location.pathname).toBe('/w/t/boards/b/other');
+
+      // Router #writes is unlocked too, so subsequent popstate navigation works.
+      history.pushState(null, '', '/w/t/boards/b/third');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      expect(router.route).toMatchObject({ kind: 'board', viewId: 'third' });
+    } finally {
+      backSpy.mockRestore();
+      vi.useRealTimers();
+      stop();
+    }
+  });
 });

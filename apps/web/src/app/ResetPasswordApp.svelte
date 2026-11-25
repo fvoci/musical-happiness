@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
 
   import { startPasswordRecovery } from './backend.ts';
-  import { forgetFragmentToken, takeFragmentToken } from './fragment-token.ts';
+  import { forgetFragmentToken, takeFragmentToken } from '$lib/fragment-token.ts';
   import RequestPasswordPage from '$lib/features/account/RequestPasswordPage.svelte';
   import ResetPasswordPage from '$lib/features/account/ResetPasswordPage.svelte';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';

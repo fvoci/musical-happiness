@@ -280,18 +280,60 @@ describe('the server backend', () => {
     expect(comment).toMatchObject({ id: 'm', type: 'comment', body });
   });
 
-  it('changes a comment by its block in one PATCH request with readAt', async () => {
+  it('changes a comment by its block with readAt and reads back the updated version', async () => {
     const body = {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'New' }] }],
     };
-    const sent = serve(undefined, 204);
-    const changed = await serverBackend('').patchComment('b', 'm', { body, readAt: 7 });
+    let updatedAt = 7;
+    const sent: Sent[] = [];
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      const parsedBody =
+        typeof init.body === 'string'
+          ? (JSON.parse(init.body) as Record<string, unknown>)
+          : undefined;
+      sent.push({
+        url,
+        method: init.method ?? 'GET',
+        headers: {},
+        body: parsedBody,
+      });
+      if (init.method === 'PATCH') {
+        if (parsedBody?.readAt !== updatedAt) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                type: '/problems/conflict',
+                title: 'Conflict',
+                status: 409,
+                detail: 'stale readAt',
+              }),
+              { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+            ),
+          );
+        }
+        updatedAt += 2;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([{ ...BLOCK, id: 'm', type: 'comment', title: '', updatedAt, body }]),
+          { status: 200 },
+        ),
+      );
+    });
+    const backend = serverBackend('');
+    const changed = await backend.patchComment('b', 'm', { body, readAt: 7 });
     expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
       'PATCH /api/v1/w/w1/boards/b/blocks/m',
+      'GET /api/v1/w/w1/boards/b/blocks?blockId=m',
     ]);
     expect(sent[0]?.body).toEqual({ body, readAt: 7 });
-    expect(changed).toMatchObject({ id: 'm', body, updatedAt: 7 });
+    expect(changed).toMatchObject({ id: 'm', body, updatedAt: 9 });
+
+    // Back-to-back edit using the returned updatedAt succeeds without self-conflict 409.
+    const second = await backend.patchComment('b', 'm', { body, readAt: changed.updatedAt });
+    expect(second.updatedAt).toBe(11);
 
     // No text is no comment: refused before anything is sent.
     const none = serve([]);
@@ -735,26 +777,34 @@ describe('changing a view on the server', () => {
     });
     const backend = serverBackend('');
     // Two queued conditional writes with the same initial readAt: the second advances to 11.
-    await Promise.all([
+    const [firstView, secondView] = await Promise.all([
       backend.patchView('b', 'v', { updatedFields: { order: 'V' }, readAt: 10 }),
       backend.patchView('b', 'v', { updatedFields: { order: 'W' }, readAt: 10 }),
     ]);
+    expect([firstView.updatedAt, secondView.updatedAt]).toEqual([11, 12]);
+    // Sequential conditional write using returned updatedAt also succeeds without WS echo.
+    const thirdView = await backend.patchView('b', 'v', {
+      updatedFields: { order: 'U' },
+      readAt: secondView.updatedAt,
+    });
+    expect(thirdView.updatedAt).toBe(13);
     expect(patches).toEqual([
       { updatedFields: { order: 'V' }, readAt: 10 },
       { updatedFields: { order: 'W' }, readAt: 11 },
+      { updatedFields: { order: 'U' }, readAt: 12 },
     ]);
 
     // When the first fails with 409, the second keeps its stale readAt and also gets 409.
     patches.length = 0;
     updatedAt = 20;
     const results = await Promise.allSettled([
-      backend.patchView('b', 'v', { updatedFields: { order: 'X' }, readAt: 12 }),
-      backend.patchView('b', 'v', { updatedFields: { order: 'Y' }, readAt: 12 }),
+      backend.patchView('b', 'v', { updatedFields: { order: 'X' }, readAt: 13 }),
+      backend.patchView('b', 'v', { updatedFields: { order: 'Y' }, readAt: 13 }),
     ]);
     expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
     expect(patches).toEqual([
-      { updatedFields: { order: 'X' }, readAt: 12 },
-      { updatedFields: { order: 'Y' }, readAt: 12 },
+      { updatedFields: { order: 'X' }, readAt: 13 },
+      { updatedFields: { order: 'Y' }, readAt: 13 },
     ]);
 
     // Unconditional write over a view somebody else already bumped does not advance a stale queued readAt.

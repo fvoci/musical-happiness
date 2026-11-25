@@ -9,6 +9,21 @@
  * picture that goes into the page is built anew, element by element, from
  * the lists in this file. What is not on a list is not copied.
  *
+ * What cannot get through, whatever the library does:
+ *
+ * - scripts, and any attribute that holds a script (`on…`);
+ * - links (`<a>` is dropped; what it holds is kept);
+ * - anything that names an address outside the picture: `<image>`,
+ *   `<feImage>`, `href` and `xlink:href` other than `#name` defined in the
+ *   picture itself, `url(…)` other than `url(#name)` defined in the picture
+ *   itself, `@import`, `@font-face`;
+ * - `<foreignObject>` and with it every HTML element;
+ * - style rules, animations, IDs, or utility classes that reach outside the
+ *   picture (every selector starts with `#rootId` without sibling combinators,
+ *   every inner `id` carries `rootId` as prefix or suffix, `@keyframes` and
+ *   inline/sheet `animation` names are prefixed with `rootId-`, and layout
+ *   escape properties are excluded while `.doc-diagram` enforces CSS containment).
+ *
  * THIS IS THE ONE FILE of the read-only view that turns a string into
  * elements (the parser below). tests/editor/render-imports.test.ts names it
  * as the exception and keeps every other file free of such calls.
@@ -19,26 +34,35 @@ const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 /** What a picture may be made of. Everything else (`feImage`, `foreignObject`, `script`) is dropped. */
 const ELEMENTS = new Set(
   [
+    // Structure and reusable definitions
     'svg g defs symbol marker clipPath mask pattern linearGradient radialGradient stop',
+    // Shapes, text, accessibility labels, and local `<use>` / `<style>`
     'path rect circle ellipse line polyline polygon text tspan textPath title desc switch use style',
+    // Filters operating strictly on the picture itself (`feImage` fetches and is excluded)
     'filter feDropShadow feGaussianBlur feOffset feMerge feMergeNode feFlood feComposite feColorMatrix feBlend',
   ]
     .join(' ')
     .split(' '),
 );
 
+/** Parser fallback map for newer mixed-case SVG elements (`fedropshadow` -> `feDropShadow`). */
 const ELEMENT_NAMES = new Map(Array.from(ELEMENTS, (name) => [name.toLowerCase(), name]));
+/** Dropped, keeping its children in place: a link around a label. */
 const UNWRAPPED = new Set(['a']);
+/** Elements permitted to reference another element inside the same picture via `#name`. */
 const REFERENCING = new Set(['use', 'textPath', 'linearGradient', 'radialGradient', 'pattern']);
 
 const ATTRIBUTES = new Set(
   [
     'class id role style xml:space data-look viewBox preserveAspectRatio width height',
+    // Geometry
     'x y x1 y1 x2 y2 cx cy r rx ry dx dy d points transform transform-origin pathLength rotate',
     'textLength lengthAdjust startOffset markerWidth markerHeight markerUnits refX refY orient',
+    // Gradients, patterns, clips, masks, and filter primitives
     'gradientUnits gradientTransform spreadMethod fx fy offset patternUnits patternContentUnits patternTransform',
     'clipPathUnits maskUnits maskContentUnits filterUnits primitiveUnits stdDeviation flood-color flood-opacity',
     'in in2 result mode operator k1 k2 k3 k4 type values fill fill-opacity fill-rule',
+    // Stroke, visibility, and typography
     'stroke stroke-width stroke-opacity stroke-dasharray stroke-dashoffset stroke-linecap stroke-linejoin stroke-miterlimit',
     'opacity color stop-color stop-opacity clip-path clip-rule mask filter marker-start marker-mid marker-end',
     'overflow visibility display vector-effect shape-rendering paint-order',
@@ -49,6 +73,14 @@ const ATTRIBUTES = new Set(
     .split(' '),
 );
 
+/** Safe non-IDREF ARIA attributes and local-only IDREF ARIA attributes. */
+const ARIA_TEXT_ATTRIBUTES = new Set([
+  'aria-label',
+  'aria-roledescription',
+  'aria-description',
+  'aria-hidden',
+]);
+const ARIA_IDREF_ATTRIBUTES = new Set(['aria-labelledby', 'aria-describedby']);
 const CSS_FUNCTIONS = new Set(
   [
     'rgb rgba hsl hsla var calc min max clamp translate translatex translatey',
@@ -59,7 +91,7 @@ const CSS_FUNCTIONS = new Set(
 );
 
 /**
- * Presentation, typography, sizing, and animation properties a diagram may set.
+ * Presentation, typography, sizing, and animation CSS properties a diagram may set.
  * Layout/overlay properties (`position`, `inset`, `top`, `left`, `z-index`,
  * `pointer-events`, `cursor`, `content`, `background*`, `mask-image`) are excluded.
  */
@@ -78,7 +110,6 @@ const CSS_PROPERTIES = new Set(
     .join(' ')
     .split(' '),
 );
-
 const ANIMATION_KEYWORDS = new Set(
   [
     'alternate alternate-reverse auto backwards both ease ease-in ease-in-out ease-out forwards',
@@ -89,17 +120,16 @@ const ANIMATION_KEYWORDS = new Set(
 );
 
 const NAME = /^[\p{L}\p{N}_][\p{L}\p{N}_.:-]{0,199}$/u;
+const CLASS_TOKENS = /^[A-Za-z0-9_\s-]+$/;
 const LOCAL_REFERENCE = /^#[\p{L}\p{N}_][\p{L}\p{N}_.:-]{0,199}$/u;
 const LOCAL_URL = /url\(\s*(["']?)#[\p{L}\p{N}_][\p{L}\p{N}_.:-]{0,199}\1\s*\)/giu;
-
-const MAX_DEPTH = 64;
-const MAX_ELEMENTS = 50_000;
-const MAX_ATTRIBUTE_LENGTH = 200_000;
+const URL_TARGET = /url\(\s*["']?#([\p{L}\p{N}_][\p{L}\p{N}_.:-]{0,199})["']?\s*\)/giu;
+const [MAX_DEPTH, MAX_ELEMENTS, MAX_ATTRIBUTE_LENGTH, MAX_ARIA_LENGTH] = [
+  64, 50_000, 200_000, 1000,
+];
 
 export interface SafeSvgOptions {
-  /** The document the picture is built in; the page's own unless given. */
   document?: Document | undefined;
-  /** When given, the root `<svg>` must carry this exact `id`. */
   expectedId?: string | undefined;
 }
 
@@ -112,6 +142,22 @@ export function isSafeCssValue(value: string): boolean {
     if (name === undefined || !CSS_FUNCTIONS.has(name.toLowerCase())) return false;
   }
   return !/url\s*\(/i.test(value.replace(LOCAL_URL, ''));
+}
+
+function hasUncopiedUrlTarget(value: string, copiedIds: ReadonlySet<string>): boolean {
+  for (const match of value.matchAll(URL_TARGET)) {
+    if (!match[1] || !copiedIds.has(match[1])) return true;
+  }
+  return false;
+}
+
+function isSafeAriaText(value: string): boolean {
+  if (value.length > MAX_ARIA_LENGTH) return false;
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code < 32 || code === 60 || code === 62) return false;
+  }
+  return true;
 }
 
 /** Splits at a separator that is not inside quotes, brackets or parentheses. */
@@ -140,7 +186,10 @@ function splitTopLevel(text: string, separator: string): string[] {
 }
 
 /** The declarations of a block that can be used, as `[property, value]`. */
-export function safeDeclarations(block: string): [string, string][] {
+export function safeDeclarations(
+  block: string,
+  allowedIds?: ReadonlySet<string>,
+): [string, string][] {
   const kept: [string, string][] = [];
   for (const declaration of splitTopLevel(block, ';')) {
     const colon = declaration.indexOf(':');
@@ -149,7 +198,13 @@ export function safeDeclarations(block: string): [string, string][] {
     const value = declaration.slice(colon + 1).trim();
     if (!/^-{0,2}[A-Za-z][\w-]*$/.test(property) || value === '') continue;
     const allowed = property.startsWith('--') || CSS_PROPERTIES.has(property.toLowerCase());
-    if (allowed && isSafeCssValue(value)) kept.push([property, value]);
+    if (
+      allowed &&
+      isSafeCssValue(value) &&
+      (!allowedIds || !hasUncopiedUrlTarget(value, allowedIds))
+    ) {
+      kept.push([property, value]);
+    }
   }
   return kept;
 }
@@ -204,7 +259,12 @@ function isScoped(selector: string, scope: string): boolean {
   return next === '' || /[\s.>:[[]/.test(next);
 }
 
-function scopedKeyframes(prelude: string, body: string, prefix: string): string | undefined {
+function scopedKeyframes(
+  prelude: string,
+  body: string,
+  prefix: string,
+  allowedIds?: ReadonlySet<string>,
+): string | undefined {
   const keyframes = /^@(?:-webkit-)?keyframes\s+([A-Za-z_][\w-]*)$/.exec(prelude);
   if (!keyframes?.[1]) return undefined;
   const rawName = keyframes[1];
@@ -216,7 +276,7 @@ function scopedKeyframes(prelude: string, body: string, prefix: string): string 
     const stepClose = body.indexOf('}', stepOpen);
     if (stepOpen === -1 || stepClose === -1) break;
     const step = body.slice(inner, stepOpen).trim();
-    const declarations = safeDeclarations(body.slice(stepOpen + 1, stepClose));
+    const declarations = safeDeclarations(body.slice(stepOpen + 1, stepClose), allowedIds);
     if (/^(from|to|\d{1,3}(\.\d+)?%)(\s*,\s*(from|to|\d{1,3}(\.\d+)?%))*$/.test(step)) {
       steps.push(`${step}{${serialise(declarations, prefix)}}`);
     }
@@ -242,7 +302,11 @@ function blockAt(text: string, open: number): { body: string; end: number } | un
   return undefined;
 }
 
-export function safeStyleSheet(css: string, scope: string): string {
+export function safeStyleSheet(
+  css: string,
+  scope: string,
+  allowedIds?: ReadonlySet<string>,
+): string {
   if (css.includes('\\') || css.includes('<') || !scope.startsWith('#')) return '';
   const prefix = scope.slice(1);
   const text = css.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -261,14 +325,14 @@ export function safeStyleSheet(css: string, scope: string): string {
     if (!block) break;
     at = block.end;
     if (prelude.startsWith('@')) {
-      const rule = scopedKeyframes(prelude, block.body, prefix);
+      const rule = scopedKeyframes(prelude, block.body, prefix, allowedIds);
       if (rule) rules.push(rule);
       continue;
     }
     if (block.body.includes('{') || block.body.includes('@')) continue;
     const selectors = splitTopLevel(prelude, ',').map((selector) => selector.trim());
     if (selectors.some((selector) => !isScoped(selector, scope))) continue;
-    const declarations = safeDeclarations(block.body);
+    const declarations = safeDeclarations(block.body, allowedIds);
     if (declarations.length > 0) {
       rules.push(`${selectors.join(',')}{${serialise(declarations, prefix)}}`);
     }
@@ -276,12 +340,26 @@ export function safeStyleSheet(css: string, scope: string): string {
   return rules.join('\n');
 }
 
+/** Inner IDs carry `rootId` as prefix (`${rootId}-…`) or suffix (`…-${rootId}` for Mermaid markers). */
 function isInnerScopedId(id: string, rootId: string): boolean {
-  return (
-    NAME.test(id) &&
-    id.length > rootId.length + 1 &&
-    (id.startsWith(`${rootId}-`) || id.startsWith(`${rootId}_`))
-  );
+  const ok = id.length > rootId.length + 1 && NAME.test(id);
+  const pre = id.startsWith(`${rootId}-`) || id.startsWith(`${rootId}_`);
+  const suf = id.endsWith(`-${rootId}`) || id.endsWith(`_${rootId}`);
+  return ok && (pre || suf);
+}
+
+function applyInlineStyle(
+  target: SVGElement,
+  rawStyle: string,
+  rootId: string,
+  allowedIds?: ReadonlySet<string>,
+): void {
+  target.removeAttribute('style');
+  for (const [property, declared] of safeDeclarations(rawStyle, allowedIds)) {
+    const important = /\s*!important$/i.test(declared);
+    const clean = scopeAnimationValue(property, declared.replace(/\s*!important$/i, ''), rootId);
+    target.style.setProperty(property, clean, important ? 'important' : '');
+  }
 }
 
 function copySvgAttributes(
@@ -297,30 +375,55 @@ function copySvgAttributes(
       if (REFERENCING.has(source.localName) && LOCAL_REFERENCE.test(value)) {
         target.setAttribute('href', value);
       }
-      continue;
-    }
-    if (/^aria-[a-z]+$/.test(name)) {
-      target.setAttribute(name, value);
-      continue;
-    }
-    if (!ATTRIBUTES.has(name)) continue;
-    if (name === 'id') {
+    } else if (ARIA_TEXT_ATTRIBUTES.has(name)) {
+      if (isSafeAriaText(value)) target.setAttribute(name, value);
+    } else if (ARIA_IDREF_ATTRIBUTES.has(name)) {
+      if (value.length <= MAX_ARIA_LENGTH) target.setAttribute(name, value);
+    } else if (!ATTRIBUTES.has(name)) continue;
+    else if (name === 'id') {
       if (isRoot ? value === rootId : isInnerScopedId(value, rootId)) {
         target.setAttribute('id', value);
         copiedIds.add(value);
       }
-    } else if (name === 'style') {
-      const style = (target as SVGElement).style;
-      for (const [property, declared] of safeDeclarations(value)) {
-        const important = /\s*!important$/i.test(declared);
-        style.setProperty(
-          property,
-          declared.replace(/\s*!important$/i, ''),
-          important ? 'important' : '',
-        );
+    } else if (name === 'class') {
+      if (CLASS_TOKENS.test(value)) target.setAttribute('class', value);
+    } else if (name === 'style') applyInlineStyle(target as SVGElement, value, rootId);
+    else if (isSafeCssValue(value)) target.setAttribute(name, value);
+  }
+}
+
+function cleanDanglingReferences(
+  svgElement: SVGSVGElement,
+  rootId: string,
+  scope: string,
+  copiedIds: ReadonlySet<string>,
+): void {
+  for (const referencing of Array.from(svgElement.querySelectorAll('[href]'))) {
+    const href = referencing.getAttribute('href') ?? '';
+    if (!href.startsWith('#') || !copiedIds.has(href.slice(1))) {
+      if (referencing.localName === 'use') referencing.remove();
+      else referencing.removeAttribute('href');
+    }
+  }
+  for (const node of [svgElement, ...Array.from(svgElement.querySelectorAll('*'))]) {
+    if (node.localName === 'style') {
+      const filtered = safeStyleSheet(node.textContent, scope, copiedIds);
+      if (filtered === '') node.remove();
+      else node.textContent = filtered;
+      continue;
+    }
+    for (const { name, value } of Array.from(node.attributes)) {
+      if (ARIA_IDREF_ATTRIBUTES.has(name)) {
+        const kept = value.split(/\s+/).filter((id) => id !== '' && copiedIds.has(id));
+        if (kept.length === 0) node.removeAttribute(name);
+        else node.setAttribute(name, kept.join(' '));
+      } else if (name === 'style') {
+        if (hasUncopiedUrlTarget(value, copiedIds)) {
+          applyInlineStyle(node as SVGElement, value, rootId, copiedIds);
+        }
+      } else if (name !== 'id' && name !== 'href' && hasUncopiedUrlTarget(value, copiedIds)) {
+        node.removeAttribute(name);
       }
-    } else if (isSafeCssValue(value)) {
-      target.setAttribute(name, value);
     }
   }
 }
@@ -386,12 +489,6 @@ export function safeSvg(markup: string, options: SafeSvgOptions = {}): SVGSVGEle
   const picture = copy(root, 1, true);
   if (seen.tooLarge || !picture) return undefined;
   const svgElement = picture as SVGSVGElement;
-  for (const referencing of Array.from(svgElement.querySelectorAll('[href]'))) {
-    const href = referencing.getAttribute('href') ?? '';
-    if (!href.startsWith('#') || !copiedIds.has(href.slice(1))) {
-      if (referencing.localName === 'use') referencing.remove();
-      else referencing.removeAttribute('href');
-    }
-  }
+  cleanDanglingReferences(svgElement, rootId, scope, copiedIds);
   return svgElement;
 }

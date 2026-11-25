@@ -35,7 +35,10 @@ function dialogMessage(call: string): string {
   return `Browser \`${call}()\` is forbidden in app code; render inline feedback, a toast, or a Dialog / AlertDialog component instead.`;
 }
 
-const DISABLE_COMMENT = /(?:eslint-disable(?:-next-line|-line)?)\b([^\r\n]*?)(?:-->|\*\/|$)/gm;
+const BLOCK_DISABLE_COMMENT =
+  /(?:\/\*|<!--)\s*eslint-disable(?:-next-line|-line)?\b([\s\S]*?)(?:\*\/|-->|$)/g;
+const LINE_DISABLE_COMMENT = /\/\/\s*eslint-disable(?:-next-line|-line)?\b([^\r\n]*)/g;
+const INLINE_CONFIG_COMMENT = /(?:\/\*|<!--)\s*eslint\s+([\s\S]*?)(?:\*\/|-->|$)/g;
 export const PROTECTED_DIALOG_RULES = [
   'fvoci-dialogs/no-dialog-disable',
   'no-restricted-globals',
@@ -50,34 +53,58 @@ function lineNumberAt(source: string, index: number): number {
   return line;
 }
 
-/**
- * Pure text scan catching bare `eslint-disable` directives (which silence all
- * rules) and any `eslint-disable` directive naming a protected dialog rule.
- */
-export function findDialogDisableViolations(file: string, source: string): string[] {
-  const problems: string[] = [];
-  for (const match of source.matchAll(DISABLE_COMMENT)) {
-    const body = ((match[1] ?? '').split('--')[0] ?? '').trim();
-    const line = lineNumberAt(source, match.index);
-    if (body === '') {
-      problems.push(
-        `${file}:${line}: bare \`eslint-disable\` without rule names is forbidden; name the exact non-protected rule being disabled`,
-      );
-      continue;
-    }
-    const tokens = body
-      .split(/[,\s]+/)
-      .map((token) => token.trim())
-      .filter((token) => token !== '');
-    for (const rule of PROTECTED_DIALOG_RULES) {
-      if (tokens.includes(rule)) {
-        problems.push(
-          `${file}:${line}: do not silence \`${rule}\` with \`eslint-disable\`; replace native browser dialogs with app UI`,
-        );
+interface DirectiveHit {
+  readonly index: number;
+  readonly kind: 'bareDisable' | 'protectedDisable' | 'protectedConfig';
+  readonly rule?: string;
+}
+
+function scanDialogDirectiveHits(source: string): DirectiveHit[] {
+  const hits: DirectiveHit[] = [];
+  for (const pattern of [BLOCK_DISABLE_COMMENT, LINE_DISABLE_COMMENT]) {
+    for (const match of source.matchAll(pattern)) {
+      const body = ((match[1] ?? '').split('--')[0] ?? '').trim();
+      if (body === '') {
+        hits.push({ index: match.index, kind: 'bareDisable' });
+        continue;
+      }
+      const tokens = body
+        .split(/[,\s]+/)
+        .map((token) => token.trim())
+        .filter((token) => token !== '');
+      for (const rule of PROTECTED_DIALOG_RULES) {
+        if (tokens.includes(rule)) {
+          hits.push({ index: match.index, kind: 'protectedDisable', rule });
+        }
       }
     }
   }
-  return problems;
+  for (const match of source.matchAll(INLINE_CONFIG_COMMENT)) {
+    const body = match[1] ?? '';
+    for (const rule of PROTECTED_DIALOG_RULES) {
+      if (body.includes(rule)) {
+        hits.push({ index: match.index, kind: 'protectedConfig', rule });
+      }
+    }
+  }
+  return hits.sort((a, b) => a.index - b.index);
+}
+
+/**
+ * Pure text scan catching bare `eslint-disable` directives, `eslint-disable`
+ * naming a protected dialog rule, and inline `/* eslint ... * /` rule overrides.
+ */
+export function findDialogDisableViolations(file: string, source: string): string[] {
+  return scanDialogDirectiveHits(source).map((hit) => {
+    const line = lineNumberAt(source, hit.index);
+    if (hit.kind === 'bareDisable') {
+      return `${file}:${line}: bare \`eslint-disable\` without rule names is forbidden; name the exact non-protected rule being disabled`;
+    }
+    if (hit.kind === 'protectedConfig') {
+      return `${file}:${line}: do not reconfigure \`${hit.rule ?? ''}\` with inline \`eslint\` config; replace native browser dialogs with app UI`;
+    }
+    return `${file}:${line}: do not silence \`${hit.rule ?? ''}\` with \`eslint-disable\`; replace native browser dialogs with app UI`;
+  });
 }
 
 export function dialogSourceFiles(root: string): string[] {
@@ -108,7 +135,7 @@ export function checkDialogs(root: string): { files: string[]; problems: string[
   return { files, problems };
 }
 
-/** Refuses `eslint-disable` comments that silence the browser-dialog rules. */
+/** Refuses `eslint-disable` and inline `/* eslint ... * /` comments targeting browser-dialog rules. */
 const noDialogDisable: Rule.RuleModule = {
   meta: {
     type: 'problem',
@@ -119,32 +146,32 @@ const noDialogDisable: Rule.RuleModule = {
         'Bare `eslint-disable` without rule names is forbidden; name the exact non-protected rule being disabled.',
       protectedRule:
         'Do not silence `{{rule}}` with `eslint-disable`; replace native browser dialogs with app UI.',
+      protectedConfig:
+        'Do not reconfigure `{{rule}}` with inline `eslint` config; replace native browser dialogs with app UI.',
     },
   },
   create(context) {
     return {
       Program(node) {
         const text = context.sourceCode.getText();
-        for (const match of text.matchAll(DISABLE_COMMENT)) {
-          const body = ((match[1] ?? '').split('--')[0] ?? '').trim();
-          const loc = context.sourceCode.getLocFromIndex(match.index);
-          if (body === '') {
+        for (const hit of scanDialogDirectiveHits(text)) {
+          const loc = context.sourceCode.getLocFromIndex(hit.index);
+          if (hit.kind === 'bareDisable') {
             context.report({ node, loc, messageId: 'bareDisable' });
-            continue;
-          }
-          const tokens = body
-            .split(/[,\s]+/)
-            .map((token) => token.trim())
-            .filter((token) => token !== '');
-          for (const rule of PROTECTED_DIALOG_RULES) {
-            if (tokens.includes(rule)) {
-              context.report({
-                node,
-                loc,
-                messageId: 'protectedRule',
-                data: { rule },
-              });
-            }
+          } else if (hit.kind === 'protectedConfig') {
+            context.report({
+              node,
+              loc,
+              messageId: 'protectedConfig',
+              data: { rule: hit.rule ?? '' },
+            });
+          } else {
+            context.report({
+              node,
+              loc,
+              messageId: 'protectedRule',
+              data: { rule: hit.rule ?? '' },
+            });
           }
         }
       },

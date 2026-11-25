@@ -536,6 +536,8 @@ span.doc-embed-problem {
  * in editing-place.css). A picture has no frame; what went wrong has.
  */
 .doc-body .doc-diagram {
+  position: relative;
+  contain: layout paint;
   overflow-x: auto;
   text-align: center;
   border: 1px solid transparent;

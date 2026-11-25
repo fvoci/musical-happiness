@@ -53,6 +53,17 @@ export function isOverlayEntry(state: unknown): boolean {
   return typeof state === 'object' && state !== null && MARK in state;
 }
 
+function onWaitTimeout(): void {
+  waitTimer = undefined;
+  ownSteps = 0;
+  runWaiting();
+}
+
+function scheduleWaitLimit(): void {
+  clearTimeout(waitTimer);
+  waitTimer = setTimeout(onWaitTimeout, WAIT_LIMIT);
+}
+
 function runWaiting(): void {
   clearTimeout(waitTimer);
   waitTimer = undefined;
@@ -61,7 +72,7 @@ function runWaiting(): void {
     write?.();
   }
   if (waiting.length > 0) {
-    waitTimer ??= setTimeout(runWaiting, WAIT_LIMIT);
+    waitTimer ??= setTimeout(onWaitTimeout, WAIT_LIMIT);
   }
 }
 
@@ -73,6 +84,7 @@ export function stepBack(steps = 1): void {
   if (steps <= 0) return;
   ensureListening();
   ownSteps += 1;
+  scheduleWaitLimit();
   if (steps === 1) history.back();
   else history.go(-steps);
 }
@@ -88,7 +100,7 @@ export function afterOwnSteps(write: () => void): void {
     return;
   }
   waiting.push(write);
-  waitTimer ??= setTimeout(runWaiting, WAIT_LIMIT);
+  waitTimer ??= setTimeout(onWaitTimeout, WAIT_LIMIT);
 }
 
 function onPopState(): void {

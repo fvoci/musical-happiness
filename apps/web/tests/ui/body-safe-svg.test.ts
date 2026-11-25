@@ -382,21 +382,58 @@ describe('a hostile picture', () => {
     expect(element.querySelector('switch > text')?.textContent).toBe('plain');
   });
 
-  it('keeps only inner identifiers prefixed under the root id, and drops dangling #href references', () => {
+  it('keeps inner identifiers prefixed or suffixed with the root id, and drops dangling #href and url(#id) references', () => {
     const { element } = filtered(
       svg(
-        '<defs><g id="pic-ok-1"></g><g id="pic_가나"></g></defs>' +
-          '<rect id="app"></rect><rect id="a b"></rect><rect id="x)y"></rect>' +
+        '<style>#pic .bad{fill:url(#outside-grad);stroke:blue}#pic .only-bad{filter:url(#outside-filter)}</style>' +
+          '<defs><g id="pic-ok-1"></g><g id="pic_가나"></g>' +
+          '<marker id="link-arrow-start-pic"></marker><marker id="link-arrow-end-pic"></marker>' +
+          '<marker id="arrow-pic"></marker><marker id="cynefin-arrow-pic"></marker>' +
+          '<marker id="ishikawa-arrow-pic"></marker><marker id="em-arrowhead-pic"></marker></defs>' +
+          '<rect id="app" fill="url(#outside-paint)" style="filter: url(#outside-filter); animation: pulse 1s linear; stroke: green" aria-labelledby="pic-ok-1 outside-label"></rect>' +
+          '<rect id="a b"></rect><rect id="x)y"></rect>' +
+          '<path class="wardley" marker-start="url(#link-arrow-start-pic)" marker-end="url(#link-arrow-end-pic)"></path>' +
+          '<path class="cynefin" marker-end="url(#cynefin-arrow-pic)"></path>' +
+          '<path class="ishikawa" marker-end="url(#ishikawa-arrow-pic)"></path>' +
+          '<path class="event-modeling" marker-end="url(#em-arrowhead-pic)"></path>' +
           '<use href="#pic-ok-1"></use><use href="#outside-page-id"></use>' +
           '<linearGradient id="pic-g" href="#outside-grad"></linearGradient>',
       ),
     );
     expect(
-      Array.from(element.querySelectorAll('defs > g')).map((g) => g.getAttribute('id')),
-    ).toEqual(['pic-ok-1', 'pic_가나']);
+      Array.from(element.querySelectorAll('defs > *')).map((node) => node.getAttribute('id')),
+    ).toEqual([
+      'pic-ok-1',
+      'pic_가나',
+      'link-arrow-start-pic',
+      'link-arrow-end-pic',
+      'arrow-pic',
+      'cynefin-arrow-pic',
+      'ishikawa-arrow-pic',
+      'em-arrowhead-pic',
+    ]);
     expect(
       Array.from(element.querySelectorAll('rect')).map((rect) => rect.getAttribute('id')),
     ).toEqual([null, null, null]);
+    const firstRect = element.querySelector<SVGElement>('rect');
+    expect(firstRect?.hasAttribute('fill')).toBe(false);
+    expect(firstRect?.style.getPropertyValue('filter')).toBe('');
+    expect(firstRect?.style.getPropertyValue('stroke')).toBe('green');
+    expect(firstRect?.style.getPropertyValue('animation')).toContain('pic-pulse');
+    expect(firstRect?.getAttribute('aria-labelledby')).toBe('pic-ok-1');
+    expect(element.querySelector('path.wardley')?.getAttribute('marker-end')).toBe(
+      'url(#link-arrow-end-pic)',
+    );
+    expect(element.querySelector('path.cynefin')?.getAttribute('marker-end')).toBe(
+      'url(#cynefin-arrow-pic)',
+    );
+    expect(element.querySelector('path.ishikawa')?.getAttribute('marker-end')).toBe(
+      'url(#ishikawa-arrow-pic)',
+    );
+    expect(element.querySelector('path.event-modeling')?.getAttribute('marker-end')).toBe(
+      'url(#em-arrowhead-pic)',
+    );
+    expect(element.querySelector('style')?.textContent).toBe('#pic .bad{stroke:blue}');
     expect(Array.from(element.querySelectorAll('use')).map((u) => u.getAttribute('href'))).toEqual([
       '#pic-ok-1',
     ]);

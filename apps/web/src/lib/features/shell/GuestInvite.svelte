@@ -61,10 +61,7 @@
   /** Counts the readings: only the latest one's answer is shown. */
   let reading = 0;
 
-  async function readLinks(
-    workspaceId = workspace.info?.id,
-    _forContainer = containerId,
-  ): Promise<void> {
+  async function readLinks(workspaceId = workspace.info?.id): Promise<void> {
     if (!workspaceId) return;
     const mine = ++reading;
     let read: Invitation[];
@@ -83,10 +80,10 @@
 
   $effect(() => {
     const workspaceId = workspace.info?.id;
-    const currentContainerId = containerId;
+    const activeContainer = containerId;
     made = undefined;
     problem = undefined;
-    if (workspaceId) void readLinks(workspaceId, currentContainerId);
+    if (workspaceId && activeContainer !== '') void readLinks(workspaceId);
     return () => {
       reading += 1;
     };
@@ -110,7 +107,7 @@
           ? m.people_not_allowed({ workspace: workspaceName })
           : m.people_failed();
     } finally {
-      await readLinks(workspaceId, containerId);
+      await readLinks(workspaceId);
       working = false;
     }
   }
@@ -138,7 +135,7 @@
           ? m.share_guest_off({ workspace: workspaceName })
           : m.people_failed();
     } finally {
-      await readLinks(workspaceId, containerId);
+      await readLinks(workspaceId);
       working = false;
     }
   }

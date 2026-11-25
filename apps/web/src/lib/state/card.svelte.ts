@@ -247,7 +247,7 @@ export class CardStore {
     if (this.status !== 'ready' || this.#closed) return;
     this.#refreshing += 1;
     const reading = this.#refreshing;
-    const commentsBefore = this.#commentThread.currentIds();
+    const commentsBefore = this.#commentThread.snapshotRead();
     const attachmentsBefore = this.#attachments.map((attachment) => attachment.id);
     try {
       const [comments, attachments] = await Promise.all([
@@ -255,7 +255,11 @@ export class CardStore {
         this.#backend.attachments(this.#boardId, this.cardId),
       ]);
       if (this.#isClosed() || reading !== this.#refreshing) return;
-      this.#commentThread.mergeRead(comments, commentsBefore);
+      this.#commentThread.mergeRead(
+        comments,
+        commentsBefore.beforeIds,
+        commentsBefore.deletedBefore,
+      );
       this.#attachments = reread(this.#attachments, attachments, attachmentsBefore);
     } catch (error) {
       if (this.#isClosed() || reading !== this.#refreshing) return;

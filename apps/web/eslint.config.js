@@ -78,6 +78,7 @@ export default ts.config(
     ignores: [
       'src/lib/state/**',
       'src/lib/api/**',
+      // Probes live index.html via fetch() on dynamic chunk failure to detect new deployments.
       'src/lib/chunk-reload.svelte.ts',
       'src/app/backend.ts',
     ],

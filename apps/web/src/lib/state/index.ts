@@ -87,7 +87,7 @@ export type {
   DiaryRun,
   Mood,
 } from './diary-types.ts';
-export { CollaborativeBodyState, settleActiveBodies } from './collab-body.svelte.ts';
+export { CollaborativeBodyState } from './collab-body.svelte.ts';
 export { CommentThreadStore } from './comment-thread.svelte.ts';
 export type { CommentThreadStore as PageComments } from './comment-thread.svelte.ts';
 export { WikiStore, type PageLooks, type WikiLooks } from './wiki.svelte.ts';

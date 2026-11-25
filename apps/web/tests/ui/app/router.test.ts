@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as back from '$lib/layout/back.svelte.ts';
 
-import { forgetInviteToken, takeInviteToken } from '../../../src/app/fragment-token.ts';
+import {
+  forgetFragmentToken,
+  forgetInviteToken,
+  readFragmentToken,
+  takeInviteToken,
+} from '$lib/fragment-token.ts';
 import { localeOfSetting, matchLocale } from '../../../src/app/locale.ts';
 import { goToPlace, routeOfPlace } from '../../../src/app/places.ts';
 import {
@@ -112,6 +117,21 @@ describe('reading an address', () => {
     expect(takeInviteToken(undefined, '/invite')).toBe('secret-token');
     forgetInviteToken();
     expect(takeInviteToken(undefined, '/invite')).toBe('');
+
+    // Router itself strips both /invite/<token> and auth #hash tokens on construction (S10).
+    history.replaceState(null, '', '/invite/router-secret');
+    const inviteRouter = new Router('');
+    expect(location.pathname).toBe('/invite');
+    expect(inviteRouter.route).toEqual({ kind: 'invite' });
+    expect(inviteRouter.invitation).toBe('router-secret');
+    forgetInviteToken();
+
+    history.replaceState(null, '', '/verify-email#verify-secret');
+    const verifyRouter = new Router('');
+    expect(verifyRouter.route).toEqual({ kind: 'emailVerify' });
+    expect(location.hash).toBe('');
+    expect(readFragmentToken('verify-email')).toBe('verify-secret');
+    forgetFragmentToken('verify-email');
   });
 
   it('does not know other addresses, the old ones among them', () => {

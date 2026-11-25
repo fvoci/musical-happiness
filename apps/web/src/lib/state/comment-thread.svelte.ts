@@ -80,12 +80,38 @@ export class CommentThreadStore {
     this.status = 'ready';
   }
 
-  /** Merges re-read comments into what is shown (e.g. `CardStore.refresh`). */
-  mergeRead(read: readonly Comment[], beforeIds: readonly string[]): void {
+  /** Snapshots current comment IDs and deletion counters before an external async re-read. */
+  snapshotRead(): { beforeIds: string[]; deletedBefore: ReadonlyMap<string, number> } {
+    return {
+      beforeIds: this.#comments.map((comment) => comment.id),
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
+      deletedBefore: new Map(this.#deleted),
+    };
+  }
+
+  /** Merges re-read comments into what is shown (e.g. `CardStore.refresh`), reconciling restored IDs. */
+  mergeRead(
+    read: readonly Comment[],
+    beforeIds: readonly string[],
+    deletedBefore: ReadonlyMap<string, number> = this.#deleted,
+  ): void {
     if (this.#closed) return;
-    const kept = read.filter((comment) => !this.#deleted.has(comment.id));
-    void this.#host.workspace.learnUsers(authorIds(kept));
-    this.#comments = reread(this.#comments, kept, beforeIds);
+    this.#applyRead(read, beforeIds, deletedBefore);
+  }
+
+  #applyRead(
+    read: readonly Comment[],
+    beforeIds: readonly string[],
+    deletedBefore: ReadonlyMap<string, number>,
+  ): void {
+    for (const comment of read) {
+      if (deletedBefore.get(comment.id) === this.#deleted.get(comment.id)) {
+        this.#deleted.delete(comment.id);
+      }
+    }
+    const comments = read.filter((comment) => !this.#deleted.has(comment.id));
+    void this.#host.workspace.learnUsers(authorIds(comments));
+    this.#comments = reread(this.#comments, comments, beforeIds);
     this.status = 'ready';
   }
 
@@ -96,22 +122,12 @@ export class CommentThreadStore {
   async read(first: boolean): Promise<void> {
     this.#readings += 1;
     const reading = this.#readings;
-    const before = this.#comments.map((comment) => comment.id);
-    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
-    const deletedBefore = new Map(this.#deleted);
+    const { beforeIds, deletedBefore } = this.snapshotRead();
     if (first || this.status === 'failed') this.status = 'loading';
     try {
       const read = await this.#host.api.list();
       if (this.#closed || reading !== this.#readings) return;
-      for (const comment of read) {
-        if (deletedBefore.get(comment.id) === this.#deleted.get(comment.id)) {
-          this.#deleted.delete(comment.id);
-        }
-      }
-      const comments = read.filter((comment) => !this.#deleted.has(comment.id));
-      void this.#host.workspace.learnUsers(authorIds(comments));
-      this.#comments = reread(this.#comments, comments, before);
-      this.status = 'ready';
+      this.#applyRead(read, beforeIds, deletedBefore);
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
       if (isBackendError(error) && error.status === 401) {

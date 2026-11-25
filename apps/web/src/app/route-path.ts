@@ -2,7 +2,10 @@
  * Pure URL route parsing and formatting for the app (`router.svelte.ts`),
  * modeled as a `kind`-discriminated union (`Route`).
  */
-import { buildUrl, normalizeBasePath, type ContainerPlace } from '$lib/logic/urls.ts';
+import { readBasePath } from '$lib/chunk-reload.svelte.ts';
+import { buildUrl, type ContainerPlace } from '$lib/logic/urls.ts';
+
+export { readBasePath };
 
 export type CourseTab = 'units' | 'meetings' | 'exams';
 
@@ -146,13 +149,6 @@ export function cardIdOf(route: Route): string | undefined {
 /** A four-digit year (`0001`–`9999`) for a diary page's `?year=YYYY` query; undefined for anything else. */
 function diaryYear(raw: string | null | undefined): string | undefined {
   return raw && /^\d{4}$/.test(raw) && raw !== '0000' ? raw : undefined;
-}
-
-/** The base path the server filled into index.html; empty at the root of the site. */
-export function readBasePath(document: Document): string {
-  const raw = document.querySelector('meta[name="fvoci:base"]')?.getAttribute('content') ?? '';
-  // Served as a plain file (the development server), the placeholder is still there.
-  return raw.startsWith('{{') ? '' : normalizeBasePath(raw);
 }
 
 /** The route of a public link: a board, then a view and a card, and the read token. */

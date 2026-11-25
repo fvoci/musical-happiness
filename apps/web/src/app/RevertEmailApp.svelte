@@ -1,6 +1,6 @@
 <script lang="ts">
   import { startEmailChange } from './backend.ts';
-  import { forgetFragmentToken, takeFragmentToken } from './fragment-token.ts';
+  import { forgetFragmentToken, takeFragmentToken } from '$lib/fragment-token.ts';
   import RevertEmailPage from '$lib/features/account/RevertEmailPage.svelte';
   import { isBackendError } from '$lib/state/index.ts';
   import { forgotPasswordHref } from './recovery-links.ts';

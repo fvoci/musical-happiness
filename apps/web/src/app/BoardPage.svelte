@@ -6,10 +6,18 @@
   The parts are features of their own and meet here (src/lib/README.md):
   `view-header`, the views (`kanban`, `table`, `gallery`, `calendar`, `gantt`), and `card`.
 -->
+<script lang="ts" module>
+  import { LazyChunk } from '$lib/chunk-reload.svelte.ts';
+
+  const tableChunk = new LazyChunk(() => import('$lib/features/views/table/Table.svelte'));
+  const galleryChunk = new LazyChunk(() => import('$lib/features/views/gallery/Gallery.svelte'));
+  const ganttChunk = new LazyChunk(() => import('$lib/features/views/gantt/Gantt.svelte'));
+  const calendarChunk = new LazyChunk(() => import('$lib/features/views/calendar/Calendar.svelte'));
+</script>
+
 <script lang="ts">
   import { tick, untrack } from 'svelte';
 
-  import { LazyChunk } from '$lib/chunk-reload.svelte.ts';
   import CardDialog from '$lib/features/card/CardDialog.svelte';
   import ViewHeader from '$lib/features/view-header/ViewHeader.svelte';
   import Kanban from '$lib/features/views/kanban/Kanban.svelte';
@@ -31,11 +39,6 @@
   import { referencePlaces } from './reference-places.ts';
   import { cardIdOf, isSharedRoute, workspaceIdOf, type Router } from './router.svelte.ts';
   import TimeTargetControl from './TimeTargetControl.svelte';
-
-  const tableChunk = new LazyChunk(() => import('$lib/features/views/table/Table.svelte'));
-  const galleryChunk = new LazyChunk(() => import('$lib/features/views/gallery/Gallery.svelte'));
-  const ganttChunk = new LazyChunk(() => import('$lib/features/views/gantt/Gantt.svelte'));
-  const calendarChunk = new LazyChunk(() => import('$lib/features/views/calendar/Calendar.svelte'));
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
 

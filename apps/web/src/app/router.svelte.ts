@@ -4,6 +4,7 @@
  * Pure route parsing and formatting live in `route-path.ts`; this module holds
  * the reactive `Router` synced with `history` and `popstate`.
  */
+import { takeFragmentToken, takeInviteToken } from '$lib/fragment-token.ts';
 import { afterOwnSteps, releaseOverlayEntries, stepBack } from '$lib/layout/back.svelte.ts';
 import { buildUrl, type ContainerPlace } from '$lib/logic/urls.ts';
 
@@ -46,6 +47,8 @@ export {
 export class Router {
   readonly basePath: string;
   route = $state.raw<Route>(NOWHERE);
+  /** Invitation token captured and stripped from `/invite/<token>` once on route settlement. */
+  invitation = $state('');
   /** Whether the card on screen was opened from the board in this visit: then "back" closes it. */
   #cardEntered = false;
   /** Addresses that `go` has yet to write to the history, and the last of them. */
@@ -54,14 +57,36 @@ export class Router {
 
   constructor(basePath: string) {
     this.basePath = basePath;
-    this.route = parseRoute(location.pathname, basePath, location.search);
+    const initial = parseRoute(location.pathname, basePath, location.search);
+    this.route = this.#captureTokens(initial);
+  }
+
+  /**
+   * Moves one-time URL tokens (`#token` on auth screens, `/invite/<token>`) out
+   * of the address bar immediately when a route settles, before any lazy chunk
+   * renders (`S10`), so components only read reactive state without `$derived` side effects.
+   */
+  #captureTokens(route: Route): Route {
+    if (route.kind === 'invite') {
+      this.invitation = takeInviteToken(
+        route.invitation,
+        routePath({ kind: 'invite' }, this.basePath),
+      );
+      return { kind: 'invite' };
+    }
+    if (route.kind === 'passwordReset') takeFragmentToken('reset-password');
+    else if (route.kind === 'emailVerify') takeFragmentToken('verify-email');
+    else if (route.kind === 'emailConfirm') takeFragmentToken('confirm-email');
+    else if (route.kind === 'emailRevert') takeFragmentToken('revert-email');
+    return route;
   }
 
   /** Starts following the back and forward buttons. Returns the function that stops. */
   listen(): () => void {
     const onPopState = (): void => {
       if (this.#writes > 0) return;
-      const next = parseRoute(location.pathname, this.basePath, location.search);
+      const parsed = parseRoute(location.pathname, this.basePath, location.search);
+      const next = this.#captureTokens(parsed);
       const now = this.route;
       if (sameRoute(next, now)) return;
       if (cardIdOf(next) !== cardIdOf(now)) this.#cardEntered = false;
@@ -99,7 +124,7 @@ export class Router {
 
   /** Goes to a route. `replace` puts it in place of the current entry instead of after it. */
   go(route: RouteTarget, options: { replace?: boolean } = {}): void {
-    const next = settled(route);
+    const next = this.#captureTokens(settled(route));
     const path = routePath(next, this.basePath);
     if (isSharedRoute(next) !== isSharedRoute(this.route)) {
       window.location.assign(path);

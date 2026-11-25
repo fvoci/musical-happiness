@@ -1,7 +1,7 @@
 <script lang="ts">
   import { acceptedRoute } from './accepted-route.ts';
   import { startEmailVerification } from './backend.ts';
-  import { forgetFragmentToken, takeFragmentToken } from './fragment-token.ts';
+  import { forgetFragmentToken, takeFragmentToken } from '$lib/fragment-token.ts';
   import VerifyEmailPage from '$lib/features/account/VerifyEmailPage.svelte';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
   import type { Confirmed } from '$lib/state/email-verification.ts';

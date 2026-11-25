@@ -112,19 +112,33 @@ describe('browser modal dialog gate (noBrowserDialogs + eslint.config.js)', () =
       expect.arrayContaining([expect.stringContaining('fvoci-dialogs/no-dialog-disable:1:')]),
     );
 
+    // Inline /* eslint ... */ rule reconfiguration comments are also blocked (S6).
+    const inlineConfigBypass = [
+      '/* eslint no-restricted-globals: "off", no-restricted-properties: 0 */',
+      "confirm('caught by inline config check');",
+    ].join('\n');
+    expect(lintDialogs('src/app/App.ts', inlineConfigBypass)).toEqual(
+      expect.arrayContaining([expect.stringContaining('fvoci-dialogs/no-dialog-disable:1:')]),
+    );
+
     // Out-of-band pure text check also blocks silencing `fvoci-dialogs/no-dialog-disable`
-    // itself or using bare `eslint-disable` comments.
+    // itself, inline `/* eslint ... */` overrides, multiline disables, or bare `eslint-disable`.
     const selfDisableBypass = [
       '// eslint-disable-line fvoci-dialogs/no-dialog-disable, no-restricted-globals',
       "confirm('blocked outside eslint too');",
       '/* eslint-disable */',
       '<!-- eslint-disable -->',
+      '/* eslint fvoci-dialogs/no-dialog-disable: "off", no-restricted-globals: "off" */',
+      '/* eslint-disable no-console,\n   no-restricted-properties */',
     ].join('\n');
     expect(findDialogDisableViolations('src/app/App.svelte', selfDisableBypass)).toEqual([
       'src/app/App.svelte:1: do not silence `fvoci-dialogs/no-dialog-disable` with `eslint-disable`; replace native browser dialogs with app UI',
       'src/app/App.svelte:1: do not silence `no-restricted-globals` with `eslint-disable`; replace native browser dialogs with app UI',
       'src/app/App.svelte:3: bare `eslint-disable` without rule names is forbidden; name the exact non-protected rule being disabled',
       'src/app/App.svelte:4: bare `eslint-disable` without rule names is forbidden; name the exact non-protected rule being disabled',
+      'src/app/App.svelte:5: do not reconfigure `fvoci-dialogs/no-dialog-disable` with inline `eslint` config; replace native browser dialogs with app UI',
+      'src/app/App.svelte:5: do not reconfigure `no-restricted-globals` with inline `eslint` config; replace native browser dialogs with app UI',
+      'src/app/App.svelte:6: do not silence `no-restricted-properties` with `eslint-disable`; replace native browser dialogs with app UI',
     ]);
     expect(checkDialogs(ROOT).problems).toEqual([]);
   });
